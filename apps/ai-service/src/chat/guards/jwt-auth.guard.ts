@@ -5,13 +5,12 @@
  * require a valid, gateway-verified user context before processing requests.
  *
  * The ai-service uses TenantGuard and RolesGuard as global APP_GUARDs, but these
- * guards operate on the assumption that req.user is already populated (by the
- * gateway's JWT verification and x-user-payload header forwarding). For GraphQL
- * resolvers, the user context is parsed in the GraphQL context factory. However,
- * REST controllers need an explicit guard to verify the user payload exists.
+ * guards operate on the assumption that req.user is already populated by the
+ * verified-user assertion middleware. REST controllers need an explicit guard
+ * to verify the user context exists.
  *
- * This guard checks for the presence of req.user (populated by UserContextMiddleware
- * from the x-user-payload header forwarded by the gateway). It supports the @Public()
+ * This guard checks for the presence of req.user after the trust-chain
+ * middleware has verified the signed gateway assertion. It supports the @Public()
  * decorator for endpoints that should be accessible without authentication (e.g., health).
  */
 
@@ -28,7 +27,7 @@ import { Reflector } from '@nestjs/core';
 const IS_PUBLIC_KEY = 'isPublic';
 
 /**
- * Minimal user payload shape expected from the gateway's x-user-payload header
+ * Minimal verified user payload shape expected from trust-chain middleware.
  */
 interface UserPayload {
   sub: string;

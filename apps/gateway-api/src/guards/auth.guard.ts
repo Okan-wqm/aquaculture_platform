@@ -17,27 +17,14 @@ import {
   Logger,
   SetMetadata,
   Inject,
-  Optional,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { JwtService } from '@nestjs/jwt';
 
-import {
-  JwtPayload,
-  AuthenticatedRequest,
-  GqlContext,
-} from '../types/index';
-import { getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
-import {
-  TokenBlacklistStore,
-  TOKEN_BLACKLIST_STORE,
-  InMemoryTokenBlacklistStore,
-} from './redis-token-blacklist.store';
+import { JwtPayload, AuthenticatedRequest, GqlContext } from '../types/index';
+import { GatewayTokenVerifierService } from './gateway-token-verifier.service';
 import { ApiKeyAuthStrategy } from './strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './strategies/basic-auth.strategy';
-import { enforceAccessTokenType } from '@aquaculture/backend-common/auth';
 
 /**
  * Public route decorator — marks a route as publicly accessible without authentication
@@ -63,6 +50,10 @@ export const BasicAuth = (): ReturnType<typeof SetMetadata> => SetMetadata(BASIC
 export type { JwtPayload, AuthenticatedRequest, GqlContext } from '../types/index';
 export { getUserFromRequest, getTenantIdFromRequest } from '../types/index';
 
+interface GatewayVerifiedJwtRequest extends AuthenticatedRequest {
+  gatewayVerifiedJwtPayload?: JwtPayload;
+}
+
 /**
  * Auth Guard
  * Orchestrates all authentication methods: JWT, API Key, and Basic Auth
@@ -73,23 +64,13 @@ export class AuthGuard implements CanActivate {
   // jwtIssuer/jwtAudience removed: previously used for manual conditional if-checks
   // (if payload.iss && ... / if payload.aud). These checks silently accepted tokens
   // without iss/aud claims. Now enforced at library level via getJwtVerifyOptions().
-  private readonly isProduction: boolean;
-  private readonly tokenBlacklist: TokenBlacklistStore;
-
   constructor(
     @Inject(Reflector) private readonly reflector: Reflector,
-    @Inject(ConfigService) private readonly configService: ConfigService,
-    @Inject(JwtService) private readonly jwtService: JwtService,
     @Inject(ApiKeyAuthStrategy) private readonly apiKeyAuthStrategy: ApiKeyAuthStrategy,
     @Inject(BasicAuthStrategy) private readonly basicAuthStrategy: BasicAuthStrategy,
-    @Optional()
-    @Inject(TOKEN_BLACKLIST_STORE)
-    tokenBlacklistStore?: TokenBlacklistStore,
-  ) {
-    // Use injected store or fallback to in-memory
-    this.tokenBlacklist = tokenBlacklistStore ?? new InMemoryTokenBlacklistStore();
-    this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
-  }
+    @Inject(GatewayTokenVerifierService)
+    private readonly tokenVerifier: GatewayTokenVerifierService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     // Check if route is public
@@ -131,30 +112,41 @@ export class AuthGuard implements CanActivate {
   /**
    * Validate JWT token
    *
-   * SECURITY: Uses JwtService.verifyAsync() with explicit algorithm restriction
-   * to prevent algorithm confusion attacks (HS256 vs RS256 downgrade).
+   * SECURITY: Uses GatewayTokenVerifierService for signature verification,
+   * access-token type enforcement, and composite tenant-aware revocation checks.
    * If JwtMiddleware already verified the token and set req.user, we only
    * perform the blacklist check to avoid double cryptographic verification.
    */
   private async validateJwt(request: AuthenticatedRequest): Promise<boolean> {
-    // If JwtMiddleware already verified and set req.user (HTTP context),
-    // trust it and only do the blacklist check
-    if (request.user) {
-      const payload = request.user;
+    // If JwtMiddleware already verified the Authorization bearer token and
+    // set req.user (HTTP context), trust that cryptographic verification and
+    // only perform the central blacklist/session invalidation check.
+    //
+    // Do not trust a bare req.user from UserContextMiddleware. On the gateway,
+    // x-user-payload is outbound subgraph context, not an inbound auth source.
+    const verifiedJwtPayload = this.getGatewayVerifiedJwtPayload(request);
+    if (verifiedJwtPayload) {
+      const payload = verifiedJwtPayload;
 
-      enforceAccessTokenType(payload, this.logger, this.isProduction);
-
-      // Blacklist check already done in JwtMiddleware, but verify again for safety
-      if (payload.jti && await this.tokenBlacklist.isBlacklisted(payload.jti)) {
+      const allowed = await this.tokenVerifier.isPayloadAllowed(payload, 'AuthGuard.cached');
+      if (!allowed) {
         request.user = undefined;
+        request.jwtVerified = false;
+        this.clearGatewayVerifiedJwtPayload(request);
         throw new UnauthorizedException({
           code: 'TOKEN_REVOKED',
           message: 'Token has been revoked',
         });
       }
 
+      request.user = payload;
       request.authMethod = 'jwt';
       return true;
+    }
+    if (request.user || request.jwtVerified === true) {
+      request.user = undefined;
+      request.jwtVerified = false;
+      this.clearGatewayVerifiedJwtPayload(request);
     }
 
     // Full verification for non-HTTP contexts (e.g., GraphQL without middleware)
@@ -178,28 +170,19 @@ export class AuthGuard implements CanActivate {
     const token = parts[1] as string;
 
     try {
-      // Use centralised getJwtVerifyOptions() for mandatory algorithm, issuer, audience.
-      // BEFORE: verifyAsync() only passed algorithms:['HS256']; iss/aud were checked
-      // via application-layer conditionals (if payload.iss && ...) which silently
-      // accepted tokens WITHOUT those claims — the conditional skipped the check entirely.
-      // AFTER: issuer and audience are passed to jsonwebtoken which enforces them at
-      // library level — a token missing iss OR aud throws JsonWebTokenError immediately.
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(
-        token,
-        getJwtVerifyOptions(this.configService),
-      );
-
-      enforceAccessTokenType(payload, this.logger, this.isProduction);
-
-      // Check blacklist
-      if (payload.jti && await this.tokenBlacklist.isBlacklisted(payload.jti)) {
+      const payload = await this.tokenVerifier.verifyAccessToken(token, {
+        context: 'AuthGuard.fullVerify',
+      });
+      if (!payload) {
         throw new UnauthorizedException({
           code: 'TOKEN_REVOKED',
-          message: 'Token has been revoked',
+          message: 'Token has been revoked or is invalid',
         });
       }
 
       request.user = payload;
+      request.jwtVerified = true;
+      (request as GatewayVerifiedJwtRequest).gatewayVerifiedJwtPayload = payload;
       request.authMethod = 'jwt';
 
       return true;
@@ -234,6 +217,17 @@ export class AuthGuard implements CanActivate {
     return context.switchToHttp().getRequest<AuthenticatedRequest>();
   }
 
+  private getGatewayVerifiedJwtPayload(request: AuthenticatedRequest): JwtPayload | undefined {
+    if (request.jwtVerified !== true) {
+      return undefined;
+    }
+    return (request as GatewayVerifiedJwtRequest).gatewayVerifiedJwtPayload;
+  }
+
+  private clearGatewayVerifiedJwtPayload(request: AuthenticatedRequest): void {
+    delete (request as GatewayVerifiedJwtRequest).gatewayVerifiedJwtPayload;
+  }
+
   /**
    * Add token to blacklist
    *
@@ -241,11 +235,10 @@ export class AuthGuard implements CanActivate {
    * In distributed deployments, this uses Redis for cross-instance revocation.
    */
   async blacklistToken(jti: string, exp: number): Promise<void> {
-    await this.tokenBlacklist.add(jti, exp);
+    await this.tokenVerifier.blacklistToken(jti, exp);
     this.logger.log(`Token blacklisted: ${jti.substring(0, 8)}...`);
   }
 
-  // Note: Blacklist cleanup is handled by TokenBlacklistStore implementation
-  // - Redis store uses TTL for automatic cleanup
-  // - In-memory store has its own cleanup interval
+  // Note: blacklist cleanup is handled by the canonical backend-common
+  // TOKEN_BLACKLIST implementation.
 }

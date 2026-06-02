@@ -13,7 +13,7 @@ import {
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
-import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { LoggingModule, RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import {
   UserContextMiddleware,
   TenantContextMiddleware,
@@ -290,14 +290,16 @@ export class AppModule implements NestModule {
     //    controller is @Public() and previously trusted unvalidated
     //    metadata.tenantId — closing this header path closes the
     //    forge-on-public-route surface SECREV-CRITICAL-001 references.
-    // 1. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
-    // 2. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
+    // 1. VerifiedUserAssertionMiddleware - verify gateway-signed user assertion
+    // 2. UserContextMiddleware - materialise req.user from verified assertion
+    // 3. TenantContextMiddleware - Extract tenant from verified user context
     consumer
       .apply(
         StripInternalHeadersMiddleware,
         VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware,
       )
       .forRoutes('*');
   }

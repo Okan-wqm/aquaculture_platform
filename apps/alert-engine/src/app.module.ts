@@ -104,7 +104,10 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/alert.graphql') },
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'dist/graphql/subgraphs/alert.graphql'),
+        },
         /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
          *  The gateway already blocks batching, but subgraphs must also enforce this as
          *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -229,13 +232,13 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(
-        // SEC-CRITICAL-002 sweep — strip forged internal headers.
+        // Gateway trust chain SSoT: strip, verify assertion, then materialise context.
         StripInternalHeadersMiddleware,
-        CorrelationIdMiddleware,
-        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        CorrelationIdMiddleware,
         TenantSchemaMiddleware, // Schema-level tenant isolation via search_path
       )
       .forRoutes('*');

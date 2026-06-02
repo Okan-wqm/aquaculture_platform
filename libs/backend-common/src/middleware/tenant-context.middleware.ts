@@ -56,6 +56,11 @@ export class UserContextMiddleware implements NestMiddleware {
   private readonly logger = new Logger(UserContextMiddleware.name);
 
   use(req: TenantRequest, res: Response, next: NextFunction): void {
+    if ((req as TenantRequest & { jwtVerified?: boolean }).jwtVerified === true) {
+      next();
+      return;
+    }
+
     const userPayloadHeader = req.headers['x-user-payload'] as string;
 
     if (userPayloadHeader) {
@@ -68,9 +73,7 @@ export class UserContextMiddleware implements NestMiddleware {
         // aggregation pipelines may persist debug rows long enough
         // for the PII to leak into a third-party retention. The
         // userId (sub) is sufficient for trace correlation.
-        this.logger.debug(
-          `User context set: userId=${user.sub} (tenant: ${user.tenantId})`,
-        );
+        this.logger.debug(`User context set: userId=${user.sub} (tenant: ${user.tenantId})`);
       } catch (error) {
         this.logger.warn(`Failed to parse x-user-payload header: ${error}`);
       }
@@ -154,9 +157,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         // SECURITY: Subdomains must be valid UUIDs to prevent spoofing
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (!uuidRegex.test(subdomain)) {
-          this.logger.debug(
-            `Rejected non-UUID subdomain: "${subdomain}" from host "${host}"`,
-          );
+          this.logger.debug(`Rejected non-UUID subdomain: "${subdomain}" from host "${host}"`);
           return null;
         }
 
@@ -164,7 +165,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         if (!this.isAllowedBaseDomain(baseDomain)) {
           this.logger.warn(
             `Rejected subdomain tenant extraction from unauthorized domain: "${host}". ` +
-            `Base domain "${baseDomain}" is not in ALLOWED_BASE_DOMAINS.`,
+              `Base domain "${baseDomain}" is not in ALLOWED_BASE_DOMAINS.`,
           );
           return null;
         }
@@ -199,8 +200,8 @@ export class TenantContextMiddleware implements NestMiddleware {
 
     const allowedDomains = allowedDomainsEnv
       .split(',')
-      .map(d => d.trim().toLowerCase())
-      .filter(d => d.length > 0);
+      .map((d) => d.trim().toLowerCase())
+      .filter((d) => d.length > 0);
 
     return allowedDomains.includes(baseDomain.toLowerCase());
   }
@@ -212,7 +213,7 @@ export class TenantContextMiddleware implements NestMiddleware {
     // IPv4 pattern: 4 parts, all numeric
     const parts = host.split('.');
     if (parts.length === 4) {
-      return parts.every(part => /^\d+$/.test(part));
+      return parts.every((part) => /^\d+$/.test(part));
     }
     // IPv6 or localhost
     if (host.includes(':') || host === 'localhost') {

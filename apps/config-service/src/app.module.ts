@@ -17,7 +17,7 @@ import {
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
-import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { LoggingModule, RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
@@ -222,6 +222,7 @@ export class AppModule implements NestModule {
         VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware,
       )
       .forRoutes('*');
   }

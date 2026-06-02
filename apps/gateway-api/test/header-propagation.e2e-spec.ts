@@ -36,17 +36,13 @@ describe('Gateway Header Propagation (e2e)', () => {
 
   describe('Health endpoint', () => {
     it('should return 200 for health check', async () => {
-      return request(app.getHttpServer())
-        .get('/health')
-        .expect(200);
+      return request(app.getHttpServer()).get('/health').expect(200);
     });
   });
 
   describe('Correlation ID handling', () => {
     it('should generate correlation-id if not provided', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/health')
-        .expect(200);
+      const response = await request(app.getHttpServer()).get('/health').expect(200);
 
       expect(response.headers['x-correlation-id']).toBeDefined();
     });
@@ -65,9 +61,7 @@ describe('Gateway Header Propagation (e2e)', () => {
 
   describe('Trace context handling', () => {
     it('should generate trace-id if not provided', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/health')
-        .expect(200);
+      const response = await request(app.getHttpServer()).get('/health').expect(200);
 
       expect(response.headers['x-trace-id']).toBeDefined();
       expect(response.headers['x-span-id']).toBeDefined();
@@ -85,23 +79,6 @@ describe('Gateway Header Propagation (e2e)', () => {
       expect(response.headers['traceparent']).toBeDefined();
       // Trace ID should be preserved from parent
       expect(response.headers['x-trace-id']).toBe('0af7651916cd43dd8448eb211c80319c');
-    });
-  });
-
-  // TODO: Add subgraph header propagation tests using nock
-  // These require mocking the downstream subgraph services to verify
-  // that headers are correctly forwarded in federated GraphQL requests
-  describe.skip('Subgraph header propagation', () => {
-    it('should propagate x-tenant-id to subgraphs', async () => {
-      // Requires nock or similar to mock subgraph endpoints
-    });
-
-    it('should propagate x-user-payload to subgraphs', async () => {
-      // Requires nock or similar to mock subgraph endpoints
-    });
-
-    it('should propagate correlation-id to subgraphs', async () => {
-      // Requires nock or similar to mock subgraph endpoints
     });
   });
 });

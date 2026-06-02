@@ -37,7 +37,7 @@ import {
 import request from 'supertest';
 import { Request, Response, NextFunction } from 'express';
 import type { Server } from 'http';
-import { TenantContextMiddleware, UserContextMiddleware, CorrelationIdMiddleware } from '@aquaculture/backend-common/middleware';
+import { TenantContextMiddleware, CorrelationIdMiddleware } from '@aquaculture/backend-common/middleware';
 
 // ---------------------------------------------------------------------------
 // Interfaces -- typed request shape matching production code
@@ -162,6 +162,17 @@ class OrderTrackingTenantContextMiddleware implements NestMiddleware {
 }
 
 @Injectable()
+class TestVerifiedUserContextMiddleware implements NestMiddleware {
+  use(req: TenantRequestShape, _res: Response, next: NextFunction): void {
+    const raw = req.headers['x-test-verified-user'] as string | undefined;
+    if (raw) {
+      req.user = JSON.parse(raw) as TenantRequestShape['user'];
+    }
+    next();
+  }
+}
+
+@Injectable()
 class OrderTrackingTenantSchemaMiddleware implements NestMiddleware {
   use(req: TenantRequestShape, _res: Response, next: NextFunction): void {
     middlewareExecutionOrder.push('TenantSchemaMiddleware');
@@ -253,7 +264,7 @@ class FullMiddlewareChainModule implements NestModule {
     consumer
       .apply(
         CorrelationIdMiddleware,
-        UserContextMiddleware,
+        TestVerifiedUserContextMiddleware,
         TenantContextMiddleware,
         StubTenantSchemaMiddleware,
       )
@@ -388,26 +399,16 @@ describe('Tenant Isolation Verification (v11 upgrade)', () => {
       expect(body.source).toBe('header');
     });
 
-    it('should extract tenant ID from JWT user payload when no header', async () => {
-      const userPayload = JSON.stringify({
-        sub: 'user-123',
-        email: 'test@example.com',
-        tenantId: TENANT_XYZ_UUID,
-      });
-
+    it('should extract tenant ID from the explicit tenant header', async () => {
       const response = await request(app.getHttpServer() as Server)
         .get('/tenant-info')
-        .set('x-user-payload', userPayload)
+        .set('X-Tenant-Id', TENANT_XYZ_UUID)
         .expect(200);
 
       const body = response.body as TenantInfoResponse;
-      // UserContextMiddleware is not in this module, so JWT extraction
-      // depends on TenantContextMiddleware's own JWT fallback.
-      // The production code checks req.user?.tenantId, which requires
-      // UserContextMiddleware to have parsed x-user-payload first.
-      // Without UserContextMiddleware, the header source wins.
-      // This validates that the middleware correctly falls through sources.
       expect(body.tenantId).toBeDefined();
+      expect(body.tenantId).toBe(TENANT_XYZ_UUID);
+      expect(body.source).toBe('header');
     });
 
     it('should prefer header over query parameter', async () => {
@@ -851,7 +852,7 @@ describe('Tenant Isolation Verification (v11 upgrade)', () => {
       expect((response.headers['x-correlation-id'] as string).length).toBeGreaterThan(0);
     });
 
-    it('should extract user context from x-user-payload header', async () => {
+    it('should extract user context from verified test user context', async () => {
       const userPayload = JSON.stringify({
         sub: 'user-456',
         email: 'admin@tenant-abc.com',
@@ -862,7 +863,7 @@ describe('Tenant Isolation Verification (v11 upgrade)', () => {
       const response = await request(app.getHttpServer() as Server)
         .get('/tenant-info')
         .set('X-Tenant-Id', TENANT_ABC_UUID)
-        .set('x-user-payload', userPayload)
+        .set('x-test-verified-user', userPayload)
         .expect(200);
 
       const body = response.body as TenantInfoResponse;
@@ -879,12 +880,12 @@ describe('Tenant Isolation Verification (v11 upgrade)', () => {
 
       const response = await request(app.getHttpServer() as Server)
         .get('/tenant-info')
-        .set('x-user-payload', userPayload)
+        .set('x-test-verified-user', userPayload)
         .expect(200);
 
       const body = response.body as TenantInfoResponse;
-      // UserContextMiddleware parses x-user-payload -> sets req.user
-      // TenantContextMiddleware checks req.user.tenantId as fallback
+      // TestVerifiedUserContextMiddleware models verified gateway assertion
+      // materialization before TenantContextMiddleware.
       expect(body.tenantId).toBe(TENANT_XYZ_UUID);
       expect(body.source).toBe('jwt');
       expect(body.schemaName).toBe(TENANT_XYZ_SCHEMA);

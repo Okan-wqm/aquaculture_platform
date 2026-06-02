@@ -105,7 +105,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/notification.graphql') },
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'dist/graphql/subgraphs/notification.graphql'),
+        },
         /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
          *  The gateway already blocks batching, but subgraphs must also enforce this as
          *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -136,26 +139,6 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
             user?: Record<string, unknown>;
           };
         }) => {
-          const userPayloadHeader = req.headers['x-user-payload'];
-          const userIdHeader = req.headers['x-user-id'];
-          const userRolesHeader = req.headers['x-user-roles'];
-          if (typeof userPayloadHeader === 'string') {
-            try {
-              req.user = JSON.parse(userPayloadHeader);
-            } catch {
-              if (typeof userIdHeader === 'string') {
-                req.user = {
-                  sub: userIdHeader,
-                  roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
-                };
-              }
-            }
-          } else if (typeof userIdHeader === 'string') {
-            req.user = {
-              sub: userIdHeader,
-              roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
-            };
-          }
           return { req };
         },
       }),
@@ -286,13 +269,13 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(
-        // SEC-CRITICAL-002 sweep — strip forged internal headers.
+        // Gateway trust chain SSoT: strip, verify assertion, then materialise context.
         StripInternalHeadersMiddleware,
-        CorrelationIdMiddleware,
-        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        CorrelationIdMiddleware,
       )
       .forRoutes('*');
   }

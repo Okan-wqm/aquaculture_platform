@@ -1,8 +1,6 @@
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 import { Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { ClientProxy } from '@nestjs/microservices';
 import {
   WebSocketGateway,
@@ -14,6 +12,8 @@ import {
 } from '@nestjs/websockets';
 import { firstValueFrom, timeout } from 'rxjs';
 import { Server, Socket } from 'socket.io';
+
+import { GatewayTokenVerifierService } from '../guards/gateway-token-verifier.service';
 
 // Types
 
@@ -43,11 +43,22 @@ interface ConnectedClient {
   lastTyping: Map<string, number>;
 }
 
-interface JoinChannelPayload { channelId: string }
-interface LeaveChannelPayload { channelId: string }
-interface TypingPayload { channelId: string }
-interface MarkReadPayload { channelId: string; messageId: string }
-interface ResolveNotificationRefPayload { notificationRef: string }
+interface JoinChannelPayload {
+  channelId: string;
+}
+interface LeaveChannelPayload {
+  channelId: string;
+}
+interface TypingPayload {
+  channelId: string;
+}
+interface MarkReadPayload {
+  channelId: string;
+  messageId: string;
+}
+interface ResolveNotificationRefPayload {
+  notificationRef: string;
+}
 interface ResolveNotificationRefResult {
   channelId: string;
   messageId: string;
@@ -60,8 +71,7 @@ const REAUTH_INTERVAL_MS = 5 * 60_000;
 const MAX_REAUTH_FAILURES = 3;
 const TYPING_THROTTLE_MS = 3_000;
 const CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT = 'messaging:channelMemberRemoved';
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * WebSocket Gateway for real-time messaging
@@ -78,9 +88,7 @@ const UUID_REGEX =
   namespace: '/messaging',
   transports: ['websocket', 'polling'],
 })
-export class MessagingGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+export class MessagingGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
@@ -107,17 +115,21 @@ export class MessagingGateway
    * back to `false` when NATS is unavailable).
    */
   constructor(
-    private readonly jwtService: JwtService,
+    private readonly tokenVerifier: GatewayTokenVerifierService,
     private readonly configService: ConfigService,
     @Optional()
     @Inject('REDIS_SERVICE')
-    private readonly redisService?: { getClient(): { set(key: string, value: string, mode: string, ttl: number): Promise<string>; del(key: string): Promise<number> } },
+    private readonly redisService?: {
+      getClient(): {
+        set(key: string, value: string, mode: string, ttl: number): Promise<string>;
+        del(key: string): Promise<number>;
+      };
+    },
     @Optional()
     @Inject('NATS_SERVICE')
     private readonly natsClient?: ClientProxy,
   ) {
-    this.isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   /**
@@ -135,18 +147,15 @@ export class MessagingGateway
     const clusterAwareServer = _server as Server & {
       on(event: string, listener: (...args: unknown[]) => void): Server;
     };
-    clusterAwareServer.on(
-      CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT,
-      (tenantId, channelId, userId) => {
-        if (
-          typeof tenantId === 'string' &&
-          typeof channelId === 'string' &&
-          typeof userId === 'string'
-        ) {
-          this.evictUserFromChannelLocal(tenantId, channelId, userId);
-        }
-      },
-    );
+    clusterAwareServer.on(CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT, (tenantId, channelId, userId) => {
+      if (
+        typeof tenantId === 'string' &&
+        typeof channelId === 'string' &&
+        typeof userId === 'string'
+      ) {
+        this.evictUserFromChannelLocal(tenantId, channelId, userId);
+      }
+    });
     this.logger.log('Messaging WebSocket Gateway initialized');
   }
 
@@ -206,9 +215,7 @@ export class MessagingGateway
       }, REAUTH_INTERVAL_MS);
       this.reAuthTimers.set(client.id, reAuthTimer);
 
-      this.logger.log(
-        `Client ${client.id} connected — user ${userId}, tenant ${tenantId}`,
-      );
+      this.logger.log(`Client ${client.id} connected — user ${userId}, tenant ${tenantId}`);
 
       client.emit('connected', {
         message: 'Connected to messaging',
@@ -289,17 +296,12 @@ export class MessagingGateway
     clientData.channels.add(payload.channelId);
     void client.join(room);
 
-    this.logger.debug(
-      `Client ${client.id} joined channel ${payload.channelId}`,
-    );
+    this.logger.debug(`Client ${client.id} joined channel ${payload.channelId}`);
     return { success: true };
   }
 
   @SubscribeMessage('leaveChannel')
-  handleLeaveChannel(
-    client: Socket,
-    payload: LeaveChannelPayload,
-  ): { success: boolean } {
+  handleLeaveChannel(client: Socket, payload: LeaveChannelPayload): { success: boolean } {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false };
@@ -313,17 +315,12 @@ export class MessagingGateway
     clientData.channels.delete(payload.channelId);
     void client.leave(room);
 
-    this.logger.debug(
-      `Client ${client.id} left channel ${payload.channelId}`,
-    );
+    this.logger.debug(`Client ${client.id} left channel ${payload.channelId}`);
     return { success: true };
   }
 
   @SubscribeMessage('typing')
-  handleTyping(
-    client: Socket,
-    payload: TypingPayload,
-  ): { success: boolean; reason?: string } {
+  handleTyping(client: Socket, payload: TypingPayload): { success: boolean; reason?: string } {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false, reason: 'Not authenticated' };
@@ -355,10 +352,7 @@ export class MessagingGateway
   }
 
   @SubscribeMessage('markRead')
-  handleMarkRead(
-    client: Socket,
-    payload: MarkReadPayload,
-  ): { success: boolean; reason?: string } {
+  handleMarkRead(client: Socket, payload: MarkReadPayload): { success: boolean; reason?: string } {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false, reason: 'Not authenticated' };
@@ -407,14 +401,11 @@ export class MessagingGateway
     try {
       const result = await firstValueFrom(
         this.natsClient
-          .send<ResolveNotificationRefResult | null>(
-            'request.messaging.resolveNotificationRef',
-            {
-              notificationRef: payload.notificationRef,
-              tenantId: clientData.tenantId,
-              userId: clientData.userId,
-            },
-          )
+          .send<ResolveNotificationRefResult | null>('request.messaging.resolveNotificationRef', {
+            notificationRef: payload.notificationRef,
+            tenantId: clientData.tenantId,
+            userId: clientData.userId,
+          })
           .pipe(timeout(MessagingGateway.NATS_VERIFY_TIMEOUT_MS)),
       );
 
@@ -469,7 +460,11 @@ export class MessagingGateway
     this.server.to(`channel:${tenantId}:${channelId}`).emit('newMessage', message);
   }
 
-  broadcastMessageUpdated(tenantId: string, channelId: string, message: Record<string, unknown>): void {
+  broadcastMessageUpdated(
+    tenantId: string,
+    channelId: string,
+    message: Record<string, unknown>,
+  ): void {
     this.server.to(`channel:${tenantId}:${channelId}`).emit('messageUpdated', message);
   }
 
@@ -501,9 +496,7 @@ export class MessagingGateway
       userId,
     );
 
-    this.server
-      .in(`user:${tenantId}:${userId}`)
-      .socketsLeave(`channel:${tenantId}:${channelId}`);
+    this.server.in(`user:${tenantId}:${userId}`).socketsLeave(`channel:${tenantId}:${channelId}`);
     this.server.to(`user:${tenantId}:${userId}`).emit('channelMemberRemoved', {
       tenantId,
       channelId,
@@ -516,11 +509,7 @@ export class MessagingGateway
     return this.clients.size;
   }
 
-  private evictUserFromChannelLocal(
-    tenantId: string,
-    channelId: string,
-    userId: string,
-  ): void {
+  private evictUserFromChannelLocal(tenantId: string, channelId: string, userId: string): void {
     const channelRoom = `channel:${tenantId}:${channelId}`;
     for (const clientData of this.clients.values()) {
       if (clientData.tenantId !== tenantId || clientData.userId !== userId) {
@@ -546,9 +535,7 @@ export class MessagingGateway
     if (!clientData) return;
 
     if (clientData.reAuthFailures >= MAX_REAUTH_FAILURES) {
-      this.logger.warn(
-        `Client ${clientId} exceeded max re-auth failures, disconnecting`,
-      );
+      this.logger.warn(`Client ${clientId} exceeded max re-auth failures, disconnecting`);
       clientData.socket.emit('error', { code: 4401, message: 'Re-authentication failed' });
       clientData.socket.disconnect();
     }
@@ -610,45 +597,12 @@ export class MessagingGateway
     return null;
   }
 
-  /**
-   * Validate a JWT token via the shared platform verification helpers.
-   *
-   * Uses `verifyAsync` (async, non-blocking) + `getJwtVerifyOptions`
-   * which enforces HS256 + issuer + audience at the jsonwebtoken
-   * library level, and `enforceAccessTokenType` which rejects refresh
-   * and MFA-challenge tokens at handshake (H-1).
-   *
-   * The previous implementation used sync `verify()` with only
-   * `algorithms: ['HS256']` — no iss, no aud, no type check. All four
-   * gaps are closed by this refactor.
-   */
   private async validateToken(token: string): Promise<TokenPayload | null> {
-    try {
-      const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
-        token,
-        getJwtVerifyOptions(this.configService),
-      );
-
-      if (typeof result !== 'object' || result === null) return null;
-      if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
-        return null;
-      }
-
-      enforceAccessTokenType(
-        {
-          type: typeof result['type'] === 'string' ? result['type'] : undefined,
-          sub: result['sub'],
-          jti: typeof result['jti'] === 'string' ? result['jti'] : undefined,
-        },
-        this.logger,
-        this.isProduction,
-      );
-
-      return result as TokenPayload;
-    } catch (error) {
-      this.logger.debug(`Token validation failed: ${(error as Error).message}`);
-      return null;
-    }
+    const payload = await this.tokenVerifier.verifyAccessToken(token, {
+      context: 'MessagingGateway',
+      requireTenantId: true,
+    });
+    return payload as TokenPayload | null;
   }
 
   /**

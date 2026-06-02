@@ -16,19 +16,11 @@ import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
-// JwtService is injected by AuthGuard / RemoteGraphQLDataSource for token
-// verification. JwtService is provided by PlatformJwtModule (which re-exports
-// JwtModule), so we still need the named-type import here for DI metadata.
-import { JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StorageModule, StorageConfig } from '@platform/storage';
 import type { DocumentNode, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
-import {
-  getComplexity,
-  simpleEstimator,
-  fieldExtensionsEstimator,
-} from 'graphql-query-complexity';
+import { getComplexity, simpleEstimator, fieldExtensionsEstimator } from 'graphql-query-complexity';
 
 import { FEDERATED_SUBGRAPHS } from './config/federated-subgraphs.generated';
 import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
@@ -39,12 +31,8 @@ import { AuthGuard } from './guards/auth.guard';
 import { MutationRateLimitGuard } from './guards/mutation-rate-limit.guard';
 import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
 import { RedisRateLimitStore } from './guards/redis-rate-limit.store';
-import {
-  TokenBlacklistStore,
-  TOKEN_BLACKLIST_STORE,
-  RedisTokenBlacklistStore,
-  InMemoryTokenBlacklistStore,
-} from './guards/redis-token-blacklist.store';
+import { GatewayAuthModule } from './guards/gateway-auth.module';
+import { GatewayTokenVerifierService } from './guards/gateway-token-verifier.service';
 import { ApiKeyAuthStrategy } from './guards/strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
 import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
@@ -73,11 +61,7 @@ interface QueryComplexityOperationContext {
   schema: GraphQLSchema;
 }
 
-function positiveIntConfig(
-  configService: ConfigService,
-  key: string,
-  fallback: number,
-): number {
+function positiveIntConfig(configService: ConfigService, key: string, fallback: number): number {
   const raw = configService.get<string | number>(key, fallback);
   const parsed = typeof raw === 'number' ? raw : Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -217,145 +201,156 @@ function positiveIntConfig(
         const internalServiceSecret = configService.get<string>('INTERNAL_SERVICE_SECRET');
 
         return {
-        gateway: {
-          /**
-           * ARCH-GW-005: Federated subgraph registry.
-           *
-           * CRITICAL INVARIANT: Every service listed here MUST also appear in:
-           *   1. docker-compose.droplet.yml gateway depends_on with condition: service_started
-           *   2. health.service.ts serviceUrls map (for /health/detail monitoring)
-           *
-           * The gateway may start before a subgraph is ready, but
-           * RetryableIntrospectAndCompose owns the retry window. If a subgraph
-           * never becomes reachable, composition failure blocks NestFactory.create()
-           * and prevents /health/live from responding; Docker restarts the gateway.
-           *
-           * Composition is ALL-OR-NOTHING: if any single subgraph fails introspection,
-           * the entire supergraph composition fails. There is no partial composition.
-           *
-           * Current subgraphs (11):
-           *   auth, farm, sensor, alert, hr, billing, hydroponics, config,
-           *   notification (BUG-4 FIX), messaging (ADR-012)
-           */
-          supergraphSdl: new RetryableIntrospectAndCompose({
-            subgraphs: FEDERATED_SUBGRAPHS.map((subgraph) => ({
-              name: subgraph.name,
-              url: configService.get(subgraph.urlEnv, subgraph.localUrl),
-            })),
-            pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
-            maxRetries: positiveIntConfig(
-              configService,
-              'GATEWAY_COMPOSITION_MAX_RETRIES',
-              24,
-            ),
-            retryDelayMs: positiveIntConfig(
-              configService,
-              'GATEWAY_COMPOSITION_RETRY_DELAY_MS',
-              3000,
-            ),
-          }),
-          buildService({ url }) {
-            return new AuthenticatedDataSource({ url, secret: internalServiceSecret });
-          },
-        },
-        server: {
-          // SECURITY: Disable batched HTTP requests to prevent rate-limit bypass
-          // A single HTTP request with many batched operations would count as 1 request
-          allowBatchedHttpRequests: false,
-          /**
-           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
-           * migration is blocked by the Nest/Apollo peer graph.
-           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
-           * class protections must be fail-closed at runtime.
-           */
-          csrfPrevention: true,
-          // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
-          // WHY: gateway UI exposure must not rely on deprecated Apollo Playground behavior.
-          // SECURITY: Disable introspection in production to prevent schema discovery attacks
-          // Explicit env var allows overriding independently of NODE_ENV
-          introspection: configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true' ||
-            configService.get('NODE_ENV') !== 'production',
-          // SECURITY: Hide stack traces in production error responses (C-4)
-          includeStacktraceInErrorResponses: configService.get('NODE_ENV') !== 'production',
-          // SECURITY: Strip internal details from error responses in production
-          formatError: configService.get('NODE_ENV') === 'production'
-            ? (formattedError: { message: string; extensions?: Record<string, unknown> }) => ({
-                message: formattedError.message,
-                extensions: {
-                  code: formattedError.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
-                },
-              })
-            : undefined,
-          // SECURITY: Depth limiting to prevent deeply nested query DoS attacks
-          // Maximum query depth of 10 prevents excessive resource consumption
-          validationRules: [depthLimit(10)],
-          // SECURITY: Query complexity limiting to prevent expensive query DoS attacks
-          plugins: [
-            // SECURITY: Alias brute-force protection (H-2)
-            createAliasLimitPlugin(),
-            {
-              // Hoist Logger out of per-request closure to avoid re-instantiation per operation
-              requestDidStart: () => Promise.resolve({
-                didResolveOperation({
-                  request,
-                  document,
-                  schema,
-                }: QueryComplexityOperationContext): Promise<void> {
-                  const logger = queryComplexityLogger;
-                  const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
-
-                  try {
-                    const complexity = getComplexity({
-                      schema,
-                      operationName: request.operationName ?? undefined,
-                      query: document,
-                      variables: request.variables ?? {},
-                      estimators: [
-                        fieldExtensionsEstimator(),
-                        simpleEstimator({ defaultComplexity: 1 }),
-                      ],
-                    });
-
-                    if (complexity > maxComplexity) {
-                      logger.warn(
-                        `Query complexity ${complexity} exceeds maximum allowed ${maxComplexity}`,
-                      );
-                      throw new Error(
-                        `Query is too complex: ${complexity}. Maximum allowed complexity: ${maxComplexity}`,
-                      );
-                    }
-
-                    if (configService.get('NODE_ENV') !== 'production') {
-                      logger.debug(`Query complexity: ${complexity}/${maxComplexity}`);
-                    }
-                  } catch (error) {
-                    if (error instanceof Error && error.message.includes('Query is too complex')) {
-                      throw error;
-                    }
-                    // Log but don't fail on complexity calculation errors
-                    // (e.g., schema not available during startup)
-                    const message = error instanceof Error ? error.message : String(error);
-                    logger.warn(`Could not calculate query complexity: ${message}`);
-                  }
-                  return Promise.resolve();
-                },
-              }),
+          gateway: {
+            /**
+             * ARCH-GW-005: Federated subgraph registry.
+             *
+             * CRITICAL INVARIANT: Every service listed here MUST also appear in:
+             *   1. docker-compose.droplet.yml gateway depends_on with condition: service_started
+             *   2. health.service.ts serviceUrls map (for /health/detail monitoring)
+             *
+             * The gateway may start before a subgraph is ready, but
+             * RetryableIntrospectAndCompose owns the retry window. If a subgraph
+             * never becomes reachable, composition failure blocks NestFactory.create()
+             * and prevents /health/live from responding; Docker restarts the gateway.
+             *
+             * Composition is ALL-OR-NOTHING: if any single subgraph fails introspection,
+             * the entire supergraph composition fails. There is no partial composition.
+             *
+             * Current subgraphs (11):
+             *   auth, farm, sensor, alert, hr, billing, hydroponics, config,
+             *   notification (BUG-4 FIX), messaging (ADR-012)
+             */
+            supergraphSdl: new RetryableIntrospectAndCompose({
+              subgraphs: FEDERATED_SUBGRAPHS.map((subgraph) => ({
+                name: subgraph.name,
+                url: configService.get(subgraph.urlEnv, subgraph.localUrl),
+              })),
+              pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
+              maxRetries: positiveIntConfig(configService, 'GATEWAY_COMPOSITION_MAX_RETRIES', 24),
+              retryDelayMs: positiveIntConfig(
+                configService,
+                'GATEWAY_COMPOSITION_RETRY_DELAY_MS',
+                3000,
+              ),
+            }),
+            buildService({ url }) {
+              return new AuthenticatedDataSource({ url, secret: internalServiceSecret });
             },
-          ],
-          context: ({ req, res }: { req: RequestWithUser; res: import('express').Response }): GatewayContext => {
-            // SECURITY: req.user is set by JwtMiddleware which runs before context creation.
-            // JwtMiddleware verifies the JWT signature and decodes the payload.
-            // This ensures req.user is available when willSendRequest forwards headers.
-            //
-            // AuthGuard still runs as an additional validation layer and handles
-            // token blacklist checks, but JwtMiddleware ensures headers are forwarded.
-            //
-            // res is passed through so auth-service can set httpOnly cookies via the gateway.
-
-            return { req, res };
           },
-        },
-      };
+          server: {
+            // SECURITY: Disable batched HTTP requests to prevent rate-limit bypass
+            // A single HTTP request with many batched operations would count as 1 request
+            allowBatchedHttpRequests: false,
+            /**
+             * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+             * migration is blocked by the Nest/Apollo peer graph.
+             * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+             * class protections must be fail-closed at runtime.
+             */
+            csrfPrevention: true,
+            // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+            // WHY: gateway UI exposure must not rely on deprecated Apollo Playground behavior.
+            // SECURITY: Disable introspection in production to prevent schema discovery attacks
+            // Explicit env var allows overriding independently of NODE_ENV
+            introspection:
+              configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true' ||
+              configService.get('NODE_ENV') !== 'production',
+            // SECURITY: Hide stack traces in production error responses (C-4)
+            includeStacktraceInErrorResponses: configService.get('NODE_ENV') !== 'production',
+            // SECURITY: Strip internal details from error responses in production
+            formatError:
+              configService.get('NODE_ENV') === 'production'
+                ? (formattedError: { message: string; extensions?: Record<string, unknown> }) => ({
+                    message: formattedError.message,
+                    extensions: {
+                      code: formattedError.extensions?.code ?? 'INTERNAL_SERVER_ERROR',
+                    },
+                  })
+                : undefined,
+            // SECURITY: Depth limiting to prevent deeply nested query DoS attacks
+            // Maximum query depth of 10 prevents excessive resource consumption
+            validationRules: [depthLimit(10)],
+            // SECURITY: Query complexity limiting to prevent expensive query DoS attacks
+            plugins: [
+              // SECURITY: Alias brute-force protection (H-2)
+              createAliasLimitPlugin(),
+              {
+                // Hoist Logger out of per-request closure to avoid re-instantiation per operation
+                requestDidStart: () =>
+                  Promise.resolve({
+                    didResolveOperation({
+                      request,
+                      document,
+                      schema,
+                    }: QueryComplexityOperationContext): Promise<void> {
+                      const logger = queryComplexityLogger;
+                      const maxComplexity = configService.get<number>(
+                        'GRAPHQL_MAX_COMPLEXITY',
+                        1000,
+                      );
+
+                      try {
+                        const complexity = getComplexity({
+                          schema,
+                          operationName: request.operationName ?? undefined,
+                          query: document,
+                          variables: request.variables ?? {},
+                          estimators: [
+                            fieldExtensionsEstimator(),
+                            simpleEstimator({ defaultComplexity: 1 }),
+                          ],
+                        });
+
+                        if (complexity > maxComplexity) {
+                          logger.warn(
+                            `Query complexity ${complexity} exceeds maximum allowed ${maxComplexity}`,
+                          );
+                          throw new Error(
+                            `Query is too complex: ${complexity}. Maximum allowed complexity: ${maxComplexity}`,
+                          );
+                        }
+
+                        if (configService.get('NODE_ENV') !== 'production') {
+                          logger.debug(`Query complexity: ${complexity}/${maxComplexity}`);
+                        }
+                      } catch (error) {
+                        if (
+                          error instanceof Error &&
+                          error.message.includes('Query is too complex')
+                        ) {
+                          throw error;
+                        }
+                        // Log but don't fail on complexity calculation errors
+                        // (e.g., schema not available during startup)
+                        const message = error instanceof Error ? error.message : String(error);
+                        logger.warn(`Could not calculate query complexity: ${message}`);
+                      }
+                      return Promise.resolve();
+                    },
+                  }),
+              },
+            ],
+            context: ({
+              req,
+              res,
+            }: {
+              req: RequestWithUser;
+              res: import('express').Response;
+            }): GatewayContext => {
+              // SECURITY: req.user is set by JwtMiddleware which runs before context creation.
+              // JwtMiddleware verifies the JWT signature and decodes the payload.
+              // This ensures req.user is available when willSendRequest forwards headers.
+              //
+              // AuthGuard still runs as an additional validation layer and handles
+              // token blacklist checks, but JwtMiddleware ensures headers are forwarded.
+              //
+              // res is passed through so auth-service can set httpOnly cookies via the gateway.
+
+              return { req, res };
+            },
+          },
+        };
       },
     }),
 
@@ -375,7 +370,7 @@ function positiveIntConfig(
         if (isProduction && (!accessKey || !secretKey)) {
           throw new Error(
             'CRITICAL: MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be explicitly configured in production. ' +
-            'Application startup aborted to prevent use of default credentials.',
+              'Application startup aborted to prevent use of default credentials.',
           );
         }
 
@@ -387,7 +382,7 @@ function positiveIntConfig(
           const minioLogger = new Logger('StorageModule');
           minioLogger.warn(
             'Using default MinIO credentials for development. ' +
-            'Set MINIO_ACCESS_KEY and MINIO_SECRET_KEY for production.',
+              'Set MINIO_ACCESS_KEY and MINIO_SECRET_KEY for production.',
           );
         }
 
@@ -408,6 +403,9 @@ function positiveIntConfig(
 
     // Prometheus metrics (per-service /metrics endpoint)
     GatewayMetricsModule,
+
+    // Gateway auth SSoT: token revocation store + shared verifier.
+    GatewayAuthModule,
 
     // File upload module
     UploadModule,
@@ -480,19 +478,15 @@ function positiveIntConfig(
       provide: APP_GUARD,
       useFactory: (
         reflector: Reflector,
-        configService: ConfigService,
-        jwtService: JwtService,
         apiKeyStrategy: ApiKeyAuthStrategy,
         basicStrategy: BasicAuthStrategy,
-        tokenBlacklist?: TokenBlacklistStore,
-      ) => new AuthGuard(reflector, configService, jwtService, apiKeyStrategy, basicStrategy, tokenBlacklist),
+        tokenVerifier: GatewayTokenVerifierService,
+      ) => new AuthGuard(reflector, apiKeyStrategy, basicStrategy, tokenVerifier),
       inject: [
         Reflector,
-        ConfigService,
-        JwtService,
         ApiKeyAuthStrategy,
         BasicAuthStrategy,
-        { token: TOKEN_BLACKLIST_STORE, optional: true },
+        GatewayTokenVerifierService,
       ],
     },
     /**
@@ -517,8 +511,11 @@ function positiveIntConfig(
     // Rate limiting guard
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, configService: ConfigService, redisStore?: unknown): RateLimitGuard =>
-        new RateLimitGuard(reflector, configService, redisStore as never),
+      useFactory: (
+        reflector: Reflector,
+        configService: ConfigService,
+        redisStore?: unknown,
+      ): RateLimitGuard => new RateLimitGuard(reflector, configService, redisStore as never),
       inject: [Reflector, ConfigService, { token: RATE_LIMIT_STORE, optional: true }],
     },
     // GraphQL mutation rate limiting guard (no deps)
@@ -532,20 +529,6 @@ function positiveIntConfig(
       provide: RATE_LIMIT_STORE,
       useFactory: (redisService: RedisService) => new RedisRateLimitStore(redisService),
       inject: [RedisService],
-    },
-    // Redis-based token blacklist store for distributed token revocation
-    // Falls back to in-memory if Redis is unavailable
-    // SECURITY: Required for proper logout and token revocation across instances
-    {
-      provide: TOKEN_BLACKLIST_STORE,
-      useFactory: (redisService: RedisService, configService: ConfigService) => {
-        const useRedis = configService.get<string>('TOKEN_BLACKLIST_USE_REDIS', 'true') === 'true';
-        if (useRedis && redisService) {
-          return new RedisTokenBlacklistStore(redisService);
-        }
-        return new InMemoryTokenBlacklistStore();
-      },
-      inject: [RedisService, ConfigService],
     },
     // Request logging interceptor
     {
@@ -564,9 +547,7 @@ export class AppModule implements NestModule {
      * as a fallback when NGINX headers are not applied (e.g., direct API access,
      * development environments, or NGINX misconfiguration).
      */
-    consumer
-      .apply(SecurityHeadersMiddleware)
-      .forRoutes('*');
+    consumer.apply(SecurityHeadersMiddleware).forRoutes('*');
 
     consumer
       .apply(
@@ -575,18 +556,19 @@ export class AppModule implements NestModule {
         // 2. Set correlation id for tracing
         // 3. SECURITY: Strip spoofable internal headers from external requests
         // 4. SECURITY: CSRF double-submit cookie validation
-        // 5. Decode JWT and set req.user (needed for willSendRequest to forward headers)
-        // 6. Hydrate user from x-user-payload header (for inter-service calls)
+        // 5. Decode JWT and set trusted gatewayVerifiedJwtPayload
+        // 6. Materialise user context only from verified JWT/service assertion
         // 7. Set tenant context
-        // 8. Log request
+        // 8. Populate AsyncLocalStorage from trusted context
+        // 9. Log request
         MetricsMiddleware,
         CorrelationIdMiddleware,
-        RequestContextMiddleware,
         StripInternalHeadersMiddleware,
         CsrfMiddleware,
         JwtMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware,
         RequestLoggingMiddleware,
       )
       .forRoutes('*');

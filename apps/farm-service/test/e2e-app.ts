@@ -13,7 +13,11 @@ import {
   SchemaManagerService,
   getTenantSchemaName,
 } from '@aquaculture/backend-common/database';
-import { generateServiceIdentityHeaders } from '@aquaculture/backend-common/utils';
+import {
+  createVerifiedUserAssertionHeaders,
+  hashVerifiedUserAssertionHeaders,
+} from '@aquaculture/backend-common/http';
+import { generateServiceIdentityHeadersV2 } from '@aquaculture/backend-common/utils';
 import {
   IEvent,
   IEventBus,
@@ -48,6 +52,12 @@ export interface FarmE2eApp {
   httpServer: unknown;
 }
 
+export interface FarmE2eHeaderOptions {
+  method?: string;
+  path?: string;
+  body?: string | Buffer;
+}
+
 /**
  * WHAT: Build the exact identity envelope the gateway sends to subgraphs.
  *
@@ -59,28 +69,40 @@ export interface FarmE2eApp {
  */
 export function farmE2eHeaders(
   tenantId: string = FARM_E2E_TENANT_ID,
+  options: FarmE2eHeaderOptions = {},
 ): Record<string, string> {
   const secret = process.env['INTERNAL_SERVICE_SECRET'];
   if (!secret) {
     throw new Error('INTERNAL_SERVICE_SECRET must be set before Farm E2E requests.');
   }
 
-  return {
-    ...generateServiceIdentityHeaders('gateway-api', secret, tenantId),
-    'X-Tenant-ID': tenantId,
-    'x-user-id': FARM_E2E_USER_ID,
-    'x-user-roles': JSON.stringify([
-      Role.TENANT_ADMIN,
-      Role.MODULE_MANAGER,
-      Role.MODULE_USER,
-    ]),
-    'x-user-payload': JSON.stringify({
+  const roles = [Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER];
+  const assertionHeaders = createVerifiedUserAssertionHeaders({
+    user: {
       sub: FARM_E2E_USER_ID,
       email: 'farm-e2e@example.test',
       tenantId,
-      roles: [Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER],
-      type: 'access',
+      roles,
+      role: roles[0],
+      mfaVerified: false,
+    },
+    secret,
+  });
+
+  return {
+    ...assertionHeaders,
+    ...generateServiceIdentityHeadersV2({
+      serviceName: 'gateway-api',
+      secret,
+      tenantId,
+      method: options.method ?? 'POST',
+      path: options.path ?? '/graphql',
+      body: options.body ?? '',
+      assertionHash: hashVerifiedUserAssertionHeaders(assertionHeaders),
     }),
+    'X-Tenant-ID': tenantId,
+    'x-user-id': FARM_E2E_USER_ID,
+    'x-user-roles': JSON.stringify(roles),
     'x-e2e-tenant-id': tenantId,
   };
 }

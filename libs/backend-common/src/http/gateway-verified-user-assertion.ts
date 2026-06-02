@@ -25,7 +25,7 @@ export interface VerifiedUserAssertion {
   user: VerifiedUserPayload;
 }
 
-export interface VerifiedUserAssertionHeaders {
+export interface VerifiedUserAssertionHeaders extends Record<string, string> {
   [VERIFIED_USER_ASSERTION_HEADER]: string;
   [VERIFIED_USER_ASSERTION_SIGNATURE_HEADER]: string;
 }
@@ -90,7 +90,9 @@ function normalizeStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
-  const normalized = value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+  const normalized = value.filter(
+    (item): item is string => typeof item === 'string' && item.length > 0,
+  );
   return normalized.length > 0 ? normalized : undefined;
 }
 

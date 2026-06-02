@@ -26,6 +26,7 @@ import {
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
+import { SecurityModule } from '@aquaculture/backend-common/security';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
 import { GraphQLError } from 'graphql';
@@ -215,7 +216,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
         const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
         return {
-          autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/sensor.graphql') },
+          autoSchemaFile: {
+            federation: 2,
+            path: join(process.cwd(), 'dist/graphql/subgraphs/sensor.graphql'),
+          },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -317,6 +321,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
         keyPrefix: 'sensor-service:',
       }),
     }),
+    SecurityModule,
 
     // Enterprise infrastructure (@Global modules - must be before feature modules)
     CredentialVaultModule,
@@ -432,12 +437,12 @@ export class AppModule implements NestModule {
         // SEC-CRITICAL-002 sweep — strips forged internal headers when the
         // request lacks a valid x-service-identity HMAC signature.
         StripInternalHeadersMiddleware,
-        MetricsMiddleware, // Record request metrics (first for accurate duration)
-        CorrelationIdMiddleware,
-        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        MetricsMiddleware,
+        CorrelationIdMiddleware,
         TenantSchemaMiddleware, // Sets PostgreSQL search_path to tenant schema
       )
       .forRoutes('*');

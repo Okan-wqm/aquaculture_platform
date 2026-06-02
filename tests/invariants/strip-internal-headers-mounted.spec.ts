@@ -89,6 +89,7 @@ interface ModuleAnalysis {
   // True when StripInternalHeadersMiddleware appears before
   // UserContextMiddleware in the apply(...) tuple.
   mountedBeforeUserContext: boolean;
+  mountedBeforeRequestContext: boolean;
 }
 
 function analyzeAppModule(service: string): ModuleAnalysis | null {
@@ -136,6 +137,15 @@ function analyzeAppModule(service: string): ModuleAnalysis | null {
       if (userFirstIdx === -1) return true; // service does not parse user payload — trivially satisfied
       return stripFirstIdx < userFirstIdx;
     })(),
+    mountedBeforeRequestContext: (() => {
+      const configureStart = stripped.indexOf('configure(consumer');
+      if (configureStart === -1) return true;
+      const stripFirstIdx = stripped.indexOf('StripInternalHeadersMiddleware', configureStart);
+      if (stripFirstIdx === -1) return false;
+      const requestContextIdx = stripped.indexOf('RequestContextMiddleware', configureStart);
+      if (requestContextIdx === -1) return true;
+      return stripFirstIdx < requestContextIdx;
+    })(),
   };
 }
 
@@ -148,6 +158,7 @@ describe('INVARIANT (SEC-CRITICAL-002): StripInternalHeadersMiddleware mounted i
     expect(analysis.importsFromCanonical).toBe(true);
     expect(analysis.hasApplyMount).toBe(true);
     expect(analysis.mountedBeforeUserContext).toBe(true);
+    expect(analysis.mountedBeforeRequestContext).toBe(true);
   });
 
   it('the canonical middleware lives at libs/backend-common/src/middleware', () => {

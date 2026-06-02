@@ -33,6 +33,7 @@ import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
@@ -304,18 +305,19 @@ const complexityCache = new Map<string, number>();
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Middleware execution order:
-    // 1. CorrelationIdMiddleware - Add correlation ID for request tracing
-    // 2. UserContextMiddleware - Parse x-user-payload header from gateway
-    // 3. TenantContextMiddleware - Extract tenant from JWT/headers
-    // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
+    // 1. StripInternalHeadersMiddleware - remove spoofable gateway headers unless service-signed
+    // 2. VerifiedUserAssertionMiddleware - verify gateway-signed user assertion
+    // 3. UserContextMiddleware - materialise req.user from verified assertion
+    // 4. TenantContextMiddleware - Extract tenant from verified user context
+    // 5. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
-        // SEC-CRITICAL-002 sweep — strip forged internal headers.
         StripInternalHeadersMiddleware,
-        CorrelationIdMiddleware,
-        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        CorrelationIdMiddleware,
         TenantSchemaMiddleware,
       )
       // Express v5 path-to-regexp v8: named wildcard required instead of regex capture group

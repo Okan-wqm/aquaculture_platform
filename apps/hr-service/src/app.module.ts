@@ -184,7 +184,10 @@ interface ApolloGraphQLContext {
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/hr.graphql') },
+      autoSchemaFile: {
+        federation: 2,
+        path: join(process.cwd(), 'dist/graphql/subgraphs/hr.graphql'),
+      },
       /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
        *  The gateway already blocks batching, but subgraphs must also enforce this as
        *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -221,26 +224,32 @@ interface ApolloGraphQLContext {
       validationRules: [depthLimit(10)],
       plugins: [
         {
-          requestDidStart: () => Promise.resolve({
-            didResolveOperation(
-              { request, document, schema }: GraphQLRequestContextDidResolveOperation<ApolloGraphQLContext>,
-            ): Promise<void> {
-              const complexity = getComplexity({
+          requestDidStart: () =>
+            Promise.resolve({
+              didResolveOperation({
+                request,
+                document,
                 schema,
-                operationName: request.operationName,
-                query: document,
-                variables: request.variables,
-                estimators: [fieldExtensionsEstimator(), simpleEstimator({ defaultComplexity: 1 })],
-              });
-              const maxComplexity = 1000;
-              if (complexity > maxComplexity) {
-                throw new GraphQLError(
-                  `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
-                );
-              }
-              return Promise.resolve();
-            },
-          }),
+              }: GraphQLRequestContextDidResolveOperation<ApolloGraphQLContext>): Promise<void> {
+                const complexity = getComplexity({
+                  schema,
+                  operationName: request.operationName,
+                  query: document,
+                  variables: request.variables,
+                  estimators: [
+                    fieldExtensionsEstimator(),
+                    simpleEstimator({ defaultComplexity: 1 }),
+                  ],
+                });
+                const maxComplexity = 1000;
+                if (complexity > maxComplexity) {
+                  throw new GraphQLError(
+                    `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
+                  );
+                }
+                return Promise.resolve();
+              },
+            }),
         },
       ],
       formatError: (formattedError: GraphQLFormattedError) => {
@@ -353,20 +362,19 @@ interface ApolloGraphQLContext {
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // Middleware execution order:
-    // 1. CorrelationIdMiddleware - Add correlation ID for request tracing
-    // 2. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
-    // 3. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
-    // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
+    // 1. StripInternalHeadersMiddleware - remove spoofable gateway headers unless service-signed
+    // 2. VerifiedUserAssertionMiddleware - verify gateway-signed user assertion
+    // 3. UserContextMiddleware - materialise req.user from verified assertion
+    // 4. TenantContextMiddleware - extract tenant from verified user context
+    // 5. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
-        // SEC-CRITICAL-002 sweep — strip forged internal headers when the
-        // request lacks a valid x-service-identity HMAC.
         StripInternalHeadersMiddleware,
-        CorrelationIdMiddleware,
-        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        CorrelationIdMiddleware,
         TenantSchemaMiddleware,
       )
       .forRoutes('*');

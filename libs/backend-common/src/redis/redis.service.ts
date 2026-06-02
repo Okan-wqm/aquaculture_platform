@@ -27,9 +27,14 @@ export class RedisService implements OnModuleDestroy {
       // IP-1: ioredis handles rediss:// URLs for TLS. For internal Docker
       // networks with self-signed certs, disable strict cert verification.
       const isTls = options.url.startsWith('rediss://');
-      this.client = new Redis(options.url, isTls ? {
-        tls: { rejectUnauthorized: false },
-      } : {});
+      this.client = new Redis(
+        options.url,
+        isTls
+          ? {
+              tls: { rejectUnauthorized: false },
+            }
+          : {},
+      );
     } else {
       this.client = new Redis({
         host: options.host || 'localhost',
@@ -72,10 +77,27 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
+   * Set an unprefixed platform-global key.
+   * Use only for cross-service SSoT keys whose namespace already carries
+   * ownership, such as token:blacklist:* read by auth-service and gateway.
+   */
+  async setRaw(key: string, value: string, ttlSeconds?: number): Promise<void> {
+    if (ttlSeconds) {
+      await this.client.setex(key, ttlSeconds, value);
+    } else {
+      await this.client.set(key, value);
+    }
+  }
+
+  /**
    * Get a value
    */
   async get(key: string): Promise<string | null> {
     return this.client.get(this.prefixKey(key));
+  }
+
+  async getRaw(key: string): Promise<string | null> {
+    return this.client.get(key);
   }
 
   /**
@@ -85,11 +107,20 @@ export class RedisService implements OnModuleDestroy {
     return this.client.del(this.prefixKey(key));
   }
 
+  async delRaw(key: string): Promise<number> {
+    return this.client.del(key);
+  }
+
   /**
    * Check if key exists
    */
   async exists(key: string): Promise<boolean> {
     const result = await this.client.exists(this.prefixKey(key));
+    return result === 1;
+  }
+
+  async existsRaw(key: string): Promise<boolean> {
+    const result = await this.client.exists(key);
     return result === 1;
   }
 
@@ -286,9 +317,15 @@ export class RedisService implements OnModuleDestroy {
 
   async scan(pattern: string, count?: number): Promise<string[]> {
     // ioredis SCAN overloads require const literal tokens; cast to satisfy TypeScript
-    const result = await (this.client.scan as (cursor: string, match: string, pattern: string, count: string, limit: number) => Promise<[string, string[]]>)(
-      '0', 'MATCH', pattern, 'COUNT', count ?? 100,
-    );
+    const result = await (
+      this.client.scan as (
+        cursor: string,
+        match: string,
+        pattern: string,
+        count: string,
+        limit: number,
+      ) => Promise<[string, string[]]>
+    )('0', 'MATCH', pattern, 'COUNT', count ?? 100);
     return result[1];
   }
 }

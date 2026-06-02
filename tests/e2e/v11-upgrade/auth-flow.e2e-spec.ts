@@ -17,30 +17,39 @@
  */
 import * as crypto from 'crypto';
 
-import {
-  UnauthorizedException,
-  ExecutionContext,
-} from '@nestjs/common';
+import { UnauthorizedException, ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtModule } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Reflector } from '@nestjs/core';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role, IS_PUBLIC_KEY } from '@aquaculture/backend-common/decorators';
-import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
+import {
+  TimingSafeService,
+  SESSION_MANAGER,
+  TOKEN_BLACKLIST,
+} from '@aquaculture/backend-common/security';
 import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../apps/auth-service/src/audit/audit-log.service';
 import { SECURITY_CONSTANTS } from '../../../apps/auth-service/src/constants/auth.constants';
 import { AuthenticationService } from '../../../apps/auth-service/src/modules/authentication/services/authentication.service';
-import { TokenService, JwtPayload, parseExpiresIn } from '../../../apps/auth-service/src/modules/authentication/services/token.service';
+import {
+  TokenIssuerService,
+  JwtPayload,
+  parseExpiresIn,
+} from '../../../apps/auth-service/src/modules/authentication/services/token.service';
 import { MfaService } from '../../../apps/auth-service/src/modules/authentication/services/mfa.service';
 import { JwtAuthGuard } from '../../../apps/auth-service/src/modules/authentication/guards/jwt-auth.guard';
 import { User } from '../../../apps/auth-service/src/modules/authentication/entities/user.entity';
 import { RefreshToken } from '../../../apps/auth-service/src/modules/authentication/entities/refresh-token.entity';
 import { Invitation } from '../../../apps/auth-service/src/modules/authentication/entities/invitation.entity';
 import { UserModuleAssignment } from '../../../apps/auth-service/src/modules/authentication/entities/user-module-assignment.entity';
-import { Tenant } from '../../../apps/auth-service/src/modules/tenant/entities/tenant.entity';
+import {
+  Tenant,
+  TenantStatus,
+} from '../../../apps/auth-service/src/modules/tenant/entities/tenant.entity';
 import { UserConsentResolver } from '../../../apps/auth-service/src/modules/gdpr/resolvers/user-consent.resolver';
 import { UserConsentService } from '../../../apps/auth-service/src/modules/gdpr/services/user-consent.service';
 
@@ -82,7 +91,9 @@ interface MockTokenBlacklist {
   isBlacklisted: jest.Mock;
   isValidToken: jest.Mock;
   isUserBlacklisted: jest.Mock;
+  isTenantBlacklisted: jest.Mock;
   blacklistUserTokens: jest.Mock;
+  blacklistTenantTokens: jest.Mock;
 }
 
 /** Session manager mock interface matching ISessionManager */
@@ -107,11 +118,20 @@ interface MockHttpRequest {
 
 const TEST_JWT_SECRET = 'e2e-test-jwt-secret-key-at-least-32-chars-long';
 const TEST_JWT_AUDIENCE = 'aquaculture-platform-e2e';
+const TEST_JWT_ISSUER = 'aquaculture-platform';
+const TEST_RSA_KEYS = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
 
 const TEST_CONFIG: ConfigMap = {
   JWT_SECRET: TEST_JWT_SECRET,
+  JWT_PRIVATE_KEY: TEST_RSA_KEYS.privateKey,
+  JWT_PUBLIC_KEY: TEST_RSA_KEYS.publicKey,
   JWT_EXPIRES_IN: '15m',
   JWT_AUDIENCE: TEST_JWT_AUDIENCE,
+  JWT_ISSUER: TEST_JWT_ISSUER,
   MIN_LOGIN_DURATION_MS: 0,
   MAX_FAILED_ATTEMPTS: 5,
   LOCKOUT_DURATION_MINUTES: 30,
@@ -158,6 +178,10 @@ function createMockUser(overrides: Partial<User> = {}): User {
   });
   // Bind entity methods (TypeORM entities are plain objects when mocked)
   user.validatePassword = User.prototype.validatePassword.bind(user);
+  user.verifyPasswordAndSignalMigration = jest.fn().mockResolvedValue({
+    matched: true,
+    shouldMigrate: false,
+  });
   user.isLocked = User.prototype.isLocked.bind(user);
   user.isPendingInvitation = User.prototype.isPendingInvitation.bind(user);
   user.isInvitationExpired = User.prototype.isInvitationExpired.bind(user);
@@ -180,6 +204,12 @@ function createMockRepository<T>(): MockRepository<T> {
   };
 }
 
+function createMockTenantRepository(): MockRepository<Tenant> {
+  const repo = createMockRepository<Tenant>();
+  repo.findOne.mockResolvedValue({ id: 'tenant-active', status: TenantStatus.ACTIVE });
+  return repo;
+}
+
 function createMockConfigService(config: ConfigMap = TEST_CONFIG): { get: jest.Mock } {
   return {
     get: jest.fn((key: string, defaultValue?: string | number | boolean) => {
@@ -194,7 +224,9 @@ function createMockTokenBlacklist(): MockTokenBlacklist {
     isBlacklisted: jest.fn().mockResolvedValue(false),
     isValidToken: jest.fn().mockResolvedValue(true),
     isUserBlacklisted: jest.fn().mockResolvedValue(false),
+    isTenantBlacklisted: jest.fn().mockResolvedValue(false),
     blacklistUserTokens: jest.fn().mockResolvedValue(undefined),
+    blacklistTenantTokens: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -206,13 +238,36 @@ function createMockSessionManager(): MockSessionManager {
   };
 }
 
+function createJwtModuleOptions(
+  expiresIn: '15m' | '1h' = '15m',
+): Parameters<typeof JwtModule.register>[0] {
+  return {
+    privateKey: TEST_RSA_KEYS.privateKey,
+    publicKey: TEST_RSA_KEYS.publicKey,
+    signOptions: {
+      algorithm: 'RS256',
+      expiresIn,
+      audience: TEST_JWT_AUDIENCE,
+      issuer: TEST_JWT_ISSUER,
+    },
+  };
+}
+
+function createMockBypassRlsService(): Pick<BypassRlsService, 'withBypass' | 'withBypassSync'> {
+  return {
+    withBypass: async <T>(_operation: string, callback: () => Promise<T> | T): Promise<T> =>
+      callback(),
+    withBypassSync: <T>(_operation: string, callback: () => T): T => callback(),
+  };
+}
+
 // ============================================================================
 // 1. JWT Authentication Flow
 // ============================================================================
 
 describe('JWT Authentication Flow (v11 upgrade)', () => {
   let authService: AuthenticationService;
-  let tokenService: TokenService;
+  let tokenService: TokenIssuerService;
   let jwtService: JwtService;
   let userRepo: MockRepository<User>;
   let refreshTokenRepo: MockRepository<RefreshToken>;
@@ -231,33 +286,35 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      imports: [
-        JwtModule.register({
-          secret: TEST_JWT_SECRET,
-          signOptions: { expiresIn: '15m', audience: TEST_JWT_AUDIENCE },
-        }),
-      ],
+      imports: [JwtModule.register(createJwtModuleOptions())],
       providers: [
-        TokenService,
+        TokenIssuerService,
         MfaService,
         AuthenticationService,
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: getRepositoryToken(RefreshToken), useValue: refreshTokenRepo },
         { provide: getRepositoryToken(Invitation), useValue: createMockRepository<Invitation>() },
-        { provide: getRepositoryToken(UserModuleAssignment), useValue: { find: jest.fn().mockResolvedValue([]) } },
-        { provide: getRepositoryToken(Tenant), useValue: createMockRepository<Tenant>() },
+        {
+          provide: getRepositoryToken(UserModuleAssignment),
+          useValue: { find: jest.fn().mockResolvedValue([]) },
+        },
+        { provide: getRepositoryToken(Tenant), useValue: createMockTenantRepository() },
         { provide: DataSource, useValue: mockDataSource },
         { provide: ConfigService, useValue: createMockConfigService() },
         { provide: 'EVENT_BUS', useValue: { publish: jest.fn().mockResolvedValue(undefined) } },
         { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
-        { provide: TimingSafeService, useValue: { ensureMinDuration: jest.fn().mockResolvedValue(undefined) } },
+        {
+          provide: TimingSafeService,
+          useValue: { ensureMinDuration: jest.fn().mockResolvedValue(undefined) },
+        },
+        { provide: BypassRlsService, useValue: createMockBypassRlsService() },
         { provide: SESSION_MANAGER, useValue: sessionManager },
         { provide: TOKEN_BLACKLIST, useValue: tokenBlacklist },
       ],
     }).compile();
 
     authService = module.get<AuthenticationService>(AuthenticationService);
-    tokenService = module.get<TokenService>(TokenService);
+    tokenService = module.get<TokenIssuerService>(TokenIssuerService);
     jwtService = module.get<JwtService>(JwtService);
   });
 
@@ -270,7 +327,9 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
       userRepo.findOne.mockResolvedValue(testUser);
       userRepo.save.mockResolvedValue(testUser);
       refreshTokenRepo.create.mockImplementation((data: Partial<RefreshToken>) => data);
-      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) => Promise.resolve({ id: crypto.randomUUID(), ...data }));
+      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) =>
+        Promise.resolve({ id: crypto.randomUUID(), ...data }),
+      );
 
       const result = await authService.login(
         { email: testUser.email, password: 'TestPassword123!' },
@@ -299,7 +358,9 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
       userRepo.findOne.mockResolvedValue(testUser);
       userRepo.save.mockResolvedValue(testUser);
       refreshTokenRepo.create.mockImplementation((data: Partial<RefreshToken>) => data);
-      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) => Promise.resolve({ id: crypto.randomUUID(), ...data }));
+      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) =>
+        Promise.resolve({ id: crypto.randomUUID(), ...data }),
+      );
 
       const result = await authService.login(
         { email: testUser.email, password: 'TestPassword123!' },
@@ -310,7 +371,7 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
       const decoded = jwtService.decode(result.accessToken) as JwtPayload;
 
       expect(decoded.sub).toBe(testUser.id);
-      expect(decoded.email).toBe(testUser.email);
+      expect(decoded.email).toBeUndefined();
       expect(decoded.role).toBe(Role.TENANT_ADMIN);
       expect(decoded.roles).toEqual([Role.TENANT_ADMIN]);
       expect(decoded.tenantId).toBe('tenant-abc-123');
@@ -329,18 +390,21 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
       userRepo.findOne.mockResolvedValue(testUser);
       userRepo.save.mockResolvedValue(testUser);
       refreshTokenRepo.create.mockImplementation((data: Partial<RefreshToken>) => data);
-      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) => Promise.resolve({ id: crypto.randomUUID(), ...data }));
-
-      const loginResult = await authService.login(
-        { email: testUser.email, password: 'TestPassword123!' },
+      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) =>
+        Promise.resolve({ id: crypto.randomUUID(), ...data }),
       );
+
+      const loginResult = await authService.login({
+        email: testUser.email,
+        password: 'TestPassword123!',
+      });
 
       const validation = await authService.validateToken(loginResult.accessToken);
 
       expect(validation.valid).toBe(true);
       expect(validation.payload).toBeDefined();
       expect(validation.payload!.sub).toBe(testUser.id);
-      expect(validation.payload!.email).toBe(testUser.email);
+      expect(validation.payload!.email).toBeUndefined();
       expect(validation.payload!.role).toBe(testUser.role);
       expect(validation.payload!.tenantId).toBe(testUser.tenantId);
     });
@@ -352,11 +416,14 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
       userRepo.findOne.mockResolvedValue(testUser);
       userRepo.save.mockResolvedValue(testUser);
       refreshTokenRepo.create.mockImplementation((data: Partial<RefreshToken>) => data);
-      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) => Promise.resolve({ id: crypto.randomUUID(), ...data }));
-
-      const loginResult = await authService.login(
-        { email: testUser.email, password: 'TestPassword123!' },
+      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) =>
+        Promise.resolve({ id: crypto.randomUUID(), ...data }),
       );
+
+      const loginResult = await authService.login({
+        email: testUser.email,
+        password: 'TestPassword123!',
+      });
 
       // Tamper with the token by changing a character in the signature
       const parts = loginResult.accessToken.split('.');
@@ -376,6 +443,7 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
         role: Role.MODULE_USER,
         roles: [Role.MODULE_USER],
         tenantId: null,
+        type: 'access',
         jti: crypto.randomUUID(),
       };
 
@@ -408,13 +476,15 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
 
       // Mock transaction flow for unhashed refresh
       mockDataSource.transaction.mockImplementation(
-        async <T>(fn: (manager: {
-          getRepository: (entity: { name: string }) => {
-            createQueryBuilder: jest.Mock;
-            save: jest.Mock;
-            findOne: jest.Mock;
-          };
-        }) => Promise<T>): Promise<T> => {
+        async <T>(
+          fn: (manager: {
+            getRepository: (entity: { name: string }) => {
+              createQueryBuilder: jest.Mock;
+              save: jest.Mock;
+              findOne: jest.Mock;
+            };
+          }) => Promise<T>,
+        ): Promise<T> => {
           const mockQueryBuilder = {
             setLock: jest.fn().mockReturnThis(),
             where: jest.fn().mockReturnThis(),
@@ -442,7 +512,9 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
 
           // generateTokens is called inside the transaction callback result
           refreshTokenRepo.create.mockImplementation((data: Partial<RefreshToken>) => data);
-          refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) => Promise.resolve({ id: crypto.randomUUID(), ...data }));
+          refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) =>
+            Promise.resolve({ id: crypto.randomUUID(), ...data }),
+          );
 
           return fn(mockManager);
         },
@@ -458,11 +530,13 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
 
     it('should reject a revoked refresh token', async () => {
       mockDataSource.transaction.mockImplementation(
-        async <T>(fn: (manager: {
-          getRepository: (entity: { name: string }) => {
-            createQueryBuilder: jest.Mock;
-          };
-        }) => Promise<T>): Promise<T> => {
+        async <T>(
+          fn: (manager: {
+            getRepository: (entity: { name: string }) => {
+              createQueryBuilder: jest.Mock;
+            };
+          }) => Promise<T>,
+        ): Promise<T> => {
           const mockQueryBuilder = {
             setLock: jest.fn().mockReturnThis(),
             where: jest.fn().mockReturnThis(),
@@ -480,9 +554,9 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
         },
       );
 
-      await expect(
-        authService.refreshToken('revoked-token'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(authService.refreshToken('revoked-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
@@ -530,23 +604,31 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
       userRepo.findOne.mockResolvedValue(testUser);
       userRepo.save.mockResolvedValue(testUser);
       refreshTokenRepo.create.mockImplementation((data: Partial<RefreshToken>) => data);
-      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) => Promise.resolve({ id: crypto.randomUUID(), ...data }));
-
-      const loginResult = await authService.login(
-        { email: testUser.email, password: 'TestPassword123!' },
+      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) =>
+        Promise.resolve({ id: crypto.randomUUID(), ...data }),
       );
+
+      const loginResult = await authService.login({
+        email: testUser.email,
+        password: 'TestPassword123!',
+      });
 
       // Decode to get jti
       const decoded = jwtService.decode(loginResult.accessToken) as JwtPayload;
 
-      // Simulate blacklisting
-      tokenBlacklist.isBlacklisted.mockResolvedValue(true);
+      // Simulate composite revocation rejection
+      tokenBlacklist.isValidToken.mockResolvedValue(false);
 
       const validation = await authService.validateToken(loginResult.accessToken);
       expect(validation.valid).toBe(false);
 
-      // Verify the blacklist was checked
-      expect(tokenBlacklist.isBlacklisted).toHaveBeenCalledWith(decoded.jti);
+      // Verify the composite blacklist was checked
+      expect(tokenBlacklist.isValidToken).toHaveBeenCalledWith(
+        decoded.jti,
+        decoded.sub,
+        expect.any(Date),
+        decoded.tenantId,
+      );
     });
 
     it('should reject a user-level blacklisted token', async () => {
@@ -556,15 +638,17 @@ describe('JWT Authentication Flow (v11 upgrade)', () => {
       userRepo.findOne.mockResolvedValue(testUser);
       userRepo.save.mockResolvedValue(testUser);
       refreshTokenRepo.create.mockImplementation((data: Partial<RefreshToken>) => data);
-      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) => Promise.resolve({ id: crypto.randomUUID(), ...data }));
-
-      const loginResult = await authService.login(
-        { email: testUser.email, password: 'TestPassword123!' },
+      refreshTokenRepo.save.mockImplementation((data: Partial<RefreshToken>) =>
+        Promise.resolve({ id: crypto.randomUUID(), ...data }),
       );
 
-      // Per-JTI blacklist returns false, but user-level blacklist returns true
-      tokenBlacklist.isBlacklisted.mockResolvedValue(false);
-      tokenBlacklist.isUserBlacklisted.mockResolvedValue(true);
+      const loginResult = await authService.login({
+        email: testUser.email,
+        password: 'TestPassword123!',
+      });
+
+      // Composite check covers user-level invalidation.
+      tokenBlacklist.isValidToken.mockResolvedValue(false);
 
       const validation = await authService.validateToken(loginResult.accessToken);
       expect(validation.valid).toBe(false);
@@ -581,12 +665,7 @@ describe('Cross-Version JWT Compatibility (v10 <-> v11)', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      imports: [
-        JwtModule.register({
-          secret: TEST_JWT_SECRET,
-          signOptions: { expiresIn: '1h', audience: TEST_JWT_AUDIENCE },
-        }),
-      ],
+      imports: [JwtModule.register(createJwtModuleOptions('1h'))],
     }).compile();
 
     jwtService = module.get<JwtService>(JwtService);
@@ -599,6 +678,7 @@ describe('Cross-Version JWT Compatibility (v10 <-> v11)', () => {
       role: Role.TENANT_ADMIN,
       roles: [Role.TENANT_ADMIN],
       tenantId: crypto.randomUUID(),
+      type: 'access',
       modules: ['sensor', 'farm', 'hydroponics'],
       resourcePermissions: ['read:sensor', 'write:farm'],
       firstName: 'Cross',
@@ -636,6 +716,7 @@ describe('Cross-Version JWT Compatibility (v10 <-> v11)', () => {
       role: Role.MODULE_USER,
       roles: [Role.MODULE_USER],
       tenantId: crypto.randomUUID(),
+      type: 'access',
       jti: crypto.randomUUID(),
     };
 
@@ -665,6 +746,7 @@ describe('Cross-Version JWT Compatibility (v10 <-> v11)', () => {
       role: Role.SUPER_ADMIN,
       roles: [Role.SUPER_ADMIN],
       tenantId: null,
+      type: 'access',
       jti: crypto.randomUUID(),
     };
 
@@ -683,6 +765,7 @@ describe('Cross-Version JWT Compatibility (v10 <-> v11)', () => {
       role: Role.MODULE_USER,
       roles: [Role.MODULE_USER],
       tenantId: crypto.randomUUID(),
+      type: 'access',
     };
 
     const token = await jwtService.signAsync(minimalPayload);
@@ -704,6 +787,7 @@ describe('Cross-Version JWT Compatibility (v10 <-> v11)', () => {
       role: Role.MODULE_USER,
       roles: [Role.MODULE_USER],
       tenantId: null,
+      type: 'access',
     };
 
     // Create a separate JwtService with a different secret
@@ -720,9 +804,7 @@ describe('Cross-Version JWT Compatibility (v10 <-> v11)', () => {
     const foreignToken = await otherJwtService.signAsync(payload);
 
     // Should fail verification with our secret
-    await expect(
-      jwtService.verifyAsync(foreignToken),
-    ).rejects.toThrow();
+    await expect(jwtService.verifyAsync(foreignToken)).rejects.toThrow();
 
     await otherModule.close();
   });
@@ -734,15 +816,14 @@ describe('Cross-Version JWT Compatibility (v10 <-> v11)', () => {
       role: Role.TENANT_ADMIN,
       roles: [Role.TENANT_ADMIN],
       tenantId: null,
+      type: 'access',
     };
 
     const token = await jwtService.signAsync(payload, {
       audience: 'wrong-audience',
     });
 
-    await expect(
-      jwtService.verifyAsync(token, { audience: TEST_JWT_AUDIENCE }),
-    ).rejects.toThrow();
+    await expect(jwtService.verifyAsync(token, { audience: TEST_JWT_AUDIENCE })).rejects.toThrow();
   });
 });
 
@@ -760,12 +841,7 @@ describe('Passport Strategy Verification (v11)', () => {
     tokenBlacklist = createMockTokenBlacklist();
 
     const module: TestingModule = await Test.createTestingModule({
-      imports: [
-        JwtModule.register({
-          secret: TEST_JWT_SECRET,
-          signOptions: { expiresIn: '15m', audience: TEST_JWT_AUDIENCE },
-        }),
-      ],
+      imports: [JwtModule.register(createJwtModuleOptions())],
       providers: [
         JwtAuthGuard,
         Reflector,
@@ -787,6 +863,7 @@ describe('Passport Strategy Verification (v11)', () => {
         role: Role.TENANT_ADMIN,
         roles: [Role.TENANT_ADMIN],
         tenantId: crypto.randomUUID(),
+        type: 'access',
         jti: crypto.randomUUID(),
       };
 
@@ -818,9 +895,7 @@ describe('Passport Strategy Verification (v11)', () => {
 
       const mockContext = createMockExecutionContext(mockRequest, false);
 
-      await expect(jwtAuthGuard.canActivate(mockContext)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(jwtAuthGuard.canActivate(mockContext)).rejects.toThrow(UnauthorizedException);
     });
 
     it('should reject request with invalid token format', async () => {
@@ -832,9 +907,7 @@ describe('Passport Strategy Verification (v11)', () => {
 
       const mockContext = createMockExecutionContext(mockRequest, false);
 
-      await expect(jwtAuthGuard.canActivate(mockContext)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(jwtAuthGuard.canActivate(mockContext)).rejects.toThrow(UnauthorizedException);
     });
 
     it('should reject request with non-Bearer scheme', async () => {
@@ -854,9 +927,7 @@ describe('Passport Strategy Verification (v11)', () => {
 
       const mockContext = createMockExecutionContext(mockRequest, false);
 
-      await expect(jwtAuthGuard.canActivate(mockContext)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(jwtAuthGuard.canActivate(mockContext)).rejects.toThrow(UnauthorizedException);
     });
 
     it('should allow public endpoints without authentication', async () => {
@@ -879,6 +950,7 @@ describe('Passport Strategy Verification (v11)', () => {
         role: Role.MODULE_USER,
         roles: [Role.MODULE_USER],
         tenantId: null,
+        type: 'access',
         jti,
       };
 
@@ -897,35 +969,41 @@ describe('Passport Strategy Verification (v11)', () => {
 
       const mockContext = createMockExecutionContext(mockRequest, false);
 
-      await expect(jwtAuthGuard.canActivate(mockContext)).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(jwtAuthGuard.canActivate(mockContext)).rejects.toThrow(UnauthorizedException);
     });
   });
 
   describe('Local Strategy (password validation)', () => {
     it('should authenticate user with correct email and password via AuthenticationService', async () => {
       const authModule: TestingModule = await Test.createTestingModule({
-        imports: [
-          JwtModule.register({
-            secret: TEST_JWT_SECRET,
-            signOptions: { expiresIn: '15m', audience: TEST_JWT_AUDIENCE },
-          }),
-        ],
+        imports: [JwtModule.register(createJwtModuleOptions())],
         providers: [
-          TokenService,
+          TokenIssuerService,
           MfaService,
           AuthenticationService,
           { provide: getRepositoryToken(User), useValue: createMockRepository<User>() },
-          { provide: getRepositoryToken(RefreshToken), useValue: createMockRepository<RefreshToken>() },
+          {
+            provide: getRepositoryToken(RefreshToken),
+            useValue: createMockRepository<RefreshToken>(),
+          },
           { provide: getRepositoryToken(Invitation), useValue: createMockRepository<Invitation>() },
-          { provide: getRepositoryToken(UserModuleAssignment), useValue: { find: jest.fn().mockResolvedValue([]) } },
-          { provide: getRepositoryToken(Tenant), useValue: createMockRepository<Tenant>() },
-          { provide: DataSource, useValue: { transaction: jest.fn(), query: jest.fn().mockResolvedValue([]) } },
+          {
+            provide: getRepositoryToken(UserModuleAssignment),
+            useValue: { find: jest.fn().mockResolvedValue([]) },
+          },
+          { provide: getRepositoryToken(Tenant), useValue: createMockTenantRepository() },
+          {
+            provide: DataSource,
+            useValue: { transaction: jest.fn(), query: jest.fn().mockResolvedValue([]) },
+          },
           { provide: ConfigService, useValue: createMockConfigService() },
           { provide: 'EVENT_BUS', useValue: { publish: jest.fn().mockResolvedValue(undefined) } },
           { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
-          { provide: TimingSafeService, useValue: { ensureMinDuration: jest.fn().mockResolvedValue(undefined) } },
+          {
+            provide: TimingSafeService,
+            useValue: { ensureMinDuration: jest.fn().mockResolvedValue(undefined) },
+          },
+          { provide: BypassRlsService, useValue: createMockBypassRlsService() },
           { provide: SESSION_MANAGER, useValue: createMockSessionManager() },
           { provide: TOKEN_BLACKLIST, useValue: createMockTokenBlacklist() },
         ],
@@ -933,7 +1011,9 @@ describe('Passport Strategy Verification (v11)', () => {
 
       const localAuthService = authModule.get<AuthenticationService>(AuthenticationService);
       const localUserRepo = authModule.get<Repository<User>>(getRepositoryToken(User));
-      const localRefreshRepo = authModule.get<Repository<RefreshToken>>(getRepositoryToken(RefreshToken));
+      const localRefreshRepo = authModule.get<Repository<RefreshToken>>(
+        getRepositoryToken(RefreshToken),
+      );
 
       const testUser = createMockUser();
       testUser.validatePassword = jest.fn().mockResolvedValue(true);
@@ -941,11 +1021,16 @@ describe('Passport Strategy Verification (v11)', () => {
       jest.spyOn(localUserRepo, 'findOne').mockResolvedValue(testUser);
       jest.spyOn(localUserRepo, 'save').mockResolvedValue(testUser);
       jest.spyOn(localRefreshRepo, 'create').mockImplementation((data) => data as RefreshToken);
-      jest.spyOn(localRefreshRepo, 'save').mockImplementation((data) => Promise.resolve({ id: crypto.randomUUID(), ...data } as RefreshToken));
+      jest
+        .spyOn(localRefreshRepo, 'save')
+        .mockImplementation((data) =>
+          Promise.resolve({ id: crypto.randomUUID(), ...data } as RefreshToken),
+        );
 
-      const result = await localAuthService.login(
-        { email: testUser.email, password: 'ValidPassword123!' },
-      );
+      const result = await localAuthService.login({
+        email: testUser.email,
+        password: 'ValidPassword123!',
+      });
 
       expect(result.accessToken).toBeTruthy();
       expect(result.user.email).toBe(testUser.email);
@@ -955,26 +1040,34 @@ describe('Passport Strategy Verification (v11)', () => {
 
     it('should reject authentication with wrong password', async () => {
       const authModule: TestingModule = await Test.createTestingModule({
-        imports: [
-          JwtModule.register({
-            secret: TEST_JWT_SECRET,
-            signOptions: { expiresIn: '15m', audience: TEST_JWT_AUDIENCE },
-          }),
-        ],
+        imports: [JwtModule.register(createJwtModuleOptions())],
         providers: [
-          TokenService,
+          TokenIssuerService,
           MfaService,
           AuthenticationService,
           { provide: getRepositoryToken(User), useValue: createMockRepository<User>() },
-          { provide: getRepositoryToken(RefreshToken), useValue: createMockRepository<RefreshToken>() },
+          {
+            provide: getRepositoryToken(RefreshToken),
+            useValue: createMockRepository<RefreshToken>(),
+          },
           { provide: getRepositoryToken(Invitation), useValue: createMockRepository<Invitation>() },
-          { provide: getRepositoryToken(UserModuleAssignment), useValue: { find: jest.fn().mockResolvedValue([]) } },
-          { provide: getRepositoryToken(Tenant), useValue: createMockRepository<Tenant>() },
-          { provide: DataSource, useValue: { transaction: jest.fn(), query: jest.fn().mockResolvedValue([]) } },
+          {
+            provide: getRepositoryToken(UserModuleAssignment),
+            useValue: { find: jest.fn().mockResolvedValue([]) },
+          },
+          { provide: getRepositoryToken(Tenant), useValue: createMockTenantRepository() },
+          {
+            provide: DataSource,
+            useValue: { transaction: jest.fn(), query: jest.fn().mockResolvedValue([]) },
+          },
           { provide: ConfigService, useValue: createMockConfigService() },
           { provide: 'EVENT_BUS', useValue: { publish: jest.fn().mockResolvedValue(undefined) } },
           { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
-          { provide: TimingSafeService, useValue: { ensureMinDuration: jest.fn().mockResolvedValue(undefined) } },
+          {
+            provide: TimingSafeService,
+            useValue: { ensureMinDuration: jest.fn().mockResolvedValue(undefined) },
+          },
+          { provide: BypassRlsService, useValue: createMockBypassRlsService() },
           { provide: SESSION_MANAGER, useValue: createMockSessionManager() },
           { provide: TOKEN_BLACKLIST, useValue: createMockTokenBlacklist() },
         ],
@@ -985,6 +1078,10 @@ describe('Passport Strategy Verification (v11)', () => {
 
       const testUser = createMockUser();
       testUser.validatePassword = jest.fn().mockResolvedValue(false);
+      testUser.verifyPasswordAndSignalMigration = jest.fn().mockResolvedValue({
+        matched: false,
+        shouldMigrate: false,
+      });
 
       jest.spyOn(localUserRepo, 'findOne').mockResolvedValue(testUser);
       jest.spyOn(localUserRepo, 'save').mockResolvedValue(testUser);
@@ -998,26 +1095,34 @@ describe('Passport Strategy Verification (v11)', () => {
 
     it('should reject authentication for non-existent user', async () => {
       const authModule: TestingModule = await Test.createTestingModule({
-        imports: [
-          JwtModule.register({
-            secret: TEST_JWT_SECRET,
-            signOptions: { expiresIn: '15m', audience: TEST_JWT_AUDIENCE },
-          }),
-        ],
+        imports: [JwtModule.register(createJwtModuleOptions())],
         providers: [
-          TokenService,
+          TokenIssuerService,
           MfaService,
           AuthenticationService,
           { provide: getRepositoryToken(User), useValue: createMockRepository<User>() },
-          { provide: getRepositoryToken(RefreshToken), useValue: createMockRepository<RefreshToken>() },
+          {
+            provide: getRepositoryToken(RefreshToken),
+            useValue: createMockRepository<RefreshToken>(),
+          },
           { provide: getRepositoryToken(Invitation), useValue: createMockRepository<Invitation>() },
-          { provide: getRepositoryToken(UserModuleAssignment), useValue: { find: jest.fn().mockResolvedValue([]) } },
-          { provide: getRepositoryToken(Tenant), useValue: createMockRepository<Tenant>() },
-          { provide: DataSource, useValue: { transaction: jest.fn(), query: jest.fn().mockResolvedValue([]) } },
+          {
+            provide: getRepositoryToken(UserModuleAssignment),
+            useValue: { find: jest.fn().mockResolvedValue([]) },
+          },
+          { provide: getRepositoryToken(Tenant), useValue: createMockTenantRepository() },
+          {
+            provide: DataSource,
+            useValue: { transaction: jest.fn(), query: jest.fn().mockResolvedValue([]) },
+          },
           { provide: ConfigService, useValue: createMockConfigService() },
           { provide: 'EVENT_BUS', useValue: { publish: jest.fn().mockResolvedValue(undefined) } },
           { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
-          { provide: TimingSafeService, useValue: { ensureMinDuration: jest.fn().mockResolvedValue(undefined) } },
+          {
+            provide: TimingSafeService,
+            useValue: { ensureMinDuration: jest.fn().mockResolvedValue(undefined) },
+          },
+          { provide: BypassRlsService, useValue: createMockBypassRlsService() },
           { provide: SESSION_MANAGER, useValue: createMockSessionManager() },
           { provide: TOKEN_BLACKLIST, useValue: createMockTokenBlacklist() },
         ],
@@ -1058,10 +1163,7 @@ describe('GDPR Consent Resolver req.ip Handling (v11)', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        UserConsentResolver,
-        { provide: UserConsentService, useValue: consentService },
-      ],
+      providers: [UserConsentResolver, { provide: UserConsentService, useValue: consentService }],
     }).compile();
 
     resolver = module.get<UserConsentResolver>(UserConsentResolver);
@@ -1286,10 +1388,7 @@ describe('parseExpiresIn utility (v11 regression proofing)', () => {
 // Helper: create mock ExecutionContext for JwtAuthGuard tests
 // ============================================================================
 
-function createMockExecutionContext(
-  request: Record<string, unknown>,
-  isPublic: boolean,
-): ExecutionContext {
+function createMockExecutionContext(request: unknown, isPublic: boolean): ExecutionContext {
   const handler = jest.fn();
   const classRef = jest.fn();
 

@@ -22,7 +22,6 @@
 
 import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -32,8 +31,9 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import * as promClient from 'prom-client';
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
+
+import { GatewayTokenVerifierService } from '../guards/gateway-token-verifier.service';
 
 /** Per-client state tracked by the gateway. */
 interface FarmClient {
@@ -65,9 +65,7 @@ interface TokenPayload {
  * guard prevents double-registration errors when NestJS rebuilds the module.
  */
 const farmWsConnections =
-  (promClient.register.getSingleMetric(
-    'farm_ws_connected_clients',
-  ) as promClient.Gauge<string>) ??
+  (promClient.register.getSingleMetric('farm_ws_connected_clients') as promClient.Gauge<string>) ??
   new promClient.Gauge({
     name: 'farm_ws_connected_clients',
     help: 'Number of Socket.IO clients currently connected to /farms',
@@ -92,11 +90,7 @@ const farmWsBroadcasts =
   transports: ['websocket', 'polling'],
 })
 export class FarmGateway
-  implements
-    OnGatewayInit,
-    OnGatewayConnection,
-    OnGatewayDisconnect,
-    OnModuleDestroy
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy
 {
   @WebSocketServer()
   server!: Server;
@@ -114,11 +108,10 @@ export class FarmGateway
    * construction time rather than logging warnings at runtime.
    */
   constructor(
-    private readonly jwtService: JwtService,
+    private readonly tokenVerifier: GatewayTokenVerifierService,
     private readonly configService: ConfigService,
   ) {
-    this.isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
     // CORS allowlist validity is enforced at module-load time by
     // `buildWsCorsConfig('FarmGateway')`, which throws in production
     // if WS_CORS_ORIGINS is missing. No per-instance check needed —
@@ -166,17 +159,13 @@ export class FarmGateway
       // and detect tenants with zero or abnormally high connections.
       farmWsConnections.inc({ tenant: tenantId }, 1);
 
-      this.logger.log(
-        `Farm client ${client.id} connected for tenant ${tenantId}`,
-      );
+      this.logger.log(`Farm client ${client.id} connected for tenant ${tenantId}`);
       client.emit('connected', {
         message: 'Connected to farm domain event stream',
         tenantId,
       });
     } catch (error) {
-      this.logger.error(
-        `Farm gateway connection error: ${(error as Error).message}`,
-      );
+      this.logger.error(`Farm gateway connection error: ${(error as Error).message}`);
       client.disconnect();
     }
   }
@@ -214,82 +203,52 @@ export class FarmGateway
   }
 
   /** Broadcast a BatchCreated event to all connected clients of the tenant. */
-  broadcastBatchCreated(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchCreated(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchCreated', payload);
   }
 
   /** Broadcast a BatchHarvested event. */
-  broadcastBatchHarvested(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchHarvested(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchHarvested', payload);
   }
 
   /** Broadcast a BatchTransferred event. */
-  broadcastBatchTransferred(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchTransferred(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchTransferred', payload);
   }
 
   /** Broadcast a BatchStatusChanged event. */
-  broadcastBatchStatusChanged(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchStatusChanged(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchStatusChanged', payload);
   }
 
   /** Broadcast a BatchClosed event. */
-  broadcastBatchClosed(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchClosed(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchClosed', payload);
   }
 
   /** Broadcast a BatchAllocatedToTank event. */
-  broadcastBatchAllocatedToTank(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchAllocatedToTank(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchAllocatedToTank', payload);
   }
 
   /** Broadcast a MortalityRecorded event. */
-  broadcastMortalityRecorded(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastMortalityRecorded(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'mortalityRecorded', payload);
   }
 
   /** Broadcast a CullRecorded event. */
-  broadcastCullRecorded(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastCullRecorded(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'cullRecorded', payload);
   }
 
   /** Broadcast a FeedingRecorded event. */
-  broadcastFeedingRecorded(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastFeedingRecorded(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'feedingRecorded', payload);
   }
 
   /** Broadcast a FeedInventoryLow alert. */
-  broadcastFeedInventoryLow(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastFeedInventoryLow(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'feedInventoryLow', payload);
   }
 
@@ -317,8 +276,7 @@ export class FarmGateway
 
     const queryToken = client.handshake.query.token;
     if (typeof queryToken === 'string') {
-      const isProduction =
-        this.configService?.get<string>('NODE_ENV') === 'production';
+      const isProduction = this.configService?.get<string>('NODE_ENV') === 'production';
       if (isProduction) {
         this.logger.warn(
           `SECURITY: Farm client ${client.id} rejected — query parameter ` +
@@ -354,42 +312,10 @@ export class FarmGateway
    * disconnect the client with a generic error.
    */
   private async validateToken(token: string): Promise<TokenPayload | null> {
-    try {
-      const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
-        token,
-        getJwtVerifyOptions(this.configService),
-      );
-
-      if (typeof result !== 'object' || result === null) return null;
-      if (
-        typeof result['tenantId'] !== 'string' ||
-        result['tenantId'].length === 0
-      ) {
-        return null;
-      }
-      if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
-        return null;
-      }
-
-      // H-1 enforcement: reject refresh + MFA-challenge tokens.
-      // Throws UnauthorizedException on failure — caught and converted
-      // to `null` below so the gateway disconnects gracefully.
-      enforceAccessTokenType(
-        {
-          type: typeof result['type'] === 'string' ? result['type'] : undefined,
-          sub: result['sub'],
-          jti: typeof result['jti'] === 'string' ? result['jti'] : undefined,
-        },
-        this.logger,
-        this.isProduction,
-      );
-
-      return result as TokenPayload;
-    } catch (error) {
-      this.logger.debug(
-        `Farm token validation failed: ${(error as Error).message}`,
-      );
-      return null;
-    }
+    const payload = await this.tokenVerifier.verifyAccessToken(token, {
+      context: 'FarmGateway',
+      requireTenantId: true,
+    });
+    return payload as TokenPayload | null;
   }
 }

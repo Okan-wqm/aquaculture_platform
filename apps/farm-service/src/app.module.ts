@@ -245,31 +245,6 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: GraphQLContextRequest }) => {
-          // Reconstruct user from gateway headers for @CurrentUser() decorator
-          const userPayloadHeader = req.headers['x-user-payload'];
-          const userIdHeader = req.headers['x-user-id'];
-          const userRolesHeader = req.headers['x-user-roles'];
-
-          if (typeof userPayloadHeader === 'string') {
-            try {
-              req.user = JSON.parse(userPayloadHeader);
-            } catch {
-              // Fallback: create minimal user from individual headers
-              if (typeof userIdHeader === 'string') {
-                req.user = {
-                  sub: userIdHeader,
-                  roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
-                };
-              }
-            }
-          } else if (typeof userIdHeader === 'string') {
-            // Fallback if x-user-payload not present
-            req.user = {
-              sub: userIdHeader,
-              roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
-            };
-          }
-
           // Create per-request DataLoaders from authenticated/normalised tenant context.
           const tenantId = req.user?.tenantId ?? req.tenantId;
           let loaders;
@@ -519,18 +494,18 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Middleware execution order:
     // 1. StripInternalHeadersMiddleware - remove spoofable gateway headers unless service-signed
-    // 2. CorrelationIdMiddleware - Add correlation ID for request tracing
-    // 3. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
-    // 4. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
+    // 2. VerifiedUserAssertionMiddleware - verify gateway-signed user assertion
+    // 3. UserContextMiddleware - materialise req.user from verified assertion
+    // 4. TenantContextMiddleware - Extract tenant from verified user context
     // 5. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
         StripInternalHeadersMiddleware,
-        CorrelationIdMiddleware,
-        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         VerifiedUserAssertionMiddleware,
         UserContextMiddleware,
         TenantContextMiddleware,
+        RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
+        CorrelationIdMiddleware,
         TenantSchemaMiddleware,
       )
       .forRoutes('*');

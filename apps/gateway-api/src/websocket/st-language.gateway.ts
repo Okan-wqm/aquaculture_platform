@@ -1,6 +1,5 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -10,8 +9,9 @@ import {
   SubscribeMessage,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
+
+import { GatewayTokenVerifierService } from '../guards/gateway-token-verifier.service';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,8 +44,15 @@ interface STRequest {
 }
 
 interface STResponse {
-  type: 'diagnostics' | 'hover' | 'completions' | 'formatted'
-    | 'outline' | 'definition' | 'references' | 'error';
+  type:
+    | 'diagnostics'
+    | 'hover'
+    | 'completions'
+    | 'formatted'
+    | 'outline'
+    | 'definition'
+    | 'references'
+    | 'error';
   requestId: string;
   data: unknown;
   processingTimeMs?: number;
@@ -102,9 +109,7 @@ const MAX_CONNECTIONS_PER_TENANT = 10;
   transports: ['websocket', 'polling'],
   maxHttpBufferSize: MAX_MESSAGE_SIZE,
 })
-export class STLanguageGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+export class STLanguageGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
@@ -124,11 +129,10 @@ export class STLanguageGateway
    * a supported deployment mode — fail-fast at construction time.
    */
   constructor(
-    private readonly jwtService: JwtService,
+    private readonly tokenVerifier: GatewayTokenVerifierService,
     private readonly configService: ConfigService,
   ) {
-    this.isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   // -----------------------------------------------------------------------
@@ -207,10 +211,7 @@ export class STLanguageGateway
   // -----------------------------------------------------------------------
 
   @SubscribeMessage('st:request')
-  async handleStRequest(
-    client: Socket,
-    payload: STRequest,
-  ): Promise<STResponse> {
+  async handleStRequest(client: Socket, payload: STRequest): Promise<STResponse> {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return this.errorResponse('unknown', 'UNAUTHORIZED', 'Client not authenticated');
@@ -256,7 +257,15 @@ export class STLanguageGateway
       );
     }
 
-    const validTypes = ['analyze', 'hover', 'complete', 'format', 'outline', 'definition', 'references'];
+    const validTypes = [
+      'analyze',
+      'hover',
+      'complete',
+      'format',
+      'outline',
+      'definition',
+      'references',
+    ];
     if (!validTypes.includes(payload.type)) {
       return this.errorResponse(
         payload.requestId,
@@ -271,7 +280,10 @@ export class STLanguageGateway
     const startTime = Date.now();
 
     try {
-      const natsReply = await this.delegateToNats(clientData.tenantId, payload) as NatsLanguageReply;
+      const natsReply = (await this.delegateToNats(
+        clientData.tenantId,
+        payload,
+      )) as NatsLanguageReply;
 
       // Check if the NATS handler returned an error
       if (natsReply.success === false && natsReply.error) {
@@ -282,15 +294,17 @@ export class STLanguageGateway
         type: this.mapRequestTypeToResponseType(payload.type),
         requestId: payload.requestId,
         data: natsReply.data,
-        processingTimeMs: natsReply.processingTimeMs ?? (Date.now() - startTime),
+        processingTimeMs: natsReply.processingTimeMs ?? Date.now() - startTime,
       };
     } catch (error) {
       const internalMessage = (error as Error).message ?? 'Internal error';
-      this.logger.error(
-        `ST request failed for tenant ${clientData.tenantId}: ${internalMessage}`,
-      );
+      this.logger.error(`ST request failed for tenant ${clientData.tenantId}: ${internalMessage}`);
       // Do not leak internal error details to client
-      return this.errorResponse(payload.requestId, 'INTERNAL_ERROR', 'Language service request failed');
+      return this.errorResponse(
+        payload.requestId,
+        'INTERNAL_ERROR',
+        'Language service request failed',
+      );
     }
   }
 
@@ -423,11 +437,7 @@ export class STLanguageGateway
     return map[type] ?? 'error';
   }
 
-  private errorResponse(
-    requestId: string,
-    code: STErrorCode,
-    message: string,
-  ): STResponse {
+  private errorResponse(requestId: string, code: STErrorCode, message: string): STResponse {
     return {
       type: 'error',
       requestId,
@@ -477,31 +487,10 @@ export class STLanguageGateway
    * gaps are closed by this refactor.
    */
   private async validateToken(token: string): Promise<TokenPayload | null> {
-    try {
-      const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
-        token,
-        getJwtVerifyOptions(this.configService),
-      );
-
-      if (typeof result !== 'object' || result === null) return null;
-      if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
-        return null;
-      }
-
-      enforceAccessTokenType(
-        {
-          type: typeof result['type'] === 'string' ? result['type'] : undefined,
-          sub: result['sub'],
-          jti: typeof result['jti'] === 'string' ? result['jti'] : undefined,
-        },
-        this.logger,
-        this.isProduction,
-      );
-
-      return result as TokenPayload;
-    } catch (error) {
-      this.logger.debug(`Token validation failed: ${(error as Error).message}`);
-      return null;
-    }
+    const payload = await this.tokenVerifier.verifyAccessToken(token, {
+      context: 'STLanguageGateway',
+      requireTenantId: true,
+    });
+    return payload as TokenPayload | null;
   }
 }

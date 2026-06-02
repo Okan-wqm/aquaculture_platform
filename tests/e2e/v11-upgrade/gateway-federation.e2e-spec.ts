@@ -33,10 +33,11 @@ import {
   ExecutionContext,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService, JwtModule } from '@nestjs/jwt';
+import { JwtModule } from '@nestjs/jwt';
 import request from 'supertest';
 import { Request, Response, NextFunction } from 'express';
 import type { Server } from 'http';
+import type { GatewayTokenVerifierService } from '../../../apps/gateway-api/src/guards/gateway-token-verifier.service';
 
 // ============================================================================
 // Section 1: Middleware Chain Execution Order
@@ -96,7 +97,6 @@ class MiddlewareOrderController {
     return { status: 'ok' };
   }
 }
-
 
 /**
  * Module that mimics the gateway middleware stack ordering from AppModule.configure().
@@ -223,10 +223,12 @@ class TestRateLimitGuard implements CanActivate {
   static lastResult: { key: string; error: string | null } = { key: '', error: null };
 
   canActivate(context: ExecutionContext): boolean {
-    const req = context.switchToHttp().getRequest<Request & {
-      user?: { sub?: string; tenantId?: string };
-      connection?: { remoteAddress?: string };
-    }>();
+    const req = context.switchToHttp().getRequest<
+      Request & {
+        user?: { sub?: string; tenantId?: string };
+        connection?: { remoteAddress?: string };
+      }
+    >();
 
     try {
       // Mirror production extractClientIp logic
@@ -300,10 +302,12 @@ class TestOpaPolicyGuard implements CanActivate {
   static lastError: string | null = null;
 
   canActivate(context: ExecutionContext): boolean {
-    const req = context.switchToHttp().getRequest<Request & {
-      user?: { sub?: string };
-      connection?: { remoteAddress?: string };
-    }>();
+    const req = context.switchToHttp().getRequest<
+      Request & {
+        user?: { sub?: string };
+        connection?: { remoteAddress?: string };
+      }
+    >();
 
     try {
       // Mirror production buildOpaInput context.ip
@@ -334,9 +338,7 @@ class NullIpTestController {
 })
 class NullIpModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer
-      .apply(NullIpMiddleware, TestLoggingMiddleware)
-      .forRoutes('*');
+    consumer.apply(NullIpMiddleware, TestLoggingMiddleware).forRoutes('*');
   }
 }
 
@@ -474,9 +476,7 @@ class TenantTestController {
 class TenantIsolationModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     // Mirrors production: .forRoutes('*') to apply to ALL routes
-    consumer
-      .apply(TestTenantContextMiddleware)
-      .forRoutes('*');
+    consumer.apply(TestTenantContextMiddleware).forRoutes('*');
   }
 }
 
@@ -771,11 +771,15 @@ describe('4. Security Headers (Helmet)', () => {
  *   - JWT verification must work in the gateway constructor
  */
 
-/** Minimal mock for JwtService that satisfies the gateway constructors */
-const mockJwtService: Partial<JwtService> = {
-  verify: jest.fn().mockReturnValue({ sub: 'test-user', tenantId: 'test-tenant' }),
-  verifyAsync: jest.fn().mockResolvedValue({ sub: 'test-user', tenantId: 'test-tenant' }),
-  sign: jest.fn().mockReturnValue('mock-jwt-token'),
+/** Minimal mock for GatewayTokenVerifierService that satisfies gateway constructors */
+const mockTokenVerifier: Partial<GatewayTokenVerifierService> = {
+  verifyAccessToken: jest.fn().mockResolvedValue({
+    sub: 'test-user',
+    tenantId: 'test-tenant',
+    type: 'access',
+    jti: 'test-jti',
+  }),
+  isPayloadAllowed: jest.fn().mockResolvedValue(true),
 };
 
 /** Minimal mock for ConfigService */
@@ -793,7 +797,9 @@ const mockConfigService = {
 
 describe('5. WebSocket Gateway Initialization', () => {
   describe('MessagingGateway', () => {
-    let gateway: InstanceType<typeof import('../../../apps/gateway-api/src/websocket/messaging.gateway').MessagingGateway>;
+    let gateway: InstanceType<
+      typeof import('../../../apps/gateway-api/src/websocket/messaging.gateway').MessagingGateway
+    >;
     let MessagingGatewayClass: typeof import('../../../apps/gateway-api/src/websocket/messaging.gateway').MessagingGateway;
 
     beforeAll(async () => {
@@ -813,7 +819,7 @@ describe('5. WebSocket Gateway Initialization', () => {
 
       expect(() => {
         gateway = new MessagingGatewayClass(
-          mockJwtService as JwtService,
+          mockTokenVerifier as GatewayTokenVerifierService,
           mockConfigService as ConfigService,
           undefined, // redisService
           undefined, // natsClient
@@ -840,7 +846,9 @@ describe('5. WebSocket Gateway Initialization', () => {
   });
 
   describe('SensorReadingsGateway', () => {
-    let gateway: InstanceType<typeof import('../../../apps/gateway-api/src/websocket/sensor-readings.gateway').SensorReadingsGateway>;
+    let gateway: InstanceType<
+      typeof import('../../../apps/gateway-api/src/websocket/sensor-readings.gateway').SensorReadingsGateway
+    >;
     let SensorReadingsGatewayClass: typeof import('../../../apps/gateway-api/src/websocket/sensor-readings.gateway').SensorReadingsGateway;
 
     beforeAll(async () => {
@@ -859,7 +867,8 @@ describe('5. WebSocket Gateway Initialization', () => {
 
       expect(() => {
         gateway = new SensorReadingsGatewayClass(
-          mockJwtService as JwtService,
+          mockTokenVerifier as GatewayTokenVerifierService,
+          undefined as never, // deviceOwnershipService
           mockConfigService as ConfigService,
           undefined, // sensorAuthService
         );
@@ -887,7 +896,9 @@ describe('5. WebSocket Gateway Initialization', () => {
   });
 
   describe('STLanguageGateway', () => {
-    let gateway: InstanceType<typeof import('../../../apps/gateway-api/src/websocket/st-language.gateway').STLanguageGateway>;
+    let gateway: InstanceType<
+      typeof import('../../../apps/gateway-api/src/websocket/st-language.gateway').STLanguageGateway
+    >;
     let STLanguageGatewayClass: typeof import('../../../apps/gateway-api/src/websocket/st-language.gateway').STLanguageGateway;
 
     beforeAll(async () => {
@@ -906,7 +917,7 @@ describe('5. WebSocket Gateway Initialization', () => {
 
       expect(() => {
         gateway = new STLanguageGatewayClass(
-          mockJwtService as JwtService,
+          mockTokenVerifier as GatewayTokenVerifierService,
           mockConfigService as ConfigService,
         );
       }).not.toThrow();
@@ -930,9 +941,7 @@ describe('5. WebSocket Gateway Initialization', () => {
       // Uses a test module that mocks external dependencies.
       const moduleFixture: TestingModule = await Test.createTestingModule({
         imports: [JwtModule.register({ secret: 'test-secret-at-least-32-chars-long-for-safety' })],
-        providers: [
-          { provide: ConfigService, useValue: mockConfigService },
-        ],
+        providers: [{ provide: ConfigService, useValue: mockConfigService }],
       }).compile();
 
       expect(moduleFixture).toBeDefined();
@@ -994,9 +1003,7 @@ class CombinedTestController {
 @Module({ controllers: [CombinedTestController] })
 class CombinedModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer
-      .apply(CombinedCorrelationMiddleware, CombinedTenantMiddleware)
-      .forRoutes('*');
+    consumer.apply(CombinedCorrelationMiddleware, CombinedTenantMiddleware).forRoutes('*');
   }
 }
 

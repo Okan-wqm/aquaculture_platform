@@ -13,11 +13,13 @@ import { MessagingGateway } from './messaging.gateway';
 import { MessagingNatsBridgeService } from './messaging-nats-bridge.service';
 import { FarmGateway } from './farm.gateway';
 import { FarmNatsBridgeService } from './farm-nats-bridge.service';
+import { GatewayAuthModule } from '../guards/gateway-auth.module';
 
 @Module({
   imports: [
     ConfigModule,
     JwtModule,
+    GatewayAuthModule,
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
@@ -41,12 +43,7 @@ import { FarmNatsBridgeService } from './farm-nats-bridge.service';
     FarmGateway,
     FarmNatsBridgeService,
   ],
-  exports: [
-    SensorReadingsGateway,
-    STLanguageGateway,
-    MessagingGateway,
-    FarmGateway,
-  ],
+  exports: [SensorReadingsGateway, STLanguageGateway, MessagingGateway, FarmGateway],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class WebSocketModule {}

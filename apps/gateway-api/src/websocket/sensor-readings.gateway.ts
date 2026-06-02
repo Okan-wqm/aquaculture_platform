@@ -9,7 +9,6 @@
 
 import { Logger, Inject, Optional, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -20,10 +19,10 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { DEVICE_CODE_REGEX, UUID_REGEX } from '@aquaculture/backend-common/constants';
 import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 
+import { GatewayTokenVerifierService } from '../guards/gateway-token-verifier.service';
 import { DeviceOwnershipService } from './services/device-ownership.service';
 
 /** Inbound sensor reading event from the NATS bridge. */
@@ -101,14 +100,14 @@ export class SensorReadingsGateway
    * a supported deployment mode — fail-fast at construction time.
    */
   constructor(
-    private readonly jwtService: JwtService,
+    private readonly tokenVerifier: GatewayTokenVerifierService,
     private readonly deviceOwnershipService: DeviceOwnershipService,
     private readonly configService: ConfigService,
-    @Optional() @Inject(SENSOR_AUTH_SERVICE)
+    @Optional()
+    @Inject(SENSOR_AUTH_SERVICE)
     private readonly sensorAuthService?: ISensorAuthorizationService,
   ) {
-    this.isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
     // CORS allowlist validity is enforced at module load by
     // `buildWsCorsConfig('SensorReadingsGateway')`, which throws in
     // production if WS_CORS_ORIGINS is missing. If the process is
@@ -151,11 +150,18 @@ export class SensorReadingsGateway
           const sensors = await this.sensorAuthService.getSensorsByTenant(tenantId);
           authorizedSensorIds = new Set(sensors);
         } catch (err) {
-          this.logger.warn(`Failed to fetch authorized sensors for tenant ${tenantId}: ${(err as Error).message}`);
+          this.logger.warn(
+            `Failed to fetch authorized sensors for tenant ${tenantId}: ${(err as Error).message}`,
+          );
         }
       }
 
-      this.clients.set(client.id, { socket: client, tenantId, sensorIds: new Set(), authorizedSensorIds });
+      this.clients.set(client.id, {
+        socket: client,
+        tenantId,
+        sensorIds: new Set(),
+        authorizedSensorIds,
+      });
       void client.join(`tenant:${tenantId}`);
       this.logger.log(`Client ${client.id} connected for tenant ${tenantId}`);
       client.emit('connected', { message: 'Connected to sensor readings stream', tenantId });
@@ -181,7 +187,11 @@ export class SensorReadingsGateway
       return { success: false, subscribedTo: [], reason: 'Client not authenticated' };
     }
     if (!Array.isArray(payload.sensorIds) || payload.sensorIds.length === 0) {
-      return { success: false, subscribedTo: Array.from(clientData.sensorIds), reason: 'Invalid sensorIds' };
+      return {
+        success: false,
+        subscribedTo: Array.from(clientData.sensorIds),
+        reason: 'Invalid sensorIds',
+      };
     }
 
     const MAX_SUBSCRIPTIONS = 100;
@@ -193,7 +203,9 @@ export class SensorReadingsGateway
       };
     }
 
-    const validSensorIds = payload.sensorIds.filter((id) => typeof id === 'string' && UUID_REGEX.test(id));
+    const validSensorIds = payload.sensorIds.filter(
+      (id) => typeof id === 'string' && UUID_REGEX.test(id),
+    );
     if (validSensorIds.length !== payload.sensorIds.length) {
       this.logger.warn(`Client ${client.id} sent invalid sensor IDs`);
     }
@@ -207,7 +219,10 @@ export class SensorReadingsGateway
         authorizedIds.push(sensorId);
       } else if (this.sensorAuthService) {
         try {
-          const isAuthorized = await this.sensorAuthService.isSensorOwnedByTenant(sensorId, clientData.tenantId);
+          const isAuthorized = await this.sensorAuthService.isSensorOwnedByTenant(
+            sensorId,
+            clientData.tenantId,
+          );
           if (isAuthorized) {
             clientData.authorizedSensorIds.add(sensorId);
             authorizedIds.push(sensorId);
@@ -273,11 +288,16 @@ export class SensorReadingsGateway
     }
 
     if (!DEVICE_CODE_REGEX.test(payload.deviceCode)) {
-      this.logger.warn(`SEC-M18: Client ${client.id} sent invalid device code: ${payload.deviceCode.substring(0, 50)}`);
+      this.logger.warn(
+        `SEC-M18: Client ${client.id} sent invalid device code: ${payload.deviceCode.substring(0, 50)}`,
+      );
       return { success: false, reason: 'Invalid device code format' };
     }
 
-    const owned = await this.deviceOwnershipService.verifyOwnership(payload.deviceCode, clientData.tenantId);
+    const owned = await this.deviceOwnershipService.verifyOwnership(
+      payload.deviceCode,
+      clientData.tenantId,
+    );
     if (!owned) {
       this.logger.warn(
         `SEC-M18: Client ${client.id} denied edge I/O — device ${payload.deviceCode} not owned by tenant ${clientData.tenantId}`,
@@ -287,7 +307,9 @@ export class SensorReadingsGateway
 
     const room = `edgeIo:${clientData.tenantId}:${payload.deviceCode}`;
     void client.join(room);
-    this.logger.debug(`Client ${client.id} subscribed to edge I/O: ${payload.deviceCode} (tenant: ${clientData.tenantId})`);
+    this.logger.debug(
+      `Client ${client.id} subscribed to edge I/O: ${payload.deviceCode} (tenant: ${clientData.tenantId})`,
+    );
     return { success: true };
   }
 
@@ -305,19 +327,29 @@ export class SensorReadingsGateway
 
   /** Broadcast edge device I/O data to subscribed clients. */
   broadcastEdgeIoData(event: {
-    tenantId: string; deviceCode: string; tags: Record<string, unknown>; timestamp: string;
+    tenantId: string;
+    deviceCode: string;
+    tags: Record<string, unknown>;
+    timestamp: string;
   }): void {
     this.server.to(`edgeIo:${event.tenantId}:${event.deviceCode}`).emit('edgeIoData', {
-      deviceCode: event.deviceCode, tags: event.tags, timestamp: event.timestamp,
+      deviceCode: event.deviceCode,
+      tags: event.tags,
+      timestamp: event.timestamp,
     });
   }
 
   /** Broadcast edge device alarm events to subscribed clients. */
   broadcastEdgeAlarm(event: {
-    tenantId: string; deviceCode: string; alarms: EdgeDeviceAlarm[]; timestamp: string;
+    tenantId: string;
+    deviceCode: string;
+    alarms: EdgeDeviceAlarm[];
+    timestamp: string;
   }): void {
     this.server.to(`edgeIo:${event.tenantId}:${event.deviceCode}`).emit('edgeAlarm', {
-      deviceCode: event.deviceCode, alarms: event.alarms, timestamp: event.timestamp,
+      deviceCode: event.deviceCode,
+      alarms: event.alarms,
+      timestamp: event.timestamp,
     });
   }
 
@@ -328,7 +360,9 @@ export class SensorReadingsGateway
       return;
     }
     this.server.to(`sensor:${event.sensorId}`).emit('sensorReading', event);
-    this.logger.debug(`Broadcasted reading for sensor ${event.sensorId} to tenant ${event.tenantId}`);
+    this.logger.debug(
+      `Broadcasted reading for sensor ${event.sensorId} to tenant ${event.tenantId}`,
+    );
   }
 
   /** Get connected client count. */
@@ -358,49 +392,11 @@ export class SensorReadingsGateway
     return null;
   }
 
-  /**
-   * Validate a JWT token via the shared platform verification helpers.
-   * See `farm.gateway.ts:validateToken` for the full rationale — this
-   * implementation mirrors it so every gateway applies the same
-   * security policy.
-   *
-   * `getJwtVerifyOptions` enforces HS256 + issuer + audience at the
-   * jsonwebtoken library level (not a conditional check). The
-   * subsequent `enforceAccessTokenType` rejects refresh and
-   * MFA-challenge tokens at handshake (H-1).
-   */
   private async validateToken(token: string): Promise<TokenPayload | null> {
-    try {
-      const result = await this.jwtService.verifyAsync<Record<string, unknown>>(
-        token,
-        getJwtVerifyOptions(this.configService),
-      );
-
-      if (typeof result !== 'object' || result === null) return null;
-      if (
-        typeof result['tenantId'] !== 'string' ||
-        result['tenantId'].length === 0
-      ) {
-        return null;
-      }
-      if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
-        return null;
-      }
-
-      enforceAccessTokenType(
-        {
-          type: typeof result['type'] === 'string' ? result['type'] : undefined,
-          sub: result['sub'],
-          jti: typeof result['jti'] === 'string' ? result['jti'] : undefined,
-        },
-        this.logger,
-        this.isProduction,
-      );
-
-      return result as TokenPayload;
-    } catch (error) {
-      this.logger.debug(`Token validation failed: ${(error as Error).message}`);
-      return null;
-    }
+    const payload = await this.tokenVerifier.verifyAccessToken(token, {
+      context: 'SensorReadingsGateway',
+      requireTenantId: true,
+    });
+    return payload as TokenPayload | null;
   }
 }

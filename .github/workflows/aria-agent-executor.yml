@@ -232,6 +232,7 @@ jobs:
               dlp_scan_clean=True,
               audit_reason="persist handoff ledger and bounded agent response envelope",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-executor-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))

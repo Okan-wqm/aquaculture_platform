@@ -79,6 +79,7 @@ jobs:
               dlp_scan_clean=True,
               audit_reason="publish deterministic finding state sweep through automation PR",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "finding-state-sweep-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))

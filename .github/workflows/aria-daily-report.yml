@@ -117,6 +117,7 @@ jobs:
               dlp_scan_clean=True,
               audit_reason="generate and upload daily ARIA report artifact",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-daily-report-generate-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))
@@ -198,6 +199,7 @@ jobs:
               dlp_scan_clean=True,
               audit_reason="publish daily ARIA report through automation PR",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-daily-report-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))

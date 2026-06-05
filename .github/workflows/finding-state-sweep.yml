@@ -72,8 +72,8 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=[registry],
               path_allowlist=[registry],
-              network_policy=["github_api", "github_artifact"],
-              network_enforcement_evidence="GitHub artifact proof upload and PR API via automation/open-report-pr.sh",
+              network_policy=["actions_runtime", "github_api", "github_artifact", "github_git", "npm_registry"],
+              network_enforcement_evidence="checkout/setup actions, npm registry install, GitHub artifact upload, GitHub API, and Git remote operations via automation/open-report-pr.sh",
               token_provenance="github_app:installation",
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
@@ -143,7 +143,6 @@ jobs:
             tools/gates/finding-registry.ts verify
 
       - name: Upload finding sweep workflow proof
-        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
         with:
           name: finding-state-sweep-proof-${{ github.run_id }}-${{ github.run_attempt }}

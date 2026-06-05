@@ -224,8 +224,8 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=allowed,
               path_allowlist=allowed,
-              network_policy=["github_artifact"],
-              network_enforcement_evidence="actions/upload-artifact limited to exact response envelope path",
+              network_policy=["actions_runtime", "codex_cloud", "github_artifact", "github_git"],
+              network_enforcement_evidence="checkout/setup actions, trusted Codex Cloud invocation, and GitHub artifact upload limited to exact response envelope path",
               token_provenance="github_actions_artifact_token",
               require_github_app=False,
               dlp_mode="fail_closed",
@@ -284,6 +284,15 @@ jobs:
           path: |
             ${{ runner.temp }}/aria-agent-executor-preflight.json
             aria-tools/agent-invocations/outputs/${{ steps.pending.outputs.request_id }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload executor no-op workflow proof
+        if: steps.pending.outputs.request_id == ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aria-response-noop-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-agent-executor-preflight.json
           if-no-files-found: error
           retention-days: 7
 

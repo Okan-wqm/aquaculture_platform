@@ -23,6 +23,7 @@ from .workflow_contract_registry import (
 
 
 UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+SUPPORTED_CLEAN_WORKTREE_POLICIES = frozenset({"preflight_only_foundation"})
 _GITHUB_EXPR = re.compile(r"\$\{\{\s*([^}]+?)\s*\}\}")
 
 
@@ -251,6 +252,13 @@ def _verify_job_contract(
     reasons: list[str],
     failure_classes: list[str],
 ) -> None:
+    if job_contract.clean_worktree_policy not in SUPPORTED_CLEAN_WORKTREE_POLICIES:
+        reasons.append(
+            f"workflow_clean_worktree_policy_unsupported:"
+            f"{job_contract.job_id}:{job_contract.clean_worktree_policy}"
+        )
+        failure_classes.append("workflow_clean_worktree_policy")
+
     steps = job.get("steps")
     if not isinstance(steps, list):
         reasons.append(f"workflow_steps_missing:{job_contract.job_id}")

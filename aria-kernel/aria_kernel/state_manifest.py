@@ -8,6 +8,9 @@ policy instead of duplicating path rules.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -152,6 +155,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         strict_read=True,
         durability="append_fsync",
         write_driving=True,
+        schema_id="aria/agent-result-bridge-status/v1",
     ),
     StateSurface(
         name="ack_ledger",
@@ -242,10 +246,12 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("runtime_v2_promotions", "runtime/v2-promotions.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("autonomy_state", "autonomy_state.jsonl", "ledger", "autonomy", "runtime", True, "append_fsync", True),
     StateSurface("plan_convergence_events", "plans/*.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True),
-    StateSurface("bridge_status", "agent-invocations/agent-result-bridge-status.jsonl", "ledger", "agent_invocations", "agent_invocations", True, "append_fsync", True),
     StateSurface("cost_budget", "budget/*.jsonl", "ledger", "budget", "runtime", True, "append_fsync", True),
     StateSurface("quarantine", "quarantine/*.jsonl", "ledger", "quarantine", "runtime", True, "append_fsync", True),
 )
+
+
+_BOUND_IDENTITY_RE = re.compile(r"^[0-9a-f]{16}([0-9a-f]{48})?$")
 
 
 def _surface_sort_key(surface: StateSurface) -> tuple[int, int, int, str]:
@@ -255,8 +261,45 @@ def _surface_sort_key(surface: StateSurface) -> tuple[int, int, int, str]:
     return (wildcard_count, -fixed_count, -len(parts), surface.name)
 
 
-def _ordered_surfaces() -> tuple[StateSurface, ...]:
-    return tuple(sorted(STATE_SURFACES, key=_surface_sort_key))
+def _ordered_surfaces(surfaces: tuple[StateSurface, ...] = STATE_SURFACES) -> tuple[StateSurface, ...]:
+    return tuple(sorted(surfaces, key=_surface_sort_key))
+
+
+def validate_manifest_invariants(
+    surfaces: tuple[StateSurface, ...] = STATE_SURFACES,
+) -> None:
+    names: set[str] = set()
+    authoritative_patterns: set[str] = set()
+    errors: list[str] = []
+    for surface in surfaces:
+        if surface.name in names:
+            errors.append(f"duplicate_surface_name:{surface.name}")
+        names.add(surface.name)
+        if surface.authority_class == "authoritative":
+            if surface.path_pattern in authoritative_patterns:
+                errors.append(f"duplicate_authoritative_path_pattern:{surface.path_pattern}")
+            authoritative_patterns.add(surface.path_pattern)
+        if surface.write_driving:
+            missing = [
+                field
+                for field, value in (
+                    ("state_class", surface.state_class),
+                    ("lock_group", surface.lock_group),
+                    ("durability", surface.durability),
+                    ("root_policy", surface.root_policy),
+                    ("writer_api", surface.writer_api),
+                    ("reader_api", surface.reader_api),
+                    ("authority_class", surface.authority_class),
+                )
+                if not value
+            ]
+            if missing:
+                errors.append(f"write_driving_surface_metadata_missing:{surface.name}:{','.join(missing)}")
+    ordered = list(_ordered_surfaces(surfaces))
+    if ordered != sorted(surfaces, key=_surface_sort_key):
+        errors.append("surface_order_not_exact_before_wildcard")
+    if errors:
+        raise ValueError(";".join(errors))
 
 
 def iter_surfaces() -> tuple[StateSurface, ...]:
@@ -295,11 +338,70 @@ def _candidate_base_dirs(path: Path) -> tuple[Path, ...]:
     return tuple(ordered)
 
 
+def _has_symlink_component(path: Path) -> bool:
+    current = Path(path.anchor) if path.is_absolute() else Path()
+    parts = path.parts[1:] if path.is_absolute() else path.parts
+    for part in parts:
+        current = current / part
+        try:
+            if current.is_symlink():
+                return True
+        except OSError:
+            return True
+    return False
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _identity_content_hash_matches(base_dir: Path, identity_path: Path) -> bool:
+    index_path = base_dir / "integrity_index.json"
+    if not index_path.is_file() or index_path.is_symlink():
+        return False
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    file_hashes = index.get("file_hashes")
+    if not isinstance(file_hashes, dict):
+        return False
+    return file_hashes.get("repo_identity") == _file_sha256(identity_path)
+
+
+def _tools_identity_valid(base_dir: Path) -> bool:
+    if _has_symlink_component(base_dir):
+        return False
+    identity_path = base_dir / "repo_identity.json"
+    if not identity_path.is_file() or identity_path.is_symlink():
+        return False
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(identity, dict):
+        return False
+    try:
+        schema_version = int(identity.get("schema_version") or 0)
+        contract_version = int(identity.get("aria_tools_contract_version") or 0)
+    except (TypeError, ValueError):
+        return False
+    if schema_version < 2 or contract_version < 2:
+        return False
+    bound_identity = identity.get("bound_canonical_identity") or identity.get("bound_repo_hash")
+    if not isinstance(bound_identity, str) or not _BOUND_IDENTITY_RE.fullmatch(bound_identity):
+        return False
+    bound_root = identity.get("bound_repo_root")
+    if not isinstance(bound_root, str) or not bound_root.strip():
+        return False
+    return _identity_content_hash_matches(base_dir, identity_path)
+
+
 def _root_policy_matches(base_dir: Path, surface: StateSurface) -> bool:
     if surface.root_policy == "unbound":
         return True
     if surface.root_policy == "tools_identity":
-        return (base_dir / "repo_identity.json").is_file()
+        return _tools_identity_valid(base_dir)
     return False
 
 
@@ -314,7 +416,11 @@ def surface_for_path(path: str | Path) -> tuple[StateSurface, Path] | None:
     pattern. Exact surfaces are evaluated before wildcard surfaces so a
     specific dispatch ledger cannot be shadowed by ``dispatch/*.jsonl``.
     """
-    concrete = Path(path).resolve()
+    raw = Path(path)
+    raw_absolute = raw if raw.is_absolute() else Path.cwd() / raw
+    if _has_symlink_component(raw_absolute):
+        return None
+    concrete = raw.resolve()
     for base_dir in _candidate_base_dirs(concrete):
         try:
             rel = concrete.relative_to(base_dir).as_posix()
@@ -350,4 +456,5 @@ __all__ = [
     "surface_for_path",
     "surface_for_relative_path",
     "surfaces_for_lock_group",
+    "validate_manifest_invariants",
 ]

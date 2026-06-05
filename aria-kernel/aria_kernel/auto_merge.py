@@ -511,130 +511,16 @@ def merge_if_green(
     if not decision["eligible"] or dry_run:
         return decision
 
-    # Plan 026R §D.4 — auto-merge triple-gate. The pre-§D.4 eligibility
-    # check (decision["eligible"]) covered branch protection / required
-    # reviewers / checks / conversation resolution. The triple-gate
-    # adds three change-ledger-bound assertions: head_sha == change's
-    # commit_sha, change_validated row exists, validation_runs verified.
-    # Pre-§D.4 a PR could pass GitHub-side eligibility but the change
-    # row was missing / a different commit_sha was committed / no
-    # validation run had recorded a passing log_hash. Now those three
-    # surfaces fail-closed BEFORE the merge subprocess runs.
-    head_sha_pre = str(decision["head_sha"])
-    triple = _evaluate_triple_gate(
-        pr_number=pr_number,
-        head_sha=head_sha_pre,
-        base_dir=base_dir,
-    )
-    if not triple["passed"]:
-        blocked_triple = dict(decision)
-        blocked_triple.update(
-            {
-                "recorded_at": utc_now(),
-                "decision": "blocked",
-                "eligible": False,
-                "reasons": [
-                    "auto_merge_triple_gate_blocked",
-                    *triple["reasons"],
-                ],
-                "stage": "triple_gate_pre_merge",
-                "change_id": triple.get("change_id"),
-            },
-        )
-        _append_decision(base_dir, blocked_triple)
-        return blocked_triple
-
-    # Plan 024 v3 §B-6 — pre-merge full re-evaluation. Pre-fix the
-    # window between snapshot construction and merge call only re-
-    # fetched the head SHA; reviews / checks / conversations / diff
-    # were not re-collected. A force-push between snapshot and merge
-    # only invalidated the head SHA branch, but a required reviewer
-    # could dismiss approval, a check could fail, an unresolved
-    # comment could be added — and the merge would still proceed.
-    # The fix re-runs the full snapshot collector and pipes a fresh
-    # evaluate_auto_merge so EVERY eligibility surface is re-checked
-    # at the merge boundary. expected_head_sha on the merge_pr call
-    # is the GitHub-side defense-in-depth; the API rejects 409 on
-    # SHA drift even after the local re-check passes.
-    head_sha = str(decision["head_sha"])
-    fresh_pr = adapter.get_pr(pr_number)
-    fresh_github = collect_github_snapshot(adapter, fresh_pr)
-    fresh_diff: str | None = None
-    if hasattr(adapter, "get_pr_diff"):
-        try:
-            fresh_diff = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
-        except Exception:
-            fresh_diff = None
-    if fresh_diff is None:
-        fresh_diff = fresh_pr.get("diff_text")
-    fresh_decision = evaluate_auto_merge(
-        pr=fresh_pr,
-        github=fresh_github,
-        policy=policy,
-        base_dir=None,  # do not append the fresh-eval probe to the decision ledger
-        cycle_id=cycle_id,
-        dry_run=True,
-        diff_text=fresh_diff,
-    )
-    if not fresh_decision.get("eligible"):
-        blocked = dict(decision)
-        blocked.update(
-            {
-                "recorded_at": utc_now(),
-                "decision": "blocked",
-                "eligible": False,
-                "latest_head_sha": fresh_decision.get("head_sha"),
-                "reasons": [
-                    "pre_merge_re_evaluation_blocked",
-                    *list(fresh_decision.get("reasons") or []),
-                ],
-                "stage": "pre_merge_re_evaluation",
-            },
-        )
-        _append_decision(base_dir, blocked)
-        return blocked
-    latest_head_sha = fresh_decision.get("head_sha")
-    if latest_head_sha != head_sha:
-        blocked = dict(decision)
-        blocked.update(
-            {
-                "recorded_at": utc_now(),
-                "decision": "blocked",
-                "eligible": False,
-                "latest_head_sha": latest_head_sha,
-                "reasons": ["PR head SHA changed after green evaluation"],
-            },
-        )
-        _append_decision(base_dir, blocked)
-        return blocked
-
-    try:
-        merge_result = adapter.merge_pr(pr_number, method="squash", expected_head_sha=head_sha)
-    except Exception as exc:  # pragma: no cover - exercised by adapter fakes in tests
-        failed = dict(decision)
-        failed.update(
-            {
-                "recorded_at": utc_now(),
-                "decision": "failed",
-                "eligible": False,
-                "reasons": [str(exc)],
-            },
-        )
-        _append_decision(base_dir, failed)
-        return failed
-
-    merged = dict(decision)
-    merged.update(
+    evaluation_only = dict(decision)
+    evaluation_only.update(
         {
             "recorded_at": utc_now(),
-            "decision": "merged",
-            "eligible": True,
-            "merge_result": merge_result,
+            "stage": "auto_merge_evaluation_only",
+            "merge_authority_required": True,
         },
     )
-    _append_decision(base_dir, merged)
-    record_pr_lifecycle(pr, event="merged", base_dir=base_dir, cycle_id=cycle_id)
-    return merged
+    _append_decision(base_dir, evaluation_only)
+    return evaluation_only
 
 
 def collect_github_snapshot(adapter: GitHubAdapter, pr: dict[str, Any]) -> dict[str, Any]:
@@ -715,9 +601,10 @@ class SnapshotGitHubAdapter:
         return diff
 
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
-        call = {"number": number, "method": method, "expected_head_sha": expected_head_sha}
-        self.merge_calls.append(call)
-        return {"merged": True, **call}
+        raise GovernanceError(
+            "SnapshotGitHubAdapter.merge_pr is disabled; use "
+            "merge_authority.merge_if_authorized with a readiness_claim_id"
+        )
 
 
 class GhCliGitHubAdapter:
@@ -842,26 +729,10 @@ class GhCliGitHubAdapter:
         return diff if diff.strip() else None
 
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
-        if method != "squash":
-            raise GovernanceError("only squash merge is allowed")
-        completed = subprocess.run(
-            [
-                "gh",
-                "pr",
-                "merge",
-                str(number),
-                "--squash",
-                "--match-head-commit",
-                expected_head_sha,
-            ],
-            cwd=self.cwd,
-            check=False,
-            capture_output=True,
-            text=True,
+        raise GovernanceError(
+            "GhCliGitHubAdapter.merge_pr is disabled; use "
+            "merge_authority.merge_if_authorized with a readiness_claim_id"
         )
-        if completed.returncode != 0:
-            raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh pr merge failed")
-        return {"merged": True, "method": "squash", "expected_head_sha": expected_head_sha}
 
     def _gh_api_json(self, args: list[str]) -> dict[str, Any]:
         return self._gh_json(["api", *args])

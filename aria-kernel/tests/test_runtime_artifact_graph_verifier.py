@@ -9,10 +9,12 @@ from aria_kernel.runtime_artifacts import (
     ARTIFACT_BEARING,
     INTEGRITY_FAILED,
     LIFECYCLE_ONLY,
+    RUNTIME_ARTIFACT_SOURCE_SURFACE,
     classify_cycle_evidence,
     verify_runtime_artifacts,
     write_run_artifact,
 )
+from aria_kernel.evidence_trust import recompute_artifact_hash
 from aria_kernel.runtime_profile import set_profile
 
 
@@ -73,6 +75,7 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
 
         self.assertEqual(result["cycle_evidence_class"], ARTIFACT_BEARING)
         self.assertTrue(result["promotion_eligible"])
+        self.assertEqual(artifact["artifact_ref"]["source_surface"], RUNTIME_ARTIFACT_SOURCE_SURFACE)
 
     def test_hashless_legacy_artifact_ref_fails_integrity(self) -> None:
         artifact = self.base / "legacy.json"
@@ -110,6 +113,7 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
                 "artifact_refs": [
                     {
                         "artifact_id": "missing-artifact",
+                        "source_surface": RUNTIME_ARTIFACT_SOURCE_SURFACE,
                         "uri": "missing.json",
                         "sha256": "sha256:" + "0" * 64,
                     }
@@ -123,6 +127,86 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
 
         self.assertEqual(result["cycle_evidence_class"], INTEGRITY_FAILED)
         self.assertIn("artifact_ref_missing", {issue["code"] for issue in verify["issues"]})
+
+    def test_artifact_ref_without_declared_source_surface_fails_integrity(self) -> None:
+        artifact = self.base / "proof.json"
+        artifact.write_text("proof\n", encoding="utf-8")
+        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-surface", "event": "started", "status": "started"})
+        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-surface", "event": "completed", "status": "completed"})
+        append_jsonl(
+            self.base / "runs.jsonl",
+            {
+                "schema_version": 1,
+                "run_id": "run-surface",
+                "tool_id": "tool-a",
+                "cycle_id": "cyc-surface",
+                "status": "ok",
+                "artifact_refs": [
+                    {
+                        "artifact_id": "proof",
+                        "uri": "proof.json",
+                        "sha256": recompute_artifact_hash(artifact),
+                    }
+                ],
+                "runner": {"raw_findings_count": 0},
+            },
+        )
+
+        verify = verify_runtime_artifacts(base_dir=self.base, cycle_id="cyc-surface")
+
+        self.assertIn("artifact_ref_source_surface_missing", {issue["code"] for issue in verify["issues"]})
+
+    def test_workspace_artifact_ref_cannot_satisfy_runtime_trusted_proof(self) -> None:
+        workspace = self.tmp / "workspace"
+        workspace.mkdir()
+        proof = workspace / "proof.json"
+        proof.write_text("proof\n", encoding="utf-8")
+        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-worktree", "event": "started", "status": "started"})
+        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-worktree", "event": "completed", "status": "completed"})
+        append_jsonl(
+            self.base / "runs.jsonl",
+            {
+                "schema_version": 1,
+                "run_id": "run-worktree",
+                "tool_id": "tool-a",
+                "cycle_id": "cyc-worktree",
+                "status": "ok",
+                "artifact_refs": [
+                    {
+                        "artifact_id": "worktree-proof",
+                        "source_surface": RUNTIME_ARTIFACT_SOURCE_SURFACE,
+                        "uri": proof.as_posix(),
+                        "sha256": recompute_artifact_hash(proof),
+                    }
+                ],
+                "runner": {"raw_findings_count": 0},
+            },
+        )
+
+        verify = verify_runtime_artifacts(base_dir=self.base, workspace_root=workspace, cycle_id="cyc-worktree")
+
+        self.assertIn("artifact_path_escape", {issue["code"] for issue in verify["issues"]})
+
+    def test_malformed_retention_event_fails_structural_verification(self) -> None:
+        append_jsonl(
+            self.base / "retention" / "events.jsonl",
+            {
+                "schema_version": 1,
+                "event": "artifact_archived",
+                "artifact_id": "artifact-1",
+                "original_path": "run-artifacts/hot/a.json",
+                "new_path": ".archive/runtime/a.json",
+                "sha256": "caller-said-ok",
+                "reason": "retention",
+            },
+        )
+
+        verify = verify_runtime_artifacts(base_dir=self.base, cycle_id="cyc-retention")
+
+        codes = {issue["code"] for issue in verify["issues"]}
+        self.assertIn("retention_event_hash_invalid", codes)
+        self.assertIn("retention_event_operator_approval_missing", codes)
+        self.assertIn("retention_event_review_missing", codes)
 
 
 if __name__ == "__main__":

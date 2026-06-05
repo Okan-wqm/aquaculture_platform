@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_safety import scrub_json
-from .ledger import LedgerIntegrityError, append_jsonl, file_hash, load_jsonl, verify_jsonl
+from .evidence_trust import (
+    recompute_artifact_hash,
+    verify_hash_bound_artifact_ref,
+    verify_retention_event_structure,
+)
+from .ledger import LedgerIntegrityError, append_jsonl, load_jsonl, verify_jsonl
 from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, tools_dir, utc_now
 
 
@@ -23,6 +28,7 @@ ARTIFACT_BEARING = "artifact_bearing"
 LIFECYCLE_ONLY = "lifecycle_only"
 INTEGRITY_FAILED = "integrity_failed"
 INCOMPLETE = "incomplete"
+RUNTIME_ARTIFACT_SOURCE_SURFACE = "runtime_artifact"
 
 DISCOVERY_ARTIFACTS = (
     "COMPLETION_PROOF.json",
@@ -128,6 +134,7 @@ def write_run_artifact(
         "schema_version": 1,
         "artifact_id": artifact_id,
         "kind": kind,
+        "source_surface": RUNTIME_ARTIFACT_SOURCE_SURFACE,
         "uri": uri,
         "sha256": digest,
         "size_bytes": len(encoded),
@@ -145,6 +152,7 @@ def write_run_artifact(
         "size_bytes": len(encoded),
         "created_at": utc_now(),
         "storage_tier": "hot",
+        "source_surface": RUNTIME_ARTIFACT_SOURCE_SURFACE,
         "current_uri": uri,
         "owner": owner,
         "repo_state_id": repo_state_id,
@@ -163,6 +171,7 @@ def write_run_artifact(
         "path": uri,
         "bytes": len(encoded),
         "sha256": digest,
+        "source_surface": RUNTIME_ARTIFACT_SOURCE_SURFACE,
         "storage_tier": "hot",
         "retention_action": None,
     })
@@ -279,7 +288,7 @@ def verify_artifacts(*, base_dir: str | Path | None = None) -> dict[str, Any]:
         if not path.exists():
             issues.append({"code": "run_artifact_missing", "artifact_id": artifact_id, "path": uri})
             continue
-        actual = _sha256_bytes(path.read_bytes())
+        actual = recompute_artifact_hash(path)
         if actual != expected:
             issues.append({
                 "code": "run_artifact_hash_mismatch",
@@ -381,9 +390,9 @@ def verify_runtime_artifacts(
             issues.append({"code": "raw_pointer_missing", "run_id": run_id, "cycle_id": run.get("cycle_id") or run.get("cycle_uid"), "expected_raw_findings_count": expected_raw})
         for ref in _artifact_refs_from_run(run):
             artifact_refs_seen.append(ref)
-            issue = _verify_artifact_ref(ref, root=root, workspace_root=workspace, source={"kind": "run", "run_id": run_id})
-            if issue:
-                issues.append(issue)
+            ref_issues = _verify_artifact_ref(ref, root=root, workspace_root=workspace, source={"kind": "run", "run_id": run_id})
+            if ref_issues:
+                issues.extend(ref_issues)
             else:
                 verified += 1
     verified += _verify_cycle_files(root=root, cycle_id=cycle_id, issues=issues)
@@ -801,34 +810,40 @@ def _artifact_refs_from_run(run: dict[str, Any]) -> list[Any]:
     return refs
 
 
-def _verify_artifact_ref(ref: Any, *, root: Path, workspace_root: Path | None, source: dict[str, Any]) -> dict[str, Any] | None:
+def _verify_artifact_ref(ref: Any, *, root: Path, workspace_root: Path | None, source: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(ref, str):
-        return {"code": "artifact_ref_hashless_legacy", "ref": ref, "source": source}
-    if isinstance(ref, dict):
-        raw_path = str(ref.get("uri") or ref.get("path") or ref.get("artifact_path") or "")
-        expected_hash = ref.get("sha256") or ref.get("hash") or ref.get("content_hash")
-        if not ref.get("artifact_id"):
-            return {"code": "artifact_ref_missing_artifact_id", "ref": ref, "source": source}
-        if not expected_hash:
-            return {"code": "artifact_ref_missing_hash", "ref": ref, "source": source}
-    else:
-        return {"code": "artifact_ref_invalid", "ref": repr(ref), "source": source}
-    if not raw_path.strip():
-        return {"code": "artifact_ref_missing_path", "ref": ref, "source": source}
-    try:
-        path = _resolve_artifact_path(raw_path, root=root, workspace_root=workspace_root)
-    except GovernanceError as exc:
-        return {"code": "artifact_path_escape", "path": raw_path, "source": source, "reason": str(exc)}
-    if not path.exists():
-        return {"code": "artifact_ref_missing", "path": raw_path, "source": source}
-    if path.is_file():
-        actual = file_hash(path)
-        normalized = str(expected_hash)
-        if normalized.startswith("sha256:"):
-            normalized = normalized.split(":", 1)[1]
-        if normalized != actual:
-            return {"code": "artifact_hash_mismatch", "path": raw_path, "expected": expected_hash, "actual": "sha256:" + actual, "source": source}
-    return None
+        return [{"code": "artifact_ref_hashless_legacy", "ref": ref, "source": source}]
+    if not isinstance(ref, dict):
+        return [{"code": "artifact_ref_invalid", "ref": repr(ref), "source": source}]
+    return [
+        _runtime_artifact_issue(issue)
+        for issue in verify_hash_bound_artifact_ref(
+            ref,
+            root=root,
+            workspace_root=workspace_root,
+            source=source,
+            require_artifact_id=True,
+            require_source_surface=True,
+            allow_workspace_path=False,
+        )
+    ]
+
+
+def _runtime_artifact_issue(issue: dict[str, Any]) -> dict[str, Any]:
+    code_map = {
+        "proof_artifact_hash_mismatch": "artifact_hash_mismatch",
+        "proof_artifact_missing": "artifact_ref_missing",
+        "proof_artifact_path_escape": "artifact_path_escape",
+        "proof_artifact_ref_missing_artifact_id": "artifact_ref_missing_artifact_id",
+        "proof_artifact_ref_missing_hash": "artifact_ref_missing_hash",
+        "proof_artifact_ref_missing_path": "artifact_ref_missing_path",
+        "proof_ref_not_structured": "artifact_ref_invalid",
+        "proof_source_surface_missing": "artifact_ref_source_surface_missing",
+        "proof_source_surface_unknown": "artifact_ref_source_surface_unknown",
+        "proof_source_surface_untrusted": "artifact_ref_source_surface_untrusted",
+    }
+    code = str(issue.get("code") or "")
+    return {**issue, "code": code_map.get(code, code)}
 
 
 def _resolve_artifact_path(raw_path: str, *, root: Path, workspace_root: Path | None) -> Path:
@@ -1034,18 +1049,19 @@ def _verify_global_manifest_inventory(*, root: Path, artifact_refs_seen: list[An
         artifact_id = str(ref.get("artifact_id") or "")
         expected_hash = str(ref.get("sha256") or ref.get("hash") or ref.get("content_hash") or "")
         expected_uri = str(ref.get("uri") or ref.get("path") or ref.get("artifact_path") or "")
+        expected_surface = str(ref.get("source_surface") or "")
         if not artifact_id:
             continue
         manifest = manifest_by_id.get(artifact_id)
         if manifest is None:
             issues.append({"code": "artifact_manifest_ref_missing", "artifact_id": artifact_id, "path": manifest_path.as_posix()})
         else:
-            _verify_summary_row_against_ref(manifest, artifact_id=artifact_id, expected_hash=expected_hash, expected_uri=expected_uri, issues=issues, code_prefix="artifact_manifest", path=manifest_path)
+            _verify_summary_row_against_ref(manifest, artifact_id=artifact_id, expected_hash=expected_hash, expected_uri=expected_uri, expected_source_surface=expected_surface, issues=issues, code_prefix="artifact_manifest", path=manifest_path)
         inventory = inventory_by_id.get(artifact_id)
         if inventory is None:
             issues.append({"code": "artifact_inventory_ref_missing", "artifact_id": artifact_id, "path": inventory_path.as_posix()})
         else:
-            _verify_summary_row_against_ref(inventory, artifact_id=artifact_id, expected_hash=expected_hash, expected_uri=expected_uri, issues=issues, code_prefix="artifact_inventory", path=inventory_path)
+            _verify_summary_row_against_ref(inventory, artifact_id=artifact_id, expected_hash=expected_hash, expected_uri=expected_uri, expected_source_surface=expected_surface, issues=issues, code_prefix="artifact_inventory", path=inventory_path)
 
 
 def _verify_summary_row_against_ref(
@@ -1054,22 +1070,32 @@ def _verify_summary_row_against_ref(
     artifact_id: str,
     expected_hash: str,
     expected_uri: str,
+    expected_source_surface: str,
     issues: list[dict[str, Any]],
     code_prefix: str,
     path: Path,
 ) -> None:
     row_hash = str(row.get("sha256") or row.get("hash") or row.get("content_hash") or "")
     row_uri = str(row.get("current_uri") or row.get("uri") or row.get("path") or row.get("artifact_path") or "")
+    row_surface = str(row.get("source_surface") or "")
     if expected_hash and row_hash and row_hash != expected_hash:
         issues.append({"code": f"{code_prefix}_hash_mismatch", "artifact_id": artifact_id, "expected": expected_hash, "actual": row_hash, "path": path.as_posix()})
     if expected_uri and row_uri and row_uri != expected_uri:
         issues.append({"code": f"{code_prefix}_uri_mismatch", "artifact_id": artifact_id, "expected": expected_uri, "actual": row_uri, "path": path.as_posix()})
+    if expected_source_surface and not row_surface:
+        issues.append({"code": f"{code_prefix}_source_surface_missing", "artifact_id": artifact_id, "expected": expected_source_surface, "path": path.as_posix()})
+    elif expected_source_surface and row_surface != expected_source_surface:
+        issues.append({"code": f"{code_prefix}_source_surface_mismatch", "artifact_id": artifact_id, "expected": expected_source_surface, "actual": row_surface, "path": path.as_posix()})
 
 
 def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> None:
     candidates = [root / "retention" / "events.jsonl", root / "retention-events.jsonl", root / "archive" / "retention-events.jsonl"]
     for path in candidates:
         for row in _safe_load_jsonl(path, issues, "retention_events"):
+            issues.extend(
+                {**issue, "ledger": path.as_posix()}
+                for issue in verify_retention_event_structure(row)
+            )
             kind = str(row.get("kind") or row.get("event") or row.get("event_type") or "")
             source = row.get("source_path") or row.get("artifact_path") or row.get("original_path")
             archive = row.get("archive_path") or row.get("new_path")
@@ -1089,8 +1115,6 @@ def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> Non
                         issues.append({"code": "archive_mismatch", "source_path": str(source), "archive_path": str(archive)})
             if kind in {"retention_missing_source", "restore_failed"}:
                 issues.append({"code": str(kind), "details": row})
-            if kind == "rollback" and not row.get("manifest_id") and not row.get("manifest_path"):
-                issues.append({"code": "unknown_manifest_rollback", "details": row})
 
 
 def _load_registry_tools(root: Path, *, issues: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:

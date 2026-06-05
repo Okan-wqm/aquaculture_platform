@@ -1,7 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
+
+
+def sha256_payload(payload: dict) -> str:
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        default=str,
+    )
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def sha256_text(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def sha256_file(path: Path) -> str:

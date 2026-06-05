@@ -252,11 +252,7 @@ class AutoMergeTests(unittest.TestCase):
                     ],
                 )
 
-    def test_merge_if_green_uses_squash_and_records_merged(self):
-        # Plan 026R §D.4 — auto-merge now triple-gates on
-        # change_committed + change_validated + verified validation_runs.
-        # Seed a passing chain so the merge proceeds.
-        self._seed_passing_triple_gate(pr_number=42, head_sha="abc1234")
+    def test_merge_if_green_is_evaluate_only_even_when_green(self):
         adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc1234", "abc1234"])
         result = merge_if_green(
             adapter=adapter,
@@ -266,10 +262,13 @@ class AutoMergeTests(unittest.TestCase):
             cycle_id="cycle-merge",
             dry_run=False,
         )
-        self.assertEqual(result["decision"], "merged")
-        self.assertEqual(adapter.merge_calls, [{"number": 42, "method": "squash", "expected_head_sha": "abc1234"}])
+        self.assertEqual(result["decision"], "eligible")
+        self.assertTrue(result["merge_authority_required"])
+        self.assertEqual(result["stage"], "auto_merge_evaluation_only")
+        self.assertEqual(adapter.merge_calls, [])
         decisions = [json.loads(line) for line in (self.tools_dir / "auto-merge-decisions.jsonl").read_text().splitlines()]
-        self.assertEqual([row["decision"] for row in decisions], ["eligible", "merged"])
+        self.assertEqual([row["decision"] for row in decisions], ["eligible", "eligible"])
+        self.assertTrue(all(row["decision"] != "merged" for row in decisions))
 
     def test_merge_command_not_called_when_checks_are_pending(self):
         adapter = FakeGitHubAdapter(
@@ -294,12 +293,7 @@ class AutoMergeTests(unittest.TestCase):
         self.assertEqual(result["decision"], "blocked")
         self.assertEqual(adapter.merge_calls, [])
 
-    def test_merge_blocks_if_head_changes_after_green_evaluation(self):
-        # Plan 024 v3 §B-6 — pre-merge full re-evaluation now blocks at
-        # the re-eval boundary. Plan 026R §D.4 — the auto-merge triple-
-        # gate fires BEFORE re-eval; we seed a passing triple-gate so
-        # the test reaches the head-SHA drift surface as intended.
-        self._seed_passing_triple_gate(pr_number=42, head_sha="abc1234")
+    def test_merge_if_green_no_longer_owns_pre_merge_boundary(self):
         adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc1234", "def456"])
         result = merge_if_green(
             adapter=adapter,
@@ -308,14 +302,9 @@ class AutoMergeTests(unittest.TestCase):
             base_dir=self.tools_dir,
             dry_run=False,
         )
-        self.assertEqual(result["decision"], "blocked")
-        joined = " ".join(result["reasons"])
-        self.assertTrue(
-            "PR head SHA changed" in joined
-            or "pre_merge_re_evaluation_blocked" in joined
-            or "auto_merge_triple_gate_blocked" in joined,
-            f"expected SHA-drift or triple-gate block reason; got {result['reasons']!r}",
-        )
+        self.assertEqual(result["decision"], "eligible")
+        self.assertEqual(result["stage"], "auto_merge_evaluation_only")
+        self.assertTrue(result["merge_authority_required"])
         self.assertEqual(adapter.merge_calls, [])
 
 

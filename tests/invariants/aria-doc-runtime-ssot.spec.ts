@@ -71,6 +71,49 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(current).toContain('Lifecycle-only cycles do not authorize promotion');
   });
 
+  it('CURRENT_STATE names readiness, merge, eval, evidence, and bypass closure contracts without over-claiming', () => {
+    const current = read('docs/aria/CURRENT_STATE.md');
+    expect(current).toContain('## Readiness / Merge / Eval Proof Closure');
+    for (const required of [
+      'Readiness proof:',
+      'Merge authority:',
+      'Eval provenance:',
+      'Evidence trust:',
+      'Fail-closed bypass classes:',
+      'aria-kernel/aria_kernel/enterprise_readiness.py::verify_enterprise_readiness',
+      'aria-kernel/aria_kernel/auto_merge.py::merge_if_green',
+      'aria-kernel/aria_kernel/merge_authority.py::merge_if_authorized',
+      'aria-kernel/aria_kernel/merge_authority.py::execute_gh_squash_merge',
+      'aria-kernel/aria_kernel/agent_eval.py::run_agent_eval',
+      'provenance_mode',
+      'invocation_id',
+      'transcript_hash',
+      'operator approval ref',
+      'artifact-bearing',
+      'hash-bound',
+      'path-contained',
+      'source-surface declared',
+      'ledger-connected',
+      'direct merge bypass',
+      'production import from test helpers',
+      'unproven real-mode eval envelope feed',
+    ]) {
+      expect(current).toContain(required);
+    }
+    expect(current).toContain('generated documentation the SSoT');
+    expect(current).toContain('burn-in remains open');
+    expect(current).toContain('full autonomy closure remains governed by the follow-up burn-in/docs SSoT plan');
+    for (const forbidden of [
+      /burn-in\s+(?:is\s+)?(?:complete|completed|closed)/i,
+      /generated\s+(?:docs|documentation)\s+(?:are|is)\s+the\s+SSoT/i,
+      /generated\s+(?:docs|documentation)\s+SSoT\s+(?:complete|completed|closed)/i,
+      /full\s+autonomy\s+(?:is\s+)?(?:complete|completed|closed)/i,
+      /full\s+autonomy\s+closure\s+(?:is\s+)?(?:complete|completed|closed)/i,
+    ]) {
+      expect(current).not.toMatch(forbidden);
+    }
+  });
+
   it('historical live docs are explicitly subordinate to CURRENT_STATE', () => {
     const staleRuntimeTerms = [
       'Claude Code',

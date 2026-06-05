@@ -1,4 +1,4 @@
-"""Plan 024 v3 §B-6 — auto-merge pre-merge full re-evaluation tests.
+"""Plan 024 v3 §B-6 — merge-authority pre-merge re-evaluation tests.
 
 Pre-fix the merge_if_green window between snapshot construction and
 adapter.merge_pr only re-fetched the head SHA. Reviews / checks /
@@ -13,10 +13,9 @@ Plus the SnapshotGitHubAdapter.get_latest_head_sha had a fallback
 Tests:
 1. SnapshotGitHubAdapter.get_latest_head_sha returns None when
    github.latest_head_sha is missing (no fallback to pr.head_sha).
-2. merge_if_green source carries the pre_merge_re_evaluation_blocked
-   tag and re-runs collect_github_snapshot at the merge boundary
-   (source scan; integration coverage is in test_auto_merge.py via
-   the head-sha-changed test which now hits the re-eval path).
+2. merge_if_authorized source carries the pre_merge_re_evaluation_blocked
+   tag and re-runs collect_github_snapshot at the merge-authority
+   boundary.
 """
 from __future__ import annotations
 
@@ -61,14 +60,14 @@ class SnapshotAdapterStrictHeadShaTests(unittest.TestCase):
         )
 
 
-class MergeIfGreenReEvaluationSourceTests(unittest.TestCase):
+class MergeAuthorityReEvaluationSourceTests(unittest.TestCase):
     def test_pre_merge_re_evaluation_path_wired_via_ast(self) -> None:
         """Plan 024 §B-6 + Plan 026R §H.1 — AST-backed conversion.
 
         Pre-§H.1 this test scanned auto_merge.py for substring markers.
         The converted form parses the module with ``ast`` and asserts:
 
-        * ``merge_if_green`` exists as a function in auto_merge.
+        * ``merge_if_authorized`` exists as a function in merge_authority.
         * Its body contains a Call to ``collect_github_snapshot`` with
           ``fresh_pr`` as the second positional argument (the re-eval
           collection site).
@@ -83,22 +82,22 @@ class MergeIfGreenReEvaluationSourceTests(unittest.TestCase):
           accessor must not fall back to pr.head_sha).
         """
         import ast as _ast
-        auto_merge_path = (
+        merge_authority_path = (
             Path(__file__).resolve().parent.parent
             / "aria_kernel"
-            / "auto_merge.py"
+            / "merge_authority.py"
         )
-        tree = _ast.parse(auto_merge_path.read_text(encoding="utf-8"))
+        tree = _ast.parse(merge_authority_path.read_text(encoding="utf-8"))
         merge_fn = next(
             (
                 n for n in _ast.walk(tree)
                 if isinstance(n, _ast.FunctionDef)
-                and n.name == "merge_if_green"
+                and n.name == "merge_if_authorized"
             ),
             None,
         )
         self.assertIsNotNone(
-            merge_fn, "auto_merge.py: merge_if_green not found",
+            merge_fn, "merge_authority.py: merge_if_authorized not found",
         )
         body_consts = {
             node.value for node in _ast.walk(merge_fn)
@@ -107,11 +106,11 @@ class MergeIfGreenReEvaluationSourceTests(unittest.TestCase):
         }
         self.assertIn(
             "pre_merge_re_evaluation_blocked", body_consts,
-            "merge_if_green: missing distinguishing tag literal",
+            "merge_if_authorized: missing distinguishing tag literal",
         )
         self.assertIn(
             "pre_merge_re_evaluation", body_consts,
-            "merge_if_green: missing stage indicator literal",
+            "merge_if_authorized: missing stage indicator literal",
         )
         found_fresh_pr_call = False
         for node in _ast.walk(merge_fn):
@@ -135,11 +134,17 @@ class MergeIfGreenReEvaluationSourceTests(unittest.TestCase):
                 break
         self.assertTrue(
             found_fresh_pr_call,
-            "merge_if_green: no "
+            "merge_if_authorized: no "
             "collect_github_snapshot(..., fresh_pr) call — Plan 024 §B-6 "
             "fresh snapshot site missing",
         )
         # Strict head-SHA accessor invariant.
+        auto_merge_path = (
+            Path(__file__).resolve().parent.parent
+            / "aria_kernel"
+            / "auto_merge.py"
+        )
+        tree = _ast.parse(auto_merge_path.read_text(encoding="utf-8"))
         adapter_cls = next(
             (
                 n for n in _ast.walk(tree)

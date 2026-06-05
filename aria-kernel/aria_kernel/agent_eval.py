@@ -48,7 +48,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl
+from .ledger import append_jsonl, load_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -90,6 +90,7 @@ VERDICT_CLASSES: frozenset[str] = frozenset({
 
 # Fixture-id regex prevents path traversal in the persist path.
 _FIXTURE_ID_RE = re.compile(r"^[A-Z][A-Z0-9_-]{1,63}$")
+_SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def _runs_path(tools_root: Path) -> Path:
@@ -98,6 +99,103 @@ def _runs_path(tools_root: Path) -> Path:
 
 def _fixtures_dir(tools_root: Path) -> Path:
     return tools_root.joinpath(*EVAL_FIXTURES_DIR)
+
+
+def _agent_results_path(tools_root: Path) -> Path:
+    return tools_root / "agent-invocations" / "results.jsonl"
+
+
+def _agent_transcripts_path(tools_root: Path) -> Path:
+    return tools_root / "agent-invocations" / "transcripts.jsonl"
+
+
+def _sha256_payload(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        default=str,
+    )
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _is_sha256_digest(value: Any) -> bool:
+    return isinstance(value, str) and _SHA256_RE.match(value) is not None
+
+
+def _require_sha256(value: Any, field: str) -> str:
+    if not _is_sha256_digest(value):
+        raise GovernanceError(f"{field}_must_be_sha256")
+    return str(value)
+
+
+def _require_nonempty_str(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise GovernanceError(f"{field}_required")
+    return value.strip()
+
+
+def _fixture_hash_payload(fixture: dict[str, Any]) -> dict[str, Any]:
+    return {
+        k: v
+        for k, v in fixture.items()
+        if k not in {"recorded_at", "fixture_hash"}
+    }
+
+
+def _compute_fixture_hash(fixture: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        _fixture_hash_payload(fixture),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()[:16]
+
+
+def _verified_rows(path: Path, *, proof_name: str) -> list[dict[str, Any]]:
+    try:
+        return load_jsonl(path, verify=True)
+    except Exception as exc:
+        raise GovernanceError(f"{proof_name}_ledger_unverified: {exc}") from exc
+
+
+def _fixture_provenance(
+    fixture: dict[str, Any], *, proof_prefix: str = "real_eval"
+) -> dict[str, str]:
+    fixture_hash = _require_nonempty_str(
+        fixture.get("fixture_hash"), f"{proof_prefix}_fixture_hash"
+    )
+    expected_hash = _compute_fixture_hash(fixture)
+    if fixture_hash != expected_hash:
+        raise GovernanceError(
+            f"{proof_prefix}_fixture_hash_mismatch: "
+            f"expected={expected_hash} actual={fixture_hash}"
+        )
+    pinned_commit = _require_nonempty_str(
+        fixture.get("pinned_commit_sha"),
+        f"{proof_prefix}_fixture_pinned_commit_sha",
+    )
+    input_envelope = fixture.get("input_envelope")
+    if not isinstance(input_envelope, dict):
+        raise GovernanceError(f"{proof_prefix}_fixture_input_envelope_required")
+    request_id = _require_nonempty_str(
+        input_envelope.get("request_id"), f"{proof_prefix}_fixture_request_id"
+    )
+    context_hash = _require_sha256(
+        input_envelope.get("context_hash"),
+        f"{proof_prefix}_fixture_context_hash",
+    )
+    prompt_hash = _require_sha256(
+        input_envelope.get("prompt_hash"), f"{proof_prefix}_fixture_prompt_hash"
+    )
+    return {
+        "fixture_hash": fixture_hash,
+        "pinned_commit_sha": pinned_commit,
+        "request_id": request_id,
+        "context_hash": context_hash,
+        "prompt_hash": prompt_hash,
+    }
 
 
 def _validate_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
@@ -145,11 +243,7 @@ def add_fixture(
     fixtures_dir.mkdir(parents=True, exist_ok=True)
     path = fixtures_dir / f"{fixture['fixture_id']}.json"
 
-    canonical = json.dumps(
-        {k: v for k, v in fixture.items() if k != "recorded_at"},
-        sort_keys=True, separators=(",", ":"),
-    ).encode("utf-8")
-    fixture_hash = hashlib.sha256(canonical).hexdigest()[:16]
+    fixture_hash = _compute_fixture_hash(fixture)
     fixture["fixture_hash"] = fixture_hash
 
     if path.exists():
@@ -211,6 +305,243 @@ def _mock_response_envelope(fixture: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _verify_real_eval_provenance(
+    *,
+    root: Path,
+    fixture: dict[str, Any],
+    envelope: dict[str, Any],
+    invocation_id: str | None,
+    transcript_hash: str | None,
+    operator_approval_ref: str | None,
+) -> dict[str, Any]:
+    """Bind a real eval to the strict invocation result proof chain.
+
+    cabbfc038 made accepted invocation results context-proof: accepted
+    results carry context/prompt hashes, context/prompt ledger hashes,
+    transcript_hash, and transcript_ledger_hash. Real eval must join to
+    that accepted result and its transcript row. A detached envelope, even
+    with an operator ref, is still a file feed and is not real eval proof.
+    """
+    if envelope.get("mock") is True or envelope.get("mock_mode") is True:
+        raise GovernanceError("real_eval_mock_output_rejected")
+
+    operator_ref = _require_nonempty_str(
+        operator_approval_ref, "real_eval_operator_approval_ref"
+    )
+    request_id = _require_nonempty_str(invocation_id, "real_eval_invocation_id")
+    transcript_digest = _require_sha256(
+        transcript_hash, "real_eval_transcript_hash"
+    )
+
+    fixture_proof = _fixture_provenance(fixture)
+    if fixture_proof["request_id"] != request_id:
+        raise GovernanceError(
+            "real_eval_fixture_invocation_mismatch: "
+            f"fixture_request_id={fixture_proof['request_id']} "
+            f"invocation_id={request_id}"
+        )
+
+    result_hash = _sha256_payload(envelope)
+    results = _verified_rows(
+        _agent_results_path(root), proof_name="real_eval_accepted_result"
+    )
+    accepted = [
+        row
+        for row in results
+        if row.get("status") == "accepted"
+        and row.get("request_id") == request_id
+    ]
+    if not accepted:
+        raise GovernanceError(
+            f"real_eval_accepted_result_not_found:{request_id}"
+        )
+    result_row = next(
+        (
+            row for row in reversed(accepted)
+            if row.get("envelope_evidence_hash") == result_hash
+        ),
+        None,
+    )
+    if result_row is None:
+        raise GovernanceError(
+            "real_eval_envelope_not_bound_to_accepted_result: "
+            f"invocation_id={request_id} envelope_hash={result_hash}"
+        )
+    result_ledger_hash = _require_sha256(
+        result_row.get("ledger_hash"), "real_eval_result_ledger_hash"
+    )
+    if result_row.get("context_hash") != fixture_proof["context_hash"]:
+        raise GovernanceError("real_eval_context_hash_mismatch")
+    if result_row.get("prompt_hash") != fixture_proof["prompt_hash"]:
+        raise GovernanceError("real_eval_prompt_hash_mismatch")
+    context_ledger_hash = _require_sha256(
+        result_row.get("context_ledger_hash"), "real_eval_context_ledger_hash"
+    )
+    prompt_ledger_hash = _require_sha256(
+        result_row.get("prompt_ledger_hash"), "real_eval_prompt_ledger_hash"
+    )
+    if result_row.get("transcript_hash") != transcript_digest:
+        raise GovernanceError("real_eval_transcript_hash_mismatch")
+    transcript_ledger_hash = _require_sha256(
+        result_row.get("transcript_ledger_hash"),
+        "real_eval_transcript_ledger_hash",
+    )
+
+    transcripts = _verified_rows(
+        _agent_transcripts_path(root), proof_name="real_eval_transcript"
+    )
+    transcript_row = next(
+        (
+            row for row in reversed(transcripts)
+            if row.get("ledger_hash") == transcript_ledger_hash
+        ),
+        None,
+    )
+    if transcript_row is None:
+        raise GovernanceError(
+            f"real_eval_transcript_row_not_found:{transcript_ledger_hash}"
+        )
+    if transcript_row.get("transcript_hash") != transcript_digest:
+        raise GovernanceError("real_eval_transcript_row_hash_mismatch")
+    if transcript_row.get("invocation_id") != request_id:
+        raise GovernanceError("real_eval_transcript_row_invocation_id_mismatch")
+    for field in ("request_id", "claim_id", "agent_id"):
+        if transcript_row.get(field) != result_row.get(field):
+            raise GovernanceError(
+                f"real_eval_transcript_row_{field}_mismatch"
+            )
+    _require_nonempty_str(
+        transcript_row.get("artifact_ref"), "real_eval_transcript_artifact_ref"
+    )
+
+    return {
+        "provenance_mode": "real_invocation",
+        "proof_mode": "ledger_bound_accepted_result",
+        "operator_approval_ref": operator_ref,
+        "invocation_id": request_id,
+        "transcript_hash": transcript_digest,
+        "result_ledger_hash": result_ledger_hash,
+        "result_envelope_hash": result_hash,
+        "context_ledger_hash": context_ledger_hash,
+        "prompt_ledger_hash": prompt_ledger_hash,
+        "transcript_ledger_hash": transcript_ledger_hash,
+        "fixture_hash": fixture_proof["fixture_hash"],
+        "fixture_pinned_commit_sha": fixture_proof["pinned_commit_sha"],
+    }
+
+
+def verify_shadow_eval_proof(
+    *,
+    run_id: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Verify that a SHADOW eval/sample row has auditable provenance.
+
+    SHADOW findings are not operator-facing by default, so proof mode must
+    fail closed before a sampled SHADOW result can be treated as actionable.
+    The run row must carry a shadow_provenance block joining:
+    - the hash-chained SHADOW tool run row,
+    - transcript_hash + transcript_ledger_hash,
+    - operator_approval_ref,
+    - fixture_id + fixture_hash + fixture context/prompt hashes.
+    """
+    from .tool_health import runs_path
+    from .tool_registry import get_tool
+
+    root = ensure_tools_dir(base_dir)
+    target_run_id = _require_nonempty_str(run_id, "shadow_eval_run_id")
+    runs = _verified_rows(runs_path(root), proof_name="shadow_eval_run")
+    run = next(
+        (row for row in reversed(runs) if row.get("run_id") == target_run_id),
+        None,
+    )
+    if run is None:
+        raise GovernanceError(f"shadow_eval_run_not_found:{target_run_id}")
+    run_ledger_hash = _require_sha256(
+        run.get("ledger_hash"), "shadow_eval_run_ledger_hash"
+    )
+    tool_id = _require_nonempty_str(run.get("tool_id"), "shadow_eval_tool_id")
+    tool = get_tool(tool_id, root)
+    if tool.get("status") != "SHADOW":
+        raise GovernanceError(
+            f"shadow_eval_tool_not_shadow:{tool_id}:{tool.get('status')}"
+        )
+
+    provenance = run.get("shadow_provenance")
+    if not isinstance(provenance, dict):
+        raise GovernanceError("shadow_eval_provenance_required")
+    operator_ref = _require_nonempty_str(
+        provenance.get("operator_approval_ref"),
+        "shadow_eval_operator_approval_ref",
+    )
+    fixture_id = _require_nonempty_str(
+        provenance.get("fixture_id"), "shadow_eval_fixture_id"
+    )
+    fixture_hash = _require_nonempty_str(
+        provenance.get("fixture_hash"), "shadow_eval_fixture_hash"
+    )
+    context_hash = _require_sha256(
+        provenance.get("context_hash"), "shadow_eval_context_hash"
+    )
+    prompt_hash = _require_sha256(
+        provenance.get("prompt_hash"), "shadow_eval_prompt_hash"
+    )
+    transcript_hash = _require_sha256(
+        provenance.get("transcript_hash"), "shadow_eval_transcript_hash"
+    )
+    transcript_ledger_hash = _require_sha256(
+        provenance.get("transcript_ledger_hash"),
+        "shadow_eval_transcript_ledger_hash",
+    )
+
+    fixture = _read_fixture(fixture_id=fixture_id, base_dir=root)
+    fixture_proof = _fixture_provenance(fixture, proof_prefix="shadow_eval")
+    if fixture_hash != fixture_proof["fixture_hash"]:
+        raise GovernanceError("shadow_eval_run_fixture_hash_mismatch")
+    if context_hash != fixture_proof["context_hash"]:
+        raise GovernanceError("shadow_eval_context_hash_mismatch")
+    if prompt_hash != fixture_proof["prompt_hash"]:
+        raise GovernanceError("shadow_eval_prompt_hash_mismatch")
+
+    transcripts = _verified_rows(
+        _agent_transcripts_path(root), proof_name="shadow_eval_transcript"
+    )
+    transcript_row = next(
+        (
+            row for row in reversed(transcripts)
+            if row.get("ledger_hash") == transcript_ledger_hash
+        ),
+        None,
+    )
+    if transcript_row is None:
+        raise GovernanceError(
+            f"shadow_eval_transcript_row_not_found:{transcript_ledger_hash}"
+        )
+    if transcript_row.get("transcript_hash") != transcript_hash:
+        raise GovernanceError("shadow_eval_transcript_row_hash_mismatch")
+    if transcript_row.get("invocation_id") != fixture_proof["request_id"]:
+        raise GovernanceError("shadow_eval_transcript_row_invocation_id_mismatch")
+    if transcript_row.get("request_id") != fixture_proof["request_id"]:
+        raise GovernanceError("shadow_eval_fixture_transcript_request_mismatch")
+    _require_nonempty_str(
+        transcript_row.get("artifact_ref"), "shadow_eval_transcript_artifact_ref"
+    )
+
+    return {
+        "verified": True,
+        "run_id": target_run_id,
+        "tool_id": tool_id,
+        "run_ledger_hash": run_ledger_hash,
+        "operator_approval_ref": operator_ref,
+        "fixture_id": fixture_id,
+        "fixture_hash": fixture_hash,
+        "context_hash": context_hash,
+        "prompt_hash": prompt_hash,
+        "transcript_hash": transcript_hash,
+        "transcript_ledger_hash": transcript_ledger_hash,
+    }
+
+
 def run_agent_eval(
     *,
     fixture_id: str,
@@ -218,12 +549,11 @@ def run_agent_eval(
     repo_root: str | Path | None = None,
     mock_mode: bool = True,
     real_response_envelope: dict[str, Any] | None = None,
-    # Plan 023 v3 §A-8 — real-mode provenance binding. Real-mode runs
-    # require an invocation_id (UUIDv7 from upstream lease ledger) and
-    # transcript_hash (sha256 of captured transcript) so the eval row
-    # joins back to the actual agent invocation. Legacy callers that
-    # only file-feed the envelope MUST opt in via
-    # allow_legacy_envelope_feed=True + operator_approval_ref.
+    # Plan 023 v3 §A-8 + cabbfc038 — real-mode provenance binding.
+    # Real-mode runs require an invocation_id, transcript_hash, operator
+    # approval ref, a ledger-bound accepted result row, and the transcript
+    # ledger row referenced by that result. allow_legacy_envelope_feed is
+    # retained only as a compatibility marker; it does not bypass proof.
     invocation_id: str | None = None,
     transcript_hash: str | None = None,
     allow_legacy_envelope_feed: bool = False,
@@ -235,20 +565,35 @@ def run_agent_eval(
     the fixture's expected verdict + evidence. Used for kernel pipeline
     coverage when DEBT-2026-05-08-001 (OAuth contract closure) is open.
 
-    mock_mode False: caller MUST pass real_response_envelope (the response
-    captured from a real Claude Code OAuth invocation; produced by the
-    Phase 5 operator-supervised flow). Real-mode runs increment the
-    aria_agent_eval_real_total counter; mock-mode runs increment
-    aria_agent_eval_mock_only_total. The two streams stay segregated
-    forever — historical mock data does not contaminate real-mode
-    aggregates and vice versa.
+    mock_mode False: caller MUST pass real_response_envelope and prove it
+    is the same envelope accepted in agent-invocations/results.jsonl with
+    joined transcript, operator, and fixture/context provenance. Real-mode
+    runs increment the aria_agent_eval_real_total counter; mock-mode runs
+    increment aria_agent_eval_mock_only_total. The two streams stay
+    segregated forever — historical mock data does not contaminate
+    real-mode aggregates and vice versa.
 
     Pass criteria (Plan v3.3 §Phase 6.A):
     - response.verdict_class == fixture.expected_verdict_class.
     - response.evidence_refs is a SUPERSET of fixture.expected_evidence_refs.
     """
     enforce_profile_for_write("agent_evals", base_dir=base_dir)
-    fixture = _read_fixture(fixture_id=fixture_id, base_dir=base_dir)
+    root = ensure_tools_dir(base_dir)
+    fixture = _read_fixture(fixture_id=fixture_id, base_dir=root)
+    provenance: dict[str, Any] = {
+        "provenance_mode": "mock",
+        "proof_mode": "mock",
+        "operator_approval_ref": None,
+        "invocation_id": None,
+        "transcript_hash": None,
+        "result_ledger_hash": None,
+        "result_envelope_hash": None,
+        "context_ledger_hash": None,
+        "prompt_ledger_hash": None,
+        "transcript_ledger_hash": None,
+        "fixture_hash": fixture.get("fixture_hash"),
+        "fixture_pinned_commit_sha": fixture.get("pinned_commit_sha"),
+    }
 
     if mock_mode:
         envelope = _mock_response_envelope(fixture)
@@ -260,29 +605,15 @@ def run_agent_eval(
                 "supervised CI executor; until DEBT-2026-05-08-001 closure, "
                 "real-mode runs are operator-only."
             )
-        # Plan 023 v3 §A-8 — provenance binding for real-mode evals.
-        # Pre-Plan-023 mock_mode=False accepted any caller-provided
-        # envelope dict without proof that an actual agent invocation
-        # produced it. Post-fix: invocation_id (lease ledger UUID) and
-        # transcript_hash are required UNLESS the caller opts into the
-        # documented legacy feed path with an operator approval ref.
-        if not invocation_id:
-            if not allow_legacy_envelope_feed:
-                raise GovernanceError(
-                    "real_eval_missing_provenance_fields: mock_mode=False "
-                    "requires invocation_id (UUIDv7 from the upstream lease "
-                    "ledger) AND transcript_hash. Pass them, OR opt in via "
-                    "allow_legacy_envelope_feed=True + operator_approval_ref "
-                    "(deprecated path; tracked via the "
-                    "agent_eval_legacy_envelope_feed governance event)."
-                )
-            if not (operator_approval_ref or "").strip():
-                raise GovernanceError(
-                    "legacy_envelope_feed_requires_operator_approval_ref: "
-                    "allow_legacy_envelope_feed=True without an explicit "
-                    "operator_approval_ref bypasses the audit trail. Refusing."
-                )
         envelope = dict(real_response_envelope)
+        provenance = _verify_real_eval_provenance(
+            root=root,
+            fixture=fixture,
+            envelope=envelope,
+            invocation_id=invocation_id,
+            transcript_hash=transcript_hash,
+            operator_approval_ref=operator_approval_ref,
+        )
         kind = "agent_eval_run_real"
 
     expected_refs = set(fixture["expected_evidence_refs"])
@@ -312,16 +643,21 @@ def run_agent_eval(
         # Plan 023 v3 §A-8 — provenance fields binding the eval row
         # to the upstream invocation. invocation_id None for mock-mode
         # runs (the synthesized envelope has no lease).
-        "invocation_id": invocation_id,
-        "transcript_hash": transcript_hash,
-        "provenance_mode": (
-            "mock" if mock_mode
-            else ("legacy_envelope_feed" if allow_legacy_envelope_feed else "real_invocation")
-        ),
-        "operator_approval_ref": operator_approval_ref if allow_legacy_envelope_feed else None,
+        "invocation_id": provenance["invocation_id"],
+        "transcript_hash": provenance["transcript_hash"],
+        "provenance_mode": provenance["provenance_mode"],
+        "proof_mode": provenance["proof_mode"],
+        "operator_approval_ref": provenance["operator_approval_ref"],
+        "result_ledger_hash": provenance["result_ledger_hash"],
+        "result_envelope_hash": provenance["result_envelope_hash"],
+        "context_ledger_hash": provenance["context_ledger_hash"],
+        "prompt_ledger_hash": provenance["prompt_ledger_hash"],
+        "transcript_ledger_hash": provenance["transcript_ledger_hash"],
+        "fixture_hash": provenance["fixture_hash"],
+        "fixture_pinned_commit_sha": provenance["fixture_pinned_commit_sha"],
+        "legacy_envelope_feed_requested": bool(allow_legacy_envelope_feed),
     }
 
-    root = ensure_tools_dir(base_dir)
     _runs_path(root).parent.mkdir(parents=True, exist_ok=True)
     append_jsonl(_runs_path(root), run_row)
     append_tools_governance(
@@ -334,6 +670,10 @@ def run_agent_eval(
             "passed": passed,
             "rounds_used": run_row["rounds_used"],
             "tokens_used": run_row["tokens_used"],
+            "proof_mode": run_row["proof_mode"],
+            "result_ledger_hash": run_row["result_ledger_hash"],
+            "transcript_ledger_hash": run_row["transcript_ledger_hash"],
+            "fixture_hash": run_row["fixture_hash"],
         },
     )
     return run_row
@@ -612,5 +952,6 @@ __all__ = [
     "list_eval_runs",
     "aggregate_eval_metrics",
     "count_eval_runs_by_mode",
+    "verify_shadow_eval_proof",
     "sample_shadow_raw_findings",
 ]

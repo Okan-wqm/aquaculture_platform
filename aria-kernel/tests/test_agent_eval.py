@@ -38,9 +38,11 @@ from aria_kernel.agent_eval import (
     list_fixtures,
     run_agent_eval,
 )
+from aria_kernel.ledger import append_jsonl
 from aria_kernel.plan_016_metrics import compute_plan_016_metrics
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.context_binding import sha256_payload, sha256_text
 
 
 def _seed() -> Path:
@@ -50,18 +52,81 @@ def _seed() -> Path:
     return tools
 
 
+def _proof_input(request_id: str = "request-eval-001") -> dict:
+    return {
+        "claim_summary": "test",
+        "request_id": request_id,
+        "context_hash": sha256_text(f"context:{request_id}"),
+        "prompt_hash": sha256_text(f"prompt:{request_id}"),
+    }
+
+
 def _sample_fixture(fid: str = "F999_TEST", verdict: str = "ACCEPTED",
-                    evidence: tuple[str, ...] = ("docs/x.md:1",)) -> dict:
+                    evidence: tuple[str, ...] = ("docs/x.md:1",),
+                    input_envelope: dict | None = None) -> dict:
     return {
         "fixture_id": fid,
         "target_agent": "aria-evidence-judge",
         "role": "evidence_judgment",
         "pinned_commit_sha": "deadbeefcafe1234",
-        "input_envelope": {"claim_summary": "test"},
+        "input_envelope": input_envelope or {"claim_summary": "test"},
         "expected_verdict_class": verdict,
         "expected_evidence_refs": list(evidence),
         "max_rounds": 3,
         "max_tokens": 8000,
+    }
+
+
+def _seed_real_eval_proof(
+    tools: Path,
+    *,
+    fixture: dict,
+    envelope: dict,
+    request_id: str | None = None,
+    transcript_hash: str | None = None,
+) -> dict[str, str]:
+    input_envelope = fixture["input_envelope"]
+    request_id = request_id or input_envelope["request_id"]
+    transcript_hash = transcript_hash or sha256_text(f"transcript:{request_id}")
+    claim_id = f"claim-{request_id}"
+    agent_id = "agent-eval-worker"
+    transcript_row = append_jsonl(
+        tools / "agent-invocations" / "transcripts.jsonl",
+        {
+            "schema_version": 1,
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "invocation_id": request_id,
+            "request_id": request_id,
+            "claim_id": claim_id,
+            "agent_id": agent_id,
+            "transcript_hash": transcript_hash,
+            "artifact_ref": f"/tmp/{request_id}.transcript.jsonl",
+        },
+    )
+    append_jsonl(
+        tools / "agent-invocations" / "results.jsonl",
+        {
+            "$schema": "aria/agent-claim-result/v1",
+            "schema_version": 1,
+            "claim_id": claim_id,
+            "request_id": request_id,
+            "agent_id": agent_id,
+            "role": fixture["role"],
+            "status": "accepted",
+            "envelope_evidence_hash": sha256_payload(envelope),
+            "context_hash": input_envelope["context_hash"],
+            "prompt_hash": input_envelope["prompt_hash"],
+            "transcript_hash": transcript_hash,
+            "context_ledger_hash": sha256_text(f"context-ledger:{request_id}"),
+            "prompt_ledger_hash": sha256_text(f"prompt-ledger:{request_id}"),
+            "transcript_ledger_hash": transcript_row["ledger_hash"],
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    return {
+        "invocation_id": request_id,
+        "transcript_hash": transcript_hash,
+        "operator_approval_ref": "test:real-eval-proof",
     }
 
 
@@ -165,7 +230,18 @@ class RunAgentEvalMockModeTests(unittest.TestCase):
 class RunAgentEvalRealModeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tools = _seed()
-        add_fixture(fixture=_sample_fixture(), base_dir=self.tools)
+        self.fixture = add_fixture(
+            fixture=_sample_fixture(input_envelope=_proof_input()),
+            base_dir=self.tools,
+        )
+        self.envelope = {
+            "verdict_class": "ACCEPTED",
+            "evidence_refs": ["docs/x.md:1"],
+            "rounds_used": 2, "tokens_used": 1500,
+        }
+        self.proof = _seed_real_eval_proof(
+            self.tools, fixture=self.fixture, envelope=self.envelope,
+        )
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tools.parent, ignore_errors=True)
@@ -173,42 +249,74 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
     def test_real_mode_without_envelope_raises(self) -> None:
         with self.assertRaises(GovernanceError) as cm:
             run_agent_eval(
-                fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
+                fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False,
+                **self.proof,
             )
         self.assertIn("real_response_envelope", str(cm.exception))
 
     def test_real_mode_with_matching_envelope_passes(self) -> None:
-        envelope = {
-            "verdict_class": "ACCEPTED",
-            "evidence_refs": ["docs/x.md:1"],
-            "rounds_used": 2, "tokens_used": 1500,
-        }
         run = run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
-            real_response_envelope=envelope,
+            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False,
+            real_response_envelope=self.envelope,
+            **self.proof,
         )
         self.assertTrue(run["passed"])
         self.assertFalse(run["mock_mode"])
+        self.assertEqual(run["proof_mode"], "ledger_bound_accepted_result")
+        self.assertEqual(run["fixture_hash"], self.fixture["fixture_hash"])
+        self.assertTrue(run["result_ledger_hash"].startswith("sha256:"))
 
     def test_real_mode_emits_real_governance_event(self) -> None:
-        envelope = {
-            "verdict_class": "ACCEPTED",
-            "evidence_refs": ["docs/x.md:1"],
-            "rounds_used": 1, "tokens_used": 500,
-        }
         run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
-            real_response_envelope=envelope,
+            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False,
+            real_response_envelope=self.envelope,
+            **self.proof,
         )
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
         kinds = [json.loads(line)["kind"] for line in gov if line.strip()]
         self.assertIn("agent_eval_run_real", kinds)
 
+    def test_legacy_feed_without_accepted_result_rejects(self) -> None:
+        detached = {
+            "verdict_class": "ACCEPTED",
+            "evidence_refs": ["docs/x.md:1", "detached.md:9"],
+            "rounds_used": 1, "tokens_used": 500,
+        }
+        with self.assertRaises(GovernanceError) as cm:
+            run_agent_eval(
+                fixture_id="F999_TEST",
+                base_dir=self.tools,
+                mock_mode=False,
+                real_response_envelope=detached,
+                allow_legacy_envelope_feed=True,
+                **self.proof,
+            )
+        self.assertIn("real_eval_envelope_not_bound_to_accepted_result", str(cm.exception))
+
+    def test_mock_output_cannot_satisfy_real_eval(self) -> None:
+        mock_envelope = dict(self.envelope)
+        mock_envelope["mock"] = True
+        with self.assertRaises(GovernanceError) as cm:
+            run_agent_eval(
+                fixture_id="F999_TEST",
+                base_dir=self.tools,
+                mock_mode=False,
+                real_response_envelope=mock_envelope,
+                **self.proof,
+            )
+        self.assertIn("real_eval_mock_output_rejected", str(cm.exception))
+
 
 class PassCriteriaTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tools = _seed()
-        add_fixture(fixture=_sample_fixture(evidence=("a.md:1", "b.md:2")), base_dir=self.tools)
+        self.fixture = add_fixture(
+            fixture=_sample_fixture(
+                evidence=("a.md:1", "b.md:2"),
+                input_envelope=_proof_input(),
+            ),
+            base_dir=self.tools,
+        )
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tools.parent, ignore_errors=True)
@@ -219,9 +327,13 @@ class PassCriteriaTests(unittest.TestCase):
             "evidence_refs": ["a.md:1", "b.md:2"],
             "rounds_used": 1, "tokens_used": 100,
         }
+        proof = _seed_real_eval_proof(
+            self.tools, fixture=self.fixture, envelope=envelope,
+        )
         run = run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
+            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False,
             real_response_envelope=envelope,
+            **proof,
         )
         self.assertFalse(run["passed"])
         self.assertFalse(run["verdict_match"])
@@ -232,9 +344,13 @@ class PassCriteriaTests(unittest.TestCase):
             "evidence_refs": ["a.md:1"],  # missing b.md:2
             "rounds_used": 1, "tokens_used": 100,
         }
+        proof = _seed_real_eval_proof(
+            self.tools, fixture=self.fixture, envelope=envelope,
+        )
         run = run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
+            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False,
             real_response_envelope=envelope,
+            **proof,
         )
         self.assertFalse(run["passed"])
         self.assertFalse(run["evidence_match"])
@@ -276,7 +392,10 @@ class AggregateMetricsTests(unittest.TestCase):
 class ModeSegregationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tools = _seed()
-        add_fixture(fixture=_sample_fixture("F1"), base_dir=self.tools)
+        self.fixture = add_fixture(
+            fixture=_sample_fixture("F1", input_envelope=_proof_input("request-f1")),
+            base_dir=self.tools,
+        )
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tools.parent, ignore_errors=True)
@@ -289,11 +408,13 @@ class ModeSegregationTests(unittest.TestCase):
             "evidence_refs": ["docs/x.md:1"],
             "rounds_used": 1, "tokens_used": 100,
         }
+        proof = _seed_real_eval_proof(
+            self.tools, fixture=self.fixture, envelope=envelope,
+        )
         run_agent_eval(
             fixture_id="F1", base_dir=self.tools, mock_mode=False,
             real_response_envelope=envelope,
-            allow_legacy_envelope_feed=True,
-            operator_approval_ref="test:plan-023-a8-legacy",
+            **proof,
         )
         counts = count_eval_runs_by_mode(base_dir=self.tools)
         self.assertEqual(counts["aria_agent_eval_mock_only_total"], 2)

@@ -217,9 +217,13 @@ def _verify_job_contract(
     if "verify_workflow_contract" in preflight_run:
         reasons.append(f"workflow_runtime_imports_structural_verifier:{job_contract.job_id}")
         failure_classes.append("workflow_runtime_dependency")
-    if f'job_id="{job_contract.job_id}"' not in preflight_run and f"job_id='{job_contract.job_id}'" not in preflight_run:
-        reasons.append(f"workflow_preflight_job_id_missing:{job_contract.job_id}")
-        failure_classes.append("workflow_contract_preflight_missing")
+    _verify_preflight_call_shape(
+        workflow_id=workflow_id,
+        job_contract=job_contract,
+        preflight_run=preflight_run,
+        reasons=reasons,
+        failure_classes=failure_classes,
+    )
 
     mutating_matches = [
         (idx, step)
@@ -249,6 +253,45 @@ def _verify_job_contract(
         reasons=reasons,
         failure_classes=failure_classes,
     )
+
+
+def _contains_kwarg_literal(run_block: str, key: str, value: str) -> bool:
+    return f'{key}="{value}"' in run_block or f"{key}='{value}'" in run_block
+
+
+def _verify_preflight_call_shape(
+    *,
+    workflow_id: str,
+    job_contract: WorkflowJobContract,
+    preflight_run: str,
+    reasons: list[str],
+    failure_classes: list[str],
+) -> None:
+    required_kwargs = (
+        "workflow_id",
+        "job_id",
+        "audit_artifact_path",
+        "token_provenance",
+        "network_policy",
+        "network_enforcement_evidence",
+    )
+    if not _contains_kwarg_literal(preflight_run, "workflow_id", workflow_id):
+        reasons.append(f"workflow_preflight_workflow_id_missing:{job_contract.job_id}")
+        failure_classes.append("workflow_preflight_call_shape")
+    if not _contains_kwarg_literal(preflight_run, "job_id", job_contract.job_id):
+        reasons.append(f"workflow_preflight_job_id_missing:{job_contract.job_id}")
+        failure_classes.append("workflow_preflight_call_shape")
+    for kwarg in required_kwargs:
+        if f"{kwarg}=" not in preflight_run:
+            reasons.append(f"workflow_preflight_kwarg_missing:{job_contract.job_id}:{kwarg}")
+            failure_classes.append("workflow_preflight_call_shape")
+    if "RUNNER_TEMP" in job_contract.external_root_allowlist:
+        if "external_root_allowlist=" not in preflight_run:
+            reasons.append(f"workflow_preflight_external_root_allowlist_missing:{job_contract.job_id}")
+            failure_classes.append("workflow_preflight_call_shape")
+        if "RUNNER_TEMP" not in preflight_run or ".resolve()" not in preflight_run:
+            reasons.append(f"workflow_preflight_runner_temp_not_resolved:{job_contract.job_id}")
+            failure_classes.append("workflow_preflight_call_shape")
 
 
 def _verify_permissions(

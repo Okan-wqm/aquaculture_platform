@@ -66,6 +66,7 @@ jobs:
               dlp_scan_clean=True,
               audit_reason="run mock-mode agent eval fixtures against local ledgers",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-eval-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))

@@ -206,8 +206,26 @@ jobs:
       - name: Persist enterprise workflow preflight
         run: |
           python3 - <<'PY'
+          import os
+          from pathlib import Path
           from aria_kernel.preflight import verify_workflow_preflight
-          verify_workflow_preflight(job_id="proof")
+          verify_workflow_preflight(
+              workflow_id="aria-operational-proof",
+              job_id="proof",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
+              path_allowlist=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
+              network_policy=["github_artifact"],
+              network_enforcement_evidence="GitHub artifact upload only",
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="unit test operational proof",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof" / "workflow-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
           PY
       - name: Run observe burn-in proof
         run: npm run aria:test:unit
@@ -248,6 +266,65 @@ jobs:
                 event_context={"token_source": "github_actions_artifact_token"},
             )
         self.assertTrue(verdict.valid, verdict.reasons)
+
+    def test_workflow_contract_rejects_runner_temp_audit_without_external_root_allowlist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "aria-operational-proof.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                """
+name: ARIA Operational Proof
+permissions:
+  contents: read
+jobs:
+  proof:
+    permissions:
+      contents: read
+    steps:
+      - name: Persist enterprise workflow preflight
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from aria_kernel.preflight import verify_workflow_preflight
+          verify_workflow_preflight(
+              workflow_id="aria-operational-proof",
+              job_id="proof",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
+              path_allowlist=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
+              network_policy=["github_artifact"],
+              network_enforcement_evidence="GitHub artifact upload only",
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="unit test operational proof",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof" / "workflow-preflight.json",
+          )
+          PY
+      - name: Run observe burn-in proof
+        run: npm run aria:test:unit
+      - name: Upload ARIA operational proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aria-operational-proof-${{ github.sha }}
+          path: ${{ runner.temp }}/aria-operational-proof/
+          if-no-files-found: error
+          retention-days: 365
+""",
+                encoding="utf-8",
+            )
+            verdict = verify_workflow_contract(
+                workflow_id="aria-operational-proof",
+                workspace_root=root,
+                event_context={"token_source": "github_actions_artifact_token"},
+            )
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_preflight_call_shape", verdict.failure_classes)
+        self.assertIn("workflow_preflight_external_root_allowlist_missing:proof", verdict.reasons)
 
     def test_workflow_contract_rejects_preflight_artifact_without_workflow_hash(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -5,6 +5,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -112,10 +113,10 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
             self.assertFalse(verdict.valid)
             self.assertIn("workflow_contract_missing", verdict.failure_classes)
 
-    def test_operational_proof_workflow_matches_registry_contract(self) -> None:
+    def test_agent_eval_workflow_matches_registry_contract(self) -> None:
         repo = Path(__file__).resolve().parents[2]
         verdict = verify_workflow_contract(
-            workflow_id="aria-operational-proof",
+            workflow_id="aria-agent-eval",
             workspace_root=repo,
             event_context={"token_source": "github_actions_artifact_token"},
         )
@@ -166,32 +167,46 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
     def test_workflow_contract_rejects_token_source_mismatch(self) -> None:
         repo = Path(__file__).resolve().parents[2]
         verdict = verify_workflow_contract(
-            workflow_id="aria-operational-proof",
+            workflow_id="aria-agent-eval",
             workspace_root=repo,
             event_context={"token_source": "github_app:installation"},
         )
         self.assertFalse(verdict.valid)
         self.assertIn("workflow_token_source", verdict.failure_classes)
 
+    def test_workflow_contract_rejects_false_pre_and_post_claim(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        base = WORKFLOW_CONTRACTS["aria-agent-eval"]
+        bad_job = replace(base.job_contracts[0], clean_worktree_policy="pre_and_post")
+        bad_contract = replace(base, job_contracts=(bad_job,))
+        verdict = verify_workflow_contract(
+            workflow_id="aria-agent-eval",
+            workspace_root=repo,
+            contract_registry={"aria-agent-eval": bad_contract},
+        )
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_clean_worktree_policy", verdict.failure_classes)
+        self.assertIn("workflow_clean_worktree_policy_unsupported:eval:pre_and_post", verdict.reasons)
+
     def test_workflow_contract_uses_run_block_structure_not_comments(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            workflow = root / ".github" / "workflows" / "aria-operational-proof.yml"
+            workflow = root / ".github" / "workflows" / "aria-agent-eval.yml"
             workflow.parent.mkdir(parents=True)
             workflow.write_text(
                 """
-name: ARIA Operational Proof
+name: aria-agent-eval
 permissions:
   contents: read
 jobs:
-  proof:
+  eval:
     permissions:
       contents: read
     steps:
       # verify_workflow_contract in a YAML comment is not proof
       - name: Checkout
         run: echo checkout
-      - name: Run observe burn-in proof
+      - name: Run all eval fixtures (mock mode)
         run: echo "${{ github.event.inputs.unsafe }}"
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -201,7 +216,7 @@ jobs:
                 encoding="utf-8",
             )
             verdict = verify_workflow_contract(
-                workflow_id="aria-operational-proof",
+                workflow_id="aria-agent-eval",
                 workspace_root=root,
                 event_context={"token_source": "github_actions_artifact_token"},
             )
@@ -212,15 +227,15 @@ jobs:
     def test_workflow_contract_validates_structured_preflight_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            workflow = root / ".github" / "workflows" / "aria-operational-proof.yml"
+            workflow = root / ".github" / "workflows" / "aria-agent-eval.yml"
             workflow.parent.mkdir(parents=True)
             workflow.write_text(
                 """
-name: ARIA Operational Proof
+name: aria-agent-eval
 permissions:
   contents: read
 jobs:
-  proof:
+  eval:
     permissions:
       contents: read
     steps:
@@ -231,57 +246,57 @@ jobs:
           from pathlib import Path
           from aria_kernel.preflight import verify_workflow_preflight
           verify_workflow_preflight(
-              workflow_id="aria-operational-proof",
-              job_id="proof",
+              workflow_id="aria-agent-eval",
+              job_id="eval",
               profile="standard",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
-              allowed_write_roots=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
-              path_allowlist=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
-              network_policy=["actions_runtime", "github_artifact", "github_git", "npm_registry", "pypi"],
-              network_enforcement_evidence="checkout/setup actions, npm registry, PyPI dependency install, and final GitHub artifact upload only",
+              allowed_write_roots=["aria-tools/agent-evals/runs.jsonl", "aria-tools/governance.jsonl"],
+              path_allowlist=["aria-tools/agent-evals/runs.jsonl", "aria-tools/governance.jsonl"],
+              network_policy=["actions_runtime", "github_artifact", "github_git"],
+              network_enforcement_evidence="checkout/setup actions plus GitHub artifact upload",
               token_provenance="github_actions_artifact_token",
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
-              audit_reason="unit test operational proof",
-              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof" / "workflow-preflight.json",
+              audit_reason="unit test eval workflow preflight",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-eval-preflight.json",
               external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
           PY
-      - name: Run observe burn-in proof
+      - name: Run all eval fixtures (mock mode)
         run: npm run aria:test:unit
-      - name: Upload ARIA operational proof
+      - name: Upload ARIA eval workflow proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: aria-operational-proof-${{ github.sha }}
-          path: ${{ runner.temp }}/aria-operational-proof/
+          name: aria-agent-eval-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-agent-eval-preflight.json
           if-no-files-found: error
-          retention-days: 365
+          retention-days: 7
 """,
                 encoding="utf-8",
             )
             artifact_dir = root / "artifacts"
             artifact_dir.mkdir()
-            (artifact_dir / "workflow-preflight.json").write_text(
+            (artifact_dir / "aria-agent-eval-preflight.json").write_text(
                 json.dumps(
                     {
-                        "workflow_id": "aria-operational-proof",
-                        "job_id": "proof",
+                        "workflow_id": "aria-agent-eval",
+                        "job_id": "eval",
                         "schema_version": 1,
                         "valid": True,
                         "dlp_scan_clean": True,
                         "token_provenance": "github_actions_artifact_token",
-                        "network_policy": ["actions_runtime", "github_artifact", "github_git", "npm_registry", "pypi"],
+                        "network_policy": ["actions_runtime", "github_artifact", "github_git"],
                         "workflow_hash": workflow_hash(workflow),
-                        "contract_hash": workflow_job_contract_hash("aria-operational-proof", "proof"),
-                        "runtime_write_paths": ["runner-temp/aria-operational-proof"],
+                        "contract_hash": workflow_job_contract_hash("aria-agent-eval", "eval"),
+                        "runtime_write_paths": ["aria-tools/agent-evals/runs.jsonl"],
                     }
                 )
                 + "\n",
                 encoding="utf-8",
             )
             verdict = verify_workflow_contract(
-                workflow_id="aria-operational-proof",
+                workflow_id="aria-agent-eval",
                 workspace_root=root,
                 artifact_dir=artifact_dir,
                 event_context={"token_source": "github_actions_artifact_token"},
@@ -291,15 +306,15 @@ jobs:
     def test_workflow_contract_rejects_runner_temp_audit_without_external_root_allowlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            workflow = root / ".github" / "workflows" / "aria-operational-proof.yml"
+            workflow = root / ".github" / "workflows" / "aria-agent-eval.yml"
             workflow.parent.mkdir(parents=True)
             workflow.write_text(
                 """
-name: ARIA Operational Proof
+name: aria-agent-eval
 permissions:
   contents: read
 jobs:
-  proof:
+  eval:
     permissions:
       contents: read
     steps:
@@ -310,55 +325,55 @@ jobs:
           from pathlib import Path
           from aria_kernel.preflight import verify_workflow_preflight
           verify_workflow_preflight(
-              workflow_id="aria-operational-proof",
-              job_id="proof",
+              workflow_id="aria-agent-eval",
+              job_id="eval",
               profile="standard",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
-              allowed_write_roots=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
-              path_allowlist=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
-              network_policy=["actions_runtime", "github_artifact", "github_git", "npm_registry", "pypi"],
+              allowed_write_roots=["aria-tools/agent-evals/runs.jsonl", "aria-tools/governance.jsonl"],
+              path_allowlist=["aria-tools/agent-evals/runs.jsonl", "aria-tools/governance.jsonl"],
+              network_policy=["actions_runtime", "github_artifact", "github_git"],
               network_enforcement_evidence="GitHub artifact upload only",
               token_provenance="github_actions_artifact_token",
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
-              audit_reason="unit test operational proof",
-              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof" / "workflow-preflight.json",
+              audit_reason="unit test eval workflow preflight",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-eval-preflight.json",
           )
           PY
-      - name: Run observe burn-in proof
+      - name: Run all eval fixtures (mock mode)
         run: npm run aria:test:unit
-      - name: Upload ARIA operational proof
+      - name: Upload ARIA eval workflow proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: aria-operational-proof-${{ github.sha }}
-          path: ${{ runner.temp }}/aria-operational-proof/
+          name: aria-agent-eval-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-agent-eval-preflight.json
           if-no-files-found: error
-          retention-days: 365
+          retention-days: 7
 """,
                 encoding="utf-8",
             )
             verdict = verify_workflow_contract(
-                workflow_id="aria-operational-proof",
+                workflow_id="aria-agent-eval",
                 workspace_root=root,
                 event_context={"token_source": "github_actions_artifact_token"},
             )
         self.assertFalse(verdict.valid)
         self.assertIn("workflow_preflight_call_shape", verdict.failure_classes)
-        self.assertIn("workflow_preflight_external_root_allowlist_missing:proof", verdict.reasons)
+        self.assertIn("workflow_preflight_external_root_allowlist_missing:eval", verdict.reasons)
 
     def test_workflow_contract_rejects_preflight_artifact_without_workflow_hash(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            workflow = root / ".github" / "workflows" / "aria-operational-proof.yml"
+            workflow = root / ".github" / "workflows" / "aria-agent-eval.yml"
             workflow.parent.mkdir(parents=True)
             workflow.write_text(
                 """
-name: ARIA Operational Proof
+name: aria-agent-eval
 permissions:
   contents: read
 jobs:
-  proof:
+  eval:
     permissions:
       contents: read
     steps:
@@ -366,41 +381,41 @@ jobs:
         run: |
           python3 - <<'PY'
           from aria_kernel.preflight import verify_workflow_preflight
-          verify_workflow_preflight(job_id="proof")
+          verify_workflow_preflight(job_id="eval")
           PY
-      - name: Run observe burn-in proof
+      - name: Run all eval fixtures (mock mode)
         run: npm run aria:test:unit
-      - name: Upload ARIA operational proof
+      - name: Upload ARIA eval workflow proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: aria-operational-proof-${{ github.sha }}
-          path: ${{ runner.temp }}/aria-operational-proof/
+          name: aria-agent-eval-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-agent-eval-preflight.json
           if-no-files-found: error
-          retention-days: 365
+          retention-days: 7
 """,
                 encoding="utf-8",
             )
             artifact_dir = root / "artifacts"
             artifact_dir.mkdir()
-            (artifact_dir / "workflow-preflight.json").write_text(
+            (artifact_dir / "aria-agent-eval-preflight.json").write_text(
                 json.dumps(
                     {
-                        "workflow_id": "aria-operational-proof",
-                        "job_id": "proof",
+                        "workflow_id": "aria-agent-eval",
+                        "job_id": "eval",
                         "schema_version": 1,
                         "valid": True,
                         "dlp_scan_clean": True,
                         "token_provenance": "github_actions_artifact_token",
-                        "network_policy": ["actions_runtime", "github_artifact", "github_git", "npm_registry", "pypi"],
-                        "contract_hash": workflow_job_contract_hash("aria-operational-proof", "proof"),
-                        "runtime_write_paths": ["runner-temp/aria-operational-proof"],
+                        "network_policy": ["actions_runtime", "github_artifact", "github_git"],
+                        "contract_hash": workflow_job_contract_hash("aria-agent-eval", "eval"),
+                        "runtime_write_paths": ["aria-tools/agent-evals/runs.jsonl"],
                     }
                 )
                 + "\n",
                 encoding="utf-8",
             )
             verdict = verify_workflow_contract(
-                workflow_id="aria-operational-proof",
+                workflow_id="aria-agent-eval",
                 workspace_root=root,
                 artifact_dir=artifact_dir,
                 event_context={"token_source": "github_actions_artifact_token"},

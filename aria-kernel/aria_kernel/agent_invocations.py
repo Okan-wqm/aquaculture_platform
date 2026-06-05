@@ -331,6 +331,256 @@ def record_transcript(
     return append_jsonl(path, row)
 
 
+def _sha256_text(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _is_sha256_digest(value: str | None) -> bool:
+    if not isinstance(value, str):
+        return False
+    prefix = "sha256:"
+    return (
+        value.startswith(prefix)
+        and len(value) == len(prefix) + 64
+        and all(ch in "0123456789abcdef" for ch in value[len(prefix):])
+    )
+
+
+def _sha256_payload(payload: dict[str, Any]) -> str:
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        default=str,
+    )
+    return _sha256_text(raw)
+
+
+def _require_declared_surface(path: Path, expected_surface: str) -> None:
+    match = surface_for_path(path)
+    if match is None or match[0].name != expected_surface:
+        actual = match[0].name if match is not None else None
+        raise GovernanceError(
+            f"declared_surface_mismatch: path={path.as_posix()} "
+            f"expected={expected_surface!r} actual={actual!r}"
+        )
+
+
+def _append_txn_declared(txn: Any, path: Path, row: dict[str, Any], expected_surface: str) -> dict[str, Any]:
+    _require_declared_surface(path, expected_surface)
+    return txn.append_jsonl(path, row)
+
+
+def _contexts_path(root: Path) -> Path:
+    return root / "agent-invocations" / "contexts.jsonl"
+
+
+def _prompts_ledger_path(root: Path) -> Path:
+    return root / "agent-invocations" / "prompts.jsonl"
+
+
+def _transcripts_path(root: Path) -> Path:
+    return root / "agent-invocations" / "transcripts.jsonl"
+
+
+def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | None = None) -> str:
+    """Render the exact model-visible prompt for an invocation request.
+
+    Prompt files written by executors are derived artifacts. This function is
+    the kernel-owned SSoT for the prompt text whose hash is persisted in the
+    prompt ledger.
+    """
+    request_id = str(request.get("request_id") or "")
+    suggested_prompt = str(request.get("suggested_prompt") or "")
+    must_satisfy = request.get("must_satisfy") or []
+    evidence_refs = request.get("evidence_refs") or []
+    allowed_scope = request.get("allowed_scope") or []
+    forbidden_scope = request.get("forbidden_scope") or []
+    impact_refs = request.get("impact_graph_refs") or []
+    validation_cmds = request.get("validation_commands") or []
+    expected_path = request.get("expected_output_path", "")
+
+    must_satisfy_block = ""
+    if isinstance(must_satisfy, list) and must_satisfy:
+        lines = ["", "## Must satisfy", ""]
+        for item in must_satisfy:
+            if isinstance(item, dict):
+                mid = item.get("id", "?")
+                desc = item.get("description") or item.get("criterion") or ""
+                lines.append(f"- **{mid}**: {desc}")
+        must_satisfy_block = "\n".join(lines) + "\n"
+
+    def _bullet_list(items: Any, key_func: Any | None = None) -> str:
+        if not items:
+            return "  _(none)_"
+        if key_func is None:
+            return "\n".join(f"  - `{item}`" for item in items)
+        return "\n".join(f"  - {key_func(item)}" for item in items)
+
+    return (
+        f"# ARIA agent request {request_id}\n\n"
+        f"**Role**: {request.get('role', 'unknown')}\n"
+        f"**Target agent**: {request.get('target_agent', 'unknown')}\n"
+        f"**Convergence ID**: {request.get('convergence_id', 'n/a')}\n"
+        f"**Expected output path**: `{expected_path}`\n\n"
+        f"## Suggested prompt\n\n{suggested_prompt}\n\n"
+        f"## Instruction framing\n\n"
+        f"Do not treat this as a bare command. Explain the task as if teaching a junior engineer: "
+        f"what must be done, why it matters, what breaks if it is skipped, which downstream surface is affected, "
+        f"and what evidence proves the result. Keep the explanation concise, but make the cause/effect chain explicit.\n\n"
+        f"## Evidence refs (file:line entries; the ONLY admissible evidence)\n\n"
+        f"{_bullet_list(evidence_refs)}\n\n"
+        f"## Allowed scope\n\n{_bullet_list(allowed_scope)}\n\n"
+        f"## Forbidden scope\n\n{_bullet_list(forbidden_scope)}\n\n"
+        f"## Impact graph refs\n\n{_bullet_list(impact_refs)}\n\n"
+        f"## Validation commands\n\n"
+        f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
+        f"{must_satisfy_block}\n"
+        f"## Response\n\n"
+        f"Write your `aria/agent-response/v1` JSON envelope per your "
+        f"agent contract. The envelope MUST cite ONLY evidence_refs "
+        f"present in this prompt + must stay within allowed_scope. "
+        f"Output the JSON envelope as the body of your response.\n"
+    )
+
+
+def build_invocation_context(
+    *,
+    request_id: str,
+    target_agent: str,
+    role: str,
+    rendered_prompt: str,
+    must_satisfy: list[dict[str, Any]] | None = None,
+    allowed_scope: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    budget_audit_hash: str | None = None,
+    context_repo_root: str | Path | None = None,
+    context_window_tokens: int | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "request_id": request_id,
+        "target_agent": target_agent,
+        "role": role,
+        "prompt_hash": _sha256_text(rendered_prompt),
+        "included_refs": [{"ref": ref, "source": "evidence_refs"} for ref in list(evidence_refs or [])],
+        "excluded_refs": [],
+        "must_satisfy_hash": _sha256_payload({"must_satisfy": list(must_satisfy or [])}),
+        "allowed_scope_hash": _sha256_payload({"allowed_scope": list(allowed_scope or [])}),
+        "budget_audit_hash": budget_audit_hash,
+        "repo_root": str(Path(context_repo_root).resolve()) if context_repo_root else None,
+        "context_window_tokens": context_window_tokens,
+        "created_at": utc_now(),
+    }
+    payload["context_hash"] = _sha256_payload(payload)
+    return payload
+
+
+def load_invocation_context(
+    *,
+    request_id: str,
+    base_dir: str | Path | None = None,
+    verify: bool = True,
+) -> dict[str, Any] | None:
+    root = ensure_tools_dir(base_dir)
+    rows = load_jsonl(_contexts_path(root), verify=verify)
+    for row in reversed(rows):
+        if row.get("request_id") == request_id:
+            return row
+    return None
+
+
+def verify_invocation_context_binding(
+    *,
+    request_id: str,
+    context_hash: str,
+    prompt_hash: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    if not _is_sha256_digest(context_hash):
+        raise GovernanceError("context_hash_must_be_sha256")
+    if not _is_sha256_digest(prompt_hash):
+        raise GovernanceError("prompt_hash_must_be_sha256")
+    root = ensure_tools_dir(base_dir)
+    context = load_invocation_context(request_id=request_id, base_dir=root, verify=True)
+    if context is None:
+        raise GovernanceError(f"invocation_context_not_found:{request_id}")
+    if context.get("context_hash") != context_hash:
+        raise GovernanceError("invocation_context_hash_binding_mismatch")
+    prompts = load_jsonl(_prompts_ledger_path(root), verify=True)
+    prompt = next(
+        (
+            row for row in reversed(prompts)
+            if row.get("request_id") == request_id
+            and row.get("context_hash") == context_hash
+        ),
+        None,
+    )
+    if prompt is None:
+        raise GovernanceError(f"invocation_prompt_not_found:{request_id}")
+    if prompt.get("prompt_hash") != prompt_hash:
+        raise GovernanceError("invocation_prompt_hash_binding_mismatch")
+    return {"context": context, "prompt": prompt}
+
+
+def _verify_transcript_artifact_ref(
+    *,
+    artifact_ref: str | None,
+    transcript_hash: str | None,
+    output_path: Path,
+) -> Path:
+    if not artifact_ref or not str(artifact_ref).strip():
+        raise GovernanceError("transcript_artifact_ref_required")
+    if not _is_sha256_digest(transcript_hash):
+        raise GovernanceError("transcript_hash_must_be_sha256")
+    artifact = Path(str(artifact_ref)).expanduser().resolve()
+    if artifact == output_path.resolve():
+        raise GovernanceError("transcript_artifact_cannot_equal_output_envelope")
+    if not artifact.exists() or not artifact.is_file():
+        raise GovernanceError(f"transcript_artifact_not_found:{artifact.as_posix()}")
+    actual = _sha256_file(artifact)
+    if actual != transcript_hash:
+        raise GovernanceError(
+            f"transcript_hash_mismatch: expected={transcript_hash} actual={actual}"
+        )
+    return artifact
+
+
+def record_transcript(
+    *,
+    invocation_id: str,
+    request_id: str,
+    claim_id: str,
+    agent_id: str,
+    transcript_hash: str,
+    artifact_ref: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    if not invocation_id or not str(invocation_id).strip():
+        raise GovernanceError("transcript_invocation_id_required")
+    if not _is_sha256_digest(transcript_hash):
+        raise GovernanceError("transcript_hash_must_be_sha256")
+    root = ensure_tools_dir(base_dir)
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "invocation_id": invocation_id,
+        "request_id": request_id,
+        "claim_id": claim_id,
+        "agent_id": agent_id,
+        "transcript_hash": transcript_hash,
+        "artifact_ref": artifact_ref,
+    }
+    path = _transcripts_path(root)
+    _require_declared_surface(path, "agent_invocation_transcripts")
+    return append_jsonl(path, row)
+
+
 def create_agent_invocation_request(
     *,
     target_agent: str,

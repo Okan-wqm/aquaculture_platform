@@ -18,7 +18,9 @@ from aria_kernel.agent_invocations import (
     derive_request_state,
     submit_claim_result,
 )
+from aria_kernel.tool_registry import GovernanceError
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.context_binding import sha256_file, submit_binding_kwargs
 
 
 def _seed_repo() -> Path:
@@ -94,6 +96,14 @@ class SubmitResultE2ETests(unittest.TestCase):
         out_path.write_text(json.dumps(envelope), encoding="utf-8")
         return out_path
 
+    def _binding_kwargs(self, request: dict, *, name: str = "transcript.jsonl") -> dict[str, str]:
+        return submit_binding_kwargs(
+            request,
+            transcript_dir=self.tools / "agent-invocations" / "transcripts",
+            transcript_name=name,
+            transcript_text=f"fixture transcript for {request['request_id']}\n",
+        )
+
     def test_full_claim_submit_accept_flow(self) -> None:
         request, claim = self._claim()
         out = self._good_envelope(request=request, claim=claim)
@@ -104,6 +114,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             output_path=out,
             workspace_root=self.repo,
             base_dir=self.tools,
+            **self._binding_kwargs(request),
         )
         self.assertEqual(result["status"], "accepted", result)
         # Plan 026R §C.5 — derive_request_state is bridge-aware. For
@@ -155,6 +166,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             output_path=out,
             workspace_root=self.repo,
             base_dir=self.tools,
+            **self._binding_kwargs(request, name="missing-file.transcript.jsonl"),
         )
         self.assertEqual(result["status"], "rejected")
         joined = " ".join(result["reasons"])
@@ -179,6 +191,71 @@ class SubmitResultE2ETests(unittest.TestCase):
                 output_path=out,
                 workspace_root=self.repo,
                 base_dir=self.tools,
+            )
+
+    def test_missing_context_hash_blocks_submit(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        binding = self._binding_kwargs(request, name="missing-context.transcript.jsonl")
+        binding.pop("context_hash")
+        with self.assertRaisesRegex(GovernanceError, "context_hash_must_be_sha256"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                **binding,
+            )
+
+    def test_mismatched_prompt_hash_blocks_submit(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        binding = self._binding_kwargs(request, name="bad-prompt.transcript.jsonl")
+        binding["prompt_hash"] = "sha256:" + "0" * 64
+        with self.assertRaisesRegex(GovernanceError, "invocation_prompt_hash_binding_mismatch"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                **binding,
+            )
+
+    def test_mismatched_transcript_hash_blocks_submit(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        binding = self._binding_kwargs(request, name="bad-transcript.transcript.jsonl")
+        binding["transcript_hash"] = "sha256:" + "0" * 64
+        with self.assertRaisesRegex(GovernanceError, "transcript_hash_mismatch"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                **binding,
+            )
+
+    def test_transcript_artifact_cannot_equal_output_envelope(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        binding = self._binding_kwargs(request, name="unused.transcript.jsonl")
+        binding["transcript_artifact_ref"] = out.resolve().as_posix()
+        binding["transcript_hash"] = sha256_file(out)
+        with self.assertRaisesRegex(GovernanceError, "transcript_artifact_cannot_equal_output_envelope"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                **binding,
             )
 
     def test_separation_of_duties_blocks_self_approval(self) -> None:
@@ -230,6 +307,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             output_path=out,
             workspace_root=self.repo,
             base_dir=self.tools,
+            **self._binding_kwargs(request, name="sod.transcript.jsonl"),
         )
         self.assertEqual(result["status"], "rejected")
         joined = " ".join(result["reasons"])
@@ -247,6 +325,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             output_path=out,
             workspace_root=self.repo,
             base_dir=self.tools,
+            **self._binding_kwargs(request, name="unreadable.transcript.jsonl"),
         )
         self.assertEqual(result["status"], "rejected")
         joined = " ".join(result["reasons"])

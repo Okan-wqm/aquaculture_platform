@@ -28,6 +28,7 @@ asserted not to be invoked from main().
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import sys
 import tempfile
@@ -41,6 +42,7 @@ if str(_POC_DIR) not in sys.path:
     sys.path.insert(0, str(_POC_DIR))
 
 import ci_executor  # noqa: E402
+from aria_kernel.agent_invocations import render_invocation_prompt  # noqa: E402
 
 
 def _make_fake_run_sequence(*responses):
@@ -82,23 +84,35 @@ class LivePathFetchTests(unittest.TestCase):
         # The pre-§B.3 separate list_response_ok mock is consumed by the
         # claim_response shape itself; the executor no longer subprocesses
         # a second time for envelope load.
-        self.claim_response = MagicMock(
-            returncode=0,
-            stdout=json.dumps({
+        claim_payload = {
                 "lease_token": self.lease_token,
                 "claim_id": self.claim_id,
                 "request_id": self.request_id,
                 "agent_id": "ci-executor:gha-test",
+                "target_agent": "aria-evidence-judge",
+                "convergence_id": None,
                 # §B.3 fused-envelope fields:
                 "role": "evidence_judgment",
                 "expected_output_path": str(self.expected_output),
+                "suggested_prompt": None,
                 "must_satisfy": [{"id": "S1", "description": "test"}],
                 "evidence_refs": ["aria-kernel/src"],
                 "allowed_scope": ["aria-kernel/**"],
+                "forbidden_scope": [],
+                "impact_graph_refs": [],
+                "validation_commands": [],
                 # §B.5 ledger-hash anchors (populated by §B.3):
                 "claim_ledger_hash": "sha256:" + "a" * 64,
                 "request_ledger_hash": "sha256:" + "b" * 64,
-            }),
+        }
+        rendered = render_invocation_prompt(claim_payload)
+        claim_payload["prompt_hash"] = "sha256:" + hashlib.sha256(
+            rendered.encode("utf-8")
+        ).hexdigest()
+        claim_payload["context_hash"] = "sha256:" + "c" * 64
+        self.claim_response = MagicMock(
+            returncode=0,
+            stdout=json.dumps(claim_payload),
             stderr="",
         )
         self.submit_response_ok = MagicMock(

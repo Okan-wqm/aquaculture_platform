@@ -31,6 +31,7 @@ ChatGPT-managed Codex login on a trusted/private runner.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -61,6 +62,7 @@ from codex_runtime import (
 try:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
     from aria_kernel.agent_surface import DISPATCHABLE_ROLES as _DISPATCHABLE_ROLES
+    from aria_kernel.agent_invocations import render_invocation_prompt as _render_invocation_prompt
 except Exception:  # pragma: no cover - fallback keeps standalone contract importable
     _DISPATCHABLE_ROLES = frozenset({
         "specialist_domain_review",
@@ -73,6 +75,7 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
         "cross_review",
         "implementation",
     })
+    _render_invocation_prompt = None
 
 
 DEFAULT_MAX_TURNS = 12
@@ -749,6 +752,7 @@ def invoke_codex_cli(
     prompt_file: Path,
     output_path: Path,
     timeout_seconds: int,
+    transcript_path: Path | None = None,
     claim_id: str | None = None,
     agent_id: str | None = None,
     role: str,
@@ -848,10 +852,29 @@ def invoke_codex_cli(
                 },
             }
         _write_sanitized_envelope(output_path, mock_envelope)
+        resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
+        resolved_transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_transcript_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "aria/ci-executor-transcript/v1",
+                    "mode": "mock",
+                    "request_id": request_id,
+                    "claim_id": claim_id,
+                    "agent_id": agent_id,
+                    "role": envelope_role,
+                    "subagent_type": subagent_type,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         return 0
 
     prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
     if tools_dir is not None:
         try:
             _env_audit_keys = sorted([
@@ -914,6 +937,8 @@ def invoke_codex_cli(
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_sanitized_envelope(output_path, envelope)
+        resolved_transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_transcript_path.write_text(completed.stdout, encoding="utf-8")
         # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution. Gated on
         # _MOCK_MODE_AT_ENTRY frozen sentinel (V3.1-D2) so a mid-run
         # CODEX_CLI_MOCK flip cannot rewrite mock-mode classification
@@ -1486,6 +1511,11 @@ def main(argv: list[str] | None = None) -> int:
         "forbidden_scope": claim.get("forbidden_scope") or [],
         "impact_graph_refs": claim.get("impact_graph_refs") or [],
         "validation_commands": claim.get("validation_commands") or [],
+        "context_hash": claim.get("context_hash"),
+        "prompt_hash": claim.get("prompt_hash"),
+        "context_ledger_hash": claim.get("context_ledger_hash"),
+        "prompt_ledger_hash": claim.get("prompt_ledger_hash"),
+        "budget_audit_hash": claim.get("budget_audit_hash"),
         # Plan 026R §B.5 anchors — verified by ci_executor at envelope
         # deserialise time when the planner-hook single-claim env-var
         # contract delivers the metadata.
@@ -1538,69 +1568,34 @@ def main(argv: list[str] | None = None) -> int:
     # codex CLI subprocess receives an empty prompt.
     prompt_file = tools_dir / "agent-invocations" / "prompts" / f"{request_id}.md"
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
-    _suggested_prompt = str(request_envelope.get("suggested_prompt") or "")
-    _must_satisfy_block = ""
-    _ms_list = request_envelope.get("must_satisfy") or []
-    if isinstance(_ms_list, list) and _ms_list:
-        _must_satisfy_lines = ["", "## Must satisfy", ""]
-        for _item in _ms_list:
-            if isinstance(_item, dict):
-                _mid = _item.get("id", "?")
-                _mdesc = _item.get("description", "")
-                _must_satisfy_lines.append(f"- **{_mid}**: {_mdesc}")
-        _must_satisfy_block = "\n".join(_must_satisfy_lines) + "\n"
-    # Plan ARIA-V7 §2g v2 V7.9 — render ALL V5/V6/V7 envelope fields
-    # so the agent reads the complete contract surface, NOT just a
-    # role-prompt skeleton. Previously the prompt only carried role +
-    # target_agent + suggested_prompt; agents (e.g. aria-primary-
-    # planner) correctly rejected with `envelope_underspecified`
-    # because evidence_refs / allowed_scope / impact_graph_refs /
-    # expected_output_path / validation_commands were absent. The
-    # template now mirrors the request_envelope dict's full schema so
-    # agents have everything their contract requires to produce a
-    # real response (not refusal).
-    def _bullet_list(items, key_func=None):
-        if not items:
-            return "  _(none)_"
-        if key_func is None:
-            return "\n".join(f"  - `{item}`" for item in items)
-        return "\n".join(f"  - {key_func(item)}" for item in items)
-
-    _evidence_refs = request_envelope.get("evidence_refs") or []
-    _allowed_scope = request_envelope.get("allowed_scope") or []
-    _forbidden_scope = request_envelope.get("forbidden_scope") or []
-    _impact_refs = request_envelope.get("impact_graph_refs") or []
-    _validation_cmds = request_envelope.get("validation_commands") or []
-    _expected_path = request_envelope.get("expected_output_path", "")
-
-    _prompt_payload = (
-        f"# ARIA agent request {request_id}\n\n"
-        f"**Role**: {request_envelope.get('role', 'unknown')}\n"
-        f"**Target agent**: {request_envelope.get('target_agent', 'unknown')}\n"
-        f"**Convergence ID**: {request_envelope.get('convergence_id', 'n/a')}\n"
-        f"**Expected output path**: `{_expected_path}`\n\n"
-        f"## Suggested prompt\n\n{_suggested_prompt}\n\n"
-        f"## Instruction framing\n\n"
-        f"Do not treat this as a bare command. Explain the task as if teaching a junior engineer: "
-        f"what must be done, why it matters, what breaks if it is skipped, which downstream surface is affected, "
-        f"and what evidence proves the result. Keep the explanation concise, but make the cause/effect chain explicit.\n\n"
-        f"## Evidence refs (file:line entries; the ONLY admissible evidence)\n\n"
-        f"{_bullet_list(_evidence_refs)}\n\n"
-        f"## Allowed scope\n\n{_bullet_list(_allowed_scope)}\n\n"
-        f"## Forbidden scope\n\n{_bullet_list(_forbidden_scope)}\n\n"
-        f"## Impact graph refs\n\n{_bullet_list(_impact_refs)}\n\n"
-        f"## Validation commands\n\n"
-        f"{_bullet_list(_validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
-        f"{_must_satisfy_block}\n"
-        f"## Response\n\n"
-        f"Write your `aria/agent-response/v1` JSON envelope per your "
-        f"agent contract. The envelope MUST cite ONLY evidence_refs "
-        f"present in this prompt + must stay within allowed_scope. "
-        f"Output the JSON envelope as the body of your response.\n"
-    )
+    if _render_invocation_prompt is None:
+        sys.stderr.write("kernel_prompt_renderer_unavailable\n")
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="kernel_prompt_renderer_unavailable",
+        )
+        return 1
+    _prompt_payload = _render_invocation_prompt(request_envelope)
+    _computed_prompt_hash = "sha256:" + hashlib.sha256(
+        _prompt_payload.encode("utf-8")
+    ).hexdigest()
+    if request_envelope.get("prompt_hash") != _computed_prompt_hash:
+        sys.stderr.write(
+            f"prompt_hash_binding_mismatch: request_id={request_id} "
+            f"expected={request_envelope.get('prompt_hash')!r} "
+            f"actual={_computed_prompt_hash!r}\n"
+        )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="prompt_hash_binding_mismatch",
+        )
+        return 1
     prompt_file.write_text(_prompt_payload, encoding="utf-8")
 
     timeout = _max_timeout_seconds()
+    transcript_output_path = expected_output_path.with_suffix(".transcript.jsonl")
     try:
         # Plan 024 v3 §B-8 — pass real lease identity + role from
         # request row into the mock envelope writer. claim_id +
@@ -1612,6 +1607,7 @@ def main(argv: list[str] | None = None) -> int:
             subagent_type=subagent_type,
             prompt_file=prompt_file,
             output_path=expected_output_path,
+            transcript_path=transcript_output_path,
             timeout_seconds=timeout,
             claim_id=claim_id,
             agent_id=agent_id,
@@ -1777,6 +1773,23 @@ def main(argv: list[str] | None = None) -> int:
     _stage("submit_step_begin claim=" + claim_id)
     # Step 4 — submit through the kernel CLI; lease-token via env var.
     # ORPHAN-HIGH-081 — bounded timeout + survivable claim release on hang.
+    if not transcript_output_path.exists():
+        transcript_output_path.parent.mkdir(parents=True, exist_ok=True)
+        transcript_output_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "aria/ci-executor-transcript/v1",
+                    "mode": "fallback-empty-transcript",
+                    "request_id": request_id,
+                    "claim_id": claim_id,
+                    "agent_id": agent_id,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    _transcript_hash = "sha256:" + hashlib.sha256(transcript_output_path.read_bytes()).hexdigest()
     try:
         submit_proc = subprocess.run(
             [
@@ -1787,6 +1800,10 @@ def main(argv: list[str] | None = None) -> int:
                 "--output-path", str(expected_output_path),
                 "--workspace-root", str(repo),
                 "--tools-dir", str(tools_dir),
+                "--context-hash", str(request_envelope.get("context_hash") or ""),
+                "--prompt-hash", str(request_envelope.get("prompt_hash") or ""),
+                "--transcript-hash", _transcript_hash,
+                "--transcript-artifact-ref", transcript_output_path.resolve().as_posix(),
             ],
             capture_output=True,
             text=True,

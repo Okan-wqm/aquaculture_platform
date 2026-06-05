@@ -34,6 +34,7 @@ from aria_kernel.context_budget_gate import (
     estimate_tokens,
     list_context_audits,
 )
+from aria_kernel.ledger import LedgerIntegrityError
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
@@ -350,6 +351,18 @@ class ListContextAuditsTests(unittest.TestCase):
         rows = list_context_audits(base_dir=self.tools, target_agent="agent-a")
         self.assertEqual(len(rows), 2)
         self.assertEqual({r["target_agent"] for r in rows}, {"agent-a"})
+
+    def test_tampered_context_audit_hash_chain_rejects(self) -> None:
+        audit_dispatch_context(
+            request="x", target_agent="agent-a", role="primary_plan",
+            base_dir=self.tools, repo_root=self.repo,
+        )
+        path = self.tools / CONTEXT_AUDITS_FILENAME
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        rows[0]["role"] = "tampered"
+        path.write_text(json.dumps(rows[0], sort_keys=True) + "\n", encoding="utf-8")
+        with self.assertRaises(LedgerIntegrityError):
+            list_context_audits(base_dir=self.tools)
 
 
 class CreateAgentInvocationRequestOptInTests(unittest.TestCase):

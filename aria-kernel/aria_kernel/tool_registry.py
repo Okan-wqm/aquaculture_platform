@@ -378,6 +378,9 @@ def covered_tool_ledgers(root: Path) -> dict[str, Path]:
 def update_tools_index(root: Path) -> None:
     index: dict[str, Any] = {}
     file_hashes: dict[str, str] = {}
+    identity_path = root / "repo_identity.json"
+    if identity_path.exists():
+        file_hashes["repo_identity"] = file_hash(identity_path)
     state_path = root / "migration_state.json"
     if state_path.exists():
         file_hashes["migration_state"] = file_hash(state_path)

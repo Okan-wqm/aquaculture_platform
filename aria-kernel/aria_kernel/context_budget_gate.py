@@ -63,7 +63,7 @@ from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
-    ensure_tools_dir,
+    ensure_tools_binding,
     utc_now,
 )
 
@@ -283,7 +283,7 @@ def audit_dispatch_context(
         return audit_row
 
     enforce_profile_for_write("context_audits", base_dir=base_dir)
-    root = ensure_tools_dir(base_dir)
+    root = ensure_tools_binding(base_dir, workspace_root=repo_root or Path.cwd())
     append_declared_jsonl(
         root / CONTEXT_AUDITS_FILENAME,
         audit_row,
@@ -336,7 +336,7 @@ def enforce_context_budget(
     )
     if not audit_row["cap_breached"]:
         return audit_row
-    root = ensure_tools_dir(base_dir)
+    root = ensure_tools_binding(base_dir, workspace_root=repo_root or Path.cwd())
     append_tools_governance(
         root,
         "context_budget_exceeded",

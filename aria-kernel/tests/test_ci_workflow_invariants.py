@@ -45,7 +45,6 @@ _GOVERNED_WORKFLOWS: frozenset[str] = frozenset({
     "aria-daily-report.yml",
     "aria-agent-executor.yml",
     "aria-agent-eval.yml",
-    "aria-operational-proof.yml",
     "finding-state-sweep.yml",
     "rule-health-report.yml",
 })
@@ -59,7 +58,6 @@ _MUTATING_ARIA_WORKFLOWS: frozenset[str] = frozenset({
     "aria-agent-eval.yml",
     "aria-agent-executor.yml",
     "aria-daily-report.yml",
-    "aria-operational-proof.yml",
     "finding-state-sweep.yml",
     "rule-health-report.yml",
 })

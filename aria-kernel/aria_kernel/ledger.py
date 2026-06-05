@@ -6,8 +6,9 @@ import json
 import os
 import sys
 from dataclasses import dataclass
+from datetime import date, datetime, time, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 from .file_lock import with_exclusive_lock
 from .state_manifest import StateSurface, surface_by_name, surface_for_path
@@ -15,6 +16,7 @@ from .state_manifest import StateSurface, surface_by_name, surface_for_path
 
 __all__ = [
     "LedgerIntegrityError",
+    "LegacyLedgerContext",
     "StateTransaction",
     "append_declared_jsonl",
     "append_jsonl",
@@ -36,6 +38,20 @@ __all__ = [
 
 class LedgerIntegrityError(RuntimeError):
     pass
+
+
+LegacyOperation = Literal["rewrite_jsonl", "rewrite_json"]
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyLedgerContext:
+    migration_id: str
+    expected_surface: str
+    exact_path_scope: str | Path
+    operator_ack_ref: str
+    expires_at: str
+    reason: str
+    operation: LegacyOperation
 
 
 def _declared_surface_match(
@@ -62,6 +78,72 @@ def _declared_surface_match(
             f"expected_surface={expected.name} actual_surface={surface.name}"
         )
     return resolved, surface, base_dir
+
+
+def _require_declared_append_surface(surface: StateSurface) -> None:
+    if surface.state_class != "ledger" or surface.durability != "append_fsync":
+        raise LedgerIntegrityError(
+            f"declared_append_requires_append_ledger: surface={surface.name} "
+            f"state_class={surface.state_class} durability={surface.durability}"
+        )
+
+
+def _require_declared_jsonl_rewrite_surface(surface: StateSurface) -> None:
+    if surface.state_class != "ledger":
+        raise LedgerIntegrityError(
+            f"declared_jsonl_rewrite_requires_ledger_surface: surface={surface.name}"
+        )
+
+
+def _require_declared_json_rewrite_surface(surface: StateSurface) -> None:
+    if surface.state_class == "ledger" or surface.durability != "rewrite_fsync":
+        raise LedgerIntegrityError(
+            f"declared_json_rewrite_requires_json_surface: surface={surface.name}"
+        )
+
+
+def _parse_legacy_expiry(raw: str) -> datetime:
+    text = str(raw or "").strip()
+    if not text:
+        raise LedgerIntegrityError("legacy_context_expires_at_missing")
+    try:
+        if "T" not in text:
+            return datetime.combine(date.fromisoformat(text), time.max, tzinfo=timezone.utc)
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise LedgerIntegrityError("legacy_context_expires_at_invalid") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _validate_legacy_context(
+    *,
+    context: LegacyLedgerContext,
+    operation: LegacyOperation,
+    surface: StateSurface,
+    path: Path,
+) -> None:
+    if not isinstance(context, LegacyLedgerContext):
+        raise LedgerIntegrityError("legacy_context_required")
+    if not context.migration_id.strip():
+        raise LedgerIntegrityError("legacy_context_migration_id_missing")
+    if context.expected_surface != surface.name:
+        raise LedgerIntegrityError(
+            f"legacy_context_surface_mismatch: expected={context.expected_surface} actual={surface.name}"
+        )
+    if context.operation != operation:
+        raise LedgerIntegrityError(
+            f"legacy_context_operation_mismatch: expected={context.operation} actual={operation}"
+        )
+    if Path(context.exact_path_scope).resolve() != path.resolve():
+        raise LedgerIntegrityError("legacy_context_path_scope_mismatch")
+    if not context.operator_ack_ref.strip():
+        raise LedgerIntegrityError("legacy_context_operator_ack_ref_missing")
+    if not context.reason.strip():
+        raise LedgerIntegrityError("legacy_context_reason_missing")
+    if _parse_legacy_expiry(context.expires_at) <= datetime.now(timezone.utc):
+        raise LedgerIntegrityError("legacy_context_expired")
 
 
 def _reject_raw_declared_surface(path: str | Path, *, operation: str) -> None:
@@ -250,9 +332,13 @@ class StateTransaction:
         verify: bool | None = None,
     ) -> list[dict[str, Any]]:
         resolved = self._canonical_path(path)
-        _declared_surface_match(resolved, expected_surface)
+        _resolved, surface, _base_dir = _declared_surface_match(resolved, expected_surface)
         use_verify = self.verify_reads if verify is None else verify
-        return load_jsonl_verified(resolved) if use_verify else read_jsonl(resolved)
+        if surface.strict_read and not use_verify:
+            raise LedgerIntegrityError(
+                f"declared_jsonl_strict_read_required: surface={surface.name}"
+            )
+        return load_jsonl_verified(resolved) if use_verify else _read_jsonl_unchecked(resolved)
 
     def append_jsonl(self, path: str | Path, record: dict[str, Any]) -> dict[str, Any]:
         resolved = self._canonical_path(path)
@@ -267,8 +353,9 @@ class StateTransaction:
         expected_surface: str,
     ) -> dict[str, Any]:
         resolved = self._canonical_path(path)
-        _declared_surface_match(resolved, expected_surface)
-        return _append_jsonl_locked_body(resolved, record)
+        _resolved, surface, _base_dir = _declared_surface_match(resolved, expected_surface)
+        _require_declared_append_surface(surface)
+        return _append_jsonl_locked_body(resolved, record, verify_existing=True)
 
 
 def _state_group_lock_path(path: Path) -> Path | None:
@@ -326,7 +413,7 @@ def file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
+def _read_jsonl_unchecked(path: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     if not path.exists():
         return records
@@ -339,6 +426,11 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         except json.JSONDecodeError as exc:
             raise LedgerIntegrityError(f"Invalid JSONL at {path}:{line_no}: {exc}") from exc
     return records
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    _reject_raw_declared_surface(path, operation="load")
+    return _read_jsonl_unchecked(path)
 
 
 def load_jsonl(
@@ -366,7 +458,7 @@ def load_jsonl(
     _reject_raw_declared_surface(path, operation="load")
     if verify:
         return load_jsonl_verified(path)
-    return read_jsonl(path)
+    return _read_jsonl_unchecked(path)
 
 
 def load_declared_jsonl(
@@ -381,10 +473,14 @@ def load_declared_jsonl(
     the manifest leaf they intend to consume. Strict verification is the
     default for declared enterprise reads.
     """
-    resolved, _surface, _base_dir = _declared_surface_match(path, expected_surface)
+    resolved, surface, _base_dir = _declared_surface_match(path, expected_surface)
+    if surface.strict_read and not verify:
+        raise LedgerIntegrityError(
+            f"declared_jsonl_strict_read_required: surface={surface.name}"
+        )
     if verify:
         return load_jsonl_verified(resolved)
-    return read_jsonl(resolved)
+    return _read_jsonl_unchecked(resolved)
 
 
 def _canonical_json(record: dict[str, Any]) -> str:
@@ -399,9 +495,20 @@ def _record_hash(record: dict[str, Any], previous_hash: str | None = None) -> st
     return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _append_jsonl_locked_body(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+def _rows_for_append(path: Path, *, verify_existing: bool) -> list[dict[str, Any]]:
+    if verify_existing:
+        return load_jsonl_verified(path)
+    return _read_jsonl_unchecked(path)
+
+
+def _append_jsonl_locked_body(
+    path: Path,
+    record: dict[str, Any],
+    *,
+    verify_existing: bool = False,
+) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
-    rows = read_jsonl(path)
+    rows = _rows_for_append(path, verify_existing=verify_existing)
     previous_hash = (
         str(rows[-1].get("ledger_hash"))
         if rows and rows[-1].get("ledger_hash")
@@ -478,15 +585,20 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     return _append_jsonl_with_locks(path, record)
 
 
-def _append_jsonl_with_locks(path: str | Path, record: dict[str, Any]) -> dict[str, Any]:
+def _append_jsonl_with_locks(
+    path: str | Path,
+    record: dict[str, Any],
+    *,
+    verify_existing: bool = False,
+) -> dict[str, Any]:
     path = Path(path).resolve()
     requirement = _lock_requirements_for_path(path)
     if requirement.index_group_lock_path is None:
         with with_exclusive_lock(requirement.file_lock_path):
-            return _append_jsonl_unlocked(path, record)
+            return _append_jsonl_locked_body(path, record, verify_existing=verify_existing)
     with with_exclusive_lock(requirement.index_group_lock_path):
         with with_exclusive_lock(requirement.file_lock_path):
-            return _append_jsonl_unlocked(path, record)
+            return _append_jsonl_locked_body(path, record, verify_existing=verify_existing)
 
 
 def append_declared_jsonl(
@@ -496,8 +608,9 @@ def append_declared_jsonl(
     expected_surface: str,
 ) -> dict[str, Any]:
     """Append to a manifest-declared JSONL surface."""
-    resolved, _surface, _base_dir = _declared_surface_match(path, expected_surface)
-    return _append_jsonl_with_locks(resolved, record)
+    resolved, surface, _base_dir = _declared_surface_match(path, expected_surface)
+    _require_declared_append_surface(surface)
+    return _append_jsonl_with_locks(resolved, record, verify_existing=True)
 
 
 def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -530,12 +643,17 @@ def rewrite_declared_jsonl(
     rows: list[dict[str, Any]],
     *,
     expected_surface: str,
-    migration_id: str,
+    legacy_context: LegacyLedgerContext,
 ) -> None:
     """Rewrite a declared JSONL surface under explicit migration intent."""
-    if not str(migration_id or "").strip():
-        raise LedgerIntegrityError("declared_rewrite_requires_migration_id")
-    resolved, _surface, _base_dir = _declared_surface_match(path, expected_surface)
+    resolved, surface, _base_dir = _declared_surface_match(path, expected_surface)
+    _require_declared_jsonl_rewrite_surface(surface)
+    _validate_legacy_context(
+        context=legacy_context,
+        operation="rewrite_jsonl",
+        surface=surface,
+        path=resolved,
+    )
     _rewrite_jsonl_with_locks(resolved, rows)
 
 
@@ -544,16 +662,17 @@ def rewrite_declared_json(
     payload: dict[str, Any],
     *,
     expected_surface: str,
-    migration_id: str,
+    legacy_context: LegacyLedgerContext,
 ) -> None:
     """Atomically rewrite a declared JSON surface under explicit migration intent."""
-    if not str(migration_id or "").strip():
-        raise LedgerIntegrityError("declared_rewrite_requires_migration_id")
     resolved, surface, _base_dir = _declared_surface_match(path, expected_surface)
-    if surface.state_class not in {"index", "runtime_state", "artifact", "lock"}:
-        raise LedgerIntegrityError(
-            f"declared_json_rewrite_requires_json_surface: surface={surface.name}"
-        )
+    _require_declared_json_rewrite_surface(surface)
+    _validate_legacy_context(
+        context=legacy_context,
+        operation="rewrite_json",
+        surface=surface,
+        path=resolved,
+    )
     content = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     requirement = _lock_requirements_for_path(resolved)
     if requirement.index_group_lock_path is None:
@@ -872,6 +991,12 @@ def _refresh_adjacent_index_grouped(
 
         current = load_index(index_path)
         current.pop("pressure_keys_emitted", None)
+        file_hashes = current.get("file_hashes") if isinstance(current.get("file_hashes"), dict) else {}
+        identity_path = index_path.parent / "repo_identity.json"
+        if identity_path.exists():
+            file_hashes["repo_identity"] = file_hash(identity_path)
+        if file_hashes:
+            current["file_hashes"] = file_hashes
         current["ledger_hashes"] = ledger_hashes
         current["schema_version"] = 2
         _atomic_write_text(

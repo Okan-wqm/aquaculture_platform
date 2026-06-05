@@ -37,6 +37,17 @@ class WorkflowContractVerdict:
     reasons: tuple[str, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True)
+class WorkflowRegistryVerdict:
+    valid: bool
+    registered_count: int
+    audited_exclusion_count: int
+    failed_contracts: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    uncovered_workflows: tuple[str, ...] = field(default_factory=tuple)
+    failure_classes: tuple[str, ...] = field(default_factory=tuple)
+    reasons: tuple[str, ...] = field(default_factory=tuple)
+
+
 def discover_aria_workflows(workspace_root: str | Path) -> dict[str, Path]:
     workflows = Path(workspace_root) / ".github" / "workflows"
     found: dict[str, Path] = {}
@@ -50,6 +61,56 @@ def discover_aria_workflows(workspace_root: str | Path) -> dict[str, Path]:
             if path.exists():
                 found[name] = path
     return found
+
+
+def verify_workflow_registry(
+    *,
+    workspace_root: str | Path,
+    contract_registry: dict[str, WorkflowContract] | None = None,
+    audited_exclusions: dict[str, AuditedWorkflowExclusion] | None = None,
+) -> WorkflowRegistryVerdict:
+    """Validate the governed workflow inventory as a single SSoT verdict."""
+
+    registry = contract_registry or WORKFLOW_CONTRACTS
+    exclusions = audited_exclusions or AUDITED_WORKFLOW_EXCLUSIONS
+    root = Path(workspace_root).resolve()
+    reasons: list[str] = []
+    failure_classes: list[str] = []
+    failed_contracts: dict[str, tuple[str, ...]] = {}
+
+    for workflow_id in sorted(registry):
+        verdict = verify_workflow_contract(
+            workflow_id=workflow_id,
+            workspace_root=root,
+            contract_registry=registry,
+        )
+        if not verdict.valid:
+            failed_contracts[workflow_id] = verdict.reasons
+            reasons.extend(f"{workflow_id}:{reason}" for reason in verdict.reasons)
+            failure_classes.extend(verdict.failure_classes)
+
+    discovered = discover_aria_workflows(root)
+    uncovered = tuple(sorted(set(discovered) - set(registry) - set(exclusions)))
+    if uncovered:
+        reasons.append(f"workflow_registry_uncovered:{uncovered}")
+        failure_classes.append("workflow_registry_uncovered")
+
+    _verify_audited_exclusions(
+        reasons,
+        failure_classes,
+        workspace_root=root,
+        audited_exclusions=exclusions,
+    )
+
+    return WorkflowRegistryVerdict(
+        valid=not failure_classes,
+        registered_count=len(registry),
+        audited_exclusion_count=len(exclusions),
+        failed_contracts=failed_contracts,
+        uncovered_workflows=uncovered,
+        failure_classes=tuple(sorted(set(failure_classes))),
+        reasons=tuple(reasons),
+    )
 
 
 def verify_workflow_contract(
@@ -416,9 +477,11 @@ def _verify_audited_exclusions(
     failure_classes: list[str],
     *,
     workspace_root: Path,
+    audited_exclusions: dict[str, AuditedWorkflowExclusion] | None = None,
 ) -> None:
     discovered = discover_aria_workflows(workspace_root)
-    for workflow_id, exclusion in AUDITED_WORKFLOW_EXCLUSIONS.items():
+    exclusions = audited_exclusions or AUDITED_WORKFLOW_EXCLUSIONS
+    for workflow_id, exclusion in exclusions.items():
         if workflow_id not in discovered:
             reasons.append(f"audited_exclusion_workflow_missing:{workflow_id}")
             failure_classes.append("workflow_audited_exclusion")
@@ -517,9 +580,11 @@ __all__ = [
     "WorkflowContract",
     "WorkflowContractVerdict",
     "WorkflowJobContract",
+    "WorkflowRegistryVerdict",
     "discover_aria_workflows",
     "generated_workflow_inventory",
     "verify_workflow_contract",
+    "verify_workflow_registry",
     "workflow_contract_hash",
     "workflow_contract_registry",
     "workflow_hash",

@@ -101,9 +101,13 @@ jobs:
         id: lease_check
         run: |
           set -euo pipefail
-          PYTHONPATH=aria-kernel python3 -c "
-          import json, sys
+          PYTHONPATH=aria-kernel python3 - <<'PY' 2>&1 | head -20
+          import json
+          import os
+          import sys
+
           from aria_kernel.autonomous_host_lease import lease_state
+
           state = lease_state('aria-tools')
           print(json.dumps(state))
           if state['state'] == 'fresh':
@@ -114,13 +118,16 @@ jobs:
               # acquire_lease path below.
               if not host.startswith('gha-runner:'):
                   print(f'::warning::autonomous_host_lease_blocked: held by {host}', file=sys.stderr)
-                  with open('${{ github.workspace }}/.lease-blocked', 'w') as f:
-                      f.write(host)
+                  with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+                      f.write('blocked=true\n')
+                      f.write(f'blocked_host={host}\n')
                   sys.exit(0)
-          " 2>&1 | head -20
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              f.write('blocked=false\n')
+          PY
 
       - name: Skip autonomous loop when local lease is fresh
-        if: hashFiles('.lease-blocked') != ''
+        if: steps.lease_check.outputs.blocked == 'true'
         run: |
           echo "Local host holds autonomous-loop lease; exiting cleanly per Plan ARIA-V3 §2n."
           exit 0
@@ -162,24 +169,6 @@ jobs:
               || { echo "::error::Codex ChatGPT auth preflight failed" >&2; cat /tmp/aria-codex-auth.err >&2; exit 1; }
           fi
 
-      # Plan 020 Phase 3.C — session_start handoff snapshot.
-      # WHY here: every CI executor run is a discrete session boundary.
-      # Snapshotting at start captures "what was open before we touched
-      # anything" — the operator-readable diff against session_stop is
-      # how an audit reviewer reconstructs what the run actually changed
-      # without having to grep governance.jsonl by timestamp.
-      - name: Handoff snapshot — session_start
-        id: handoff_start
-        run: |
-          set -euo pipefail
-          SESSION_ID="gha-aria-agent-executor-${{ github.run_id }}-${{ github.run_attempt }}"
-          echo "session_id=${SESSION_ID}" >> "$GITHUB_OUTPUT"
-          PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
-            --session-id "${SESSION_ID}" \
-            --trigger session_start \
-            --tools-dir aria-tools \
-            --repo-root .
-
       - name: Find next pending request
         id: pending
         env:
@@ -204,6 +193,68 @@ jobs:
             echo "request_id=${REQ_ID}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Persist enterprise workflow preflight
+        env:
+          REQUEST_ID: ${{ steps.pending.outputs.request_id }}
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          allowed = [
+              "aria-tools/governance.jsonl",
+              "aria-tools/handoffs.jsonl",
+              "aria-tools/agent-invocations/claims.jsonl",
+              "aria-tools/agent-invocations/results.jsonl",
+          ]
+          request_id = os.environ.get("REQUEST_ID", "").strip()
+          if request_id:
+              allowed.extend([
+                  f"aria-tools/agent-invocations/outputs/{request_id}.json",
+                  f"aria-tools/agent-invocations/prompts/{request_id}.md",
+              ])
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-agent-executor",
+              job_id="executor",
+              profile="autonomous",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              network_policy=["github_artifact"],
+              network_enforcement_evidence="actions/upload-artifact limited to exact response envelope path",
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="persist handoff ledger and bounded agent response envelope",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-executor-preflight.json",
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      # Plan 020 Phase 3.C — session_start handoff snapshot.
+      # WHY here: every CI executor run is a discrete session boundary.
+      # Snapshotting at start captures "what was open before we touched
+      # anything" — the operator-readable diff against session_stop is
+      # how an audit reviewer reconstructs what the run actually changed
+      # without having to grep governance.jsonl by timestamp.
+      - name: Handoff snapshot — session_start
+        id: handoff_start
+        run: |
+          set -euo pipefail
+          SESSION_ID="gha-aria-agent-executor-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "session_id=${SESSION_ID}" >> "$GITHUB_OUTPUT"
+          PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
+            --session-id "${SESSION_ID}" \
+            --trigger session_start \
+            --tools-dir aria-tools \
+            --repo-root .
+
       - name: Skip if no pending request
         if: steps.pending.outputs.request_id == ''
         run: echo "no pending requests; exiting cleanly"
@@ -225,11 +276,13 @@ jobs:
         if: steps.pending.outputs.request_id != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          # Limited scope — only the response envelope. claims.jsonl +
+          # Limited scope — response envelope plus the workflow preflight proof. claims.jsonl +
           # runs.jsonl deliberately excluded (lease token / over-disclosure
           # protection per spike doc artefact policy).
           name: aria-response-${{ steps.pending.outputs.request_id }}
-          path: aria-tools/agent-invocations/outputs/${{ steps.pending.outputs.request_id }}.json
+          path: |
+            ${{ runner.temp }}/aria-agent-executor-preflight.json
+            aria-tools/agent-invocations/outputs/${{ steps.pending.outputs.request_id }}.json
           if-no-files-found: error
           retention-days: 7
 

@@ -16,6 +16,10 @@ from typing import Literal
 
 StateClass = Literal["ledger", "index", "runtime_state", "artifact", "lock"]
 DurabilityPolicy = Literal["append_fsync", "rewrite_fsync", "ephemeral"]
+RootPolicy = Literal["tools_identity", "unbound"]
+WriterApi = Literal["declared", "legacy"]
+ReaderApi = Literal["declared", "legacy"]
+AuthorityClass = Literal["authoritative", "derived", "advisory", "lock"]
 
 
 @dataclass(frozen=True)
@@ -28,6 +32,12 @@ class StateSurface:
     strict_read: bool
     durability: DurabilityPolicy
     write_driving: bool
+    schema_id: str | None = None
+    current_version: int = 1
+    root_policy: RootPolicy = "tools_identity"
+    writer_api: WriterApi = "legacy"
+    reader_api: ReaderApi = "legacy"
+    authority_class: AuthorityClass = "authoritative"
 
 
 STATE_SURFACES: tuple[StateSurface, ...] = (
@@ -40,6 +50,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         strict_read=True,
         durability="append_fsync",
         write_driving=True,
+        schema_id="aria/agent-invocation-request/v1",
     ),
     StateSurface(
         name="agent_invocation_claims",
@@ -50,6 +61,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         strict_read=True,
         durability="append_fsync",
         write_driving=True,
+        schema_id="aria/agent-invocation-claim/v1",
     ),
     StateSurface(
         name="agent_invocation_results",
@@ -60,6 +72,46 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         strict_read=True,
         durability="append_fsync",
         write_driving=True,
+        schema_id="aria/agent-invocation-result/v1",
+    ),
+    StateSurface(
+        name="agent_invocation_contexts",
+        path_pattern="agent-invocations/contexts.jsonl",
+        state_class="ledger",
+        lock_group="agent_invocations",
+        index_group="agent_invocations",
+        strict_read=True,
+        durability="append_fsync",
+        write_driving=True,
+        schema_id="aria/agent-invocation-context/v1",
+        writer_api="declared",
+        reader_api="declared",
+    ),
+    StateSurface(
+        name="agent_invocation_prompts",
+        path_pattern="agent-invocations/prompts.jsonl",
+        state_class="ledger",
+        lock_group="agent_invocations",
+        index_group="agent_invocations",
+        strict_read=True,
+        durability="append_fsync",
+        write_driving=True,
+        schema_id="aria/agent-invocation-prompt/v1",
+        writer_api="declared",
+        reader_api="declared",
+    ),
+    StateSurface(
+        name="agent_invocation_transcripts",
+        path_pattern="agent-invocations/transcripts.jsonl",
+        state_class="ledger",
+        lock_group="agent_invocations",
+        index_group="agent_invocations",
+        strict_read=True,
+        durability="append_fsync",
+        write_driving=True,
+        schema_id="aria/agent-invocation-transcript/v1",
+        writer_api="declared",
+        reader_api="declared",
     ),
     StateSurface(
         name="agent_result_bridge_status",
@@ -136,6 +188,19 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("health", "health.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("cycles", "cycles.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("tools_governance", "governance.jsonl", "ledger", "governance", "tools", True, "append_fsync", True),
+    StateSurface(
+        "context_audits",
+        "context-audits.jsonl",
+        "ledger",
+        "context",
+        "tools",
+        True,
+        "append_fsync",
+        True,
+        schema_id="aria/context-audit/v1",
+        writer_api="declared",
+        reader_api="declared",
+    ),
     StateSurface("tool_registry", "registry.json", "index", "registry", "tools", True, "rewrite_fsync", True),
     StateSurface("raw_findings", "raw-findings.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_index", "run-artifacts/artifact-index.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
@@ -150,6 +215,17 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("cost_budget", "budget/*.jsonl", "ledger", "budget", "runtime", True, "append_fsync", True),
     StateSurface("quarantine", "quarantine/*.jsonl", "ledger", "quarantine", "runtime", True, "append_fsync", True),
 )
+
+
+def _surface_sort_key(surface: StateSurface) -> tuple[int, int, int, str]:
+    parts = Path(surface.path_pattern).parts
+    wildcard_count = sum(1 for part in parts if "*" in part)
+    fixed_count = sum(1 for part in parts if "*" not in part)
+    return (wildcard_count, -fixed_count, -len(parts), surface.name)
+
+
+def _ordered_surfaces() -> tuple[StateSurface, ...]:
+    return tuple(sorted(STATE_SURFACES, key=_surface_sort_key))
 
 
 def iter_surfaces() -> tuple[StateSurface, ...]:
@@ -169,37 +245,56 @@ def surfaces_for_lock_group(lock_group: str) -> tuple[StateSurface, ...]:
 
 def surface_for_relative_path(relative_path: str | Path) -> StateSurface | None:
     rel = Path(relative_path).as_posix().lstrip("/")
-    for surface in STATE_SURFACES:
+    for surface in _ordered_surfaces():
         if fnmatch(rel, surface.path_pattern):
             return surface
     return None
 
 
+def _candidate_base_dirs(path: Path) -> tuple[Path, ...]:
+    candidates = [path.parent, *path.parents]
+    seen: set[str] = set()
+    ordered: list[Path] = []
+    for candidate in candidates:
+        key = candidate.as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(candidate)
+    return tuple(ordered)
+
+
+def _root_policy_matches(base_dir: Path, surface: StateSurface) -> bool:
+    if surface.root_policy == "unbound":
+        return True
+    if surface.root_policy == "tools_identity":
+        return (base_dir / "repo_identity.json").is_file()
+    return False
+
+
 def surface_for_path(path: str | Path) -> tuple[StateSurface, Path] | None:
     """Return ``(surface, base_dir)`` for a concrete path when declared.
 
-    ``base_dir`` is the prefix before the manifest's relative pattern.
-    Pattern surfaces (for example ``dispatch/*.jsonl``) return the path
-    prefix before the wildcard's first concrete component.
+    ``base_dir`` is the manifest root for the matched relative pattern.
+    Tools-root surfaces are root-bound: a path is not declared unless
+    the candidate base contains ``repo_identity.json``. This prevents
+    rogue absolute paths such as ``/tmp/rogue/runs.jsonl`` from gaining
+    governed-state authority just because their suffix matches a leaf
+    pattern. Exact surfaces are evaluated before wildcard surfaces so a
+    specific dispatch ledger cannot be shadowed by ``dispatch/*.jsonl``.
     """
     concrete = Path(path).resolve()
-    parts = concrete.parts
-    for surface in STATE_SURFACES:
-        pattern_parts = Path(surface.path_pattern).parts
-        fixed_parts: list[str] = []
-        for part in pattern_parts:
-            if "*" in part:
-                break
-            fixed_parts.append(part)
-        if not fixed_parts or len(parts) < len(fixed_parts):
+    for base_dir in _candidate_base_dirs(concrete):
+        try:
+            rel = concrete.relative_to(base_dir).as_posix()
+        except ValueError:
             continue
-        for idx in range(0, len(parts) - len(fixed_parts) + 1):
-            if list(parts[idx:idx + len(fixed_parts)]) != fixed_parts:
+        for surface in _ordered_surfaces():
+            if not fnmatch(rel, surface.path_pattern):
                 continue
-            rel = Path(*parts[idx:]).as_posix()
-            if fnmatch(rel, surface.path_pattern):
-                base = Path(*parts[:idx]) if idx > 0 else Path(concrete.anchor)
-                return surface, base
+            if not _root_policy_matches(base_dir, surface):
+                continue
+            return surface, base_dir
     return None
 
 
@@ -212,6 +307,12 @@ def resolve_surface_path(base_dir: str | Path, surface: StateSurface) -> Path:
 __all__ = [
     "STATE_SURFACES",
     "StateSurface",
+    "AuthorityClass",
+    "DurabilityPolicy",
+    "ReaderApi",
+    "RootPolicy",
+    "StateClass",
+    "WriterApi",
     "iter_surfaces",
     "resolve_surface_path",
     "surface_by_name",

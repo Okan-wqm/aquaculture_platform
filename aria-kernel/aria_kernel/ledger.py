@@ -10,18 +10,22 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .file_lock import with_exclusive_lock
-from .state_manifest import surface_for_path
+from .state_manifest import StateSurface, surface_by_name, surface_for_path
 
 
 __all__ = [
     "LedgerIntegrityError",
     "StateTransaction",
+    "append_declared_jsonl",
     "append_jsonl",
     "file_hash",
+    "load_declared_jsonl",
     "load_index",
     "load_jsonl",
     "load_jsonl_verified",
     "read_jsonl",
+    "rewrite_declared_json",
+    "rewrite_declared_jsonl",
     "rewrite_jsonl",
     "state_transaction",
     "verify_index_hashes",
@@ -32,6 +36,49 @@ __all__ = [
 
 class LedgerIntegrityError(RuntimeError):
     pass
+
+
+def _declared_surface_match(
+    path: str | Path,
+    expected_surface: str,
+) -> tuple[Path, StateSurface, Path]:
+    resolved = Path(path).resolve()
+    try:
+        expected = surface_by_name(expected_surface)
+    except KeyError as exc:
+        raise LedgerIntegrityError(
+            f"declared_surface_unknown: expected_surface={expected_surface}"
+        ) from exc
+    match = surface_for_path(resolved)
+    if match is None:
+        raise LedgerIntegrityError(
+            f"declared_surface_unresolved: path={resolved.as_posix()} "
+            f"expected_surface={expected_surface}"
+        )
+    surface, base_dir = match
+    if surface.name != expected.name:
+        raise LedgerIntegrityError(
+            f"declared_surface_mismatch: path={resolved.as_posix()} "
+            f"expected_surface={expected.name} actual_surface={surface.name}"
+        )
+    return resolved, surface, base_dir
+
+
+def _reject_raw_declared_surface(path: str | Path, *, operation: str) -> None:
+    match = surface_for_path(path)
+    if match is None:
+        return
+    surface, _base_dir = match
+    if surface.writer_api == "declared" and operation in {"append", "rewrite"}:
+        raise LedgerIntegrityError(
+            f"declared_surface_requires_{operation}_api: "
+            f"surface={surface.name} path={Path(path).resolve().as_posix()}"
+        )
+    if surface.reader_api == "declared" and operation == "load":
+        raise LedgerIntegrityError(
+            f"declared_surface_requires_load_declared_jsonl: "
+            f"surface={surface.name} path={Path(path).resolve().as_posix()}"
+        )
 
 
 # Plan 026R §A.1 — Module-level SSoT for indexed-ledger groups.
@@ -195,8 +242,32 @@ class StateTransaction:
         use_verify = self.verify_reads if verify is None else verify
         return load_jsonl(resolved, verify=use_verify)
 
+    def load_declared_jsonl(
+        self,
+        path: str | Path,
+        *,
+        expected_surface: str,
+        verify: bool | None = None,
+    ) -> list[dict[str, Any]]:
+        resolved = self._canonical_path(path)
+        _declared_surface_match(resolved, expected_surface)
+        use_verify = self.verify_reads if verify is None else verify
+        return load_jsonl_verified(resolved) if use_verify else read_jsonl(resolved)
+
     def append_jsonl(self, path: str | Path, record: dict[str, Any]) -> dict[str, Any]:
         resolved = self._canonical_path(path)
+        _reject_raw_declared_surface(resolved, operation="append")
+        return _append_jsonl_locked_body(resolved, record)
+
+    def append_declared_jsonl(
+        self,
+        path: str | Path,
+        record: dict[str, Any],
+        *,
+        expected_surface: str,
+    ) -> dict[str, Any]:
+        resolved = self._canonical_path(path)
+        _declared_surface_match(resolved, expected_surface)
         return _append_jsonl_locked_body(resolved, record)
 
 
@@ -292,9 +363,28 @@ def load_jsonl(
     ``tests/test_verify_on_read.py`` scans those modules and
     raises if any ``load_jsonl(`` callsite omits the kwarg.
     """
+    _reject_raw_declared_surface(path, operation="load")
     if verify:
         return load_jsonl_verified(path)
     return read_jsonl(path)
+
+
+def load_declared_jsonl(
+    path: str | Path,
+    *,
+    expected_surface: str,
+    verify: bool = True,
+) -> list[dict[str, Any]]:
+    """Load a manifest-declared JSONL surface.
+
+    ``expected_surface`` is mandatory so callers bind their authority to
+    the manifest leaf they intend to consume. Strict verification is the
+    default for declared enterprise reads.
+    """
+    resolved, _surface, _base_dir = _declared_surface_match(path, expected_surface)
+    if verify:
+        return load_jsonl_verified(resolved)
+    return read_jsonl(resolved)
 
 
 def _canonical_json(record: dict[str, Any]) -> str:
@@ -384,6 +474,12 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     already hold the per-file lock use ``_append_jsonl_unlocked``
     directly to avoid POSIX flock re-acquisition).
     """
+    _reject_raw_declared_surface(path, operation="append")
+    return _append_jsonl_with_locks(path, record)
+
+
+def _append_jsonl_with_locks(path: str | Path, record: dict[str, Any]) -> dict[str, Any]:
+    path = Path(path).resolve()
     requirement = _lock_requirements_for_path(path)
     if requirement.index_group_lock_path is None:
         with with_exclusive_lock(requirement.file_lock_path):
@@ -391,6 +487,17 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     with with_exclusive_lock(requirement.index_group_lock_path):
         with with_exclusive_lock(requirement.file_lock_path):
             return _append_jsonl_unlocked(path, record)
+
+
+def append_declared_jsonl(
+    path: str | Path,
+    record: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> dict[str, Any]:
+    """Append to a manifest-declared JSONL surface."""
+    resolved, _surface, _base_dir = _declared_surface_match(path, expected_surface)
+    return _append_jsonl_with_locks(resolved, record)
 
 
 def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -402,6 +509,12 @@ def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     refreshes the adjacent index. Restores the hash chain from scratch
     (this is the intended migration / backfill primitive).
     """
+    _reject_raw_declared_surface(path, operation="rewrite")
+    _rewrite_jsonl_with_locks(path, rows)
+
+
+def _rewrite_jsonl_with_locks(path: str | Path, rows: list[dict[str, Any]]) -> None:
+    path = Path(path).resolve()
     requirement = _lock_requirements_for_path(path)
     if requirement.index_group_lock_path is None:
         with with_exclusive_lock(requirement.file_lock_path):
@@ -410,6 +523,46 @@ def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     with with_exclusive_lock(requirement.index_group_lock_path):
         with with_exclusive_lock(requirement.file_lock_path):
             _rewrite_jsonl_unlocked(path, rows)
+
+
+def rewrite_declared_jsonl(
+    path: str | Path,
+    rows: list[dict[str, Any]],
+    *,
+    expected_surface: str,
+    migration_id: str,
+) -> None:
+    """Rewrite a declared JSONL surface under explicit migration intent."""
+    if not str(migration_id or "").strip():
+        raise LedgerIntegrityError("declared_rewrite_requires_migration_id")
+    resolved, _surface, _base_dir = _declared_surface_match(path, expected_surface)
+    _rewrite_jsonl_with_locks(resolved, rows)
+
+
+def rewrite_declared_json(
+    path: str | Path,
+    payload: dict[str, Any],
+    *,
+    expected_surface: str,
+    migration_id: str,
+) -> None:
+    """Atomically rewrite a declared JSON surface under explicit migration intent."""
+    if not str(migration_id or "").strip():
+        raise LedgerIntegrityError("declared_rewrite_requires_migration_id")
+    resolved, surface, _base_dir = _declared_surface_match(path, expected_surface)
+    if surface.state_class not in {"index", "runtime_state", "artifact", "lock"}:
+        raise LedgerIntegrityError(
+            f"declared_json_rewrite_requires_json_surface: surface={surface.name}"
+        )
+    content = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    requirement = _lock_requirements_for_path(resolved)
+    if requirement.index_group_lock_path is None:
+        with with_exclusive_lock(requirement.file_lock_path):
+            _atomic_write_text(resolved, content)
+            return
+    with with_exclusive_lock(requirement.index_group_lock_path):
+        with with_exclusive_lock(requirement.file_lock_path):
+            _atomic_write_text(resolved, content)
 
 
 def _rewrite_jsonl_unlocked(path: Path, rows: list[dict[str, Any]]) -> None:

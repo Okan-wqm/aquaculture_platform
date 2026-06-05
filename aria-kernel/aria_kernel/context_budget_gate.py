@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_resolver import resolve_agent_md_path
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -284,7 +284,11 @@ def audit_dispatch_context(
 
     enforce_profile_for_write("context_audits", base_dir=base_dir)
     root = ensure_tools_dir(base_dir)
-    append_jsonl(root / CONTEXT_AUDITS_FILENAME, audit_row)
+    append_declared_jsonl(
+        root / CONTEXT_AUDITS_FILENAME,
+        audit_row,
+        expected_surface="context_audits",
+    )
     append_tools_governance(
         root,
         "context_budget_audited",

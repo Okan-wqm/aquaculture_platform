@@ -1,4 +1,11 @@
-import { Injectable, Logger, BadRequestException, Optional, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ConflictException,
+  Optional,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
@@ -89,10 +96,12 @@ function pLimit(concurrency: number) {
   return <T>(fn: () => Promise<T>): Promise<T> => {
     return new Promise<T>((resolve, reject) => {
       const run = () => {
-        fn().then(resolve, reject).finally(() => {
-          active--;
-          next();
-        });
+        fn()
+          .then(resolve, reject)
+          .finally(() => {
+            active--;
+            next();
+          });
       };
 
       queue.push(run);
@@ -126,6 +135,7 @@ function addJitter(baseDelayMs: number): number {
 // Rate limiting constants
 const MAX_NOTIFICATIONS_PER_MINUTE = 100;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
+const DEFAULT_COMMAND_RECEIPT_LEASE_MS = 5 * 60 * 1000;
 
 /**
  * Alert notification data
@@ -204,19 +214,17 @@ export class NotificationDispatcherService implements OnModuleInit {
     if (isProduction) {
       throw new Error(
         'CRITICAL: WEBHOOK_ENCRYPTION_KEY must be set (>=32 chars) in production. ' +
-        'Deterministic fallback key is NOT acceptable for production deployments. ' +
-        'Service startup aborted to prevent insecure webhook URL storage.',
+          'Deterministic fallback key is NOT acceptable for production deployments. ' +
+          'Service startup aborted to prevent insecure webhook URL storage.',
       );
     }
 
     // Non-production: use dev fallback with clear warning
-    WEBHOOK_ENCRYPTION_KEY = createHash('sha256')
-      .update('aquaculture-webhook-dev-key')
-      .digest();
+    WEBHOOK_ENCRYPTION_KEY = createHash('sha256').update('aquaculture-webhook-dev-key').digest();
     this.logger.warn(
       'WEBHOOK_ENCRYPTION_KEY is not set or too short (<32 chars). ' +
-      'Using insecure dev fallback — webhook retry URLs are NOT securely encrypted. ' +
-      'Set WEBHOOK_ENCRYPTION_KEY (>=32 chars) for production.',
+        'Using insecure dev fallback — webhook retry URLs are NOT securely encrypted. ' +
+        'Set WEBHOOK_ENCRYPTION_KEY (>=32 chars) for production.',
     );
   }
 
@@ -261,8 +269,13 @@ export class NotificationDispatcherService implements OnModuleInit {
         recipients.map((recipient) => ({
           tenantId,
           channel: channel as NotificationChannel,
-          recipient: channel === NotificationChannel.WEBHOOK ? redactWebhookUrl(recipient) : recipient,
-          status: In([NotificationStatus.SENT, NotificationStatus.PENDING, NotificationStatus.RETRYING]),
+          recipient:
+            channel === NotificationChannel.WEBHOOK ? redactWebhookUrl(recipient) : recipient,
+          status: In([
+            NotificationStatus.SENT,
+            NotificationStatus.PENDING,
+            NotificationStatus.RETRYING,
+          ]),
         })),
       ),
       select: ['channel', 'recipient', 'metadata'],
@@ -292,14 +305,13 @@ export class NotificationDispatcherService implements OnModuleInit {
 
     // Use concurrency limiter to prevent thundering herd
     const limit = pLimit(MAX_CONCURRENCY);
-    const notifications: Promise<void>[] = [];
+    const notifications: Promise<unknown>[] = [];
 
     for (const channel of channels) {
       for (const recipient of recipients) {
         // Determine the stored recipient value (webhook URLs are redacted)
-        const logRecipientKey = channel === NotificationChannel.WEBHOOK
-          ? redactWebhookUrl(recipient)
-          : recipient;
+        const logRecipientKey =
+          channel === NotificationChannel.WEBHOOK ? redactWebhookUrl(recipient) : recipient;
 
         // Skip if this channel+recipient was already successfully dispatched
         if (alreadySent.has(`${channel}:${logRecipientKey}`)) {
@@ -311,12 +323,7 @@ export class NotificationDispatcherService implements OnModuleInit {
 
         notifications.push(
           limit(() =>
-            this.sendNotification(
-              channel as NotificationChannel,
-              recipient,
-              tenantId,
-              alertData,
-            ),
+            this.sendNotification(channel as NotificationChannel, recipient, tenantId, alertData),
           ),
         );
       }
@@ -332,6 +339,239 @@ export class NotificationDispatcherService implements OnModuleInit {
     this.logger.log(
       `Alert ${alertData.alertId}: ${successful} notifications sent, ${failed} failed`,
     );
+  }
+
+  async dispatchCommandNotification(input: {
+    tenantId: string;
+    channel: NotificationChannel;
+    recipient: string;
+    recipientLogRef?: string;
+    deliveryId: string;
+    requestReference: string;
+    source: string;
+    subject: string;
+    message: string;
+  }): Promise<{ externalId?: string; replayed: boolean }> {
+    const payloadHash = this.hashCommandPayload(input);
+    const receipt = await this.claimCommandReceipt(input, payloadHash);
+    if (receipt.replayed) {
+      return { externalId: receipt.externalId, replayed: true };
+    }
+
+    if (!(await this.checkRateLimit(input.tenantId, 1))) {
+      await this.markCommandReceiptFailed(input, payloadHash, 'Rate limit exceeded');
+      throw new BadRequestException('Rate limit exceeded. Please try again later.');
+    }
+
+    try {
+      const externalId = await this.sendNotification(
+        input.channel,
+        input.recipient,
+        input.tenantId,
+        {
+          alertId: input.deliveryId,
+          ruleId: input.source,
+          ruleName: input.subject,
+          severity: 'info',
+          message: input.message,
+          timestamp: new Date(),
+        },
+        true,
+        input.recipientLogRef,
+      );
+      await this.markCommandReceiptSucceeded(input, payloadHash, externalId);
+      return { externalId, replayed: false };
+    } catch (error) {
+      await this.markCommandReceiptFailed(
+        input,
+        payloadHash,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    }
+  }
+
+  private async claimCommandReceipt(
+    input: {
+      tenantId: string;
+      channel: NotificationChannel;
+      requestReference: string;
+      deliveryId: string;
+      source: string;
+    },
+    payloadHash: string,
+  ): Promise<{ replayed: boolean; externalId?: string }> {
+    return this.dataSource.transaction(async (manager) => {
+      const existingRows = await manager.query(
+        `SELECT "payloadHash", status, "externalId", "updatedAt"
+           FROM notification.command_receipts
+          WHERE "tenantId" = $1
+            AND channel = $2
+            AND "requestReference" = $3
+          FOR UPDATE`,
+        [input.tenantId, input.channel, input.requestReference],
+      );
+      const existing = Array.isArray(existingRows) ? existingRows[0] : undefined;
+      if (existing) {
+        if (existing.payloadHash !== payloadHash) {
+          throw new BadRequestException(
+            'Notification command requestReference payload hash mismatch',
+          );
+        }
+        if (existing.status === 'FAILED') {
+          await manager.query(
+            `UPDATE notification.command_receipts
+                SET status = 'STARTED',
+                    error = NULL,
+                    "updatedAt" = NOW(),
+                    "completedAt" = NULL
+              WHERE "tenantId" = $1
+                AND channel = $2
+                AND "requestReference" = $3`,
+            [input.tenantId, input.channel, input.requestReference],
+          );
+          return { replayed: false };
+        }
+        if (existing.status === 'SUCCEEDED') {
+          return { replayed: true, externalId: existing.externalId ?? undefined };
+        }
+        if (existing.status === 'STARTED') {
+          if (!this.isCommandReceiptLeaseStale(existing.updatedAt)) {
+            throw new ConflictException('Notification command is already in progress');
+          }
+          await manager.query(
+            `UPDATE notification.command_receipts
+                SET error = NULL,
+                    "updatedAt" = NOW(),
+                    "completedAt" = NULL
+              WHERE "tenantId" = $1
+                AND channel = $2
+                AND "requestReference" = $3
+                AND status = 'STARTED'`,
+            [input.tenantId, input.channel, input.requestReference],
+          );
+          return { replayed: false };
+        }
+        throw new BadRequestException(
+          `Unsupported notification command receipt status: ${existing.status}`,
+        );
+      }
+
+      await manager.query(
+        `INSERT INTO notification.command_receipts (
+           "tenantId", channel, "requestReference", "deliveryId", source, "payloadHash", status,
+           "createdAt", "updatedAt"
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, 'STARTED', NOW(), NOW()
+         )`,
+        [
+          input.tenantId,
+          input.channel,
+          input.requestReference,
+          input.deliveryId,
+          input.source,
+          payloadHash,
+        ],
+      );
+      return { replayed: false };
+    });
+  }
+
+  private async markCommandReceiptSucceeded(
+    input: { tenantId: string; channel: NotificationChannel; requestReference: string },
+    payloadHash: string,
+    externalId: string | undefined,
+  ): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE notification.command_receipts
+          SET status = 'SUCCEEDED',
+              "externalId" = $4,
+              error = NULL,
+              "completedAt" = NOW(),
+              "updatedAt" = NOW()
+        WHERE "tenantId" = $1
+          AND channel = $2
+          AND "requestReference" = $3
+          AND "payloadHash" = $5`,
+      [input.tenantId, input.channel, input.requestReference, externalId ?? null, payloadHash],
+    );
+  }
+
+  private async markCommandReceiptFailed(
+    input: { tenantId: string; channel: NotificationChannel; requestReference: string },
+    payloadHash: string,
+    error: string,
+  ): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE notification.command_receipts
+          SET status = 'FAILED',
+              error = $4,
+              "completedAt" = NOW(),
+              "updatedAt" = NOW()
+        WHERE "tenantId" = $1
+          AND channel = $2
+          AND "requestReference" = $3
+          AND "payloadHash" = $5`,
+      [input.tenantId, input.channel, input.requestReference, error.slice(0, 2000), payloadHash],
+    );
+  }
+
+  private hashCommandPayload(input: {
+    tenantId: string;
+    channel: NotificationChannel;
+    recipient: string;
+    deliveryId: string;
+    requestReference: string;
+    source: string;
+    subject: string;
+    message: string;
+  }): string {
+    return createHash('sha256')
+      .update(
+        this.stableStringify({
+          tenantId: input.tenantId,
+          channel: input.channel,
+          recipient:
+            input.channel === NotificationChannel.WEBHOOK
+              ? redactWebhookUrl(input.recipient)
+              : input.recipient,
+          deliveryId: input.deliveryId,
+          requestReference: input.requestReference,
+          source: input.source,
+          subject: input.subject,
+          message: input.message,
+        }),
+      )
+      .digest('hex');
+  }
+
+  private stableStringify(value: unknown): string {
+    if (value === null || typeof value !== 'object') {
+      return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
+    }
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`)
+      .join(',')}}`;
+  }
+
+  private isCommandReceiptLeaseStale(updatedAt: unknown): boolean {
+    const updatedAtMs =
+      updatedAt instanceof Date ? updatedAt.getTime() : new Date(String(updatedAt)).getTime();
+    if (!Number.isFinite(updatedAtMs)) {
+      return true;
+    }
+    return Date.now() - updatedAtMs > this.commandReceiptLeaseMs();
+  }
+
+  private commandReceiptLeaseMs(): number {
+    const configured = this.configService.get<string>('NOTIFICATION_COMMAND_RECEIPT_LEASE_MS');
+    const parsed = configured ? Number.parseInt(configured, 10) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_COMMAND_RECEIPT_LEASE_MS;
   }
 
   /**
@@ -359,6 +599,12 @@ export class NotificationDispatcherService implements OnModuleInit {
 
         return current <= MAX_NOTIFICATIONS_PER_MINUTE;
       } catch (error) {
+        if (this.isProduction()) {
+          this.logger.error(
+            `Redis rate-limit check failed in production: ${(error as Error).message}`,
+          );
+          throw new BadRequestException('Notification rate limiter is unavailable');
+        }
         this.logger.warn(
           `Redis rate-limit check failed, falling back to in-memory: ${(error as Error).message}`,
         );
@@ -366,8 +612,16 @@ export class NotificationDispatcherService implements OnModuleInit {
       }
     }
 
+    if (this.isProduction()) {
+      throw new BadRequestException('Notification rate limiter is not configured');
+    }
+
     // In-memory fallback (single-instance only; best-effort when Redis is down)
     return this.checkRateLimitInMemory(tenantId, count);
+  }
+
+  private isProduction(): boolean {
+    return this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   /**
@@ -407,11 +661,13 @@ export class NotificationDispatcherService implements OnModuleInit {
     recipient: string,
     tenantId: string,
     alertData: AlertNotificationData,
-  ): Promise<void> {
+    rethrowFailures = false,
+    recipientLogRef?: string,
+  ): Promise<string | undefined> {
     // For webhooks, redact the URL before storing in the log to avoid leaking credentials
-    const logRecipient = channel === NotificationChannel.WEBHOOK
-      ? redactWebhookUrl(recipient)
-      : recipient;
+    const logRecipient =
+      recipientLogRef ??
+      (channel === NotificationChannel.WEBHOOK ? redactWebhookUrl(recipient) : recipient);
 
     // Store the full alert data in metadata so retries can reconstruct the send.
     // For webhooks, also store an encrypted copy of the URL so retries can
@@ -473,6 +729,7 @@ export class NotificationDispatcherService implements OnModuleInit {
       this.logger.debug(
         `Notification sent via ${channel} to ${this.maskRecipientForLog(channel, logRecipient)}: ${externalId}`,
       );
+      return externalId;
     } catch (error) {
       // Compute next retry time using exponential backoff with jitter (base 1 minute).
       // retryCount is 0 on first failure so delay is ~1 min, then ~2 min, ~4 min, etc.
@@ -498,14 +755,18 @@ export class NotificationDispatcherService implements OnModuleInit {
       } catch (dbError) {
         this.logger.error(
           `Failed to persist failure log for ${channel} notification to ` +
-          `${this.maskRecipientForLog(channel, logRecipient)}: ` +
-          `${(dbError as Error).message}`,
+            `${this.maskRecipientForLog(channel, logRecipient)}: ` +
+            `${(dbError as Error).message}`,
         );
       }
 
       this.logger.error(
         `Failed to send ${channel} notification to ${this.maskRecipientForLog(channel, logRecipient)}: ${(error as Error).message}`,
       );
+      if (rethrowFailures) {
+        throw error;
+      }
+      return undefined;
     }
   }
 
@@ -535,10 +796,7 @@ export class NotificationDispatcherService implements OnModuleInit {
   /**
    * Send email notification
    */
-  private async sendEmail(
-    recipient: string,
-    alertData: AlertNotificationData,
-  ): Promise<string> {
+  private async sendEmail(recipient: string, alertData: AlertNotificationData): Promise<string> {
     const emailData: AlertEmailData = {
       ruleName: alertData.ruleName,
       severity: alertData.severity,
@@ -555,10 +813,7 @@ export class NotificationDispatcherService implements OnModuleInit {
   /**
    * Send SMS notification
    */
-  private async sendSms(
-    recipient: string,
-    alertData: AlertNotificationData,
-  ): Promise<string> {
+  private async sendSms(recipient: string, alertData: AlertNotificationData): Promise<string> {
     return await this.smsService.sendAlertSms(recipient, {
       ruleName: alertData.ruleName,
       severity: alertData.severity,
@@ -569,10 +824,7 @@ export class NotificationDispatcherService implements OnModuleInit {
   /**
    * Send push notification
    */
-  private async sendPush(
-    recipient: string,
-    alertData: AlertNotificationData,
-  ): Promise<string> {
+  private async sendPush(recipient: string, alertData: AlertNotificationData): Promise<string> {
     return await this.pushService.sendAlertPush(recipient, {
       ruleName: alertData.ruleName,
       severity: alertData.severity,
@@ -597,9 +849,7 @@ export class NotificationDispatcherService implements OnModuleInit {
     // SECURITY: Full SSRF validation with DNS resolution and IP pinning
     const validation = await this.ssrfValidator.validateUrl(webhookUrl);
     if (!validation.safe) {
-      this.logger.warn(
-        `Webhook URL rejected: ${validation.reason} (URL redacted for security)`,
-      );
+      this.logger.warn(`Webhook URL rejected: ${validation.reason} (URL redacted for security)`);
       throw new Error(`Invalid webhook URL: ${validation.reason}`);
     }
 
@@ -672,9 +922,10 @@ export class NotificationDispatcherService implements OnModuleInit {
 
       return `webhook-${Date.now()}`;
     } catch (error) {
-      const errorMessage = (error as Error).name === 'AbortError'
-        ? 'Webhook request timed out'
-        : (error as Error).message;
+      const errorMessage =
+        (error as Error).name === 'AbortError'
+          ? 'Webhook request timed out'
+          : (error as Error).message;
 
       // Don't log the full URL for security reasons
       this.logger.error(`Webhook failed: ${errorMessage}`);
@@ -708,33 +959,27 @@ export class NotificationDispatcherService implements OnModuleInit {
         ORDER BY created_at ASC
         LIMIT 100
         RETURNING *`,
-      [
-        NotificationStatus.RETRYING,
-        tenantId,
-        NotificationStatus.FAILED,
-        maxRetries,
-        now,
-      ],
+      [NotificationStatus.RETRYING, tenantId, NotificationStatus.FAILED, maxRetries, now],
     );
 
     // Map raw DB rows to entity-like objects (column names are snake_case from PG)
     const failedNotifications: NotificationLog[] = claimed.map((row) => {
       const log = new NotificationLog();
-      log.id             = row['id'] as string;
-      log.tenantId       = row['tenant_id'] as string;
-      log.channel        = row['channel'] as NotificationChannel;
-      log.recipient      = row['recipient'] as string;
-      log.subject        = row['subject'] as string;
-      log.content        = row['content'] as string;
-      log.status         = row['status'] as NotificationStatus;
-      log.externalId     = row['external_id'] as string | undefined;
-      log.metadata       = row['metadata'] as Record<string, unknown> | undefined;
-      log.errorMessage   = row['error_message'] as string | undefined;
-      log.retryCount     = row['retry_count'] as number;
-      log.nextRetryAt    = row['next_retry_at'] ? new Date(row['next_retry_at'] as string) : undefined;
-      log.sentAt         = row['sent_at'] ? new Date(row['sent_at'] as string) : undefined;
-      log.deliveredAt    = row['delivered_at'] ? new Date(row['delivered_at'] as string) : undefined;
-      log.createdAt      = new Date(row['created_at'] as string);
+      log.id = row['id'] as string;
+      log.tenantId = row['tenant_id'] as string;
+      log.channel = row['channel'] as NotificationChannel;
+      log.recipient = row['recipient'] as string;
+      log.subject = row['subject'] as string;
+      log.content = row['content'] as string;
+      log.status = row['status'] as NotificationStatus;
+      log.externalId = row['external_id'] as string | undefined;
+      log.metadata = row['metadata'] as Record<string, unknown> | undefined;
+      log.errorMessage = row['error_message'] as string | undefined;
+      log.retryCount = row['retry_count'] as number;
+      log.nextRetryAt = row['next_retry_at'] ? new Date(row['next_retry_at'] as string) : undefined;
+      log.sentAt = row['sent_at'] ? new Date(row['sent_at'] as string) : undefined;
+      log.deliveredAt = row['delivered_at'] ? new Date(row['delivered_at'] as string) : undefined;
+      log.createdAt = new Date(row['created_at'] as string);
       return log;
     });
 
@@ -743,7 +988,9 @@ export class NotificationDispatcherService implements OnModuleInit {
     for (const notification of failedNotifications) {
       try {
         // Reconstruct alert data from stored metadata
-        const alertPayload = notification.metadata?.['alertData'] as Record<string, unknown> | undefined;
+        const alertPayload = notification.metadata?.['alertData'] as
+          | Record<string, unknown>
+          | undefined;
         if (!alertPayload) {
           this.logger.warn(
             `Cannot retry notification ${notification.id}: metadata.alertData missing`,
@@ -764,7 +1011,9 @@ export class NotificationDispatcherService implements OnModuleInit {
           farmName: alertPayload['farmName'] as string | undefined,
           pondName: alertPayload['pondName'] as string | undefined,
           sensorId: alertPayload['sensorId'] as string | undefined,
-          timestamp: alertPayload['timestamp'] ? new Date(alertPayload['timestamp'] as string) : undefined,
+          timestamp: alertPayload['timestamp']
+            ? new Date(alertPayload['timestamp'] as string)
+            : undefined,
         };
 
         let externalId: string;
@@ -784,7 +1033,9 @@ export class NotificationDispatcherService implements OnModuleInit {
             const encBlob = notification.metadata?.['encryptedWebhookUrl'] as string | undefined;
             const webhookUrl = encBlob ? decryptWebhookUrl(encBlob) : null;
             if (!webhookUrl) {
-              this.logger.warn(`Cannot retry webhook notification ${notification.id}: encrypted URL missing or undecryptable`);
+              this.logger.warn(
+                `Cannot retry webhook notification ${notification.id}: encrypted URL missing or undecryptable`,
+              );
               notification.status = NotificationStatus.FAILED;
               notification.errorMessage = 'Cannot retry: webhook URL not recoverable';
               notification.nextRetryAt = undefined;

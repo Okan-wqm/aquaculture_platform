@@ -7,36 +7,53 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
-  Headers,
+  Req,
   UnauthorizedException,
+  GoneException,
 } from '@nestjs/common';
-import { IsOptional, IsInt, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import type { TenantRequest } from '@aquaculture/backend-common/types';
+import { IsOptional, IsString, Matches } from 'class-validator';
 import { ProjectionsService } from './projections.service';
 import { ProjectionCheckpoint } from './entities/projection-checkpoint.entity';
+import { ProjectionRebuildStatus } from './entities/projection-rebuild.entity';
 
 // UUID v4 regex for tenant ID validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-class ResetProjectionDto {
+class RebuildProjectionDto {
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  position?: number;
+  @IsString()
+  @Matches(/^\d+$/)
+  requestedFromPosition?: string;
+
+  @IsString()
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  requestedBy?: string;
+
+  @IsOptional()
+  @IsString()
+  correlationId?: string;
+
+  @IsOptional()
+  @IsString()
+  idempotencyKey?: string;
 }
 
 /**
- * Extracts and validates tenant ID from headers
+ * Extracts and validates tenant ID from the service-identity guard result.
  */
-function extractTenantId(tenantIdHeader: string | undefined): string {
-  if (!tenantIdHeader || typeof tenantIdHeader !== 'string') {
-    throw new UnauthorizedException('Tenant ID is required');
+function extractTenantId(request: TenantRequest): string {
+  const tenantId = request.verifiedIdentity?.effectiveTenantId ?? request.tenantId;
+  if (!tenantId || typeof tenantId !== 'string') {
+    throw new UnauthorizedException('Verified tenant context is required');
   }
 
-  const trimmedTenantId = tenantIdHeader.trim();
+  const trimmedTenantId = tenantId.trim();
   if (trimmedTenantId.length === 0) {
-    throw new UnauthorizedException('Tenant ID cannot be empty');
+    throw new UnauthorizedException('Verified tenant context cannot be empty');
   }
 
   // Validate UUID format to prevent injection and ensure proper tenant isolation
@@ -56,9 +73,9 @@ export class ProjectionsController {
    */
   @Get()
   async getAllProjections(
-    @Headers('x-tenant-id') tenantIdHeader: string,
+    @Req() request: TenantRequest,
   ): Promise<ProjectionCheckpoint[]> {
-    const tenantId = extractTenantId(tenantIdHeader);
+    const tenantId = extractTenantId(request);
     return this.projectionsService.getAllProjections(tenantId);
   }
 
@@ -68,9 +85,9 @@ export class ProjectionsController {
   @Get(':name')
   async getProjectionStatus(
     @Param('name') name: string,
-    @Headers('x-tenant-id') tenantIdHeader: string,
+    @Req() request: TenantRequest,
   ): Promise<ProjectionCheckpoint> {
-    const tenantId = extractTenantId(tenantIdHeader);
+    const tenantId = extractTenantId(request);
     const projection = await this.projectionsService.getProjectionStatus(name, tenantId);
     if (!projection) {
       throw new NotFoundException(`Projection ${name} not found`);
@@ -84,9 +101,9 @@ export class ProjectionsController {
   @Get(':name/lag')
   async getProjectionLag(
     @Param('name') name: string,
-    @Headers('x-tenant-id') tenantIdHeader: string,
-  ): Promise<{ name: string; lag: number }> {
-    const tenantId = extractTenantId(tenantIdHeader);
+    @Req() request: TenantRequest,
+  ): Promise<{ name: string; lag: string }> {
+    const tenantId = extractTenantId(request);
     const lag = await this.projectionsService.getProjectionLag(name, tenantId);
     return { name, lag };
   }
@@ -98,9 +115,9 @@ export class ProjectionsController {
   @HttpCode(HttpStatus.OK)
   async startProjection(
     @Param('name') name: string,
-    @Headers('x-tenant-id') tenantIdHeader: string,
+    @Req() request: TenantRequest,
   ): Promise<{ message: string }> {
-    const tenantId = extractTenantId(tenantIdHeader);
+    const tenantId = extractTenantId(request);
     await this.projectionsService.startProjection(name, tenantId);
     return { message: `Projection ${name} started` };
   }
@@ -112,9 +129,9 @@ export class ProjectionsController {
   @HttpCode(HttpStatus.OK)
   async stopProjection(
     @Param('name') name: string,
-    @Headers('x-tenant-id') tenantIdHeader: string,
+    @Req() request: TenantRequest,
   ): Promise<{ message: string }> {
-    const tenantId = extractTenantId(tenantIdHeader);
+    const tenantId = extractTenantId(request);
     await this.projectionsService.stopProjection(name, tenantId);
     return { message: `Projection ${name} stopped` };
   }
@@ -126,9 +143,9 @@ export class ProjectionsController {
   @HttpCode(HttpStatus.OK)
   async pauseProjection(
     @Param('name') name: string,
-    @Headers('x-tenant-id') tenantIdHeader: string,
+    @Req() request: TenantRequest,
   ): Promise<{ message: string }> {
-    const tenantId = extractTenantId(tenantIdHeader);
+    const tenantId = extractTenantId(request);
     await this.projectionsService.pauseProjection(name, tenantId);
     return { message: `Projection ${name} paused` };
   }
@@ -140,28 +157,54 @@ export class ProjectionsController {
   @HttpCode(HttpStatus.OK)
   async resumeProjection(
     @Param('name') name: string,
-    @Headers('x-tenant-id') tenantIdHeader: string,
+    @Req() request: TenantRequest,
   ): Promise<{ message: string }> {
-    const tenantId = extractTenantId(tenantIdHeader);
+    const tenantId = extractTenantId(request);
     await this.projectionsService.resumeProjection(name, tenantId);
     return { message: `Projection ${name} resumed` };
   }
 
   /**
-   * Reset a projection to a specific position
+   * Deprecated reset alias. Production rebuilds must use POST /projections/:name/rebuilds.
    */
   @Post(':name/reset')
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.GONE)
   async resetProjection(
     @Param('name') name: string,
-    @Body() dto: ResetProjectionDto,
-    @Headers('x-tenant-id') tenantIdHeader: string,
-  ): Promise<{ message: string }> {
-    const tenantId = extractTenantId(tenantIdHeader);
-    await this.projectionsService.resetProjection(name, dto.position || 0, tenantId);
-    return {
-      message: `Projection ${name} reset to position ${dto.position || 0}`,
-    };
+    @Req() request: TenantRequest,
+  ): Promise<never> {
+    extractTenantId(request);
+    throw new GoneException(
+      `Projection reset endpoint for ${name} is retired; use POST /projections/:name/rebuilds`,
+    );
+  }
+
+  /**
+   * Request an auditable projection rebuild from a specific position.
+   */
+  @Post(':name/rebuilds')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async requestProjectionRebuild(
+    @Param('name') name: string,
+    @Body() dto: RebuildProjectionDto,
+    @Req() request: TenantRequest,
+  ): Promise<{
+    jobId: string;
+    projectionName: string;
+    tenantId: string;
+    requestedFromPosition: string;
+    sourceGeneration: number;
+    targetGeneration: number;
+    status: ProjectionRebuildStatus;
+  }> {
+    const tenantId = extractTenantId(request);
+    return this.projectionsService.requestProjectionRebuild(name, tenantId, {
+      requestedFromPosition: dto.requestedFromPosition ?? '0',
+      reason: dto.reason,
+      requestedBy: dto.requestedBy,
+      correlationId: dto.correlationId,
+      idempotencyKey: dto.idempotencyKey,
+    });
   }
 
   /**
@@ -171,9 +214,9 @@ export class ProjectionsController {
   @HttpCode(HttpStatus.OK)
   async processBatch(
     @Param('name') name: string,
-    @Headers('x-tenant-id') tenantIdHeader: string,
-  ): Promise<{ processed: number; failed: number; newPosition: number }> {
-    const tenantId = extractTenantId(tenantIdHeader);
+    @Req() request: TenantRequest,
+  ): Promise<{ processed: number; failed: number; newPosition: string }> {
+    const tenantId = extractTenantId(request);
     return this.projectionsService.processBatch(name, tenantId);
   }
 }

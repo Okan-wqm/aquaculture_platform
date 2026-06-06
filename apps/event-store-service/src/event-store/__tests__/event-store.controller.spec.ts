@@ -5,6 +5,7 @@ import { EventStoreService } from '../services/event-store.service';
 import { EventStream } from '../entities/event-stream.entity';
 import { Snapshot } from '../entities/snapshot.entity';
 import { PersistedEvent } from '../interfaces/event-store.interfaces';
+import type { TenantRequest } from '@aquaculture/backend-common/types';
 
 /**
  * Mock factories for the event-store controller's collaborator return shapes.
@@ -40,6 +41,7 @@ function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     aggregateId: '123e4567-e89b-12d3-a456-426614174000',
     version: 5,
     state: { status: 'confirmed' },
+    stateHash: '0'.repeat(64),
     tenantId: '123e4567-e89b-42d3-a456-426614174000',
     createdAt: new Date('2026-04-01T00:00:00Z'),
     schemaVersion: 1,
@@ -51,8 +53,10 @@ function makeEvent(overrides: Partial<PersistedEvent> = {}): PersistedEvent {
   return {
     id: '00000000-0000-0000-0000-000000000010',
     streamName: 'Order-123e4567-e89b-12d3-a456-426614174000',
-    globalPosition: 1,
-    streamPosition: 1,
+    globalPosition: '1',
+    streamPosition: '1',
+    producer: 'test-producer',
+    producerEventId: 'test-event-1',
     aggregateType: 'Order',
     aggregateId: '123e4567-e89b-12d3-a456-426614174000',
     version: 1,
@@ -66,6 +70,22 @@ function makeEvent(overrides: Partial<PersistedEvent> = {}): PersistedEvent {
   };
 }
 
+function makeTenantRequest(tenantId?: string): TenantRequest {
+  return {
+    tenantId,
+    verifiedIdentity: tenantId
+      ? {
+          serviceName: 'farm-service',
+          tenantId,
+          effectiveTenantId: tenantId,
+          keyId: 'test-key',
+          nonce: 'test-nonce',
+          version: 'v2',
+        }
+      : undefined,
+  } as TenantRequest;
+}
+
 /**
  * Tests for EventStoreController
  * Verifies proper HTTP status codes for success and error cases
@@ -75,6 +95,7 @@ describe('EventStoreController', () => {
   let mockEventStoreService: jest.Mocked<EventStoreService>;
 
   const validTenantId = '123e4567-e89b-42d3-a456-426614174000';
+  const tenantRequest = makeTenantRequest(validTenantId);
 
   beforeEach(async () => {
     mockEventStoreService = {
@@ -107,13 +128,13 @@ describe('EventStoreController', () => {
   describe('Tenant ID Validation', () => {
     it('should throw UnauthorizedException when X-Tenant-Id header is missing', async () => {
       await expect(
-        controller.getStreamInfo('', 'Order', '123e4567-e89b-12d3-a456-426614174000'),
+        controller.getStreamInfo(makeTenantRequest(), 'Order', '123e4567-e89b-12d3-a456-426614174000'),
       ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw UnauthorizedException when X-Tenant-Id is not a valid UUID', async () => {
       await expect(
-        controller.getStreamInfo('not-a-uuid', 'Order', '123e4567-e89b-12d3-a456-426614174000'),
+        controller.getStreamInfo(makeTenantRequest('not-a-uuid'), 'Order', '123e4567-e89b-12d3-a456-426614174000'),
       ).rejects.toThrow(UnauthorizedException);
     });
   });
@@ -121,20 +142,20 @@ describe('EventStoreController', () => {
   describe('Aggregate Type Validation', () => {
     it('should throw BadRequestException when aggregateType contains path-traversal characters', async () => {
       await expect(
-        controller.getStreamInfo(validTenantId, '../../../etc', '123e4567-e89b-12d3-a456-426614174000'),
+        controller.getStreamInfo(tenantRequest, '../../../etc', '123e4567-e89b-12d3-a456-426614174000'),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('should throw BadRequestException when aggregateType contains a hyphen (stream name collision vector)', async () => {
       await expect(
-        controller.getStreamInfo(validTenantId, 'Batch-abc', '123e4567-e89b-12d3-a456-426614174000'),
+        controller.getStreamInfo(tenantRequest, 'Batch-abc', '123e4567-e89b-12d3-a456-426614174000'),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('should accept a valid alphanumeric aggregateType', async () => {
       mockEventStoreService.getStreamInfo.mockResolvedValue(null);
       await expect(
-        controller.getStreamInfo(validTenantId, 'Order', '123e4567-e89b-12d3-a456-426614174000'),
+        controller.getStreamInfo(tenantRequest, 'Order', '123e4567-e89b-12d3-a456-426614174000'),
       ).rejects.toThrow(NotFoundException); // Passes validation, fails at not-found
     });
   });
@@ -156,7 +177,7 @@ describe('EventStoreController', () => {
       mockEventStoreService.getStreamInfo.mockResolvedValue(mockStreamInfo);
       mockEventStoreService.getSnapshot.mockResolvedValue(null);
 
-      const result = await controller.getStreamInfo(validTenantId, aggregateType, aggregateId);
+      const result = await controller.getStreamInfo(tenantRequest, aggregateType, aggregateId);
 
       expect(result.streamName).toBe(mockStreamInfo.streamName);
       expect(result.currentVersion).toBe(5);
@@ -184,7 +205,7 @@ describe('EventStoreController', () => {
       mockEventStoreService.getStreamInfo.mockResolvedValue(mockStreamInfo);
       mockEventStoreService.getSnapshot.mockResolvedValue(mockSnapshot);
 
-      const result = await controller.getStreamInfo(validTenantId, aggregateType, aggregateId);
+      const result = await controller.getStreamInfo(tenantRequest, aggregateType, aggregateId);
 
       expect(result.hasSnapshot).toBe(true);
       expect(result.snapshotVersion).toBe(5);
@@ -194,11 +215,11 @@ describe('EventStoreController', () => {
       mockEventStoreService.getStreamInfo.mockResolvedValue(null);
 
       await expect(
-        controller.getStreamInfo(validTenantId, aggregateType, aggregateId),
+        controller.getStreamInfo(tenantRequest, aggregateType, aggregateId),
       ).rejects.toThrow(NotFoundException);
 
       await expect(
-        controller.getStreamInfo(validTenantId, aggregateType, aggregateId),
+        controller.getStreamInfo(tenantRequest, aggregateType, aggregateId),
       ).rejects.toThrow(`Stream ${aggregateType}/${aggregateId} not found`);
     });
   });
@@ -220,7 +241,7 @@ describe('EventStoreController', () => {
 
       mockEventStoreService.getSnapshot.mockResolvedValue(mockSnapshot);
 
-      const result = await controller.getSnapshot(validTenantId, aggregateType, aggregateId);
+      const result = await controller.getSnapshot(tenantRequest, aggregateType, aggregateId);
 
       expect(result.version).toBe(5);
       expect(result.state).toEqual({ status: 'confirmed', items: ['item1', 'item2'] });
@@ -230,11 +251,11 @@ describe('EventStoreController', () => {
       mockEventStoreService.getSnapshot.mockResolvedValue(null);
 
       await expect(
-        controller.getSnapshot(validTenantId, aggregateType, aggregateId),
+        controller.getSnapshot(tenantRequest, aggregateType, aggregateId),
       ).rejects.toThrow(NotFoundException);
 
       await expect(
-        controller.getSnapshot(validTenantId, aggregateType, aggregateId),
+        controller.getSnapshot(tenantRequest, aggregateType, aggregateId),
       ).rejects.toThrow(`Snapshot for ${aggregateType}/${aggregateId} not found`);
     });
   });
@@ -246,13 +267,13 @@ describe('EventStoreController', () => {
         streamName: 'Order-123e4567-e89b-12d3-a456-426614174000',
         newVersion: 3,
         eventIds: ['event-1'],
-        globalPositions: [100],
+        globalPositions: ['100'],
       };
 
       mockEventStoreService.appendToStream.mockResolvedValue(mockResult);
 
       const result = await controller.appendEvents(
-        validTenantId,
+        tenantRequest,
         'Order',
         '123e4567-e89b-12d3-a456-426614174000',
         {
@@ -261,6 +282,8 @@ describe('EventStoreController', () => {
           expectedVersion: -1,
           events: [
             {
+              producer: 'test-producer',
+              producerEventId: 'test-event-1',
               eventType: 'OrderCreated',
               payload: { orderId: '123' },
             },
@@ -281,7 +304,7 @@ describe('EventStoreController', () => {
 
       await expect(
         controller.deleteStream(
-          validTenantId,
+          tenantRequest,
           'Order',
           '123e4567-e89b-12d3-a456-426614174000',
         ),
@@ -307,7 +330,7 @@ describe('EventStoreController', () => {
 
       mockEventStoreService.createSnapshot.mockResolvedValue(mockSnapshot);
 
-      const result = await controller.createSnapshot(validTenantId, {
+      const result = await controller.createSnapshot(tenantRequest, {
         aggregateType: 'Order',
         aggregateId: '123e4567-e89b-12d3-a456-426614174000',
         version: 5,
@@ -346,7 +369,7 @@ describe('EventStoreController', () => {
       mockEventStoreService.loadAggregate.mockResolvedValue(mockData);
 
       const result = await controller.loadAggregate(
-        validTenantId,
+        tenantRequest,
         'Order',
         '123e4567-e89b-12d3-a456-426614174000',
       );
@@ -366,7 +389,7 @@ describe('EventStoreController', () => {
       mockEventStoreService.loadAggregate.mockResolvedValue(mockData);
 
       const result = await controller.loadAggregate(
-        validTenantId,
+        tenantRequest,
         'Order',
         '123e4567-e89b-12d3-a456-426614174000',
       );

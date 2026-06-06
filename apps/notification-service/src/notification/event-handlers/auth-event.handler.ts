@@ -52,8 +52,6 @@ export class AuthEventHandler
 {
   private readonly logger = new Logger(AuthEventHandler.name);
   private readonly authServiceUrl: string;
-  private readonly internalSecret: string;
-
   constructor(
     private readonly emailService: EmailService,
     @Inject('EVENT_BUS')
@@ -64,7 +62,6 @@ export class AuthEventHandler
       'AUTH_SERVICE_INTERNAL_URL',
       'http://auth-service:3000',
     );
-    this.internalSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET', '');
   }
 
   async onModuleInit(): Promise<void> {
@@ -130,12 +127,11 @@ export class AuthEventHandler
       // the canonical input cross-endpoint-replayable.
       const { signedFetch } = require('@aquaculture/backend-common');
       const response = await signedFetch(
-        `${this.authServiceUrl}/internal/users/${userId}/pii`,
+        `${this.authServiceUrl}/api/v1/internal/users/${userId}/pii`,
         {
           method: 'GET',
           serviceName: 'notification-service',
           tenantId,
-          secret: this.internalSecret,
           headers: { 'Content-Type': 'application/json' },
         },
       );
@@ -158,12 +154,11 @@ export class AuthEventHandler
       // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
       const { signedFetch } = require('@aquaculture/backend-common');
       const response = await signedFetch(
-        `${this.authServiceUrl}/internal/tenants/${tenantId}/info`,
+        `${this.authServiceUrl}/api/v1/internal/tenants/${tenantId}/info`,
         {
           method: 'GET',
           serviceName: 'notification-service',
           tenantId,
-          secret: this.internalSecret,
           headers: { 'Content-Type': 'application/json' },
         },
       );
@@ -189,24 +184,28 @@ export class AuthEventHandler
       // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
       const { signedFetch } = require('@aquaculture/backend-common');
       const response = await signedFetch(
-        `${this.authServiceUrl}/internal/action-tokens/${actionTokenId}/url`,
+        `${this.authServiceUrl}/api/v1/internal/action-tokens/${actionTokenId}/url`,
         {
           method: 'GET',
           serviceName: 'notification-service',
           tenantId,
-          secret: this.internalSecret,
           headers: { 'Content-Type': 'application/json' },
         },
       );
       if (!response.ok) {
-        this.logger.error(`Failed to resolve action URL for tokenId=${actionTokenId}: HTTP ${response.status}`);
+      this.logger.error(`Failed to resolve action URL for tokenIdHash=${this.hashTokenId(actionTokenId)}: HTTP ${response.status}`);
         return null;
       }
       return await response.json() as ResolvedActionInfo;
     } catch (error) {
-      this.logger.error(`Failed to resolve action URL for tokenId=${actionTokenId}: ${(error as Error).message}`);
+      this.logger.error(`Failed to resolve action URL for tokenIdHash=${this.hashTokenId(actionTokenId)}: ${(error as Error).message}`);
       return null;
     }
+  }
+
+  private hashTokenId(actionTokenId: string): string {
+    const crypto = require('crypto');
+    return crypto.createHash('sha256').update(actionTokenId).digest('hex').slice(0, 16);
   }
 
   // ── Event handlers ──
@@ -320,8 +319,8 @@ export class AuthEventHandler
       this.resolveActionUrl(event.actionTokenId, event.tenantId),
     ]);
 
-    if (!userPII || !tenantInfo) {
-      this.logger.error(`Cannot send welcome email — failed to resolve user PII or tenant info for userId=${event.userId}`);
+    if (!userPII || !tenantInfo || !actionInfo?.actionUrl) {
+      this.logger.error(`Cannot send welcome email — failed to resolve user PII, tenant info, or action URL for userId=${event.userId}`);
       return;
     }
 
@@ -331,7 +330,7 @@ export class AuthEventHandler
       email: userPII.email,
       tenantName: tenantInfo.name,
       role: event.role,
-      actionUrl: actionInfo?.actionUrl || `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/setup-account`,
+      actionUrl: actionInfo.actionUrl,
     });
 
     // SECURITY: Mask email in logs to prevent PII exposure (H-14)

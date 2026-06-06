@@ -3684,3 +3684,13 @@ Fix (Tier 1 Make-Automatic): append `,ignore-error=true` to every `cache-to: typ
 Two call sites in `.github/workflows/deploy-digitalocean.yml`: `build-backend-images` (line 835) + `build-frontend-images` (line ~933). Both updated in the same commit.
 
 Status: RESOLVED on `fix/ghcr-cache-write-ignore-error` branch.
+
+## ORPHAN-HIGH-080 — Service command surfaces had no durable idempotent receipt path across auth, billing, event-store, and notification
+
+Severity: HIGH. Tenant/admin command contracts existed, but the receiving service runtimes did not all share a durable command receipt ledger, v2 service-identity enforcement, and replay-safe notification delivery semantics. A duplicate or retried command could run twice, trust a bare tenant header, or acknowledge an in-flight notification as delivered while the only receipt status was `STARTED`.
+
+Root cause: service commands were added as protocol concepts before the receiving services had the same idempotency and identity spine as gateway calls. Event-store also had a query-hash canonicalization mismatch (`?` stripped from `observedQuery`), and notification command receipts treated every existing `STARTED` row as a successful replay.
+
+Fix: add auth, billing, and notification command receipt ledgers and handlers; require v2 event-store service identity with tenant context from verified signatures; harden event-store ledger/projection surfaces; and make notification command receipts distinguish `SUCCEEDED` replay, `FAILED` retry, fresh `STARTED` in-progress, and stale `STARTED` lease reclaim. Targeted unit specs cover event-store query hash / tenant context / projection FSM and notification receipt lease behavior.
+
+Status: RESOLVED on `feat/service-command-surfaces-20260606`.

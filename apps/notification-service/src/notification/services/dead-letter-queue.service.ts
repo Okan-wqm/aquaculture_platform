@@ -79,8 +79,8 @@ export class DeadLetterQueueService {
   /**
    * Persist a dead-lettered event to NotificationLog.
    *
-   * The full event payload is stored in `metadata.originalEvent` so it can
-   * be inspected and replayed from the admin panel or a CLI tool.
+   * Stores a redacted summary only. Raw payloads can include PII, tokens,
+   * webhook URLs, or message content and must not be persisted in DLQ.
    */
   private async saveToDLQ(
     event: Record<string, unknown>,
@@ -98,10 +98,12 @@ export class DeadLetterQueueService {
         errorMessage: errorStack || errorMessage,
         retryCount: (event.retryCount as number) || 0,
         metadata: {
-          originalEvent: event,
+          originalEventHash: this.hashEvent(event),
+          replayHandle: this.replayHandle(event),
           failedAt: new Date().toISOString(),
           eventType: event.eventType,
           eventId: event.eventId,
+          tenantId: event.tenantId,
         },
       });
 
@@ -112,15 +114,28 @@ export class DeadLetterQueueService {
         `(tenant: ${((event.tenantId as string) || 'unknown').substring(0, 8)}...)`,
       );
     } catch (dbError) {
-      // Last resort: if we can't even persist to DB, log the full event
-      // so it's at least visible in aggregated logs (ELK/CloudWatch/etc.)
       this.logger.error(
         `CRITICAL: Failed to persist DLQ entry for event ${event.eventType}. ` +
         `DB error: ${(dbError as Error).message}. ` +
         `Original error: ${errorMessage}. ` +
-        `Event payload (for manual recovery): ${JSON.stringify(event).substring(0, 2000)}`,
+        `eventHash=${this.hashEvent(event)} replayHandle=${this.replayHandle(event)}`,
       );
     }
+  }
+
+  private hashEvent(event: Record<string, unknown>): string {
+    const crypto = require('crypto');
+    return crypto
+      .createHash('sha256')
+      .update(JSON.stringify(event, Object.keys(event).sort()))
+      .digest('hex');
+  }
+
+  private replayHandle(event: Record<string, unknown>): string {
+    const eventType = typeof event.eventType === 'string' ? event.eventType : 'unknown';
+    const eventId = typeof event.eventId === 'string' ? event.eventId : 'unknown';
+    const tenantId = typeof event.tenantId === 'string' ? event.tenantId : 'unknown';
+    return `${eventType}:${tenantId}:${eventId}`;
   }
 
   /**

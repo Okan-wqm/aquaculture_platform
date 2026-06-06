@@ -4,6 +4,7 @@ import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { EventBusModule } from '@platform/event-bus';
 
 import { Invitation } from '../authentication/entities/invitation.entity';
+import { ActionToken } from '../authentication/entities/action-token.entity';
 import { RefreshToken } from '../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../authentication/entities/user-module-assignment.entity';
 import { User } from '../authentication/entities/user.entity';
@@ -20,6 +21,7 @@ import { TenantResolver } from './resolvers/tenant.resolver';
 import { MobileSettingsService } from './services/mobile-settings.service';
 import { TenantAdminService } from './services/tenant-admin.service';
 import { TenantRoleService } from './services/tenant-role.service';
+import { TenantProvisioningCommandService } from './services/tenant-provisioning-command.service';
 import { TenantUserManagementService } from './services/tenant-user-management.service';
 import { TenantService } from './services/tenant.service';
 import { TenantUserCountReconcileService } from './services/tenant-user-count-reconcile.service';
@@ -31,6 +33,7 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
       Tenant,
       TenantModuleEntity,
       User,
+      ActionToken,
       UserModuleAssignment,
       SystemModule,
       MobileUserSettings,
@@ -50,6 +53,7 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
     TenantRoleService,
     TenantUserManagementService,
     UserLifecycleService,
+    TenantProvisioningCommandService,
     MobileSettingsService,
     TenantResolver,
     TenantAdminResolver,
@@ -66,5 +70,6 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
   ],
   exports: [TenantService, TenantAdminService, TenantRoleService, UserLifecycleService, TypeOrmModule],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
-export class TenantModule {}
+export class TenantModule {
+  private readonly moduleClass = TenantModule.name;
+}

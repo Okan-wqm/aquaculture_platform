@@ -1,7 +1,7 @@
 /**
  * EdgeFirmwareReleaseV2 — versioned firmware artifact + SBOM metadata.
  *
- * Per ADR-025. Per-tenant under sensor schema. Supersedes ADR-022's
+ * Per ADR-034. Per-tenant under sensor schema. Supersedes ADR-022's
  * `edge.firmware_releases`. Operators stage firmware artifacts in
  * `MinIO` or similar object storage; this entity records the manifest
  * (sha256 of the artifact + SBOM hash + signing key epoch).

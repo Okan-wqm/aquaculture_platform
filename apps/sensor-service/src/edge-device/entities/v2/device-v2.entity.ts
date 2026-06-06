@@ -1,7 +1,7 @@
 /**
  * EdgeDeviceV2 — v2 device row, per-tenant (sensor schema).
  *
- * Per ADR-025, this entity supersedes ADR-022's `edge.devices` placement.
+ * Per ADR-034, this entity supersedes ADR-022's `edge.devices` placement.
  * Lives under sensor source schema (search_path routes to `tenant_<uuid>`
  * at runtime). v1 `EdgeDevice` (apps/sensor-service/src/edge-device/
  * entities/edge-device.entity.ts) remains during the dual-write cutover
@@ -18,6 +18,8 @@
  *     (allowlist enforced in baseline migration; entity declares the
  *     column shape only)
  *   - FK `tenantId → auth.tenants` ON DELETE RESTRICT ON UPDATE RESTRICT
+ *     is installed by `SensorV2TenantFkAndLicenseGrant1800300000000`
+ *     as `NOT VALID` for safe adoption on existing tenant data.
  *   - FK `createdBy / updatedBy → auth.users` ON DELETE RESTRICT
  *   - RLS: tenant_isolation_policy via Faz 1.7 canonical predicate
  *   - immutability: append-only audit attestation rows live in

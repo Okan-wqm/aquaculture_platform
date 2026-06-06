@@ -3724,3 +3724,13 @@ Root cause: farm enterprise hardening had been implemented in pieces: batch life
 Fix: add farm outbox/inbox/document/tank setup migrations, CQRS-backed batch write adapters, setup handler transaction/audit/outbox utilities, farm document cleanup registration, Sentinel proxy policy tests, farm event registry/realtime bridge parity, and farm invariants for identity, REST/CQRS, batch policy, and setup eventing. Existing-tenant schema repair remains fail-closed outside explicit e2e bootstrap.
 
 Status: RESOLVED on `feat/farm-service-enterprise-train-20260606`.
+
+## ORPHAN-HIGH-084 — Sensor DDL/RBAC/trust train lacked flat Agent I/O v2 and tenant-bound edge proof
+
+Severity: HIGH. Sensor DDL, edge-device I/O config, PLC control, and Rust gateway trust changes were present as separate hardening pieces, but the executable contract still allowed unsafe gaps: edge I/O mutations had role checks without the tenant permission gate, Agent I/O config could be serialized in a flat v2 shape that the Rust gateway did not parse, orphaned or ambiguous I/O tags could be skipped rather than rejected, and ping responses could complete against the wrong device identifier.
+
+Root cause: the train had runtime and schema changes without one cross-boundary proof tying service-side validation, GraphQL authorization metadata, MQTT payload shape, gateway parsing, and provisioning/trust behavior together. The flat `tags[]` schema was documented by fixtures and tests, but the Rust command parser still only accepted grouped legacy arrays.
+
+Fix: add tenant permission metadata to all edge I/O mutation surfaces, make Agent I/O v2 serialization fail closed for orphaned or ambiguous tags, bind pending pings to both device UUID and device code, add focused sensor-service permission/config/PLC tests, and teach the Rust gateway `update_io_config` parser to accept flat v2 `tags[]` while preserving legacy grouped payload support.
+
+Status: RESOLVED on `feat/sensor-train-ddl-rbac-trust-20260606`.

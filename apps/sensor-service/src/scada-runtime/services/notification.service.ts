@@ -13,7 +13,7 @@
  *   - 'all' mode: notify on every new alarm of matching severity
  *
  * SMTP config (env):
- *   SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_FROM
+ *   SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
  *
  * Design: no circular deps — this service receives plain AlarmInstance
  * objects and NotificationConfig arrays; it does not import the engine.
@@ -21,6 +21,9 @@
 
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as http from 'http';
+import * as https from 'https';
+import * as nodemailer from 'nodemailer';
 
 import type {
   AlarmInstance,
@@ -31,12 +34,6 @@ import type {
 /* ------------------------------------------------------------------ */
 /*  Nodemailer / http — loaded lazily to keep startup fast              */
 /* ------------------------------------------------------------------ */
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const nodemailer = require('nodemailer') as typeof import('nodemailer');
-
-import * as https from 'https';
-import * as http from 'http';
 
 /* ------------------------------------------------------------------ */
 /*  Internal types                                                      */
@@ -204,6 +201,7 @@ export class NotificationService implements OnModuleDestroy {
   /* ---------------------------------------------------------------- */
 
   private async deliver(alarm: AlarmInstance, config: NotificationConfig): Promise<void> {
+    this.assertCanonicalCommandPathAllowed('deliver');
     if (config.channel === 'email') {
       await this.sendEmail(alarm, config.receiver);
     } else if (config.channel === 'webhook') {
@@ -224,6 +222,7 @@ export class NotificationService implements OnModuleDestroy {
    * scripts via the $sendMessage() sandbox function.
    */
   async sendDirectEmail(to: string, subject: string, body: string): Promise<void> {
+    this.assertCanonicalCommandPathAllowed('sendDirectEmail');
     const transporter = this.getTransporter();
     if (!transporter) {
       this.logger.warn('sendDirectEmail: SMTP not configured — skipping');
@@ -299,7 +298,7 @@ export class NotificationService implements OnModuleDestroy {
     const port = parseInt(this.configService.get<string>('SMTP_PORT', '587'), 10);
     const secure = this.configService.get<string>('SMTP_SECURE', 'false') === 'true';
     const user = this.configService.get<string>('SMTP_USER');
-    const pass = this.configService.get<string>('SMTP_PASS');
+    const pass = this.configService.get<string>('SMTP_PASSWORD');
 
     this.transporter = nodemailer.createTransport({
       host,
@@ -397,5 +396,15 @@ export class NotificationService implements OnModuleDestroy {
       case 'info':     return '#2563eb';
       default:         return '#6b7280';
     }
+  }
+
+  private assertCanonicalCommandPathAllowed(action: string): void {
+    if (this.configService.get<string>('NODE_ENV') !== 'production') {
+      return;
+    }
+    throw new Error(
+      `SCADA ${action} cannot use raw SMTP/webhook delivery in production; ` +
+        'route through the canonical notification command receipt path.',
+    );
   }
 }

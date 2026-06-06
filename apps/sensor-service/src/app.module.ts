@@ -51,6 +51,15 @@ import { SensorTypeDefinition } from './database/entities/sensor-type-definition
 import { EdgeDeviceModule } from './edge-device/edge-device.module';
 import { DeviceIoConfig } from './edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from './edge-device/entities/edge-device.entity';
+import {
+  EdgeAuditArchiveV2,
+  EdgeDeviceV2,
+  EdgeFirmwareReleaseV2,
+  EdgeLicenseV2,
+  EdgePolicyV2,
+  EdgeProvisioningRecordV2,
+  EdgeWitnessV2,
+} from './edge-device/entities/v2';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
@@ -160,6 +169,13 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             ScadaPackage,
             DashboardLayout,
             EdgeDevice,
+            EdgeDeviceV2,
+            EdgePolicyV2,
+            EdgeLicenseV2,
+            EdgeFirmwareReleaseV2,
+            EdgeProvisioningRecordV2,
+            EdgeWitnessV2,
+            EdgeAuditArchiveV2,
             DeviceIoConfig,
             LoRaDevice,
             TenantProvisioningKey,

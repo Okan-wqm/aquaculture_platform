@@ -329,6 +329,37 @@ services:
           memory: 512M
           cpus: '1.0'
 
+  tenant-schema-provisioner:
+    image: ghcr.io/okan-wqm/aquaculture_platform/db-migrate:${TAG:?TAG required}
+    container_name: aqua-tenant-schema-provisioner
+    restart: unless-stopped
+    command: ["node", "dist/main.js", "tenant-schema-provisioner", "--loop"]
+    environment:
+      NODE_ENV: production
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
+      DATABASE_MIGRATIONS_RUN: "true"
+      DATABASE_SSL: "false"
+      DB_MIGRATE_VERSION: ${TAG:?TAG required}
+      TENANT_SCHEMA_PROVISIONER_ID: droplet-tenant-schema-provisioner
+      TENANT_SCHEMA_PROVISIONER_POLL_INTERVAL_MS: ${TENANT_SCHEMA_PROVISIONER_POLL_INTERVAL_MS:-5000}
+      TENANT_SCHEMA_PROVISIONER_LEASE_SECONDS: ${TENANT_SCHEMA_PROVISIONER_LEASE_SECONDS:-900}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+
   redis:
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/redis/redis/releases, test in staging first.
     image: redis:7-alpine
@@ -489,7 +520,7 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — gateway_service can only access gateway schema
       DATABASE_USER: ${GATEWAY_SERVICE_DB_USER:-gateway_service}
-      DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${GATEWAY_SERVICE_DB_PASS:?GATEWAY_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       REDIS_HOST: redis
@@ -523,7 +554,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       WS_CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       THROTTLE_DEFAULT_LIMIT: 500
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
     ports:
       - "127.0.0.1:3000:3000"
@@ -607,7 +639,7 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — auth_service can only access auth schema
       DATABASE_USER: ${AUTH_SERVICE_DB_USER:-auth_service}
-      DATABASE_PASSWORD: ${AUTH_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${AUTH_SERVICE_DB_PASS:?AUTH_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false"
       DATABASE_LOGGING: "true"
@@ -634,7 +666,8 @@ services:
       MFA_ENCRYPTION_KEY: "${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required in production — generate with openssl rand -hex 32}"
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-app.suderra.com}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-AquaCulture Platform}
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -682,7 +715,7 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — farm_service can only access farm schema
       DATABASE_USER: ${FARM_SERVICE_DB_USER:-farm_service}
-      DATABASE_PASSWORD: ${FARM_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${FARM_SERVICE_DB_PASS:?FARM_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -701,7 +734,8 @@ services:
       <<: *nats-farm-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -752,7 +786,7 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — sensor_service can only access sensor schema
       DATABASE_USER: ${SENSOR_SERVICE_DB_USER:-sensor_service}
-      DATABASE_PASSWORD: ${SENSOR_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${SENSOR_SERVICE_DB_PASS:?SENSOR_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -774,7 +808,8 @@ services:
       MQTT_BROKER_URL: mqtt://mosquitto:1883
       EDGE_AGENT_GITHUB_REPO: Okan-wqm/aquaculture_platform
       PROVISIONING_API_BASE_URL: ${PROVISIONING_API_BASE_URL:-https://app.suderra.com}
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
       # ADR-022 control / data plane separation. Default `legacy`
       # keeps the existing NestJS MQTT subscriber + per-sensor data
       # collection running. Set to `control-plane` once the Rust
@@ -819,61 +854,6 @@ services:
       retries: 3
       start_period: 90s
 
-  # Rust ingestion sidecar — ADR-025 / ADR-027 strangler-fig rollout.
-  # Co-equal producer of `events.{tenantId}.SensorReading` alongside the
-  # NestJS sensor-service. Per-tenant feature flag (`[ingest_backend]`
-  # in config.toml) gates which tenants the sidecar processes.
-  #
-  # ORPHAN-CRITICAL-072: gated behind the `rust-sidecar` Compose profile
-  # because the multi-arch GHCR image for sensor-ingestion is not yet
-  # published by CI (the Rust build matrix lives outside the deploy
-  # pipeline today). Without the profile gate, every `docker compose
-  # up -d` on the droplet hits "no matching manifest for linux/amd64"
-  # for sensor-ingestion and the WHOLE `up -d` call exits non-zero —
-  # the deploy script's `|| true` masks the error but no containers
-  # actually start. The critical-service health check then times out
-  # at 300s and the deploy fails with rollback-required.
-  #
-  # Operator opt-in (after the CI Rust build matrix lands):
-  #   COMPOSE_PROFILES=rust-sidecar docker compose -f docker-compose.droplet.yml up -d
-  # Or set in droplet's .env: COMPOSE_PROFILES=rust-sidecar
-  sensor-ingestion:
-    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:?TAG required}
-    container_name: aqua-sensor-ingestion
-    restart: unless-stopped
-    profiles:
-      - rust-sidecar
-    user: "65532:65532"
-    environment:
-      # tracing-subscriber filter — overrides via env var without
-      # rebuilding the config file.
-      RUST_LOG: ${SENSOR_INGESTION_LOG:-info}
-      SENSOR_INGESTION_CONFIG: /etc/sensor-ingestion/config.toml
-    volumes:
-      # Operator-rotated config + cert bind-mounts. NEVER baked into
-      # the image (ADR-014/015): the secrets-rotation job updates files
-      # on disk, sidecar restart picks them up.
-      - ./infrastructure/sensor-ingestion/config.toml:/etc/sensor-ingestion/config.toml:ro
-      - ./certs/sensor-ingestion:/etc/sensor-ingestion/certs:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-      mosquitto:
-        condition: service_healthy
-    networks:
-      - aqua-internal
-    deploy:
-      resources:
-        limits:
-          # Plan § Faz 2 — Deployment + Strangler Fig. Sidecar cap is
-          # 256 MB / 0.35 vCPU; reservations match the steady-state
-          # baseline measured at the planning stage.
-          memory: 256M
-          cpus: '0.35'
-        reservations:
-          memory: 192M
-          cpus: '0.25'
-
   admin-api-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${TAG:?TAG required}
     container_name: aqua-admin-api
@@ -891,7 +871,7 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — admin_service has read access to auth+billing schemas
       DATABASE_USER: ${ADMIN_SERVICE_DB_USER:-admin_service}
-      DATABASE_PASSWORD: ${ADMIN_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${ADMIN_SERVICE_DB_PASS:?ADMIN_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_HOST: redis
@@ -910,8 +890,14 @@ services:
       <<: *nats-gateway-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
       FRONTEND_URL: ${FRONTEND_URL:-https://app.suderra.com}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@suderra.com}
       THROTTLE_DEFAULT_LIMIT: 500
       THROTTLE_DEFAULT_TTL: 60
     depends_on:
@@ -961,14 +947,15 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — alert_service can only access alert schema
       DATABASE_USER: ${ALERT_SERVICE_DB_USER:-alert_service}
-      DATABASE_PASSWORD: ${ALERT_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${ALERT_SERVICE_DB_PASS:?ALERT_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-alert-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1013,7 +1000,7 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — billing_service can only access billing schema
       DATABASE_USER: ${BILLING_SERVICE_DB_USER:-billing_service}
-      DATABASE_PASSWORD: ${BILLING_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${BILLING_SERVICE_DB_PASS:?BILLING_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       # ADR-016/031: production schema DDL belongs to aqua-db-migrate.
@@ -1025,7 +1012,8 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-billing-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
       # Stripe credentials — OPTIONAL in compose, REQUIRED before billing goes live.
       #
       # Architectural decision (2026-04-14): the `:?` strict-requirement was
@@ -1095,14 +1083,15 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — hr_service can only access hr schema
       DATABASE_USER: ${HR_SERVICE_DB_USER:-hr_service}
-      DATABASE_PASSWORD: ${HR_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${HR_SERVICE_DB_PASS:?HR_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-hr-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1147,14 +1136,15 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — hydroponics_service can only access hydroponics schema
       DATABASE_USER: ${HYDROPONICS_SERVICE_DB_USER:-hydroponics_service}
-      DATABASE_PASSWORD: ${HYDROPONICS_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${HYDROPONICS_SERVICE_DB_PASS:?HYDROPONICS_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-hydroponics-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1199,7 +1189,7 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — notification_service uses public schema
       DATABASE_USER: ${NOTIFICATION_SERVICE_DB_USER:-notification_service}
-      DATABASE_PASSWORD: ${NOTIFICATION_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${NOTIFICATION_SERVICE_DB_PASS:?NOTIFICATION_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
@@ -1209,12 +1199,14 @@ services:
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-notification-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
       WEBHOOK_ENCRYPTION_KEY: ${WEBHOOK_ENCRYPTION_KEY:?WEBHOOK_ENCRYPTION_KEY required (min 32 chars)}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@suderra.com}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1262,8 +1254,8 @@ services:
       # createServiceTypeOrmConfig factory in libs/backend-common.
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-aquaculture}
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DATABASE_USER: ${OBSERVABILITY_SERVICE_DB_USER:-observability_service}
+      DATABASE_PASSWORD: ${OBSERVABILITY_SERVICE_DB_PASS:?OBSERVABILITY_SERVICE_DB_PASS required}
       # Observability reads cross-service metrics from the main aquaculture DB
       # (sensor, auth, alert, farm schemas). No own entities — schema-based isolation.
       DATABASE_NAME: aquaculture
@@ -1335,15 +1327,16 @@ services:
       # for database aquaculture" once the first config-schema migration
       # landed (ORPHAN-CRITICAL-069).
       DATABASE_USER: ${CONFIG_SERVICE_DB_USER:-config_service}
-      DATABASE_PASSWORD: ${CONFIG_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${CONFIG_SERVICE_DB_PASS:?CONFIG_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: "false" # ARCH-DB-001: Production'da synchronize kapalı, migration kullanılmalı
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials — config uses gateway account
       <<: *nats-gateway-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
-      CONFIG_ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
-      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      CONFIG_ENCRYPTION_KEY: ${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY is required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1372,6 +1365,45 @@ services:
       retries: 3
       start_period: 60s
 
+  event-store-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/event-store-service:${TAG:?TAG required}
+    container_name: aqua-event-store
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: event-store-service
+      NODE_ENV: production
+      PORT: 3000
+      EVENT_STORE_SERVICE_PORT: 3000
+      NODE_OPTIONS: '--max-old-space-size=384'
+      DATABASE_HOST: postgres
+      DATABASE_SSL: "false"
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${EVENT_STORE_SERVICE_DB_USER:-event_store_service}
+      DATABASE_PASSWORD: ${EVENT_STORE_SERVICE_DB_PASS:?EVENT_STORE_SERVICE_DB_PASS is required}
+      DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
+      DATABASE_SYNC: "false"
+      DATABASE_MIGRATIONS_RUN: "false"
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING is required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.35'
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
   messaging-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/messaging-service:${TAG:?TAG required}
     container_name: aqua-messaging
@@ -1387,7 +1419,7 @@ services:
       DATABASE_PORT: 5432
       # SEC-015 (CRITICAL-001): Per-service DB role — messaging_service can only access messaging schema
       DATABASE_USER: ${MESSAGING_SERVICE_DB_USER:-messaging_service}
-      DATABASE_PASSWORD: ${MESSAGING_SERVICE_DB_PASS:-${POSTGRES_PASSWORD:-changeme}}
+      DATABASE_PASSWORD: ${MESSAGING_SERVICE_DB_PASS:?MESSAGING_SERVICE_DB_PASS required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DATABASE_SYNC: 'false'
       DATABASE_MIGRATIONS_RUN: 'false'

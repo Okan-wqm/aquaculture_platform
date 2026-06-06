@@ -157,6 +157,7 @@ export default {
         '<rootDir>/db-migrate-entity-metadata-contract.spec.ts',
         '<rootDir>/postgres-ddl-contract.spec.ts',
         '<rootDir>/service-criticality-profile-contract.spec.ts',
+        '<rootDir>/edge-v2-plan-contract.spec.ts',
         '<rootDir>/farm-service-migration-array-completeness.spec.ts',
         '<rootDir>/three-store-invariants.spec.ts',
         '<rootDir>/protected-tables-guard.spec.ts',

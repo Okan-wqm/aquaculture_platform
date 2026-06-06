@@ -1,6 +1,6 @@
-# ADR-025: Edge Feature Schema Placement — Per-Tenant under `sensor` Schema (sensor-service Ownership)
+# ADR-034: Edge Feature Schema Placement — Per-Tenant under `sensor` Schema (sensor-service Ownership)
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-05-18
 **Deciders:** Okan (platform owner) + data-expert + database-reviewer + multi-tenant-saas-expert + architectural-arbiter + sensor-expert + edge-expert + admin-expert
 **Owner:** Okan
@@ -26,11 +26,11 @@ Edge-expert's strongest objection to per-tenant placement — "ADR-022 §2 hash 
 
 1. **Schema:** edge tables live under the `sensor` schema (per-tenant pattern). No dedicated `edge` schema.
 2. **Owner:** `sensor-service` writes migrations and owns entity files.
-3. **Per-tenant tables (7):** `devices`, `policies`, `licenses`, `firmware_releases`, `provisioning_records`, `witnesses`, `audit_archive_v1`. All carry `tenant_id uuid NOT NULL`. All cloned to `tenant_<uuid>` schemas via `TenantSchemaSyncService`.
+3. **Per-tenant tables (7):** `devices`, `policies`, `licenses`, `firmware_releases`, `provisioning_records`, `witnesses`, `audit_archive_v1`. All carry `tenant_id uuid NOT NULL`. All cloned to `tenant_<uuid>` schemas by the db-migrate tenant schema provisioner.
 3. **Entity location:** `apps/sensor-service/src/edge-device/entities/v2/*.entity.ts`. No `schema:` declaration (per-tenant pattern). Existing v1 entities (`edge-device.entity.ts`, etc.) remain alongside; v2 dual-write adapter coordinates the cutover.
 4. **MODULE_SCHEMAS update:** `libs/backend-common/src/database/schema-manager.service.ts` `sensor` module `tables` array gets the 7 new table names appended. This drives the `CREATE TABLE LIKE source INCLUDING ALL` fan-out for new tenants automatically.
 5. **admin-api access:** Open Host Service. admin-api consumes a `getFleetDevices(filter)` / `getDevicePolicy(deviceId)` / `getDeviceAuditChain(deviceId)` query surface exposed by sensor-service (GraphQL federation or REST — implementation choice). admin-api **does not write** edge tables. admin-api **does not read** them via direct SQL.
-6. **DDL constraints preserved verbatim from ADR-022 §2:** BYTEA NOT NULL + CHECK octet_length=32 for hash columns. EXCLUDE USING gist for license temporal overlap. is_current BOOLEAN + trigger + partial unique index for policies. PARTITION BY RANGE (migrated_at) for audit_archive_v1. ON DELETE RESTRICT / ON UPDATE RESTRICT on every FK. witness_role enum + 64-byte witness signature. created_by/updated_by UUID REFERENCES auth.users RESTRICT.
+6. **DDL constraints preserved from ADR-022 §2 where active migrations implement them:** BYTEA NOT NULL + CHECK octet_length=32 for hash columns. EXCLUDE USING gist for license temporal overlap. is_current BOOLEAN + trigger + partial unique index for policies. `audit_archive_v1` is append-only with composite `(migrated_at, archive_id)` primary key; no active migration declares partitioning yet. ON DELETE RESTRICT / ON UPDATE RESTRICT on every active FK. witness_role constrained string + 64-byte witness signature. created_by/updated_by UUID REFERENCES auth.users RESTRICT.
 7. **Tenant deletion:** cryptographic erasure only (per ADR-022 §5 retained). `auth.tenants` hard-delete remains FORBIDDEN; tenant offboarding flips state + redacts keying material.
 8. **Cutover:** Faz 6 baseline reset is the cutover point. Pre-Faz-6, no migration writes the v2 tables. Faz 6 baseline migration creates them per-service in `sensor` source schema + `TenantSchemaSyncService` clones them into every new `tenant_<uuid>` thereafter. There is no Phase 0–4 dual-write window because there is no production tenant data to preserve (the day-one reset wipes pre-existing tenants).
 
@@ -46,7 +46,7 @@ Edge-expert's strongest objection to per-tenant placement — "ADR-022 §2 hash 
 ### Negative
 
 - **Cross-tenant fleet queries become inter-service calls.** admin-api → sensor-service (Open Host Service) adds one network hop per fleet-view page render vs ADR-022's direct cross-schema `SELECT`. Mitigation: dedicated read endpoint with strict pagination, sensor-service caches frequent fleet-view shapes. Operationally negligible: super-admin fleet views are O(seconds), not O(ms).
-- **`audit_archive_v1` per-tenant partitioning multiplies the partition count by tenant count.** ADR-022 assumed one global `audit_archive_v1` table partitioned by `migrated_at`; per-tenant means each `tenant_<uuid>.audit_archive_v1` partitions independently. At scale (1000 tenants × 12 monthly partitions = 12000 partitions), `pg_class` size grows but stays within PostgreSQL's healthy bounds (Postgres handles 100k+ partitions reliably). Long-term migration to a global `event_store.edge_audit_archive` with tenant_id partition key is on the table if partition count becomes a performance signal — captured as a tracked follow-up, not an ADR-025 blocker.
+- **`audit_archive_v1` per-tenant partitioning multiplies the partition count by tenant count.** ADR-022 assumed one global `audit_archive_v1` table partitioned by `migrated_at`; per-tenant means each `tenant_<uuid>.audit_archive_v1` partitions independently. At scale (1000 tenants x 12 monthly partitions = 12000 partitions), `pg_class` size grows but stays within PostgreSQL's healthy bounds (Postgres handles 100k+ partitions reliably). Long-term migration to a global `event_store.edge_audit_archive` with tenant_id partition key is on the table if partition count becomes a performance signal; captured as a tracked follow-up, not an ADR-034 blocker.
 - **edge-expert's Rust agent cutover requires sensor-service-aware activation.** Rust gateway already activates through sensor-service's `provisioning.service.ts`; the v2 trust-bundle payload extension is routed through that same endpoint. No new Rust integration surface.
 
 ### Architectural risk tier
@@ -73,7 +73,7 @@ Rejected. Couples cloud-side schema authorship to the Rust edge-agent's release 
 - **Entity files:** `apps/sensor-service/src/edge-device/entities/v2/{device,policy,license,firmware-release,provisioning-record,witness,audit-archive}-v2.entity.ts`.
 - **MODULE_SCHEMAS edit:** `libs/backend-common/src/database/schema-manager.service.ts` `sensor` module entry — append 7 table names to `tables`; the existing entries (edge_devices, lora_devices, device_events, device_io_configs, tenant_provisioning_keys) remain.
 - **Open Host Service spec:** sensor-service exposes a `FleetDevicesQuery` GraphQL operation + REST mirror. admin-panel UI consumes via existing federation gateway. No GraphQL operation name changes; admin already federates sensor-service.
-- **Plan dossier:** `docs/plans/2026-05-12-sens-api-gateway-edge-platform-v2-revision.md` Phase 2 ownership clause is rewritten to reference ADR-025 and explicitly retract the ADR-022 admin-api ownership stance.
+- **Plan dossier:** `docs/plans/2026-05-12-sens-api-gateway-edge-platform-v2-revision.md` Phase 2 ownership clause is rewritten to reference ADR-034 and explicitly retract the ADR-022 admin-api ownership stance.
 
 ## Compliance
 
@@ -84,4 +84,4 @@ Rejected. Couples cloud-side schema authorship to the Rust edge-agent's release 
 
 ## Open Items
 
-- **OPEN-ADR-025-1:** `audit_archive_v1` partition-count budget under per-tenant scaling. Tracked as a Faz 8 monitoring signal — if partition count crosses a threshold operationally relevant on production (target: > 50k partitions OR pg_class oid pressure), revisit the global `event_store` placement option.
+- **OPEN-ADR-034-1:** `audit_archive_v1` partition-count budget under per-tenant scaling. Tracked as a Faz 8 monitoring signal: if partition count crosses a threshold operationally relevant on production (target: > 50k partitions OR pg_class oid pressure), revisit the global `event_store` placement option.

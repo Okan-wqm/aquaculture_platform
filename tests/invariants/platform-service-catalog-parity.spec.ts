@@ -206,4 +206,37 @@ describe('platform service catalog parity', () => {
       expect(declared.has(name)).toBe(true);
     }
   });
+
+  it('keeps production deploy workflow affected image selection catalog-driven', () => {
+    const workflow = readFileSync('.github/workflows/deploy-digitalocean.yml', 'utf8');
+
+    expect(workflow).toContain('service-catalog.deploy.vars');
+    expect(workflow).toContain('CATALOG_BACKEND_IMAGE_SERVICES');
+    expect(workflow).toContain('CATALOG_FRONTEND_IMAGE_SERVICES');
+    expect(workflow).toContain('CATALOG_INFRA_IMAGE_SERVICES');
+    expect(workflow).toContain('AFFECTED_BACKEND=("${ALL_BACKEND[@]}")');
+    expect(workflow).toContain('AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")');
+    expect(workflow).toContain('AFFECTED_INFRA_IMAGES=("${ALL_INFRA_IMAGES[@]}")');
+    expect(workflow).not.toContain('SERVICE_CATALOG_DEPLOY_ENV');
+    expect(workflow).not.toContain('service-catalog.deploy.env');
+  });
+
+  it('keeps droplet deploy script catalog-driven for image and DB-role surfaces', () => {
+    const script = readFileSync('scripts/deploy/droplet-up.sh', 'utf8');
+
+    expect(script).toContain('service-catalog.deploy.vars');
+    expect(script).toContain('CATALOG_APPLICATION_IMAGE_SERVICES');
+    expect(script).toContain('CATALOG_SERVICE_DB_ROLE_PREFIXES');
+    expect(script).not.toContain('SERVICE_DB_ROLES="AUTH TENANT FARM');
+    expect(script).not.toContain('service-catalog.deploy.env');
+  });
+
+  it('keeps production post-deploy readiness catalog-driven', () => {
+    const script = readFileSync('scripts/deploy/post-deploy-verify.sh', 'utf8');
+
+    expect(script).toContain('service-catalog.deploy.vars');
+    expect(script).toContain('CATALOG_READINESS_SERVICES');
+    expect(script).toContain('for spec in "${ready_services[@]}"');
+    expect(script).not.toContain('service-catalog.deploy.env');
+  });
 });

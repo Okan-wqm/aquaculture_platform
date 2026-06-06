@@ -1080,6 +1080,15 @@ jobs:
     with:
       services: 'auto'
 
+  production-post-deploy-verify:
+    needs:
+      - deploy
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success'
+    uses: ./.github/workflows/production-post-deploy-verify.yml
+    secrets: inherit
+    with:
+      target_sha: ${{ github.sha }}
+
   merge-gate:
     needs:
       - detect-changes

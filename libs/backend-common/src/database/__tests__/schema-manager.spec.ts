@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { BadRequestException } from '@nestjs/common';
-import { SchemaManagerService } from '../schema-manager.service';
+import {
+  SchemaManagerService,
+  createCleanupDropProof,
+  type CleanupDropProof,
+} from '../schema-manager.service';
 
 describe('SchemaManagerService', () => {
   let service: SchemaManagerService;
@@ -246,14 +250,16 @@ describe('SchemaManagerService', () => {
       expect(unlockCalls.length).toBeGreaterThan(0);
     });
 
-    it('should create schema with correct name', async () => {
-      await service.createTenantSchema(tenantId);
+    it('should not create schema directly from runtime services', async () => {
+      const result = await service.createTenantSchema(tenantId);
+
+      expect(result.success).toBe(false);
+      expect(result.errors.join(' ')).toContain('owned by aqua-db-migrate');
 
       const createCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('CREATE SCHEMA')
       );
-      expect(createCalls.length).toBe(1);
-      expect(createCalls[0][0]).toContain(schemaName);
+      expect(createCalls.length).toBe(0);
     });
 
     it('should skip creation if schema already exists', async () => {
@@ -263,6 +269,12 @@ describe('SchemaManagerService', () => {
         }
         if (sql.includes('information_schema.schemata')) {
           return Promise.resolve([{ '?column?': 1 }]); // Schema exists
+        }
+        if (sql.includes('information_schema.tables')) {
+          return Promise.resolve([{ '?column?': 1 }]);
+        }
+        if (sql.includes('COUNT(*)::text')) {
+          return Promise.resolve([{ count: '0' }]);
         }
         return Promise.resolve([]);
       });
@@ -278,12 +290,13 @@ describe('SchemaManagerService', () => {
       expect(createCalls.length).toBe(0);
     });
 
-    it('should return success with created tables list', async () => {
+    it('should reject new tenant schema provisioning with db-migrate authority error', async () => {
       const result = await service.createTenantSchema(tenantId, ['farm']);
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
       expect(result.schemaName).toBe(schemaName);
-      expect(result.tablesCreated.length).toBeGreaterThan(0);
+      expect(result.tablesCreated).toEqual([]);
+      expect(result.errors.join(' ')).toContain('runtime services must write a provisioning request ledger entry');
       expect(result.duration).toBeGreaterThanOrEqual(0);
     });
 
@@ -308,7 +321,7 @@ describe('SchemaManagerService', () => {
       );
     });
 
-    it('should drop schema on failure (rollback)', async () => {
+    it('should not attempt rollback drop when runtime DDL never starts', async () => {
       let schemaCreated = false;
 
       mockQuery.mockImplementation((sql: string) => {
@@ -342,7 +355,7 @@ describe('SchemaManagerService', () => {
       const dropCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('DROP SCHEMA')
       );
-      expect(dropCalls.length).toBeGreaterThan(0);
+      expect(dropCalls.length).toBe(0);
     });
 
     it('should release advisory lock even on failure', async () => {
@@ -375,31 +388,31 @@ describe('SchemaManagerService', () => {
       expect(unlockCalls.length).toBeGreaterThan(0);
     });
 
-    it('should grant usage on schema', async () => {
+    it('should not grant schema usage from runtime services', async () => {
       await service.createTenantSchema(tenantId);
 
       const grantUsageCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('GRANT USAGE ON SCHEMA')
       );
-      expect(grantUsageCalls.length).toBe(1);
+      expect(grantUsageCalls.length).toBe(0);
     });
 
-    it('should grant all privileges on tables', async () => {
+    it('should not grant table privileges from runtime services', async () => {
       await service.createTenantSchema(tenantId);
 
       const grantTablesCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('GRANT ALL PRIVILEGES ON ALL TABLES')
       );
-      expect(grantTablesCalls.length).toBe(1);
+      expect(grantTablesCalls.length).toBe(0);
     });
 
-    it('should grant all privileges on sequences', async () => {
+    it('should not grant sequence privileges from runtime services', async () => {
       await service.createTenantSchema(tenantId);
 
       const grantSeqCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('GRANT ALL PRIVILEGES ON ALL SEQUENCES')
       );
-      expect(grantSeqCalls.length).toBe(1);
+      expect(grantSeqCalls.length).toBe(0);
     });
   });
 
@@ -481,7 +494,7 @@ describe('SchemaManagerService', () => {
   describe('TimescaleDB hypertable creation', () => {
     const tenantId = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 
-    it('should create hypertable for sensor_readings when TimescaleDB is available', async () => {
+    it('should not create hypertables from runtime services when TimescaleDB is available', async () => {
       mockQuery.mockImplementation((sql: string) => {
         if (sql.includes('pg_advisory')) {
           return Promise.resolve([]);
@@ -515,10 +528,10 @@ describe('SchemaManagerService', () => {
       const hypertableCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('create_hypertable')
       );
-      expect(hypertableCalls.length).toBeGreaterThan(0);
+      expect(hypertableCalls.length).toBe(0);
     });
 
-    it('should add retention policy for hypertables', async () => {
+    it('should not add retention policy for hypertables from runtime services', async () => {
       mockQuery.mockImplementation((sql: string) => {
         if (sql.includes('pg_advisory')) {
           return Promise.resolve([]);
@@ -546,10 +559,10 @@ describe('SchemaManagerService', () => {
       const retentionCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('add_retention_policy')
       );
-      expect(retentionCalls.length).toBeGreaterThan(0);
+      expect(retentionCalls.length).toBe(0);
     });
 
-    it('should add compression policy for hypertables', async () => {
+    it('should not add compression policy for hypertables from runtime services', async () => {
       mockQuery.mockImplementation((sql: string) => {
         if (sql.includes('pg_advisory')) {
           return Promise.resolve([]);
@@ -577,7 +590,7 @@ describe('SchemaManagerService', () => {
       const compressionCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('timescaledb.compress')
       );
-      expect(compressionCalls.length).toBeGreaterThan(0);
+      expect(compressionCalls.length).toBe(0);
     });
 
     it('should skip hypertable creation when TimescaleDB not installed', async () => {
@@ -644,6 +657,23 @@ describe('SchemaManagerService', () => {
   describe('deleteTenantSchema', () => {
     const tenantId = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
     const schemaName = 'tenant_4b529829ea7948da';
+    const createProof = (): CleanupDropProof => createCleanupDropProof({
+      operationId: 'cleanup-run-id',
+      tenantId,
+      purpose: 'tenant_deprovision',
+      actorId: 'tenant-deprovision-workflow',
+      reason: 'unit test tenant cleanup',
+      legalHoldCheckedAt: new Date('2026-01-01T00:00:00.000Z'),
+      backup: {
+        id: 'backup-id',
+        checksum: 'a'.repeat(64),
+        sizeBytes: 1024,
+        isEncrypted: true,
+        uri: 's3://tenant-backups/backup-id',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        retentionDays: 365,
+      },
+    });
 
     beforeEach(() => {
       mockQuery.mockImplementation((sql: string) => {
@@ -651,20 +681,32 @@ describe('SchemaManagerService', () => {
       });
     });
 
-    it('should drop schema with CASCADE', async () => {
-      const result = await service.deleteTenantSchema(tenantId);
+    it('should reject deletion without cleanup proof', async () => {
+      await expect(
+        (service as unknown as { deleteTenantSchema: (tenantId: string) => Promise<unknown> })
+          .deleteTenantSchema(tenantId),
+      ).rejects.toThrow(BadRequestException);
 
-      expect(result.success).toBe(true);
+      const dropCalls = mockQuery.mock.calls.filter(
+        call => call[0].includes('DROP SCHEMA IF EXISTS')
+      );
+      expect(dropCalls.length).toBe(0);
+    });
+
+    it('should reject runtime DROP even with cleanup proof', async () => {
+      const result = await service.deleteTenantSchema(tenantId, createProof());
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('owned by aqua-db-migrate');
 
       const dropCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('DROP SCHEMA IF EXISTS') && call[0].includes('CASCADE')
       );
-      expect(dropCalls.length).toBe(1);
-      expect(dropCalls[0][0]).toContain(schemaName);
+      expect(dropCalls.length).toBe(0);
     });
 
     it('should acquire advisory lock before deletion', async () => {
-      await service.deleteTenantSchema(tenantId);
+      await service.deleteTenantSchema(tenantId, createProof());
 
       const lockCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('pg_advisory_lock') && !call[0].includes('unlock')
@@ -673,7 +715,7 @@ describe('SchemaManagerService', () => {
     });
 
     it('should release advisory lock after deletion', async () => {
-      await service.deleteTenantSchema(tenantId);
+      await service.deleteTenantSchema(tenantId, createProof());
 
       const unlockCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('pg_advisory_unlock')
@@ -692,10 +734,10 @@ describe('SchemaManagerService', () => {
         return Promise.resolve([]);
       });
 
-      const result = await service.deleteTenantSchema(tenantId);
+      const result = await service.deleteTenantSchema(tenantId, createProof());
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Drop failed');
+      expect(result.error).toContain('owned by aqua-db-migrate');
 
       const unlockCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('pg_advisory_unlock')
@@ -703,7 +745,7 @@ describe('SchemaManagerService', () => {
       expect(unlockCalls.length).toBe(1);
     });
 
-    it('should invalidate cache after deletion', async () => {
+    it('should not invalidate cache when runtime deletion is denied', async () => {
       // First, populate the cache
       mockQuery.mockResolvedValue([{ '?column?': 1 }]);
       await service.schemaExists(schemaName);
@@ -712,17 +754,16 @@ describe('SchemaManagerService', () => {
       mockQuery.mockReset();
       mockQuery.mockResolvedValue([]);
 
-      await service.deleteTenantSchema(tenantId);
+      await service.deleteTenantSchema(tenantId, createProof());
 
       // Now check exists again - should query database, not cache
       mockQuery.mockResolvedValue([]);
       await service.schemaExists(schemaName);
 
-      // Should have queried for existence after deletion
       const existsCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('information_schema.schemata')
       );
-      expect(existsCalls.length).toBe(1);
+      expect(existsCalls.length).toBe(0);
     });
   });
 

@@ -16,17 +16,18 @@
  * the pre-ADR-031 init-script flow for audit reference.
  *
  * Allowed in init-scripts/*.sql/*.sh after ADR-031:
- *   - CREATE EXTENSION (defensive — bootstrap atom also installs)
- *   - GRANT ALL PRIVILEGES ON DATABASE
  *   - RAISE NOTICE (logging)
  *   - Commentary / DO blocks that only log
  *
  * Forbidden (must move to apps/db-migrate/src/sql/platform-bootstrap/):
  *   - CREATE SCHEMA
+ *   - CREATE DATABASE
+ *   - CREATE EXTENSION
  *   - CREATE ROLE / ALTER ROLE
  *   - CREATE TABLE / DROP TABLE
  *   - CREATE FUNCTION / CREATE OR REPLACE FUNCTION
  *   - CREATE POLICY
+ *   - GRANT ALL PRIVILEGES
  *   - GRANT ... ON SCHEMA   (schema-level grants, not DB-level)
  *   - ALTER DEFAULT PRIVILEGES
  *   - ALTER SCHEMA
@@ -42,11 +43,14 @@ const INIT_SCRIPTS_DIR = resolve(REPO_ROOT, 'infrastructure', 'docker', 'init-sc
 // Each entry: [name, regex-source, severity-hint].
 const FORBIDDEN_PATTERNS: ReadonlyArray<{ readonly name: string; readonly re: RegExp }> = [
   { name: 'CREATE SCHEMA',                re: /\bCREATE\s+SCHEMA\b/i },
+  { name: 'CREATE DATABASE',              re: /\bCREATE\s+DATABASE\b/i },
+  { name: 'CREATE EXTENSION',             re: /\bCREATE\s+EXTENSION\b/i },
   { name: 'CREATE ROLE / ALTER ROLE',     re: /\b(?:CREATE|ALTER)\s+ROLE\b/i },
   { name: 'CREATE TABLE',                 re: /\bCREATE\s+TABLE\b/i },
   { name: 'DROP TABLE',                   re: /\bDROP\s+TABLE\b/i },
   { name: 'CREATE FUNCTION',              re: /\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\b/i },
   { name: 'CREATE POLICY',                re: /\bCREATE\s+POLICY\b/i },
+  { name: 'GRANT ALL PRIVILEGES',         re: /\bGRANT\s+ALL\s+PRIVILEGES\b/i },
   { name: 'GRANT ... ON SCHEMA',          re: /\bGRANT\s+[A-Z, ]+\s+ON\s+SCHEMA\b/i },
   { name: 'ALTER SCHEMA',                 re: /\bALTER\s+SCHEMA\b/i },
   { name: 'ALTER DEFAULT PRIVILEGES',     re: /\bALTER\s+DEFAULT\s+PRIVILEGES\b/i },

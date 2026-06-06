@@ -251,6 +251,21 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
     }
   }
 
+  async function queryAsRole<T>(
+    role: string,
+    query: string,
+    params: unknown[] = [],
+  ): Promise<T[]> {
+    const qr = ctx.dataSource.createQueryRunner();
+    try {
+      await qr.query(`SET ROLE "${role}"`);
+      return (await qr.query(query, params)) as T[];
+    } finally {
+      await qr.query('RESET ROLE');
+      await qr.release();
+    }
+  }
+
   it('applies cleanly against an empty database', async () => {
     const result = await runPlatformBootstrap({
       database: ctx.connectionOptions,
@@ -350,6 +365,42 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
         'idx_audit_logs_mfa_verified_created',
       ]),
     );
+  }, 30_000);
+
+  it('hardens runtime database privileges after bootstrap', async () => {
+    const qr = ctx.dataSource.createQueryRunner();
+    try {
+      const ownerRows: Array<{ owner_name: string; owner_can_login: boolean }> = await qr.query(
+        `SELECT n.nspowner::regrole::text AS owner_name, r.rolcanlogin AS owner_can_login
+           FROM pg_namespace n
+           JOIN pg_roles r ON r.oid = n.nspowner
+          WHERE n.nspname = 'farm'`,
+      );
+      expect(ownerRows[0]).toEqual({
+        owner_name: 'farm_schema_owner',
+        owner_can_login: false,
+      });
+
+      const dbCreateRows: Array<{ has_create: boolean }> = await qr.query(
+        `SELECT has_database_privilege('farm_service', current_database(), 'CREATE') AS has_create`,
+      );
+      expect(dbCreateRows[0]?.has_create).toBe(false);
+
+      await qr.query('DROP TABLE IF EXISTS farm.__runtime_privilege_probe');
+      await qr.query('CREATE TABLE farm.__runtime_privilege_probe (id integer PRIMARY KEY)');
+      await queryAsRole('farm_service', 'INSERT INTO farm.__runtime_privilege_probe (id) VALUES (1)');
+      await expect(
+        queryAsRole('farm_service', 'ALTER TABLE farm.__runtime_privilege_probe ADD COLUMN forbidden integer'),
+      ).rejects.toThrow(/permission denied|must be owner/i);
+      await expect(
+        queryAsRole('farm_service', 'CREATE TABLE farm.__runtime_ddl_probe (id integer)'),
+      ).rejects.toThrow(/permission denied/i);
+    } finally {
+      await qr.query('RESET ROLE');
+      await qr.query('DROP TABLE IF EXISTS farm.__runtime_privilege_probe');
+      await qr.query('DROP TABLE IF EXISTS farm.__runtime_ddl_probe');
+      await qr.release();
+    }
   }, 30_000);
 
   it('second invocation is idempotent — no error, same final counts', async () => {

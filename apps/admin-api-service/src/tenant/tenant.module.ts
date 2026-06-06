@@ -1,4 +1,7 @@
 import { Module } from '@nestjs/common';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
+import { ClientsModule, Transport } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuditLogModule } from '../audit/audit.module';
@@ -16,13 +19,13 @@ import {
   TenantBillingInfo,
 } from './entities/tenant-activity.entity';
 import { Tenant, TenantInvitation } from './entities/tenant.entity';
-import { CreateTenantHandler } from './handlers/create-tenant.handler';
 import {
   SuspendTenantHandler,
   ActivateTenantHandler,
   DeactivateTenantHandler,
   ArchiveTenantHandler,
 } from './handlers/suspend-tenant.handler';
+import { TenantOnboardingAckHandler } from './handlers/tenant-onboarding-ack.handler';
 import { UpdateTenantHandler } from './handlers/update-tenant.handler';
 import {
   GetTenantByIdHandler,
@@ -35,13 +38,13 @@ import {
   SearchTenantsHandler,
 } from './query-handlers/tenant-query.handlers';
 import { TenantActivityService } from './services/tenant-activity.service';
+import { AuthTenantProvisioningClientService } from './services/auth-tenant-provisioning-client.service';
 import { TenantDetailService } from './services/tenant-detail.service';
 import { TenantProvisioningWorkflowService } from './services/tenant-provisioning-workflow.service';
 import { TenantProvisioningService } from './services/tenant-provisioning.service';
-import { TenantController } from './tenant.controller';
+import { TenantAdminController, TenantPublicController } from './tenant.controller';
 
 const CommandHandlers = [
-  CreateTenantHandler,
   UpdateTenantHandler,
   SuspendTenantHandler,
   ActivateTenantHandler,
@@ -62,6 +65,13 @@ const QueryHandlers = [
 
 @Module({
   imports: [
+    ClientsModule.register([
+      {
+        name: 'AUTH_NATS_CLIENT',
+        transport: Transport.NATS,
+        options: buildNatsTransportOptions('admin-api-service'),
+      },
+    ]),
     TypeOrmModule.forFeature([
       Tenant,
       TenantInvitation,
@@ -76,17 +86,24 @@ const QueryHandlers = [
     BillingModule,
     UsersModule,
     AdminOutboxModule,
+    LegalHoldModule.forRoot(),
   ],
-  controllers: [TenantController],
+  controllers: [TenantPublicController, TenantAdminController, TenantOnboardingAckHandler],
   providers: [
     ...CommandHandlers,
     ...QueryHandlers,
     TenantProvisioningService,
     TenantProvisioningWorkflowService,
+    AuthTenantProvisioningClientService,
     TenantActivityService,
     TenantDetailService,
     ModuleAssignmentService,
   ],
-  exports: [TenantProvisioningService, TenantProvisioningWorkflowService, TenantActivityService],
+  exports: [
+    TenantProvisioningService,
+    TenantProvisioningWorkflowService,
+    TenantActivityService,
+    AuthTenantProvisioningClientService,
+  ],
 })
 export class TenantManagementModule {}

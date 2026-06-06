@@ -240,7 +240,6 @@ export function createSchemaVersionGate(
         'DB_MIGRATE_AUTHORITATIVE',
       );
       if (explicit === 'true') return 'gate';
-      if (explicit === 'false') return 'runner';
 
       const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
       const aquaEnv = this.configService.get<string>('AQUA_ENV', nodeEnv);
@@ -248,6 +247,16 @@ export function createSchemaVersionGate(
         nodeEnv === 'production' ||
         aquaEnv === 'production' ||
         aquaEnv === 'staging';
+      if (explicit === 'false') {
+        if (isProductionLike) {
+          throw new Error(
+            `DB_MIGRATE_AUTHORITATIVE=false is forbidden for schema "${sourceSchema}" ` +
+              `when NODE_ENV=${nodeEnv} AQUA_ENV=${aquaEnv}. ` +
+              'Production/staging services must run in read-only schema gate mode.',
+          );
+        }
+        return 'runner';
+      }
       return isProductionLike ? 'gate' : 'runner';
     }
 

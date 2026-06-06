@@ -212,7 +212,7 @@ function createMigrationDataSource(opts: RunSchemaOptions): DataSource {
   });
 }
 
-async function readLedgerHead(
+export async function readLedgerHead(
   queryRunner: QueryRunner,
   schema: string,
   migrationsTableName: string,

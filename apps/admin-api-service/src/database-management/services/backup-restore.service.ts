@@ -18,6 +18,8 @@ import { Repository, DataSource, LessThan } from 'typeorm';
 import { isValidSchemaName } from '@aquaculture/backend-common/database';
 
 const execFileAsync = promisify(execFile);
+const ENCRYPTED_BACKUP_MAGIC = Buffer.from('AQBKP1');
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 
 import {
   TenantSchema,
@@ -185,11 +187,15 @@ export class BackupRestoreService {
         timeout: 300_000, // 5 min timeout
       });
 
-      // Read file stats for size + checksum
-      const stats = await fs.promises.stat(filePath);
+      const finalFilePath = backup.isEncrypted
+        ? await this.encryptBackupFile(filePath)
+        : filePath;
 
-      // Generate checksum from actual dump file
-      const fileBuffer = await fs.promises.readFile(filePath);
+      // Read file stats for size + checksum
+      const stats = await fs.promises.stat(finalFilePath);
+
+      // Generate checksum from actual persisted backup file
+      const fileBuffer = await fs.promises.readFile(finalFilePath);
       const checksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
       // Gather table count for metadata
@@ -214,7 +220,8 @@ export class BackupRestoreService {
       }
 
       // Update backup record
-      backup.filePath = filePath;
+      backup.filePath = finalFilePath;
+      backup.fileName = path.basename(finalFilePath);
       backup.status = 'completed' as BackupStatus;
       backup.completedAt = new Date();
       backup.sizeBytes = stats.size;
@@ -224,6 +231,12 @@ export class BackupRestoreService {
         rowCount: totalRows,
         version: '1.0',
         compressionRatio: backup.isCompressed ? 0.3 : 1,
+        ...(backup.isEncrypted
+          ? {
+              encryptionAlgorithm: ENCRYPTION_ALGORITHM,
+              encryptionKeyId: this.getBackupEncryptionKeyId(),
+            }
+          : {}),
       };
 
       await this.backupRepository.save(backup);
@@ -236,7 +249,7 @@ export class BackupRestoreService {
         );
       }
 
-      this.logger.log(`Backup completed: ${backup.id} (${backup.sizeBytes} bytes) -> ${filePath}`);
+      this.logger.log(`Backup completed: ${backup.id} (${backup.sizeBytes} bytes) -> ${finalFilePath}`);
       return backup;
     } catch (err) {
       const error = err as Error;
@@ -333,7 +346,7 @@ export class BackupRestoreService {
    * Restore from backup
    */
   async restoreFromBackup(options: RestoreOptions): Promise<SchemaRestore> {
-    const { backupId, targetSchemaName, pointInTime, tablesToRestore, skipValidation = false } = options;
+    const { backupId, targetSchemaName, pointInTime, tablesToRestore } = options;
 
     this.logger.log(`Restoring from backup: ${backupId}`);
 
@@ -343,10 +356,7 @@ export class BackupRestoreService {
       throw new BadRequestException('Cannot restore from incomplete backup');
     }
 
-    // Validate checksum if not skipped
-    if (!skipValidation) {
-      await this.validateBackupIntegrity(backup);
-    }
+    await this.validateBackupIntegrity(backup);
 
     const finalSchemaName = targetSchemaName || backup.schemaName;
 
@@ -400,6 +410,12 @@ export class BackupRestoreService {
       }
 
       const pg = this.getPgConnectionArgs();
+      let restoreFilePath = filePath;
+      let decryptedTempPath: string | undefined;
+      if (backup.isEncrypted) {
+        decryptedTempPath = await this.decryptBackupFile(filePath);
+        restoreFilePath = decryptedTempPath;
+      }
 
       // Build pg_restore arguments
       const args: string[] = [
@@ -423,12 +439,18 @@ export class BackupRestoreService {
         }
       }
 
-      args.push(filePath);
+      args.push(restoreFilePath);
 
-      await execFileAsync('pg_restore', args, {
-        env: this.getPgEnv(pg.password),
-        timeout: 600_000, // 10 min timeout for restores
-      });
+      try {
+        await execFileAsync('pg_restore', args, {
+          env: this.getPgEnv(pg.password),
+          timeout: 600_000, // 10 min timeout for restores
+        });
+      } finally {
+        if (decryptedTempPath) {
+          await fs.promises.unlink(decryptedTempPath).catch(() => {});
+        }
+      }
 
       // Get list of restored tables for metadata
       const queryRunner = this.dataSource.createQueryRunner();
@@ -524,6 +546,80 @@ export class BackupRestoreService {
       if (err instanceof BadRequestException) throw err;
       throw new NotFoundException(`Backup file not found or unreadable: ${filePath}`);
     }
+  }
+
+  private async encryptBackupFile(filePath: string): Promise<string> {
+    const key = this.getBackupEncryptionKey();
+    const iv = crypto.randomBytes(12);
+    const plaintext = await fs.promises.readFile(filePath);
+    const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    const encryptedPath = `${filePath}.enc`;
+
+    await fs.promises.writeFile(
+      encryptedPath,
+      Buffer.concat([ENCRYPTED_BACKUP_MAGIC, iv, authTag, ciphertext]),
+      { mode: 0o600 },
+    );
+    await fs.promises.unlink(filePath).catch(() => {});
+    return encryptedPath;
+  }
+
+  private async decryptBackupFile(filePath: string): Promise<string> {
+    const key = this.getBackupEncryptionKey();
+    const payload = await fs.promises.readFile(filePath);
+    const header = payload.subarray(0, ENCRYPTED_BACKUP_MAGIC.length);
+    if (!header.equals(ENCRYPTED_BACKUP_MAGIC)) {
+      throw new BadRequestException('Encrypted backup has an invalid header');
+    }
+
+    const ivStart = ENCRYPTED_BACKUP_MAGIC.length;
+    const tagStart = ivStart + 12;
+    const ciphertextStart = tagStart + 16;
+    const iv = payload.subarray(ivStart, tagStart);
+    const authTag = payload.subarray(tagStart, ciphertextStart);
+    const ciphertext = payload.subarray(ciphertextStart);
+    const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+
+    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const tempPath = path.join(
+      path.dirname(filePath),
+      `.restore-${path.basename(filePath).replace(/\.enc$/, '')}-${crypto.randomUUID()}.dump`,
+    );
+    await fs.promises.writeFile(tempPath, plaintext, { mode: 0o600 });
+    return tempPath;
+  }
+
+  private getBackupEncryptionKey(): Buffer {
+    const configured = this.configService.get<string>('BACKUP_ENCRYPTION_KEY', '').trim();
+    if (!configured) {
+      throw new BadRequestException('BACKUP_ENCRYPTION_KEY is required for encrypted backups');
+    }
+
+    const decoded = this.decodeBackupEncryptionKey(configured);
+    if (decoded.length !== 32) {
+      throw new BadRequestException('BACKUP_ENCRYPTION_KEY must decode to 32 bytes');
+    }
+    return decoded;
+  }
+
+  private decodeBackupEncryptionKey(value: string): Buffer {
+    if (/^[a-f0-9]{64}$/i.test(value)) {
+      return Buffer.from(value, 'hex');
+    }
+
+    const decoded = Buffer.from(value, 'base64');
+    if (decoded.length === 32) {
+      return decoded;
+    }
+    return Buffer.from(value, 'utf8');
+  }
+
+  private getBackupEncryptionKeyId(): string {
+    const key = this.getBackupEncryptionKey();
+    return crypto.createHash('sha256').update(key).digest('hex').slice(0, 16);
   }
 
   /**

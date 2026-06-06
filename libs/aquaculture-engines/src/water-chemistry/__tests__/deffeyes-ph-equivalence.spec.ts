@@ -2,9 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   alkMgToMeq,
   calcAlkOfDicPh,
+  calcCo2OfDic,
   calcForwardDosing,
   calcH2S,
+  calcPhForCritCO2,
+  calcPhForAlkDic,
   calcTotalSulfide,
+  DEFFEYES_CHART_MAX_DIC,
+  DEFFEYES_CHART_PH_DOMAIN,
+  DEFFEYES_LEGACY_PH_DOMAIN,
+  DEFFEYES_SOLVER_PH_DOMAIN,
   criticalPHforH2S,
   criticalPHforH2SInPHRange,
   criticalPHforH2SPHChartDomain,
@@ -168,8 +175,21 @@ describe('DIC/pH Deffeyes projection', () => {
   it('keeps pH 12.5 as an explicit reference line', () => {
     const { ph } = generatePair();
 
-    expect(ph.domain.maxPH).toBe(12.5);
+    expect(ph.domain.maxDIC).toBe(DEFFEYES_CHART_MAX_DIC);
+    expect(ph.domain.minPH).toBe(DEFFEYES_CHART_PH_DOMAIN.minPH);
+    expect(ph.domain.maxPH).toBe(DEFFEYES_CHART_PH_DOMAIN.maxPH);
     expect(ph.pHReferences.some(line => line.value === 12.5 && line.points.length === 2)).toBe(true);
+    expect(ph.pHReferences.some(line => line.value === DEFFEYES_CHART_PH_DOMAIN.minPH)).toBe(true);
+    expect(ph.pHReferences.every(line =>
+      (line.value ?? NaN) >= DEFFEYES_CHART_PH_DOMAIN.minPH &&
+      (line.value ?? NaN) <= DEFFEYES_CHART_PH_DOMAIN.maxPH
+    )).toBe(true);
+  });
+
+  it('exports the chart, legacy, and solver pH domains as SSOT constants', () => {
+    expect(DEFFEYES_CHART_PH_DOMAIN).toEqual({ minPH: 4, maxPH: 12.5 });
+    expect(DEFFEYES_LEGACY_PH_DOMAIN).toEqual({ minPH: 4, maxPH: 12 });
+    expect(DEFFEYES_SOLVER_PH_DOMAIN).toEqual({ minPH: 0, maxPH: 14 });
   });
 
   it('supports toxic pH boundaries above 12.0 up to the displayed 12.5 range', () => {
@@ -201,6 +221,10 @@ describe('DIC/pH Deffeyes projection', () => {
 
     expect(criticalPHforNH3PHChartDomain(1, nh3Limit, fixture.tempC, fixture.salinity, 4, 12.5))
       .toBeCloseTo(targetCriticalPH, 2);
+    expect(criticalPHforNH3PHChartDomain(1, nh3Limit, fixture.tempC, fixture.salinity))
+      .toBeCloseTo(targetCriticalPH, 2);
+    expect(criticalPHforNH3InPHRange(1, nh3Limit, fixture.tempC, fixture.salinity))
+      .toBeGreaterThan(DEFFEYES_LEGACY_PH_DOMAIN.maxPH);
     expect(criticalPHforNH3InPHRange(1, nh3Limit, fixture.tempC, fixture.salinity, 4, 12))
       .toBeGreaterThan(12);
 
@@ -222,6 +246,49 @@ describe('DIC/pH Deffeyes projection', () => {
       3,
       12.5
     )).toBeCloseTo(3.5, 2);
+  });
+
+  it('does not flow CO2 sentinel pH values into legacy alkalinity boundaries', () => {
+    const legacy = generateDeffeyesChartData(
+      { tempC: fixture.tempC, pH: fixture.pH, salinity: fixture.salinity, alkalinity: fixture.alkalinity },
+      null,
+      {
+        tan: fixture.tan,
+        unIonizedNH3: fixture.unIonizedNH3,
+        co2Toxic: 0.0001,
+        h2s: 0,
+      },
+      fixture.alkMin,
+      fixture.alkMax,
+      fixture.caMgL
+    );
+
+    expect(legacy.co2ToxicZone?.points.length).toBeGreaterThan(2);
+    for (const point of legacy.co2ToxicZone?.points.slice(0, 5) ?? []) {
+      const boundaryPH = calcPhForAlkDic(point.AT, point.CT, fixture.tempC, fixture.salinity);
+      expect(boundaryPH).toBeGreaterThanOrEqual(DEFFEYES_LEGACY_PH_DOMAIN.minPH);
+      expect(boundaryPH).toBeLessThanOrEqual(DEFFEYES_LEGACY_PH_DOMAIN.maxPH);
+      expect(point.AT).not.toBeCloseTo(
+        calcAlkOfDicPh(point.CT, DEFFEYES_LEGACY_PH_DOMAIN.maxPH + 1, fixture.tempC, fixture.salinity),
+        3
+      );
+    }
+  });
+
+  it('round-trips public alkalinity/DIC pH solving and dosing output above pH 12.0', () => {
+    const dic = 1.1;
+    const targetPH = 12.25;
+    const alk = calcAlkOfDicPh(dic, targetPH, fixture.tempC, fixture.salinity);
+
+    expect(calcPhForAlkDic(alk, dic, fixture.tempC, fixture.salinity)).toBeCloseTo(targetPH, 3);
+    expect(calcForwardDosing(
+      { dic, alk, tempC: fixture.tempC, salinity: fixture.salinity },
+      1,
+      []
+    )[0]?.ph).toBeCloseTo(targetPH, 3);
+
+    const co2CritMg = calcCo2OfDic(dic, targetPH, fixture.tempC, fixture.salinity) * 44.010;
+    expect(calcPhForCritCO2(dic, co2CritMg, fixture.tempC, fixture.salinity)).toBeCloseTo(targetPH, 3);
   });
 
   it('builds NH3, CO2, and H2S toxic coloring in the correct pH directions', () => {
@@ -336,6 +403,117 @@ describe('DIC/pH Deffeyes projection', () => {
     ), 3);
     expect(calcH2S(totalSulfide, criticalPH, fixture.tempC, fixture.salinity))
       .toBeCloseTo(fixture.h2sLimitUgL, 3);
+  });
+
+  it('supports h2sMeasuredAtPH and keeps currentPH as a deprecated alias', () => {
+    const measuredAtPH = 7.4;
+    const targetCriticalPH = 6.4;
+    const h2sMeasuredUgL = fixture.h2sLimitUgL
+      * fractionH2S(measuredAtPH, fixture.tempC, fixture.salinity)
+      / fractionH2S(targetCriticalPH, fixture.tempC, fixture.salinity);
+    const alias = generateDeffeyesPHChartData(
+      { tempC: fixture.tempC, pH: fixture.pH, salinity: fixture.salinity, alkalinity: fixture.alkalinity },
+      null,
+      {
+        tanMgL: fixture.tan,
+        unIonizedNH3MgL: fixture.unIonizedNH3,
+        co2ToxicMgL: fixture.co2Toxic,
+        h2sMeasuredUgL,
+        h2sLimitUgL: fixture.h2sLimitUgL,
+        currentPH: measuredAtPH,
+      },
+      fixture.alkMin,
+      fixture.alkMax,
+      fixture.caMgL
+    );
+    const preferred = generateDeffeyesPHChartData(
+      { tempC: fixture.tempC, pH: fixture.pH, salinity: fixture.salinity, alkalinity: fixture.alkalinity },
+      null,
+      {
+        tanMgL: fixture.tan,
+        unIonizedNH3MgL: fixture.unIonizedNH3,
+        co2ToxicMgL: fixture.co2Toxic,
+        h2sMeasuredUgL,
+        h2sLimitUgL: fixture.h2sLimitUgL,
+        h2sMeasuredAtPH: measuredAtPH,
+        currentPH: 8.2,
+      },
+      fixture.alkMin,
+      fixture.alkMax,
+      fixture.caMgL
+    );
+    const fallbackToParamsPH = generateDeffeyesPHChartData(
+      { tempC: fixture.tempC, pH: measuredAtPH, salinity: fixture.salinity, alkalinity: fixture.alkalinity },
+      null,
+      {
+        tanMgL: fixture.tan,
+        unIonizedNH3MgL: fixture.unIonizedNH3,
+        co2ToxicMgL: fixture.co2Toxic,
+        h2sMeasuredUgL,
+        h2sLimitUgL: fixture.h2sLimitUgL,
+      },
+      fixture.alkMin,
+      fixture.alkMax,
+      fixture.caMgL
+    );
+
+    const expectedCriticalPH = criticalPHforH2SPHChartDomain(
+      h2sMeasuredUgL,
+      measuredAtPH,
+      fixture.h2sLimitUgL,
+      fixture.tempC,
+      fixture.salinity,
+      DEFFEYES_CHART_PH_DOMAIN.minPH,
+      DEFFEYES_CHART_PH_DOMAIN.maxPH
+    );
+
+    expect(alias.h2sToxicZone?.criticalPH).toBeCloseTo(expectedCriticalPH, 3);
+    expect(preferred.h2sToxicZone?.criticalPH).toBeCloseTo(expectedCriticalPH, 3);
+    expect(fallbackToParamsPH.h2sToxicZone?.criticalPH).toBeCloseTo(expectedCriticalPH, 3);
+    expect(expectedCriticalPH).toBeCloseTo(targetCriticalPH, 2);
+  });
+
+  it('ignores invalid h2sMeasuredAtPH values before using the deprecated currentPH alias', () => {
+    const measuredAtPH = 7.6;
+    const targetCriticalPH = 6.6;
+    const h2sMeasuredUgL = fixture.h2sLimitUgL
+      * fractionH2S(measuredAtPH, fixture.tempC, fixture.salinity)
+      / fractionH2S(targetCriticalPH, fixture.tempC, fixture.salinity);
+
+    const data = generateDeffeyesPHChartData(
+      { tempC: fixture.tempC, pH: 7.1, salinity: fixture.salinity, alkalinity: fixture.alkalinity },
+      null,
+      {
+        tanMgL: fixture.tan,
+        unIonizedNH3MgL: fixture.unIonizedNH3,
+        co2ToxicMgL: fixture.co2Toxic,
+        h2sMeasuredUgL,
+        h2sLimitUgL: fixture.h2sLimitUgL,
+        h2sMeasuredAtPH: 0,
+        currentPH: measuredAtPH,
+      },
+      fixture.alkMin,
+      fixture.alkMax,
+      fixture.caMgL
+    );
+
+    expect(data.h2sToxicZone?.criticalPH).toBeCloseTo(targetCriticalPH, 2);
+    expect(data.h2sToxicZone?.label).toContain(targetCriticalPH.toFixed(2));
+  });
+
+  it('keeps exposed toxic-zone pH values inside the chart domain', () => {
+    const fullNH3 = generatePHData({
+      tan: 1,
+      unIonizedNH3: fractionNH3(3.5, fixture.tempC, fixture.salinity),
+    });
+    const fullH2S = generatePHData({
+      h2sMeasuredUgL: h2sMeasuredForCritical(12.8),
+    });
+
+    expect(fullNH3.nh3ToxicZone?.criticalPH).toBe(DEFFEYES_CHART_PH_DOMAIN.minPH);
+    expect(fullNH3.nh3ToxicZone?.label).toContain(DEFFEYES_CHART_PH_DOMAIN.minPH.toFixed(2));
+    expect(fullH2S.h2sToxicZone?.criticalPH).toBe(DEFFEYES_CHART_PH_DOMAIN.maxPH);
+    expect(fullH2S.h2sToxicZone?.label).toContain(DEFFEYES_CHART_PH_DOMAIN.maxPH.toFixed(2));
   });
 
   it('clips H2S toxic fills for no-risk, below-domain, and full-domain cases', () => {

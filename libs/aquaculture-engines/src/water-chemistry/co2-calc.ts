@@ -16,6 +16,7 @@ import {
   calcKspCalcite,
   calcKspAragonite,
 } from './water-quality.js';
+import { DEFFEYES_LEGACY_PH_DOMAIN } from './domains.js';
 
 /**
  * Calculate CO2 level (mg/L) from alkalinity and pH
@@ -49,7 +50,8 @@ export function criticalPHforCO2(
 ): number {
   // At constant alkalinity, as pH decreases, CO2 increases
   // Find pH where CO2(alk, pH) = co2CritMg
-  let lo = 4.0, hi = 12.0;
+  let lo = DEFFEYES_LEGACY_PH_DOMAIN.minPH;
+  let hi = DEFFEYES_LEGACY_PH_DOMAIN.maxPH;
   for (let i = 0; i < 100; i++) {
     const mid = (lo + hi) / 2;
     const co2 = co2Level(alkMeq, mid, tempC, S);

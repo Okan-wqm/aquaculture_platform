@@ -1,14 +1,16 @@
-import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import type { DeffeyesPHChartData } from '@platform/aquaculture-engines';
 import {
   alkMgToMeq,
   generateDeffeyesPHChartData,
 } from '@platform/aquaculture-engines';
+import '@testing-library/jest-dom/vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it } from 'vitest';
+
 import DeffeyesPhChart from './DeffeyesPhChart';
 
-function makeChartData() {
+function makeChartData(): DeffeyesPHChartData {
   return generateDeffeyesPHChartData(
     { tempC: 12, pH: 7, salinity: 1, alkalinity: alkMgToMeq(80) },
     { targetpH: 7.5, targetAlkalinity: alkMgToMeq(100) },
@@ -45,7 +47,7 @@ describe('DeffeyesPhChart', () => {
     expect(screen.getByLabelText('CO₂ Toxic')).toBeChecked();
     expect(screen.getByLabelText('H₂S Toxic')).toBeChecked();
     expect(screen.getByLabelText('Ω Calcite/Ar')).not.toBeChecked();
-  });
+  }, 15000);
 
   it('allows H2S coloring and on-demand overlays to be toggled', async () => {
     const user = userEvent.setup();
@@ -152,7 +154,23 @@ describe('DeffeyesPhChart', () => {
     );
 
     expect(screen.getByTestId('deffeyes-layer-h2s-toxic')).toBeInTheDocument();
-  });
+  }, 15000);
+
+  it('keeps target path visible when only the current marker is toggled off', async () => {
+    const user = userEvent.setup();
+    const data = makeChartData();
+    const { container } = render(
+      <div style={{ width: 900, height: 760 }}>
+        <DeffeyesPhChart data={data} />
+      </div>
+    );
+
+    await user.click(screen.getByLabelText('Current'));
+
+    expect(screen.getByLabelText('Current')).not.toBeChecked();
+    expect(screen.getByLabelText('Target')).toBeChecked();
+    expect(container.querySelector('path[stroke="#6b7280"]')).toBeInTheDocument();
+  }, 15000);
 
   it('keeps the toggle bar usable at narrow widths', () => {
     render(

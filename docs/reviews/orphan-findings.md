@@ -3734,3 +3734,13 @@ Root cause: the train had runtime and schema changes without one cross-boundary 
 Fix: add tenant permission metadata to all edge I/O mutation surfaces, make Agent I/O v2 serialization fail closed for orphaned or ambiguous tags, bind pending pings to both device UUID and device code, add focused sensor-service permission/config/PLC tests, and teach the Rust gateway `update_io_config` parser to accept flat v2 `tags[]` while preserving legacy grouped payload support.
 
 Status: RESOLVED on `feat/sensor-train-ddl-rbac-trust-20260606`.
+
+## ORPHAN-HIGH-085 — Water chemistry leaf train lacked one end-to-end pH-domain and report proof
+
+Severity: HIGH. The Deffeyes DIC/pH engine, farm UI, MCP/AI tool surfaces, report export, and Playwright smoke were split across layers without one leaf-train proof that the visible chart domain, H₂S measurement pH semantics, report export overlays, and MCP schema stayed aligned.
+
+Root cause: chart and solver pH domains were duplicated, `currentPH` and H₂S measured-at-pH semantics were not stabilized as an explicit compatibility boundary, farm-module tests depended on a prebuilt shared-ui package, and the standalone farm module could not run the water smoke because its entrypoint lacked the React Query provider supplied by the shell.
+
+Fix: add shared Deffeyes pH-domain constants, introduce `h2sMeasuredAtPH` while preserving `currentPH` as a deprecated alias, extend engine/UI/report/MCP coverage, add a test-only shared-ui source alias, wrap farm-module standalone startup in a `QueryClientProvider`, and add the Playwright water chemistry release smoke for chart mode, report print, and CSP safety.
+
+Status: RESOLVED on `feat/water-chemistry-leaf-train-20260606`.

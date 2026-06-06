@@ -4,6 +4,7 @@
  * This renderer consumes pH-projected data and leaves the legacy ALK/DIC
  * Deffeyes renderer intact for rollback.
  */
+import type { DeffeyesPHChartData, DicPhPoint, DicPhSegment } from '@platform/aquaculture-engines';
 import React, { useMemo, useState } from 'react';
 import {
   CartesianGrid,
@@ -17,7 +18,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { DeffeyesPHChartData, DicPhPoint, DicPhSegment } from '@platform/aquaculture-engines';
 
 interface DeffeyesPhChartProps {
   data: DeffeyesPHChartData;
@@ -26,8 +26,24 @@ interface DeffeyesPhChartProps {
   forceSafetyOverlays?: boolean;
 }
 
-const StarShape: React.FC<any> = (props) => {
-  const { cx, cy } = props;
+interface ScatterShapeProps {
+  cx?: number;
+  cy?: number;
+  payload?: {
+    angle?: number;
+  };
+}
+
+interface AxisScale {
+  scale?: (value: number) => number;
+}
+
+interface CustomizedLayerProps {
+  xAxisMap?: Record<string, AxisScale>;
+  yAxisMap?: Record<string, AxisScale>;
+}
+
+const StarShape: React.FC<ScatterShapeProps> = ({ cx, cy }) => {
   if (cx == null || cy == null) return null;
   const r = 8;
   const points: string[] = [];
@@ -40,8 +56,7 @@ const StarShape: React.FC<any> = (props) => {
   return <polygon points={points.join(' ')} fill="#2563eb" stroke="#1d4ed8" strokeWidth={1} />;
 };
 
-const CrossShape: React.FC<any> = (props) => {
-  const { cx, cy } = props;
+const CrossShape: React.FC<ScatterShapeProps> = ({ cx, cy }) => {
   if (cx == null || cy == null) return null;
   const s = 7;
   return (
@@ -52,8 +67,7 @@ const CrossShape: React.FC<any> = (props) => {
   );
 };
 
-const DiamondShape: React.FC<any> = (props) => {
-  const { cx, cy } = props;
+const DiamondShape: React.FC<ScatterShapeProps> = ({ cx, cy }) => {
   if (cx == null || cy == null) return null;
   const s = 7;
   return (
@@ -66,8 +80,7 @@ const DiamondShape: React.FC<any> = (props) => {
   );
 };
 
-const ArrowShape: React.FC<any> = (props) => {
-  const { cx, cy, payload } = props;
+const ArrowShape: React.FC<ScatterShapeProps> = ({ cx, cy, payload }) => {
   if (cx == null || cy == null) return null;
   const angle = payload?.angle ?? 0;
   const size = 12;
@@ -110,20 +123,22 @@ function polygonLayer(
   strokeDasharray?: string,
   layerId?: string
 ) {
-  return (props: any) => {
+  return function PolygonLayer(props: CustomizedLayerProps) {
     const { xAxisMap, yAxisMap } = props;
     if (!xAxisMap || !yAxisMap) return null;
-    const xAxis = Object.values(xAxisMap)[0] as any;
-    const yAxis = Object.values(yAxisMap)[0] as any;
+    const xAxis = Object.values(xAxisMap)[0];
+    const yAxis = Object.values(yAxisMap)[0];
     if (!xAxis?.scale || !yAxis?.scale) return null;
+    const xScale = xAxis.scale;
+    const yScale = yAxis.scale;
 
     return (
       <g data-testid={layerId} data-layer-id={layerId}>
         {polygons.map((polygon, idx) => {
           const points = polygon
             .map((point) => {
-              const x = xAxis.scale(point.CT);
-              const y = yAxis.scale(point.pH);
+              const x = xScale(point.CT);
+              const y = yScale(point.pH);
               return isFinite(x) && isFinite(y) ? `${x},${y}` : null;
             })
             .filter((point): point is string => point != null);
@@ -162,6 +177,19 @@ const DeffeyesPhChart: React.FC<DeffeyesPhChartProps> = ({ data, onDemandPath, o
   const visibleNH3Zone = showNH3Zone || forceSafetyOverlays;
   const visibleCO2Zone = showCO2Zone || forceSafetyOverlays;
   const visibleH2SZone = showH2SZone || forceSafetyOverlays;
+  const co2ToxicZone = data.co2ToxicZone;
+  const h2sToxicZone = data.h2sToxicZone;
+  const nh3ToxicZone = data.nh3ToxicZone;
+  const dosingVisualization = data.dosingVisualization;
+  const co2ToxicBoundarySegments = co2ToxicZone
+    ? co2ToxicZone.boundarySegments?.length ? co2ToxicZone.boundarySegments : [co2ToxicZone.boundary]
+    : [];
+  const h2sToxicBoundarySegments = h2sToxicZone
+    ? h2sToxicZone.boundarySegments?.length ? h2sToxicZone.boundarySegments : [h2sToxicZone.boundary]
+    : [];
+  const nh3ToxicBoundarySegments = nh3ToxicZone
+    ? nh3ToxicZone.boundarySegments?.length ? nh3ToxicZone.boundarySegments : [nh3ToxicZone.boundary]
+    : [];
   const targetPathSegments = data.targetPathSegments?.length
     ? data.targetPathSegments
     : data.targetPath && data.targetPath.length > 1
@@ -267,14 +295,14 @@ const DeffeyesPhChart: React.FC<DeffeyesPhChartProps> = ({ data, onDemandPath, o
               />
             ))}
 
-            {visibleCO2Zone && data.co2ToxicZone && (
-              <Customized component={polygonLayer(data.co2ToxicZone.polygons, data.co2ToxicZone.fillColor, data.co2ToxicZone.color, 1, undefined, 'deffeyes-layer-co2-toxic')} />
+            {visibleCO2Zone && co2ToxicZone && (
+              <Customized component={polygonLayer(co2ToxicZone.polygons, co2ToxicZone.fillColor, co2ToxicZone.color, 1, undefined, 'deffeyes-layer-co2-toxic')} />
             )}
-            {visibleH2SZone && data.h2sToxicZone && (
-              <Customized component={polygonLayer(data.h2sToxicZone.polygons, data.h2sToxicZone.fillColor, data.h2sToxicZone.color, 1, undefined, 'deffeyes-layer-h2s-toxic')} />
+            {visibleH2SZone && h2sToxicZone && (
+              <Customized component={polygonLayer(h2sToxicZone.polygons, h2sToxicZone.fillColor, h2sToxicZone.color, 1, undefined, 'deffeyes-layer-h2s-toxic')} />
             )}
-            {visibleNH3Zone && data.nh3ToxicZone && (
-              <Customized component={polygonLayer(data.nh3ToxicZone.polygons, data.nh3ToxicZone.fillColor, data.nh3ToxicZone.color, 1, undefined, 'deffeyes-layer-nh3-toxic')} />
+            {visibleNH3Zone && nh3ToxicZone && (
+              <Customized component={polygonLayer(nh3ToxicZone.polygons, nh3ToxicZone.fillColor, nh3ToxicZone.color, 1, undefined, 'deffeyes-layer-nh3-toxic')} />
             )}
 
             {data.pHReferences.map((line) => (
@@ -310,14 +338,14 @@ const DeffeyesPhChart: React.FC<DeffeyesPhChartProps> = ({ data, onDemandPath, o
               />
             ))}
 
-            {visibleCO2Zone && data.co2ToxicZone && (data.co2ToxicZone.boundarySegments?.length ? data.co2ToxicZone.boundarySegments : [data.co2ToxicZone.boundary]).map((segment, idx) => (
-              <Line key={`co2-boundary-${idx}`} data={segment} dataKey="pH" name="CO₂ Toxic Boundary" stroke={data.co2ToxicZone!.color} strokeWidth={1.5} dot={false} type="linear" legendType="none" isAnimationActive={false} />
+            {visibleCO2Zone && co2ToxicZone && co2ToxicBoundarySegments.map((segment, idx) => (
+              <Line key={`co2-boundary-${idx}`} data={segment} dataKey="pH" name="CO₂ Toxic Boundary" stroke={co2ToxicZone.color} strokeWidth={1.5} dot={false} type="linear" legendType="none" isAnimationActive={false} />
             ))}
-            {visibleH2SZone && data.h2sToxicZone && (data.h2sToxicZone.boundarySegments?.length ? data.h2sToxicZone.boundarySegments : [data.h2sToxicZone.boundary]).map((segment, idx) => (
-              <Line key={`h2s-boundary-${idx}`} data={segment} dataKey="pH" name="H₂S Toxic Boundary" stroke={data.h2sToxicZone!.color} strokeWidth={1.5} dot={false} type="linear" legendType="none" isAnimationActive={false} />
+            {visibleH2SZone && h2sToxicZone && h2sToxicBoundarySegments.map((segment, idx) => (
+              <Line key={`h2s-boundary-${idx}`} data={segment} dataKey="pH" name="H₂S Toxic Boundary" stroke={h2sToxicZone.color} strokeWidth={1.5} dot={false} type="linear" legendType="none" isAnimationActive={false} />
             ))}
-            {visibleNH3Zone && data.nh3ToxicZone && (data.nh3ToxicZone.boundarySegments?.length ? data.nh3ToxicZone.boundarySegments : [data.nh3ToxicZone.boundary]).map((segment, idx) => (
-              <Line key={`nh3-boundary-${idx}`} data={segment} dataKey="pH" name="NH₃ Toxic Boundary" stroke={data.nh3ToxicZone!.color} strokeWidth={1.5} dot={false} type="linear" legendType="none" isAnimationActive={false} />
+            {visibleNH3Zone && nh3ToxicZone && nh3ToxicBoundarySegments.map((segment, idx) => (
+              <Line key={`nh3-boundary-${idx}`} data={segment} dataKey="pH" name="NH₃ Toxic Boundary" stroke={nh3ToxicZone.color} strokeWidth={1.5} dot={false} type="linear" legendType="none" isAnimationActive={false} />
             ))}
 
             {showDosing && reagentLineSegments.map((segment, idx) => (
@@ -327,24 +355,24 @@ const DeffeyesPhChart: React.FC<DeffeyesPhChartProps> = ({ data, onDemandPath, o
               <Scatter data={reagentArrow} shape={<ArrowShape />} legendType="none" name="arrow" isAnimationActive={false} />
             )}
 
-            {showDosing && data.dosingVisualization && (
+            {showDosing && dosingVisualization && (
               <>
-                {(data.dosingVisualization.reagentLine1Segments?.length ? data.dosingVisualization.reagentLine1Segments : [data.dosingVisualization.reagentLine1.points]).map((segment, idx) => (
-                  <Line key={`dose-line-1-${idx}`} data={segment} dataKey="pH" name={data.dosingVisualization!.reagentLine1.label} stroke={data.dosingVisualization!.reagentLine1.color} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.6} dot={false} type="linear" legendType="none" isAnimationActive={false} />
+                {(dosingVisualization.reagentLine1Segments?.length ? dosingVisualization.reagentLine1Segments : [dosingVisualization.reagentLine1.points]).map((segment, idx) => (
+                  <Line key={`dose-line-1-${idx}`} data={segment} dataKey="pH" name={dosingVisualization.reagentLine1.label} stroke={dosingVisualization.reagentLine1.color} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.6} dot={false} type="linear" legendType="none" isAnimationActive={false} />
                 ))}
-                {(data.dosingVisualization.reagentLine2Segments?.length ? data.dosingVisualization.reagentLine2Segments : [data.dosingVisualization.reagentLine2.points]).map((segment, idx) => (
-                  <Line key={`dose-line-2-${idx}`} data={segment} dataKey="pH" name={data.dosingVisualization!.reagentLine2.label} stroke={data.dosingVisualization!.reagentLine2.color} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.6} dot={false} type="linear" legendType="none" isAnimationActive={false} />
+                {(dosingVisualization.reagentLine2Segments?.length ? dosingVisualization.reagentLine2Segments : [dosingVisualization.reagentLine2.points]).map((segment, idx) => (
+                  <Line key={`dose-line-2-${idx}`} data={segment} dataKey="pH" name={dosingVisualization.reagentLine2.label} stroke={dosingVisualization.reagentLine2.color} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.6} dot={false} type="linear" legendType="none" isAnimationActive={false} />
                 ))}
-                {showTarget && (data.dosingVisualization.step1Path.length > 0 || (data.dosingVisualization.step1PathSegments?.length ?? 0) > 0) && (
+                {showTarget && (dosingVisualization.step1Path.length > 0 || (dosingVisualization.step1PathSegments?.length ?? 0) > 0) && (
                   <>
-                    {(data.dosingVisualization.step1PathSegments?.length ? data.dosingVisualization.step1PathSegments : [data.dosingVisualization.step1Path]).map((segment, idx) => (
-                      <Line key={`dose-step-1-${idx}`} data={segment} dataKey="pH" name={data.dosingVisualization!.step1Label} stroke={data.dosingVisualization!.reagentLine1.color} strokeWidth={3} dot={false} type="linear" legendType="none" isAnimationActive={false} />
+                    {(dosingVisualization.step1PathSegments?.length ? dosingVisualization.step1PathSegments : [dosingVisualization.step1Path]).map((segment, idx) => (
+                      <Line key={`dose-step-1-${idx}`} data={segment} dataKey="pH" name={dosingVisualization.step1Label} stroke={dosingVisualization.reagentLine1.color} strokeWidth={3} dot={false} type="linear" legendType="none" isAnimationActive={false} />
                     ))}
-                    {(data.dosingVisualization.step2PathSegments?.length ? data.dosingVisualization.step2PathSegments : [data.dosingVisualization.step2Path]).map((segment, idx) => (
-                      <Line key={`dose-step-2-${idx}`} data={segment} dataKey="pH" name={data.dosingVisualization!.step2Label} stroke={data.dosingVisualization!.reagentLine2.color} strokeWidth={3} dot={false} type="linear" legendType="none" isAnimationActive={false} />
+                    {(dosingVisualization.step2PathSegments?.length ? dosingVisualization.step2PathSegments : [dosingVisualization.step2Path]).map((segment, idx) => (
+                      <Line key={`dose-step-2-${idx}`} data={segment} dataKey="pH" name={dosingVisualization.step2Label} stroke={dosingVisualization.reagentLine2.color} strokeWidth={3} dot={false} type="linear" legendType="none" isAnimationActive={false} />
                     ))}
-                    {data.dosingVisualization.intermediatePoint && (
-                      <Scatter data={[data.dosingVisualization.intermediatePoint]} name="Intermediate" shape={<DiamondShape />} legendType="none" isAnimationActive={false} />
+                    {dosingVisualization.intermediatePoint && (
+                      <Scatter data={[dosingVisualization.intermediatePoint]} name="Intermediate" shape={<DiamondShape />} legendType="none" isAnimationActive={false} />
                     )}
                   </>
                 )}
@@ -358,7 +386,7 @@ const DeffeyesPhChart: React.FC<DeffeyesPhChartProps> = ({ data, onDemandPath, o
               <Line data={data.omegaAragonite.points} dataKey="pH" name="Ω-Aragonite=1" stroke="#d946ef" strokeWidth={2} strokeDasharray="8 4" dot={false} type="linear" legendType="none" isAnimationActive={false} />
             )}
 
-            {showCurrentPoint && showTarget && data.targetPoint && targetPathSegments.map((segment, idx) => (
+            {showTarget && data.targetPoint && targetPathSegments.map((segment, idx) => (
               <Line
                 key={`target-path-${idx}`}
                 data={segment}

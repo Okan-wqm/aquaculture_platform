@@ -3,7 +3,7 @@
  * Ported from Python PlotCanvas.tanolustur()
  *
  * Generates all data needed for the Deffeyes (Alkalinity vs DIC) diagram:
- * - pH isolines (4.25 - 12.50)
+ * - pH isolines derived from the chart pH domain
  * - NH3 toxic zone
  * - CO2 toxic zone
  * - Safe operating zone (green)
@@ -12,6 +12,12 @@
 
 import { calcTotalSulfide, fractionH2S, fractionNH3, criticalPHforNH3 } from './ammonia-calc.js';
 import { criticalPHforCO2 } from './co2-calc.js';
+import {
+  DEFFEYES_CHART_MAX_DIC,
+  DEFFEYES_CHART_PH_DOMAIN,
+  DEFFEYES_LEGACY_PH_DOMAIN,
+  DEFFEYES_SOLVER_PH_DOMAIN,
+} from './domains.js';
 import {
   PHIsoline,
   ToxicZone,
@@ -48,11 +54,20 @@ import {
 // PH ISOLINE GENERATION
 // ============================================================================
 
-/** pH values for isolines: 4.25 to 12.50, step 0.25 */
-const PH_ISOLINE_VALUES: number[] = [];
-for (let pH = 4.25; pH <= 12.50; pH += 0.25) {
-  PH_ISOLINE_VALUES.push(parseFloat(pH.toFixed(2)));
+function rangeValues(start: number, end: number, step: number): number[] {
+  const values: number[] = [];
+  for (let value = start; value <= end + 1e-8; value += step) {
+    values.push(parseFloat(value.toFixed(2)));
+  }
+  return values;
 }
+
+/** pH values for isolines, derived from the chart domain and kept off the min edge. */
+const PH_ISOLINE_VALUES = rangeValues(
+  DEFFEYES_CHART_PH_DOMAIN.minPH + 0.25,
+  DEFFEYES_CHART_PH_DOMAIN.maxPH,
+  0.25
+);
 
 /** Color palette for pH isolines */
 function phIsolineColor(pH: number): string {
@@ -167,7 +182,7 @@ export function generateCO2ToxicZone(
 
   for (let ct = 0.01; ct <= scanMax; ct += scanMax / 200) {
     const critPH = criticalPHforCO2AtDIC(ct, co2CritMg, tempC, S);
-    if (!isNaN(critPH)) {
+    if (critPH >= DEFFEYES_LEGACY_PH_DOMAIN.minPH && critPH <= DEFFEYES_LEGACY_PH_DOMAIN.maxPH) {
       const at = calcAlkOfDicPh(ct, critPH, tempC, S);
       if (isFinite(at)) {
         boundaryPoints.push({ CT: parseFloat(ct.toFixed(4)), AT: parseFloat(at.toFixed(4)) });
@@ -192,8 +207,8 @@ function criticalPHforCO2AtDIC(
   co2CritMg: number,
   tempC: number,
   S: number,
-  minPH = 4.0,
-  maxPH = 12.0
+  minPH = DEFFEYES_LEGACY_PH_DOMAIN.minPH,
+  maxPH = DEFFEYES_LEGACY_PH_DOMAIN.maxPH
 ): number {
   const co2CritMM = co2CritMg / 44.010;
   if (dicMM <= 0 || co2CritMM >= dicMM) return NaN;
@@ -201,8 +216,8 @@ function criticalPHforCO2AtDIC(
   const co2AtMinPH = calcCo2OfDic(dicMM, minPH, tempC, S);
   const co2AtMaxPH = calcCo2OfDic(dicMM, maxPH, tempC, S);
   if (!isFinite(co2AtMinPH) || !isFinite(co2AtMaxPH)) return NaN;
-  if (co2AtMinPH <= co2CritMM) return minPH - 1;
-  if (co2AtMaxPH > co2CritMM) return maxPH + 1;
+  if (co2AtMinPH <= co2CritMM) return NaN;
+  if (co2AtMaxPH > co2CritMM) return maxPH;
 
   let lo = minPH;
   let hi = maxPH;
@@ -321,7 +336,9 @@ function generateOmegaIsopleth(
   S: number,
   caMolKg: number,
   ksp: number,
-  maxDIC = 8
+  maxDIC = DEFFEYES_CHART_MAX_DIC,
+  minPH = DEFFEYES_CHART_PH_DOMAIN.minPH,
+  maxPH = DEFFEYES_CHART_PH_DOMAIN.maxPH
 ): Array<{ CT: number; AT: number }> {
   const points: Array<{ CT: number; AT: number }> = [];
   if (caMolKg <= 0) return points;
@@ -342,7 +359,8 @@ function generateOmegaIsopleth(
 
     // Bisection on NBS pH to find alpha2 = alpha2Target
     // alpha2 increases with pH
-    let lo = 4.0, hi = 12.0;
+    let lo = minPH;
+    let hi = maxPH;
     for (let i = 0; i < 80; i++) {
       const mid = (lo + hi) / 2;
       const pHfree = phNbsToFree(mid, tempC, S);
@@ -376,7 +394,7 @@ export function generateCalciteIsopleth(
   tempC: number,
   S: number,
   caMgL: number,
-  maxDIC = 8
+  maxDIC = DEFFEYES_CHART_MAX_DIC
 ): OmegaIsopleth | null {
   if (caMgL <= 0) return null;
   const caMolKg = caMgL / 40078; // mg/L → mol/L ≈ mol/kg
@@ -393,7 +411,7 @@ export function generateAragoniteIsopleth(
   tempC: number,
   S: number,
   caMgL: number,
-  maxDIC = 8
+  maxDIC = DEFFEYES_CHART_MAX_DIC
 ): OmegaIsopleth | null {
   if (caMgL <= 0) return null;
   const caMolKg = caMgL / 40078;
@@ -420,7 +438,7 @@ export function generateDeffeyesChartData(
   showTarget = true
 ): DeffeyesChartData {
   const { tempC, pH, salinity, alkalinity } = params;
-  const maxDIC = 8;
+  const maxDIC = DEFFEYES_CHART_MAX_DIC;
 
   // pH isolines
   const isolines = generatePHIsolines(tempC, salinity, maxDIC);
@@ -470,19 +488,36 @@ export function generateDeffeyesChartData(
 // DIC / PH CHART DATA ASSEMBLY
 // ============================================================================
 
-const PH_CHART_MIN = 4.0;
-const PH_CHART_MAX = 12.5;
-const PH_SOLVER_MIN = 0.0;
-const PH_SOLVER_MAX = 14.0;
+const PH_CHART_MIN = DEFFEYES_CHART_PH_DOMAIN.minPH;
+const PH_CHART_MAX = DEFFEYES_CHART_PH_DOMAIN.maxPH;
+const PH_SOLVER_MIN = DEFFEYES_SOLVER_PH_DOMAIN.minPH;
+const PH_SOLVER_MAX = DEFFEYES_SOLVER_PH_DOMAIN.maxPH;
+const PH_LEGACY_MIN = DEFFEYES_LEGACY_PH_DOMAIN.minPH;
+const PH_LEGACY_MAX = DEFFEYES_LEGACY_PH_DOMAIN.maxPH;
 const PH_PROJECTION_TOLERANCE = 0.01;
 
 type ProjectionStatus = 'projected' | 'rejected' | 'clipped';
 type ProjectionCounters = ProjectionLayerStats;
-type ProjectedDicPhLine = {
+export interface ProjectedDicPhLine {
   points: DicPhPoint[];
   segments: DicPhSegment[];
-  stats: ProjectionCounters;
-};
+  stats: ProjectionLayerStats;
+}
+
+function isPHInChartDomain(value: number | undefined): value is number {
+  return (
+    value != null &&
+    isFinite(value) &&
+    value >= PH_CHART_MIN &&
+    value <= PH_CHART_MAX
+  );
+}
+
+function resolveH2SMeasuredAtPH(limits: DeffeyesPHLimits, fallbackPH: number): number {
+  if (isPHInChartDomain(limits.h2sMeasuredAtPH)) return limits.h2sMeasuredAtPH;
+  if (isPHInChartDomain(limits.currentPH)) return limits.currentPH;
+  return isPHInChartDomain(fallbackPH) ? fallbackPH : PH_CHART_MIN;
+}
 
 function emptyProjectionCounters(): ProjectionCounters {
   return { projected: 0, rejected: 0, clipped: 0, segments: 0 };
@@ -593,7 +628,7 @@ export function criticalPHforNH3PHChartDomain(
 
 export function criticalPHforH2SPHChartDomain(
   h2sMeasured: number,
-  currentPH: number,
+  h2sMeasuredAtPH: number,
   h2sLimit: number,
   tempC: number,
   S: number,
@@ -603,7 +638,7 @@ export function criticalPHforH2SPHChartDomain(
   if (h2sMeasured <= 0 || h2sLimit <= 0) return NaN;
   if (!isFinite(minPH) || !isFinite(maxPH) || minPH >= maxPH) return NaN;
 
-  const totalSulfide = calcTotalSulfide(h2sMeasured, currentPH, tempC, S);
+  const totalSulfide = calcTotalSulfide(h2sMeasured, h2sMeasuredAtPH, tempC, S);
   if (!isFinite(totalSulfide) || totalSulfide <= 0) return NaN;
 
   const targetFraction = h2sLimit / totalSulfide;
@@ -636,8 +671,8 @@ export function criticalPHforNH3InPHRange(
   nh3Limit: number,
   tempC: number,
   S: number,
-  minPH = PH_CHART_MIN,
-  maxPH = PH_CHART_MAX
+  minPH = PH_LEGACY_MIN,
+  maxPH = PH_LEGACY_MAX
 ): number {
   return criticalPHforNH3PHChartDomain(tan, nh3Limit, tempC, S, minPH, maxPH);
 }
@@ -645,14 +680,14 @@ export function criticalPHforNH3InPHRange(
 /** @deprecated Use criticalPHforH2SPHChartDomain. */
 export function criticalPHforH2SInPHRange(
   h2sMeasured: number,
-  currentPH: number,
+  h2sMeasuredAtPH: number,
   h2sLimit: number,
   tempC: number,
   S: number,
-  minPH = PH_CHART_MIN,
-  maxPH = PH_CHART_MAX
+  minPH = PH_LEGACY_MIN,
+  maxPH = PH_LEGACY_MAX
 ): number {
-  return criticalPHforH2SPHChartDomain(h2sMeasured, currentPH, h2sLimit, tempC, S, minPH, maxPH);
+  return criticalPHforH2SPHChartDomain(h2sMeasured, h2sMeasuredAtPH, h2sLimit, tempC, S, minPH, maxPH);
 }
 
 export function projectAlkDicPointToDicPh(
@@ -730,7 +765,7 @@ function projectAlkDicPointWithStatus(
   return { point: projected, status: 'projected' };
 }
 
-function projectAlkDicLineWithStats(
+export function projectAlkDicLineWithStats(
   points: Array<{ CT: number; AT: number }>,
   tempC: number,
   S: number,
@@ -839,7 +874,7 @@ function makeHorizontalZone(
         roundedPoint({ CT: 0, pH: boundaryPH }),
       ];
 
-  return { label, color, fillColor, boundary, polygons: [polygon], criticalPH };
+  return { label, color, fillColor, boundary, polygons: [polygon], criticalPH: boundaryPH };
 }
 
 function generateCO2PHToxicZone(
@@ -919,8 +954,7 @@ function generateAlkalinityLines(
 
 function generatePHReferenceLines(maxDIC: number, minPH: number, maxPH: number): DicPhLine[] {
   const lines: DicPhLine[] = [];
-  for (const pH of PH_ISOLINE_VALUES) {
-    if (pH < minPH || pH > maxPH || Math.abs(pH * 2 - Math.round(pH * 2)) > 1e-8) continue;
+  for (const pH of rangeValues(minPH, maxPH, 0.5)) {
     lines.push(lineFromPoints(`pH ${pH.toFixed(1)}`, '#94a3b8', [
       roundedPoint({ CT: 0, pH }),
       roundedPoint({ CT: maxDIC, pH }),
@@ -933,6 +967,7 @@ function generateSafeBands(
   tempC: number,
   S: number,
   limits: DeffeyesPHLimits,
+  h2sMeasuredAtPH: number,
   alkMinMeq: number,
   alkMaxMeq: number,
   maxDIC: number,
@@ -942,7 +977,7 @@ function generateSafeBands(
   const nh3Critical = criticalPHforNH3PHChartDomain(limits.tanMgL, limits.unIonizedNH3MgL, tempC, S, minPH, maxPH);
   const h2sCritical = criticalPHforH2SPHChartDomain(
     limits.h2sMeasuredUgL,
-    limits.currentPH,
+    h2sMeasuredAtPH,
     limits.h2sLimitUgL,
     tempC,
     S,
@@ -1004,9 +1039,10 @@ export function generateDeffeyesPHChartData(
   showTarget = true
 ): DeffeyesPHChartData {
   const { tempC, pH, salinity, alkalinity } = params;
-  const maxDIC = 8;
+  const maxDIC = DEFFEYES_CHART_MAX_DIC;
   const minPH = PH_CHART_MIN;
   const maxPH = PH_CHART_MAX;
+  const h2sMeasuredAtPH = resolveH2SMeasuredAtPH(limits, pH);
 
   const legacyData = generateDeffeyesChartData(
     params,
@@ -1051,7 +1087,7 @@ export function generateDeffeyesPHChartData(
 
   const h2sCritical = criticalPHforH2SPHChartDomain(
     limits.h2sMeasuredUgL,
-    limits.currentPH,
+    h2sMeasuredAtPH,
     limits.h2sLimitUgL,
     tempC,
     salinity,
@@ -1076,8 +1112,9 @@ export function generateDeffeyesPHChartData(
   const omegaAragonitePoints = omegaAragoniteProjection.points;
 
   const nh3Critical = criticalPHforNH3PHChartDomain(limits.tanMgL, limits.unIonizedNH3MgL, tempC, salinity, minPH, maxPH);
+  const nh3BoundaryPH = Math.max(minPH, Math.min(maxPH, nh3Critical));
   const nh3ToxicZone = makeHorizontalZone(
-    isFinite(nh3Critical) ? `NH₃ Toxic (pH > ${nh3Critical.toFixed(2)})` : 'NH₃ Toxic',
+    isFinite(nh3Critical) ? `NH₃ Toxic (pH > ${nh3BoundaryPH.toFixed(2)})` : 'NH₃ Toxic',
     '#ef4444',
     'rgba(239, 68, 68, 0.18)',
     nh3Critical,
@@ -1087,8 +1124,9 @@ export function generateDeffeyesPHChartData(
     maxPH
   );
 
+  const h2sBoundaryPH = Math.max(minPH, Math.min(maxPH, h2sCritical));
   const h2sToxicZone = makeHorizontalZone(
-    isFinite(h2sCritical) ? `H₂S Toxic (pH < ${h2sCritical.toFixed(2)})` : 'H₂S Toxic',
+    isFinite(h2sCritical) ? `H₂S Toxic (pH < ${h2sBoundaryPH.toFixed(2)})` : 'H₂S Toxic',
     '#b91c1c',
     'rgba(185, 28, 28, 0.16)',
     h2sCritical,
@@ -1110,7 +1148,7 @@ export function generateDeffeyesPHChartData(
   const pHReferences = generatePHReferenceLines(maxDIC, minPH, maxPH);
   const alkalinityProjection = generateAlkalinityLines(tempC, salinity, alkalinityValues, maxDIC, minPH, maxPH);
   const alkalinityLines = alkalinityProjection.lines;
-  const safeBands = generateSafeBands(tempC, salinity, limits, alkMinMeq, alkMaxMeq, maxDIC, minPH, maxPH);
+  const safeBands = generateSafeBands(tempC, salinity, limits, h2sMeasuredAtPH, alkMinMeq, alkMaxMeq, maxDIC, minPH, maxPH);
 
   const omegaCalciteStats = omegaCalciteProjection.stats;
   const omegaAragoniteStats = omegaAragoniteProjection.stats;

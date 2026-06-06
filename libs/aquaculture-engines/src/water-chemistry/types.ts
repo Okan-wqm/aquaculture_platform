@@ -181,7 +181,9 @@ export interface DeffeyesPHLimits {
   co2ToxicMgL: number;
   h2sMeasuredUgL: number;
   h2sLimitUgL: number;
-  currentPH: number;
+  h2sMeasuredAtPH?: number;
+  /** @deprecated Use h2sMeasuredAtPH. Kept for one release for API compatibility. */
+  currentPH?: number;
 }
 
 export interface ProjectionLayerStats {

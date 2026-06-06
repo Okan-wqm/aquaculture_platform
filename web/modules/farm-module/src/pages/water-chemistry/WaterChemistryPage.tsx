@@ -5,73 +5,77 @@
  *
  * Ported from Python v1.py PyQt5 application.
  */
-import React, { useState, useMemo } from 'react';
-import { flushSync } from 'react-dom';
-import { useSearchParams } from 'react-router-dom';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  ReferenceLine,
-  ReferenceArea,
-  ReferenceDot,
-  ComposedChart,
-} from 'recharts';
-// Engine imports — consolidated from libs/aquaculture-engines/water-chemistry
-// per ADR-028 (lib-creation rubric): this is a pure-algorithm module with a
-// backend consumer (ai-service) + web consumer (farm-module), so the canonical
-// home is the shared lib. The `./engine/*` copies were removed under
-// AUDIT-HIGH-004 of the 2026-04-22 cold audit.
+import { useCanMutate } from '@aquaculture/shared-ui';
 import {
   alkMgToMeq,
   CalculatedOutputs,
-  calcDicOfAlk,
   calcCo2OfDic,
-  co2MmToMg,
-  generateH2SvsPHData,
-  generateUIAvsPHData,
-  criticalPHforNH3,
-  percentNH3,
+  calcDicOfAlk,
+  calcDosingVisualization,
+  calcForwardDosing,
+  calcH2S,
   calcNH3,
   calcSafeTAN,
-  uiaStatus,
-  calcH2S,
-  calcTotalSulfide,
   calcSafeTotalSulfide,
-  h2sStatus,
+  calcTotalSulfide,
+  calculateDosingRecipes,
+  co2MmToMg,
   criticalPHforCO2,
+  criticalPHforH2SPHChartDomain,
+  criticalPHforNH3,
+  DEFFEYES_CHART_MAX_DIC,
+  DEFFEYES_CHART_PH_DOMAIN,
+  DEFFEYES_LEGACY_PH_DOMAIN,
   generateCarbonateVsPHData,
-  generateSaturationVsPHData,
   generateDeffeyesChartData,
   generateDeffeyesPHChartData,
-  calculateDosingRecipes,
-  reagentDirectionLine,
-  calcDosingVisualization,
-  REAGENTS,
-  calcForwardDosing,
-  projectAlkDicLineSegmentsToDicPh,
+  generateH2SvsPHData,
+  generateSaturationVsPHData,
+  generateUIAvsPHData,
+  h2sStatus,
+  percentNH3,
+  projectAlkDicLineWithStats,
   projectAlkDicPointToDicPh,
-  sampleAlkDicSegmentSegmentsToDicPh,
-  criticalPHforH2SPHChartDomain,
+  REAGENTS,
+  reagentDirectionLine,
+  uiaStatus,
 } from '@platform/aquaculture-engines';
-import type { DeffeyesPHChartData, DicPhPoint, DicPhSegment } from '@platform/aquaculture-engines';
+import type { DeffeyesPHChartData, DicPhSegment, ProjectionLayerStats } from '@platform/aquaculture-engines';
+import React, { useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
+import {
+  ComposedChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceArea,
+  ReferenceDot,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 // Component imports
-import InputPanel, { WaterChemistryInputs } from './components/InputPanel';
+import { BulkRecordTab } from './components/BulkRecordTab';
 import DeffeyesChart from './components/DeffeyesChart';
 import DeffeyesPhChart from './components/DeffeyesPhChart';
-import ResultsPanel from './components/ResultsPanel';
-import OnDemandPanel from './components/OnDemandPanel';
 import { HistoryTab } from './components/HistoryTab';
-import { RecordTab } from './components/RecordTab';
-import { BulkRecordTab } from './components/BulkRecordTab';
+import InputPanel from './components/InputPanel';
+import type { WaterChemistryInputs } from './components/InputPanel';
+import OnDemandPanel from './components/OnDemandPanel';
 import { ParameterConfigManager } from './components/ParameterConfigManager';
-import { useCanMutate } from '@aquaculture/shared-ui';
+import { RecordTab } from './components/RecordTab';
+import ResultsPanel from './components/ResultsPanel';
+import { reportWaterChemistryDiagnostic } from './waterChemistryDiagnostics';
+import {
+  buildWaterChemistryReportHtml,
+  collectWaterChemistryReportCharts,
+  printWaterChemistryReport,
+} from './waterChemistryReportExport';
 // ============================================================================
 // CHART CARD WRAPPER
 // ============================================================================
@@ -111,6 +115,7 @@ const DEFAULT_INPUTS: WaterChemistryInputs = {
   unIonizedNH3: 0.0125,
   co2Toxic: 40,
   h2sUgL: 15,
+  h2sMeasuredAtPH: 7.0,
   h2sLimitUgL: 25,
   caMgL: 400,
   volume: 1,
@@ -138,8 +143,8 @@ interface VisiblePHZone {
 
 export function getVisibleH2SChartZones(
   criticalPH: number,
-  minPH = 4,
-  maxPH = 9
+  minPH = DEFFEYES_CHART_PH_DOMAIN.minPH,
+  maxPH = DEFFEYES_CHART_PH_DOMAIN.maxPH
 ): { danger?: VisiblePHZone; alert?: VisiblePHZone; safe?: VisiblePHZone; showCriticalLine: boolean } {
   if (!isFinite(criticalPH)) {
     return { safe: { x1: minPH, x2: maxPH }, showCriticalLine: false };
@@ -160,9 +165,41 @@ export function getVisibleH2SChartZones(
   };
 }
 
+type DeffeyesMode = 'ph' | 'legacy';
+type ConfiguredDeffeyesMode = DeffeyesMode | 'invalid';
+
+function normalizeConfiguredDeffeyesMode(mode: string | null | undefined): ConfiguredDeffeyesMode {
+  const normalized = (mode ?? '').trim().toLowerCase();
+  if (normalized === '' || normalized === 'ph') return 'ph';
+  if (normalized === 'legacy') return 'legacy';
+  return 'invalid';
+}
+
+function normalizeDeffeyesModeOverride(mode: string | null | undefined): DeffeyesMode | null {
+  const normalized = mode?.trim().toLowerCase() ?? '';
+  if (normalized === 'ph' || normalized === 'legacy') return normalized;
+  return null;
+}
+
+function resolveH2SMeasuredAtPH(inputPH: number | undefined, realtimePH: number): number {
+  if (
+    inputPH != null &&
+    Number.isFinite(inputPH) &&
+    inputPH >= DEFFEYES_CHART_PH_DOMAIN.minPH &&
+    inputPH <= DEFFEYES_CHART_PH_DOMAIN.maxPH
+  ) {
+    return inputPH;
+  }
+  return realtimePH;
+}
+
 function createFallbackDeffeyesPHData(): DeffeyesPHChartData {
   return {
-    domain: { maxDIC: 8, minPH: 4, maxPH: 12.5 },
+    domain: {
+      maxDIC: DEFFEYES_CHART_MAX_DIC,
+      minPH: DEFFEYES_CHART_PH_DOMAIN.minPH,
+      maxPH: DEFFEYES_CHART_PH_DOMAIN.maxPH,
+    },
     pHReferences: [],
     alkalinityLines: [],
     nh3ToxicZone: null,
@@ -184,14 +221,86 @@ function createFallbackDeffeyesPHData(): DeffeyesPHChartData {
 export function shouldUseLegacyDeffeyesChart(
   configuredMode: string | null | undefined,
   modeOverride: string | null | undefined,
-  hasPHGenerationError = false
+  hasPHGenerationError = false,
+  allowDiagnosticOverride = false
 ): boolean {
   if (hasPHGenerationError) return true;
 
-  const normalizedConfiguredMode = (configuredMode ?? 'ph').toLowerCase();
-  const normalizedOverride = modeOverride?.toLowerCase() ?? null;
-  return normalizedOverride === 'legacy'
-    || (normalizedOverride !== 'ph' && normalizedConfiguredMode === 'legacy');
+  const normalizedConfiguredMode = normalizeConfiguredDeffeyesMode(configuredMode);
+  const normalizedOverride = normalizeDeffeyesModeOverride(modeOverride);
+  if (normalizedOverride === 'legacy') return true;
+  if (normalizedConfiguredMode === 'invalid') return true;
+  if (normalizedConfiguredMode === 'legacy') {
+    return normalizedOverride !== 'ph' || !allowDiagnosticOverride;
+  }
+  return false;
+}
+
+function readViteEnv(name: string): string | undefined {
+  const meta = import.meta as unknown as { env?: Record<string, unknown> };
+  const value: unknown = meta.env?.[name];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function emptyProjectionLayerStats(): ProjectionLayerStats {
+  return { projected: 0, rejected: 0, clipped: 0, segments: 0 };
+}
+
+function mergeProjectionLayerStats(layers: ProjectionLayerStats[]): ProjectionLayerStats {
+  return layers.reduce((sum, layer) => ({
+    projected: sum.projected + layer.projected,
+    rejected: sum.rejected + layer.rejected,
+    clipped: sum.clipped + layer.clipped,
+    segments: sum.segments + layer.segments,
+  }), emptyProjectionLayerStats());
+}
+
+function applyProjectionLayerStats(
+  data: DeffeyesPHChartData,
+  layers: Record<string, ProjectionLayerStats>
+): DeffeyesPHChartData {
+  const extra = mergeProjectionLayerStats(Object.values(layers));
+  return {
+    ...data,
+    projectionStats: {
+      ...data.projectionStats,
+      projected: data.projectionStats.projected + extra.projected,
+      rejected: data.projectionStats.rejected + extra.rejected,
+      clipped: data.projectionStats.clipped + extra.clipped,
+      segments: data.projectionStats.segments + extra.segments,
+      layers: {
+        ...data.projectionStats.layers,
+        ...layers,
+      },
+    },
+  };
+}
+
+function projectionDiagnosticsText(stats: ProjectionLayerStats): string {
+  return `Projected ${stats.projected}; clipped ${stats.clipped}; rejected ${stats.rejected}; segments ${stats.segments}`;
+}
+
+function projectionWarningText(stats: ProjectionLayerStats): string | null {
+  if (stats.clipped + stats.rejected === 0) return null;
+  return `DIC/pH projection clipped ${stats.clipped} and rejected ${stats.rejected} point${stats.clipped + stats.rejected === 1 ? '' : 's'} outside the visible pH domain.`;
+}
+
+function sampleAlkDicSegmentWithStats(
+  start: { CT: number; AT: number },
+  end: { CT: number; AT: number },
+  tempC: number,
+  salinity: number,
+  steps: number
+): ReturnType<typeof projectAlkDicLineWithStats> {
+  const samples = Array.from({ length: steps + 1 }, (_, index) => {
+    const t = index / steps;
+    return {
+      CT: start.CT + (end.CT - start.CT) * t,
+      AT: start.AT + (end.AT - start.AT) * t,
+    };
+  });
+
+  return projectAlkDicLineWithStats(samples, tempC, salinity);
 }
 
 // ============================================================================
@@ -213,6 +322,18 @@ const OverviewContent: React.FC = () => {
   const targetAlkMeq = alkMgToMeq(inputs.targetAlkalinityMg);
   const alkMinMeq = alkMgToMeq(inputs.alkMinMg);
   const alkMaxMeq = alkMgToMeq(inputs.alkMaxMg);
+  const h2sMeasuredAtPH = resolveH2SMeasuredAtPH(inputs.h2sMeasuredAtPH, inputs.pH);
+  const configuredDeffeyesMode = readViteEnv('VITE_DEFFEYES_CHART_MODE');
+  const allowDeffeyesDiagnosticOverride = (readViteEnv('VITE_DEFFEYES_ALLOW_DIAGNOSTIC_MODE_OVERRIDE') ?? '').toLowerCase() === 'true';
+  const deffeyesModeOverride = typeof window === 'undefined'
+    ? null
+    : new URLSearchParams(window.location.search).get('deffeyesMode');
+  const deffeyesRollbackRequested = shouldUseLegacyDeffeyesChart(
+    configuredDeffeyesMode,
+    deffeyesModeOverride,
+    false,
+    allowDeffeyesDiagnosticOverride
+  );
 
   // Generate Deffeyes chart data
   const deffeyesData = useMemo(
@@ -227,7 +348,7 @@ const OverviewContent: React.FC = () => {
           inputs.caMgL
         );
       } catch (e) {
-        console.error('[WaterChemistry] Deffeyes data generation error:', e);
+        reportWaterChemistryDiagnostic('deffeyes-data-generation', e);
         return {
           isolines: [], nh3ToxicZone: null, co2ToxicZone: null,
           safeZone: null, currentPoint: { DIC: 0, ALK: 0 }, targetPoint: null,
@@ -241,6 +362,10 @@ const OverviewContent: React.FC = () => {
 
   const deffeyesPHResult = useMemo(
     () => {
+      if (deffeyesRollbackRequested) {
+        return { data: null, error: null };
+      }
+
       try {
         return {
           data: generateDeffeyesPHChartData(
@@ -252,7 +377,7 @@ const OverviewContent: React.FC = () => {
             co2ToxicMgL: inputs.co2Toxic,
             h2sMeasuredUgL: inputs.h2sUgL,
             h2sLimitUgL: inputs.h2sLimitUgL,
-            currentPH: inputs.pH,
+            h2sMeasuredAtPH,
           },
           alkMinMeq,
           alkMaxMeq,
@@ -261,16 +386,22 @@ const OverviewContent: React.FC = () => {
           error: null,
         };
       } catch (e) {
-        console.error('[WaterChemistry] Deffeyes pH data generation error:', e);
+        reportWaterChemistryDiagnostic('deffeyes-ph-data-generation', e);
         return { data: null, error: e };
       }
     },
     [inputs.tempC, inputs.pH, inputs.salinity, alkMeq, inputs.targetpH, targetAlkMeq,
      inputs.tan, inputs.unIonizedNH3, inputs.co2Toxic, inputs.h2sUgL, inputs.h2sLimitUgL,
-     alkMinMeq, alkMaxMeq, inputs.showTarget, inputs.caMgL]
+     h2sMeasuredAtPH, alkMinMeq, alkMaxMeq, inputs.showTarget, inputs.caMgL, deffeyesRollbackRequested]
   );
   const deffeyesPHData = deffeyesPHResult.data ?? createFallbackDeffeyesPHData();
   const deffeyesPHError = deffeyesPHResult.error;
+  const useLegacyDeffeyes = shouldUseLegacyDeffeyesChart(
+    configuredDeffeyesMode,
+    deffeyesModeOverride,
+    deffeyesPHError != null,
+    allowDeffeyesDiagnosticOverride
+  );
 
   // Add reagent visualization to Deffeyes chart
   const deffeyesDataWithReagent = useMemo(() => {
@@ -324,7 +455,12 @@ const OverviewContent: React.FC = () => {
   }, [deffeyesData, selectedReagents]);
 
   const deffeyesPHDataWithReagent = useMemo((): DeffeyesPHChartData => {
+    if (useLegacyDeffeyes) {
+      return deffeyesPHData;
+    }
+
     const result: DeffeyesPHChartData = { ...deffeyesPHData };
+    const projectionLayers: Record<string, ProjectionLayerStats> = {};
 
     if (selectedReagents.length === 1) {
       const reagentName = selectedReagents[0];
@@ -336,11 +472,12 @@ const OverviewContent: React.FC = () => {
           reagent,
           8
         );
-        const segments = projectAlkDicLineSegmentsToDicPh(line, inputs.tempC, inputs.salinity, {
+        const projection = projectAlkDicLineWithStats(line, inputs.tempC, inputs.salinity, {
           truncateOnInvalid: true,
         });
-        result.reagentLineSegments = segments;
-        result.reagentLine = segments.flat();
+        result.reagentLineSegments = projection.segments;
+        result.reagentLine = projection.points;
+        projectionLayers.reagentLine = projection.stats;
       }
     } else if (selectedReagents.length === 2) {
       const reagent1Name = selectedReagents[0];
@@ -363,34 +500,34 @@ const OverviewContent: React.FC = () => {
         const step1End = viz.step1Path[1];
         const step2Start = viz.step2Path[0];
         const step2End = viz.step2Path[1];
-        const reagentLine1Segments = projectAlkDicLineSegmentsToDicPh(viz.reagentLine1.points, inputs.tempC, inputs.salinity, {
+        const reagentLine1Projection = projectAlkDicLineWithStats(viz.reagentLine1.points, inputs.tempC, inputs.salinity, {
           truncateOnInvalid: true,
         });
-        const reagentLine2Segments = projectAlkDicLineSegmentsToDicPh(viz.reagentLine2.points, inputs.tempC, inputs.salinity, {
+        const reagentLine2Projection = projectAlkDicLineWithStats(viz.reagentLine2.points, inputs.tempC, inputs.salinity, {
           truncateOnInvalid: true,
         });
-        const step1PathSegments = step1Start && step1End
-          ? sampleAlkDicSegmentSegmentsToDicPh(step1Start, step1End, inputs.tempC, inputs.salinity, { steps: 32 })
-          : [];
-        const step2PathSegments = step2Start && step2End
-          ? sampleAlkDicSegmentSegmentsToDicPh(step2Start, step2End, inputs.tempC, inputs.salinity, { steps: 32 })
-          : [];
+        const step1PathProjection = step1Start && step1End
+          ? sampleAlkDicSegmentWithStats(step1Start, step1End, inputs.tempC, inputs.salinity, 32)
+          : { points: [], segments: [], stats: emptyProjectionLayerStats() };
+        const step2PathProjection = step2Start && step2End
+          ? sampleAlkDicSegmentWithStats(step2Start, step2End, inputs.tempC, inputs.salinity, 32)
+          : { points: [], segments: [], stats: emptyProjectionLayerStats() };
 
         result.dosingVisualization = {
           reagentLine1: {
             ...viz.reagentLine1,
-            points: reagentLine1Segments.flat(),
+            points: reagentLine1Projection.points,
           },
           reagentLine2: {
             ...viz.reagentLine2,
-            points: reagentLine2Segments.flat(),
+            points: reagentLine2Projection.points,
           },
-          reagentLine1Segments,
-          reagentLine2Segments,
-          step1Path: step1PathSegments.flat(),
-          step2Path: step2PathSegments.flat(),
-          step1PathSegments,
-          step2PathSegments,
+          reagentLine1Segments: reagentLine1Projection.segments,
+          reagentLine2Segments: reagentLine2Projection.segments,
+          step1Path: step1PathProjection.points,
+          step2Path: step2PathProjection.points,
+          step1PathSegments: step1PathProjection.segments,
+          step2PathSegments: step2PathProjection.segments,
           intermediatePoint: projectAlkDicPointToDicPh(
             { CT: viz.intermediatePoint.DIC, AT: viz.intermediatePoint.ALK },
             inputs.tempC,
@@ -399,39 +536,47 @@ const OverviewContent: React.FC = () => {
           step1Label: viz.step1Label,
           step2Label: viz.step2Label,
         };
+        projectionLayers.reagentLine1 = reagentLine1Projection.stats;
+        projectionLayers.reagentLine2 = reagentLine2Projection.stats;
+        projectionLayers.dosingStep1 = step1PathProjection.stats;
+        projectionLayers.dosingStep2 = step2PathProjection.stats;
       } else {
         const r1 = REAGENTS.find(r => r.name === reagent1Name);
         const r2 = REAGENTS.find(r => r.name === reagent2Name);
         if (r1 && r2) {
           const line1 = reagentDirectionLine(deffeyesData.currentPoint.DIC, deffeyesData.currentPoint.ALK, r1, 8);
           const line2 = reagentDirectionLine(deffeyesData.currentPoint.DIC, deffeyesData.currentPoint.ALK, r2, 8);
-          const line1Segments = projectAlkDicLineSegmentsToDicPh(line1, inputs.tempC, inputs.salinity, { truncateOnInvalid: true });
-          const line2Segments = projectAlkDicLineSegmentsToDicPh(line2, inputs.tempC, inputs.salinity, { truncateOnInvalid: true });
+          const line1Projection = projectAlkDicLineWithStats(line1, inputs.tempC, inputs.salinity, { truncateOnInvalid: true });
+          const line2Projection = projectAlkDicLineWithStats(line2, inputs.tempC, inputs.salinity, { truncateOnInvalid: true });
           result.dosingVisualization = {
             reagentLine1: {
-              points: line1Segments.flat(),
+              points: line1Projection.points,
               label: r1.formula,
               color: REAGENT_COLORS[r1.name] || '#6b7280',
             },
             reagentLine2: {
-              points: line2Segments.flat(),
+              points: line2Projection.points,
               label: r2.formula,
               color: REAGENT_COLORS[r2.name] || '#6b7280',
             },
-            reagentLine1Segments: line1Segments,
-            reagentLine2Segments: line2Segments,
+            reagentLine1Segments: line1Projection.segments,
+            reagentLine2Segments: line2Projection.segments,
             step1Path: [],
             step2Path: [],
             intermediatePoint: null,
             step1Label: '',
             step2Label: '',
           };
+          projectionLayers.reagentLine1 = line1Projection.stats;
+          projectionLayers.reagentLine2 = line2Projection.stats;
         }
       }
     }
 
-    return result;
-  }, [deffeyesPHData, deffeyesData, selectedReagents, inputs.tempC, inputs.salinity]);
+    return Object.keys(projectionLayers).length > 0
+      ? applyProjectionLayerStats(result, projectionLayers)
+      : result;
+  }, [deffeyesPHData, deffeyesData, selectedReagents, inputs.tempC, inputs.salinity, useLegacyDeffeyes]);
 
   // Generate UIA chart data (replaces old NH3 chart)
   const uiaData = useMemo(
@@ -440,11 +585,25 @@ const OverviewContent: React.FC = () => {
   );
 
   const h2sData = useMemo(
-    () => generateH2SvsPHData(inputs.tempC, inputs.salinity, inputs.h2sUgL, inputs.pH, inputs.h2sLimitUgL, 4, 9),
-    [inputs.tempC, inputs.salinity, inputs.h2sUgL, inputs.pH, inputs.h2sLimitUgL]
+    () => generateH2SvsPHData(
+      inputs.tempC,
+      inputs.salinity,
+      inputs.h2sUgL,
+      h2sMeasuredAtPH,
+      inputs.h2sLimitUgL,
+      DEFFEYES_CHART_PH_DOMAIN.minPH,
+      DEFFEYES_CHART_PH_DOMAIN.maxPH
+    ),
+    [inputs.tempC, inputs.salinity, inputs.h2sUgL, h2sMeasuredAtPH, inputs.h2sLimitUgL]
   );
   const carbonateData = useMemo(
-    () => generateCarbonateVsPHData(inputs.tempC, inputs.salinity, 2.0, 4.0, 12.0),
+    () => generateCarbonateVsPHData(
+      inputs.tempC,
+      inputs.salinity,
+      2.0,
+      DEFFEYES_LEGACY_PH_DOMAIN.minPH,
+      DEFFEYES_LEGACY_PH_DOMAIN.maxPH
+    ),
     [inputs.tempC, inputs.salinity]
   );
   // DIC needed for saturation chart - compute from current alk & pH
@@ -484,9 +643,17 @@ const OverviewContent: React.FC = () => {
     const deltaPH = isNaN(toxicNH3pH) ? NaN : toxicNH3pH - inputs.pH;
 
     // H₂S safety calculations
-    const toxicH2SpH = criticalPHforH2SPHChartDomain(inputs.h2sUgL, inputs.pH, inputs.h2sLimitUgL, inputs.tempC, inputs.salinity, 4, 12.5);
-    const currentH2S = inputs.h2sUgL;
-    const totalSulfide = calcTotalSulfide(inputs.h2sUgL, inputs.pH, inputs.tempC, inputs.salinity);
+    const toxicH2SpH = criticalPHforH2SPHChartDomain(
+      inputs.h2sUgL,
+      h2sMeasuredAtPH,
+      inputs.h2sLimitUgL,
+      inputs.tempC,
+      inputs.salinity,
+      DEFFEYES_CHART_PH_DOMAIN.minPH,
+      DEFFEYES_CHART_PH_DOMAIN.maxPH
+    );
+    const totalSulfide = calcTotalSulfide(inputs.h2sUgL, h2sMeasuredAtPH, inputs.tempC, inputs.salinity);
+    const currentH2S = calcH2S(totalSulfide, inputs.pH, inputs.tempC, inputs.salinity);
     const safeTotalSulfide = calcSafeTotalSulfide(inputs.pH, inputs.h2sLimitUgL, inputs.tempC, inputs.salinity);
     const h2sStatusLevel = h2sStatus(inputs.pH, toxicH2SpH);
     const h2sDeltaPH = isNaN(toxicH2SpH) ? NaN : inputs.pH - toxicH2SpH; // positive = safe (above critical)
@@ -511,7 +678,7 @@ const OverviewContent: React.FC = () => {
       h2sStatusLevel,
       h2sDeltaPH,
     };
-  }, [inputs, alkMeq, targetAlkMeq, selectedReagents]);
+  }, [inputs, alkMeq, targetAlkMeq, selectedReagents, h2sMeasuredAtPH]);
 
   // On-demand forward dosing path — derived from the amounts Record
   const onDemandPath = useMemo(() => {
@@ -527,36 +694,44 @@ const OverviewContent: React.FC = () => {
     );
   }, [onDemandAmounts, alkMeq, inputs.pH, inputs.tempC, inputs.salinity, inputs.volume]);
 
-  const onDemandChartSegments = useMemo((): DicPhSegment[] => {
-    if (onDemandPath.length < 2) return [];
+  const onDemandChartProjection = useMemo((): { segments: DicPhSegment[]; stats: ProjectionLayerStats } => {
+    if (useLegacyDeffeyes) return { segments: [], stats: emptyProjectionLayerStats() };
+    if (onDemandPath.length < 2) return { segments: [], stats: emptyProjectionLayerStats() };
 
     const segments: DicPhSegment[] = [];
+    const stats: ProjectionLayerStats[] = [];
     for (let i = 0; i < onDemandPath.length - 1; i++) {
       const step = onDemandPath[i];
       const next = onDemandPath[i + 1];
       if (!step || !next) continue;
 
-      segments.push(...sampleAlkDicSegmentSegmentsToDicPh(
+      const projection = sampleAlkDicSegmentWithStats(
         { CT: step.dic, AT: step.alk },
         { CT: next.dic, AT: next.alk },
         inputs.tempC,
         inputs.salinity,
-        { steps: 24 }
-      ));
+        24
+      );
+      segments.push(...projection.segments);
+      stats.push(projection.stats);
     }
 
-    return segments;
-  }, [onDemandPath, inputs.tempC, inputs.salinity]);
+    return { segments, stats: mergeProjectionLayerStats(stats) };
+  }, [onDemandPath, inputs.tempC, inputs.salinity, useLegacyDeffeyes]);
+  const onDemandChartSegments = onDemandChartProjection.segments;
   const onDemandChartPath = useMemo(() => onDemandChartSegments.flat(), [onDemandChartSegments]);
-
-  const configuredDeffeyesMode = (import.meta.env.VITE_DEFFEYES_CHART_MODE ?? 'ph').toLowerCase();
-  const deffeyesModeOverride = typeof window === 'undefined'
-    ? null
-    : new URLSearchParams(window.location.search).get('deffeyesMode')?.toLowerCase() ?? null;
-  const useLegacyDeffeyes = shouldUseLegacyDeffeyesChart(
-    configuredDeffeyesMode,
-    deffeyesModeOverride,
-    deffeyesPHError != null
+  const dicPhProjectionStats = useMemo(
+    () => useLegacyDeffeyes
+      ? emptyProjectionLayerStats()
+      : mergeProjectionLayerStats([
+          deffeyesPHDataWithReagent.projectionStats,
+          onDemandChartProjection.stats,
+        ]),
+    [deffeyesPHDataWithReagent.projectionStats, onDemandChartProjection.stats, useLegacyDeffeyes]
+  );
+  const dicPhProjectionWarning = useMemo(
+    () => useLegacyDeffeyes ? null : projectionWarningText(dicPhProjectionStats),
+    [dicPhProjectionStats, useLegacyDeffeyes]
   );
 
   // Intersection points for UIA chart: current pH point + critical pH point
@@ -580,34 +755,24 @@ const OverviewContent: React.FC = () => {
   }, [inputs.pH, outputs.currentUIA, outputs.toxicNH3pH, inputs.unIonizedNH3]);
 
   const h2sChartZones = useMemo(
-    () => getVisibleH2SChartZones(outputs.toxicH2SpH, 4, 9),
+    () => getVisibleH2SChartZones(
+      outputs.toxicH2SpH,
+      DEFFEYES_CHART_PH_DOMAIN.minPH,
+      DEFFEYES_CHART_PH_DOMAIN.maxPH
+    ),
     [outputs.toxicH2SpH]
   );
+  const currentH2SPercent = outputs.totalSulfide > 0 && Number.isFinite(outputs.totalSulfide)
+    ? (outputs.currentH2S / outputs.totalSulfide) * 100
+    : NaN;
 
   const chartAreaRef = React.useRef<HTMLDivElement>(null);
   const [forceReportSafetyOverlays, setForceReportSafetyOverlays] = useState(false);
 
-  const handlePrint = () => {
+  const handlePrint = (): void => {
     if (!chartAreaRef.current) return;
 
-    // Clone all SVGs from chart area
-    const svgs = chartAreaRef.current.querySelectorAll('svg.recharts-surface');
-    const chartSVGs: string[] = [];
-    const chartTitles: string[] = [];
-
-    // Get chart card titles
-    chartAreaRef.current.querySelectorAll('.bg-white.rounded-lg, .bg-white.rounded-xl').forEach((card) => {
-      const title = card.querySelector('h3')?.textContent || '';
-      const subtitle = card.querySelector('p')?.textContent || '';
-      const svg = card.querySelector('svg.recharts-surface');
-      if (svg && title) {
-        chartTitles.push(`<div style="margin-bottom:2px"><strong style="font-size:11px">${title}</strong>${subtitle ? `<br><span style="font-size:9px;color:#666">${subtitle}</span>` : ''}</div>`);
-        const clone = svg.cloneNode(true) as SVGElement;
-        clone.setAttribute('width', '100%');
-        clone.removeAttribute('height');
-        chartSVGs.push(clone.outerHTML);
-      }
-    });
+    const { charts, deffeyesChart } = collectWaterChemistryReportCharts(chartAreaRef.current);
 
     // Build parameters table
     const params = [
@@ -615,8 +780,9 @@ const OverviewContent: React.FC = () => {
       ['Salinity', `${inputs.salinity} ppt`, 'Alkalinity', `${inputs.alkalinityMg} mg/L CaCO₃`],
       ['Target pH', `${inputs.targetpH} NBS`, 'Target Alkalinity', `${inputs.targetAlkalinityMg} mg/L CaCO₃`],
       ['TAN', `${inputs.tan} mg/L`, 'NH₃-N Limit', `${inputs.unIonizedNH3} mg/L`],
-      ['CO₂ Toxic', `${inputs.co2Toxic} mg/L`, 'H₂S', `${inputs.h2sUgL} µg/L`],
-      ['H₂S Limit', `${inputs.h2sLimitUgL} µg/L`, 'Ca²⁺', `${inputs.caMgL} mg/L`],
+      ['CO₂ Toxic', `${inputs.co2Toxic} mg/L`, 'H₂S Measured', `${inputs.h2sUgL} µg/L @ pH ${h2sMeasuredAtPH}`],
+      ['H₂S Limit', `${inputs.h2sLimitUgL} µg/L`, 'Current H₂S', `${outputs.currentH2S.toFixed(1)} µg/L`],
+      ['Ca²⁺', `${inputs.caMgL} mg/L`, 'DIC/pH Mode', useLegacyDeffeyes ? 'Legacy ALK/DIC' : 'DIC/pH'],
       ['Fish Type', inputs.fishType, 'Fish Size', inputs.fishSize],
       ['Volume', `${inputs.volume} m³`, 'Alk Range', `${inputs.alkMinMg} - ${inputs.alkMaxMg} mg/L`],
     ];
@@ -627,75 +793,24 @@ const OverviewContent: React.FC = () => {
       ['Toxic H₂S pH Border', isNaN(outputs.toxicH2SpH) ? 'N/A' : outputs.toxicH2SpH.toFixed(3), 'Total Sulfide', `${outputs.totalSulfide > 10000 ? '> 10000' : outputs.totalSulfide.toFixed(1)} µg/L`],
       ['UIA Status', outputs.uiaStatusLevel.toUpperCase(), 'H₂S Status', outputs.h2sStatusLevel.toUpperCase()],
       ['Current DIC', `${outputs.currentDIC.toFixed(3)} mmol/L`, 'Target DIC', `${outputs.targetDIC.toFixed(3)} mmol/L`],
+      ...(useLegacyDeffeyes ? [] : [
+        ['DIC/pH Projection Diagnostics', projectionDiagnosticsText(dicPhProjectionStats), 'Projection Warning', dicPhProjectionWarning ?? 'None'],
+      ]),
     ];
 
-    const makeTable = (rows: string[][], title: string) => `
-      <div style="margin-bottom:8px">
-        <div style="font-size:11px;font-weight:bold;margin-bottom:3px;border-bottom:1px solid #333;padding-bottom:2px">${title}</div>
-        <table style="width:100%;border-collapse:collapse;font-size:10px">
-          ${rows.map(r => `<tr>${r.map((c, i) => `<td style="padding:2px 6px;border:1px solid #ddd;${i % 2 === 0 ? 'background:#f9fafb;font-weight:500;width:18%' : 'width:32%'}">${c}</td>`).join('')}</tr>`).join('')}
-        </table>
-      </div>`;
-
-    // Deffeyes chart is larger (center). Use the explicit marker so rollback
-    // mode and future chart reordering do not break report export.
-    let deffeyesSvg = chartSVGs[2] || '';
-    let deffeyesTitle = chartTitles[2] || '';
-    const deffeyesRoot = chartAreaRef.current.querySelector('[data-report-chart-id="deffeyes"]');
-    const deffeyesSvgNode = deffeyesRoot?.querySelector('svg.recharts-surface');
-    if (deffeyesRoot && deffeyesSvgNode) {
-      const title = deffeyesRoot.querySelector('h3')?.textContent || 'Water Quality Management Chart';
-      const subtitle = deffeyesRoot.querySelector('p')?.textContent || '';
-      const clone = deffeyesSvgNode.cloneNode(true) as SVGElement;
-      clone.setAttribute('width', '100%');
-      clone.removeAttribute('height');
-      deffeyesSvg = clone.outerHTML;
-      deffeyesTitle = `<div style="margin-bottom:2px"><strong style="font-size:11px">${title}</strong>${subtitle ? `<br><span style="font-size:9px;color:#666">${subtitle}</span>` : ''}</div>`;
+    const result = printWaterChemistryReport(buildWaterChemistryReportHtml({
+      generatedAt: new Date(),
+      parameters: params,
+      results: resultsRows,
+      charts,
+      deffeyesChart,
+    }));
+    if (result === 'unavailable') {
+      reportWaterChemistryDiagnostic('report-print-fallback', result);
     }
-
-    const win = window.open('', '_blank', 'width=1100,height=800');
-    if (!win) return;
-
-    win.document.write(`<!DOCTYPE html><html><head><title>Water Chemistry Report</title>
-    <style>
-      @page { size: A4 landscape; margin: 8mm; }
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 10px; color: #111; }
-      .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #111; padding-bottom: 4px; margin-bottom: 6px; }
-      .header h1 { font-size: 16px; }
-      .header .date { font-size: 10px; color: #666; }
-      .content { display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 6px; }
-      .chart-box { border: 1px solid #ddd; border-radius: 4px; padding: 4px; overflow: hidden; }
-      .chart-box svg { width: 100%; display: block; }
-      .side-charts { display: flex; flex-direction: column; gap: 6px; }
-      .tables { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
-      @media print {
-        body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-      }
-    </style></head><body>
-      <div class="header">
-        <div><h1>Water Chemistry Report</h1><div class="date">${new Date().toLocaleString()}</div></div>
-        <div style="text-align:right;font-size:9px;color:#444">Millero Equations | Mucci 1983 Ksp</div>
-      </div>
-      <div class="tables">${makeTable(params, 'Parameters')}${makeTable(resultsRows, 'Calculated Results')}</div>
-      <div class="content" style="margin-top:6px">
-        <div class="side-charts">
-          <div class="chart-box">${chartTitles[0] || ''}${chartSVGs[0] || ''}</div>
-          <div class="chart-box">${chartTitles[1] || ''}${chartSVGs[1] || ''}</div>
-        </div>
-        <div class="chart-box">${deffeyesTitle}${deffeyesSvg}</div>
-        <div class="side-charts">
-          <div class="chart-box">${chartTitles[3] || ''}${chartSVGs[3] || ''}</div>
-          <div class="chart-box">${chartTitles[4] || ''}${chartSVGs[4] || ''}</div>
-        </div>
-      </div>
-    </body></html>`);
-
-    win.document.close();
-    setTimeout(() => { win.print(); }, 500);
   };
 
-  const handlePrintClick = () => {
+  const handlePrintClick = (): void => {
     flushSync(() => setForceReportSafetyOverlays(true));
     try {
       handlePrint();
@@ -788,7 +903,7 @@ const OverviewContent: React.FC = () => {
           {/* H2S / HS- percentage distribution vs pH */}
           <ChartCard
             title="H₂S / HS⁻ vs pH"
-            subtitle={`H₂S=${inputs.h2sUgL} µg/L (${(h2sData.find(d => Math.abs(d.pH - inputs.pH) < 0.06)?.H2S_pct ?? 0).toFixed(1)}%) | Limit=${inputs.h2sLimitUgL} µg/L | pH=${inputs.pH} | Crit pH=${isNaN(outputs.toxicH2SpH) ? 'N/A' : outputs.toxicH2SpH.toFixed(2)} | ${
+            subtitle={`Current H₂S=${outputs.currentH2S.toFixed(1)} µg/L (${Number.isFinite(currentH2SPercent) ? currentH2SPercent.toFixed(1) : 'N/A'}%) | Measured=${inputs.h2sUgL} µg/L @ pH ${h2sMeasuredAtPH} | Limit=${inputs.h2sLimitUgL} µg/L | pH=${inputs.pH} | Crit pH=${isNaN(outputs.toxicH2SpH) ? 'N/A' : outputs.toxicH2SpH.toFixed(2)} | ${
               outputs.h2sStatusLevel === 'safe' ? '✓ Safe' :
               outputs.h2sStatusLevel === 'alert' ? '⚠ Alert' : '✗ Danger'
             }`}
@@ -806,7 +921,12 @@ const OverviewContent: React.FC = () => {
                   <ReferenceArea x1={h2sChartZones.safe.x1} x2={h2sChartZones.safe.x2} fill="#22c55e" fillOpacity={0.18} label={{ value: 'Safe', fontSize: 9, fill: '#16a34a', position: 'insideTopLeft' }} />
                 )}
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="pH" tick={{ fontSize: 11 }} type="number" domain={[4, 9]} />
+                <XAxis
+                  dataKey="pH"
+                  tick={{ fontSize: 11 }}
+                  type="number"
+                  domain={[DEFFEYES_CHART_PH_DOMAIN.minPH, DEFFEYES_CHART_PH_DOMAIN.maxPH]}
+                />
                 <YAxis domain={[0, 100]} allowDataOverflow={true} tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${v}%`} />
                 <Tooltip formatter={(value: number, name: string) =>
                   name === 'H₂S µg/L' ? `${value.toFixed(2)} µg/L` : `${value.toFixed(1)}%`
@@ -819,7 +939,9 @@ const OverviewContent: React.FC = () => {
                 <Line type="monotone" dataKey="H2S_pct" name="H₂S %" stroke="#ef4444" strokeWidth={2.5} dot={false} />
                 <Line type="monotone" dataKey="HS_pct" name="HS⁻ %" stroke="#06b6d4" strokeWidth={2} dot={false} />
                 {/* Current point */}
-                <ReferenceDot x={inputs.pH} y={h2sData.find(d => Math.abs(d.pH - inputs.pH) < 0.06)?.H2S_pct ?? 0} r={6} fill="#3b82f6" stroke="#fff" strokeWidth={2} isFront={true} />
+                {Number.isFinite(currentH2SPercent) && (
+                  <ReferenceDot x={inputs.pH} y={currentH2SPercent} r={6} fill="#3b82f6" stroke="#fff" strokeWidth={2} isFront={true} />
+                )}
               </ComposedChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -833,6 +955,14 @@ const OverviewContent: React.FC = () => {
               className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900"
             >
               DIC/pH chart generation failed. Showing the legacy ALK/DIC Deffeyes chart.
+            </div>
+          )}
+          {dicPhProjectionWarning && (
+            <div
+              role="status"
+              className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900"
+            >
+              {dicPhProjectionWarning}
             </div>
           )}
           {useLegacyDeffeyes ? (
@@ -897,7 +1027,7 @@ const OverviewContent: React.FC = () => {
       </div>
 
       {/* ROW 3: Results - UIA Status | Calculated Values | Dosing Recipes */}
-      <ResultsPanel outputs={outputs} />
+      <ResultsPanel outputs={outputs} h2sMeasuredAtPH={h2sMeasuredAtPH} />
 
 
     </div>
@@ -920,7 +1050,7 @@ const WaterChemistryPage: React.FC = () => {
     : (tabParam === 'parameters') ? 'parameters'
     : 'calculator';
 
-  const handleTabChange = (tabId: TabId) => {
+  const handleTabChange = (tabId: TabId): void => {
     setSearchParams(prev => {
       prev.set('tab', tabId);
       return prev;

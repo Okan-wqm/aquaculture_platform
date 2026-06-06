@@ -12,6 +12,7 @@ import {
   ConfigurationHistory,
   ConfigEnvironment,
 } from '../entities/configuration.entity';
+import { SYSTEM_TENANT_ID } from '../configuration.constants';
 
 @Injectable()
 @QueryHandler(GetConfigurationsQuery)
@@ -89,15 +90,14 @@ export class GetConfigurationsByServiceHandler
       {
         tenantId,
         service,
-        isActive: true,
         ...(environment && { environment: environment as ConfigEnvironment }),
       },
     ];
 
-    // Also include global configs
-    if (tenantId !== 'global') {
+    // Also include system fallback configs.
+    if (tenantId !== SYSTEM_TENANT_ID) {
       where.push({
-        tenantId: 'global',
+        tenantId: SYSTEM_TENANT_ID,
         service,
         isActive: true,
         ...(environment && { environment: environment as ConfigEnvironment }),
@@ -110,17 +110,28 @@ export class GetConfigurationsByServiceHandler
       take: 500,
     });
 
-    // Merge: tenant-specific overrides global
+    // Merge: tenant-specific overrides system fallback.
     const configMap = new Map<string, Configuration>();
 
-    // First add global configs
+    const tenantTombstones = new Set(
+      configurations
+        .filter((c) => c.tenantId === tenantId && c.isActive === false && c.suppressFallback)
+        .map((c) => `${c.key}-${c.environment}`),
+    );
+
+    // First add system fallback configs, except keys explicitly tombstoned by the tenant.
     configurations
-      .filter((c) => c.tenantId === 'global')
-      .forEach((c) => configMap.set(`${c.key}-${c.environment}`, c));
+      .filter((c) => c.tenantId === SYSTEM_TENANT_ID)
+      .forEach((c) => {
+        const mapKey = `${c.key}-${c.environment}`;
+        if (!tenantTombstones.has(mapKey)) {
+          configMap.set(mapKey, c);
+        }
+      });
 
     // Then override with tenant-specific
     configurations
-      .filter((c) => c.tenantId !== 'global')
+      .filter((c) => c.tenantId !== SYSTEM_TENANT_ID && c.isActive === true)
       .forEach((c) => configMap.set(`${c.key}-${c.environment}`, c));
 
     return Array.from(configMap.values());

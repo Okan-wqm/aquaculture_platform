@@ -3704,3 +3704,13 @@ Root cause: tenant provisioning had been split across admin-api handlers, direct
 Fix: route tenant creation through operation-based admin provisioning with idempotency, db-migrate wait evidence, owner-service command receipts, onboarding acknowledgement ordering, and tokenless admin surfaces. Admin-api password reset and module catalog mutations become facades over auth-service commands, billing operations require billing receipt evidence, schema cleanup stays behind cleanup proof, and the admin panel polls/retries provisioning operations instead of assuming immediate creation.
 
 Status: RESOLVED on `feat/tenant-admin-orchestration-20260606`.
+
+## ORPHAN-HIGH-082 — Config runtime responses exposed raw storage semantics instead of effective tenant-safe configuration
+
+Severity: HIGH. Config-service public GraphQL responses could expose raw `Configuration` storage rows and did not make tombstone, fallback, cache, and secret-redaction behavior explicit. Tenant runtime callers needed the effective configuration for their tenant, but the API shape could leak whether a value came from system fallback storage, return secret values, or treat deleted tenant overrides as ordinary missing rows.
+
+Root cause: the resolver contract and DTO boundary were coupled to persistence entities. The service had command/query handlers for raw configuration rows, but no public effective DTO that encoded source, requested tenant, tombstone state, and redacted values as runtime behavior.
+
+Fix: add an effective runtime configuration DTO and public resolver contract tests, introduce config tombstone lifecycle columns/migration, and update handlers/query paths to respect tombstones while keeping fallback and redaction explicit. The app module now registers the effective resolver path without exposing raw configuration entities as public runtime output.
+
+Status: RESOLVED on `feat/config-service-runtime-behavior-20260606`.

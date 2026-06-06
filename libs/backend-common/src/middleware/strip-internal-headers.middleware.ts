@@ -24,7 +24,7 @@
  * # What it does
  *
  *   1. Reads x-service-identity + x-service-signature.
- *   2. Verifies the signature is `HMAC-SHA256(identity, INTERNAL_SERVICE_SECRET)`.
+ *   2. Verifies the signature against the v2 service-identity keyring.
  *   3. If signature is valid → request is from a trusted internal source,
  *      headers are forwarded as-is.
  *   4. If signature is missing OR invalid → strips the four spoofable
@@ -54,8 +54,14 @@
 import { Injectable, NestMiddleware, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response, NextFunction } from 'express';
-import { createHmac, timingSafeEqual } from 'crypto';
-import { verifyServiceIdentityRequest } from '../utils/service-identity.util';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import type { TenantRequest, VerifiedServiceIdentity } from '../types/tenant-request.interface';
+import {
+  getServiceIdentityHeader,
+  parseServiceIdentityKeyring,
+  verifyServiceIdentityRequest,
+} from '../utils/service-identity.util';
+import type { ServiceIdentityKeyringEntry } from '../utils/service-identity.util';
 
 /**
  * The four request headers we treat as INTERNAL trust anchors. Any of
@@ -68,22 +74,34 @@ const INTERNAL_HEADERS_TO_STRIP = [
   'x-user-id',
   'x-user-roles',
   'x-tenant-id',
+  'x-act-as-tenant',
+  'x-verified-user-assertion',
 ] as const;
 
 @Injectable()
 export class StripInternalHeadersMiddleware implements NestMiddleware {
   private readonly logger = new Logger(StripInternalHeadersMiddleware.name);
   private readonly serviceSecret: string | undefined;
+  private readonly keyring: ServiceIdentityKeyringEntry[];
 
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
   ) {
+    this.keyring = parseServiceIdentityKeyring(
+      this.configService.get<string>('SERVICE_IDENTITY_KEYRING') ?? process.env['SERVICE_IDENTITY_KEYRING'],
+    );
     this.serviceSecret =
-      this.configService.get<string>('INTERNAL_SERVICE_SECRET');
+      process.env['NODE_ENV'] === 'production'
+        ? undefined
+        : this.configService.get<string>('SERVICE_IDENTITY_SIGNING_SECRET') ??
+          this.configService.get<string>('INTERNAL_SERVICE_SECRET');
   }
 
-  use(req: Request, _res: Response, next: NextFunction): void {
-    if (!this.isValidInternalRequest(req)) {
+  use(req: TenantRequest, _res: Response, next: NextFunction): void {
+    const verifiedIdentity = this.verifyInternalRequest(req);
+    if (verifiedIdentity) {
+      req.verifiedIdentity = verifiedIdentity;
+    } else {
       for (const header of INTERNAL_HEADERS_TO_STRIP) {
         if (req.headers[header]) {
           this.logger.warn(
@@ -102,9 +120,9 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
    *
    * # Contract
    *
-   * Requires both `x-service-identity` and `x-service-signature` headers.
-   * v2 requests use the canonical service-identity verifier; legacy
-   * requests use `HMAC-SHA256(identity, INTERNAL_SERVICE_SECRET)`.
+ * Requires both `x-service-identity` and `x-service-signature` headers.
+ * v2 requests use the canonical service-identity verifier; legacy
+ * requests use the local development signing secret only outside production.
    *
    * # Why this accepts both v2 and the legacy narrow proof
    *
@@ -114,36 +132,71 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
    * job is the strip-or-trust decision; full request authentication still
    * fires afterward in ServiceIdentityGuard.
    */
-  private isValidInternalRequest(req: Request): boolean {
-    if (!this.serviceSecret) return false;
+  private verifyInternalRequest(req: Request): VerifiedServiceIdentity | undefined {
+    const headers = req.headers as Record<string, string | string[] | undefined>;
+    const identity = getServiceIdentityHeader(headers, 'x-service-identity');
+    const signature = getServiceIdentityHeader(headers, 'x-service-signature');
+    if (!identity || !signature) return undefined;
 
-    const identity = req.headers['x-service-identity'];
-    const signature = req.headers['x-service-signature'];
-    if (typeof identity !== 'string' || typeof signature !== 'string') return false;
-
-    if (req.headers['x-service-sig-version'] === 'v2') {
-      const tenantHeader =
-        (req.headers['x-tenant-id'] as string | undefined) ?? '';
+    if (getServiceIdentityHeader(headers, 'x-service-sig-version') === 'v2') {
+      const tenantHeader = getServiceIdentityHeader(headers, 'x-tenant-id') ?? '';
+      const keyId = getServiceIdentityHeader(headers, 'x-service-key-id') ?? '';
       const outcome = verifyServiceIdentityRequest({
-        headers: req.headers as Record<string, string | string[] | undefined>,
+        headers,
         observedMethod: req.method ?? 'GET',
         observedPath: this.canonicalisePath(req),
+        observedQuery: this.canonicaliseQuery(req),
+        observedContentType: getServiceIdentityHeader(headers, 'content-type') ?? '',
+        observedAssertionHash: this.assertionHash(headers),
         observedBody: this.serializeBodyForHash(req.body),
         secret: this.serviceSecret,
+        keyLookup: (kid) => this.keyring.find((entry) => entry.kid === kid && entry.status !== 'disabled')?.secret,
         expectedTenantId: tenantHeader,
       });
-      return outcome.valid;
+      if (!outcome.valid) return undefined;
+      return {
+        serviceName: identity,
+        tenantId: tenantHeader,
+        effectiveTenantId: getServiceIdentityHeader(headers, 'x-service-effective-tenant-id') ?? tenantHeader,
+        keyId: keyId || 'legacy-v2',
+        audience: getServiceIdentityHeader(headers, 'x-service-audience'),
+        nonce: getServiceIdentityHeader(headers, 'x-service-nonce') ?? '',
+        version: 'v2',
+      };
     }
 
+    if (!this.serviceSecret) return undefined;
     try {
       const expected = createHmac('sha256', this.serviceSecret)
         .update(identity)
         .digest('hex');
-      if (expected.length !== signature.length) return false;
-      return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+      if (expected.length !== signature.length) return undefined;
+      return timingSafeEqual(Buffer.from(expected), Buffer.from(signature))
+        ? {
+            serviceName: identity,
+            tenantId: getServiceIdentityHeader(headers, 'x-tenant-id') ?? '',
+            effectiveTenantId: getServiceIdentityHeader(headers, 'x-tenant-id') ?? '',
+            keyId: 'legacy',
+            nonce: '',
+            version: 'v2',
+          }
+        : undefined;
     } catch {
-      return false;
+      return undefined;
     }
+  }
+
+
+
+  private canonicaliseQuery(req: { originalUrl?: string; url?: string }): string {
+    const raw = req.originalUrl ?? req.url ?? '';
+    const qIdx = raw.indexOf('?');
+    return qIdx === -1 ? '' : raw.slice(qIdx);
+  }
+
+  private assertionHash(headers: Record<string, string | string[] | undefined>): string | undefined {
+    const assertion = getServiceIdentityHeader(headers, 'x-verified-user-assertion');
+    return assertion ? createHash('sha256').update(assertion).digest('hex') : undefined;
   }
 
   private serializeBodyForHash(body: unknown): string | Buffer {

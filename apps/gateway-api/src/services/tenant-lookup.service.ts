@@ -172,16 +172,18 @@ export class TenantLookupService {
     this.cacheTtl = this.configService.get<number>('TENANT_CACHE_TTL_MS', 300000); // 5 minutes
     this.maxCacheSize = this.configService.get<number>('TENANT_CACHE_MAX_SIZE', 1000);
 
-    // SECURITY (HIGH-003): internal calls now use signedFetch (HMAC-signed
-    // identity + tenant-bound signature). signedFetch throws at call time
-    // if INTERNAL_SERVICE_SECRET is missing — fail-fast prevents silent
-    // unsigned requests. Emit a startup log so the misconfiguration is
+    // SECURITY (HIGH-003): internal calls use signedFetch with the v2
+    // service-identity keyring. Emit a startup log so misconfiguration is
     // surfaced in deploy logs as well as in the call site.
     const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
-    if (isProduction && !this.configService.get<string>('INTERNAL_SERVICE_SECRET')) {
+    if (
+      isProduction &&
+      (!this.configService.get<string>('SERVICE_IDENTITY_KEYRING') ||
+        !this.configService.get<string>('SERVICE_IDENTITY_SIGNING_KID'))
+    ) {
       this.logger.error(
-        'SECURITY: INTERNAL_SERVICE_SECRET is not configured in production. ' +
-          'Every call to lookupTenant() will throw until the secret is provided.',
+        'SECURITY: SERVICE_IDENTITY_KEYRING and SERVICE_IDENTITY_SIGNING_KID are required in production. ' +
+          'Every call to lookupTenant() will throw until service identity signing material is provided.',
       );
     }
   }

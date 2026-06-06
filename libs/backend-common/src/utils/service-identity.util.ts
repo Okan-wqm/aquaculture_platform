@@ -142,6 +142,22 @@ export interface ServiceIdentityHeadersV2 {
   'X-Service-Method': string;
   'X-Service-Path': string;
   'X-Service-Body-Hash': string;
+  'X-Service-Key-Id'?: string;
+  'X-Service-Audience'?: string;
+  'X-Service-Query-Hash'?: string;
+  'X-Service-Content-Type'?: string;
+  'X-Service-Assertion-Hash'?: string;
+  'X-Service-Nonce'?: string;
+  'X-Service-Effective-Tenant-ID'?: string;
+}
+
+export interface ServiceIdentityKeyringEntry {
+  kid: string;
+  secret: string;
+  status?: 'active' | 'previous' | 'disabled';
+  callers?: string[];
+  audiences?: string[];
+  tenantScopePolicy?: 'tenant-bound' | 'all-tenants';
 }
 
 // ─── v2 generator + verifier (primary path) ────────────────────────────────
@@ -178,8 +194,15 @@ function buildCanonicalV2(input: {
   path: string;
   bodyHash: string;
   tenantId: string;
+  keyId?: string;
+  audience?: string;
+  queryHash?: string;
+  contentType?: string;
+  effectiveTenantId?: string;
+  assertionHash?: string;
+  nonce?: string;
 }): string {
-  return [
+  const base = [
     SIG_VERSION_V2,
     input.timestamp,
     input.serviceName,
@@ -187,7 +210,22 @@ function buildCanonicalV2(input: {
     input.path,
     input.bodyHash,
     input.tenantId,
-  ].join(CANONICAL_DELIM);
+  ];
+  const extended = [
+    input.keyId,
+    input.audience,
+    input.queryHash,
+    input.contentType,
+    input.effectiveTenantId,
+    input.assertionHash,
+    input.nonce,
+  ];
+
+  if (extended.some((value) => value !== undefined && value !== '')) {
+    return [...base, ...extended.map((value) => value ?? '')].join(CANONICAL_DELIM);
+  }
+
+  return base.join(CANONICAL_DELIM);
 }
 
 /**
@@ -204,7 +242,7 @@ function buildCanonicalV2(input: {
  * tamperer append a body to a "empty" GET and pass verification.
  *
  * @param args.serviceName - Calling service identifier (e.g. 'gateway-api')
- * @param args.secret      - Shared HMAC secret (INTERNAL_SERVICE_SECRET)
+ * @param args.secret      - Shared HMAC signing secret from the selected keyring entry
  * @param args.tenantId    - Tenant UUID; pass empty string only for proven
  *                            non-tenant paths (health, cross-tenant admin)
  * @param args.method      - HTTP verb (GET, POST, ...). Case-insensitive
@@ -220,9 +258,17 @@ export function generateServiceIdentityHeadersV2(args: {
   method: string;
   path: string;
   body: string | Buffer;
+  keyId?: string;
+  audience?: string;
+  query?: string;
+  contentType?: string;
+  effectiveTenantId?: string;
+  assertionHash?: string;
+  nonce?: string;
 }): ServiceIdentityHeadersV2 {
   const timestamp = new Date().toISOString();
   const bodyHash = sha256Hex(args.body);
+  const queryHash = args.query === undefined ? undefined : sha256Hex(args.query);
   const canonical = buildCanonicalV2({
     timestamp,
     serviceName: args.serviceName,
@@ -230,9 +276,16 @@ export function generateServiceIdentityHeadersV2(args: {
     path: args.path,
     bodyHash,
     tenantId: args.tenantId,
+    keyId: args.keyId,
+    audience: args.audience,
+    queryHash,
+    contentType: args.contentType,
+    effectiveTenantId: args.effectiveTenantId,
+    assertionHash: args.assertionHash,
+    nonce: args.nonce,
   });
   const signature = createHmac('sha256', args.secret).update(canonical).digest('hex');
-  return {
+  const headers: ServiceIdentityHeadersV2 = {
     'X-Service-Identity': args.serviceName,
     'X-Service-Timestamp': timestamp,
     'X-Service-Signature': signature,
@@ -241,6 +294,16 @@ export function generateServiceIdentityHeadersV2(args: {
     'X-Service-Path': args.path,
     'X-Service-Body-Hash': bodyHash,
   };
+
+  if (args.keyId) headers['X-Service-Key-Id'] = args.keyId;
+  if (args.audience) headers['X-Service-Audience'] = args.audience;
+  if (queryHash) headers['X-Service-Query-Hash'] = queryHash;
+  if (args.contentType !== undefined) headers['X-Service-Content-Type'] = args.contentType;
+  if (args.assertionHash) headers['X-Service-Assertion-Hash'] = args.assertionHash;
+  if (args.nonce) headers['X-Service-Nonce'] = args.nonce;
+  if (args.effectiveTenantId) headers['X-Service-Effective-Tenant-ID'] = args.effectiveTenantId;
+
+  return headers;
 }
 
 /**
@@ -264,13 +327,24 @@ export function verifyServiceIdentityV2(args: {
   method: string;
   path: string;
   bodyHash: string;
+  keyId?: string;
+  audience?: string;
+  queryHash?: string;
+  contentType?: string;
+  assertionHash?: string;
+  nonce?: string;
+  effectiveTenantId?: string;
   // What the receiver actually observes (for cross-check)
   observedMethod: string;
   observedPath: string;
   observedBody: string | Buffer;
+  observedQuery?: string;
+  observedContentType?: string;
+  observedAssertionHash?: string;
   // Trust inputs
   secret: string;
   expectedTenantId: string;
+  expectedAudience?: string;
   maxAgeMs?: number;
 }): boolean {
   // Step 1: timestamp freshness (replay window)
@@ -287,6 +361,10 @@ export function verifyServiceIdentityV2(args: {
   if (args.path !== args.observedPath) return false;
   const observedBodyHash = sha256Hex(args.observedBody);
   if (args.bodyHash !== observedBodyHash) return false;
+  if (args.queryHash !== undefined && args.queryHash !== sha256Hex(args.observedQuery ?? '')) return false;
+  if (args.contentType !== undefined && args.contentType !== (args.observedContentType ?? '')) return false;
+  if (args.assertionHash !== undefined && args.assertionHash !== (args.observedAssertionHash ?? '')) return false;
+  if (args.expectedAudience !== undefined && args.audience !== args.expectedAudience) return false;
 
   // Step 3: HMAC. Re-derive canonical from the SIGNED claims (not the
   // observed values — equivalent here since they matched) and compare.
@@ -299,6 +377,13 @@ export function verifyServiceIdentityV2(args: {
         path: args.path,
         bodyHash: args.bodyHash,
         tenantId: args.expectedTenantId,
+        keyId: args.keyId,
+        audience: args.audience,
+        queryHash: args.queryHash,
+        contentType: args.contentType,
+        effectiveTenantId: args.effectiveTenantId,
+        assertionHash: args.assertionHash,
+        nonce: args.nonce,
       }),
     )
     .digest('hex');
@@ -403,14 +488,17 @@ export function verifyServiceIdentityRequest(args: {
   observedMethod: string;
   observedPath: string;
   observedBody: string | Buffer;
-  secret: string;
+  observedQuery?: string;
+  observedContentType?: string;
+  observedAssertionHash?: string;
+  secret?: string;
+  keyLookup?: (kid: string) => string | undefined;
   expectedTenantId: string;
+  expectedAudience?: string;
   maxAgeMs?: number;
 }): VerificationOutcome {
-  const get = (name: string): string | undefined => {
-    const v = args.headers[name.toLowerCase()] ?? args.headers[name];
-    return Array.isArray(v) ? v[0] : v;
-  };
+  const get = (name: string): string | undefined =>
+    getServiceIdentityHeader(args.headers, name);
 
   const serviceName = get('x-service-identity');
   const timestamp = get('x-service-timestamp');
@@ -425,7 +513,9 @@ export function verifyServiceIdentityRequest(args: {
     const method = get('x-service-method');
     const path = get('x-service-path');
     const bodyHash = get('x-service-body-hash');
-    if (!method || !path || bodyHash === undefined) {
+    const keyId = get('x-service-key-id');
+    const secret = keyId ? args.keyLookup?.(keyId) ?? args.secret : args.secret;
+    if (!method || !path || bodyHash === undefined || !secret) {
       return { valid: false, reason: 'missing-headers' };
     }
     const ok = verifyServiceIdentityV2({
@@ -435,11 +525,22 @@ export function verifyServiceIdentityRequest(args: {
       method,
       path,
       bodyHash,
+      keyId,
+      audience: get('x-service-audience'),
+      queryHash: get('x-service-query-hash'),
+      contentType: get('x-service-content-type'),
+      assertionHash: get('x-service-assertion-hash'),
+      nonce: get('x-service-nonce'),
+      effectiveTenantId: get('x-service-effective-tenant-id'),
       observedMethod: args.observedMethod,
       observedPath: args.observedPath,
       observedBody: args.observedBody,
-      secret: args.secret,
+      observedQuery: args.observedQuery,
+      observedContentType: args.observedContentType,
+      observedAssertionHash: args.observedAssertionHash,
+      secret,
       expectedTenantId: args.expectedTenantId,
+      expectedAudience: args.expectedAudience,
       maxAgeMs: args.maxAgeMs,
     });
     return ok ? { valid: true, version: 'v2' } : { valid: false, reason: 'invalid-hmac' };
@@ -452,7 +553,7 @@ export function verifyServiceIdentityRequest(args: {
       serviceName,
       timestamp,
       signature,
-      args.secret,
+      args.secret ?? '',
       args.expectedTenantId,
       args.maxAgeMs,
     );
@@ -460,4 +561,69 @@ export function verifyServiceIdentityRequest(args: {
   }
 
   return { valid: false, reason: 'unknown-version' };
+}
+
+
+export function parseServiceIdentityKeyring(raw: string | undefined): ServiceIdentityKeyringEntry[] {
+  if (!raw || raw.trim().length === 0) {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`SERVICE_IDENTITY_KEYRING must be valid JSON: ${(error as Error).message}`);
+  }
+
+  const entries = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object' && Array.isArray((parsed as { keys?: unknown }).keys)
+      ? (parsed as { keys: unknown[] }).keys
+      : [];
+
+  return entries.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') {
+      throw new Error(`SERVICE_IDENTITY_KEYRING entry ${index} must be an object`);
+    }
+    const candidate = entry as Partial<ServiceIdentityKeyringEntry>;
+    if (!candidate.kid || !candidate.secret) {
+      throw new Error(`SERVICE_IDENTITY_KEYRING entry ${index} requires kid and secret`);
+    }
+    if (
+      candidate.tenantScopePolicy !== undefined &&
+      candidate.tenantScopePolicy !== 'tenant-bound' &&
+      candidate.tenantScopePolicy !== 'all-tenants'
+    ) {
+      throw new Error(
+        `SERVICE_IDENTITY_KEYRING entry ${index} has invalid tenantScopePolicy`,
+      );
+    }
+    return {
+      kid: candidate.kid,
+      secret: candidate.secret,
+      status: candidate.status,
+      callers: Array.isArray(candidate.callers) ? candidate.callers : undefined,
+      audiences: Array.isArray(candidate.audiences) ? candidate.audiences : undefined,
+      tenantScopePolicy: candidate.tenantScopePolicy,
+    };
+  });
+}
+
+export function serviceIdentityKeyIdFromHeaders(
+  headers: Record<string, string | string[] | undefined>,
+): string | undefined {
+  return getServiceIdentityHeader(headers, 'x-service-key-id');
+}
+
+export function getServiceIdentityHeader(
+  headers: Record<string, string | string[] | undefined>,
+  name: string,
+): string | undefined {
+  const lower = name.toLowerCase();
+  const direct = headers[lower] ?? headers[name];
+  if (direct !== undefined) return Array.isArray(direct) ? direct[0] : direct;
+  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === lower);
+  const value = key ? headers[key] : undefined;
+  return Array.isArray(value) ? value[0] : value;
 }

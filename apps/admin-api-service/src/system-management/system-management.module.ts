@@ -13,7 +13,6 @@ import {
   FeatureToggle,
   MaintenanceMode,
   SystemVersion,
-  GlobalConfig,
   PerformanceMetric,
   PerformanceSnapshot,
   ErrorOccurrence,
@@ -42,7 +41,6 @@ import {
       FeatureToggle,
       MaintenanceMode,
       SystemVersion,
-      GlobalConfig,
       // Performance
       PerformanceMetric,
       PerformanceSnapshot,

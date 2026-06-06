@@ -115,6 +115,7 @@ export default {
         '<rootDir>/production-ops-proof-contract.spec.ts',
         '<rootDir>/admin-billing-runtime-contract.spec.ts',
         '<rootDir>/admin-security-runtime-contract.spec.ts',
+        '<rootDir>/tenant-provisioning-ssot.spec.ts',
       ],
     },
     {

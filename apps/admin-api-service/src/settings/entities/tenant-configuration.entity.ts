@@ -1,5 +1,4 @@
 import {
-  Entity,
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
@@ -11,7 +10,6 @@ import {
  * Tenant-level configuration entity
  * Stores all tenant-specific settings with JSON structure
  */
-@Entity('tenant_configurations', { schema: 'admin' })
 @Index(['tenantId'], { unique: true })
 export class TenantConfiguration {
   @PrimaryGeneratedColumn('uuid')

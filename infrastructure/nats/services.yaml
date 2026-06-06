@@ -96,6 +96,9 @@ services:
   - name: farm_service
     description: Farm domain — batches, feedings, water quality, mortality/cull, ponds, equipment, feed inventory
     publish:
+      - "events.*.TenantOnboardingAck"
+      - "events.*.TenantOnboardingFailed"
+      - "events.*.WaterQualityCritical"
       - "AQUACULTURE_EVENTS.Farm*.>"
       - "AQUACULTURE_EVENTS.Batch*.>"
       - "AQUACULTURE_EVENTS.Feeding*.>"
@@ -109,6 +112,7 @@ services:
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
+      - "events.*.TenantOnboardingRequested"
       - "AQUACULTURE_EVENTS.>"
       - "$JS.API.>"
       - "_INBOX.>"
@@ -119,6 +123,9 @@ services:
   - name: sensor_service
     description: Sensor/edge devices, VFD readings, LoRa, automation, ST Language runtime
     publish:
+      - "events.*.SensorReading"
+      - "events.*.SensorDeleted"
+      - "events.*.SensorDeprovisioned"
       - "AQUACULTURE_EVENTS.Sensor*.>"
       - "AQUACULTURE_EVENTS.Device*.>"
       - "AQUACULTURE_EVENTS.Edge*.>"
@@ -131,6 +138,8 @@ services:
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
+      - "events.*.SensorDeleted"
+      - "events.*.SensorDeprovisioned"
       - "AQUACULTURE_EVENTS.>"
       # NestJS microservice transport: request-reply to sensor-service
       - "request.sensor.>"
@@ -145,7 +154,7 @@ services:
   # rollout. Distinct CN so the broker can attribute every published event
   # to its actual producer (audit + per-tenant rollback granularity).
   # ---------------------------------------------------------------------------
-  - name: sensor_ingestion
+  - name: sensor-ingestion
     description: Rust ingestion sidecar — MQTT subscribe → COPY → SensorReading event publish
     publish:
       # Matches platform/libs/event-bus/src/nats/nats-event-bus.ts:310-312
@@ -182,6 +191,11 @@ services:
       tenant lifecycle events; gateway publishes its own events + forwards
       ST Language IDE requests.
     publish:
+      - "events.*.TenantReserved"
+      - "events.*.TenantCreated"
+      - "events.*.TenantOnboardingRequested"
+      - "events.*.TenantProvisioned"
+      - "events.*.TenantProvisioningFailed"
       - "AQUACULTURE_EVENTS.Gateway*.>"
       - "AQUACULTURE_EVENTS.Tenant*.>"
       - "AQUACULTURE_EVENTS.Admin*.>"
@@ -217,6 +231,17 @@ services:
       - "request.auth.admin.forceLogoutUser"
       - "request.auth.admin.inviteUser"
       - "request.auth.admin.checkUserLimit"
+      - "request.auth.tenant.ReserveTenant"
+      - "request.auth.tenant.SetupRoles"
+      - "request.auth.tenant.AssignModules"
+      - "request.auth.tenant.CreateFirstAdminInvite"
+      - "request.auth.tenant.ActivateTenant"
+      - "request.auth.tenant.FailProvisioning"
+      - "request.auth.tenant.DeprovisionTenant"
+      - "request.auth.tenant.SuspendTenant"
+      - "request.auth.tenant.ArchiveTenant"
+      - "request.auth.tenant.RemoveModule"
+      - "request.auth.tenant.RollbackProvisioning"
       # Dynamic IngestBackend policy change events — admin-api is the
       # authoritative publisher; sensor-ingestion + sensor-service
       # subscribe. ADR-027 (per-tenant toggle) + ADR-031 (request-reply
@@ -255,10 +280,16 @@ services:
       - "AQUACULTURE_EVENTS.PasswordResetRequested.>"
       - "AQUACULTURE_EVENTS.UserInvited.>"
       - "AQUACULTURE_EVENTS.Notification*.>"
+      - "commands.notification.sendEmail"
       - "commands.notification.sendPush"
+      - "commands.notification.sendSms"
+      - "commands.notification.sendWebhook"
       - "events.*.PasswordResetRequested"
       - "events.*.UserInvited"
       - "events.*.UserDeleted"
+      - "events.*.AlertTriggered"
+      - "events.*.AlertResolved"
+      - "events.*.WaterQualityCritical"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -312,10 +343,14 @@ services:
   - name: alert_engine
     description: Sensor-reading → alert-rule evaluation, alert lifecycle events
     publish:
+      - "events.*.AlertTriggered"
+      - "events.*.AlertResolved"
       - "AQUACULTURE_EVENTS.Alert*.>"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
+      - "events.*.SensorReading"
+      - "events.*.WaterQualityCritical"
       - "AQUACULTURE_EVENTS.SensorReading.>"
       - "AQUACULTURE_EVENTS.Alert*.>"
       - "$JS.API.>"
@@ -378,7 +413,10 @@ services:
       - "AQUACULTURE_EVENTS.Message*.>"
       - "AQUACULTURE_EVENTS.Channel*.>"
       - "AQUACULTURE_EVENTS.RetentionPolicy*.>"
+      - "commands.notification.sendEmail"
       - "commands.notification.sendPush"
+      - "commands.notification.sendSms"
+      - "commands.notification.sendWebhook"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:

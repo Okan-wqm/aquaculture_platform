@@ -4,47 +4,30 @@
  * Tests cover:
  * - DTO validation (email, password)
  * - Email enumeration prevention
- * - Token hashing (SHA256 before storage)
- * - Password hashing (bcrypt)
+ * - Auth-service delegation for reset-token/password state
  * - ThrottlePasswordReset decorator presence
  * - Public decorator presence (bypass auth for these endpoints)
  */
 import { INestApplication, ValidationPipe, HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { getDataSourceToken } from '@nestjs/typeorm';
+import { AUTH_PUBLIC_COMMAND_SUBJECTS } from '@platform/event-contracts';
+import { of, throwError } from 'rxjs';
 import request from 'supertest';
-import { DataSource } from 'typeorm';
 
-import { EmailSenderService } from '../../settings/services/email-sender.service';
-import { EmailTemplateService } from '../../settings/services/email-template.service';
 import { PasswordResetController } from '../password-reset.controller';
 
 describe('PasswordResetController Security', () => {
   let app: INestApplication;
 
-  const mockDataSource = {
-    query: jest.fn(),
-  };
-
-  const mockEmailSender = {
-    sendEmail: jest.fn().mockResolvedValue(undefined),
-  };
-
-  const mockEmailTemplate = {
-    renderTemplate: jest.fn().mockResolvedValue({
-      subject: 'Reset Password',
-      bodyHtml: '<p>Reset link</p>',
-      bodyText: 'Reset link',
-    }),
+  const mockAuthNatsClient = {
+    send: jest.fn(),
   };
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PasswordResetController],
       providers: [
-        { provide: getDataSourceToken(), useValue: mockDataSource },
-        { provide: EmailSenderService, useValue: mockEmailSender },
-        { provide: EmailTemplateService, useValue: mockEmailTemplate },
+        { provide: 'AUTH_NATS_CLIENT', useValue: mockAuthNatsClient },
       ],
     }).compile();
 
@@ -65,6 +48,7 @@ describe('PasswordResetController Security', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAuthNatsClient.send.mockReturnValue(of({ success: true }));
   });
 
   // ========================================================================
@@ -72,8 +56,6 @@ describe('PasswordResetController Security', () => {
   // ========================================================================
   describe('POST /auth/forgot-password - Validation', () => {
     it('should accept valid email', async () => {
-      mockDataSource.query.mockResolvedValue([]);
-
       const res = await request(app.getHttpServer())
         .post('/auth/forgot-password')
         .send({ email: 'user@example.com' });
@@ -112,8 +94,6 @@ describe('PasswordResetController Security', () => {
   // ========================================================================
   describe('Email enumeration prevention', () => {
     it('should return success even for non-existent email', async () => {
-      mockDataSource.query.mockResolvedValue([]); // No user found
-
       const res = await request(app.getHttpServer())
         .post('/auth/forgot-password')
         .send({ email: 'nonexistent@example.com' });
@@ -124,10 +104,6 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should return same response shape for existing email', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'u1', email: 'exists@example.com', firstName: 'Test', lastName: 'User' }])
-        .mockResolvedValueOnce([]); // UPDATE query
-
       const res = await request(app.getHttpServer())
         .post('/auth/forgot-password')
         .send({ email: 'exists@example.com' });
@@ -138,7 +114,7 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should return success even on internal error', async () => {
-      mockDataSource.query.mockRejectedValue(new Error('DB connection failed'));
+      mockAuthNatsClient.send.mockReturnValueOnce(throwError(() => new Error('NATS connection failed')));
 
       const res = await request(app.getHttpServer())
         .post('/auth/forgot-password')
@@ -153,42 +129,27 @@ describe('PasswordResetController Security', () => {
   // 3. Token Security
   // ========================================================================
   describe('Token security', () => {
-    it('should store hashed token (not raw) in database', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'u1', email: 'test@test.com', firstName: 'A', lastName: 'B' }])
-        .mockResolvedValueOnce([]); // UPDATE
-
+    it('should delegate forgot password to auth-service without local token storage', async () => {
       await request(app.getHttpServer())
         .post('/auth/forgot-password')
-        .send({ email: 'test@test.com' });
+        .send({ email: 'Test@Test.COM' });
 
-      // The second query call is the UPDATE with hashed token
-      expect(mockDataSource.query).toHaveBeenCalledTimes(2);
-      const updateCall = mockDataSource.query.mock.calls[1];
-      const storedToken = updateCall![1][0]; // First param of UPDATE is the hashed token
-
-      // SHA256 hash is 64 hex chars
-      expect(storedToken).toMatch(/^[a-f0-9]{64}$/);
+      expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
+        AUTH_PUBLIC_COMMAND_SUBJECTS.REQUEST_PASSWORD_RESET,
+        expect.objectContaining({ email: 'test@test.com' }),
+      );
     });
 
-    it('should set token expiry to 1 hour', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'u1', email: 'test@test.com', firstName: 'A', lastName: 'B' }])
-        .mockResolvedValueOnce([]);
-
-      const beforeTime = Date.now();
+    it('should not send raw reset URL material from admin-api', async () => {
       await request(app.getHttpServer())
         .post('/auth/forgot-password')
         .send({ email: 'test@test.com' });
 
-      const updateCall = mockDataSource.query.mock.calls[1];
-      const expiresAt = updateCall![1][1] as Date;
-      const afterTime = Date.now();
+      const command = mockAuthNatsClient.send.mock.calls[0]![1] as Record<string, unknown>;
 
-      // Expiry should be ~1 hour from now
-      const oneHourMs = 60 * 60 * 1000;
-      expect(expiresAt.getTime()).toBeGreaterThanOrEqual(beforeTime + oneHourMs - 1000);
-      expect(expiresAt.getTime()).toBeLessThanOrEqual(afterTime + oneHourMs + 1000);
+      expect(command).not.toHaveProperty('rawToken');
+      expect(command).not.toHaveProperty('resetLink');
+      expect(command).not.toHaveProperty('tokenHash');
     });
   });
 
@@ -230,10 +191,6 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should accept valid token and password', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'u1', email: 'user@test.com' }]) // SELECT
-        .mockResolvedValueOnce([]); // UPDATE
-
       const res = await request(app.getHttpServer())
         .post('/auth/reset-password')
         .send({ token: 'valid-token-string', newPassword: 'ValidPass123!' });
@@ -256,7 +213,10 @@ describe('PasswordResetController Security', () => {
   // ========================================================================
   describe('Reset password token verification', () => {
     it('should reject invalid/expired token', async () => {
-      mockDataSource.query.mockResolvedValue([]); // No matching token
+      mockAuthNatsClient.send.mockReturnValueOnce(of({
+        success: false,
+        errorCode: 'INVALID_OR_EXPIRED_TOKEN',
+      }));
 
       const res = await request(app.getHttpServer())
         .post('/auth/reset-password')
@@ -266,34 +226,26 @@ describe('PasswordResetController Security', () => {
       expect(res.body.message).toContain('Invalid or expired');
     });
 
-    it('should hash the new password with bcrypt before storing', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'u1', email: 'user@test.com' }])
-        .mockResolvedValueOnce([]);
-
+    it('should delegate the new password to auth-service for hashing and persistence', async () => {
       await request(app.getHttpServer())
         .post('/auth/reset-password')
         .send({ token: 'valid-token', newPassword: 'NewSecurePass123!' });
 
-      const updateCall = mockDataSource.query.mock.calls[1];
-      const hashedPassword = updateCall![1][0]; // First param is hashed password
-
-      // bcrypt hashes start with $2a$ or $2b$
-      expect(hashedPassword).toMatch(/^\$2[ab]\$/);
+      expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
+        AUTH_PUBLIC_COMMAND_SUBJECTS.RESET_PASSWORD,
+        expect.objectContaining({
+          token: 'valid-token',
+          newPassword: 'NewSecurePass123!',
+        }),
+      );
     });
 
-    it('should clear reset token after successful reset', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'u1', email: 'user@test.com' }])
-        .mockResolvedValueOnce([]);
-
+    it('should not issue local auth table update statements', async () => {
       await request(app.getHttpServer())
         .post('/auth/reset-password')
         .send({ token: 'valid-token', newPassword: 'NewSecurePass123!' });
 
-      const updateQuery = mockDataSource.query.mock.calls[1]![0];
-      expect(updateQuery).toContain('passwordResetToken');
-      expect(updateQuery).toContain('NULL');
+      expect(mockAuthNatsClient.send).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -301,20 +253,12 @@ describe('PasswordResetController Security', () => {
   // 6. SQL Injection Prevention
   // ========================================================================
   describe('SQL injection prevention', () => {
-    it('should use parameterized queries for email lookup', async () => {
-      mockDataSource.query.mockResolvedValue([]);
-
+    it('should reject invalid email before auth-service delegation', async () => {
       await request(app.getHttpServer())
         .post('/auth/forgot-password')
         .send({ email: "test@test.com'; DROP TABLE users;--" });
 
-      // Should fail validation (not a valid email), but if it passes:
-      // the query should use parameters, not string interpolation
-      if (mockDataSource.query.mock.calls.length > 0) {
-        const call = mockDataSource.query.mock.calls[0];
-        expect(call![0]).toContain('$1'); // Parameterized
-        expect(call![0]).not.toContain('DROP');
-      }
+      expect(mockAuthNatsClient.send).not.toHaveBeenCalled();
     });
   });
 });

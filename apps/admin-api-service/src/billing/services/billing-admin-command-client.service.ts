@@ -20,6 +20,8 @@ import {
   type BillingAdminRecordPaymentInput,
   type BillingAdminRefundPaymentInput,
   type BillingAdminSubscriptionCommandResult,
+  type BillingTenantProvisioningCommand,
+  type BillingTenantProvisioningResult,
 } from '@platform/event-contracts';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 
@@ -55,6 +57,17 @@ export class BillingAdminCommandClientService {
       actorId,
     });
     return this.unwrapInvoiceResult(result);
+  }
+
+  async provisionTenantSubscription(
+    command: BillingTenantProvisioningCommand,
+  ): Promise<BillingTenantProvisioningResult> {
+    const result = await this.sendBillingCommand<
+      BillingTenantProvisioningCommand,
+      BillingTenantProvisioningResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.PROVISION_TENANT_SUBSCRIPTION, command);
+    if (result.success) return result;
+    throw this.mapBillingError(result.errorCode, result.error);
   }
 
   async markInvoicePaid(
@@ -255,11 +268,12 @@ export class BillingAdminCommandClientService {
   }
 
   private mapBillingError(
-    errorCode: BillingAdminInvoiceCommandResult['errorCode'],
+    errorCode: BillingAdminInvoiceCommandResult['errorCode'] | 'CATALOG_MISSING',
     error?: string,
   ): HttpException {
     const message = error ?? 'Billing command failed';
     switch (errorCode) {
+      case 'CATALOG_MISSING':
       case 'NOT_FOUND':
         return new NotFoundException(message);
       case 'VALIDATION_ERROR':

@@ -6,8 +6,6 @@ import { EmailTemplateController } from './controllers/email-template.controller
 import { IpAccessController } from './controllers/ip-access.controller';
 import { TenantConfigurationController } from './controllers/tenant-configuration.controller';
 import {
-  TenantConfiguration,
-  SystemSetting,
   EmailTemplate,
   IpAccessRule,
 } from './entities';
@@ -27,8 +25,6 @@ import { SettingsController } from './settings.controller';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      TenantConfiguration,
-      SystemSetting,
       EmailTemplate,
       IpAccessRule,
     ]),

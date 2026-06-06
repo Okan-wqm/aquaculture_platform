@@ -8,12 +8,14 @@ import {
   Query,
   Req,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   IsOptional,
   IsInt,
   IsBoolean,
+  IsEmail,
   Min,
   Max,
 } from 'class-validator';
@@ -23,6 +25,7 @@ import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import { getAuthUserId } from '../shared/authenticated-request';
 import { SettingCategory } from './entities/system-setting.entity';
 import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
+import { EmailSenderService } from './services/email-sender.service';
 import {
   BulkUpdateSettingsDto,
   UpdateEmailConfigDto,
@@ -49,6 +52,15 @@ class UpdateSecurityConfigDto {
   passwordMinLength?: number;
 
   @IsOptional() @IsBoolean()
+  passwordRequireUppercase?: boolean;
+
+  @IsOptional() @IsBoolean()
+  passwordRequireNumbers?: boolean;
+
+  @IsOptional() @IsBoolean()
+  passwordRequireSymbols?: boolean;
+
+  @IsOptional() @IsBoolean()
   mfaEnabled?: boolean;
 
   @IsOptional() @IsBoolean()
@@ -69,10 +81,18 @@ class UpdateRateLimitConfigDto {
   apiKeyRpm?: number;
 }
 
+class TestEmailConfigDto {
+  @IsEmail()
+  to!: string;
+}
+
 @ApiTags('Settings')
 @Controller('settings')
 export class SettingsController {
-  constructor(private readonly settingsService: SystemSettingService) {}
+  constructor(
+    private readonly settingsService: SystemSettingService,
+    private readonly emailSenderService: EmailSenderService,
+  ) {}
 
   // ============================================================================
   // System Settings
@@ -112,6 +132,7 @@ export class SettingsController {
    * Update a setting
    * Fix: C6 -- JWT-based identity
    */
+  @ThrottleSensitive()
   @Put('key/:key')
   async updateSetting(
     @Param('key') key: string,
@@ -127,6 +148,7 @@ export class SettingsController {
    * Reset setting to default
    * Fix: MEDIUM-003 -- audit trail with updatedBy from JWT
    */
+  @ThrottleSensitive()
   @Post('key/:key/reset')
   async resetToDefault(@Param('key') key: string, @Req() req: Request) {
     const userId = getAuthUserId(req);
@@ -138,6 +160,7 @@ export class SettingsController {
    * Bulk update settings
    * Fix: C6 -- JWT-based identity
    */
+  @ThrottleSensitive()
   @Put('bulk')
   async bulkUpdate(
     @Body() dto: BulkUpdateSettingsDto,
@@ -164,6 +187,7 @@ export class SettingsController {
    * Update email configuration
    * Fix: C6 -- JWT-based identity
    */
+  @ThrottleSensitive()
   @Put('config/email')
   async updateEmailConfig(
     @Body() dto: UpdateEmailConfigDto,
@@ -173,6 +197,35 @@ export class SettingsController {
     if (!userId) throw new UnauthorizedException('User not authenticated');
     await this.settingsService.updateEmailConfig(dto, userId);
     return this.settingsService.getEmailConfig();
+  }
+
+  @ThrottleSensitive()
+  @Post('config/email/test')
+  async testEmailConfig(@Body() dto: TestEmailConfigDto) {
+    const connection = await this.emailSenderService.testConnection();
+    if (!connection.success) {
+      return connection;
+    }
+
+    let sendResult;
+    try {
+      sendResult = await this.emailSenderService.sendEmail(
+        dto.to,
+        'Aquaculture Platform SMTP Test',
+        '<p>SMTP configuration test completed successfully.</p>',
+        'SMTP configuration test completed successfully.',
+        { required: true, maxRetries: 1 },
+      );
+    } catch (error) {
+      throw new BadRequestException(`SMTP test email failed: ${(error as Error).message}`);
+    }
+
+    return {
+      success: sendResult.success,
+      messageId: sendResult.messageId,
+      attempts: sendResult.attempts,
+      error: sendResult.error,
+    };
   }
 
   /**
@@ -239,6 +292,7 @@ export class SettingsController {
    * Toggle maintenance mode
    * Fix: C6 -- JWT-based identity
    */
+  @ThrottleSensitive()
   @Put('config/maintenance')
   async setMaintenanceMode(
     @Body() dto: SetMaintenanceModeDto,
@@ -267,6 +321,7 @@ export class SettingsController {
    * Update billing configuration
    * Fix: C6 -- JWT-based identity
    */
+  @ThrottleSensitive()
   @Put('config/billing')
   async updateBillingConfig(
     @Body() dto: UpdateBillingConfigDto,
@@ -313,6 +368,7 @@ export class SettingsController {
    * Import settings
    * Fix: C6 -- JWT-based identity
    */
+  @ThrottleSensitive()
   @Post('import')
   async importSettings(
     @Body() dto: ImportSettingsDto,

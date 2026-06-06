@@ -44,13 +44,14 @@ export interface InviteUserDto {
   primaryModuleId?: string;
   invitedBy: string;
   message?: string;
+  sendInvitation?: boolean;
 }
 
 export interface InviteUserResult {
   success: boolean;
   userId?: string;
   invitationId?: string;
-  invitationToken?: string;
+  deliveryStatus?: 'queued';
   error?: string;
 }
 
@@ -121,14 +122,13 @@ export class UserProvisioningService {
    * Invite a new user to a tenant.
    *
    * Delegates to auth-service over NATS. The previous raw-SQL path:
-   *   - Wrote `INSERT INTO auth.users (..., first_name, last_name,
-   *     is_active, is_email_verified, invitation_token,
-   *     invitation_expires_at, invited_by, ...)` — every snake-case
+   *   - Mutated the auth user table with snake-case fields such as
+   *     first_name, is_active, and invitation_token — every snake-case
    *     column name DRIFTED from the User entity, which uses default
    *     camelCase column names. This was the same drift class that
    *     CRITICAL-001 fixed for `passwordHash`/`password`.
-   *   - Wrote `INSERT INTO auth.user_module_assignments (..., can_read,
-   *     can_write, can_delete, can_manage, ...)` — those columns DO NOT
+   *   - Mutated the auth user-module assignment table with permission columns
+   *     such as can_read/can_write/can_delete/can_manage — those columns DO NOT
    *     EXIST on the entity at all (the entity has `permissions` jsonb
    *     + `isPrimaryManager`). Code path would crash at runtime.
    *   - Did three independent INSERTs + an UPDATE in a transaction, but
@@ -153,6 +153,7 @@ export class UserProvisioningService {
       }),
       invitedBy: dto.invitedBy,
       ...(dto.message !== undefined && { message: dto.message }),
+      sendInvitation: dto.sendInvitation !== false,
     };
 
     const result = await this.sendAuthCommand<
@@ -180,7 +181,7 @@ export class UserProvisioningService {
       success: true,
       userId: result.userId,
       invitationId: result.invitationId,
-      invitationToken: result.invitationToken,
+      deliveryStatus: result.deliveryStatus,
     };
   }
 
@@ -270,4 +271,3 @@ export class UserProvisioningService {
     }
   }
 }
-

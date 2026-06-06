@@ -3694,3 +3694,13 @@ Root cause: service commands were added as protocol concepts before the receivin
 Fix: add auth, billing, and notification command receipt ledgers and handlers; require v2 event-store service identity with tenant context from verified signatures; harden event-store ledger/projection surfaces; and make notification command receipts distinguish `SUCCEEDED` replay, `FAILED` retry, fresh `STARTED` in-progress, and stale `STARTED` lease reclaim. Targeted unit specs cover event-store query hash / tenant context / projection FSM and notification receipt lease behavior.
 
 Status: RESOLVED on `feat/service-command-surfaces-20260606`.
+
+## ORPHAN-HIGH-081 — Tenant/admin provisioning still mixed admin-owned runtime writes with owner-service command ownership
+
+Severity: HIGH. Tenant creation, password reset, module catalog mutations, billing admin operations, schema provisioning, and lifecycle rollback paths were not aligned on one admin orchestration contract. Admin-api could still carry raw token material, write or assume ownership of auth/billing state, or proceed before db-migrate/onboarding/billing receipt evidence completed. Rollback and destructive cleanup boundaries were especially risky because create paths and delete paths did not distinguish normal provisioning from cleanup proof.
+
+Root cause: tenant provisioning had been split across admin-api handlers, direct database helpers, UI polling surfaces, NATS subjects, and migration helpers without a single invariant tying the ownership model together. The newer service command receipts existed downstream, but admin orchestration had not been updated to treat auth, billing, db-migrate, notification, and farm onboarding as owner-confirmed steps.
+
+Fix: route tenant creation through operation-based admin provisioning with idempotency, db-migrate wait evidence, owner-service command receipts, onboarding acknowledgement ordering, and tokenless admin surfaces. Admin-api password reset and module catalog mutations become facades over auth-service commands, billing operations require billing receipt evidence, schema cleanup stays behind cleanup proof, and the admin panel polls/retries provisioning operations instead of assuming immediate creation.
+
+Status: RESOLVED on `feat/tenant-admin-orchestration-20260606`.

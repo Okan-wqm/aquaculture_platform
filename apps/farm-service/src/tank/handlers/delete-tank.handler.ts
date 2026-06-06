@@ -3,31 +3,30 @@
  * @module Tank/Handlers
  */
 import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { Repository } from 'typeorm';
+import { TankDeletedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
 
-import {
-  defaultFarmStockProjectionForDirectHandlerConstruction,
-} from '../../common/services/direct-handler-dependency-defaults';
+import { defaultFarmStockProjectionForDirectHandlerConstruction } from '../../common/services/direct-handler-dependency-defaults';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { DeleteTankCommand } from '../commands/delete-tank.command';
 import { Tank } from '../entities/tank.entity';
+import { tankAuditSnapshot } from './tank-audit.util';
 
 @CommandHandler(DeleteTankCommand)
-export class DeleteTankHandler
-  implements ICommandHandler<DeleteTankCommand, boolean>
-{
+export class DeleteTankHandler implements ICommandHandler<DeleteTankCommand, boolean> {
   private readonly logger = new Logger(DeleteTankHandler.name);
 
   constructor(
-    @InjectRepository(Tank)
-    private readonly tankRepository: Repository<Tank>,
+    private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
-    private readonly farmStockProjection: FarmStockProjectionService =
-      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly outboxPublisher: OutboxPublisher,
+    private readonly farmStockProjection: FarmStockProjectionService = defaultFarmStockProjectionForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: DeleteTankCommand): Promise<boolean> {
@@ -35,52 +34,78 @@ export class DeleteTankHandler
 
     this.logger.log(`Deleting tank: ${id} for tenant: ${tenantId}`);
 
-    // Find existing
-    const tank = await this.tankRepository.findOne({
-      where: { id, tenantId },
-    });
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
+      const tankBatchRepository = tenantManagerRepo(queryRunner.manager, TankBatch, tenantId);
 
-    if (!tank) {
-      throw new NotFoundException(`Tank with id "${id}" not found`);
-    }
+      const tank = await tankRepository.findOne({
+        where: { id, tenantId },
+      });
 
-    // Cannot delete tank with active biomass
-    if (tank.currentBiomass > 0) {
-      throw new BadRequestException(
-        `Cannot delete tank "${tank.name}": it has ${tank.currentBiomass}kg of active biomass. ` +
-          'Please transfer or harvest first.',
+      if (!tank) {
+        throw new NotFoundException(`Tank with id "${id}" not found`);
+      }
+
+      const tankBatches = await tankBatchRepository.find({ where: { tankId: id, tenantId } });
+      const batchesWithStock = tankBatches.filter(
+        (batch) =>
+          Number(batch.totalQuantity || 0) > 0 ||
+          Number(batch.totalBiomassKg || 0) > 0 ||
+          Number(batch.cleanerFishQuantity || 0) > 0 ||
+          Number(batch.cleanerFishBiomassKg || 0) > 0,
       );
-    }
 
-    // Soft delete - set isActive to false
-    tank.isActive = false;
-    tank.updatedBy = userId;
+      if (Number(tank.currentBiomass || 0) > 0 || batchesWithStock.length > 0) {
+        throw new BadRequestException(
+          `Cannot delete tank "${tank.name}": it has active biomass or stock allocations. ` +
+            'Please transfer or harvest first.',
+        );
+      }
 
-    await this.tankRepository.save(tank);
-    await this.farmStockProjection.refreshContainers(
-      this.tankRepository.manager,
-      tenantId,
-      [tank.id],
-    );
+      const before = tankAuditSnapshot(tank);
+      const deletedAt = new Date();
+      if (tankBatches.length > 0) {
+        await tankBatchRepository.delete({ tankId: id });
+      }
+      tank.isActive = false;
+      tank.updatedBy = userId;
 
-    // Audit log
-    await this.auditLogService.log({
-      tenantId,
-      entityType: 'Tank',
-      entityId: id,
-      action: AuditAction.SOFT_DELETE,
-      userId,
-      changes: {
-        before: {
-          name: tank.name,
-          code: tank.code,
-          volume: tank.volume,
-          isActive: true,
+      const saved = await tankRepository.save(tank);
+      await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [saved.id]);
+
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'Tank',
+        entityId: id,
+        action: AuditAction.SOFT_DELETE,
+        userId,
+        changes: {
+          before,
+          after: tankAuditSnapshot(saved),
         },
-      },
-    });
+        metadata: { source: 'SITES_SETUP_TANK' },
+        entityVersion: saved.version,
+        summary: `Soft deleted tank ${saved.code}`,
+      });
 
-    this.logger.log(`Tank soft-deleted: ${id}`);
+      const event: TankDeletedEvent = {
+        ...createBaseEvent<TankDeletedEvent>('TankDeleted', tenantId, {
+          aggregateId: saved.id,
+          aggregateType: 'Tank',
+          userId,
+        }),
+        tankId: saved.id,
+        departmentId: saved.departmentId,
+        name: saved.name,
+        code: saved.code,
+        deletedAt,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        aggregateId: saved.id,
+      });
+
+      this.logger.log(`Tank soft-deleted: ${id}`);
+    });
 
     return true;
   }

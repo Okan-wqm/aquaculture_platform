@@ -82,8 +82,8 @@ export class CqrsModule implements OnModuleInit {
       );
 
       if (commandMetadata) {
-        this.commandBus.registerByName(
-          commandMetadata.commandName,
+        this.commandBus.register(
+          commandMetadata.command,
           metatype as Type<ICommandHandler>,
         );
       }
@@ -95,8 +95,8 @@ export class CqrsModule implements OnModuleInit {
       );
 
       if (queryMetadata) {
-        this.queryBus.registerByName(
-          queryMetadata.queryName,
+        this.queryBus.register(
+          queryMetadata.query,
           metatype as Type<IQueryHandler>,
         );
       }

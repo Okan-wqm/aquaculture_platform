@@ -31,6 +31,8 @@ const FARM_CODE = /^apps\/farm-service\/.*\.(ts|tsx|js|jsx|mjs|cjs)$/;
 const FARM_RUNTIME_CODE = /^apps\/farm-service\/src\/.*\.(ts|tsx)$/;
 const FARM_TEST_CODE = /(__tests__\/|\.spec\.ts$|\.test\.ts$|\/test\/)/;
 const FARM_INFRA_CODE = /^apps\/farm-service\/src\/(database|outbox|common\/database)\//;
+const FARM_READ_PORT_CODE =
+  /^apps\/farm-service\/src\/(?:.+\/)?(?:query-handlers|dataloaders)\//;
 
 const RULES: readonly Rule[] = [
   {
@@ -65,7 +67,7 @@ const RULES: readonly Rule[] = [
       'Farm business events must be written through the transactional outbox, not eventBus.publish in write paths.',
     pattern: /\beventBus\s*\.\s*publish\s*\(/,
     includePath: FARM_RUNTIME_CODE,
-    excludePath: FARM_INFRA_CODE,
+    excludePath: new RegExp(`${FARM_INFRA_CODE.source}|${FARM_TEST_CODE.source}`),
   },
   {
     id: 'no-handler-queryrunner',
@@ -73,7 +75,9 @@ const RULES: readonly Rule[] = [
       'New farm write paths must use tenant transaction helpers or scoped repository ports, not raw createQueryRunner calls.',
     pattern: /\.\s*createQueryRunner\s*\(/,
     includePath: FARM_RUNTIME_CODE,
-    excludePath: FARM_INFRA_CODE,
+    excludePath: new RegExp(
+      `${FARM_INFRA_CODE.source}|${FARM_TEST_CODE.source}|${FARM_READ_PORT_CODE.source}`,
+    ),
   },
   {
     id: 'no-raw-tenant-header',
@@ -82,7 +86,9 @@ const RULES: readonly Rule[] = [
     pattern:
       /(@Headers\(\s*["\x27]x-tenant-id["\x27]\s*\)|headers\s*\[\s*["\x27]x-tenant-id["\x27]\s*\])/,
     includePath: FARM_RUNTIME_CODE,
-    excludePath: /^apps\/farm-service\/src\/(database|outbox|common\/database|app\.module\.ts)/,
+    excludePath: new RegExp(
+      `^apps\\/farm-service\\/src\\/(database|outbox|common\\/database|app\\.module\\.ts)|${FARM_TEST_CODE.source}`,
+    ),
   },
   {
     id: 'no-new-raw-repository-injection',
@@ -90,7 +96,9 @@ const RULES: readonly Rule[] = [
       'New farm application code must use tenant-scoped repository ports instead of raw InjectRepository wiring.',
     pattern: /@InjectRepository\s*\(/,
     includePath: FARM_RUNTIME_CODE,
-    excludePath: new RegExp(`${FARM_INFRA_CODE.source}|${FARM_TEST_CODE.source}`),
+    excludePath: new RegExp(
+      `${FARM_INFRA_CODE.source}|${FARM_TEST_CODE.source}|${FARM_READ_PORT_CODE.source}`,
+    ),
   },
 ];
 
@@ -187,9 +195,19 @@ function collectLines(argv: readonly string[]): readonly AddedLine[] {
 function findViolations(lines: readonly AddedLine[]): readonly Violation[] {
   const violations: Violation[] = [];
   for (const line of lines) {
+    const trimmed = line.text.trim();
     for (const rule of RULES) {
       if (!rule.includePath.test(line.path)) continue;
       if (rule.excludePath?.test(line.path)) continue;
+      if (
+        !rule.id.includes('suppression') &&
+        !rule.id.startsWith('no-ts-') &&
+        !rule.id.startsWith('no-eslint-') &&
+        !rule.id.startsWith('no-istanbul-') &&
+        (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*'))
+      ) {
+        continue;
+      }
       if (rule.pattern.test(line.text)) {
         violations.push({ rule, line });
       }

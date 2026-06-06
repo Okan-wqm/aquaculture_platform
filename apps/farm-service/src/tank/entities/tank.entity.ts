@@ -105,6 +105,17 @@ registerEnumType(TankStatus, {
   description: 'Tank durumu',
 });
 
+export enum TankContainerKind {
+  TANK = 'TANK',
+  POND = 'POND',
+  CAGE = 'CAGE',
+}
+
+registerEnumType(TankContainerKind, {
+  name: 'TankContainerKind',
+  description: 'Canonical setup container kind for tank-like equipment compatibility',
+});
+
 // ============================================================================
 // INTERFACES
 // ============================================================================
@@ -199,6 +210,8 @@ export interface AerationInfo {
 @Index(['tenantId', 'isActive'])
 @Index(['departmentId', 'status'])
 @Index(['tenantId', 'systemId'])
+@Index(['tenantId', 'containerKind'])
+@Index(['tenantId', 'equipmentTypeId'])
 export class Tank {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -240,6 +253,22 @@ export class Tank {
   @Field({ nullable: true })
   @Column('uuid', { nullable: true })
   systemId?: string;               // Bağlı olduğu sistem (varsa)
+
+  @Field(() => TankContainerKind)
+  @Column({
+    type: 'enum',
+    enum: TankContainerKind,
+    default: TankContainerKind.TANK,
+  })
+  containerKind: TankContainerKind;
+
+  @Field({ nullable: true })
+  @Column('uuid', { nullable: true })
+  equipmentTypeId?: string;
+
+  @Field({ nullable: true })
+  @Column({ length: 100, nullable: true })
+  equipmentTypeCode?: string;
 
   // -------------------------------------------------------------------------
   // TİP VE MALZEME
@@ -470,11 +499,17 @@ export class Tank {
   @BeforeInsert()
   @BeforeUpdate()
   calculateVolume(): void {
-    this.volume = this.computeVolume();
+    const computedVolume = this.computeVolume();
+    if (computedVolume > 0) {
+      this.volume = computedVolume;
+    } else {
+      this.volume = Number(this.volume) > 0 ? Number(this.volume) : 0;
+    }
 
     // Water volume hesapla
     if (this.waterDepth) {
-      this.waterVolume = this.computeWaterVolume();
+      const computedWaterVolume = this.computeWaterVolume();
+      this.waterVolume = computedWaterVolume > 0 ? computedWaterVolume : this.volume;
     }
   }
 

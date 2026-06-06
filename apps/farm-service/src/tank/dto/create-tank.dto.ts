@@ -23,6 +23,7 @@ import GraphQLJSON from 'graphql-type-json';
 import {
   TankType,
   TankMaterial,
+  TankContainerKind,
   WaterType,
   TankStatus,
   TankLocation,
@@ -176,6 +177,22 @@ export class CreateTankInput {
   @IsUUID()
   systemId?: string;
 
+  @Field(() => TankContainerKind, { nullable: true, defaultValue: TankContainerKind.TANK })
+  @IsOptional()
+  @IsEnum(TankContainerKind)
+  containerKind?: TankContainerKind;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsUUID()
+  equipmentTypeId?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  equipmentTypeCode?: string;
+
   // -------------------------------------------------------------------------
   // TİP VE MALZEME
   // -------------------------------------------------------------------------
@@ -270,6 +287,12 @@ export class CreateTankInput {
   @IsNumber()
   @Min(0)
   maxBiomass: number;
+
+  @Field(() => Float, { nullable: true, description: 'Manual volume for non-geometric pond/cage containers' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0.1)
+  volume?: number;
 
   @Field(() => Float, { defaultValue: 30 })
   @IsOptional()

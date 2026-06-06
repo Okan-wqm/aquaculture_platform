@@ -57,12 +57,10 @@ import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
  * The `/farms` suffix is the Socket.IO namespace exposed by `FarmGateway`.
  */
 function resolveFarmSocketUrl(): string {
-  const viteEnv = (import.meta as unknown as { env?: Record<string, string> })
-    .env;
+  const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env;
   const viteWsUrl = viteEnv?.['VITE_WS_URL'];
-  const runtimeConfig = (
-    window as unknown as { __RUNTIME_CONFIG__?: { WS_URL?: string } }
-  ).__RUNTIME_CONFIG__;
+  const runtimeConfig = (window as unknown as { __RUNTIME_CONFIG__?: { WS_URL?: string } })
+    .__RUNTIME_CONFIG__;
   const runtimeWsUrl = runtimeConfig?.WS_URL;
 
   const baseUrl = viteWsUrl || runtimeWsUrl || '';
@@ -128,6 +126,28 @@ const INVALIDATION_MAP = {
     ['storage', 'inventory'],
     ['feeds', 'inventory'],
   ],
+  siteCreated: [['sites']],
+  siteUpdated: [['sites']],
+  siteDeleted: [['sites'], ['departments'], ['systems'], ['equipment'], ['tanks']],
+  siteContactsChanged: [['sites']],
+  departmentCreated: [['departments'], ['sites']],
+  departmentUpdated: [['departments'], ['sites']],
+  departmentDeleted: [['departments'], ['sites'], ['systems'], ['equipment'], ['tanks']],
+  systemCreated: [['systems'], ['sites'], ['departments']],
+  systemUpdated: [['systems'], ['sites'], ['departments']],
+  systemDeleted: [['systems'], ['sites'], ['departments'], ['equipment']],
+  tankCreated: [['tanks'], ['equipment'], ['sites'], ['departments']],
+  tankUpdated: [['tanks'], ['equipment'], ['sites'], ['departments']],
+  tankStatusChanged: [['tanks'], ['equipment'], ['sites'], ['departments']],
+  tankDeleted: [['tanks'], ['equipment'], ['sites'], ['departments']],
+  equipmentCreated: [['equipment'], ['sites'], ['departments'], ['systems']],
+  equipmentUpdated: [['equipment'], ['sites'], ['departments'], ['systems']],
+  equipmentDeleted: [['equipment'], ['sites'], ['departments'], ['systems']],
+  subEquipmentCreated: [['equipment'], ['subEquipment']],
+  subEquipmentUpdated: [['equipment'], ['subEquipment']],
+  subEquipmentDeleted: [['equipment'], ['subEquipment']],
+  supplierApprovedSitesChanged: [['suppliers'], ['sites']],
+  feederCalibrationsSaved: [['feederCalibrations'], ['equipment']],
 } as const satisfies Record<string, readonly (readonly unknown[])[]>;
 
 type FarmEventName = keyof typeof INVALIDATION_MAP;

@@ -10,6 +10,7 @@ export * from './record-cull.command';
 export * from './close-batch.command';
 export * from './allocate-to-tank.command';
 export * from './transfer-batch.command';
+export * from './delete-batch.command';
 
 // Cleaner Fish Commands
 export * from './create-cleaner-batch.command';

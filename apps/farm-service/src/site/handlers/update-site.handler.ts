@@ -1,26 +1,26 @@
 /**
  * Update Site Command Handler
  */
-import { randomUUID } from 'crypto';
-
+import { ConflictException, NotFoundException, Logger } from '@nestjs/common';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
-import { ConflictException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
-import { SiteUpdatedEvent , createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { SiteUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { DataSource, Not } from 'typeorm';
 import { UpdateSiteCommand } from '../commands/update-site.command';
 import { Site } from '../entities/site.entity';
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { siteAuditSnapshot } from './site-audit.util';
 
 @CommandHandler(UpdateSiteCommand)
 export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand, Site> {
   private readonly logger = new Logger(UpdateSiteHandler.name);
 
   constructor(
-    @InjectRepository(Site)
-    private readonly siteRepository: Repository<Site>,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateSiteCommand): Promise<Site> {
@@ -28,63 +28,81 @@ export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand, Sit
 
     this.logger.log(`Updating site ${siteId} for tenant ${tenantId}`);
 
-    // Find existing site
-    const site = await this.siteRepository.findOne({
-      where: { id: siteId, tenantId },
-    });
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const siteRepository = tenantManagerRepo(queryRunner.manager, Site, tenantId);
 
-    if (!site) {
-      throw new NotFoundException(`Site with ID "${siteId}" not found`);
-    }
-
-    // Check for duplicate name if changing
-    if (input.name && input.name !== site.name) {
-      const existingByName = await this.siteRepository.findOne({
-        where: { tenantId, name: input.name, id: Not(siteId) },
+      const site = await siteRepository.findOne({
+        where: { id: siteId, tenantId },
       });
-      if (existingByName) {
-        throw new ConflictException(`Site with name "${input.name}" already exists`);
-      }
-    }
 
-    // Check for duplicate code if changing
-    if (input.code && input.code !== site.code) {
-      const existingByCode = await this.siteRepository.findOne({
-        where: { tenantId, code: input.code, id: Not(siteId) },
+      if (!site) {
+        throw new NotFoundException(`Site with ID "${siteId}" not found`);
+      }
+
+      const before = siteAuditSnapshot(site);
+
+      if (input.name && input.name !== site.name) {
+        const existingByName = await siteRepository.findOne({
+          where: { name: input.name, id: Not(siteId), tenantId },
+        });
+        if (existingByName) {
+          throw new ConflictException(`Site with name "${input.name}" already exists`);
+        }
+      }
+
+      const normalizedCode = input.code ? input.code.toUpperCase() : undefined;
+      if (normalizedCode && normalizedCode !== site.code) {
+        const existingByCode = await siteRepository.findOne({
+          where: { code: normalizedCode, id: Not(siteId), tenantId },
+        });
+        if (existingByCode) {
+          throw new ConflictException(`Site with code "${input.code}" already exists`);
+        }
+      }
+
+      Object.assign(site, {
+        ...input,
+        code: normalizedCode ?? site.code,
+        updatedBy: userId,
       });
-      if (existingByCode) {
-        throw new ConflictException(`Site with code "${input.code}" already exists`);
+      if (Object.prototype.hasOwnProperty.call(input, 'totalArea')) {
+        site.areaM2 = input.totalArea;
       }
-    }
 
-    // Update fields
-    Object.assign(site, {
-      ...input,
-      code: input.code ? input.code.toUpperCase() : site.code,
-      updatedBy: userId,
+      const updatedSite = await siteRepository.save(site);
+
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'Site',
+        entityId: updatedSite.id,
+        action: AuditAction.UPDATE,
+        userId,
+        changes: {
+          before,
+          after: siteAuditSnapshot(updatedSite),
+        },
+        metadata: { source: 'SITES_SETUP' },
+        entityVersion: updatedSite.version,
+        summary: `Updated site ${updatedSite.code}`,
+      });
+
+      const event: SiteUpdatedEvent = {
+        ...createBaseEvent<SiteUpdatedEvent>('SiteUpdated', tenantId, {
+          aggregateId: updatedSite.id,
+          aggregateType: 'Site',
+          userId,
+        }),
+        siteId: updatedSite.id,
+        name: updatedSite.name,
+        code: updatedSite.code,
+        status: updatedSite.status,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        aggregateId: updatedSite.id,
+      });
+
+      this.logger.log(`Site ${siteId} updated successfully`);
+      return updatedSite;
     });
-
-    const updatedSite = await this.siteRepository.save(site);
-
-    this.logger.log(`Site ${siteId} updated successfully`);
-
-    // Publish domain event: SiteUpdated
-    if (this.eventBus) {
-      try {
-        const event: SiteUpdatedEvent = {
-          ...createBaseEvent<SiteUpdatedEvent>('SiteUpdated', tenantId),
-          siteId: updatedSite.id,
-          name: updatedSite.name,
-          code: updatedSite.code,
-          status: updatedSite.status,
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published SiteUpdatedEvent for site ${updatedSite.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish SiteUpdatedEvent: ${(eventError as Error).message}`);
-      }
-    }
-
-    return updatedSite;
   }
 }

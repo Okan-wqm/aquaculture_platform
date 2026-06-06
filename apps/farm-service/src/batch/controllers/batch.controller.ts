@@ -1,7 +1,9 @@
 /**
  * Batch Controller
  *
- * REST API endpoints for batch management.
+ * Deprecated REST compatibility endpoints for batch management.
+ * All state changes are routed through CQRS handlers; verified gateway
+ * assertions are the only tenant/actor authority.
  *
  * @module Batch
  */
@@ -14,18 +16,36 @@ import {
   Body,
   Param,
   Query,
-  Headers,
+  Req,
   HttpStatus,
   HttpCode,
   ParseUUIDPipe,
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
+import type { TenantRequest } from '@aquaculture/backend-common/types';
+import type { Role } from '@aquaculture/backend-common/decorators';
+import { CommandBus, PaginatedQueryResult, QueryBus } from '@platform/cqrs';
+
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { BatchService, CreateBatchInput, AllocateBatchInput, RecordOperationInput } from '../services/batch.service';
-import { BatchStatus } from '../entities/batch.entity';
-import { AllocationType } from '../entities/tank-allocation.entity';
-import { OperationType } from '../entities/tank-operation.entity';
+import {
+  AllocateToTankCommand,
+  AllocationType,
+  CreateBatchCommand,
+  CullReason,
+  DeleteBatchCommand,
+  MortalityReason,
+  RecordCullCommand,
+  RecordMortalityCommand,
+  TransferBatchCommand,
+  UpdateBatchCommand,
+  UpdateBatchStatusCommand,
+} from '../commands';
+import { BatchInputType, BatchStatus } from '../entities/batch.entity';
+import { BatchService } from '../services/batch.service';
+import { GetBatchPerformanceQuery, GetBatchQuery, ListBatchesQuery } from '../queries';
+import { CreateHarvestRecordCommand } from '../../harvest/commands/create-harvest-record.command';
+import { QualityGrade } from '../../harvest/entities/harvest-record.entity';
 
 /**
  * Interface for batch list filters
@@ -36,16 +56,10 @@ interface BatchListFilters {
   isActive?: boolean;
 }
 
-/**
- * Interface for batch update payload
- */
-interface BatchUpdatePayload {
-  name?: string;
-  description?: string;
-  status?: BatchStatus;
-  expectedHarvestDate?: Date;
-  notes?: string;
-  updatedBy: string;
+interface VerifiedBatchContext {
+  tenantId: string;
+  actorUserId: string;
+  roles: Role[];
 }
 
 // ============================================================================
@@ -132,6 +146,33 @@ class BatchListQueryDto {
   isActive?: string;
 }
 
+function verifiedContext(req: TenantRequest): VerifiedBatchContext {
+  const tenantId = req.verifiedUserAssertion?.effectiveTenantId ?? req.user?.tenantId ?? req.tenantId;
+  const actorUserId = req.verifiedUserAssertion?.subject ?? req.user?.sub;
+
+  if (!tenantId || !actorUserId) {
+    throw new BadRequestException('Verified tenant context is required');
+  }
+
+  return {
+    tenantId,
+    actorUserId,
+    roles: (req.verifiedUserAssertion?.roles ?? req.user?.roles ?? []) as Role[],
+  };
+}
+
+function parseMortalityReason(value: string | undefined): MortalityReason {
+  return Object.values(MortalityReason).includes(value as MortalityReason)
+    ? (value as MortalityReason)
+    : MortalityReason.OTHER;
+}
+
+function parseCullReason(value: string | undefined): CullReason {
+  return Object.values(CullReason).includes(value as CullReason)
+    ? (value as CullReason)
+    : CullReason.OTHER;
+}
+
 // ============================================================================
 // CONTROLLER
 // ============================================================================
@@ -139,7 +180,11 @@ class BatchListQueryDto {
 @UseGuards(JwtAuthGuard)
 @Controller('batches')
 export class BatchController {
-  constructor(private readonly batchService: BatchService) {}
+  constructor(
+    private readonly commandBus: CommandBus,
+    private readonly queryBus: QueryBus,
+    private readonly batchService: BatchService,
+  ) {}
 
   // -------------------------------------------------------------------------
   // BATCH CRUD
@@ -151,30 +196,29 @@ export class BatchController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createBatch(
-    @Headers('x-tenant-id') tenantId: string,
-    @Headers('x-user-id') userId: string,
+    @Req() req: TenantRequest,
     @Body() dto: CreateBatchDto,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
+    const { tenantId, actorUserId } = verifiedContext(req);
 
-    const input: CreateBatchInput = {
-      tenantId,
-      batchNumber: dto.batchNumber,
-      speciesId: dto.speciesId,
-      inputType: dto.inputType,
-      initialQuantity: dto.initialQuantity,
-      initialAvgWeightG: dto.initialAvgWeightG,
-      stockedAt: new Date(dto.stockedAt),
-      supplierId: dto.supplierId,
-      purchaseCost: dto.purchaseCost,
-      currency: dto.currency,
-      notes: dto.notes,
-      createdBy: userId || 'system',
-    };
-
-    const batch = await this.batchService.createBatch(input);
+    const batch = await this.commandBus.execute(
+      new CreateBatchCommand(
+        tenantId,
+        {
+          batchNumber: dto.batchNumber,
+          speciesId: dto.speciesId,
+          inputType: dto.inputType as BatchInputType,
+          initialQuantity: dto.initialQuantity,
+          initialAvgWeightG: dto.initialAvgWeightG,
+          stockedAt: new Date(dto.stockedAt),
+          supplierId: dto.supplierId,
+          purchaseCost: dto.purchaseCost,
+          currency: dto.currency,
+          notes: dto.notes,
+        },
+        actorUserId,
+      ),
+    );
 
     return {
       success: true,
@@ -187,13 +231,10 @@ export class BatchController {
    */
   @Get()
   async listBatches(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() req: TenantRequest,
     @Query() query: BatchListQueryDto,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
-
+    const { tenantId } = verifiedContext(req);
     const filters: BatchListFilters = {};
 
     if (query.status) {
@@ -208,12 +249,15 @@ export class BatchController {
       filters.isActive = query.isActive === 'true';
     }
 
-    const batches = await this.batchService.findAllBatches(tenantId, filters);
+    const batches = await this.queryBus.execute<ListBatchesQuery, PaginatedQueryResult<unknown>>(
+      new ListBatchesQuery(tenantId, filters),
+    );
 
     return {
       success: true,
-      data: batches,
-      total: batches.length,
+      data: batches.data,
+      total: batches.pagination.total,
+      pagination: batches.pagination,
     };
   }
 
@@ -222,14 +266,11 @@ export class BatchController {
    */
   @Get(':id')
   async getBatch(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() req: TenantRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
-
-    const batch = await this.batchService.findBatchById(id, tenantId);
+    const { tenantId } = verifiedContext(req);
+    const batch = await this.queryBus.execute(new GetBatchQuery(tenantId, id));
 
     return {
       success: true,
@@ -242,32 +283,37 @@ export class BatchController {
    */
   @Put(':id')
   async updateBatch(
-    @Headers('x-tenant-id') tenantId: string,
-    @Headers('x-user-id') userId: string,
+    @Req() req: TenantRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateBatchDto,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
+    const { tenantId, actorUserId } = verifiedContext(req);
+
+    const batch = await this.commandBus.execute(
+      new UpdateBatchCommand(
+        tenantId,
+        id,
+        {
+          name: dto.name,
+          description: dto.description,
+          notes: dto.notes,
+          expectedHarvestDate: dto.expectedHarvestDate
+            ? new Date(dto.expectedHarvestDate)
+            : undefined,
+        },
+        actorUserId,
+      ),
+    );
+
+    if (dto.status) {
+      await this.commandBus.execute(
+        new UpdateBatchStatusCommand(tenantId, id, dto.status, undefined, actorUserId),
+      );
     }
-
-    const updates: BatchUpdatePayload = {
-      name: dto.name,
-      description: dto.description,
-      status: dto.status,
-      notes: dto.notes,
-      updatedBy: userId || 'system',
-    };
-
-    if (dto.expectedHarvestDate) {
-      updates.expectedHarvestDate = new Date(dto.expectedHarvestDate);
-    }
-
-    const batch = await this.batchService.updateBatch(id, tenantId, updates);
 
     return {
       success: true,
-      data: batch,
+      data: dto.status ? await this.queryBus.execute(new GetBatchQuery(tenantId, id)) : batch,
     };
   }
 
@@ -277,15 +323,11 @@ export class BatchController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteBatch(
-    @Headers('x-tenant-id') tenantId: string,
-    @Headers('x-user-id') userId: string,
+    @Req() req: TenantRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
-
-    await this.batchService.deleteBatch(id, tenantId, userId || 'system');
+    const { tenantId, actorUserId } = verifiedContext(req);
+    await this.commandBus.execute(new DeleteBatchCommand({ tenantId, batchId: id, actorUserId }));
   }
 
   // -------------------------------------------------------------------------
@@ -298,27 +340,27 @@ export class BatchController {
   @Post(':id/allocate')
   @HttpCode(HttpStatus.CREATED)
   async allocateBatch(
-    @Headers('x-tenant-id') tenantId: string,
-    @Headers('x-user-id') userId: string,
+    @Req() req: TenantRequest,
     @Param('id', ParseUUIDPipe) batchId: string,
     @Body() dto: AllocateBatchDto,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
+    const { tenantId, actorUserId, roles } = verifiedContext(req);
 
-    const input: AllocateBatchInput = {
-      tenantId,
-      batchId,
-      tankId: dto.tankId,
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      allocationType: dto.allocationType,
-      allocatedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    const allocation = await this.batchService.allocateBatchToTank(input);
+    const allocation = await this.commandBus.execute(
+      new AllocateToTankCommand(
+        tenantId,
+        batchId,
+        {
+          tankId: dto.tankId,
+          quantity: dto.quantity,
+          avgWeightG: dto.avgWeightG,
+          allocationType: dto.allocationType,
+          notes: dto.notes,
+        },
+        actorUserId,
+        roles,
+      ),
+    );
 
     return {
       success: true,
@@ -331,13 +373,10 @@ export class BatchController {
    */
   @Get(':id/allocations')
   async getBatchAllocations(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() req: TenantRequest,
     @Param('id', ParseUUIDPipe) batchId: string,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
-
+    const { tenantId } = verifiedContext(req);
     const allocations = await this.batchService.getBatchAllocations(batchId, tenantId);
 
     return {
@@ -351,13 +390,10 @@ export class BatchController {
    */
   @Get(':id/operations')
   async getBatchOperations(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() req: TenantRequest,
     @Param('id', ParseUUIDPipe) batchId: string,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
-
+    const { tenantId } = verifiedContext(req);
     const operations = await this.batchService.getBatchOperations(batchId, tenantId);
 
     return {
@@ -371,35 +407,15 @@ export class BatchController {
    */
   @Get(':id/metrics')
   async getBatchMetrics(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() req: TenantRequest,
     @Param('id', ParseUUIDPipe) batchId: string,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
-
-    const batch = await this.batchService.updateBatchMetrics(batchId, tenantId);
+    const { tenantId } = verifiedContext(req);
+    const metrics = await this.queryBus.execute(new GetBatchPerformanceQuery(tenantId, batchId));
 
     return {
       success: true,
-      data: {
-        batchId: batch.id,
-        batchNumber: batch.batchNumber,
-        initialQuantity: batch.initialQuantity,
-        currentQuantity: batch.currentQuantity,
-        totalMortality: batch.totalMortality,
-        cullCount: batch.cullCount,
-        survivalRate: batch.getSurvivalRate(),
-        retentionRate: batch.retentionRate,
-        fcr: batch.fcr.actual,
-        sgr: batch.sgr,
-        daysInProduction: batch.getDaysInProduction(),
-        currentBiomass: batch.getCurrentBiomass(),
-        currentAvgWeight: batch.getCurrentAvgWeight(),
-        totalFeedConsumed: batch.totalFeedConsumed,
-        totalFeedCost: batch.totalFeedCost,
-        costPerKg: batch.costPerKg,
-      },
+      data: metrics,
     };
   }
 }
@@ -411,7 +427,10 @@ export class BatchController {
 @UseGuards(JwtAuthGuard)
 @Controller('tank-operations')
 export class TankOperationsController {
-  constructor(private readonly batchService: BatchService) {}
+  constructor(
+    private readonly commandBus: CommandBus,
+    private readonly batchService: BatchService,
+  ) {}
 
   /**
    * POST /api/tank-operations/mortality - Ölüm kaydı
@@ -419,29 +438,28 @@ export class TankOperationsController {
   @Post('mortality')
   @HttpCode(HttpStatus.CREATED)
   async recordMortality(
-    @Headers('x-tenant-id') tenantId: string,
-    @Headers('x-user-id') userId: string,
+    @Req() req: TenantRequest,
     @Body() dto: RecordMortalityDto,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
+    const { tenantId, actorUserId } = verifiedContext(req);
 
-    const input: RecordOperationInput = {
-      tenantId,
-      tankId: dto.tankId,
-      batchId: dto.batchId,
-      operationType: OperationType.MORTALITY,
-      operationDate: new Date(dto.operationDate),
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      reason: dto.reason,
-      detail: dto.detail,
-      performedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    const operation = await this.batchService.recordOperation(input);
+    const operation = await this.commandBus.execute(
+      new RecordMortalityCommand(
+        tenantId,
+        dto.batchId,
+        {
+          tankId: dto.tankId,
+          quantity: dto.quantity,
+          avgWeightG: dto.avgWeightG,
+          reason: parseMortalityReason(dto.reason),
+          detail: dto.detail,
+          observedAt: new Date(dto.operationDate),
+          observedBy: actorUserId,
+          notes: dto.notes,
+        },
+        actorUserId,
+      ),
+    );
 
     return {
       success: true,
@@ -455,29 +473,27 @@ export class TankOperationsController {
   @Post('cull')
   @HttpCode(HttpStatus.CREATED)
   async recordCull(
-    @Headers('x-tenant-id') tenantId: string,
-    @Headers('x-user-id') userId: string,
+    @Req() req: TenantRequest,
     @Body() dto: RecordCullDto,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
+    const { tenantId, actorUserId } = verifiedContext(req);
 
-    const input: RecordOperationInput = {
-      tenantId,
-      tankId: dto.tankId,
-      batchId: dto.batchId,
-      operationType: OperationType.CULL,
-      operationDate: new Date(dto.operationDate),
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      reason: dto.reason,
-      detail: dto.detail,
-      performedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    const operation = await this.batchService.recordOperation(input);
+    const operation = await this.commandBus.execute(
+      new RecordCullCommand(
+        tenantId,
+        dto.batchId,
+        {
+          tankId: dto.tankId,
+          quantity: dto.quantity,
+          avgWeightG: dto.avgWeightG,
+          reason: parseCullReason(dto.reason),
+          detail: dto.detail,
+          culledAt: new Date(dto.operationDate),
+          notes: dto.notes,
+        },
+        actorUserId,
+      ),
+    );
 
     return {
       success: true,
@@ -491,50 +507,32 @@ export class TankOperationsController {
   @Post('transfer')
   @HttpCode(HttpStatus.CREATED)
   async recordTransfer(
-    @Headers('x-tenant-id') tenantId: string,
-    @Headers('x-user-id') userId: string,
+    @Req() req: TenantRequest,
     @Body() dto: RecordTransferDto,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
+    const { tenantId, actorUserId } = verifiedContext(req);
 
-    // Source tank'tan çıkış
-    const transferOut: RecordOperationInput = {
-      tenantId,
-      tankId: dto.tankId,
-      batchId: dto.batchId,
-      operationType: OperationType.TRANSFER_OUT,
-      operationDate: new Date(dto.operationDate),
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      destinationTankId: dto.destinationTankId,
-      reason: dto.reason,
-      performedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    await this.batchService.recordOperation(transferOut);
-
-    // Destination tank'a giriş
-    const transferIn: RecordOperationInput = {
-      tenantId,
-      tankId: dto.destinationTankId,
-      batchId: dto.batchId,
-      operationType: OperationType.TRANSFER_IN,
-      operationDate: new Date(dto.operationDate),
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      performedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    const operation = await this.batchService.recordOperation(transferIn);
+    const operation = await this.commandBus.execute(
+      new TransferBatchCommand(
+        tenantId,
+        dto.batchId,
+        {
+          sourceTankId: dto.tankId,
+          destinationTankId: dto.destinationTankId,
+          quantity: dto.quantity,
+          avgWeightG: dto.avgWeightG,
+          transferReason: dto.reason,
+          transferredAt: new Date(dto.operationDate),
+          notes: dto.notes,
+        },
+        actorUserId,
+      ),
+    );
 
     return {
       success: true,
       data: operation,
-      message: `${dto.quantity} adet ${dto.tankId} → ${dto.destinationTankId} transfer edildi`,
+      message: `${dto.quantity} adet ${dto.tankId} -> ${dto.destinationTankId} transfer edildi`,
     };
   }
 
@@ -544,27 +542,30 @@ export class TankOperationsController {
   @Post('harvest')
   @HttpCode(HttpStatus.CREATED)
   async recordHarvest(
-    @Headers('x-tenant-id') tenantId: string,
-    @Headers('x-user-id') userId: string,
+    @Req() req: TenantRequest,
     @Body() dto: RecordHarvestDto,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
+    const { tenantId, actorUserId } = verifiedContext(req);
+    const totalBiomass = dto.totalWeightKg ?? (dto.quantity * (dto.avgWeightG ?? 0)) / 1000;
 
-    const input: RecordOperationInput = {
-      tenantId,
-      tankId: dto.tankId,
-      batchId: dto.batchId,
-      operationType: OperationType.HARVEST,
-      operationDate: new Date(dto.operationDate),
-      quantity: dto.quantity,
-      avgWeightG: dto.avgWeightG,
-      performedBy: userId || 'system',
-      notes: dto.notes,
-    };
-
-    const operation = await this.batchService.recordOperation(input);
+    const operation = await this.commandBus.execute(
+      new CreateHarvestRecordCommand(
+        tenantId,
+        {
+          tankId: dto.tankId,
+          batchId: dto.batchId,
+          quantityHarvested: dto.quantity,
+          averageWeight: dto.avgWeightG ?? 0,
+          totalBiomass,
+          qualityGrade: QualityGrade.GRADE_A,
+          harvestDate: new Date(dto.operationDate),
+          pricePerKg: dto.pricePerKg,
+          buyerName: dto.buyer,
+          notes: dto.notes,
+        },
+        actorUserId,
+      ),
+    );
 
     return {
       success: true,
@@ -577,13 +578,10 @@ export class TankOperationsController {
    */
   @Get('tank/:tankId')
   async getTankOperations(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() req: TenantRequest,
     @Param('tankId', ParseUUIDPipe) tankId: string,
   ) {
-    if (!tenantId) {
-      throw new BadRequestException('x-tenant-id header is required');
-    }
-
+    const { tenantId } = verifiedContext(req);
     const tankBatch = await this.batchService.getTankBatchStatus(tankId, tenantId);
 
     return {

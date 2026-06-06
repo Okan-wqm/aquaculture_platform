@@ -1,26 +1,30 @@
 /**
  * Update System Command Handler
  */
-import { randomUUID } from 'crypto';
-
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
+import {
+  runInTenantTransaction,
+  tenantManagerRepo,
+  TenantScopedRepository,
+} from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not } from 'typeorm';
-import { ConflictException, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
-import { SystemUpdatedEvent , createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { SystemUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { DataSource, Not } from 'typeorm';
 import { UpdateSystemCommand } from '../commands/update-system.command';
 import { System } from '../entities/system.entity';
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { systemAuditSnapshot } from './system-audit.util';
 
 @CommandHandler(UpdateSystemCommand)
 export class UpdateSystemHandler implements ICommandHandler<UpdateSystemCommand, System> {
   private readonly logger = new Logger(UpdateSystemHandler.name);
 
   constructor(
-    @InjectRepository(System)
-    private readonly systemRepository: Repository<System>,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateSystemCommand): Promise<System> {
@@ -29,93 +33,115 @@ export class UpdateSystemHandler implements ICommandHandler<UpdateSystemCommand,
 
     this.logger.log(`Updating system ${systemId} for tenant ${tenantId}`);
 
-    // Find existing system
-    const system = await this.systemRepository.findOne({
-      where: { id: systemId, tenantId, isDeleted: false },
-    });
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
 
-    if (!system) {
-      throw new NotFoundException(`System with ID "${systemId}" not found`);
-    }
-
-    // Check for duplicate code if changing
-    if (input.code && input.code !== system.code) {
-      const existingByCode = await this.systemRepository.findOne({
-        where: { tenantId, siteId: system.siteId, code: input.code, id: Not(systemId) },
+      const system = await systemRepository.findOne({
+        where: { id: systemId, isDeleted: false, tenantId },
       });
-      if (existingByCode) {
-        throw new ConflictException(`System with code "${input.code}" already exists in this site`);
+
+      if (!system) {
+        throw new NotFoundException(`System with ID "${systemId}" not found`);
       }
-    }
 
-    // Validate parent system if changing
-    if (input.parentSystemId !== undefined) {
-      if (input.parentSystemId) {
-        // Prevent self-reference
-        if (input.parentSystemId === systemId) {
-          throw new BadRequestException('A system cannot be its own parent');
-        }
+      const before = systemAuditSnapshot(system);
 
-        // Verify parent exists
-        const parentSystem = await this.systemRepository.findOne({
-          where: { id: input.parentSystemId, tenantId, isDeleted: false },
+      const normalizedCode = input.code ? input.code.toUpperCase() : undefined;
+      if (normalizedCode && normalizedCode !== system.code) {
+        const existingByCode = await systemRepository.findOne({
+          where: { siteId: system.siteId, code: normalizedCode, id: Not(systemId), tenantId },
         });
-        if (!parentSystem) {
-          throw new NotFoundException(`Parent system with ID "${input.parentSystemId}" not found`);
+        if (existingByCode) {
+          throw new ConflictException(
+            `System with code "${input.code}" already exists in this site`,
+          );
         }
-
-        // Check for circular reference
-        await this.checkCircularReference(systemId, input.parentSystemId, tenantId);
       }
-    }
 
-    // Update fields
-    const updateData: Partial<System> = {
-      updatedBy: userId,
-    };
+      if (input.parentSystemId !== undefined) {
+        if (input.parentSystemId) {
+          if (input.parentSystemId === systemId) {
+            throw new BadRequestException('A system cannot be its own parent');
+          }
 
-    if (input.name !== undefined) updateData.name = input.name;
-    if (input.code !== undefined) updateData.code = input.code.toUpperCase();
-    if (input.type !== undefined) updateData.type = input.type;
-    if (input.status !== undefined) updateData.status = input.status;
-    if (input.description !== undefined) updateData.description = input.description;
-    if (input.departmentId !== undefined) updateData.departmentId = input.departmentId;
-    if (input.parentSystemId !== undefined) updateData.parentSystemId = input.parentSystemId;
-    if (input.totalVolumeM3 !== undefined) updateData.totalVolumeM3 = input.totalVolumeM3;
-    if (input.maxBiomassKg !== undefined) updateData.maxBiomassKg = input.maxBiomassKg;
-    if (input.tankCount !== undefined) updateData.tankCount = input.tankCount;
-    if (input.isActive !== undefined) updateData.isActive = input.isActive;
+          const parentSystem = await systemRepository.findOne({
+            where: { id: input.parentSystemId, isDeleted: false, tenantId },
+          });
+          if (!parentSystem) {
+            throw new NotFoundException(
+              `Parent system with ID "${input.parentSystemId}" not found`,
+            );
+          }
+          if (parentSystem.siteId !== system.siteId) {
+            throw new BadRequestException(
+              `Parent system with ID "${input.parentSystemId}" does not belong to Site "${system.siteId}"`,
+            );
+          }
 
-    Object.assign(system, updateData);
-
-    const updatedSystem = await this.systemRepository.save(system);
-
-    this.logger.log(`System ${systemId} updated successfully`);
-
-    // Publish domain event: SystemUpdated
-    if (this.eventBus) {
-      try {
-        const event: SystemUpdatedEvent = {
-          ...createBaseEvent<SystemUpdatedEvent>('SystemUpdated', tenantId),
-          systemId: updatedSystem.id,
-          siteId: updatedSystem.siteId,
-          name: updatedSystem.name,
-          status: updatedSystem.status,
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published SystemUpdatedEvent for system ${updatedSystem.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish SystemUpdatedEvent: ${(eventError as Error).message}`);
+          await this.checkCircularReference(systemRepository, systemId, input.parentSystemId, tenantId);
+        }
       }
-    }
 
-    return updatedSystem;
+      const updateData: Partial<System> = {
+        updatedBy: userId,
+      };
+
+      if (input.name !== undefined) updateData.name = input.name;
+      if (normalizedCode !== undefined) updateData.code = normalizedCode;
+      if (input.type !== undefined) updateData.type = input.type;
+      if (input.status !== undefined) updateData.status = input.status;
+      if (input.description !== undefined) updateData.description = input.description;
+      if (input.departmentId !== undefined) updateData.departmentId = input.departmentId;
+      if (input.parentSystemId !== undefined) updateData.parentSystemId = input.parentSystemId;
+      if (input.totalVolumeM3 !== undefined) updateData.totalVolumeM3 = input.totalVolumeM3;
+      if (input.maxBiomassKg !== undefined) updateData.maxBiomassKg = input.maxBiomassKg;
+      if (input.tankCount !== undefined) updateData.tankCount = input.tankCount;
+      if (input.isActive !== undefined) updateData.isActive = input.isActive;
+
+      Object.assign(system, updateData);
+
+      const updatedSystem = await systemRepository.save(system);
+
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'System',
+        entityId: updatedSystem.id,
+        action: AuditAction.UPDATE,
+        userId,
+        changes: {
+          before,
+          after: systemAuditSnapshot(updatedSystem),
+        },
+        metadata: { source: 'SITES_SETUP' },
+        entityVersion: updatedSystem.version,
+        summary: `Updated system ${updatedSystem.code}`,
+      });
+
+      const event: SystemUpdatedEvent = {
+        ...createBaseEvent<SystemUpdatedEvent>('SystemUpdated', tenantId, {
+          aggregateId: updatedSystem.id,
+          aggregateType: 'System',
+          userId,
+        }),
+        systemId: updatedSystem.id,
+        siteId: updatedSystem.siteId,
+        name: updatedSystem.name,
+        status: updatedSystem.status,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        aggregateId: updatedSystem.id,
+      });
+
+      this.logger.log(`System ${systemId} updated successfully`);
+      return updatedSystem;
+    });
   }
 
   /**
    * Check for circular reference in parent-child hierarchy
    */
   private async checkCircularReference(
+    systemRepository: TenantScopedRepository<System>,
     systemId: string,
     newParentId: string,
     tenantId: string,
@@ -128,11 +154,13 @@ export class UpdateSystemHandler implements ICommandHandler<UpdateSystemCommand,
         throw new BadRequestException('Circular reference detected in system hierarchy');
       }
       if (currentParentId === systemId) {
-        throw new BadRequestException('This would create a circular reference in the system hierarchy');
+        throw new BadRequestException(
+          'This would create a circular reference in the system hierarchy',
+        );
       }
       visited.add(currentParentId);
 
-      const parent = await this.systemRepository.findOne({
+      const parent = await systemRepository.findOne({
         where: { id: currentParentId, tenantId },
         select: ['id', 'parentSystemId'],
       });

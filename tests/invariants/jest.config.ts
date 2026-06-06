@@ -138,6 +138,7 @@ export default {
         '<rootDir>/farm-rest-cqrs-ssot.spec.ts',
         '<rootDir>/farm-batch-policy-transaction-ssot.spec.ts',
         '<rootDir>/farm-site-system-eventing-transaction-ssot.spec.ts',
+        '<rootDir>/sites-setup-remediation-plan-contract.spec.ts',
         '<rootDir>/strip-internal-headers-mounted.spec.ts',
         '<rootDir>/spec-module-mode.spec.ts',
         '<rootDir>/aria-workflow-sha-pin.spec.ts',

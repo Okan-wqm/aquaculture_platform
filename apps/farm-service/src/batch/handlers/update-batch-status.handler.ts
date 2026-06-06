@@ -10,16 +10,17 @@
  *
  * @module Batch/Handlers
  */
-import { randomUUID } from 'crypto';
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import type { BatchStatusChangedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
+import { BatchLifecyclePolicyService } from '../services/batch-lifecycle-policy.service';
 
 @Injectable()
 @CommandHandler(UpdateBatchStatusCommand)
@@ -29,23 +30,18 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @InjectRepository(Batch)
-    private readonly batchRepository: Repository<Batch>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly lifecyclePolicy: BatchLifecyclePolicyService,
   ) {}
 
   async execute(command: UpdateBatchStatusCommand): Promise<Batch> {
     const { tenantId, batchId, newStatus, reason, updatedBy } = command;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    let savedBatch: Batch;
-    try {
+    const savedBatch = await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const batchRepo = tenantManagerRepo(queryRunner.manager, Batch, tenantId);
       // Pessimistic lock: prevents concurrent status transitions racing through
       // canTransitionTo() check before either commits (same pattern as CloseBatchHandler).
-      const batch = await queryRunner.manager.findOne(Batch, {
+      const batch = await batchRepo.findOne({
         where: { id: batchId, tenantId, isActive: true },
         lock: { mode: 'pessimistic_write' },
       });
@@ -54,12 +50,7 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
         throw new NotFoundException(`Batch ${batchId} bulunamadı`);
       }
 
-      if (!batch.canTransitionTo(newStatus)) {
-        throw new BadRequestException(
-          `Geçersiz status geçişi: ${batch.status} -> ${newStatus}. ` +
-          `Bu batch ${batch.status} durumundan ${newStatus} durumuna geçemez.`
-        );
-      }
+      this.lifecyclePolicy.assertCanTransitionStatus(batch, newStatus);
 
       const previousStatus = batch.status;
       const statusChangedAt = new Date();
@@ -82,7 +73,7 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
           break;
       }
 
-      savedBatch = await queryRunner.manager.save(Batch, batch);
+      const savedBatch = await batchRepo.save(batch);
 
       // Enqueue BatchStatusChangedEvent into the transactional outbox BEFORE commit.
       const statusEvent: BatchStatusChangedEvent = {
@@ -96,15 +87,9 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
       };
       await this.outboxPublisher.enqueue(statusEvent, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
-
       this.logger.log(`Batch ${batchId} status: ${previousStatus} → ${newStatus}, tenant: ${tenantId}`);
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+      return savedBatch;
+    });
 
     return savedBatch;
   }

@@ -3714,3 +3714,13 @@ Root cause: the resolver contract and DTO boundary were coupled to persistence e
 Fix: add an effective runtime configuration DTO and public resolver contract tests, introduce config tombstone lifecycle columns/migration, and update handlers/query paths to respect tombstones while keeping fallback and redaction explicit. The app module now registers the effective resolver path without exposing raw configuration entities as public runtime output.
 
 Status: RESOLVED on `feat/config-service-runtime-behavior-20260606`.
+
+## ORPHAN-HIGH-083 — Farm setup writes, documents, and batch policies were not bound to tenant transaction, audit, and outbox invariants
+
+Severity: HIGH. Farm setup and batch write paths still had gaps where REST controllers or handlers could bypass CQRS/tenant transaction boundaries, emit events outside the canonical outbox, or rely on runtime schema repair for existing tenants. Document metadata also lacked a canonical tenant table and cleanup provider, and Sentinel proxy access policy was not guarded by focused tests.
+
+Root cause: farm enterprise hardening had been implemented in pieces: batch lifecycle rules, site/system/equipment/tank setup writes, outbox/inbox migrations, document records, metrics, and realtime propagation were not tied together by one invariant-backed contract. That left setup migration status dependent on narrative docs and manual review rather than executable gates.
+
+Fix: add farm outbox/inbox/document/tank setup migrations, CQRS-backed batch write adapters, setup handler transaction/audit/outbox utilities, farm document cleanup registration, Sentinel proxy policy tests, farm event registry/realtime bridge parity, and farm invariants for identity, REST/CQRS, batch policy, and setup eventing. Existing-tenant schema repair remains fail-closed outside explicit e2e bootstrap.
+
+Status: RESOLVED on `feat/farm-service-enterprise-train-20260606`.

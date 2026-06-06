@@ -10,6 +10,7 @@ import { RecordCullHandler } from './record-cull.handler';
 import { CloseBatchHandler } from './close-batch.handler';
 import { AllocateToTankHandler } from './allocate-to-tank.handler';
 import { TransferBatchHandler } from './transfer-batch.handler';
+import { DeleteBatchHandler } from './delete-batch.handler';
 
 // Cleaner Fish Handlers
 import { CreateCleanerBatchHandler } from './create-cleaner-batch.handler';
@@ -26,6 +27,7 @@ export * from './record-cull.handler';
 export * from './close-batch.handler';
 export * from './allocate-to-tank.handler';
 export * from './transfer-batch.handler';
+export * from './delete-batch.handler';
 
 // Cleaner Fish exports
 export * from './create-cleaner-batch.handler';
@@ -46,6 +48,7 @@ export const BatchCommandHandlers = [
   CloseBatchHandler,
   AllocateToTankHandler,
   TransferBatchHandler,
+  DeleteBatchHandler,
   // Cleaner Fish Handlers
   CreateCleanerBatchHandler,
   DeployCleanerFishHandler,

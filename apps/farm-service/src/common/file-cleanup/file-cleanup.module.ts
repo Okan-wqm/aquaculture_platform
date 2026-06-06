@@ -26,24 +26,21 @@ import { Repository } from 'typeorm';
 
 import { BatchDocument } from '../../batch/entities/batch-document.entity';
 import { Chemical } from '../../chemical/entities/chemical.entity';
+import { FarmDocument } from '../../document/entities/farm-document.entity';
 import { BatchDocumentPathProvider } from './batch-document-path.provider';
 import { ChemicalDocumentPathProvider } from './chemical-document-path.provider';
+import { FarmDocumentPathProvider } from './farm-document-path.provider';
 import { FarmOrphanCleanupService } from './farm-orphan-cleanup.service';
 import { FILE_REFERENCE_PROVIDERS } from './file-reference-provider';
 
 @Module({
-  imports: [
-    ConfigModule,
-    TypeOrmModule.forFeature([BatchDocument, Chemical]),
-  ],
+  imports: [ConfigModule, TypeOrmModule.forFeature([BatchDocument, Chemical, FarmDocument])],
   providers: [
     BatchDocumentPathProvider,
+    FarmDocumentPathProvider,
     {
       provide: ChemicalDocumentPathProvider,
-      useFactory: (
-        chemicalRepo: Repository<Chemical>,
-        config: ConfigService,
-      ) =>
+      useFactory: (chemicalRepo: Repository<Chemical>, config: ConfigService) =>
         new ChemicalDocumentPathProvider(
           chemicalRepo,
           config.get<string>('MINIO_BUCKET', 'farm-uploads'),
@@ -55,8 +52,9 @@ import { FILE_REFERENCE_PROVIDERS } from './file-reference-provider';
       useFactory: (
         batchProvider: BatchDocumentPathProvider,
         chemicalProvider: ChemicalDocumentPathProvider,
-      ) => [batchProvider, chemicalProvider],
-      inject: [BatchDocumentPathProvider, ChemicalDocumentPathProvider],
+        farmDocumentProvider: FarmDocumentPathProvider,
+      ) => [batchProvider, chemicalProvider, farmDocumentProvider],
+      inject: [BatchDocumentPathProvider, ChemicalDocumentPathProvider, FarmDocumentPathProvider],
     },
     FarmOrphanCleanupService,
   ],

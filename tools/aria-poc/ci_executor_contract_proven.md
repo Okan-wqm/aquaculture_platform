@@ -1,171 +1,79 @@
-# Claude Code CI Invocation Contract — Proven
+# Codex CLI CI Invocation Contract — Proven Target
 
-> **Plan ARIA-V3 Phase B1** — promotes the prior Phase 8 spike from
-> investigation status to load-bearing contract status. The argv shape
-> emitted by `tools/aria-poc/ci_executor.py` and
-> `tools/aria-poc/worker_executor.py` is now LOCKED by invariant
-> `I-V3-21` (`aria-kernel/tests/invariants/v3/test_phase_b1_argv_proven_workflow_hygiene.py`)
-> and must match this document byte-for-byte. Any kernel-side argv
-> change MUST update this document in the same commit; the invariant
-> test refuses to pass otherwise.
->
-> **Status:** kernel-side contract proven (argv shape, env transit,
-> redaction discipline). Live `claude` CLI version confirmation is the
-> operator's out-of-band action (single supervised invocation against
-> the installed binary) and updates the `verified_at_commit` +
-> `claude_cli_version_minimum` fields below.
->
-> **Predecessor:** DEBT-2026-05-08-001 (HIGH, opened 2026-05-08, due
-> 2026-06-07) — retired by this proven contract; B1 closes the
-> traceability finding.
+> **Plan 2026-05-25** — supersedes the Claude/Anthropic executor contract.
+> `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, and
+> `.github/workflows/aria-agent-executor.yml` must use this Codex-first
+> contract. Claude argv, OAuth-token, and Anthropic API-key paths are legacy
+> and must not be live execution authorities.
 
-## Proof of argv contract
-
-`proven_argv` (machine-parseable; I-V3-21 parses this YAML block and
-asserts the executor code constructs the same argv tuple).
+## Runtime Contract
 
 ```yaml
 ci_executor:
-  binary: claude
+  binary: codex
   argv:
-    - claude
-    - --print
-    - --agent
-    - "<subagent_type from request envelope>"
-    - --max-budget-usd
-    - "${MAX_BUDGET_USD_PER_RUN}"
-    - --output-format
-    - json
+    - codex
+    - exec
+    - --json
+    - -c
+    - 'model_reasoning_effort="xhigh"'
   stdin: "<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>"
-  stdout: "<expected_output_path from request row>"
+  persisted_output: "<sanitized aria/agent-response/v1 envelope at expected_output_path>"
+  raw_jsonl_persisted: false
   subprocess_timeout_seconds: "${MAX_TIMEOUT_SECONDS}"
   env_transit:
-    - CLAUDE_CODE_OAUTH_TOKEN
     - ARIA_LEASE_TOKEN
+    - CODEX_CLI_MOCK
+    - CODEX_CLI_MOCK_SOURCE
 worker_executor:
-  binary: claude
+  binary: codex
   argv:
-    - claude
-    - --print
-    - --agent
-    - "<target_agent from dispatch envelope>"
-    - --add-dir
-    - "<assigned worktree path>"
-    - --max-budget-usd
-    - "${MAX_BUDGET_USD_PER_RUN}"
+    - codex
+    - exec
+    - --json
+    - -c
+    - 'model_reasoning_effort="xhigh"'
   stdin: "<contents of aria-tools/dispatch/prompts/${ASSIGNMENT_ID}.md>"
+  cwd: "<assigned worktree path>"
+  raw_jsonl_persisted: false
   env_transit:
-    - CLAUDE_CODE_OAUTH_TOKEN
     - ARIA_LEASE_TOKEN
+    - CODEX_CLI_MOCK
 ```
 
-## Verification fields
+## Auth And Billing Policy
+
+* Default auth is ChatGPT-managed Codex CLI login on a trusted/private runner.
+* API-key mode is disallowed: `OPENAI_API_KEY` and `CODEX_API_KEY` must be absent unless a future ADR explicitly permits API billing.
+* `CODEX_OSS_DEBUG=1` is forbidden in real mode because it can expose raw prompts or model output.
+* Real mode must fail closed if `codex --version`, Codex auth/session preflight, JSONL event parsing, or usage extraction cannot be verified.
+* Budget enforcement in this mode tracks account/session/rate-limit headroom and token usage, not API-dollar spend.
+
+## Artifact Policy
+
+* Persist the sanitized `aria/agent-response/v1` envelope expected by the kernel, a sanitized transcript proof, and `aria-agent-executor-artifacts.json`.
+* The artifact manifest must bind request id, claim id, exact output path/hash, exact transcript path/hash, and `dlp_scan_clean=true`.
+* Do not upload raw Codex JSONL, raw prompts, raw responses, claims ledgers, runs ledgers, lease tokens, session tokens, or API keys.
+* GitHub Actions upload paths must come from the executor-emitted output/transcript step outputs plus the retained preflight and post-artifact manifests, with short retention and `if-no-files-found: error`.
+
+## Workflow Policy
+
+* Scheduled workflows run from the repository default branch and checkout the `main` target ref.
+* The executor job runs on a trusted self-hosted runner labelled `codex`; GitHub-hosted runners must not carry persisted ChatGPT-managed Codex auth.
+* `CODEX_CLI_MOCK` kill switch remains available for dry-runs.
+* Claude/Anthropic workflow secrets are not part of the live executor contract.
+
+## Verification Fields
 
 ```yaml
-verified_at_commit: V7-MODERNIZATION-COMMIT
-claude_cli_version_minimum: "2.1.140"
-verified_by_operator_handle: "@okan-wqm (V7 30-cycle parallel-consumer task)"
-verified_at_iso8601: "2026-05-17T08:00:00Z"
-finding_closed: DEBT-2026-05-08-001
+verification_mode: runtime-preflight
+verified_at_commit: ffdef128aee928ba09f8fceb847fa56ab6caa334
+codex_cli_version_minimum: codex-cli 0.135.0
+verified_by_operator_handle: github-actions:self-hosted-codex-runner
+verified_at_iso8601: workflow-run-time
+finding_closed: DEBT-2026-05-25-CODEX-MIGRATION
 ```
 
-> **V7 modernization note (2026-05-17):** The argv contract was
-> migrated from the legacy `claude code agent --subagent-type X
-> --prompt-file Y --output-path Z` shape to modern Claude Code CLI
-> 2.1.140's `claude --print --agent X` + stdin/stdout shape because
-> the `claude code` subcommand was REMOVED from the modern CLI. The
-> ci_executor's parallel-consumer mode (V7.4 skill_genesis_drainer
-> dispatch + V6.1 specialist_domain_review claims) is now exercisable
-> against the installed claude CLI. The legacy contract was never
-> live-verified (verification fields had carried PENDING-OPERATOR-
-> LIVE-INVOCATION since Plan ARIA-V3 §B1 closure); V7's parallel-
-> consumer requirement forced the modernization.
+The workflow enforces the minimum Codex CLI version and ChatGPT-managed auth at run time before any request is claimed. Static prose is not accepted as authority when the pre-flight fails.
 
-The kernel-side contract above is load-bearing AS OF this commit.
-The verification fields are populated by the operator's single
-supervised end-to-end live invocation:
-
-1. Operator sets `secrets.CLAUDE_CODE_OAUTH_TOKEN` and unsets
-   `vars.ARIA_MOCK_KILL_SWITCH` (or leaves unset — workflow default
-   is now `'false'`).
-2. Operator dispatches `aria-agent-executor.yml` against a synthetic
-   pending request with `mock=false`.
-3. Operator captures argv (via `ps` or workflow log diagnostic), CLI
-   stdout, the response envelope artefact, and the workflow return
-   code.
-4. Operator commits an update to this document filling the four
-   verification fields above; that commit closes the live-shakeout
-   half of B1.
-
-The kernel-side architectural prerequisites for that operator action
-are landed and locked NOW:
-
-* `claude` binary install step (pinned `@anthropic-ai/claude-code`
-  npm package) at workflow startup — invariant I-V3-22c.
-* `CLAUDE_CODE_OAUTH_TOKEN` presence pre-flight guard — invariant
-  I-V3-22b.
-* `vars.ARIA_MOCK_KILL_SWITCH` read AHEAD of the default — invariant
-  I-V3-22a. Operator opt-out path stays open.
-* `CLAUDE_CODE_MOCK` workflow default flipped `'true' → 'false'` —
-  invariant I-V3-22.
-* `mock_mode_default_flipped` audit event emitted on every workflow
-  invocation (Audittrail-HIGH-009) — invariant I-V3-23a.
-* `aria-agent-executor.yml` added to V2 I-25 `_GOVERNED_WORKFLOWS`
-  set — invariant I-V3-22d.
-
-## Lease-token redaction discipline (unchanged from spike)
-
-* Lease token MUST flow only through `ARIA_LEASE_TOKEN` env var; never
-  via argv (`ps`, GitHub Actions logs, crash traces).
-* `aria-kernel agent submit-result` accepts
-  `--lease-token-from-env <NAME>` so the CLI never receives the raw
-  token in argv.
-* Artifact upload excludes any file containing the lease token; the
-  executor writes the token only to `os.environ` and a hashed copy to
-  `aria-tools/agent-invocations/claims.jsonl`
-  (`_hash_lease_token`).
-
-## Cost-cap discipline (extended by Phase B0)
-
-* `MAX_TURNS_PER_RUN`, `MAX_REQUESTS_PER_RUN`, `MAX_TIMEOUT_SECONDS`
-  — three caps the executor enforces before invoking the CLI.
-* The Claude Code CLI's own `--max-turns` and `--max-requests` flags
-  are the second layer of defense.
-* The kernel's existing budget guard
-  (`aria_kernel.cost_budget.assert_within_budget`, Phase B0) is the
-  third layer at the kernel-side `submit_claim_result` path — trips
-  the cost circuit breaker on daily / monthly / per-run cap excess.
-
-## Artifact upload policy (unchanged from spike)
-
-* Allow: response envelope (`expected_output_path` content),
-  governance event log delta, metric snapshot.
-* Deny: `claims.jsonl` (carries `lease_token_hash` adjacent to other
-  tokens), `runs.jsonl` (may carry tool stderr with paths an attacker
-  could probe).
-* The workflow uploads only the response envelope path — precise,
-  auditable, no over-disclosure.
-
-## Decision (Plan ARIA-V3 §B1)
-
-The previous spike's "Phase 8 deliverable is the executor framework +
-GHA workflow scaffold + lease-token-redaction test" is now extended
-to **proven contract status**: the kernel side argv shape is locked
-by I-V3-21; the workflow side is hardened (claude binary install,
-OAuth preflight, kill-switch, mock-default-flip, audit event); the
-governed workflow allowlist (V2 I-25) covers the executor.
-
-What remains is the operator's single live invocation to populate
-the four verification fields above. The DEBT finding tracks that
-work explicitly; B1 retires the kernel-side half irrevocably.
-
-## Plan ARIA-V3 §B1 closure mapping
-
-| Finding | Closure mechanism |
-|---|---|
-| DEBT-2026-05-08-001 (argv contract unverified) | This doc + I-V3-21 |
-| INFRA-CRITICAL-002 (OAuth rotation) | I-V3-22b preflight guard |
-| INFRA-CRITICAL-003 (claude binary install) | I-V3-22c install step |
-| INFRA-HIGH-007 (I-25 governed list) | I-V3-22d allowlist addition |
-| INFRA-MEDIUM-011 (mock cron safeguard) | I-V3-22a kill switch |
-| AUDITTRAIL-HIGH-009 (mock flip unlogged) | I-V3-23a audit event |
+The contract is code-owned. Any runtime argv/config/auth change must update this document and the matching invariant tests in the same commit.

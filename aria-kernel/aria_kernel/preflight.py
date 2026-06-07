@@ -94,6 +94,7 @@ class WorkflowPreflightVerdict:
     audit_artifact_path: str | None = None
     worktree_clean: bool | None = None
     dlp_scan_clean: bool | None = None
+    dlp_scan_phase: str | None = None
     failure_classes: tuple[str, ...] = field(default_factory=tuple)
     reasons: tuple[str, ...] = field(default_factory=tuple)
 
@@ -354,6 +355,7 @@ def verify_workflow_preflight(
     token_provenance: str | None = None,
     dlp_mode: str = "fail_closed",
     dlp_scan_clean: bool = True,
+    dlp_scan_phase: str = "preflight",
     workflow_hash: str | None = None,
     audit_reason: str | None = None,
     network_enforcement_evidence: str | None = None,
@@ -434,7 +436,10 @@ def verify_workflow_preflight(
     if dlp_mode != "fail_closed":
         reasons.append("dlp_mode_must_be_fail_closed")
         failure_classes.append("dlp_fail_closed_required")
-    if dlp_scan_clean is not True:
+    if dlp_scan_phase not in {"preflight", "post_artifact"}:
+        reasons.append("dlp_scan_phase_invalid")
+        failure_classes.append("dlp_fail_closed_required")
+    if dlp_scan_clean is not True and dlp_scan_phase != "preflight":
         reasons.append("dlp_scan_not_clean")
         failure_classes.append("dlp_fail_closed_required")
     if workflow_hash and not re.fullmatch(r"sha256:[0-9a-f]{64}", str(workflow_hash)):
@@ -519,6 +524,7 @@ def verify_workflow_preflight(
         audit_artifact_path=str(audit_artifact_path) if audit_artifact_path is not None else None,
         worktree_clean=worktree_clean,
         dlp_scan_clean=dlp_scan_clean,
+        dlp_scan_phase=dlp_scan_phase,
         valid=not failure_classes,
         failure_classes=tuple(failure_classes),
         reasons=tuple(reasons),

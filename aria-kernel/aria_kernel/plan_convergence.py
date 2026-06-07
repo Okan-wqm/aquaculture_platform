@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .agent_priors import reviewer_names
-from .ledger import append_jsonl, load_jsonl, verify_jsonl
+from .ledger import append_jsonl, load_declared_jsonl, load_jsonl, verify_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -1070,9 +1070,12 @@ def _results_pair_hash_check(
     [row_a, row_b]}`` so callers can chain ledger writes against the
     pair without re-querying.
     """
-    from .ledger import load_jsonl as _load_jsonl
     root = Path(base_dir) if base_dir else Path.cwd()
-    results = _load_jsonl(root / "agent-invocations" / "results.jsonl")
+    results = load_declared_jsonl(
+        root / "agent-invocations" / "results.jsonl",
+        expected_surface="agent_invocation_results",
+        verify=True,
+    )
     candidates: list[dict[str, Any]] = []
     for row in results:
         if row.get("status") != "accepted":
@@ -1130,7 +1133,13 @@ def _cross_review_hash_mismatch(root: Path, payload: dict[str, Any]) -> dict[str
     if not request_id:
         return None
     expected = payload.get("review_content_hash")
-    for row in reversed(load_jsonl(root / "agent-invocations" / "results.jsonl")):
+    for row in reversed(
+        load_declared_jsonl(
+            root / "agent-invocations" / "results.jsonl",
+            expected_surface="agent_invocation_results",
+            verify=True,
+        )
+    ):
         if row.get("request_id") == request_id:
             actual = row.get("content_hash")
             if actual != expected:

@@ -40,13 +40,13 @@ from aria_kernel.agent_eval import (
 )
 from aria_kernel.plan_016_metrics import compute_plan_016_metrics
 from aria_kernel.runtime_profile import set_profile
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
 
 def _seed() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="aria-eval-"))
     tools = tmp / "aria-tools"
-    ensure_tools_dir(tools)
+    ensure_tools_binding(tools, workspace_root=tmp)
     return tools
 
 

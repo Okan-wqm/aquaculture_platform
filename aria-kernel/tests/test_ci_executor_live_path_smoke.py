@@ -128,7 +128,11 @@ class LivePathFetchTests(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _run_main(self, fake_run):
-        env_patch = {ci_executor.MOCK_MODE_ENV_VAR: "1", "GITHUB_RUN_ID": "test-run-1"}
+        env_patch = {
+            ci_executor.MOCK_MODE_ENV_VAR: "1",
+            "GITHUB_RUN_ID": "test-run-1",
+            "ARIA_TOOLS_DIR": str(self.tmp / "aria-tools"),
+        }
         with patch.dict(os.environ, env_patch):
             with patch("ci_executor.subprocess.run", fake_run):
                 return ci_executor.main([self.request_id, "aria-evidence-judge"])

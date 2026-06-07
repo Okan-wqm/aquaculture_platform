@@ -15,8 +15,9 @@ def submit_binding_kwargs(
     transcript_name: str = "transcript.jsonl",
     transcript_text: str = "fixture transcript\n",
 ) -> dict[str, str]:
-    transcript_dir.mkdir(parents=True, exist_ok=True)
-    transcript = transcript_dir / transcript_name
+    _ = (transcript_dir, transcript_name)
+    transcript = Path(request["expected_output_path"]).with_suffix(".transcript.jsonl")
+    transcript.parent.mkdir(parents=True, exist_ok=True)
     transcript.write_text(transcript_text, encoding="utf-8")
     return {
         "context_hash": str(request["context_hash"]),

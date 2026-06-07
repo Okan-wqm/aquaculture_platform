@@ -13,8 +13,12 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.agent_network import agent_network_index, latest_agent_network_hash
 from aria_kernel.capability_gap import detect_capability_gaps
 from aria_kernel.impact_graph import plan_downstream_impact
-from aria_kernel.ledger import append_jsonl, load_jsonl
-from aria_kernel.tool_registry import covered_tool_ledgers, ensure_tools_dir
+from aria_kernel.ledger import append_declared_jsonl, append_jsonl, load_jsonl
+from aria_kernel.tool_registry import (
+    covered_tool_ledgers,
+    ensure_tools_binding,
+    ensure_tools_dir,
+)
 from aria_kernel.workspace import ensure_workspace, workspace_paths
 
 
@@ -37,7 +41,7 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
         (self.repo / ".claude" / "shared" / "orchestrator-routing-table.md").write_text("farm -> farm-expert\n", encoding="utf-8")
         (self.repo / ".claude" / "skills").mkdir(parents=True)
         (self.repo / ".claude" / "skills" / "README.md").write_text("skills\n", encoding="utf-8")
-        self.tools_dir = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
+        self.tools_dir = ensure_tools_binding(self.repo / "aria-tools", workspace_root=self.repo)
         self.paths = workspace_paths(self.repo, Path(self.tmp.name) / "workspaces")
         ensure_workspace(self.paths)
 
@@ -73,6 +77,7 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
             round_number=1,
             expected_output_path=expected.as_posix(),
             base_dir=self.tools_dir,
+            context_repo_root=self.repo,
         )
         wrong = self.tools_dir / "wrong.md"
         wrong.write_text("wrong\n", encoding="utf-8")
@@ -103,11 +108,25 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
 
     def test_tool_integrity_covers_new_optional_ledgers(self):
         append_jsonl(self.tools_dir / "plans" / "events.jsonl", {"schema_version": 1, "event_type": "noop"})
-        append_jsonl(self.tools_dir / "agent-invocations" / "requests.jsonl", {"schema_version": 1, "request_id": "AIR-1"})
-        append_jsonl(self.tools_dir / "agent-invocations" / "results.jsonl", {"schema_version": 1, "request_id": "AIR-1"})
+        append_declared_jsonl(
+            self.tools_dir / "agent-invocations" / "requests.jsonl",
+            {"schema_version": 1, "request_id": "AIR-1"},
+            expected_surface="agent_invocation_requests",
+        )
+        append_declared_jsonl(
+            self.tools_dir / "agent-invocations" / "claims.jsonl",
+            {"schema_version": 1, "event": "claimed", "request_id": "AIR-1", "claim_id": "C-1"},
+            expected_surface="agent_invocation_claims",
+        )
+        append_declared_jsonl(
+            self.tools_dir / "agent-invocations" / "results.jsonl",
+            {"schema_version": 1, "request_id": "AIR-1"},
+            expected_surface="agent_invocation_results",
+        )
         ledgers = covered_tool_ledgers(self.tools_dir)
         self.assertIn("plans_events", ledgers)
         self.assertIn("agent_invocations_requests", ledgers)
+        self.assertIn("agent_invocations_claims", ledgers)
         self.assertIn("agent_invocations_results", ledgers)
 
     def test_capability_gap_pressure_source_records_index_hash(self):

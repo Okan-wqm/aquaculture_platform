@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_resolver import resolve_agent_md_path
-from .ledger import append_declared_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -371,7 +371,11 @@ def list_context_audits(
     if not path.exists():
         return []
     rows: list[dict[str, Any]] = []
-    for row in load_jsonl(path, verify=True):
+    for row in load_declared_jsonl(
+        path,
+        expected_surface="context_audits",
+        verify=True,
+    ):
         if target_agent is not None and row.get("target_agent") != target_agent:
             continue
         rows.append(row)

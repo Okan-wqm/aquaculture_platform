@@ -214,6 +214,17 @@ def verify_workflow_contract(
             )
             reasons.extend(proof_reasons)
             failure_classes.extend(proof_failures)
+            if job_contract.post_artifact_manifest:
+                manifest = Path(artifact_dir) / job_contract.post_artifact_manifest
+                if not manifest.exists():
+                    reasons.append(
+                        f"post_artifact_manifest_missing:{job_contract.job_id}:{job_contract.post_artifact_manifest}"
+                    )
+                    failure_classes.append("workflow_post_artifact_proof")
+                else:
+                    manifest_reasons, manifest_failures = _verify_post_artifact_manifest(manifest)
+                    reasons.extend(manifest_reasons)
+                    failure_classes.extend(manifest_failures)
 
     if event_context:
         observed_token = str(event_context.get("token_source") or "")
@@ -315,6 +326,25 @@ def _verify_job_contract(
         reasons=reasons,
         failure_classes=failure_classes,
     )
+    if job_contract.post_artifact_step:
+        post_matches = [
+            (idx, step)
+            for idx, step in named_steps
+            if step.get("name") == job_contract.post_artifact_step
+        ]
+        if not post_matches:
+            reasons.append(
+                f"workflow_post_artifact_step_missing:{job_contract.job_id}:{job_contract.post_artifact_step}"
+            )
+            failure_classes.append("workflow_post_artifact_proof")
+        else:
+            upload_indices = [
+                idx for idx, step in enumerate(steps)
+                if isinstance(step, dict) and str(step.get("uses") or "").startswith("actions/upload-artifact@")
+            ]
+            if upload_indices and post_matches[0][0] >= upload_indices[0]:
+                reasons.append(f"workflow_post_artifact_step_after_upload:{job_contract.job_id}")
+                failure_classes.append("workflow_post_artifact_proof")
     _verify_upload_artifact_step(
         job_id=job_contract.job_id,
         steps=steps,
@@ -422,6 +452,9 @@ def _verify_upload_artifact_step(
     with_block = matching_step.get("with") if isinstance(matching_step.get("with"), dict) else {}
     if str(with_block.get("if-no-files-found") or "") != "error":
         reasons.append(f"workflow_upload_artifact_if_no_files_not_error:{job_id}")
+        failure_classes.append("workflow_artifact_upload")
+    if job_contract.upload_requires_always and "always()" not in str(matching_step.get("if") or ""):
+        reasons.append(f"workflow_upload_artifact_missing_always:{job_id}")
         failure_classes.append("workflow_artifact_upload")
     retention = with_block.get("retention-days")
     try:
@@ -537,7 +570,7 @@ def _verify_preflight_artifact(
     if payload.get("valid") is not True:
         reasons.append("workflow_preflight_artifact_not_valid")
         failures.append("workflow_dlp_proof_missing")
-    if payload.get("dlp_scan_clean") is not True:
+    if payload.get("dlp_scan_clean") is not True and payload.get("dlp_scan_phase") != "preflight":
         reasons.append("workflow_preflight_artifact_dlp_not_clean")
         failures.append("workflow_dlp_proof_missing")
     observed_token = str(payload.get("token_provenance") or "")
@@ -564,6 +597,33 @@ def _verify_preflight_artifact(
     ):
         reasons.append("workflow_preflight_artifact_runtime_paths_mismatch")
         failures.append("path_allowlist_violation")
+    return reasons, failures
+
+
+def _verify_post_artifact_manifest(path: Path) -> tuple[list[str], list[str]]:
+    reasons: list[str] = []
+    failures: list[str] = []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return ([f"post_artifact_manifest_unparseable:{path.name}"], ["workflow_post_artifact_proof"])
+    if payload.get("schema_version") != "aria/ci-executor-artifacts/v1":
+        reasons.append("post_artifact_manifest_schema_mismatch")
+        failures.append("workflow_post_artifact_proof")
+    if payload.get("dlp_scan_clean") is not True:
+        reasons.append("post_artifact_manifest_dlp_not_clean")
+        failures.append("workflow_post_artifact_proof")
+    for key in ("request_id", "claim_id", "output_path", "transcript_path"):
+        if not str(payload.get(key) or "").strip():
+            reasons.append(f"post_artifact_manifest_field_missing:{key}")
+            failures.append("workflow_post_artifact_proof")
+    for key in ("output_hash", "transcript_hash"):
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(payload.get(key) or "")):
+            reasons.append(f"post_artifact_manifest_hash_invalid:{key}")
+            failures.append("workflow_post_artifact_proof")
+    if payload.get("output_path") == payload.get("transcript_path"):
+        reasons.append("post_artifact_manifest_output_transcript_same_path")
+        failures.append("workflow_post_artifact_proof")
     return reasons, failures
 
 

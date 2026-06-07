@@ -130,6 +130,41 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
         self.assertEqual(verdict.failed_contracts, {})
         self.assertEqual(verdict.uncovered_workflows, ())
 
+    def test_agent_executor_upload_requires_always(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "aria-agent-executor.yml"
+            workflow.parent.mkdir(parents=True)
+            source = (repo / ".github" / "workflows" / "aria-agent-executor.yml").read_text(encoding="utf-8")
+            workflow.write_text(source.replace("if: always() && steps.pending.outputs.request_id != ''", "if: steps.pending.outputs.request_id != ''"), encoding="utf-8")
+            verdict = verify_workflow_contract(
+                workflow_id="aria-agent-executor",
+                workspace_root=root,
+            )
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_artifact_upload", verdict.failure_classes)
+        self.assertIn("workflow_upload_artifact_missing_always:executor", verdict.reasons)
+
+    def test_agent_executor_requires_post_artifact_verifier_step(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "aria-agent-executor.yml"
+            workflow.parent.mkdir(parents=True)
+            source = (repo / ".github" / "workflows" / "aria-agent-executor.yml").read_text(encoding="utf-8")
+            workflow.write_text(source.replace("Verify executor post-artifact proof", "Verify executor post artifact proof"), encoding="utf-8")
+            verdict = verify_workflow_contract(
+                workflow_id="aria-agent-executor",
+                workspace_root=root,
+            )
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_post_artifact_proof", verdict.failure_classes)
+        self.assertIn(
+            "workflow_post_artifact_step_missing:executor:Verify executor post-artifact proof",
+            verdict.reasons,
+        )
+
     def test_discovered_aria_workflows_are_contracted_or_audited_exclusions(self) -> None:
         repo = Path(__file__).resolve().parents[2]
         discovered = set(discover_aria_workflows(repo))

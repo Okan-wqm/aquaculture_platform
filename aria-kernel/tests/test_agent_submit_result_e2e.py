@@ -8,6 +8,7 @@ missing satisfaction matrix entries, evidence ref missing on disk.
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -130,6 +131,76 @@ class SubmitResultE2ETests(unittest.TestCase):
             request_id=request["request_id"], base_dir=self.tools,
         )
         self.assertIn(state, {"ACCEPTED", "ACCEPTED_PENDING_BRIDGE"})
+        from aria_kernel.ledger import load_declared_jsonl
+
+        bundles = load_declared_jsonl(
+            self.tools / "agent-invocations" / "agent-result-bundles.jsonl",
+            expected_surface="agent_result_bundles",
+            verify=True,
+        )
+        self.assertEqual(bundles[-1]["bundle_marker"], "result_transcript_output_committed")
+        self.assertEqual(bundles[-1]["result_ledger_hash"], result["row"]["ledger_hash"])
+        self.assertEqual(bundles[-1]["output_hash"], result["row"]["output_hash"])
+        self.assertEqual(bundles[-1]["transcript_hash"], result["row"]["transcript_hash"])
+
+    def test_accepted_result_without_bundle_is_not_authoritative(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        result = submit_claim_result(
+            claim_id=claim["claim_id"],
+            agent_id="judge-worker-001",
+            lease_token=claim["lease_token"],
+            output_path=out,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+            **self._binding_kwargs(request),
+        )
+        self.assertEqual(result["status"], "accepted", result)
+        (self.tools / "agent-invocations" / "agent-result-bundles.jsonl").unlink()
+        self.assertEqual(
+            derive_request_state(request_id=request["request_id"], base_dir=self.tools),
+            "SUBMITTED",
+        )
+
+    def test_idempotent_replay_repairs_missing_result_bundle(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        binding = self._binding_kwargs(request)
+        first = submit_claim_result(
+            claim_id=claim["claim_id"],
+            agent_id="judge-worker-001",
+            lease_token=claim["lease_token"],
+            output_path=out,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+            **binding,
+        )
+        self.assertEqual(first["status"], "accepted", first)
+        bundle_path = self.tools / "agent-invocations" / "agent-result-bundles.jsonl"
+        bundle_path.unlink()
+        self.assertEqual(
+            derive_request_state(request_id=request["request_id"], base_dir=self.tools),
+            "SUBMITTED",
+        )
+        replay = submit_claim_result(
+            claim_id=claim["claim_id"],
+            agent_id="judge-worker-001",
+            lease_token=claim["lease_token"],
+            output_path=out,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+            **binding,
+        )
+        self.assertEqual(replay["status"], "idempotent")
+        from aria_kernel.ledger import load_declared_jsonl
+
+        bundles = load_declared_jsonl(
+            bundle_path,
+            expected_surface="agent_result_bundles",
+            verify=True,
+        )
+        self.assertEqual(bundles[-1]["result_ledger_hash"], first["row"]["ledger_hash"])
+        self.assertEqual(bundles[-1]["transcript_ledger_hash"], first["row"]["transcript_ledger_hash"])
 
     def test_evidence_pointing_at_missing_file_rejected(self) -> None:
         request, claim = self._claim()
@@ -156,7 +227,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             "evidence_refs": ["does/not/exist.ts:1"],
             "details": {"verdict": "true_positive", "confidence": 0.92},
         }
-        out = self.tools / "agent-invocations" / "outputs" / "bad.json"
+        out = Path(request["expected_output_path"])
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(envelope), encoding="utf-8")
         result = submit_claim_result(
@@ -258,6 +329,166 @@ class SubmitResultE2ETests(unittest.TestCase):
                 **binding,
             )
 
+    def test_forged_context_semantic_hash_blocks_submit(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        context_path = self.tools / "agent-invocations" / "contexts.jsonl"
+        from aria_kernel.ledger import LegacyLedgerContext, load_declared_jsonl, rewrite_declared_jsonl
+
+        rows = load_declared_jsonl(
+            context_path,
+            expected_surface="agent_invocation_contexts",
+            verify=True,
+        )
+        rows[-1]["included_refs"].append({"ref": "forged.txt:1", "source": "test"})
+        rewrite_declared_jsonl(
+            context_path,
+            rows,
+            expected_surface="agent_invocation_contexts",
+            legacy_context=LegacyLedgerContext(
+                migration_id="test-forged-context-semantic-hash",
+                expected_surface="agent_invocation_contexts",
+                exact_path_scope=context_path,
+                operator_ack_ref="test://context-semantic-hash",
+                expires_at="2099-01-01",
+                reason="test valid-chain semantic tamper rejection",
+                operation="rewrite_jsonl",
+            ),
+        )
+        with self.assertRaisesRegex(GovernanceError, "invocation_context_semantic_hash_mismatch"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                **self._binding_kwargs(request, name="forged-context.transcript.jsonl"),
+            )
+
+    def test_missing_invocation_bundle_marker_blocks_submit(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        (self.tools / "agent-invocations" / "agent-invocation-bundles.jsonl").unlink()
+        with self.assertRaisesRegex(GovernanceError, "agent_invocation_bundle_marker_missing"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                **self._binding_kwargs(request, name="missing-bundle.transcript.jsonl"),
+            )
+        self.assertFalse((self.tools / "agent-invocations" / "results.jsonl").exists())
+
+    def test_output_outside_tools_root_rejected(self) -> None:
+        request, claim = self._claim()
+        out = self.repo / "outside-output.json"
+        envelope = {
+            "$schema": "aria/agent-response/v1",
+            "request_id": request["request_id"],
+            "claim_id": claim["claim_id"],
+            "agent_id": claim["agent_id"],
+            "role": "evidence_judgment",
+            "status": "submitted",
+            "satisfaction_matrix": [
+                {"id": "F-001-evidence", "verdict": "satisfied", "evidence_refs": ["src.txt:1"]},
+            ],
+            "evidence_refs": ["src.txt:1"],
+            "details": {"verdict": "true_positive", "confidence": 0.92},
+        }
+        out.write_text(json.dumps(envelope), encoding="utf-8")
+        with self.assertRaisesRegex(GovernanceError, "output_artifact_outside_tools_root"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                **self._binding_kwargs(request, name="external-output.transcript.jsonl"),
+            )
+
+    @unittest.skipIf(not hasattr(os, "symlink"), "symlink unavailable")
+    def test_symlinked_transcript_rejected(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        real = self.tools / "agent-invocations" / "transcripts" / "real.transcript.jsonl"
+        real.parent.mkdir(parents=True, exist_ok=True)
+        real.write_text("real transcript\n", encoding="utf-8")
+        link = self.tools / "agent-invocations" / "transcripts" / "linked.transcript.jsonl"
+        os.symlink(real, link)
+        binding = {
+            "context_hash": request["context_hash"],
+            "prompt_hash": request["prompt_hash"],
+            "transcript_hash": sha256_file(real),
+            "transcript_artifact_ref": link.as_posix(),
+        }
+        with self.assertRaisesRegex(GovernanceError, "transcript_artifact_symlink_or_unopenable"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                **binding,
+            )
+
+    @unittest.skipIf(not hasattr(os, "link"), "hardlink unavailable")
+    def test_hardlinked_transcript_rejected(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        transcript = out.with_suffix(".transcript.jsonl")
+        real = self.tools / "agent-invocations" / "outputs" / "real-hardlink-source.transcript.jsonl"
+        real.parent.mkdir(parents=True, exist_ok=True)
+        real.write_text("real transcript\n", encoding="utf-8")
+        if transcript.exists():
+            transcript.unlink()
+        os.link(real, transcript)
+        binding = {
+            "context_hash": request["context_hash"],
+            "prompt_hash": request["prompt_hash"],
+            "transcript_hash": sha256_file(real),
+            "transcript_artifact_ref": transcript.as_posix(),
+        }
+        with self.assertRaisesRegex(GovernanceError, "transcript_artifact_hardlink_forbidden"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                **binding,
+            )
+
+    @unittest.skipIf(not hasattr(os, "mkfifo"), "mkfifo unavailable")
+    def test_fifo_transcript_rejected_without_blocking(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        transcript = out.with_suffix(".transcript.jsonl")
+        if transcript.exists():
+            transcript.unlink()
+        os.mkfifo(transcript)
+        binding = {
+            "context_hash": request["context_hash"],
+            "prompt_hash": request["prompt_hash"],
+            "transcript_hash": "sha256:" + "0" * 64,
+            "transcript_artifact_ref": transcript.as_posix(),
+        }
+        with self.assertRaisesRegex(GovernanceError, "transcript_artifact_not_regular_file"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                **binding,
+            )
+
     def test_separation_of_duties_blocks_self_approval(self) -> None:
         # Build a request whose forbidden_agent_ids excludes the submitter.
         # Plan 024 §B-2 — strict path goes through claim_request, so
@@ -276,11 +507,54 @@ class SubmitResultE2ETests(unittest.TestCase):
         )
         # Patch the request row so separation_of_duties forbids judge-worker-001.
         # (Direct edit is fine for the test; in production the planner sets it.)
-        from aria_kernel.ledger import load_jsonl, rewrite_jsonl
+        from aria_kernel.ledger import LegacyLedgerContext, load_declared_jsonl, rewrite_declared_jsonl
         req_path = self.tools / "agent-invocations" / "requests.jsonl"
-        rows = load_jsonl(req_path)
+        rows = load_declared_jsonl(
+            req_path,
+            expected_surface="agent_invocation_requests",
+            verify=True,
+        )
         rows[-1]["separation_of_duties"] = {"forbidden_agent_ids": ["judge-worker-001"]}
-        rewrite_jsonl(req_path, rows)
+        rewrite_declared_jsonl(
+            req_path,
+            rows,
+            expected_surface="agent_invocation_requests",
+            legacy_context=LegacyLedgerContext(
+                migration_id="test-separation-of-duties-request-patch",
+                expected_surface="agent_invocation_requests",
+                exact_path_scope=req_path,
+                operator_ack_ref="test://separation-of-duties",
+                expires_at="2099-01-01",
+                reason="test request strict-field patch",
+                operation="rewrite_jsonl",
+            ),
+        )
+        migrated_request = load_declared_jsonl(
+            req_path,
+            expected_surface="agent_invocation_requests",
+            verify=True,
+        )[-1]
+        bundle_path = self.tools / "agent-invocations" / "agent-invocation-bundles.jsonl"
+        bundles = load_declared_jsonl(
+            bundle_path,
+            expected_surface="agent_invocation_bundles",
+            verify=True,
+        )
+        bundles[-1]["request_ledger_hash"] = migrated_request["ledger_hash"]
+        rewrite_declared_jsonl(
+            bundle_path,
+            bundles,
+            expected_surface="agent_invocation_bundles",
+            legacy_context=LegacyLedgerContext(
+                migration_id="test-separation-of-duties-bundle-patch",
+                expected_surface="agent_invocation_bundles",
+                exact_path_scope=bundle_path,
+                operator_ack_ref="test://separation-of-duties-bundle",
+                expires_at="2099-01-01",
+                reason="test request bundle marker patch",
+                operation="rewrite_jsonl",
+            ),
+        )
 
         claim = claim_request(
             request_id=request["request_id"],
@@ -297,7 +571,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             "satisfaction_matrix": [],
             "evidence_refs": ["src.txt:1"],
         }
-        out = self.tools / "agent-invocations" / "outputs" / "sod.json"
+        out = Path(request["expected_output_path"])
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(envelope), encoding="utf-8")
         result = submit_claim_result(
@@ -315,7 +589,7 @@ class SubmitResultE2ETests(unittest.TestCase):
 
     def test_unreadable_envelope_rejected_gracefully(self) -> None:
         request, claim = self._claim()
-        out = self.tools / "agent-invocations" / "outputs" / "junk.json"
+        out = Path(request["expected_output_path"])
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("not-json", encoding="utf-8")
         result = submit_claim_result(

@@ -23,7 +23,7 @@ from aria_kernel.agent_invocations import (
     claim_request,
     create_agent_invocation_request,
 )
-from aria_kernel.ledger import load_jsonl
+from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.runtime_profile import set_profile
 
 
@@ -85,7 +85,11 @@ class ClaimRequestFusedReturnTests(unittest.TestCase):
             agent_id="test-agent",
             base_dir=self.base,
         )
-        claims = load_jsonl(self.base / "agent-invocations" / "claims.jsonl")
+        claims = load_declared_jsonl(
+            self.base / "agent-invocations" / "claims.jsonl",
+            expected_surface="agent_invocation_claims",
+            verify=True,
+        )
         claim_event = next(
             row for row in claims if row.get("claim_id") == result["claim_id"]
         )

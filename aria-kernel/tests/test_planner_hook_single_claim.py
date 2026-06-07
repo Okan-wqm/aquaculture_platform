@@ -47,6 +47,8 @@ from aria_kernel.planner_dispatch_hook import (  # noqa: E402
 from aria_kernel.runtime_profile import set_profile  # noqa: E402
 from aria_kernel.tool_registry import GovernanceError  # noqa: E402
 
+_REAL_SUBPROCESS_RUN = __import__("subprocess").run
+
 
 class _SingleClaimBase(unittest.TestCase):
     def setUp(self) -> None:
@@ -238,6 +240,8 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
         captured = []
 
         def fake_run(argv, *args, **kwargs):
+            if argv and str(argv[0]) == "git":
+                return _REAL_SUBPROCESS_RUN(argv, *args, **kwargs)
             captured.append(tuple(argv))
             return MagicMock(returncode=0, stdout="{}", stderr="")
 
@@ -266,6 +270,8 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
         captured = []
 
         def fake_run(argv, *args, **kwargs):
+            if argv and str(argv[0]) == "git":
+                return _REAL_SUBPROCESS_RUN(argv, *args, **kwargs)
             captured.append(tuple(argv))
             if "claim" in argv:
                 claim_payload = dict(self.claim)
@@ -313,6 +319,8 @@ class SingleClaimArgvSafetyTests(_SingleClaimBase):
         captured = []
 
         def fake_run(argv, *args, **kwargs):
+            if argv and str(argv[0]) == "git":
+                return _REAL_SUBPROCESS_RUN(argv, *args, **kwargs)
             captured.append(tuple(argv))
             return MagicMock(returncode=0, stdout="{}", stderr="")
 

@@ -29,15 +29,15 @@ from aria_kernel.handoff_ledger import (
     take_handoff_snapshot,
 )
 from aria_kernel.runtime_profile import set_profile
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
 
 def _seed() -> tuple[Path, Path]:
     tmp = Path(tempfile.mkdtemp(prefix="aria-handoff-"))
     tools = tmp / "aria-tools"
-    ensure_tools_dir(tools)
     repo = tmp / "repo"
     repo.mkdir()
+    ensure_tools_binding(tools, workspace_root=repo)
     (repo / "docs" / "aria" / "plans").mkdir(parents=True, exist_ok=True)
     (repo / "aria-findings").mkdir(parents=True, exist_ok=True)
     (repo / "aria-debts").mkdir(parents=True, exist_ok=True)

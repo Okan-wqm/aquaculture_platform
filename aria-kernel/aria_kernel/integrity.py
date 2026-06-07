@@ -161,6 +161,8 @@ def _index_issues(index_path: Path, ledgers: dict[str, Path], scope: str) -> lis
     for name, expected in index.get("file_hashes", {}).items():
         if scope == "tools" and name == "migration_state":
             path = index_path.parent / "migration_state.json"
+        elif scope == "tools" and name == "repo_identity":
+            path = index_path.parent / "repo_identity.json"
         else:
             path = index_path.parent / name
         actual = file_hash(path)

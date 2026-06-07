@@ -22,6 +22,9 @@ class WorkflowJobContract:
     dlp_artifact: str
     clean_worktree_policy: str
     external_root_allowlist: tuple[str, ...] = ()
+    post_artifact_step: str | None = None
+    post_artifact_manifest: str | None = None
+    upload_requires_always: bool = False
 
 
 @dataclass(frozen=True)
@@ -60,14 +63,15 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     r"^aria-tools/handoffs\.jsonl$",
                     r"^aria-tools/agent-invocations/claims\.jsonl$",
                     r"^aria-tools/agent-invocations/results\.jsonl$",
-                    r"^aria-tools/agent-invocations/outputs/[A-Za-z0-9_-]{1,64}\.json$",
                     r"^aria-tools/agent-invocations/prompts/[A-Za-z0-9_-]{1,64}\.md$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-executor-preflight\.json$",
                 upload_artifact_name_pattern=rf"^aria-response-{_REQUEST_ID}$",
                 upload_artifact_path_patterns=(
                     rf"^{_RUNNER_TEMP}/aria-agent-executor-preflight\.json$",
-                    rf"^aria-tools/agent-invocations/outputs/{_REQUEST_ID}\.json$",
+                    rf"^{_RUNNER_TEMP}/aria-agent-executor-artifacts\.json$",
+                    r"^\$\{\{\s*steps\.executor_run\.outputs\.output_path\s*\}\}$",
+                    r"^\$\{\{\s*steps\.executor_run\.outputs\.transcript_path\s*\}\}$",
                 ),
                 retention_days=7,
                 required_permissions=(("contents", "read"),),
@@ -76,6 +80,9 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="preflight_only_foundation",
                 external_root_allowlist=("RUNNER_TEMP",),
+                post_artifact_step="Verify executor post-artifact proof",
+                post_artifact_manifest="aria-agent-executor-artifacts.json",
+                upload_requires_always=True,
             ),
         ),
     ),

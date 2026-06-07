@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from aria_kernel.agent_priors import reviewer_names
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import append_declared_jsonl, append_jsonl, load_jsonl
 from aria_kernel.plan_convergence import (
     abandon_plan,
     content_hash,
@@ -25,7 +25,7 @@ from aria_kernel.plan_convergence import (
     start_plan,
     submit_challenger_plan,
 )
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
 
 class PlanConvergenceTests(unittest.TestCase):
@@ -34,6 +34,7 @@ class PlanConvergenceTests(unittest.TestCase):
         self.root = Path(self.tmp.name) / "workspace"
         self.root.mkdir()
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        ensure_tools_binding(self.tools_dir, workspace_root=self.root)
         agents = self.root / ".claude" / "agents"
         (agents / "product-audit").mkdir(parents=True)
         (agents / "farm-expert.md").write_text(
@@ -199,13 +200,14 @@ class PlanConvergenceTests(unittest.TestCase):
         self.start()
         self.submit_challenger()
         self.request_cross_round(1)
-        append_jsonl(
+        append_declared_jsonl(
             self.tools_dir / "agent-invocations" / "results.jsonl",
             {
                 "schema_version": 1,
                 "request_id": "AIR-1",
                 "content_hash": content_hash({"actual": "review"}),
             },
+            expected_surface="agent_invocation_results",
         )
         state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
         task = next(task for task in state["cross_reviews"][1]["tasks"].values() if task["task_id"] == "task-p2c-1")

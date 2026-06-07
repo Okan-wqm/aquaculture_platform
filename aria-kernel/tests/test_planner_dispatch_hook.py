@@ -17,10 +17,14 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.planner_dispatch_hook import (
     LEASE_TOKEN_ENV_VAR,
     dispatch_one_pending_planner_request,
 )
+from aria_kernel.tool_registry import ensure_tools_binding
+
+_REAL_SUBPROCESS_RUN = __import__("subprocess").run
 
 
 class _CapturedSubprocess:
@@ -33,20 +37,7 @@ class _CapturedSubprocess:
 class PlannerDispatchHookTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-pd-hook-"))
-        self.tools_root = self.tmp / "aria-tools"
-        self.tools_root.mkdir()
-        # Bootstrap repo_identity.json so ensure_tools_dir does not
-        # raise ambiguous_tools_root.
-        identity = {
-            "aria_tools_contract_version": 2,
-            "bound_repo_hash": None,
-            "bound_repo_root": None,
-            "schema_version": 2,
-        }
-        (self.tools_root / "repo_identity.json").write_text(
-            json.dumps(identity, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        self.tools_root = ensure_tools_binding(self.tmp / "aria-tools", workspace_root=self.tmp)
         self._old_cwd = os.getcwd()
         os.chdir(self.tmp)
         self._env = patch.dict(os.environ, {
@@ -66,13 +57,9 @@ class PlannerDispatchHookTests(unittest.TestCase):
         self, *, request_id: str, role: str,
         target_agent: str, expected_output_path: Path | None = None,
     ) -> None:
-        # Direct ledger write — bypass create_agent_invocation_request
-        # contract checks (which require ROLE_TARGET_PAIRING table
-        # lookup). The hook only reads request_id + role + target_agent
-        # + the request state derivation; minimal seed is sufficient.
-        requests_path = self.tools_root / "agent-invocations" / "requests.jsonl"
-        requests_path.parent.mkdir(parents=True, exist_ok=True)
-        eop = expected_output_path or self.tmp / f"out-{request_id}.json"
+        eop = expected_output_path or (
+            self.tools_root / "agent-invocations" / "outputs" / f"{request_id}.json"
+        )
         row = {
             "$schema": "aria/agent-invocation-request/v1",
             "schema_version": 1,
@@ -87,8 +74,11 @@ class PlannerDispatchHookTests(unittest.TestCase):
             "state": "pending",
             "created_at": "2026-05-10T00:00:00Z",
         }
-        with requests_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+        append_declared_jsonl(
+            self.tools_root / "agent-invocations" / "requests.jsonl",
+            row,
+            expected_surface="agent_invocation_requests",
+        )
 
     def _read_governance(self) -> list[dict[str, Any]]:
         gov = self.tools_root / "governance.jsonl"
@@ -104,6 +94,8 @@ class PlannerDispatchHookTests(unittest.TestCase):
         outer = self
 
         def fake_run(argv, *args, **kwargs):
+            if argv and str(argv[0]) == "git":
+                return _REAL_SUBPROCESS_RUN(argv, *args, **kwargs)
             outer.captured_argvs.append(list(argv))
             outer.captured_envs.append(dict(kwargs.get("env", {})))
             return _CapturedSubprocess(returncode=returncode, stderr=stderr)
@@ -213,6 +205,8 @@ class PlannerDispatchHookTests(unittest.TestCase):
         captured_lease = {"token": ""}
 
         def fake_run_capturing_lease(argv, *args, **kwargs):
+            if argv and str(argv[0]) == "git":
+                return _REAL_SUBPROCESS_RUN(argv, *args, **kwargs)
             self.captured_argvs.append(list(argv))
             self.captured_envs.append(dict(kwargs.get("env", {})))
             captured_lease["token"] = kwargs.get("env", {}).get(

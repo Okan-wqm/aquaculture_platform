@@ -30,15 +30,15 @@ from aria_kernel.change_ledger import (
 )
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.plan_016_metrics import compute_plan_016_metrics
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import ensure_tools_binding
 
 
 def _seed() -> tuple[Path, Path]:
     tmp = Path(tempfile.mkdtemp(prefix="aria-chain-closure-"))
     tools = tmp / "aria-tools"
-    ensure_tools_dir(tools)
     repo = tmp / "repo"
     repo.mkdir()
+    ensure_tools_binding(tools, workspace_root=repo)
     return tools, repo
 
 

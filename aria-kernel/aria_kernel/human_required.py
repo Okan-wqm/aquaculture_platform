@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import _request_event_count, derive_request_state
-from .ledger import load_jsonl
+from .ledger import load_declared_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -179,7 +179,11 @@ def sweep_lease_lifecycle_for_human_required(
     Records one for each, returns the lists. Idempotent.
     """
     root = ensure_tools_dir(base_dir)
-    requests = load_jsonl(root / "agent-invocations" / "requests.jsonl")
+    requests = load_declared_jsonl(
+        root / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+        verify=True,
+    )
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for request in requests:
@@ -197,7 +201,11 @@ def sweep_lease_lifecycle_for_human_required(
             skipped.append({"request_id": rid, "reason": "already_recorded"})
             continue
         # Look up the requeue count to surface in the reason text.
-        claims = load_jsonl(root / "agent-invocations" / "claims.jsonl")
+        claims = load_declared_jsonl(
+            root / "agent-invocations" / "claims.jsonl",
+            expected_surface="agent_invocation_claims",
+            verify=True,
+        )
         requeue_count = _request_event_count(claims, rid, "requeued")
         record = record_human_required(
             request_id=rid,

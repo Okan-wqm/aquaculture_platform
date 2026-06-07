@@ -63,6 +63,14 @@ try:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
     from aria_kernel.agent_surface import DISPATCHABLE_ROLES as _DISPATCHABLE_ROLES
     from aria_kernel.agent_invocations import render_invocation_prompt as _render_invocation_prompt
+    from aria_kernel.artifact_safety import (
+        ArtifactSafetyError,
+        read_safe_artifact,
+        scrub_json,
+        scrub_text,
+        write_safe_text,
+    )
+    from aria_kernel.ledger import load_declared_jsonl
 except Exception:  # pragma: no cover - fallback keeps standalone contract importable
     _DISPATCHABLE_ROLES = frozenset({
         "specialist_domain_review",
@@ -76,6 +84,12 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
         "implementation",
     })
     _render_invocation_prompt = None
+    ArtifactSafetyError = RuntimeError
+    read_safe_artifact = None
+    scrub_json = None
+    scrub_text = None
+    write_safe_text = None
+    load_declared_jsonl = None
 
 
 DEFAULT_MAX_TURNS = 12
@@ -126,15 +140,130 @@ def _stage(msg: str) -> None:
     sys.stderr.flush()
 
 
-def _write_sanitized_envelope(path: Path, envelope: dict[str, Any]) -> None:
+def _tools_root_for_artifact(path: Path, tools_dir: Path | None = None) -> Path:
+    if tools_dir is not None:
+        return tools_dir.resolve()
+    for parent in (path.resolve().parent, *path.resolve().parents):
+        if parent.name == "aria-tools":
+            return parent
+    raise RuntimeError(f"artifact_not_under_aria_tools: {path}")
+
+
+def _write_safe_text_artifact(path: Path, text: str, *, purpose: str, tools_dir: Path | None = None) -> str:
+    if write_safe_text is None:
+        raise RuntimeError("artifact_safety_unavailable")
+    artifact = write_safe_text(
+        path,
+        text,
+        root=_tools_root_for_artifact(path, tools_dir),
+        purpose=purpose,
+    )
+    return artifact.digest
+
+
+def _read_safe_artifact_digest(path: Path, *, purpose: str, tools_dir: Path | None = None) -> str:
+    if read_safe_artifact is None:
+        raise RuntimeError("artifact_safety_unavailable")
+    return read_safe_artifact(
+        path,
+        root=_tools_root_for_artifact(path, tools_dir),
+        purpose=purpose,
+    ).digest
+
+
+def _write_sanitized_envelope(path: Path, envelope: dict[str, Any], *, tools_dir: Path | None = None) -> str:
     """Write executor output through the central artifact-safety boundary."""
-    try:
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
-        from aria_kernel.artifact_safety import write_sanitized_json
-        write_sanitized_json(path, envelope)
-    except Exception:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(envelope, indent=2), encoding="utf-8")
+    if scrub_json is None:
+        raise RuntimeError("artifact_safety_unavailable")
+    payload = json.dumps(scrub_json(envelope), indent=2, sort_keys=True) + "\n"
+    return _write_safe_text_artifact(path, payload, purpose="output", tools_dir=tools_dir)
+
+
+def _write_transcript_proof(
+    path: Path,
+    *,
+    request_id: str,
+    claim_id: str | None,
+    agent_id: str | None,
+    role: str,
+    mode: str,
+    raw_stdout: str | None = None,
+    subagent_type: str | None = None,
+    tools_dir: Path | None = None,
+) -> str:
+    if scrub_text is None:
+        raise RuntimeError("artifact_safety_unavailable")
+    payload = {
+        "schema_version": "aria/ci-executor-transcript-proof/v1",
+        "mode": mode,
+        "request_id": request_id,
+        "claim_id": claim_id,
+        "agent_id": agent_id,
+        "role": role,
+        "subagent_type": subagent_type,
+    }
+    if raw_stdout is not None:
+        events = parse_codex_jsonl(raw_stdout)
+        payload["event_count"] = len(events)
+        payload["final_message_excerpt"] = _safe_agent_text_excerpt(
+            extract_final_message(events) or "",
+            limit=4000,
+        )
+        payload["stdout_sha256"] = "sha256:" + hashlib.sha256(
+            raw_stdout.encode("utf-8")
+        ).hexdigest()
+    return _write_safe_text_artifact(
+        path,
+        json.dumps(payload, sort_keys=True) + "\n",
+        purpose="transcript",
+        tools_dir=tools_dir,
+    )
+
+
+def _assert_dlp_clean_artifact(path: Path, *, purpose: str, tools_dir: Path) -> str:
+    if read_safe_artifact is None or scrub_text is None:
+        raise RuntimeError("artifact_safety_unavailable")
+    artifact = read_safe_artifact(path, root=tools_dir, purpose=purpose)
+    text = artifact.content.decode("utf-8", errors="replace")
+    if scrub_text(text) != text:
+        raise RuntimeError(f"dlp_scan_failed:{purpose}:{path}")
+    return artifact.digest
+
+
+def _write_executor_artifact_manifest(
+    *,
+    request_id: str,
+    claim_id: str,
+    output_path: Path,
+    output_hash: str,
+    transcript_path: Path,
+    transcript_hash: str,
+    dlp_scan_clean: bool,
+) -> Path | None:
+    runner_temp = os.environ.get("RUNNER_TEMP")
+    if not runner_temp:
+        return None
+    manifest = Path(runner_temp) / "aria-agent-executor-artifacts.json"
+    payload = {
+        "schema_version": "aria/ci-executor-artifacts/v1",
+        "request_id": request_id,
+        "claim_id": claim_id,
+        "output_path": output_path.as_posix(),
+        "output_hash": output_hash,
+        "transcript_path": transcript_path.as_posix(),
+        "transcript_hash": transcript_hash,
+        "dlp_scan_clean": dlp_scan_clean,
+        "dlp_scanner": "aria_kernel.artifact_safety.scrub_text",
+    }
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if github_output:
+        with open(github_output, "a", encoding="utf-8") as handle:
+            handle.write(f"artifact_manifest={manifest.as_posix()}\n")
+            handle.write(f"output_path={output_path.as_posix()}\n")
+            handle.write(f"transcript_path={transcript_path.as_posix()}\n")
+    return manifest
 
 
 def _safe_agent_text_excerpt(text: str, *, limit: int = 4000) -> str:
@@ -753,6 +882,7 @@ def invoke_codex_cli(
     output_path: Path,
     timeout_seconds: int,
     transcript_path: Path | None = None,
+    prompt_text: str | None = None,
     claim_id: str | None = None,
     agent_id: str | None = None,
     role: str,
@@ -828,7 +958,6 @@ def invoke_codex_cli(
                 "Source role from the request envelope's SSoT field."
             )
         envelope_role = role
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         mock_envelope = {
                 "$schema": "aria/agent-response/v1",
                 "request_id": request_id,
@@ -851,29 +980,21 @@ def invoke_codex_cli(
                     },
                 },
             }
-        _write_sanitized_envelope(output_path, mock_envelope)
+        _write_sanitized_envelope(output_path, mock_envelope, tools_dir=tools_dir)
         resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
-        resolved_transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_transcript_path.write_text(
-            json.dumps(
-                {
-                    "schema_version": "aria/ci-executor-transcript/v1",
-                    "mode": "mock",
-                    "request_id": request_id,
-                    "claim_id": claim_id,
-                    "agent_id": agent_id,
-                    "role": envelope_role,
-                    "subagent_type": subagent_type,
-                },
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
+        _write_transcript_proof(
+            resolved_transcript_path,
+            request_id=request_id,
+            claim_id=claim_id,
+            agent_id=agent_id,
+            role=envelope_role,
+            mode="mock",
+            subagent_type=subagent_type,
+            tools_dir=tools_dir,
         )
         return 0
 
-    prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    prompt_text = prompt_text or ""
     resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
     if tools_dir is not None:
         try:
@@ -935,10 +1056,18 @@ def invoke_codex_cli(
             subagent_type=subagent_type,
             must_satisfy=must_satisfy or [],
         )
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_sanitized_envelope(output_path, envelope)
-        resolved_transcript_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_transcript_path.write_text(completed.stdout, encoding="utf-8")
+        _write_sanitized_envelope(output_path, envelope, tools_dir=tools_dir)
+        _write_transcript_proof(
+            resolved_transcript_path,
+            request_id=request_id,
+            claim_id=claim_id,
+            agent_id=agent_id,
+            role=role,
+            mode="real",
+            raw_stdout=completed.stdout,
+            subagent_type=subagent_type,
+            tools_dir=tools_dir,
+        )
         # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution. Gated on
         # _MOCK_MODE_AT_ENTRY frozen sentinel (V3.1-D2) so a mid-run
         # CODEX_CLI_MOCK flip cannot rewrite mock-mode classification
@@ -1316,29 +1445,25 @@ def _on_disk_anchors(
     requests_path = tools_dir / "agent-invocations" / "requests.jsonl"
     claim_hash: str | None = None
     request_hash: str | None = None
+    if load_declared_jsonl is None:
+        raise RuntimeError("declared_ledger_loader_unavailable")
     if claims_path.exists():
-        for raw in claims_path.read_text(encoding="utf-8").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+        for row in load_declared_jsonl(
+            claims_path,
+            expected_surface="agent_invocation_claims",
+            verify=True,
+        ):
             if (
                 row.get("claim_id") == claim_id
                 and row.get("event") == "claimed"
             ):
                 claim_hash = row.get("ledger_hash")
     if requests_path.exists():
-        for raw in requests_path.read_text(encoding="utf-8").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+        for row in load_declared_jsonl(
+            requests_path,
+            expected_surface="agent_invocation_requests",
+            verify=True,
+        ):
             if row.get("request_id") == request_id:
                 request_hash = row.get("ledger_hash")
     return claim_hash, request_hash
@@ -1567,7 +1692,6 @@ def main(argv: list[str] | None = None) -> int:
     # modernized invoke_codex_cli reads an empty prompt and the
     # codex CLI subprocess receives an empty prompt.
     prompt_file = tools_dir / "agent-invocations" / "prompts" / f"{request_id}.md"
-    prompt_file.parent.mkdir(parents=True, exist_ok=True)
     if _render_invocation_prompt is None:
         sys.stderr.write("kernel_prompt_renderer_unavailable\n")
         _release_claim(
@@ -1592,7 +1716,12 @@ def main(argv: list[str] | None = None) -> int:
             reason="prompt_hash_binding_mismatch",
         )
         return 1
-    prompt_file.write_text(_prompt_payload, encoding="utf-8")
+    _write_safe_text_artifact(
+        prompt_file,
+        _prompt_payload,
+        purpose="prompt",
+        tools_dir=tools_dir,
+    )
 
     timeout = _max_timeout_seconds()
     transcript_output_path = expected_output_path.with_suffix(".transcript.jsonl")
@@ -1606,6 +1735,7 @@ def main(argv: list[str] | None = None) -> int:
             request_id=request_id,
             subagent_type=subagent_type,
             prompt_file=prompt_file,
+            prompt_text=_prompt_payload,
             output_path=expected_output_path,
             transcript_path=transcript_output_path,
             timeout_seconds=timeout,
@@ -1663,8 +1793,17 @@ def main(argv: list[str] | None = None) -> int:
     # transition and times out as usual — verdict=challenger_unavailable
     # — but Opus cost stays at 1× per refusal instead of N×.
     try:
-        _envelope_for_validation = json.loads(expected_output_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as _exc:
+        if read_safe_artifact is None:
+            raise RuntimeError("artifact_safety_unavailable")
+        _output_artifact_for_validation = read_safe_artifact(
+            expected_output_path,
+            root=tools_dir,
+            purpose="output",
+        )
+        _envelope_for_validation = json.loads(
+            _output_artifact_for_validation.content.decode("utf-8")
+        )
+    except (OSError, UnicodeDecodeError, RuntimeError, json.JSONDecodeError) as _exc:
         _envelope_for_validation = None
     # Refusal detection: look at the agent's raw text body, NOT the
     # ci_executor-built outer wrapper. The agent's refusal JSON is
@@ -1750,8 +1889,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"cross_review={_mutated_cr} satisfaction_matrix={_mutated_sm}"
             )
             try:
-                _write_sanitized_envelope(expected_output_path, _envelope_for_validation)
-            except OSError as _exc:
+                _write_sanitized_envelope(
+                    expected_output_path,
+                    _envelope_for_validation,
+                    tools_dir=tools_dir,
+                )
+            except (OSError, RuntimeError) as _exc:
                 _stage(f"canonicalize_write_failed: {_exc}")
         validation_errors = _pre_submit_validate_envelope(
             _envelope_for_validation,
@@ -1773,23 +1916,44 @@ def main(argv: list[str] | None = None) -> int:
     _stage("submit_step_begin claim=" + claim_id)
     # Step 4 — submit through the kernel CLI; lease-token via env var.
     # ORPHAN-HIGH-081 — bounded timeout + survivable claim release on hang.
-    if not transcript_output_path.exists():
-        transcript_output_path.parent.mkdir(parents=True, exist_ok=True)
-        transcript_output_path.write_text(
-            json.dumps(
-                {
-                    "schema_version": "aria/ci-executor-transcript/v1",
-                    "mode": "fallback-empty-transcript",
-                    "request_id": request_id,
-                    "claim_id": claim_id,
-                    "agent_id": agent_id,
-                },
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
+    try:
+        _transcript_hash = _read_safe_artifact_digest(
+            transcript_output_path,
+            purpose="transcript",
+            tools_dir=tools_dir,
         )
-    _transcript_hash = "sha256:" + hashlib.sha256(transcript_output_path.read_bytes()).hexdigest()
+        _output_hash_for_manifest = _assert_dlp_clean_artifact(
+            expected_output_path,
+            purpose="output",
+            tools_dir=tools_dir,
+        )
+        _transcript_hash = _assert_dlp_clean_artifact(
+            transcript_output_path,
+            purpose="transcript",
+            tools_dir=tools_dir,
+        )
+        _write_executor_artifact_manifest(
+            request_id=request_id,
+            claim_id=claim_id,
+            output_path=expected_output_path,
+            output_hash=_output_hash_for_manifest,
+            transcript_path=transcript_output_path,
+            transcript_hash=_transcript_hash,
+            dlp_scan_clean=True,
+        )
+    except (OSError, RuntimeError) as exc:
+        sys.stderr.write(
+            f"transcript_artifact_invalid_after_codex: {transcript_output_path}: {exc}\n"
+        )
+        _release_claim(
+            tools_dir=tools_dir,
+            repo=repo,
+            claim_id=claim_id,
+            agent_id=agent_id,
+            lease_token=lease_token,
+            reason="transcript_artifact_invalid_after_codex",
+        )
+        return 1
     try:
         submit_proc = subprocess.run(
             [

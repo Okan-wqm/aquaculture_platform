@@ -43,9 +43,9 @@ from aria_kernel.bridge_status_ledger import (
     derive_bridge_state,
     latest_bridge_status_for,
 )
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
 from aria_kernel.runtime_profile import set_profile
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
 
 class BridgeConstantsTests(unittest.TestCase):
@@ -85,17 +85,74 @@ class BridgeLedgerAppendTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-c5-"))
         self.base = self.tmp / "aria-tools"
+        ensure_tools_binding(self.base, workspace_root=self.tmp)
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
 
     def tearDown(self) -> None:
         import shutil
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _seed_result(
+        self,
+        *,
+        role: str = "evidence_judgment",
+        bridge_status: str = "pending",
+        envelope_evidence_hash: str | None = None,
+    ) -> dict:
+        envelope_evidence_hash = envelope_evidence_hash or "sha256:" + "b" * 64
+        output_path = (self.base / "agent-invocations" / "outputs" / "out.json").as_posix()
+        output_hash = "sha256:" + "c" * 64
+        transcript_ref = (self.base / "agent-invocations" / "outputs" / "out.transcript.jsonl").as_posix()
+        transcript_hash = "sha256:" + "d" * 64
+        transcript_ledger_hash = "sha256:" + "f" * 64
+        result = append_declared_jsonl(
+            self.base / "agent-invocations" / "results.jsonl",
+            {
+                "$schema": "aria/agent-claim-result/v1",
+                "schema_version": 1,
+                "claim_id": "claim-c5",
+                "request_id": "req-c5",
+                "agent_id": "agent",
+                "role": role,
+                "status": "accepted",
+                "output_path": output_path,
+                "output_hash": output_hash,
+                "content_hash": output_hash,
+                "envelope_evidence_hash": envelope_evidence_hash,
+                "transcript_artifact_ref": transcript_ref,
+                "transcript_hash": transcript_hash,
+                "transcript_ledger_hash": transcript_ledger_hash,
+                "bridge_status": bridge_status,
+            },
+            expected_surface="agent_invocation_results",
+        )
+        append_declared_jsonl(
+            self.base / "agent-invocations" / "agent-result-bundles.jsonl",
+            {
+                "$schema": "aria/agent-result-bundle/v1",
+                "schema_version": 1,
+                "bundle_marker": "result_transcript_output_committed",
+                "claim_id": result["claim_id"],
+                "request_id": result["request_id"],
+                "agent_id": result["agent_id"],
+                "result_ledger_hash": result["ledger_hash"],
+                "envelope_evidence_hash": result["envelope_evidence_hash"],
+                "output_path": result["output_path"],
+                "output_hash": result["output_hash"],
+                "transcript_artifact_ref": result["transcript_artifact_ref"],
+                "transcript_hash": result["transcript_hash"],
+                "transcript_ledger_hash": result["transcript_ledger_hash"],
+            },
+            expected_surface="agent_result_bundles",
+        )
+        return result
+
     def test_append_bridge_status_writes_hash_chained_row(self) -> None:
+        result = self._seed_result()
         row = append_bridge_status(
             base_dir=self.base,
-            result_row_ledger_hash="sha256:" + "a" * 64,
-            envelope_evidence_hash="sha256:" + "b" * 64,
+            result_row_ledger_hash=result["ledger_hash"],
+            envelope_evidence_hash=result["envelope_evidence_hash"],
             role="evidence_judgment",
             transition="ok",
             attempt_number=1,
@@ -129,8 +186,9 @@ class BridgeLedgerAppendTests(unittest.TestCase):
         self.assertIn("bridge_attempt_number_negative", str(ctx.exception))
 
     def test_latest_bridge_status_for_returns_most_recent(self) -> None:
-        rrh = "sha256:" + "a" * 64
-        ee = "sha256:" + "b" * 64
+        result = self._seed_result()
+        rrh = result["ledger_hash"]
+        ee = result["envelope_evidence_hash"]
         append_bridge_status(
             base_dir=self.base, result_row_ledger_hash=rrh,
             envelope_evidence_hash=ee, role="evidence_judgment",
@@ -153,8 +211,9 @@ class BridgeLedgerAppendTests(unittest.TestCase):
         self.assertEqual(latest["transition"], "ok")
         self.assertEqual(latest["attempt_number"], 3)
         # Append-only invariant: ledger contains 3 rows, none patched.
-        rows = load_jsonl(
+        rows = load_declared_jsonl(
             self.base / "agent-invocations" / BRIDGE_LEDGER_FILENAME,
+            expected_surface="agent_result_bridge_status",
         )
         self.assertEqual(len(rows), 3)
 
@@ -163,6 +222,7 @@ class DeriveBridgeStateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-c5-derive-"))
         self.base = self.tmp / "aria-tools"
+        ensure_tools_binding(self.base, workspace_root=self.tmp)
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
 
     def tearDown(self) -> None:
@@ -180,6 +240,54 @@ class DeriveBridgeStateTests(unittest.TestCase):
             "envelope_evidence_hash": envelope_evidence_hash,
         }
 
+    def _seed_result(self, *, bridge_status: str = "pending") -> dict:
+        output_path = (self.base / "agent-invocations" / "outputs" / "out.json").as_posix()
+        output_hash = "sha256:" + "c" * 64
+        transcript_ref = (self.base / "agent-invocations" / "outputs" / "out.transcript.jsonl").as_posix()
+        transcript_hash = "sha256:" + "d" * 64
+        transcript_ledger_hash = "sha256:" + "f" * 64
+        result = append_declared_jsonl(
+            self.base / "agent-invocations" / "results.jsonl",
+            {
+                "$schema": "aria/agent-claim-result/v1",
+                "schema_version": 1,
+                "claim_id": "claim-x",
+                "request_id": "req-x",
+                "agent_id": "a",
+                "role": "evidence_judgment",
+                "status": "accepted",
+                "output_path": output_path,
+                "output_hash": output_hash,
+                "content_hash": output_hash,
+                "envelope_evidence_hash": "sha256:" + "e" * 64,
+                "transcript_artifact_ref": transcript_ref,
+                "transcript_hash": transcript_hash,
+                "transcript_ledger_hash": transcript_ledger_hash,
+                "bridge_status": bridge_status,
+            },
+            expected_surface="agent_invocation_results",
+        )
+        append_declared_jsonl(
+            self.base / "agent-invocations" / "agent-result-bundles.jsonl",
+            {
+                "$schema": "aria/agent-result-bundle/v1",
+                "schema_version": 1,
+                "bundle_marker": "result_transcript_output_committed",
+                "claim_id": result["claim_id"],
+                "request_id": result["request_id"],
+                "agent_id": result["agent_id"],
+                "result_ledger_hash": result["ledger_hash"],
+                "envelope_evidence_hash": result["envelope_evidence_hash"],
+                "output_path": result["output_path"],
+                "output_hash": result["output_hash"],
+                "transcript_artifact_ref": result["transcript_artifact_ref"],
+                "transcript_hash": result["transcript_hash"],
+                "transcript_ledger_hash": result["transcript_ledger_hash"],
+            },
+            expected_surface="agent_result_bundles",
+        )
+        return result
+
     def test_crash_recovery_pending_with_no_ledger_row(self) -> None:
         # Plan 026R §C.5 — pending result row + missing bridge-ledger
         # row triggers crash-recovery rule (pending attempt 0).
@@ -190,7 +298,7 @@ class DeriveBridgeStateTests(unittest.TestCase):
         self.assertTrue(state["crash_recovery_triggered"])
 
     def test_bridge_ledger_ok_resolves_to_ok(self) -> None:
-        row = self._result_row(bridge_status="pending")
+        row = self._seed_result(bridge_status="pending")
         append_bridge_status(
             base_dir=self.base,
             result_row_ledger_hash=row["ledger_hash"],
@@ -203,7 +311,7 @@ class DeriveBridgeStateTests(unittest.TestCase):
         self.assertFalse(state["crash_recovery_triggered"])
 
     def test_bridge_ledger_pending_retry_resolves_to_pending_retry(self) -> None:
-        row = self._result_row(bridge_status="pending")
+        row = self._seed_result(bridge_status="pending")
         append_bridge_status(
             base_dir=self.base,
             result_row_ledger_hash=row["ledger_hash"],
@@ -235,12 +343,13 @@ class DeriveRequestStateBridgeAwareTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-c5-int-"))
         self.base = self.tmp / "aria-tools"
+        ensure_tools_binding(self.base, workspace_root=self.tmp)
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
         # Stage a minimal request row + an accepted result row directly
         # (skip the full submit_claim_result pipeline for state-derivation
         # focus).
         self.request_id = "req-c5"
-        append_jsonl(
+        append_declared_jsonl(
             self.base / "agent-invocations" / "requests.jsonl",
             {
                 "$schema": "aria/agent-invocation-request/v1",
@@ -250,9 +359,15 @@ class DeriveRequestStateBridgeAwareTests(unittest.TestCase):
                 "role": "evidence_judgment",
                 "state": "pending",
             },
+            expected_surface="agent_invocation_requests",
         )
         self.envelope_evidence_hash = "sha256:" + "e" * 64
-        self.persisted_result = append_jsonl(
+        self.output_path = (self.base / "agent-invocations" / "outputs" / "out.json").as_posix()
+        self.output_hash = "sha256:" + "c" * 64
+        self.transcript_ref = (self.base / "agent-invocations" / "outputs" / "out.transcript.jsonl").as_posix()
+        self.transcript_hash = "sha256:" + "d" * 64
+        self.transcript_ledger_hash = "sha256:" + "f" * 64
+        self.persisted_result = append_declared_jsonl(
             self.base / "agent-invocations" / "results.jsonl",
             {
                 "$schema": "aria/agent-claim-result/v1",
@@ -262,11 +377,35 @@ class DeriveRequestStateBridgeAwareTests(unittest.TestCase):
                 "agent_id": "agent",
                 "role": "evidence_judgment",
                 "status": "accepted",
-                "output_path": "/tmp/x.json",
-                "content_hash": "sha256:c",
+                "output_path": self.output_path,
+                "output_hash": self.output_hash,
+                "content_hash": self.output_hash,
                 "envelope_evidence_hash": self.envelope_evidence_hash,
+                "transcript_artifact_ref": self.transcript_ref,
+                "transcript_hash": self.transcript_hash,
+                "transcript_ledger_hash": self.transcript_ledger_hash,
                 "bridge_status": "pending",
             },
+            expected_surface="agent_invocation_results",
+        )
+        append_declared_jsonl(
+            self.base / "agent-invocations" / "agent-result-bundles.jsonl",
+            {
+                "$schema": "aria/agent-result-bundle/v1",
+                "schema_version": 1,
+                "bundle_marker": "result_transcript_output_committed",
+                "claim_id": self.persisted_result["claim_id"],
+                "request_id": self.persisted_result["request_id"],
+                "agent_id": self.persisted_result["agent_id"],
+                "result_ledger_hash": self.persisted_result["ledger_hash"],
+                "envelope_evidence_hash": self.persisted_result["envelope_evidence_hash"],
+                "output_path": self.persisted_result["output_path"],
+                "output_hash": self.persisted_result["output_hash"],
+                "transcript_artifact_ref": self.persisted_result["transcript_artifact_ref"],
+                "transcript_hash": self.persisted_result["transcript_hash"],
+                "transcript_ledger_hash": self.persisted_result["transcript_ledger_hash"],
+            },
+            expected_surface="agent_result_bundles",
         )
 
     def tearDown(self) -> None:

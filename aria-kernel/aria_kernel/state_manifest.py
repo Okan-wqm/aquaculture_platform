@@ -54,6 +54,8 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         durability="append_fsync",
         write_driving=True,
         schema_id="aria/agent-invocation-request/v1",
+        writer_api="declared",
+        reader_api="declared",
     ),
     StateSurface(
         name="agent_invocation_claims",
@@ -65,6 +67,8 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         durability="append_fsync",
         write_driving=True,
         schema_id="aria/agent-invocation-claim/v1",
+        writer_api="declared",
+        reader_api="declared",
     ),
     StateSurface(
         name="agent_invocation_results",
@@ -76,6 +80,8 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         durability="append_fsync",
         write_driving=True,
         schema_id="aria/agent-invocation-result/v1",
+        writer_api="declared",
+        reader_api="declared",
     ),
     StateSurface(
         name="agent_invocation_contexts",
@@ -152,6 +158,8 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         durability="append_fsync",
         write_driving=True,
         schema_id="aria/agent-result-bridge-status/v1",
+        writer_api="declared",
+        reader_api="declared",
     ),
     StateSurface(
         name="ack_ledger",
@@ -205,7 +213,37 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     ),
     StateSurface(
         name="agent_output_artifacts",
-        path_pattern="agent-invocations/outputs/*.json",
+        path_pattern="agent-invocations/outputs/**/*.md",
+        state_class="artifact",
+        lock_group="agent_invocations",
+        index_group=None,
+        strict_read=True,
+        durability="rewrite_fsync",
+        write_driving=False,
+    ),
+    StateSurface(
+        name="agent_json_output_artifacts",
+        path_pattern="agent-invocations/outputs/**/*.json",
+        state_class="artifact",
+        lock_group="agent_invocations",
+        index_group=None,
+        strict_read=True,
+        durability="rewrite_fsync",
+        write_driving=False,
+    ),
+    StateSurface(
+        name="agent_transcript_artifacts",
+        path_pattern="agent-invocations/outputs/**/*.transcript.jsonl",
+        state_class="artifact",
+        lock_group="agent_invocations",
+        index_group=None,
+        strict_read=True,
+        durability="rewrite_fsync",
+        write_driving=False,
+    ),
+    StateSurface(
+        name="agent_prompt_artifacts",
+        path_pattern="agent-invocations/prompts/*.md",
         state_class="artifact",
         lock_group="agent_invocations",
         index_group=None,
@@ -290,9 +328,23 @@ def validate_manifest_invariants(
             ]
             if missing:
                 errors.append(f"write_driving_surface_metadata_missing:{surface.name}:{','.join(missing)}")
-    ordered = list(_ordered_surfaces(surfaces))
-    if ordered != sorted(surfaces, key=_surface_sort_key):
-        errors.append("surface_order_not_exact_before_wildcard")
+    for surface in surfaces:
+        if "*" in surface.path_pattern:
+            continue
+        matched = next(
+            (
+                candidate
+                for candidate in _ordered_surfaces(surfaces)
+                if fnmatch(surface.path_pattern, candidate.path_pattern)
+            ),
+            None,
+        )
+        if matched is None or matched.name != surface.name:
+            actual = matched.name if matched is not None else None
+            errors.append(
+                "surface_order_not_exact_before_wildcard:"
+                f"{surface.name}:actual={actual}"
+            )
     if errors:
         raise ValueError(";".join(errors))
 
@@ -381,13 +433,35 @@ def _tools_identity_valid(base_dir: Path) -> bool:
         contract_version = int(identity.get("aria_tools_contract_version") or 0)
     except (TypeError, ValueError):
         return False
-    if schema_version < 2 or contract_version < 2:
+    if schema_version != 3 or contract_version != 3:
         return False
-    bound_identity = identity.get("bound_canonical_identity") or identity.get("bound_repo_hash")
-    if not isinstance(bound_identity, str) or not _BOUND_IDENTITY_RE.fullmatch(bound_identity):
+    bound_canonical = identity.get("bound_canonical_identity")
+    legacy_bound = identity.get("bound_repo_hash")
+    if (
+        not isinstance(bound_canonical, str)
+        or not isinstance(legacy_bound, str)
+        or not _BOUND_IDENTITY_RE.fullmatch(bound_canonical)
+        or bound_canonical != legacy_bound
+    ):
         return False
     bound_root = identity.get("bound_repo_root")
     if not isinstance(bound_root, str) or not bound_root.strip():
+        return False
+    bound_repo_root = Path(bound_root).expanduser().resolve()
+    if not bound_repo_root.exists() or not bound_repo_root.is_dir():
+        return False
+    bound_tools_root = identity.get("bound_tools_root")
+    if (
+        isinstance(bound_tools_root, str)
+        and bound_tools_root.strip()
+        and base_dir.resolve() != Path(bound_tools_root).expanduser().resolve()
+    ):
+        return False
+    try:
+        from .workspace import canonical_identity
+        if canonical_identity(bound_repo_root) != bound_canonical:
+            return False
+    except Exception:
         return False
     return _identity_content_hash_matches(base_dir, identity_path)
 

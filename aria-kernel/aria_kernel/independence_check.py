@@ -36,7 +36,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .ledger import load_jsonl
+from .ledger import load_declared_jsonl
 
 
 # Per code-reviewer #3 — 0.85 ceiling is the bright-line operator
@@ -62,7 +62,11 @@ def verify_claim_disjointness(
     claims_path = Path(base_dir) / "agent-invocations" / "claims.jsonl"
     if not claims_path.exists():
         return False, ["claims_jsonl_missing"]
-    rows = load_jsonl(claims_path)
+    rows = load_declared_jsonl(
+        claims_path,
+        expected_surface="agent_invocation_claims",
+        verify=True,
+    )
     by_request: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         rid = row.get("request_id")

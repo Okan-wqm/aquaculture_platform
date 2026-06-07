@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_surface import BRIDGE_REQUIRED_ROLES
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, utc_now
 
 
@@ -74,6 +74,124 @@ BRIDGE_LEDGER_FILENAME = "agent-result-bridge-status.jsonl"
 
 def _bridge_ledger_path(root: Path) -> Path:
     return root / "agent-invocations" / BRIDGE_LEDGER_FILENAME
+
+
+def _results_ledger_path(root: Path) -> Path:
+    return root / "agent-invocations" / "results.jsonl"
+
+
+def _result_bundles_ledger_path(root: Path) -> Path:
+    return root / "agent-invocations" / "agent-result-bundles.jsonl"
+
+
+def _load_bridge_rows(root: Path) -> list[dict[str, Any]]:
+    return load_declared_jsonl(
+        _bridge_ledger_path(root),
+        expected_surface="agent_result_bridge_status",
+        verify=True,
+    )
+
+
+def _matching_result_bundle(
+    *,
+    root: Path,
+    result_row: dict[str, Any],
+    result_row_ledger_hash: str,
+    envelope_evidence_hash: str,
+) -> dict[str, Any] | None:
+    for bundle in reversed(
+        load_declared_jsonl(
+            _result_bundles_ledger_path(root),
+            expected_surface="agent_result_bundles",
+            verify=True,
+        )
+    ):
+        if bundle.get("bundle_marker") != "result_transcript_output_committed":
+            continue
+        if bundle.get("result_ledger_hash") != result_row_ledger_hash:
+            continue
+        if bundle.get("envelope_evidence_hash") != envelope_evidence_hash:
+            continue
+        if bundle.get("claim_id") != result_row.get("claim_id"):
+            continue
+        if bundle.get("request_id") != result_row.get("request_id"):
+            continue
+        if bundle.get("output_path") != result_row.get("output_path"):
+            continue
+        if bundle.get("output_hash") != result_row.get("output_hash"):
+            continue
+        if bundle.get("transcript_artifact_ref") != result_row.get("transcript_artifact_ref"):
+            continue
+        if bundle.get("transcript_hash") != result_row.get("transcript_hash"):
+            continue
+        return bundle
+    return None
+
+
+def _resolve_result_bundle_binding(
+    *,
+    root: Path,
+    result_row_ledger_hash: str,
+    envelope_evidence_hash: str,
+    role: str | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    results = load_declared_jsonl(
+        _results_ledger_path(root),
+        expected_surface="agent_invocation_results",
+        verify=True,
+    )
+    result_row = next(
+        (
+            row for row in reversed(results)
+            if row.get("ledger_hash") == result_row_ledger_hash
+            and row.get("envelope_evidence_hash") == envelope_evidence_hash
+        ),
+        None,
+    )
+    if result_row is None:
+        raise GovernanceError(
+            "bridge_status_result_not_found:"
+            f"result_row_ledger_hash={result_row_ledger_hash}"
+        )
+    if result_row.get("status") != "accepted":
+        raise GovernanceError("bridge_status_result_not_accepted")
+    if role is not None and result_row.get("role") != role:
+        raise GovernanceError(
+            f"bridge_status_role_mismatch: result={result_row.get('role')} bridge={role}"
+        )
+    bundle = _matching_result_bundle(
+        root=root,
+        result_row=result_row,
+        result_row_ledger_hash=result_row_ledger_hash,
+        envelope_evidence_hash=envelope_evidence_hash,
+    )
+    if bundle is None:
+        raise GovernanceError(
+            "bridge_status_result_bundle_missing:"
+            f"result_row_ledger_hash={result_row_ledger_hash}"
+        )
+    return result_row, bundle
+
+
+def _require_bridge_row_bound(
+    *,
+    root: Path,
+    row: dict[str, Any],
+    result_row_ledger_hash: str,
+    envelope_evidence_hash: str,
+) -> None:
+    result_row, bundle = _resolve_result_bundle_binding(
+        root=root,
+        result_row_ledger_hash=result_row_ledger_hash,
+        envelope_evidence_hash=envelope_evidence_hash,
+        role=row.get("role"),
+    )
+    if row.get("result_bundle_ledger_hash") != bundle.get("ledger_hash"):
+        raise GovernanceError("bridge_status_result_bundle_hash_mismatch")
+    if row.get("claim_id") != result_row.get("claim_id"):
+        raise GovernanceError("bridge_status_claim_binding_mismatch")
+    if row.get("request_id") != result_row.get("request_id"):
+        raise GovernanceError("bridge_status_request_binding_mismatch")
 
 
 def _default_max_retries() -> int:
@@ -126,11 +244,21 @@ def append_bridge_status(
         raise GovernanceError(
             f"bridge_attempt_number_negative: {attempt_number}"
         )
+    root = Path(base_dir)
+    result_row, bundle = _resolve_result_bundle_binding(
+        root=root,
+        result_row_ledger_hash=result_row_ledger_hash,
+        envelope_evidence_hash=envelope_evidence_hash,
+        role=role,
+    )
     row = {
         "$schema": "aria/agent-result-bridge-status/v1",
         "schema_version": 1,
         "recorded_at": utc_now(),
+        "claim_id": result_row.get("claim_id"),
+        "request_id": result_row.get("request_id"),
         "result_row_ledger_hash": result_row_ledger_hash,
+        "result_bundle_ledger_hash": bundle.get("ledger_hash"),
         "envelope_evidence_hash": envelope_evidence_hash,
         "role": role,
         "transition": transition,
@@ -138,8 +266,10 @@ def append_bridge_status(
     }
     if error_detail is not None:
         row["error_detail"] = error_detail
-    return append_jsonl(
-        _bridge_ledger_path(Path(base_dir)), row,
+    return append_declared_jsonl(
+        _bridge_ledger_path(root),
+        row,
+        expected_surface="agent_result_bridge_status",
     )
 
 
@@ -151,13 +281,20 @@ def latest_bridge_status_for(
 ) -> dict[str, Any] | None:
     """Return the latest bridge-status row for the (result_row_ledger_hash,
     envelope_evidence_hash) pair, or None when no row exists."""
-    rows = load_jsonl(_bridge_ledger_path(Path(base_dir)))
+    root = Path(base_dir)
+    rows = _load_bridge_rows(root)
     latest: dict[str, Any] | None = None
     for row in rows:
         if (
             row.get("result_row_ledger_hash") == result_row_ledger_hash
             and row.get("envelope_evidence_hash") == envelope_evidence_hash
         ):
+            _require_bridge_row_bound(
+                root=root,
+                row=row,
+                result_row_ledger_hash=result_row_ledger_hash,
+                envelope_evidence_hash=envelope_evidence_hash,
+            )
             latest = row
     return latest
 

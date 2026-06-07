@@ -37,11 +37,16 @@ def seed_initialized_tools_root(
     """
     aria_tools = (workspace / "aria-tools").resolve()
     aria_tools.mkdir(parents=True, exist_ok=True)
+    from aria_kernel.workspace import canonical_identity
+
+    repo_root = Path(bound_repo_root).resolve() if bound_repo_root else workspace.resolve()
+    identity_hash = bound_repo_hash or canonical_identity(repo_root)
     identity = {
         "aria_tools_contract_version": 3,
-        "bound_repo_hash": bound_repo_hash,
-        "bound_canonical_identity": bound_repo_hash,
-        "bound_repo_root": bound_repo_root or str(workspace),
+        "bound_repo_hash": identity_hash,
+        "bound_canonical_identity": identity_hash,
+        "bound_repo_root": str(repo_root),
+        "bound_tools_root": str(aria_tools),
         "schema_version": 3,
     }
     (aria_tools / "repo_identity.json").write_text(

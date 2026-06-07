@@ -13,6 +13,7 @@ from aria_kernel.tool_registry import (
     ensure_tools_binding,
     ensure_tools_dir,
 )
+from aria_kernel.state_manifest import surface_for_path
 from aria_kernel.workspace import repo_hash
 
 
@@ -37,7 +38,7 @@ class EnsureToolsBindingTests(unittest.TestCase):
 
     def test_bind_to_first_repo_succeeds(self) -> None:
         repo_a = _make_repo(self.tmp, name="repo_a")
-        tools = self.tmp / "aria-tools"
+        tools = repo_a / "aria-tools"
         ensure_tools_dir(tools)
         result = ensure_tools_binding(tools, workspace_root=repo_a)
         self.assertEqual(result, tools)
@@ -46,7 +47,7 @@ class EnsureToolsBindingTests(unittest.TestCase):
 
     def test_re_bind_same_repo_idempotent(self) -> None:
         repo_a = _make_repo(self.tmp, name="repo_a")
-        tools = self.tmp / "aria-tools"
+        tools = repo_a / "aria-tools"
         ensure_tools_dir(tools)
         ensure_tools_binding(tools, workspace_root=repo_a)
         # Re-binding to the same repo is a no-op (no error).
@@ -56,7 +57,7 @@ class EnsureToolsBindingTests(unittest.TestCase):
     def test_cross_repo_re_bind_rejected(self) -> None:
         repo_a = _make_repo(self.tmp, name="repo_a")
         repo_b = _make_repo(self.tmp, name="repo_b")
-        tools = self.tmp / "aria-tools"
+        tools = repo_a / "aria-tools"
         ensure_tools_dir(tools)
         ensure_tools_binding(tools, workspace_root=repo_a)
         # Plan ARIA-V2 §3.2 (formerly Plan 022 C-3): binding to a
@@ -71,6 +72,22 @@ class EnsureToolsBindingTests(unittest.TestCase):
         # Error includes both bound and current hashes for operator triage.
         self.assertIn(repo_hash(repo_a), str(cm.exception))
         self.assertIn(repo_hash(repo_b), str(cm.exception))
+
+    def test_copied_identity_cannot_be_blessed_by_local_index(self) -> None:
+        repo_a = _make_repo(self.tmp, name="repo_a")
+        repo_b = _make_repo(self.tmp, name="repo_b")
+        tools_a = repo_a / "aria-tools"
+        ensure_tools_binding(tools_a, workspace_root=repo_a)
+        copied = repo_b / "aria-tools"
+        copied.mkdir()
+        shutil.copy2(tools_a / "repo_identity.json", copied / "repo_identity.json")
+        shutil.copy2(tools_a / "integrity_index.json", copied / "integrity_index.json")
+        self.assertIsNone(surface_for_path(copied / "agent-invocations" / "requests.jsonl"))
+        self.assertEqual(ensure_tools_dir(copied), copied)
+        self.assertIsNone(surface_for_path(copied / "agent-invocations" / "requests.jsonl"))
+        with self.assertRaises(GovernanceError) as cm:
+            ensure_tools_binding(copied)
+        self.assertIn("tools_root_identity_invalid_or_copied", str(cm.exception))
 
 
 if __name__ == "__main__":

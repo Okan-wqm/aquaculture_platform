@@ -21,7 +21,7 @@ from aria_kernel.agent_invocations import (
     create_agent_invocation_request,
     submit_claim_result,
 )
-from aria_kernel.ledger import load_jsonl
+from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.runtime_profile import set_profile
 from tests._helpers.context_binding import submit_binding_kwargs
 
@@ -30,8 +30,7 @@ class ResultContentHashAliasTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-c2-"))
         self.base = self.tmp / "aria-tools"
-        self.workspace = self.tmp / "workspace"
-        self.workspace.mkdir()
+        self.workspace = self.tmp
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
         # Seed an evidence file the request will reference.
         (self.workspace / "docs").mkdir()
@@ -43,7 +42,7 @@ class ResultContentHashAliasTests(unittest.TestCase):
             target_agent="aria-evidence-judge",
             role="evidence_judgment",
             suggested_prompt="verify",
-            expected_output_path=str(self.workspace / "out.json"),
+            expected_output_path=str(self.base / "agent-invocations" / "outputs" / "out.json"),
             must_satisfy=[{"id": "S1", "description": "evidence-grounded"}],
             allowed_scope=["docs/"],
             evidence_refs=["docs/evidence.md"],
@@ -88,7 +87,8 @@ class ResultContentHashAliasTests(unittest.TestCase):
         )
 
     def test_accepted_result_row_carries_both_hash_fields(self) -> None:
-        out = self.workspace / "out.json"
+        out = Path(self.req["expected_output_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
         self._write_envelope(out)
         result = submit_claim_result(
             claim_id=self.claim["claim_id"],
@@ -109,7 +109,8 @@ class ResultContentHashAliasTests(unittest.TestCase):
     def test_rejected_result_row_carries_both_hash_fields(self) -> None:
         # Rejection scenario: envelope claims a satisfaction matrix
         # that doesn't reference the allowed_scope.
-        out = self.workspace / "out.json"
+        out = Path(self.req["expected_output_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
         bad_envelope = {
             "$schema": "aria/agent-response/v1",
             "schema_version": 1,
@@ -146,7 +147,8 @@ class ResultContentHashAliasTests(unittest.TestCase):
         self.assertTrue(row["output_hash"].startswith("sha256:"))
 
     def test_cross_review_lookup_by_content_hash_resolves(self) -> None:
-        out = self.workspace / "out.json"
+        out = Path(self.req["expected_output_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
         self._write_envelope(out)
         result = submit_claim_result(
             claim_id=self.claim["claim_id"],
@@ -158,7 +160,11 @@ class ResultContentHashAliasTests(unittest.TestCase):
             **self._binding_kwargs("lookup.transcript.jsonl"),
         )
         target_hash = result["row"]["content_hash"]
-        rows = load_jsonl(self.base / "agent-invocations" / "results.jsonl")
+        rows = load_declared_jsonl(
+            self.base / "agent-invocations" / "results.jsonl",
+            expected_surface="agent_invocation_results",
+            verify=True,
+        )
         # The lookup pattern §C.4 will use: find a row whose
         # content_hash equals the target. Pre-§C.2 the rows did NOT
         # carry content_hash so the lookup returned None.

@@ -44,6 +44,23 @@ _CI_EXEC_DIR = _REPO_ROOT / "tools" / "aria-poc"
 sys.path.insert(0, str(_CI_EXEC_DIR))
 
 
+def _bound_executor_paths(td: Path) -> tuple[Path, Path, Path]:
+    from aria_kernel.tool_registry import ensure_tools_binding
+
+    tools_dir = ensure_tools_binding(td / "aria-tools", workspace_root=td)
+    output_path = tools_dir / "agent-invocations" / "outputs" / "out.json"
+    prompt_path = tools_dir / "agent-invocations" / "prompts" / "prompt.md"
+    from ci_executor import _write_safe_text_artifact  # type: ignore[import-not-found]
+
+    _write_safe_text_artifact(
+        prompt_path,
+        "# Test prompt",
+        purpose="prompt",
+        tools_dir=tools_dir,
+    )
+    return tools_dir, output_path, prompt_path
+
+
 class CiExecutorMockRealLeaseTests(unittest.TestCase):
     def setUp(self) -> None:
         os.environ["CODEX_CLI_MOCK"] = "1"
@@ -55,12 +72,12 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
         """Plan 024 §B-8 acceptance (1)."""
         from ci_executor import invoke_codex_cli  # type: ignore[import-not-found]
         with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "out.json"
+            tools_dir, out, prompt = _bound_executor_paths(Path(td))
             with self.assertRaises(ValueError) as ctx:
                 invoke_codex_cli(
                     request_id="REQ-1",
                     subagent_type="aria-evidence-judge",
-                    prompt_file=Path(td) / "prompt.md",
+                    prompt_file=prompt,
                     output_path=out,
                     timeout_seconds=60,
                     # Plan 025 §B — role is now a required keyword
@@ -69,6 +86,7 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
                     # past the role precondition; claim_id + agent_id
                     # intentionally missing.
                     role="evidence_judgment",
+                    tools_dir=tools_dir,
                 )
             self.assertIn("ci_executor_mock_missing_lease_identity",
                           str(ctx.exception))
@@ -77,17 +95,18 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
         """Plan 024 §B-8 acceptance (2)."""
         from ci_executor import invoke_codex_cli  # type: ignore[import-not-found]
         with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "out.json"
+            tools_dir, out, prompt = _bound_executor_paths(Path(td))
             invoke_codex_cli(
                 request_id="REQ-1",
                 subagent_type="aria-evidence-judge",
-                prompt_file=Path(td) / "prompt.md",
+                prompt_file=prompt,
                 output_path=out,
                 timeout_seconds=60,
                 claim_id="claim_real_aaaaaaaa",
                 agent_id="ci-executor:gha-12345",
                 role="evidence_judgment",
                 must_satisfy=[],
+                tools_dir=tools_dir,
             )
             envelope = json.loads(out.read_text(encoding="utf-8"))
             self.assertEqual(envelope["claim_id"], "claim_real_aaaaaaaa")
@@ -101,11 +120,11 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
         """Plan 024 §B-8 acceptance (3)."""
         from ci_executor import invoke_codex_cli  # type: ignore[import-not-found]
         with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "out.json"
+            tools_dir, out, prompt = _bound_executor_paths(Path(td))
             invoke_codex_cli(
                 request_id="REQ-1",
                 subagent_type="aria-evidence-judge",
-                prompt_file=Path(td) / "prompt.md",
+                prompt_file=prompt,
                 output_path=out,
                 timeout_seconds=60,
                 claim_id="claim_real_aaaaaaaa",
@@ -115,6 +134,7 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
                     {"id": "c-1", "criterion": "first"},
                     {"id": "c-2", "criterion": "second"},
                 ],
+                tools_dir=tools_dir,
             )
             envelope = json.loads(out.read_text(encoding="utf-8"))
             ids = {e.get("id") for e in envelope["satisfaction_matrix"]}

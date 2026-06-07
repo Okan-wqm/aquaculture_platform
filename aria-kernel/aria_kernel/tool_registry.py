@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,6 +59,8 @@ DEFAULT_HEALTH_THRESHOLDS = {
     "crash_rate_last_10": 0.2,
 }
 
+_CANONICAL_IDENTITY_RE = re.compile(r"^[0-9a-f]{16}([0-9a-f]{48})?$")
+
 
 class GovernanceError(ValueError):
     """Raised when a tool governance rule rejects an operation."""
@@ -97,8 +100,9 @@ def _walk_up_to_bound_identity(start_cwd: str | os.PathLike[str]) -> Path | None
     cur = Path(start_cwd).resolve()
     while True:
         candidate = cur / "aria-tools" / "repo_identity.json"
-        if candidate.is_file():
-            return (cur / "aria-tools").resolve()
+        root = cur / "aria-tools"
+        if candidate.is_file() and _strict_bound_identity_valid(root):
+            return root.resolve()
         if cur.parent == cur:
             return None
         cur = cur.parent
@@ -159,6 +163,49 @@ def tools_dir(path: str | os.PathLike[str] | None = None) -> Path:
     )
 
 
+def _load_identity(root: Path) -> dict[str, Any] | None:
+    identity_file = root / "repo_identity.json"
+    if not identity_file.is_file() or identity_file.is_symlink():
+        return None
+    try:
+        payload = json.loads(identity_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _strict_bound_identity_valid(root: Path) -> bool:
+    identity = _load_identity(root)
+    if identity is None:
+        return False
+    try:
+        schema_version = int(identity.get("schema_version") or 0)
+        contract_version = int(identity.get("aria_tools_contract_version") or 0)
+    except (TypeError, ValueError):
+        return False
+    if schema_version != SCHEMA_VERSION or contract_version != SCHEMA_VERSION:
+        return False
+    bound_canonical = identity.get("bound_canonical_identity")
+    legacy_bound = identity.get("bound_repo_hash")
+    if (
+        not isinstance(bound_canonical, str)
+        or not isinstance(legacy_bound, str)
+        or not _CANONICAL_IDENTITY_RE.fullmatch(bound_canonical)
+        or bound_canonical != legacy_bound
+    ):
+        return False
+    raw_bound_root = identity.get("bound_repo_root")
+    if not isinstance(raw_bound_root, str) or not raw_bound_root.strip():
+        return False
+    bound_root = Path(raw_bound_root).expanduser().resolve()
+    if not bound_root.exists() or not bound_root.is_dir():
+        return False
+    bound_tools_root = identity.get("bound_tools_root")
+    if isinstance(bound_tools_root, str) and bound_tools_root.strip() and root.resolve() != Path(bound_tools_root).expanduser().resolve():
+        return False
+    return canonical_identity(bound_root) == bound_canonical
+
+
 def registry_path(base_dir: str | os.PathLike[str] | None = None) -> Path:
     return tools_dir(base_dir) / "registry.json"
 
@@ -186,6 +233,10 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
             "tools_root_bootstrapped",
             {"tools_dir": root.as_posix(), "schema_version": 2, "bound_repo_hash": None},
         )
+    else:
+        identity = _load_identity(root)
+        if identity is None:
+            raise GovernanceError("tools_root_identity_malformed")
     _prepare_tools_dirs(root)
     update_tools_index(root)
     return root
@@ -239,6 +290,14 @@ def ensure_tools_binding(
     """
     root = ensure_tools_dir(base_dir)
     if workspace_root is None:
+        identity = _load_identity(root)
+        bound_value = (identity or {}).get("bound_canonical_identity") or (identity or {}).get("bound_repo_hash")
+        if bound_value not in (None, "") and not _strict_bound_identity_valid(root):
+            raise GovernanceError(
+                "tools_root_identity_invalid_or_copied: run "
+                "`aria-kernel integrity migrate-tools-bootstrap --acknowledge "
+                "--reason \"<text>\"` for explicit legacy repair"
+            )
         return root
     repo_root = Path(workspace_root).resolve()
     identity_file = root / "repo_identity.json"
@@ -254,9 +313,11 @@ def ensure_tools_binding(
         identity["bound_canonical_identity"] = expected
         identity["bound_repo_hash"] = expected  # legacy mirror
         identity["bound_repo_root"] = str(repo_root)
+        identity["bound_tools_root"] = str(root)
         identity["aria_tools_contract_version"] = SCHEMA_VERSION
         identity["schema_version"] = SCHEMA_VERSION
         _atomic_write_json(identity_file, identity)
+        update_tools_index(root)
         append_tools_governance(
             root,
             "tools_root_bound",
@@ -286,9 +347,11 @@ def ensure_tools_binding(
         # binding computed via the new canonical recipe.
         if bound_canonical in (None, "") and legacy_bound:
             identity["bound_canonical_identity"] = legacy_bound
+            identity["bound_tools_root"] = str(root)
             identity["aria_tools_contract_version"] = SCHEMA_VERSION
             identity["schema_version"] = SCHEMA_VERSION
             _atomic_write_json(identity_file, identity)
+            update_tools_index(root)
             append_tools_governance(
                 root,
                 "tools_root_canonical_identity_backfilled",
@@ -362,7 +425,14 @@ def covered_tool_ledgers(root: Path) -> dict[str, Path]:
         "agent_fitness": root / "fitness" / "agent-fitness.jsonl",
         "plans_events": root / "plans" / "events.jsonl",
         "agent_invocations_requests": root / "agent-invocations" / "requests.jsonl",
+        "agent_invocations_claims": root / "agent-invocations" / "claims.jsonl",
         "agent_invocations_results": root / "agent-invocations" / "results.jsonl",
+        "agent_invocation_contexts": root / "agent-invocations" / "contexts.jsonl",
+        "agent_invocation_prompts": root / "agent-invocations" / "prompts.jsonl",
+        "agent_invocation_transcripts": root / "agent-invocations" / "transcripts.jsonl",
+        "agent_invocation_bundles": root / "agent-invocations" / "agent-invocation-bundles.jsonl",
+        "agent_result_bundles": root / "agent-invocations" / "agent-result-bundles.jsonl",
+        "agent_result_bridge_status": root / "agent-invocations" / "agent-result-bridge-status.jsonl",
         "runtime_artifact_index": root / "run-artifacts" / "artifact-index.jsonl",
         "runtime_artifact_manifest": root / "run-artifacts" / "manifest.jsonl",
         "runtime_retention_events": root / "retention" / "events.jsonl",
@@ -379,7 +449,7 @@ def update_tools_index(root: Path) -> None:
     index: dict[str, Any] = {}
     file_hashes: dict[str, str] = {}
     identity_path = root / "repo_identity.json"
-    if identity_path.exists():
+    if identity_path.exists() and _strict_bound_identity_valid(root):
         file_hashes["repo_identity"] = file_hash(identity_path)
     state_path = root / "migration_state.json"
     if state_path.exists():

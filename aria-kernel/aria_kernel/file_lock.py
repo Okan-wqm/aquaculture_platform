@@ -37,6 +37,7 @@ from __future__ import annotations
 import contextlib
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Iterator
@@ -44,6 +45,42 @@ from typing import Iterator
 
 _DEFAULT_TIMEOUT_SECONDS: float = 5.0
 _POLL_INTERVAL_SECONDS: float = 0.05
+_HELD_LOCKS_GUARD = threading.RLock()
+_HELD_LOCKS: dict[tuple[Path, int], int] = {}
+
+
+def _lock_key(lock_path: Path) -> tuple[Path, int]:
+    return lock_path.resolve(strict=False), threading.get_ident()
+
+
+def _allows_same_thread_reentry(target: Path) -> bool:
+    return target.name == "integrity_index.json" or target.suffix == ".jsonl"
+
+
+def _enter_reentrant(lock_path: Path) -> tuple[Path, int] | None:
+    key = _lock_key(lock_path)
+    with _HELD_LOCKS_GUARD:
+        count = _HELD_LOCKS.get(key)
+        if count is None:
+            return None
+        _HELD_LOCKS[key] = count + 1
+        return key
+
+
+def _mark_acquired(lock_path: Path) -> tuple[Path, int]:
+    key = _lock_key(lock_path)
+    with _HELD_LOCKS_GUARD:
+        _HELD_LOCKS[key] = _HELD_LOCKS.get(key, 0) + 1
+    return key
+
+
+def _leave_reentrant(key: tuple[Path, int]) -> None:
+    with _HELD_LOCKS_GUARD:
+        count = _HELD_LOCKS.get(key, 0)
+        if count <= 1:
+            _HELD_LOCKS.pop(key, None)
+        else:
+            _HELD_LOCKS[key] = count - 1
 
 
 @contextlib.contextmanager
@@ -68,6 +105,15 @@ def with_exclusive_lock(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     lock_path = target.with_suffix(target.suffix + ".lock")
+    allow_reentry = _allows_same_thread_reentry(target)
+    if allow_reentry:
+        reentrant_key = _enter_reentrant(lock_path)
+        if reentrant_key is not None:
+            try:
+                yield
+            finally:
+                _leave_reentrant(reentrant_key)
+            return
 
     if sys.platform.startswith("win"):
         # Windows: O_CREAT | O_EXCL atomic side-car creation. The
@@ -81,6 +127,7 @@ def with_exclusive_lock(
                     str(lock_path),
                     os.O_CREAT | os.O_EXCL | os.O_RDWR,
                 )
+                held_key = _mark_acquired(lock_path) if allow_reentry else None
                 break
             except FileExistsError:
                 if time.monotonic() >= deadline:
@@ -91,6 +138,8 @@ def with_exclusive_lock(
         try:
             yield
         finally:
+            if held_key is not None:
+                _leave_reentrant(held_key)
             try:
                 os.close(fd)
             finally:
@@ -105,10 +154,12 @@ def with_exclusive_lock(
         import fcntl
         fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
         deadline = time.monotonic() + timeout_seconds
+        held_key: tuple[Path, int] | None = None
         try:
             while True:
                 try:
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    held_key = _mark_acquired(lock_path) if allow_reentry else None
                     break
                 except BlockingIOError:
                     if time.monotonic() >= deadline:
@@ -116,8 +167,12 @@ def with_exclusive_lock(
                             f"with_exclusive_lock_timeout: {target}"
                         )
                     time.sleep(_POLL_INTERVAL_SECONDS)
-            yield
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            try:
+                yield
+            finally:
+                if held_key is not None:
+                    _leave_reentrant(held_key)
+                fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
 

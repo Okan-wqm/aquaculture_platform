@@ -188,6 +188,22 @@ _TOOLS_GROUP_FILENAMES: dict[str, str] = {
     "governance.jsonl": "governance",
 }
 _TOOLS_GROUP_OPTIONAL_FILENAMES: dict[str, str] = {
+    "problem_clusters.jsonl": "problem_clusters",
+    "triage/decisions.jsonl": "triage_decisions",
+    "dispatch/requests.jsonl": "dispatch_requests",
+    "dispatch/worker-results.jsonl": "worker_results",
+    "dispatch/verification-results.jsonl": "verification_results",
+    "fitness/agent-fitness.jsonl": "agent_fitness",
+    "plans/events.jsonl": "plans_events",
+    "agent-invocations/requests.jsonl": "agent_invocations_requests",
+    "agent-invocations/claims.jsonl": "agent_invocations_claims",
+    "agent-invocations/results.jsonl": "agent_invocations_results",
+    "agent-invocations/contexts.jsonl": "agent_invocation_contexts",
+    "agent-invocations/prompts.jsonl": "agent_invocation_prompts",
+    "agent-invocations/transcripts.jsonl": "agent_invocation_transcripts",
+    "agent-invocations/agent-invocation-bundles.jsonl": "agent_invocation_bundles",
+    "agent-invocations/agent-result-bundles.jsonl": "agent_result_bundles",
+    "agent-invocations/agent-result-bridge-status.jsonl": "agent_result_bridge_status",
     "run-artifacts/artifact-index.jsonl": "runtime_artifact_index",
     "run-artifacts/manifest.jsonl": "runtime_artifact_manifest",
     "retention/events.jsonl": "runtime_retention_events",
@@ -343,7 +359,11 @@ class StateTransaction:
     def append_jsonl(self, path: str | Path, record: dict[str, Any]) -> dict[str, Any]:
         resolved = self._canonical_path(path)
         _reject_raw_declared_surface(resolved, operation="append")
-        return _append_jsonl_locked_body(resolved, record)
+        return _append_jsonl_locked_body(
+            resolved,
+            record,
+            held_file_lock_paths=self.paths,
+        )
 
     def append_declared_jsonl(
         self,
@@ -355,7 +375,12 @@ class StateTransaction:
         resolved = self._canonical_path(path)
         _resolved, surface, _base_dir = _declared_surface_match(resolved, expected_surface)
         _require_declared_append_surface(surface)
-        return _append_jsonl_locked_body(resolved, record, verify_existing=True)
+        return _append_jsonl_locked_body(
+            resolved,
+            record,
+            verify_existing=True,
+            held_file_lock_paths=self.paths,
+        )
 
 
 def _state_group_lock_path(path: Path) -> Path | None:
@@ -389,6 +414,7 @@ def state_transaction(
     paths: list[str | Path] | tuple[str | Path, ...] | set[str | Path],
     *,
     verify_reads: bool = True,
+    timeout_seconds: float | None = None,
 ) -> Iterator[StateTransaction]:
     """Acquire ordered locks for one or more declared state surfaces.
 
@@ -402,7 +428,12 @@ def state_transaction(
     lock_paths = _transaction_lock_paths(concrete_paths)
     with contextlib.ExitStack() as stack:
         for lock_path in lock_paths:
-            stack.enter_context(with_exclusive_lock(lock_path))
+            if timeout_seconds is None:
+                stack.enter_context(with_exclusive_lock(lock_path))
+            else:
+                stack.enter_context(
+                    with_exclusive_lock(lock_path, timeout_seconds=timeout_seconds)
+                )
         yield StateTransaction(frozenset(concrete_paths), verify_reads=verify_reads)
 
 
@@ -506,6 +537,7 @@ def _append_jsonl_locked_body(
     record: dict[str, Any],
     *,
     verify_existing: bool = False,
+    held_file_lock_paths: frozenset[Path] | set[Path] | None = None,
 ) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = _rows_for_append(path, verify_existing=verify_existing)
@@ -529,7 +561,11 @@ def _append_jsonl_locked_body(
         os.fsync(fd)
     finally:
         os.close(fd)
-    _refresh_adjacent_index_grouped(path, held_file_lock_path=path)
+    _refresh_adjacent_index_grouped(
+        path,
+        held_file_lock_path=path,
+        held_file_lock_paths=held_file_lock_paths,
+    )
     return stored
 
 
@@ -940,6 +976,7 @@ def _refresh_adjacent_index_grouped(
     path: Path,
     *,
     held_file_lock_path: Path,
+    held_file_lock_paths: frozenset[Path] | set[Path] | None = None,
 ) -> None:
     """Plan 026R §A.1 — held-lock-aware index refresh.
 
@@ -970,11 +1007,18 @@ def _refresh_adjacent_index_grouped(
         return
 
     held_resolved = held_file_lock_path.resolve()
+    held_resolved_set = {
+        held_resolved,
+        *(
+            held.resolve()
+            for held in (held_file_lock_paths or set())
+        ),
+    }
     ledger_hashes: dict[str, str] = {}
     sibling_paths: list[Path] = []
 
     for logical_name, ledger_path in requirement.ledgers.items():
-        if ledger_path.resolve() == held_resolved:
+        if ledger_path.resolve() in held_resolved_set:
             ledger_hashes[logical_name] = file_hash(ledger_path)
         else:
             sibling_paths.append(ledger_path)

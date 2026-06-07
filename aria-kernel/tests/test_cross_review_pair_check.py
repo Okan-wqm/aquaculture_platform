@@ -19,10 +19,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.ledger import append_jsonl
+from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.plan_convergence import _results_pair_hash_check
 from aria_kernel.runtime_profile import set_profile
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
 
 def _seed_result(
@@ -48,15 +48,43 @@ def _seed_result(
         "output_path": "/tmp/x.json",
         "output_hash": content_hash,
         "content_hash": content_hash,
+        "transcript_artifact_ref": f"/tmp/x-{content_hash[-6:]}.transcript.jsonl",
+        "transcript_hash": "sha256:" + content_hash[-1] * 64,
+        "transcript_ledger_hash": "sha256:" + content_hash[-2] * 64,
         "submitted_at": "2026-05-11T13:00:00+00:00",
     }
-    append_jsonl(base / "agent-invocations" / "results.jsonl", row)
+    persisted = append_declared_jsonl(
+        base / "agent-invocations" / "results.jsonl",
+        row,
+        expected_surface="agent_invocation_results",
+    )
+    append_declared_jsonl(
+        base / "agent-invocations" / "agent-result-bundles.jsonl",
+        {
+            "$schema": "aria/agent-result-bundle/v1",
+            "schema_version": 1,
+            "bundle_marker": "result_transcript_output_committed",
+            "recorded_at": "2026-05-11T13:00:00+00:00",
+            "claim_id": row["claim_id"],
+            "request_id": row["request_id"],
+            "agent_id": row["agent_id"],
+            "result_ledger_hash": persisted["ledger_hash"],
+            "envelope_evidence_hash": row.get("envelope_evidence_hash"),
+            "output_path": row["output_path"],
+            "output_hash": row["output_hash"],
+            "transcript_artifact_ref": row.get("transcript_artifact_ref"),
+            "transcript_hash": row.get("transcript_hash"),
+            "transcript_ledger_hash": row.get("transcript_ledger_hash"),
+        },
+        expected_surface="agent_result_bundles",
+    )
 
 
 class CrossReviewPairCheckTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-c4-"))
         self.base = self.tmp / "aria-tools"
+        ensure_tools_binding(self.base, workspace_root=self.tmp)
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
         self.plan_id = "plan-c4-test"
 

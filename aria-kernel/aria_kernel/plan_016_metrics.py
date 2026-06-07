@@ -28,8 +28,9 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import derive_request_state
-from .ledger import load_jsonl
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .ledger import load_declared_jsonl, load_jsonl
+from .state_manifest import surface_for_path
+from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, utc_now
 
 
 # Plan 016 baseline counters (9). Plan 020 adds 4 (Phase 6 ×2 + Phase 9
@@ -77,7 +78,11 @@ def _governance_kinds(tools_root: Path) -> list[str]:
 
 def _claim_active_count(tools_root: Path) -> int:
     """Count requests whose derived state is CLAIMED or RUNNING right now."""
-    requests = load_jsonl(tools_root / "agent-invocations" / "requests.jsonl")
+    requests = load_declared_jsonl(
+        tools_root / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+        verify=True,
+    )
     active = 0
     for req in requests:
         rid = req.get("request_id")
@@ -159,10 +164,29 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
     """
     from .agent_eval import count_eval_runs_by_mode
 
-    tools_root = ensure_tools_dir(base_dir)
-    requests = load_jsonl(tools_root / "agent-invocations" / "requests.jsonl")
-    results = load_jsonl(tools_root / "agent-invocations" / "results.jsonl")
-    claims = load_jsonl(tools_root / "agent-invocations" / "claims.jsonl")
+    if base_dir is None:
+        tools_root = ensure_tools_dir(base_dir)
+    else:
+        candidate = Path(base_dir).expanduser().resolve()
+        tools_root = ensure_tools_binding(candidate)
+        if surface_for_path(tools_root / "agent-invocations" / "requests.jsonl") is None:
+            workspace_root = candidate.parent if candidate.name == "aria-tools" else candidate
+            tools_root = ensure_tools_binding(candidate, workspace_root=workspace_root)
+    requests = load_declared_jsonl(
+        tools_root / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+        verify=True,
+    )
+    results = load_declared_jsonl(
+        tools_root / "agent-invocations" / "results.jsonl",
+        expected_surface="agent_invocation_results",
+        verify=True,
+    )
+    claims = load_declared_jsonl(
+        tools_root / "agent-invocations" / "claims.jsonl",
+        expected_surface="agent_invocation_claims",
+        verify=True,
+    )
     kinds = _governance_kinds(tools_root)
     from .cost_telemetry import count_dispatch_rationales
     eval_counts = count_eval_runs_by_mode(base_dir=tools_root)

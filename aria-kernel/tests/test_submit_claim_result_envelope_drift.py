@@ -46,7 +46,7 @@ from aria_kernel.agent_invocations import (
     submit_claim_result,
 )
 from aria_kernel.file_lock import with_exclusive_lock
-from aria_kernel.ledger import append_jsonl, load_jsonl, rewrite_jsonl
+from aria_kernel.ledger import append_declared_jsonl, append_jsonl, load_declared_jsonl, load_jsonl, rewrite_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.context_binding import submit_binding_kwargs
 
@@ -144,7 +144,11 @@ class _SubmitFixture(unittest.TestCase):
         )
 
     def _results_rows_for_claim(self) -> list[dict]:
-        results = load_jsonl(self.tools / "agent-invocations" / "results.jsonl")
+        results = load_declared_jsonl(
+            self.tools / "agent-invocations" / "results.jsonl",
+            expected_surface="agent_invocation_results",
+            verify=True,
+        )
         return [row for row in results if row.get("claim_id") == self.claim["claim_id"]]
 
 
@@ -479,7 +483,11 @@ class LegacyRowDriftUndecidableTests(_SubmitFixture):
         # Use append_jsonl so the hash chain stays valid for any
         # downstream loader; the row itself still lacks
         # envelope_evidence_hash because we don't include it.
-        append_jsonl(results_path, legacy_row)
+        append_declared_jsonl(
+            results_path,
+            legacy_row,
+            expected_surface="agent_invocation_results",
+        )
 
         envelope = self._envelope()
         out = self._write_envelope(envelope)
@@ -500,18 +508,8 @@ class LegacyRowDriftUndecidableTests(_SubmitFixture):
 
 
 class CanonicalJsonDictReorderTests(_SubmitFixture):
-    def test_envelope_hash_dict_key_reorder_stays_idempotent(self) -> None:
-        """Plan 025 §A.1: dict-key reorder is canonical-JSON equivalent.
-
-        envelope_hash uses json.dumps(sort_keys=True), so two envelopes
-        that differ only in top-level dict key order produce the same
-        sha256 digest. The second submit therefore takes the
-        byte-identical idempotent path, NOT the drift path.
-
-        (List-element reorder is genuine drift — sort_keys does not
-        sort list contents — and is covered by
-        DriftEnvelopeRaisesTests.test_drift_envelope_raises_with_reason_code.)
-        """
+    def test_same_envelope_hash_with_different_output_bytes_rejects_binding_drift(self) -> None:
+        """Same canonical envelope hash but different output bytes is binding drift."""
         # Build the original envelope and compute the file path.
         envelope_1 = self._envelope()
         out = self._write_envelope(envelope_1)
@@ -539,9 +537,11 @@ class CanonicalJsonDictReorderTests(_SubmitFixture):
         self.assertNotEqual(original_bytes, reordered_bytes)
         out.write_text(json.dumps(reordered), encoding="utf-8")
 
-        second = self._submit(out)
-        self.assertEqual(second["status"], "idempotent", second)
-        self.assertTrue(second.get("idempotent"))
+        with self.assertRaisesRegex(
+            GovernanceError,
+            "submit_claim_result_duplicate_binding_drift",
+        ):
+            self._submit(out)
 
         # Single persisted row.
         rows = self._results_rows_for_claim()

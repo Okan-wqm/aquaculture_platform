@@ -18,7 +18,9 @@ from pathlib import Path
 
 from . import _helpers  # noqa: F401
 
+from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel import independence_check, secret_scrub
+from aria_kernel.tool_registry import ensure_tools_binding
 
 
 class TestVerifyClaimDisjointness(unittest.TestCase):
@@ -26,10 +28,13 @@ class TestVerifyClaimDisjointness(unittest.TestCase):
     def _seed_claims(self, base: Path, rows: list[dict]) -> None:
         d = base / "agent-invocations"
         d.mkdir(parents=True, exist_ok=True)
-        (d / "claims.jsonl").write_text(
-            "\n".join(json.dumps(r) for r in rows) + "\n",
-            encoding="utf-8",
-        )
+        ensure_tools_binding(base, workspace_root=base)
+        for row in rows:
+            append_declared_jsonl(
+                d / "claims.jsonl",
+                row,
+                expected_surface="agent_invocation_claims",
+            )
 
     def test_disjoint_claim_ids_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -153,10 +158,13 @@ class TestVerifyIndependence(unittest.TestCase):
     def _seed_claims(self, base: Path, rows: list[dict]) -> None:
         d = base / "agent-invocations"
         d.mkdir(parents=True, exist_ok=True)
-        (d / "claims.jsonl").write_text(
-            "\n".join(json.dumps(r) for r in rows) + "\n",
-            encoding="utf-8",
-        )
+        ensure_tools_binding(base, workspace_root=base)
+        for row in rows:
+            append_declared_jsonl(
+                d / "claims.jsonl",
+                row,
+                expected_surface="agent_invocation_claims",
+            )
 
     def test_full_independence_pass(self):
         with tempfile.TemporaryDirectory() as tmp:

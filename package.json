@@ -109,6 +109,7 @@
     "aria:compile": "PYTHONPATH=aria-kernel python3 -c \"from pathlib import Path; [compile(p.read_text(encoding='utf-8'), str(p), 'exec') for p in Path('aria-kernel').rglob('*.py') if '__pycache__' not in p.parts]\"",
     "aria:test:unit": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'",
     "aria:docs:ssot": "jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts",
+    "aria:acceptance": "npm run aria:compile && PYTHONPATH=aria-kernel python3 -m unittest aria-kernel/tests/test_state_manifest_transaction.py aria-kernel/tests/test_agent_submit_result_e2e.py aria-kernel/tests/test_submit_claim_result_envelope_drift.py aria-kernel/tests/test_bridge_retry.py aria-kernel/tests/test_cross_review_pair_check.py aria-kernel/tests/test_tool_registry_binding.py aria-kernel/tests/test_workflow_enterprise_preflight.py aria-kernel/tests/test_ci_executor.py aria-kernel/tests/test_ci_executor_mock_real_lease.py aria-kernel/tests/test_phase4_agent_network_invocations.py aria-kernel/tests/test_agent_invocations_lease_expiry.py && npm run aria:docs:ssot && git diff --check",
     "aria:ci:all": "npm run aria:compile && npm run aria:test:unit && npm run invariants:fast",
     "test:bootstrap": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns bootstrap-from-scratch",
     "test:tenant-clone": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns tenant-clone-parity",

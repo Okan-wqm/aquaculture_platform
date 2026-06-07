@@ -17,7 +17,7 @@ name: aria-agent-executor
 #
 # Lease-token redaction:
 #   - LEASE token flows ONLY through ARIA_LEASE_TOKEN env var.
-#   - artifact upload limited to expected_output_path only.
+#   - artifact upload limited to preflight proof plus request-bound output/transcript artifacts.
 #   - the GHA log ::add-mask:: directive masks any accidental leak.
 
 on:
@@ -214,7 +214,6 @@ jobs:
           request_id = os.environ.get("REQUEST_ID", "").strip()
           if request_id:
               allowed.extend([
-                  f"aria-tools/agent-invocations/outputs/{request_id}.json",
                   f"aria-tools/agent-invocations/prompts/{request_id}.md",
               ])
           verdict = verify_workflow_preflight(
@@ -225,11 +224,12 @@ jobs:
               allowed_write_roots=allowed,
               path_allowlist=allowed,
               network_policy=["actions_runtime", "codex_cloud", "github_artifact", "github_git"],
-              network_enforcement_evidence="checkout/setup actions, trusted Codex Cloud invocation, and GitHub artifact upload limited to exact response envelope path",
+              network_enforcement_evidence="checkout/setup actions, trusted Codex Cloud invocation, preflight-only write declaration, and post-artifact hash/DLP verification before GitHub artifact upload",
               token_provenance="github_actions_artifact_token",
               require_github_app=False,
               dlp_mode="fail_closed",
-              dlp_scan_clean=True,
+              dlp_scan_clean=False,
+              dlp_scan_phase="preflight",
               audit_reason="persist handoff ledger and bounded agent response envelope",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-executor-preflight.json",
               external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
@@ -261,6 +261,7 @@ jobs:
         run: echo "no pending requests; exiting cleanly"
 
       - name: Run CI executor
+        id: executor_run
         if: steps.pending.outputs.request_id != ''
         env:
           CODEX_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
@@ -273,17 +274,51 @@ jobs:
           PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \
             "${{ steps.pending.outputs.request_id }}"
 
+      - name: Verify executor post-artifact proof
+        if: success() && steps.pending.outputs.request_id != ''
+        env:
+          REQUEST_ID: ${{ steps.pending.outputs.request_id }}
+          OUTPUT_PATH: ${{ steps.executor_run.outputs.output_path }}
+          TRANSCRIPT_PATH: ${{ steps.executor_run.outputs.transcript_path }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          manifest = Path(os.environ["RUNNER_TEMP"]) / "aria-agent-executor-artifacts.json"
+          payload = json.loads(manifest.read_text(encoding="utf-8"))
+          if payload.get("schema_version") != "aria/ci-executor-artifacts/v1":
+              raise SystemExit("executor_artifact_manifest_schema_mismatch")
+          if payload.get("request_id") != os.environ.get("REQUEST_ID"):
+              raise SystemExit("executor_artifact_manifest_request_mismatch")
+          if payload.get("dlp_scan_clean") is not True:
+              raise SystemExit("executor_artifact_manifest_dlp_not_clean")
+          expected_output = os.environ.get("OUTPUT_PATH", "").strip()
+          expected_transcript = os.environ.get("TRANSCRIPT_PATH", "").strip()
+          if payload.get("output_path") != expected_output:
+              raise SystemExit("executor_artifact_manifest_output_path_mismatch")
+          if payload.get("transcript_path") != expected_transcript:
+              raise SystemExit("executor_artifact_manifest_transcript_path_mismatch")
+          for key, path_key in (("output_hash", "output_path"), ("transcript_hash", "transcript_path")):
+              path = Path(payload[path_key])
+              digest = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+              if digest != payload.get(key):
+                  raise SystemExit(f"executor_artifact_manifest_{key}_mismatch")
+          PY
+
       - name: Upload response envelope (artefact)
-        if: steps.pending.outputs.request_id != ''
+        if: always() && steps.pending.outputs.request_id != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          # Limited scope — response envelope plus the workflow preflight proof. claims.jsonl +
+          # Limited scope — response envelope, transcript, plus the workflow preflight proof. claims.jsonl +
           # runs.jsonl deliberately excluded (lease token / over-disclosure
           # protection per spike doc artefact policy).
           name: aria-response-${{ steps.pending.outputs.request_id }}
           path: |
             ${{ runner.temp }}/aria-agent-executor-preflight.json
-            aria-tools/agent-invocations/outputs/${{ steps.pending.outputs.request_id }}.json
+            ${{ runner.temp }}/aria-agent-executor-artifacts.json
+            ${{ steps.executor_run.outputs.output_path }}
+            ${{ steps.executor_run.outputs.transcript_path }}
           if-no-files-found: error
           retention-days: 7
 

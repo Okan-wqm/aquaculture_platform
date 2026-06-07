@@ -93,7 +93,8 @@ class GenericJsonlMigrationTests(unittest.TestCase):
         # The stronger contract is full hash-chain verification, not the
         # generic row-shape strict reader used for non-chained JSONL sources.
         context_gate = _src("context_budget_gate.py")
-        self.assertIn("load_jsonl(path, verify=True)", context_gate)
+        self.assertIn("load_declared_jsonl(", context_gate)
+        self.assertIn('expected_surface="context_audits"', context_gate)
 
 
 class RuntimeProfileHistoryStrictTests(unittest.TestCase):

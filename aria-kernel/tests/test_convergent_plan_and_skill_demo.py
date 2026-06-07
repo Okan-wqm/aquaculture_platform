@@ -18,7 +18,7 @@ from aria_kernel.convergent_planning_bridge import (
     issue_challenger_envelope,
     start_convergent_plan_drafted_by_primary,
 )
-from aria_kernel.ledger import load_jsonl
+from aria_kernel.ledger import load_declared_jsonl, load_jsonl
 from aria_kernel.skill_genesis import (
     draft_skill,
     list_skill_genesis,
@@ -73,7 +73,11 @@ class ConvergentPlanBridgeTests(unittest.TestCase):
         # No envelope rows in the requests ledger yet
         requests_path = self.tools / "agent-invocations" / "requests.jsonl"
         if requests_path.exists():
-            rows = load_jsonl(requests_path)
+            rows = load_declared_jsonl(
+                requests_path,
+                expected_surface="agent_invocation_requests",
+                verify=True,
+            )
             self.assertEqual(len(rows), 0, "V8: no envelopes minted at plan-start")
 
     def test_empty_plan_content_rejected(self) -> None:
@@ -97,7 +101,11 @@ class ConvergentPlanBridgeTests(unittest.TestCase):
         self.assertEqual(challenger["target_agent"], "aria-challenger-planner")
         self.assertEqual(challenger["role"], "challenger_plan")
         self.assertEqual(challenger["round_number"], 1)
-        rows = load_jsonl(self.tools / "agent-invocations" / "requests.jsonl")
+        rows = load_declared_jsonl(
+            self.tools / "agent-invocations" / "requests.jsonl",
+            expected_surface="agent_invocation_requests",
+            verify=True,
+        )
         # Round-1 envelopes minted so far: just challenger (cross_review
         # mints later in the drainer flow)
         self.assertEqual(len(rows), 1)

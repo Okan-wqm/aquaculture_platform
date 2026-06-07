@@ -32,8 +32,8 @@ from aria_kernel.agent_invocations import (
     heartbeat_claim,
     submit_claim_result,
 )
-from aria_kernel.ledger import append_jsonl
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.ledger import append_declared_jsonl
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
 
 def _iso(dt: datetime) -> str:
@@ -44,7 +44,7 @@ class LeaseExpiryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-a4-"))
         self.base = self.tmp / "aria-tools"
-        ensure_tools_dir(self.base)
+        ensure_tools_binding(self.base, workspace_root=self.tmp)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -58,20 +58,22 @@ class LeaseExpiryTests(unittest.TestCase):
         agent_id = "agent-test-001"
         lease_token = "secret-token-test-001"
         # Request row.
-        append_jsonl(
+        append_declared_jsonl(
             self.base / "agent-invocations" / "requests.jsonl",
             {
                 "schema_version": 1,
                 "event": "created",
                 "request_id": request_id,
                 "role": "executor",
-                "must_satisfy": [],
+                "must_satisfy": [{"id": "lease", "criterion": "lease check"}],
+                "allowed_scope": ["**"],
                 "evidence_caps": {"max_response_tokens": 1000},
-                "expected_output_path": str(self.tmp / "out.json"),
+                "expected_output_path": str(self.base / "agent-invocations" / "outputs" / "out.json"),
             },
+            expected_surface="agent_invocation_requests",
         )
         # Claim row.
-        append_jsonl(
+        append_declared_jsonl(
             self.base / "agent-invocations" / "claims.jsonl",
             {
                 "schema_version": 1,
@@ -83,6 +85,7 @@ class LeaseExpiryTests(unittest.TestCase):
                 "claimed_at": _iso(datetime.now(timezone.utc) - timedelta(hours=1)),
                 "lease_expires_at": _iso(lease_expires_at),
             },
+            expected_surface="agent_invocation_claims",
         )
         return request_id, claim_id, lease_token
 
@@ -116,7 +119,8 @@ class LeaseExpiryTests(unittest.TestCase):
         past = datetime.now(timezone.utc) - timedelta(seconds=10)
         _, claim_id, token = self._seed_request_and_claim(lease_expires_at=past)
         # Write a fake envelope file at the expected output path.
-        out_path = self.tmp / "out.json"
+        out_path = self.base / "agent-invocations" / "outputs" / "out.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps({}), encoding="utf-8")
         with self.assertRaises(GovernanceError) as ctx:
             submit_claim_result(
@@ -148,7 +152,8 @@ class LeaseExpiryTests(unittest.TestCase):
         # Submit with bad envelope — we expect rejection but NOT for
         # lease_expired; some other reason fires. The point is the
         # lease-expiry check passed.
-        out_path = self.tmp / "out.json"
+        out_path = self.base / "agent-invocations" / "outputs" / "out.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps({}), encoding="utf-8")
         try:
             submit_claim_result(

@@ -13,7 +13,7 @@ from aria_kernel.judgment_bridge import (
     record_judge_verdict_from_response,
     run_consensus,
 )
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 from tests._helpers.context_binding import submit_binding_kwargs
 
 
@@ -74,7 +74,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = _seed_repo()
         self.tools = self.repo / "aria-tools"
-        ensure_tools_dir(self.tools)
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
 
     def tearDown(self) -> None:
         import shutil
@@ -96,17 +96,11 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             ],
             allowed_scope=["**"],
             convergence_id="conv-c5c6-001",
+            tool_id="demo-adapter",
+            run_id="run-001",
+            finding_id="F-001",
             base_dir=self.tools,
         )
-        # Inject the legacy request fields the bridge needs.
-        from aria_kernel.ledger import load_jsonl, rewrite_jsonl
-        path = self.tools / "agent-invocations" / "requests.jsonl"
-        rows = load_jsonl(path)
-        rows[-1]["tool_id"] = "demo-adapter"
-        rows[-1]["run_id"] = "run-001"
-        rows[-1]["finding_id"] = "F-001"
-        rewrite_jsonl(path, rows)
-        request = rows[-1]
 
         claim = claim_request(
             request_id=request["request_id"],
@@ -258,7 +252,7 @@ class JudgeBridgeUnitTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = _seed_repo()
         self.tools = self.repo / "aria-tools"
-        ensure_tools_dir(self.tools)
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
 
     def tearDown(self) -> None:
         import shutil
@@ -302,7 +296,7 @@ class GoldsetSupportingPayloadTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = _seed_repo()
         self.tools = self.repo / "aria-tools"
-        ensure_tools_dir(self.tools)
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
 
     def tearDown(self) -> None:
         import shutil

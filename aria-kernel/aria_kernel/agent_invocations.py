@@ -7,41 +7,29 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .agent_surface import (
+    DERIVED_REQUEST_STATES,
+    INVOCATION_ROLES,
+    allowed_targets_for_role,
+)
 from .bridge_exceptions import BridgeContractViolation
-from .file_lock import with_exclusive_lock
-from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl, state_transaction
+from .artifact_safety import ArtifactSafetyError, SafeArtifact, read_safe_artifact
+from .ledger import (
+    append_declared_jsonl,
+    load_declared_jsonl,
+    state_transaction,
+)
 from .runtime_profile import enforce_profile_for_action
-from .state_manifest import surface_for_path
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    ensure_tools_binding,
+    ensure_tools_dir,
+    utc_now,
+)
 
 
-ROLES = {
-    "primary_plan",
-    "challenger_plan",
-    "cross_review",
-    "gap_finding",
-    "implementation",
-    "verification",
-    "gap_closure",
-    "maintenance_utility",
-    # Plan 016 adds two roles routed through the strict v1 envelope.
-    "implementation_review",
-    # Plan 016 Faz C4 judge roles (envelope wraps existing
-    # feedback_store.generate_ai_consensus + plan_convergence logic).
-    "evidence_judgment",
-    "adversarial_judgment",
-    "consensus_arbitration",
-    "change_intelligence",
-    "goldset_curation",
-    # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A specialist
-    # dispatch role. ~60 Lane-A domain experts (auth-security-expert,
-    # farm-expert, edge-expert, etc.) consume this role envelope per
-    # cycle when orchestrator's specialist_review_runner mints requests.
-    # ci_executor extension claims these envelopes + spawns Claude
-    # Code subprocesses; transform_specialist_output converts markdown
-    # responses to ARIA findings schema.
-    "specialist_domain_review",
-}
+ROLES = INVOCATION_ROLES
 STATUSES = {"completed", "rejected", "partial"}
 
 # Plan 016 lease defaults (30 minute lease, 30 minute heartbeat extension,
@@ -50,92 +38,343 @@ DEFAULT_LEASE_SECONDS = 1800
 DEFAULT_HEARTBEAT_EXTEND_SECONDS = 1800
 DEFAULT_MAX_REQUEUES = 2
 LEASE_TOKEN_BYTES = 24
+MAX_AGENT_ARTIFACT_BYTES = 5 * 1024 * 1024
 
 # Derived states for a request when the queue layer is queried via
 # derive_request_state(). The legacy `state` field on requests.jsonl rows
 # stays "pending" / "completed" / etc; this enumeration is the Plan 016
 # 10-state lifecycle as observed from the claims + results ledgers.
-DERIVED_STATES = (
-    "PENDING",
-    "CLAIMED",
-    "RUNNING",
-    "SUBMITTED",
-    "ACCEPTED",
-    "REJECTED",
-    "STALE",
-    "REQUEUED",
-    "HUMAN_REQUIRED",
-    "CANCELLED",
-    # Plan 026R §C.5 — bridge-aware acceptance states.
-    "ACCEPTED_PENDING_BRIDGE",
-    "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
-    # V10.5 Phase 3 (F-023, ADR-0001) — transient Anthropic API
-    # outage state. Reached when api_backoff_exhausted claim event is
-    # the latest non-HUMAN_REQUIRED event for the request. Reaped by
-    # external_outage_reaper after 30 min wall-clock; escalates to
-    # HUMAN_REQUIRED after MAX_EXTERNAL_OUTAGE_REQUEUES requeues.
-    # Ordered AFTER HUMAN_REQUIRED per ADR-0001: HUMAN_REQUIRED stickiness
-    # is preserved; only requests without HUMAN_REQUIRED can enter
-    # EXTERNAL_OUTAGE.
-    "EXTERNAL_OUTAGE",
+DERIVED_STATES = DERIVED_REQUEST_STATES
+
+
+def _sha256_text(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _is_sha256_digest(value: str | None) -> bool:
+    if not isinstance(value, str):
+        return False
+    prefix = "sha256:"
+    return (
+        value.startswith(prefix)
+        and len(value) == len(prefix) + 64
+        and all(ch in "0123456789abcdef" for ch in value[len(prefix):])
+    )
+
+
+def _sha256_payload(payload: dict[str, Any]) -> str:
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        default=str,
+    )
+    return _sha256_text(raw)
+
+
+def _contexts_path(root: Path) -> Path:
+    return root / "agent-invocations" / "contexts.jsonl"
+
+
+def _prompts_ledger_path(root: Path) -> Path:
+    return root / "agent-invocations" / "prompts.jsonl"
+
+
+def _transcripts_path(root: Path) -> Path:
+    return root / "agent-invocations" / "transcripts.jsonl"
+
+
+def _requests_path(root: Path) -> Path:
+    return root / "agent-invocations" / "requests.jsonl"
+
+
+def _results_path(root: Path) -> Path:
+    return root / "agent-invocations" / "results.jsonl"
+
+
+def _invocation_bundles_path(root: Path) -> Path:
+    return root / "agent-invocations" / "agent-invocation-bundles.jsonl"
+
+
+def _result_bundles_path(root: Path) -> Path:
+    return root / "agent-invocations" / "agent-result-bundles.jsonl"
+
+
+def _workspace_root_for_tools(base_dir: str | Path | None, fallback: str | Path | None = None) -> Path:
+    if fallback is not None:
+        return Path(fallback).expanduser().resolve()
+    if base_dir is not None:
+        candidate = Path(base_dir).expanduser().resolve()
+        if candidate.name == "aria-tools":
+            return candidate.parent
+    return Path.cwd().resolve()
+
+
+def _ensure_bound_tools_root(
+    base_dir: str | Path | None,
+    *,
+    workspace_root: str | Path | None = None,
+) -> Path:
+    return ensure_tools_binding(
+        base_dir,
+        workspace_root=_workspace_root_for_tools(base_dir, workspace_root),
+    )
+
+
+def _existing_tools_root(base_dir: str | Path | None) -> Path:
+    if base_dir is None:
+        return ensure_tools_dir(base_dir)
+    return Path(base_dir).expanduser().resolve()
+
+
+_CONTEXT_SEMANTIC_EXCLUDED = frozenset(
+    {
+        "context_hash",
+        "context_semantic_hash",
+        "context_record_hash",
+        "ledger_hash",
+        "previous_ledger_hash",
+    }
 )
+_CONTEXT_RECORD_EXCLUDED = frozenset({"context_record_hash", "ledger_hash", "previous_ledger_hash"})
+_PROMPT_RECORD_EXCLUDED = frozenset({"prompt_record_hash", "ledger_hash", "previous_ledger_hash"})
 
 
-def _sha256_text(value: str) -> str:
-    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+def _without_keys(row: dict[str, Any], excluded: frozenset[str]) -> dict[str, Any]:
+    return {key: value for key, value in row.items() if key not in excluded}
 
 
-def _sha256_file(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+def _context_semantic_hash(row: dict[str, Any]) -> str:
+    return _sha256_payload(_without_keys(row, _CONTEXT_SEMANTIC_EXCLUDED))
 
 
-def _is_sha256_digest(value: str | None) -> bool:
-    if not isinstance(value, str):
+def _context_record_hash(row: dict[str, Any]) -> str:
+    return _sha256_payload(_without_keys(row, _CONTEXT_RECORD_EXCLUDED))
+
+
+def _prompt_record_hash(row: dict[str, Any]) -> str:
+    return _sha256_payload(_without_keys(row, _PROMPT_RECORD_EXCLUDED))
+
+
+def _load_requests(root: Path, *, verify: bool = True) -> list[dict[str, Any]]:
+    return load_declared_jsonl(
+        _requests_path(root),
+        expected_surface="agent_invocation_requests",
+        verify=verify,
+    )
+
+
+def _load_claims(root: Path, *, verify: bool = True) -> list[dict[str, Any]]:
+    return load_declared_jsonl(
+        _claims_path(root),
+        expected_surface="agent_invocation_claims",
+        verify=verify,
+    )
+
+
+def _load_results(root: Path, *, verify: bool = True) -> list[dict[str, Any]]:
+    return load_declared_jsonl(
+        _results_path(root),
+        expected_surface="agent_invocation_results",
+        verify=verify,
+    )
+
+
+def _load_result_bundles(root: Path, *, verify: bool = True) -> list[dict[str, Any]]:
+    return load_declared_jsonl(
+        _result_bundles_path(root),
+        expected_surface="agent_result_bundles",
+        verify=verify,
+    )
+
+
+def _expected_artifact_path(raw_path: str | Path, *, root: Path, purpose: str) -> Path:
+    if not str(raw_path or "").strip():
+        raise GovernanceError(f"{purpose}_artifact_path_required")
+    root_resolved = root.resolve()
+    candidate = Path(raw_path).expanduser()
+    if not candidate.is_absolute():
+        candidate = root_resolved / candidate
+    if ".." in candidate.parts:
+        raise GovernanceError(f"{purpose}_artifact_path_traversal")
+    try:
+        candidate.relative_to(root_resolved)
+    except ValueError as exc:
+        raise GovernanceError(f"{purpose}_artifact_outside_tools_root") from exc
+    return candidate
+
+
+def _require_result_bundle_marker(
+    *,
+    root: Path,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    result_hash = result.get("ledger_hash")
+    if not result_hash:
+        raise GovernanceError("agent_result_bundle_result_ledger_hash_missing")
+    for row in reversed(_load_result_bundles(root)):
+        if row.get("bundle_marker") != "result_transcript_output_committed":
+            continue
+        if row.get("result_ledger_hash") != result_hash:
+            continue
+        if row.get("claim_id") != result.get("claim_id"):
+            continue
+        if row.get("request_id") != result.get("request_id"):
+            continue
+        if row.get("envelope_evidence_hash") != result.get("envelope_evidence_hash"):
+            continue
+        if row.get("output_path") != result.get("output_path"):
+            continue
+        if row.get("output_hash") != result.get("output_hash"):
+            continue
+        if row.get("transcript_artifact_ref") != result.get("transcript_artifact_ref"):
+            continue
+        if row.get("transcript_hash") != result.get("transcript_hash"):
+            continue
+        if row.get("transcript_ledger_hash") != result.get("transcript_ledger_hash"):
+            continue
+        if row.get("context_ledger_hash") != result.get("context_ledger_hash"):
+            continue
+        if row.get("prompt_ledger_hash") != result.get("prompt_ledger_hash"):
+            continue
+        if row.get("context_semantic_hash") != result.get("context_semantic_hash"):
+            continue
+        if row.get("context_record_hash") != result.get("context_record_hash"):
+            continue
+        if row.get("prompt_semantic_hash") != result.get("prompt_semantic_hash"):
+            continue
+        if row.get("prompt_record_hash") != result.get("prompt_record_hash"):
+            continue
+        return row
+    raise GovernanceError(
+        f"agent_result_bundle_marker_missing: result_ledger_hash={result_hash}"
+    )
+
+
+def _has_result_bundle_marker(*, root: Path, result: dict[str, Any]) -> bool:
+    try:
+        _require_result_bundle_marker(root=root, result=result)
+    except GovernanceError:
         return False
-    prefix = "sha256:"
-    return (
-        value.startswith(prefix)
-        and len(value) == len(prefix) + 64
-        and all(ch in "0123456789abcdef" for ch in value[len(prefix):])
-    )
+    return True
 
 
-def _sha256_payload(payload: dict[str, Any]) -> str:
-    raw = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        default=str,
-    )
-    return _sha256_text(raw)
-
-
-def _require_declared_surface(path: Path, expected_surface: str) -> None:
-    match = surface_for_path(path)
-    if match is None or match[0].name != expected_surface:
-        actual = match[0].name if match is not None else None
-        raise GovernanceError(
-            f"declared_surface_mismatch: path={path.as_posix()} "
-            f"expected={expected_surface!r} actual={actual!r}"
+def _require_safe_artifact(
+    raw_path: str | Path,
+    *,
+    root: Path,
+    purpose: str,
+    missing_error: str,
+) -> SafeArtifact:
+    try:
+        return read_safe_artifact(
+            raw_path,
+            root=root,
+            purpose=purpose,
+            missing_error=missing_error,
+            max_bytes=MAX_AGENT_ARTIFACT_BYTES,
         )
+    except ArtifactSafetyError as exc:
+        raise GovernanceError(str(exc)) from exc
 
 
-def _append_txn_declared(txn: Any, path: Path, row: dict[str, Any], expected_surface: str) -> dict[str, Any]:
-    _require_declared_surface(path, expected_surface)
-    return txn.append_jsonl(path, row)
+def _require_invocation_bundle_marker(
+    *,
+    root: Path,
+    request_id: str,
+    request: dict[str, Any],
+    context: dict[str, Any],
+    prompt: dict[str, Any],
+) -> dict[str, Any]:
+    bundles = load_declared_jsonl(
+        _invocation_bundles_path(root),
+        expected_surface="agent_invocation_bundles",
+        verify=True,
+    )
+    for row in reversed(bundles):
+        if row.get("request_id") != request_id:
+            continue
+        if row.get("bundle_marker") != "request_context_prompt_audit_committed":
+            continue
+        if row.get("request_ledger_hash") != request.get("ledger_hash"):
+            continue
+        if row.get("context_ledger_hash") != context.get("ledger_hash"):
+            continue
+        if row.get("prompt_ledger_hash") != prompt.get("ledger_hash"):
+            continue
+        if row.get("context_semantic_hash") != context.get("context_semantic_hash"):
+            continue
+        if row.get("prompt_semantic_hash") != prompt.get("prompt_semantic_hash"):
+            continue
+        if row.get("budget_audit_hash") != context.get("budget_audit_hash"):
+            continue
+        if request.get("context_ledger_hash") != context.get("ledger_hash"):
+            continue
+        if request.get("prompt_ledger_hash") != prompt.get("ledger_hash"):
+            continue
+        if request.get("context_semantic_hash") != context.get("context_semantic_hash"):
+            continue
+        if request.get("prompt_semantic_hash") != prompt.get("prompt_semantic_hash"):
+            continue
+        return row
+    raise GovernanceError(f"agent_invocation_bundle_marker_missing:{request_id}")
 
 
-def _contexts_path(root: Path) -> Path:
-    return root / "agent-invocations" / "contexts.jsonl"
-
-
-def _prompts_ledger_path(root: Path) -> Path:
-    return root / "agent-invocations" / "prompts.jsonl"
-
-
-def _transcripts_path(root: Path) -> Path:
-    return root / "agent-invocations" / "transcripts.jsonl"
+def _append_result_bundle_marker_for_result(
+    *,
+    txn: Any,
+    root: Path,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    required = (
+        "claim_id",
+        "request_id",
+        "agent_id",
+        "ledger_hash",
+        "envelope_evidence_hash",
+        "output_path",
+        "output_hash",
+        "transcript_artifact_ref",
+        "transcript_hash",
+        "transcript_ledger_hash",
+    )
+    missing = [field for field in required if not result.get(field)]
+    if missing:
+        raise GovernanceError(
+            "agent_result_bundle_required_anchor_missing:"
+            f"{','.join(missing)}"
+        )
+    return txn.append_declared_jsonl(
+        _result_bundles_path(root),
+        {
+            "$schema": "aria/agent-result-bundle/v1",
+            "schema_version": 1,
+            "bundle_marker": "result_transcript_output_committed",
+            "recorded_at": utc_now(),
+            "claim_id": result.get("claim_id"),
+            "request_id": result.get("request_id"),
+            "agent_id": result.get("agent_id"),
+            "result_ledger_hash": result.get("ledger_hash"),
+            "envelope_evidence_hash": result.get("envelope_evidence_hash"),
+            "output_path": result.get("output_path"),
+            "output_hash": result.get("output_hash"),
+            "transcript_artifact_ref": result.get("transcript_artifact_ref"),
+            "transcript_hash": result.get("transcript_hash"),
+            "transcript_ledger_hash": result.get("transcript_ledger_hash"),
+            "context_ledger_hash": result.get("context_ledger_hash"),
+            "prompt_ledger_hash": result.get("prompt_ledger_hash"),
+            "context_semantic_hash": result.get("context_semantic_hash"),
+            "context_record_hash": result.get("context_record_hash"),
+            "prompt_semantic_hash": result.get("prompt_semantic_hash"),
+            "prompt_record_hash": result.get("prompt_record_hash"),
+        },
+        expected_surface="agent_result_bundles",
+    )
 
 
 def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | None = None) -> str:
@@ -212,12 +451,14 @@ def build_invocation_context(
     context_repo_root: str | Path | None = None,
     context_window_tokens: int | None = None,
 ) -> dict[str, Any]:
+    prompt_semantic_hash = _sha256_text(rendered_prompt)
     payload: dict[str, Any] = {
         "schema_version": 1,
         "request_id": request_id,
         "target_agent": target_agent,
         "role": role,
-        "prompt_hash": _sha256_text(rendered_prompt),
+        "prompt_hash": prompt_semantic_hash,
+        "prompt_semantic_hash": prompt_semantic_hash,
         "included_refs": [{"ref": ref, "source": "evidence_refs"} for ref in list(evidence_refs or [])],
         "excluded_refs": [],
         "must_satisfy_hash": _sha256_payload({"must_satisfy": list(must_satisfy or [])}),
@@ -227,7 +468,9 @@ def build_invocation_context(
         "context_window_tokens": context_window_tokens,
         "created_at": utc_now(),
     }
-    payload["context_hash"] = _sha256_payload(payload)
+    payload["context_semantic_hash"] = _context_semantic_hash(payload)
+    payload["context_hash"] = payload["context_semantic_hash"]
+    payload["context_record_hash"] = _context_record_hash(payload)
     return payload
 
 
@@ -237,8 +480,12 @@ def load_invocation_context(
     base_dir: str | Path | None = None,
     verify: bool = True,
 ) -> dict[str, Any] | None:
-    root = ensure_tools_dir(base_dir)
-    rows = load_jsonl(_contexts_path(root), verify=verify)
+    root = _ensure_bound_tools_root(base_dir)
+    rows = load_declared_jsonl(
+        _contexts_path(root),
+        expected_surface="agent_invocation_contexts",
+        verify=verify,
+    )
     for row in reversed(rows):
         if row.get("request_id") == request_id:
             return row
@@ -256,47 +503,76 @@ def verify_invocation_context_binding(
         raise GovernanceError("context_hash_must_be_sha256")
     if not _is_sha256_digest(prompt_hash):
         raise GovernanceError("prompt_hash_must_be_sha256")
-    root = ensure_tools_dir(base_dir)
+    root = _ensure_bound_tools_root(base_dir)
+    request = _find_request(root, request_id)
     context = load_invocation_context(request_id=request_id, base_dir=root, verify=True)
     if context is None:
         raise GovernanceError(f"invocation_context_not_found:{request_id}")
-    if context.get("context_hash") != context_hash:
+    if context.get("context_hash") != context_hash or context.get("context_semantic_hash") != context_hash:
         raise GovernanceError("invocation_context_hash_binding_mismatch")
-    prompts = load_jsonl(_prompts_ledger_path(root), verify=True)
+    if _context_semantic_hash(context) != context_hash:
+        raise GovernanceError("invocation_context_semantic_hash_mismatch")
+    if context.get("context_record_hash") != _context_record_hash(context):
+        raise GovernanceError("invocation_context_record_hash_mismatch")
+    prompts = load_declared_jsonl(
+        _prompts_ledger_path(root),
+        expected_surface="agent_invocation_prompts",
+        verify=True,
+    )
     prompt = next(
         (
             row for row in reversed(prompts)
             if row.get("request_id") == request_id
-            and row.get("context_hash") == context_hash
+            and row.get("context_semantic_hash", row.get("context_hash")) == context_hash
         ),
         None,
     )
     if prompt is None:
         raise GovernanceError(f"invocation_prompt_not_found:{request_id}")
-    if prompt.get("prompt_hash") != prompt_hash:
+    if prompt.get("prompt_hash") != prompt_hash or prompt.get("prompt_semantic_hash") != prompt_hash:
         raise GovernanceError("invocation_prompt_hash_binding_mismatch")
-    return {"context": context, "prompt": prompt}
+    if _sha256_text(str(prompt.get("prompt_text") or "")) != prompt_hash:
+        raise GovernanceError("invocation_prompt_semantic_hash_mismatch")
+    if prompt.get("prompt_record_hash") != _prompt_record_hash(prompt):
+        raise GovernanceError("invocation_prompt_record_hash_mismatch")
+    bundle = _require_invocation_bundle_marker(
+        root=root,
+        request_id=request_id,
+        request=request,
+        context=context,
+        prompt=prompt,
+    )
+    return {"context": context, "prompt": prompt, "request": request, "bundle": bundle}
 
 
 def _verify_transcript_artifact_ref(
     *,
     artifact_ref: str | None,
     transcript_hash: str | None,
-    output_path: Path,
-) -> Path:
+    output_artifact: SafeArtifact,
+    root: Path,
+) -> SafeArtifact:
     if not artifact_ref or not str(artifact_ref).strip():
         raise GovernanceError("transcript_artifact_ref_required")
     if not _is_sha256_digest(transcript_hash):
         raise GovernanceError("transcript_hash_must_be_sha256")
-    artifact = Path(str(artifact_ref)).expanduser().resolve()
-    if artifact == output_path.resolve():
+    expected_transcript_path = output_artifact.path.with_suffix(".transcript.jsonl")
+    artifact = _require_safe_artifact(
+        str(artifact_ref),
+        root=root,
+        purpose="transcript",
+        missing_error=f"transcript_artifact_not_found:{Path(str(artifact_ref)).expanduser().as_posix()}",
+    )
+    if (artifact.device, artifact.inode) == (output_artifact.device, output_artifact.inode):
         raise GovernanceError("transcript_artifact_cannot_equal_output_envelope")
-    if not artifact.exists() or not artifact.is_file():
-        raise GovernanceError(f"transcript_artifact_not_found:{artifact.as_posix()}")
-    actual = _sha256_file(artifact)
-    if actual != transcript_hash:
+    if artifact.path != expected_transcript_path:
         raise GovernanceError(
-            f"transcript_hash_mismatch: expected={transcript_hash} actual={actual}"
+            "transcript_artifact_path_mismatch: "
+            f"expected={expected_transcript_path.as_posix()} actual={artifact.path.as_posix()}"
+        )
+    if artifact.digest != transcript_hash:
+        raise GovernanceError(
+            f"transcript_hash_mismatch: expected={transcript_hash} actual={artifact.digest}"
         )
     return artifact
 
@@ -310,12 +586,25 @@ def record_transcript(
     transcript_hash: str,
     artifact_ref: str,
     base_dir: str | Path | None = None,
+    verified_artifact: SafeArtifact | None = None,
 ) -> dict[str, Any]:
     if not invocation_id or not str(invocation_id).strip():
         raise GovernanceError("transcript_invocation_id_required")
     if not _is_sha256_digest(transcript_hash):
         raise GovernanceError("transcript_hash_must_be_sha256")
-    root = ensure_tools_dir(base_dir)
+    root = _ensure_bound_tools_root(base_dir)
+    artifact = verified_artifact
+    if artifact is None:
+        artifact = _require_safe_artifact(
+            artifact_ref,
+            root=root,
+            purpose="transcript",
+            missing_error=f"transcript_artifact_not_found:{artifact_ref}",
+        )
+    if artifact.digest != transcript_hash:
+        raise GovernanceError(
+            f"transcript_hash_mismatch: expected={transcript_hash} actual={artifact.digest}"
+        )
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -324,261 +613,14 @@ def record_transcript(
         "claim_id": claim_id,
         "agent_id": agent_id,
         "transcript_hash": transcript_hash,
-        "artifact_ref": artifact_ref,
+        "artifact_ref": artifact.path.as_posix(),
     }
     path = _transcripts_path(root)
-    _require_declared_surface(path, "agent_invocation_transcripts")
-    return append_jsonl(path, row)
-
-
-def _sha256_text(value: str) -> str:
-    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _sha256_file(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _is_sha256_digest(value: str | None) -> bool:
-    if not isinstance(value, str):
-        return False
-    prefix = "sha256:"
-    return (
-        value.startswith(prefix)
-        and len(value) == len(prefix) + 64
-        and all(ch in "0123456789abcdef" for ch in value[len(prefix):])
+    return append_declared_jsonl(
+        path,
+        row,
+        expected_surface="agent_invocation_transcripts",
     )
-
-
-def _sha256_payload(payload: dict[str, Any]) -> str:
-    raw = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        default=str,
-    )
-    return _sha256_text(raw)
-
-
-def _require_declared_surface(path: Path, expected_surface: str) -> None:
-    match = surface_for_path(path)
-    if match is None or match[0].name != expected_surface:
-        actual = match[0].name if match is not None else None
-        raise GovernanceError(
-            f"declared_surface_mismatch: path={path.as_posix()} "
-            f"expected={expected_surface!r} actual={actual!r}"
-        )
-
-
-def _append_txn_declared(txn: Any, path: Path, row: dict[str, Any], expected_surface: str) -> dict[str, Any]:
-    _require_declared_surface(path, expected_surface)
-    return txn.append_jsonl(path, row)
-
-
-def _contexts_path(root: Path) -> Path:
-    return root / "agent-invocations" / "contexts.jsonl"
-
-
-def _prompts_ledger_path(root: Path) -> Path:
-    return root / "agent-invocations" / "prompts.jsonl"
-
-
-def _transcripts_path(root: Path) -> Path:
-    return root / "agent-invocations" / "transcripts.jsonl"
-
-
-def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | None = None) -> str:
-    """Render the exact model-visible prompt for an invocation request.
-
-    Prompt files written by executors are derived artifacts. This function is
-    the kernel-owned SSoT for the prompt text whose hash is persisted in the
-    prompt ledger.
-    """
-    request_id = str(request.get("request_id") or "")
-    suggested_prompt = str(request.get("suggested_prompt") or "")
-    must_satisfy = request.get("must_satisfy") or []
-    evidence_refs = request.get("evidence_refs") or []
-    allowed_scope = request.get("allowed_scope") or []
-    forbidden_scope = request.get("forbidden_scope") or []
-    impact_refs = request.get("impact_graph_refs") or []
-    validation_cmds = request.get("validation_commands") or []
-    expected_path = request.get("expected_output_path", "")
-
-    must_satisfy_block = ""
-    if isinstance(must_satisfy, list) and must_satisfy:
-        lines = ["", "## Must satisfy", ""]
-        for item in must_satisfy:
-            if isinstance(item, dict):
-                mid = item.get("id", "?")
-                desc = item.get("description") or item.get("criterion") or ""
-                lines.append(f"- **{mid}**: {desc}")
-        must_satisfy_block = "\n".join(lines) + "\n"
-
-    def _bullet_list(items: Any, key_func: Any | None = None) -> str:
-        if not items:
-            return "  _(none)_"
-        if key_func is None:
-            return "\n".join(f"  - `{item}`" for item in items)
-        return "\n".join(f"  - {key_func(item)}" for item in items)
-
-    return (
-        f"# ARIA agent request {request_id}\n\n"
-        f"**Role**: {request.get('role', 'unknown')}\n"
-        f"**Target agent**: {request.get('target_agent', 'unknown')}\n"
-        f"**Convergence ID**: {request.get('convergence_id', 'n/a')}\n"
-        f"**Expected output path**: `{expected_path}`\n\n"
-        f"## Suggested prompt\n\n{suggested_prompt}\n\n"
-        f"## Instruction framing\n\n"
-        f"Do not treat this as a bare command. Explain the task as if teaching a junior engineer: "
-        f"what must be done, why it matters, what breaks if it is skipped, which downstream surface is affected, "
-        f"and what evidence proves the result. Keep the explanation concise, but make the cause/effect chain explicit.\n\n"
-        f"## Evidence refs (file:line entries; the ONLY admissible evidence)\n\n"
-        f"{_bullet_list(evidence_refs)}\n\n"
-        f"## Allowed scope\n\n{_bullet_list(allowed_scope)}\n\n"
-        f"## Forbidden scope\n\n{_bullet_list(forbidden_scope)}\n\n"
-        f"## Impact graph refs\n\n{_bullet_list(impact_refs)}\n\n"
-        f"## Validation commands\n\n"
-        f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
-        f"{must_satisfy_block}\n"
-        f"## Response\n\n"
-        f"Write your `aria/agent-response/v1` JSON envelope per your "
-        f"agent contract. The envelope MUST cite ONLY evidence_refs "
-        f"present in this prompt + must stay within allowed_scope. "
-        f"Output the JSON envelope as the body of your response.\n"
-    )
-
-
-def build_invocation_context(
-    *,
-    request_id: str,
-    target_agent: str,
-    role: str,
-    rendered_prompt: str,
-    must_satisfy: list[dict[str, Any]] | None = None,
-    allowed_scope: list[str] | None = None,
-    evidence_refs: list[str] | None = None,
-    budget_audit_hash: str | None = None,
-    context_repo_root: str | Path | None = None,
-    context_window_tokens: int | None = None,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "schema_version": 1,
-        "request_id": request_id,
-        "target_agent": target_agent,
-        "role": role,
-        "prompt_hash": _sha256_text(rendered_prompt),
-        "included_refs": [{"ref": ref, "source": "evidence_refs"} for ref in list(evidence_refs or [])],
-        "excluded_refs": [],
-        "must_satisfy_hash": _sha256_payload({"must_satisfy": list(must_satisfy or [])}),
-        "allowed_scope_hash": _sha256_payload({"allowed_scope": list(allowed_scope or [])}),
-        "budget_audit_hash": budget_audit_hash,
-        "repo_root": str(Path(context_repo_root).resolve()) if context_repo_root else None,
-        "context_window_tokens": context_window_tokens,
-        "created_at": utc_now(),
-    }
-    payload["context_hash"] = _sha256_payload(payload)
-    return payload
-
-
-def load_invocation_context(
-    *,
-    request_id: str,
-    base_dir: str | Path | None = None,
-    verify: bool = True,
-) -> dict[str, Any] | None:
-    root = ensure_tools_dir(base_dir)
-    rows = load_jsonl(_contexts_path(root), verify=verify)
-    for row in reversed(rows):
-        if row.get("request_id") == request_id:
-            return row
-    return None
-
-
-def verify_invocation_context_binding(
-    *,
-    request_id: str,
-    context_hash: str,
-    prompt_hash: str,
-    base_dir: str | Path | None = None,
-) -> dict[str, Any]:
-    if not _is_sha256_digest(context_hash):
-        raise GovernanceError("context_hash_must_be_sha256")
-    if not _is_sha256_digest(prompt_hash):
-        raise GovernanceError("prompt_hash_must_be_sha256")
-    root = ensure_tools_dir(base_dir)
-    context = load_invocation_context(request_id=request_id, base_dir=root, verify=True)
-    if context is None:
-        raise GovernanceError(f"invocation_context_not_found:{request_id}")
-    if context.get("context_hash") != context_hash:
-        raise GovernanceError("invocation_context_hash_binding_mismatch")
-    prompts = load_jsonl(_prompts_ledger_path(root), verify=True)
-    prompt = next(
-        (
-            row for row in reversed(prompts)
-            if row.get("request_id") == request_id
-            and row.get("context_hash") == context_hash
-        ),
-        None,
-    )
-    if prompt is None:
-        raise GovernanceError(f"invocation_prompt_not_found:{request_id}")
-    if prompt.get("prompt_hash") != prompt_hash:
-        raise GovernanceError("invocation_prompt_hash_binding_mismatch")
-    return {"context": context, "prompt": prompt}
-
-
-def _verify_transcript_artifact_ref(
-    *,
-    artifact_ref: str | None,
-    transcript_hash: str | None,
-    output_path: Path,
-) -> Path:
-    if not artifact_ref or not str(artifact_ref).strip():
-        raise GovernanceError("transcript_artifact_ref_required")
-    if not _is_sha256_digest(transcript_hash):
-        raise GovernanceError("transcript_hash_must_be_sha256")
-    artifact = Path(str(artifact_ref)).expanduser().resolve()
-    if artifact == output_path.resolve():
-        raise GovernanceError("transcript_artifact_cannot_equal_output_envelope")
-    if not artifact.exists() or not artifact.is_file():
-        raise GovernanceError(f"transcript_artifact_not_found:{artifact.as_posix()}")
-    actual = _sha256_file(artifact)
-    if actual != transcript_hash:
-        raise GovernanceError(
-            f"transcript_hash_mismatch: expected={transcript_hash} actual={actual}"
-        )
-    return artifact
-
-
-def record_transcript(
-    *,
-    invocation_id: str,
-    request_id: str,
-    claim_id: str,
-    agent_id: str,
-    transcript_hash: str,
-    artifact_ref: str,
-    base_dir: str | Path | None = None,
-) -> dict[str, Any]:
-    if not invocation_id or not str(invocation_id).strip():
-        raise GovernanceError("transcript_invocation_id_required")
-    if not _is_sha256_digest(transcript_hash):
-        raise GovernanceError("transcript_hash_must_be_sha256")
-    root = ensure_tools_dir(base_dir)
-    row = {
-        "schema_version": 1,
-        "recorded_at": utc_now(),
-        "invocation_id": invocation_id,
-        "request_id": request_id,
-        "claim_id": claim_id,
-        "agent_id": agent_id,
-        "transcript_hash": transcript_hash,
-        "artifact_ref": artifact_ref,
-    }
-    path = _transcripts_path(root)
-    _require_declared_surface(path, "agent_invocation_transcripts")
-    return append_jsonl(path, row)
 
 
 def create_agent_invocation_request(
@@ -628,6 +670,12 @@ def create_agent_invocation_request(
         raise GovernanceError(f"unknown invocation role: {role}")
     if not target_agent.strip():
         raise GovernanceError("target_agent is required")
+    allowed_targets = allowed_targets_for_role(role)
+    if allowed_targets is not None and target_agent not in allowed_targets:
+        raise GovernanceError(
+            f"role_target_pairing_violation: role {role!r} requires "
+            f"target_agent in {allowed_targets}; got {target_agent!r}"
+        )
     if not suggested_prompt.strip():
         raise GovernanceError("suggested_prompt is required")
     # Plan 024 §B-2 — strict fields enforcement at write-side. The legacy
@@ -661,7 +709,7 @@ def create_agent_invocation_request(
                 raise GovernanceError(
                     "create_agent_invocation_request_evidence_refs_must_be_list_of_strings"
                 )
-    root = ensure_tools_dir(base_dir)
+    root = _ensure_bound_tools_root(base_dir, workspace_root=context_repo_root)
     request_id = _request_id(
         target_agent,
         role,
@@ -704,8 +752,11 @@ def create_agent_invocation_request(
     )
     if enforce_context_budget and budget_audit["cap_breached"]:
         audit_path = root / CONTEXT_AUDITS_FILENAME
-        _require_declared_surface(audit_path, "context_audits")
-        persisted_audit = append_jsonl(audit_path, budget_audit)
+        persisted_audit = append_declared_jsonl(
+            audit_path,
+            budget_audit,
+            expected_surface="context_audits",
+        )
         append_tools_governance(
             root,
             "context_budget_audited",
@@ -813,19 +864,28 @@ def create_agent_invocation_request(
     audit_path = root / CONTEXT_AUDITS_FILENAME
     contexts_path = _contexts_path(root)
     prompts_path = _prompts_ledger_path(root)
-    requests_path = root / "agent-invocations" / "requests.jsonl"
-    with state_transaction([audit_path, contexts_path, prompts_path, requests_path]) as txn:
+    requests_path = _requests_path(root)
+    bundles_path = _invocation_bundles_path(root)
+    with state_transaction([audit_path, contexts_path, prompts_path, requests_path, bundles_path]) as txn:
         existing_locked = next(
             (
-                item for item in reversed(txn.load_jsonl(requests_path, verify=True))
+                item for item in reversed(
+                    txn.load_declared_jsonl(
+                        requests_path,
+                        expected_surface="agent_invocation_requests",
+                        verify=True,
+                    )
+                )
                 if item.get("request_id") == request_id
             ),
             None,
         )
         if existing_locked is not None:
             return existing_locked
-        persisted_audit = _append_txn_declared(
-            txn, audit_path, budget_audit, "context_audits",
+        persisted_audit = txn.append_declared_jsonl(
+            audit_path,
+            budget_audit,
+            expected_surface="context_audits",
         )
         context_row = build_invocation_context(
             request_id=request_id,
@@ -844,22 +904,55 @@ def create_agent_invocation_request(
             "recorded_at": utc_now(),
             "request_id": request_id,
             "context_hash": context_row["context_hash"],
-            "prompt_hash": _sha256_text(rendered_prompt),
+            "context_semantic_hash": context_row["context_semantic_hash"],
+            "context_record_hash": context_row["context_record_hash"],
+            "prompt_hash": context_row["prompt_semantic_hash"],
+            "prompt_semantic_hash": context_row["prompt_semantic_hash"],
             "prompt_text": rendered_prompt,
         }
-        stored_context = _append_txn_declared(
-            txn, contexts_path, context_row, "agent_invocation_contexts",
+        prompt_row["prompt_record_hash"] = _prompt_record_hash(prompt_row)
+        stored_context = txn.append_declared_jsonl(
+            contexts_path,
+            context_row,
+            expected_surface="agent_invocation_contexts",
         )
-        stored_prompt = _append_txn_declared(
-            txn, prompts_path, prompt_row, "agent_invocation_prompts",
+        stored_prompt = txn.append_declared_jsonl(
+            prompts_path,
+            prompt_row,
+            expected_surface="agent_invocation_prompts",
         )
         row["budget_audit_hash"] = persisted_audit.get("ledger_hash")
         row["context_hash"] = context_row["context_hash"]
+        row["context_semantic_hash"] = context_row["context_semantic_hash"]
+        row["context_record_hash"] = context_row["context_record_hash"]
         row["prompt_hash"] = prompt_row["prompt_hash"]
+        row["prompt_semantic_hash"] = prompt_row["prompt_semantic_hash"]
+        row["prompt_record_hash"] = prompt_row["prompt_record_hash"]
         row["context_ledger_hash"] = stored_context.get("ledger_hash")
         row["prompt_ledger_hash"] = stored_prompt.get("ledger_hash")
-        persisted_request = _append_txn_declared(
-            txn, requests_path, row, "agent_invocation_requests",
+        persisted_request = txn.append_declared_jsonl(
+            requests_path,
+            row,
+            expected_surface="agent_invocation_requests",
+        )
+        txn.append_declared_jsonl(
+            bundles_path,
+            {
+                "$schema": "aria/agent-invocation-bundle/v1",
+                "schema_version": 1,
+                "bundle_marker": "request_context_prompt_audit_committed",
+                "recorded_at": utc_now(),
+                "request_id": request_id,
+                "request_ledger_hash": persisted_request.get("ledger_hash"),
+                "context_ledger_hash": stored_context.get("ledger_hash"),
+                "prompt_ledger_hash": stored_prompt.get("ledger_hash"),
+                "budget_audit_hash": persisted_audit.get("ledger_hash"),
+                "context_semantic_hash": context_row["context_semantic_hash"],
+                "context_record_hash": context_row["context_record_hash"],
+                "prompt_semantic_hash": prompt_row["prompt_semantic_hash"],
+                "prompt_record_hash": prompt_row["prompt_record_hash"],
+            },
+            expected_surface="agent_invocation_bundles",
         )
     append_tools_governance(
         root,
@@ -964,7 +1057,11 @@ def _submit_legacy_invocation_result_internal(
         "rejection_reason": rejection_reason,
         "submitted_at": utc_now(),
     }
-    return append_jsonl(root / "agent-invocations" / "results.jsonl", row)
+    return append_declared_jsonl(
+        _results_path(root),
+        row,
+        expected_surface="agent_invocation_results",
+    )
 
 
 def is_legacy_decided_request(
@@ -981,7 +1078,7 @@ def is_legacy_decided_request(
     False when no terminal result row exists for the request_id.
     """
     root = ensure_tools_dir(base_dir)
-    results = load_jsonl(root / "agent-invocations" / "results.jsonl")
+    results = _load_results(root)
     request_results = _result_rows_for(results, request_id)
     if not request_results:
         return False
@@ -1032,7 +1129,7 @@ def list_agent_invocation_requests(
     normalised to uppercase for comparison so historical lowercase
     ``state="claimed"`` invocations keep working.
     """
-    rows = load_jsonl(ensure_tools_dir(base_dir) / "agent-invocations" / "requests.jsonl")
+    rows = _load_requests(_existing_tools_root(base_dir))
     if state is not None:
         # Plan 026R §B.4 — per-call derived-state cache. A single list()
         # call may iterate many rows; only derive each request_id's
@@ -1063,16 +1160,39 @@ def list_agent_invocation_requests(
 
 
 def _find_request(root: Path, request_id: str) -> dict[str, Any]:
-    for row in reversed(load_jsonl(root / "agent-invocations" / "requests.jsonl")):
+    for row in reversed(_load_requests(root)):
         if row.get("request_id") == request_id:
             return row
     raise GovernanceError(f"agent invocation request not found: {request_id}")
 
 
-def _request_id(target_agent: str, role: str, prompt: str, convergence_id: str | None, round_number: int | None) -> str:
+def _request_id(
+    target_agent: str,
+    role: str,
+    prompt: str,
+    convergence_id: str | None,
+    round_number: int | None,
+    identity_components: dict[str, Any] | None = None,
+) -> str:
     slug = "".join(ch if ch.isalnum() else "-" for ch in target_agent.lower()).strip("-")[:32] or "agent"
-    digest = hashlib.sha256(f"{target_agent}|{role}|{prompt}|{convergence_id}|{round_number}|{utc_now()}".encode("utf-8")).hexdigest()[:8]
+    payload = {
+        "target_agent": target_agent,
+        "role": role,
+        "prompt": prompt,
+        "convergence_id": convergence_id,
+        "round_number": round_number,
+        "identity_components": identity_components or {},
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
     return f"AIR-{slug}-{digest}"
+
+
+def _find_request_by_id(root: Path, request_id: str) -> dict[str, Any] | None:
+    for row in reversed(_load_requests(root)):
+        if row.get("request_id") == request_id:
+            return row
+    return None
 
 
 def _default_expected_output_path(root: Path, request_id: str, convergence_id: str | None, round_number: int | None, role: str) -> str:
@@ -1192,15 +1312,15 @@ def derive_request_state(
     Pure function over append-only ledgers, so two callers always see the
     same state given the same files. Returns one of `DERIVED_STATES`.
     """
-    root = ensure_tools_dir(base_dir)
-    requests = load_jsonl(root / "agent-invocations" / "requests.jsonl")
+    root = _existing_tools_root(base_dir)
+    requests = _load_requests(root)
     request = next((row for row in requests if row.get("request_id") == request_id), None)
     if request is None:
         raise GovernanceError(f"unknown request_id: {request_id}")
     if request.get("state") == "cancelled":
         return "CANCELLED"
-    results = load_jsonl(root / "agent-invocations" / "results.jsonl")
-    claims = load_jsonl(_claims_path(root))
+    results = _load_results(root)
+    claims = _load_claims(root)
 
     # Results dominate (terminal states first). The status vocabulary is
     # the union of legacy aria/agent-invocation-result/v1 ("completed",
@@ -1213,6 +1333,8 @@ def derive_request_state(
         if status == "rejected":
             return "REJECTED"
         if status in ("completed", "accepted"):
+            if not _has_result_bundle_marker(root=root, result=last):
+                return "SUBMITTED"
             # Plan 026R §C.5 — bridge-status-aware acceptance.
             # If the accepted row is for a BRIDGE_REQUIRED role and the
             # bridge has NOT succeeded yet, the request is in
@@ -1301,8 +1423,8 @@ def next_pending_request(
     Pending = derived state PENDING or REQUEUED (those are eligible for a
     fresh claim). HUMAN_REQUIRED, CANCELLED, and terminal states are skipped.
     """
-    root = ensure_tools_dir(base_dir)
-    requests = load_jsonl(root / "agent-invocations" / "requests.jsonl")
+    root = _existing_tools_root(base_dir)
+    requests = _load_requests(root)
     for request in requests:
         if role and request.get("role") != role:
             continue
@@ -1346,7 +1468,9 @@ def claim_request(
     # worker wins the race; the loser sees the same
     # claim_request_state_not_claimable error a serial caller would.
     claims_path = _claims_path(root)
-    with with_exclusive_lock(claims_path):
+    with state_transaction(
+        [claims_path, _requests_path(root), _results_path(root), _result_bundles_path(root)]
+    ) as txn:
         state = derive_request_state(request_id=request_id, base_dir=root)
         if state not in {"PENDING", "REQUEUED"}:
             raise GovernanceError(
@@ -1388,7 +1512,11 @@ def claim_request(
         }
         # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
         # at line 604; use the unlocked helper to avoid POSIX flock re-acquisition.
-        persisted_claim_row = _append_jsonl_unlocked(claims_path, row)
+        persisted_claim_row = txn.append_declared_jsonl(
+            claims_path,
+            row,
+            expected_surface="agent_invocation_claims",
+        )
         # Plan 026R §B.3 — fuse the request envelope into the return value
         # inside the same lock window. Pre-§B.3 the caller had to do a
         # separate ``agent-invocations list --request-id`` fetch after
@@ -1401,8 +1529,10 @@ def claim_request(
         # The request row's own ledger_hash is the integrity anchor for
         # §B.5 metadata-tamper detection. Load the request row directly
         # so we return the on-disk hash, not a derived value.
-        request_rows = load_jsonl(
-            root / "agent-invocations" / "requests.jsonl"
+        request_rows = txn.load_declared_jsonl(
+            _requests_path(root),
+            expected_surface="agent_invocation_requests",
+            verify=True,
         )
         envelope_row = next(
             (r for r in reversed(request_rows) if r.get("request_id") == request_id),
@@ -1476,7 +1606,7 @@ def heartbeat_claim(
 ) -> dict[str, Any]:
     """Extend a lease by `extend_seconds`. Validates lease_token + agent_id."""
     root = ensure_tools_dir(base_dir)
-    claims = load_jsonl(_claims_path(root))
+    claims = _load_claims(root)
     claim_event = next(
         (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
         None,
@@ -1528,7 +1658,11 @@ def heartbeat_claim(
         "heartbeat_at": _iso(now),
         "lease_expires_at": _iso(expires),
     }
-    append_jsonl(_claims_path(root), row)
+    append_declared_jsonl(
+        _claims_path(root),
+        row,
+        expected_surface="agent_invocation_claims",
+    )
     return row
 
 
@@ -1609,7 +1743,7 @@ def release_claim(
     if not lease_token or not lease_token.strip():
         raise GovernanceError("lease_token is required for release_claim")
     root = ensure_tools_dir(base_dir)
-    claims = load_jsonl(_claims_path(root))
+    claims = _load_claims(root)
     claim_event = next(
         (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
         None,
@@ -1637,12 +1771,9 @@ def release_claim(
         "reason": reason,
         "released_at": _iso(now),
     }
-    append_jsonl(_claims_path(root), row)
     requeue_count = _request_event_count(claims, request_id, "requeued") + 1
     requeue_event_kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
-    append_jsonl(
-        _claims_path(root),
-        {
+    followup = {
             "schema_version": 1,
             "event": requeue_event_kind,
             "claim_id": claim_id,
@@ -1650,8 +1781,18 @@ def release_claim(
             "at": _iso(now),
             "requeue_count": requeue_count,
             "reason": reason,
-        },
-    )
+    }
+    with state_transaction([_claims_path(root)]) as txn:
+        txn.append_declared_jsonl(
+            _claims_path(root),
+            row,
+            expected_surface="agent_invocation_claims",
+        )
+        txn.append_declared_jsonl(
+            _claims_path(root),
+            followup,
+            expected_surface="agent_invocation_claims",
+        )
     append_tools_governance(
         root,
         f"agent_{requeue_event_kind}",
@@ -1690,12 +1831,8 @@ def submit_claim_result(
 
     if not lease_token or not lease_token.strip():
         raise GovernanceError("lease_token is required")
-    output = Path(output_path)
-    if not output.exists() or not output.is_file():
-        raise GovernanceError(f"output_path does not exist: {output_path}")
-
-    root = ensure_tools_dir(base_dir)
-    claims = load_jsonl(_claims_path(root))
+    root = _ensure_bound_tools_root(base_dir, workspace_root=workspace_root)
+    claims = _load_claims(root)
     claim_event = next(
         (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
         None,
@@ -1739,12 +1876,29 @@ def submit_claim_result(
         prompt_hash=str(prompt_hash or ""),
         base_dir=root,
     )
+    output_artifact = _require_safe_artifact(
+        output_path,
+        root=root,
+        purpose="output",
+        missing_error=f"output_path does not exist: {output_path}",
+    )
+    expected_output = _expected_artifact_path(
+        str(request.get("expected_output_path") or ""),
+        root=root,
+        purpose="output",
+    )
+    if output_artifact.path != expected_output:
+        raise GovernanceError(
+            "agent_invocation_path_mismatch: "
+            f"expected={expected_output.as_posix()} actual={output_artifact.path.as_posix()}"
+        )
     transcript_artifact = _verify_transcript_artifact_ref(
         artifact_ref=transcript_artifact_ref,
         transcript_hash=transcript_hash,
-        output_path=output,
+        output_artifact=output_artifact,
+        root=root,
     )
-    results_path = root / "agent-invocations" / "results.jsonl"
+    results_path = _results_path(root)
 
     # Plan 025 §A.1 — read+parse envelope BEFORE the idempotency check.
     # Why HERE: the idempotency check is now lock-bound + envelope-hash
@@ -1758,8 +1912,8 @@ def submit_claim_result(
     envelope_unreadable_error: str | None = None
     envelope: dict[str, Any] | None = None
     try:
-        envelope = json.loads(output.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        envelope = json.loads(output_artifact.content.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         envelope_unreadable_error = str(exc)
 
     if envelope is not None:
@@ -1784,12 +1938,29 @@ def submit_claim_result(
     # tests for lock-contention behaviour) can override the helper's
     # default without monkey-patching module attributes — None means
     # "use the helper's default".
-    lock_kwargs: dict[str, Any] = {}
-    if lock_timeout_seconds is not None:
-        lock_kwargs["timeout_seconds"] = lock_timeout_seconds
-    with with_exclusive_lock(results_path, **lock_kwargs):
+    with state_transaction(
+        [_claims_path(root), results_path, _transcripts_path(root), _result_bundles_path(root)],
+        timeout_seconds=lock_timeout_seconds,
+    ) as txn:
+        live_claims = txn.load_declared_jsonl(
+            _claims_path(root),
+            expected_surface="agent_invocation_claims",
+            verify=True,
+        )
+        if any(
+            row.get("claim_id") == claim_id
+            and row.get("event") in {"released", "stale", "human_required"}
+            for row in live_claims
+        ):
+            raise GovernanceError(f"claim {claim_id} became terminal before submit commit")
+        if _latest_lease_expiry(live_claims, claim_id) < _utc_now_dt():
+            raise GovernanceError(f"lease_expired: claim_id={claim_id!r} before submit commit")
         results_for_claim = [
-            row for row in load_jsonl(results_path)
+            row for row in txn.load_declared_jsonl(
+                results_path,
+                expected_surface="agent_invocation_results",
+                verify=True,
+            )
             if row.get("claim_id") == claim_id
         ]
         if results_for_claim:
@@ -1814,6 +1985,58 @@ def submit_claim_result(
                     f"plan-025-A1-backfill-envelope-hash"
                 )
             if existing_hash == submitted_hash:
+                expected_tuple = {
+                    "output_path": output_artifact.path.as_posix(),
+                    "output_hash": output_artifact.digest,
+                    "context_hash": context_hash,
+                    "context_semantic_hash": binding["context"].get("context_semantic_hash"),
+                    "context_record_hash": binding["context"].get("context_record_hash"),
+                    "context_ledger_hash": binding["context"].get("ledger_hash"),
+                    "prompt_hash": prompt_hash,
+                    "prompt_semantic_hash": binding["prompt"].get("prompt_semantic_hash"),
+                    "prompt_record_hash": binding["prompt"].get("prompt_record_hash"),
+                    "prompt_ledger_hash": binding["prompt"].get("ledger_hash"),
+                    "transcript_artifact_ref": transcript_artifact.path.as_posix(),
+                    "transcript_hash": transcript_hash,
+                }
+                drift = {
+                    key: {"existing": existing.get(key), "submitted": value}
+                    for key, value in expected_tuple.items()
+                    if existing.get(key) != value
+                }
+                if drift:
+                    append_tools_governance(
+                        root,
+                        "agent_result_duplicate_with_binding_drift",
+                        {
+                            "claim_id": claim_id,
+                            "submitted_hash": submitted_hash,
+                            "drift_keys": sorted(drift),
+                        },
+                    )
+                    raise GovernanceError(
+                        f"submit_claim_result_duplicate_binding_drift: "
+                        f"claim_id={claim_id} drift_keys={sorted(drift)}"
+                    )
+                try:
+                    _require_result_bundle_marker(root=root, result=existing)
+                except GovernanceError as exc:
+                    if "agent_result_bundle_marker_missing" not in str(exc):
+                        raise
+                    _append_result_bundle_marker_for_result(
+                        txn=txn,
+                        root=root,
+                        result=existing,
+                    )
+                    append_tools_governance(
+                        root,
+                        "agent_result_bundle_repaired",
+                        {
+                            "claim_id": claim_id,
+                            "request_id": request_id,
+                            "result_ledger_hash": existing.get("ledger_hash"),
+                        },
+                    )
                 # Plan 025 §A.1 — byte-identical envelope replay (same
                 # canonical-JSON hash). This is the legitimate idempotent
                 # path: a worker retrying after a network blip submits
@@ -1870,9 +2093,10 @@ def submit_claim_result(
                 claim_id=claim_id,
                 request_id=request_id,
                 agent_id=agent_id,
-                output_path=output,
+                output_artifact=output_artifact,
                 reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
                 envelope_evidence_hash=submitted_hash,
+                txn=txn,
             )
 
         reasons: list[str] = []
@@ -1910,9 +2134,10 @@ def submit_claim_result(
                 claim_id=claim_id,
                 request_id=request_id,
                 agent_id=agent_id,
-                output_path=output,
+                output_artifact=output_artifact,
                 reasons=reasons,
                 envelope_evidence_hash=submitted_hash,
+                txn=txn,
             )
 
         # Plan 020 Phase 7.B — agent compliance gate.
@@ -1933,7 +2158,7 @@ def submit_claim_result(
             claim_id=claim_id,
             request=request,
             response=envelope,
-            response_path=output,
+            response_path=output_artifact.path,
             workspace_root=Path(workspace_root).resolve() if workspace_root else None,
             base_dir=base_dir,
         )
@@ -1943,17 +2168,18 @@ def submit_claim_result(
                 claim_id=claim_id,
                 request_id=request_id,
                 agent_id=agent_id,
-                output_path=output,
+                output_artifact=output_artifact,
                 reasons=[
                     f"compliance: {COMPLIANCE_REJECTION_REASON} "
                     f"(hard_fail={compliance.get('hard_fail_count', 0)}, "
                     f"soft_fail={compliance.get('soft_fail_count', 0)})"
                 ],
                 envelope_evidence_hash=submitted_hash,
+                txn=txn,
             )
 
         # Accepted path.
-        output_hash = "sha256:" + hashlib.sha256(output.read_bytes()).hexdigest()
+        output_hash = output_artifact.digest
         # Plan 026R §C.2 — write BOTH ``output_hash`` (modern submit
         # path field name) AND ``content_hash`` (legacy
         # submit_agent_invocation_result field name at line 290).
@@ -1966,14 +2192,19 @@ def submit_claim_result(
         # subsequent state lives in agent-result-bridge-status.jsonl.
         from .bridge_status_ledger import bridge_status_for_role
         envelope_role = envelope.get("role")
-        transcript_row = record_transcript(
-            invocation_id=request_id,
-            request_id=request_id,
-            claim_id=claim_id,
-            agent_id=agent_id,
-            transcript_hash=str(transcript_hash),
-            artifact_ref=transcript_artifact.as_posix(),
-            base_dir=root,
+        transcript_row = txn.append_declared_jsonl(
+            _transcripts_path(root),
+            {
+                "schema_version": 1,
+                "recorded_at": utc_now(),
+                "invocation_id": request_id,
+                "request_id": request_id,
+                "claim_id": claim_id,
+                "agent_id": agent_id,
+                "transcript_hash": str(transcript_hash),
+                "artifact_ref": transcript_artifact.path.as_posix(),
+            },
+            expected_surface="agent_invocation_transcripts",
         )
         row = {
             "$schema": "aria/agent-claim-result/v1",
@@ -1983,14 +2214,18 @@ def submit_claim_result(
             "agent_id": agent_id,
             "role": envelope_role,
             "status": "accepted",
-            "output_path": output.resolve().as_posix(),
+            "output_path": output_artifact.path.as_posix(),
             "output_hash": output_hash,
             "content_hash": output_hash,  # §C.2 alias
             "envelope_evidence_hash": submitted_hash,
             "context_hash": context_hash,
+            "context_semantic_hash": binding["context"].get("context_semantic_hash"),
+            "context_record_hash": binding["context"].get("context_record_hash"),
             "prompt_hash": prompt_hash,
+            "prompt_semantic_hash": binding["prompt"].get("prompt_semantic_hash"),
+            "prompt_record_hash": binding["prompt"].get("prompt_record_hash"),
             "transcript_hash": transcript_hash,
-            "transcript_artifact_ref": transcript_artifact.as_posix(),
+            "transcript_artifact_ref": transcript_artifact.path.as_posix(),
             "context_ledger_hash": binding["context"].get("ledger_hash"),
             "prompt_ledger_hash": binding["prompt"].get("ledger_hash"),
             "transcript_ledger_hash": transcript_row.get("ledger_hash"),
@@ -1998,9 +2233,16 @@ def submit_claim_result(
             "checked_evidence_count": len(revalidation["checked_refs"]),
             "submitted_at": utc_now(),
         }
-        # Plan 026R §A.1 — caller already holds with_exclusive_lock(results_path)
-        # at line 936; use the unlocked helper to avoid POSIX flock re-acquisition.
-        persisted = _append_jsonl_unlocked(results_path, row)
+        persisted = txn.append_declared_jsonl(
+            results_path,
+            row,
+            expected_surface="agent_invocation_results",
+        )
+        _append_result_bundle_marker_for_result(
+            txn=txn,
+            root=root,
+            result=persisted,
+        )
         append_tools_governance(
             root,
             "agent_result_accepted",
@@ -2136,9 +2378,10 @@ def _persist_rejection(
     claim_id: str,
     request_id: str,
     agent_id: str,
-    output_path: Path,
+    output_artifact: SafeArtifact,
     reasons: list[str],
     envelope_evidence_hash: str,
+    txn: Any | None = None,
 ) -> dict[str, Any]:
     # Plan 025 §A.1 — envelope_evidence_hash is REQUIRED (no default).
     # Missing the field is a TypeError at the call site (tier-1
@@ -2152,15 +2395,7 @@ def _persist_rejection(
     # the on-disk output file when it exists; null when the output
     # path is empty / unreadable (e.g. envelope_unreadable rejections
     # at line 1138).
-    rejection_output_hash: str | None = None
-    try:
-        if output_path.exists() and output_path.is_file():
-            rejection_output_hash = (
-                "sha256:"
-                + hashlib.sha256(output_path.read_bytes()).hexdigest()
-            )
-    except OSError:
-        rejection_output_hash = None
+    rejection_output_hash: str | None = output_artifact.digest
     row = {
         "$schema": "aria/agent-claim-result/v1",
         "schema_version": 1,
@@ -2168,7 +2403,7 @@ def _persist_rejection(
         "request_id": request_id,
         "agent_id": agent_id,
         "status": "rejected",
-        "output_path": output_path.resolve().as_posix(),
+        "output_path": output_artifact.path.as_posix(),
         "output_hash": rejection_output_hash,
         "content_hash": rejection_output_hash,  # §C.2 alias
         "rejection_reasons": reasons,
@@ -2179,7 +2414,18 @@ def _persist_rejection(
     # while the caller holds with_exclusive_lock(results_path); use the
     # unlocked helper to avoid POSIX flock re-acquisition (the call sites
     # at lines 1014, 1054, 1087 are all inside the lock).
-    persisted = _append_jsonl_unlocked(root / "agent-invocations" / "results.jsonl", row)
+    if txn is None:
+        persisted = append_declared_jsonl(
+            _results_path(root),
+            row,
+            expected_surface="agent_invocation_results",
+        )
+    else:
+        persisted = txn.append_declared_jsonl(
+            _results_path(root),
+            row,
+            expected_surface="agent_invocation_results",
+        )
     append_tools_governance(
         root,
         "agent_result_rejected",
@@ -2247,7 +2493,7 @@ def reap_stale_claims(
     """
     root = ensure_tools_dir(base_dir)
     ts = now or _utc_now_dt()
-    claims = load_jsonl(_claims_path(root))
+    claims = _load_claims(root)
     # Identify claims still in flight (claimed/heartbeat without later released/stale/human_required).
     by_claim: dict[str, list[dict[str, Any]]] = {}
     for row in claims:
@@ -2274,10 +2520,7 @@ def reap_stale_claims(
             "stale_at": _iso(ts),
             "lease_expires_at": latest.get("lease_expires_at"),
         }
-        append_jsonl(_claims_path(root), stale_row)
-        reaped["stale"].append(stale_row)
-        # Reload once to keep _request_event_count accurate after each append.
-        claims_after = load_jsonl(_claims_path(root))
+        claims_after = [*claims, stale_row]
         requeue_count = _request_event_count(claims_after, request_id, "requeued") + 1
         kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
         followup = {
@@ -2289,8 +2532,20 @@ def reap_stale_claims(
             "requeue_count": requeue_count,
             "reason": "lease_expired",
         }
-        append_jsonl(_claims_path(root), followup)
+        with state_transaction([_claims_path(root)]) as txn:
+            persisted_stale = txn.append_declared_jsonl(
+                _claims_path(root),
+                stale_row,
+                expected_surface="agent_invocation_claims",
+            )
+            txn.append_declared_jsonl(
+                _claims_path(root),
+                followup,
+                expected_surface="agent_invocation_claims",
+            )
+        reaped["stale"].append(persisted_stale)
         reaped[kind].append(followup)
+        claims = [*claims_after, followup]
         append_tools_governance(
             root,
             f"agent_claim_{kind}",

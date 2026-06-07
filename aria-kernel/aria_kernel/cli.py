@@ -1001,6 +1001,10 @@ def _main(argv: list[str] | None = None) -> int:
         help="Name of an environment variable that holds the lease_token.",
     )
     a_submit.add_argument("--output-path", required=True)
+    a_submit.add_argument("--context-hash", required=True)
+    a_submit.add_argument("--prompt-hash", required=True)
+    a_submit.add_argument("--transcript-hash", required=True)
+    a_submit.add_argument("--transcript-artifact-ref", required=True)
 
     a_reap = add_subparser(agent_sub, 
         "reap-stale",
@@ -2648,6 +2652,10 @@ def _main(argv: list[str] | None = None) -> int:
                 output_path=args.output_path,
                 workspace_root=workspace,
                 base_dir=args.tools_dir,
+                context_hash=args.context_hash,
+                prompt_hash=args.prompt_hash,
+                transcript_hash=args.transcript_hash,
+                transcript_artifact_ref=args.transcript_artifact_ref,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1

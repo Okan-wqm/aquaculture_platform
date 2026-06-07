@@ -69,7 +69,6 @@ class RunsMigrationTests(unittest.TestCase):
 class GenericJsonlMigrationTests(unittest.TestCase):
     def test_generic_jsonl_readers_use_read_strict_jsonl(self) -> None:
         for module_name in (
-            "context_budget_gate.py",
             "agent_compliance.py",
             "agent_eval.py",
             # §A.3 forward-fix (reviewer-A.3 finding): list_profile_history
@@ -89,6 +88,12 @@ class GenericJsonlMigrationTests(unittest.TestCase):
                 src,
                 f"{module_name} missing read_strict_jsonl callsite",
             )
+
+        # context-audits.jsonl is now a declared hash-chained ledger.
+        # The stronger contract is full hash-chain verification, not the
+        # generic row-shape strict reader used for non-chained JSONL sources.
+        context_gate = _src("context_budget_gate.py")
+        self.assertIn("load_jsonl(path, verify=True)", context_gate)
 
 
 class RuntimeProfileHistoryStrictTests(unittest.TestCase):

@@ -48,6 +48,7 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.file_lock import with_exclusive_lock
 from aria_kernel.ledger import append_jsonl, load_jsonl, rewrite_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.context_binding import submit_binding_kwargs
 
 
 def _seed_repo() -> Path:
@@ -125,6 +126,12 @@ class _SubmitFixture(unittest.TestCase):
         return out_path
 
     def _submit(self, out_path: Path, *, lock_timeout_seconds: float | None = None) -> dict:
+        binding = submit_binding_kwargs(
+            self.request,
+            transcript_dir=self.tools / "agent-invocations" / "transcripts",
+            transcript_name="submit-drift.transcript.jsonl",
+            transcript_text=f"fixture transcript for {self.claim['claim_id']}\n",
+        )
         return submit_claim_result(
             claim_id=self.claim["claim_id"],
             agent_id=self.claim["agent_id"],
@@ -133,6 +140,7 @@ class _SubmitFixture(unittest.TestCase):
             workspace_root=self.repo,
             base_dir=self.tools,
             lock_timeout_seconds=lock_timeout_seconds,
+            **binding,
         )
 
     def _results_rows_for_claim(self) -> list[dict]:
@@ -207,6 +215,10 @@ def _concurrent_submit_worker(
     agent_id: str,
     lease_token: str,
     envelope_path: str,
+    context_hash: str,
+    prompt_hash: str,
+    transcript_hash: str,
+    transcript_artifact_ref: str,
     result_queue: multiprocessing.Queue,  # type: ignore[type-arg]
 ) -> None:
     # Plan ARIA-V2 ORPHAN-MEDIUM-075 — outer try wraps the inner import
@@ -242,6 +254,10 @@ def _concurrent_submit_worker(
             output_path=Path(envelope_path),
             workspace_root=Path(repo_root),
             base_dir=Path(tools_dir),
+            context_hash=context_hash,
+            prompt_hash=prompt_hash,
+            transcript_hash=transcript_hash,
+            transcript_artifact_ref=transcript_artifact_ref,
         )
         result_queue.put(("ok", outcome["status"], outcome.get("idempotent", False)))
     except _GovError as exc:
@@ -287,6 +303,12 @@ class ConcurrentSubmitRaceTests(_SubmitFixture):
         """
         envelope = self._envelope()
         out = self._write_envelope(envelope)
+        binding = submit_binding_kwargs(
+            self.request,
+            transcript_dir=self.tools / "agent-invocations" / "transcripts",
+            transcript_name="concurrent.transcript.jsonl",
+            transcript_text=f"fixture transcript for {self.claim['claim_id']}\n",
+        )
 
         # spawn-mode keeps the test deterministic across POSIX +
         # Windows — fork copies module state so the children never
@@ -304,6 +326,10 @@ class ConcurrentSubmitRaceTests(_SubmitFixture):
                     "agent_id": self.claim["agent_id"],
                     "lease_token": self.claim["lease_token"],
                     "envelope_path": str(out),
+                    "context_hash": binding["context_hash"],
+                    "prompt_hash": binding["prompt_hash"],
+                    "transcript_hash": binding["transcript_hash"],
+                    "transcript_artifact_ref": binding["transcript_artifact_ref"],
                     "result_queue": result_queue,
                 },
             )

@@ -146,6 +146,9 @@ class SingleClaimSerialiserTests(_SingleClaimBase):
             "expected_output_path", "role",
             "must_satisfy", "allowed_scope", "evidence_refs",
             "lease_expires_at",
+            "context_hash", "prompt_hash",
+            "context_ledger_hash", "prompt_ledger_hash",
+            "budget_audit_hash",
             "claim_ledger_hash", "request_ledger_hash",
         ):
             self.assertIn(expected, data, expected)
@@ -265,19 +268,13 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
         def fake_run(argv, *args, **kwargs):
             captured.append(tuple(argv))
             if "claim" in argv:
+                claim_payload = dict(self.claim)
+                claim_payload["lease_token"] = "test-token"
+                claim_payload["claim_id"] = "test-claim"
+                claim_payload["agent_id"] = self.agent_id
                 return MagicMock(
                     returncode=0,
-                    stdout=json.dumps({
-                        "lease_token": "test-token",
-                        "claim_id": "test-claim",
-                        "request_id": self.req["request_id"],
-                        "agent_id": self.agent_id,
-                        "role": "evidence_judgment",
-                        "expected_output_path": self.req["expected_output_path"],
-                        "must_satisfy": [{"id": "S1", "description": "x"}],
-                        "allowed_scope": ["aria-kernel/**"],
-                        "evidence_refs": ["aria-kernel/src"],
-                    }),
+                    stdout=json.dumps(claim_payload),
                     stderr="",
                 )
             return MagicMock(returncode=0, stdout="{}", stderr="")

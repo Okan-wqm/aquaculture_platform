@@ -80,6 +80,9 @@ def _serialise_claim_metadata_for_env(
     * expected_output_path, role, must_satisfy, allowed_scope,
       evidence_refs (envelope — fused into claim by §B.3)
     * lease_expires_at (lease lifecycle anchor)
+    * context_hash, prompt_hash, context_ledger_hash, prompt_ledger_hash
+      (context/prompt SSoT anchors consumed by ci_executor before it
+      materializes the derived prompt file)
     * claim_ledger_hash, request_ledger_hash (§B.5 tamper-detection
       anchors — verified by the deserialiser against on-disk rows)
 
@@ -152,6 +155,11 @@ def _serialise_claim_metadata_for_env(
         "impact_graph_refs": claim.get("impact_graph_refs") or [],
         "validation_commands": claim.get("validation_commands") or [],
         "plan_revision_hash": claim.get("plan_revision_hash"),
+        "context_hash": claim.get("context_hash"),
+        "prompt_hash": claim.get("prompt_hash"),
+        "context_ledger_hash": claim.get("context_ledger_hash"),
+        "prompt_ledger_hash": claim.get("prompt_ledger_hash"),
+        "budget_audit_hash": claim.get("budget_audit_hash"),
         "lease_expires_at": claim.get("lease_expires_at"),
         "claim_ledger_hash": claim.get("claim_ledger_hash"),
         "request_ledger_hash": claim.get("request_ledger_hash"),

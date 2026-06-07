@@ -14,6 +14,7 @@ from aria_kernel.judgment_bridge import (
     run_consensus,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.context_binding import submit_binding_kwargs
 
 
 def _seed_repo() -> Path:
@@ -114,6 +115,14 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
         )
         return request, claim
 
+    def _binding_kwargs(self, request: dict, *, name: str) -> dict[str, str]:
+        return submit_binding_kwargs(
+            request,
+            transcript_dir=self.tools / "agent-invocations" / "transcripts",
+            transcript_name=name,
+            transcript_text=f"fixture transcript for {request['request_id']}\n",
+        )
+
     def test_two_judges_then_consensus_passes(self) -> None:
         # Judge 1: evidence -> true_positive
         ev_request, ev_claim = self._claim_judge(
@@ -138,6 +147,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             output_path=ev_out,
             workspace_root=self.repo,
             base_dir=self.tools,
+            **self._binding_kwargs(ev_request, name="evidence-judge.transcript.jsonl"),
         )
         self.assertEqual(ev_result["status"], "accepted", ev_result)
         self.assertIsNotNone(ev_result["bridged"]["judge_feedback"])
@@ -165,6 +175,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             output_path=ad_out,
             workspace_root=self.repo,
             base_dir=self.tools,
+            **self._binding_kwargs(ad_request, name="adversarial-judge.transcript.jsonl"),
         )
         self.assertEqual(ad_result["status"], "accepted", ad_result)
         self.assertIsNotNone(ad_result["bridged"]["judge_feedback"])
@@ -210,6 +221,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             claim_id=ev_claim["claim_id"], agent_id=ev_claim["agent_id"],
             lease_token=ev_claim["lease_token"], output_path=ev_out,
             workspace_root=self.repo, base_dir=self.tools,
+            **self._binding_kwargs(ev_req, name="disagree-evidence.transcript.jsonl"),
         )
 
         ad_req, ad_claim = self._claim_judge(
@@ -231,6 +243,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             claim_id=ad_claim["claim_id"], agent_id=ad_claim["agent_id"],
             lease_token=ad_claim["lease_token"], output_path=ad_out,
             workspace_root=self.repo, base_dir=self.tools,
+            **self._binding_kwargs(ad_req, name="disagree-adversarial.transcript.jsonl"),
         )
         result = run_consensus(
             tool_id="demo-adapter", cycle_id=None, min_confidence=0.80, base_dir=self.tools

@@ -37,8 +37,8 @@ on:
         required: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 jobs:
   generate:
@@ -49,18 +49,27 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: '22'
 
-      - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit
-
       - name: Compute report window
         id: window
+        env:
+          MONTH_OFFSET: ${{ github.event.inputs.month_offset || '1' }}
         run: |
-          OFFSET="${{ github.event.inputs.month_offset || '1' }}"
+          set -euo pipefail
+          OFFSET="${MONTH_OFFSET}"
+          if ! [[ "$OFFSET" =~ ^[0-9]{1,2}$ ]]; then
+            echo "::error::month_offset must be a one- or two-digit positive integer: $OFFSET" >&2
+            exit 1
+          fi
+          if [ "$OFFSET" -lt 1 ] || [ "$OFFSET" -gt 24 ]; then
+            echo "::error::month_offset must be between 1 and 24: $OFFSET" >&2
+            exit 1
+          fi
           START=$(date -u -d "$OFFSET months ago" +%Y-%m-01)
           # End = start-of-this-month (exclusive upper bound).
           END=$(date -u -d "$OFFSET months ago + 1 month" +%Y-%m-01)
@@ -70,6 +79,42 @@ jobs:
           echo "stamp=$STAMP" >> "$GITHUB_OUTPUT"
           echo "month_label=$(date -u -d "$OFFSET months ago" +%Y-%m)" >> "$GITHUB_OUTPUT"
           echo "Reporting window: $START (inclusive) to $END (exclusive)"
+
+      - name: Persist enterprise workflow preflight
+        env:
+          REPORT_STAMP: ${{ steps.window.outputs.stamp }}
+          MONTH_LABEL: ${{ steps.window.outputs.month_label }}
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          report = f"docs/reviews/rule-health/{os.environ['REPORT_STAMP']}-rule-health-{os.environ['MONTH_LABEL']}.md"
+          verdict = verify_workflow_preflight(
+              workflow_id="rule-health-report",
+              job_id="generate",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[report],
+              path_allowlist=[report],
+              network_policy=["github_api", "github_artifact"],
+              network_enforcement_evidence="GitHub artifact proof upload and PR API via automation/open-report-pr.sh",
+              token_provenance="github_app:installation",
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="publish monthly rule-health report through automation PR",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "rule-health-report-preflight.json",
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Generate report
         id: generate
@@ -174,32 +219,35 @@ jobs:
           echo "Report generated at $REPORT"
           head -50 "$REPORT"
 
-      - name: Open PR with report
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+      - name: Upload rule health workflow proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
         with:
-          branch: automation/rule-health-${{ steps.window.outputs.month_label }}
-          delete-branch: true
-          title: 'chore(report): monthly rule-health report — ${{ steps.window.outputs.month_label }}'
-          body: |
-            Monthly rule-health aggregate for **${{ steps.window.outputs.month_label }}**.
+          name: rule-health-report-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rule-health-report-preflight.json
+          if-no-files-found: error
+          retention-days: 365
 
-            Covers: finding-registry state by severity + owner; override count
-            (boundary-files allowlist + inline `// auditor-override:` comments);
-            agent dispatch frequency (orchestrator review-file count); rule
-            firing rate (skeleton until Phase 12 Prometheus backing).
+      - name: Open or update report PR
+        env:
+          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN }}
+          REPORT_PATH: ${{ steps.generate.outputs.path }}
+        run: |
+          set -euo pipefail
+          BODY_FILE="$RUNNER_TEMP/rule-health-pr-body.md"
+          cat > "$BODY_FILE" <<EOF
+          Monthly rule-health aggregate for **${{ steps.window.outputs.month_label }}**.
 
-            Generated report: `${{ steps.generate.outputs.path }}`.
+          Covers: finding-registry state by severity + owner, override count,
+          agent dispatch frequency, and rule-firing rate skeleton data.
 
-            **CODEOWNERS review required** — rule-health reports ARE the
-            Phase 7 telemetry substrate. Approve to land; reject if the
-            aggregation logic under-reports an ownership or severity slice
-            that context-manager would otherwise catch.
-          commit-message: |
-            chore(report): rule-health ${{ steps.window.outputs.month_label }}
+          Generated report: `${REPORT_PATH}`.
 
-            Closes: docs/reviews/rule-health/${{ steps.window.outputs.stamp }}-rule-health-${{ steps.window.outputs.month_label }}.md
-          labels: |
-            automation
-            report
-            rule-health
-          reviewers: Okan-wqm
+          CODEOWNERS review is required before merge.
+          EOF
+
+          export PR_BRANCH="automation/rule-health-${{ steps.window.outputs.month_label }}"
+          export PR_TITLE="chore(report): monthly rule-health report - ${{ steps.window.outputs.month_label }}"
+          export PR_BODY_FILE="$BODY_FILE"
+          export COMMIT_MESSAGE="chore(report): rule-health ${{ steps.window.outputs.month_label }}"
+          export CHANGED_PATHS="$REPORT_PATH"
+          bash tools/scripts/automation/open-report-pr.sh

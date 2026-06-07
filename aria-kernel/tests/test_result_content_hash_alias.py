@@ -23,6 +23,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.runtime_profile import set_profile
+from tests._helpers.context_binding import submit_binding_kwargs
 
 
 class ResultContentHashAliasTests(unittest.TestCase):
@@ -78,6 +79,14 @@ class ResultContentHashAliasTests(unittest.TestCase):
         }
         path.write_text(json.dumps(envelope), encoding="utf-8")
 
+    def _binding_kwargs(self, name: str) -> dict[str, str]:
+        return submit_binding_kwargs(
+            self.req,
+            transcript_dir=self.base / "agent-invocations" / "transcripts",
+            transcript_name=name,
+            transcript_text=f"fixture transcript for {self.claim['claim_id']}\n",
+        )
+
     def test_accepted_result_row_carries_both_hash_fields(self) -> None:
         out = self.workspace / "out.json"
         self._write_envelope(out)
@@ -88,6 +97,7 @@ class ResultContentHashAliasTests(unittest.TestCase):
             output_path=str(out),
             workspace_root=str(self.workspace),
             base_dir=self.base,
+            **self._binding_kwargs("accepted.transcript.jsonl"),
         )
         self.assertEqual(result["status"], "accepted", result)
         row = result["row"]
@@ -125,6 +135,7 @@ class ResultContentHashAliasTests(unittest.TestCase):
             output_path=str(out),
             workspace_root=str(self.workspace),
             base_dir=self.base,
+            **self._binding_kwargs("rejected.transcript.jsonl"),
         )
         self.assertEqual(result["status"], "rejected", result)
         row = result["row"]
@@ -144,6 +155,7 @@ class ResultContentHashAliasTests(unittest.TestCase):
             output_path=str(out),
             workspace_root=str(self.workspace),
             base_dir=self.base,
+            **self._binding_kwargs("lookup.transcript.jsonl"),
         )
         target_hash = result["row"]["content_hash"]
         rows = load_jsonl(self.base / "agent-invocations" / "results.jsonl")

@@ -1,0 +1,484 @@
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+import yaml  # type: ignore[import-untyped]
+
+from .workflow_contract_registry import (
+    AUDITED_WORKFLOW_EXCLUSIONS,
+    WORKFLOW_CONTRACTS,
+    AuditedWorkflowExclusion,
+    WorkflowContract,
+    WorkflowJobContract,
+    workflow_contract_hash,
+    workflow_contract_registry,
+    workflow_hash,
+    workflow_job_contract_hash,
+)
+
+
+UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+_GITHUB_EXPR = re.compile(r"\$\{\{\s*([^}]+?)\s*\}\}")
+
+
+@dataclass(frozen=True)
+class WorkflowContractVerdict:
+    workflow_id: str
+    valid: bool
+    workflow_file: str | None = None
+    workflow_hash: str | None = None
+    contract_hash: str | None = None
+    failure_classes: tuple[str, ...] = field(default_factory=tuple)
+    reasons: tuple[str, ...] = field(default_factory=tuple)
+
+
+def discover_aria_workflows(workspace_root: str | Path) -> dict[str, Path]:
+    workflows = Path(workspace_root) / ".github" / "workflows"
+    found: dict[str, Path] = {}
+    if not workflows.is_dir():
+        return found
+    for path in sorted([*workflows.glob("aria-*.yml"), *workflows.glob("aria-*.yaml")]):
+        found[path.stem] = path
+    for name in ("finding-state-sweep", "rule-health-report"):
+        for suffix in (".yml", ".yaml"):
+            path = workflows / f"{name}{suffix}"
+            if path.exists():
+                found[name] = path
+    return found
+
+
+def verify_workflow_contract(
+    *,
+    workflow_id: str,
+    workspace_root: str | Path,
+    artifact_dir: str | Path | None = None,
+    event_context: dict[str, Any] | None = None,
+    contract_registry: dict[str, WorkflowContract] | None = None,
+) -> WorkflowContractVerdict:
+    registry = contract_registry or WORKFLOW_CONTRACTS
+    contract = registry.get(workflow_id)
+    reasons: list[str] = []
+    failure_classes: list[str] = []
+    if contract is None:
+        return WorkflowContractVerdict(
+            workflow_id=workflow_id,
+            valid=False,
+            failure_classes=("workflow_contract_missing",),
+            reasons=(f"workflow_contract_missing:{workflow_id}",),
+        )
+
+    root = Path(workspace_root).resolve()
+    workflow_path = root / contract.workflow_file
+    if not workflow_path.exists():
+        return WorkflowContractVerdict(
+            workflow_id=workflow_id,
+            workflow_file=contract.workflow_file,
+            valid=False,
+            failure_classes=("workflow_yaml_missing",),
+            reasons=(f"workflow_yaml_missing:{contract.workflow_file}",),
+        )
+
+    text = workflow_path.read_text(encoding="utf-8")
+    digest = workflow_hash(workflow_path)
+    contract_digest = workflow_contract_hash(contract)
+    try:
+        workflow = yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        return WorkflowContractVerdict(
+            workflow_id=workflow_id,
+            workflow_file=contract.workflow_file,
+            workflow_hash=digest,
+            contract_hash=contract_digest,
+            valid=False,
+            failure_classes=("workflow_yaml_invalid",),
+            reasons=(f"workflow_yaml_invalid:{exc}",),
+        )
+
+    jobs = workflow.get("jobs")
+    if not isinstance(jobs, dict):
+        return WorkflowContractVerdict(
+            workflow_id=workflow_id,
+            workflow_file=contract.workflow_file,
+            workflow_hash=digest,
+            contract_hash=contract_digest,
+            valid=False,
+            failure_classes=("workflow_contract_jobs",),
+            reasons=("workflow_jobs_missing",),
+        )
+
+    missing_jobs = sorted({job.job_id for job in contract.job_contracts} - set(jobs))
+    if missing_jobs:
+        reasons.append(f"governed_jobs_missing:{missing_jobs}")
+        failure_classes.append("workflow_contract_jobs")
+
+    top_permissions = workflow.get("permissions") if isinstance(workflow.get("permissions"), dict) else {}
+    for job_contract in contract.job_contracts:
+        job = jobs.get(job_contract.job_id)
+        if not isinstance(job, dict):
+            continue
+        _verify_job_contract(
+            workflow_id=workflow_id,
+            job=job,
+            job_contract=job_contract,
+            top_permissions=top_permissions,
+            reasons=reasons,
+            failure_classes=failure_classes,
+        )
+
+    raw_input_jobs = _raw_event_input_interpolation(workflow)
+    if raw_input_jobs:
+        reasons.append(f"raw_github_event_inputs_interpolation_present:{raw_input_jobs}")
+        failure_classes.append("workflow_input_injection")
+
+    if artifact_dir is not None:
+        for job_contract in contract.job_contracts:
+            proof_name = Path(job_contract.dlp_artifact).name
+            proof = Path(artifact_dir) / proof_name
+            if not proof.exists():
+                reasons.append(f"dlp_artifact_missing:{job_contract.job_id}:{proof_name}")
+                failure_classes.append("workflow_dlp_proof_missing")
+                continue
+            proof_reasons, proof_failures = _verify_preflight_artifact(
+                proof,
+                contract=contract,
+                job_contract=job_contract,
+                workflow_hash=digest,
+                contract_hash=workflow_job_contract_hash(workflow_id, job_contract.job_id),
+            )
+            reasons.extend(proof_reasons)
+            failure_classes.extend(proof_failures)
+
+    if event_context:
+        observed_token = str(event_context.get("token_source") or "")
+        observed_job = str(event_context.get("job_id") or "")
+        if observed_job:
+            expected = next((job.token_source for job in contract.job_contracts if job.job_id == observed_job), None)
+            if expected and observed_token and observed_token != expected:
+                reasons.append(f"workflow_token_source_mismatch:{observed_job}:{observed_token}!={expected}")
+                failure_classes.append("workflow_token_source")
+        elif len({job.token_source for job in contract.job_contracts}) == 1:
+            expected = contract.job_contracts[0].token_source
+            if observed_token and observed_token != expected:
+                reasons.append(f"workflow_token_source_mismatch:{observed_token}!={expected}")
+                failure_classes.append("workflow_token_source")
+        elif observed_token:
+            reasons.append("workflow_token_source_requires_job_id")
+            failure_classes.append("workflow_token_source")
+
+    return WorkflowContractVerdict(
+        workflow_id=workflow_id,
+        workflow_file=contract.workflow_file,
+        workflow_hash=digest,
+        contract_hash=contract_digest,
+        valid=not failure_classes,
+        failure_classes=tuple(sorted(set(failure_classes))),
+        reasons=tuple(reasons),
+    )
+
+
+def _verify_job_contract(
+    *,
+    workflow_id: str,
+    job: dict[str, Any],
+    job_contract: WorkflowJobContract,
+    top_permissions: dict[str, Any],
+    reasons: list[str],
+    failure_classes: list[str],
+) -> None:
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        reasons.append(f"workflow_steps_missing:{job_contract.job_id}")
+        failure_classes.append("workflow_contract_jobs")
+        return
+    named_steps = [
+        (idx, step)
+        for idx, step in enumerate(steps)
+        if isinstance(step, dict) and isinstance(step.get("name"), str)
+    ]
+    preflight_matches = [
+        (idx, step)
+        for idx, step in named_steps
+        if step.get("name") == job_contract.preflight_step
+    ]
+    if not preflight_matches:
+        reasons.append(f"workflow_contract_preflight_step_missing:{job_contract.job_id}:{job_contract.preflight_step}")
+        failure_classes.append("workflow_contract_preflight_missing")
+        return
+    preflight_idx, preflight_step = preflight_matches[0]
+    preflight_run = str(preflight_step.get("run") or "")
+    if "verify_workflow_preflight" not in preflight_run:
+        reasons.append(f"workflow_contract_preflight_call_missing:{job_contract.job_id}")
+        failure_classes.append("workflow_contract_preflight_missing")
+    if "verify_workflow_contract" in preflight_run:
+        reasons.append(f"workflow_runtime_imports_structural_verifier:{job_contract.job_id}")
+        failure_classes.append("workflow_runtime_dependency")
+    if f'job_id="{job_contract.job_id}"' not in preflight_run and f"job_id='{job_contract.job_id}'" not in preflight_run:
+        reasons.append(f"workflow_preflight_job_id_missing:{job_contract.job_id}")
+        failure_classes.append("workflow_contract_preflight_missing")
+
+    mutating_matches = [
+        (idx, step)
+        for idx, step in named_steps
+        if step.get("name") == job_contract.first_governed_mutation_step
+    ]
+    if not mutating_matches:
+        reasons.append(
+            f"first_governed_mutation_step_missing:{job_contract.job_id}:{job_contract.first_governed_mutation_step}"
+        )
+        failure_classes.append("workflow_contract_ordering")
+    elif preflight_idx >= mutating_matches[0][0]:
+        reasons.append(f"workflow_preflight_after_first_governed_mutation:{job_contract.job_id}")
+        failure_classes.append("workflow_contract_ordering")
+
+    _verify_permissions(
+        job_id=job_contract.job_id,
+        actual=job.get("permissions") if isinstance(job.get("permissions"), dict) else top_permissions,
+        required=dict(job_contract.required_permissions),
+        reasons=reasons,
+        failure_classes=failure_classes,
+    )
+    _verify_upload_artifact_step(
+        job_id=job_contract.job_id,
+        steps=steps,
+        job_contract=job_contract,
+        reasons=reasons,
+        failure_classes=failure_classes,
+    )
+
+
+def _verify_permissions(
+    *,
+    job_id: str,
+    actual: dict[str, Any],
+    required: dict[str, str],
+    reasons: list[str],
+    failure_classes: list[str],
+) -> None:
+    if not isinstance(actual, dict):
+        reasons.append(f"workflow_permissions_missing:{job_id}")
+        failure_classes.append("workflow_permissions")
+        return
+    for key, value in required.items():
+        if actual.get(key) != value:
+            reasons.append(f"workflow_permission_mismatch:{job_id}:{key}:{actual.get(key)!r}!={value!r}")
+            failure_classes.append("workflow_permissions")
+    for key, value in actual.items():
+        if value == "write" and required.get(key) != "write":
+            reasons.append(f"workflow_uncontracted_write_permission:{job_id}:{key}")
+            failure_classes.append("workflow_permissions")
+
+
+def _verify_upload_artifact_step(
+    *,
+    job_id: str,
+    steps: list[Any],
+    job_contract: WorkflowJobContract,
+    reasons: list[str],
+    failure_classes: list[str],
+) -> None:
+    upload_steps = [
+        step for step in steps
+        if isinstance(step, dict) and str(step.get("uses") or "").startswith("actions/upload-artifact@")
+    ]
+    if not upload_steps:
+        reasons.append(f"workflow_upload_artifact_step_missing:{job_id}")
+        failure_classes.append("workflow_artifact_upload")
+        return
+    matching_step = None
+    for step in upload_steps:
+        uses = str(step.get("uses") or "")
+        if uses != UPLOAD_ARTIFACT_ACTION:
+            reasons.append(f"workflow_upload_artifact_not_sha_pinned:{job_id}:{uses}")
+            failure_classes.append("workflow_artifact_upload")
+        with_block = step.get("with") if isinstance(step.get("with"), dict) else {}
+        name = str(with_block.get("name") or "")
+        paths = _normalize_artifact_paths(with_block.get("path"))
+        if re.fullmatch(job_contract.upload_artifact_name_pattern, name) and _paths_match_contract(
+            paths,
+            job_contract.upload_artifact_path_patterns,
+        ):
+            matching_step = step
+    if matching_step is None:
+        reasons.append(f"workflow_upload_artifact_contract_mismatch:{job_id}")
+        failure_classes.append("workflow_artifact_upload")
+        return
+    with_block = matching_step.get("with") if isinstance(matching_step.get("with"), dict) else {}
+    if str(with_block.get("if-no-files-found") or "") != "error":
+        reasons.append(f"workflow_upload_artifact_if_no_files_not_error:{job_id}")
+        failure_classes.append("workflow_artifact_upload")
+    retention = with_block.get("retention-days")
+    try:
+        retention_days = int(str(retention))
+    except (TypeError, ValueError):
+        retention_days = 0
+    if retention_days < job_contract.retention_days:
+        reasons.append(f"artifact_retention_below_contract:{job_id}:{job_contract.retention_days}")
+        failure_classes.append("workflow_artifact_retention")
+
+
+def _normalize_artifact_paths(value: Any) -> tuple[str, ...]:
+    if isinstance(value, list):
+        raw_paths = [str(item) for item in value]
+    else:
+        raw_paths = str(value or "").splitlines()
+    return tuple(
+        _normalize_workflow_path(path.strip())
+        for path in raw_paths
+        if path.strip()
+    )
+
+
+def _paths_match_contract(paths: tuple[str, ...], patterns: tuple[str, ...]) -> bool:
+    if len(paths) != len(patterns):
+        return False
+    unmatched = list(paths)
+    for pattern in patterns:
+        for idx, path in enumerate(unmatched):
+            if re.fullmatch(pattern, path):
+                unmatched.pop(idx)
+                break
+        else:
+            return False
+    return not unmatched
+
+
+def _normalize_workflow_path(path: str) -> str:
+    text = path.strip().strip('"').strip("'")
+    text = re.sub(r"\$\{\{\s*runner\.temp\s*\}\}", "runner-temp", text)
+    return text.rstrip("/") if text != "runner-temp" else text
+
+
+def _raw_event_input_interpolation(workflow: dict[str, Any]) -> tuple[str, ...]:
+    offenders: list[str] = []
+    jobs = workflow.get("jobs") if isinstance(workflow.get("jobs"), dict) else {}
+    for job_id, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps")
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if isinstance(step, dict) and "${{ github.event.inputs." in str(step.get("run") or ""):
+                offenders.append(str(job_id))
+    return tuple(sorted(set(offenders)))
+
+
+def _verify_audited_exclusions(
+    reasons: list[str],
+    failure_classes: list[str],
+    *,
+    workspace_root: Path,
+) -> None:
+    discovered = discover_aria_workflows(workspace_root)
+    for workflow_id, exclusion in AUDITED_WORKFLOW_EXCLUSIONS.items():
+        if workflow_id not in discovered:
+            reasons.append(f"audited_exclusion_workflow_missing:{workflow_id}")
+            failure_classes.append("workflow_audited_exclusion")
+        if not isinstance(exclusion, AuditedWorkflowExclusion):
+            reasons.append(f"audited_exclusion_not_typed:{workflow_id}")
+            failure_classes.append("workflow_audited_exclusion")
+            continue
+        try:
+            expires_at = date.fromisoformat(exclusion.expires_at)
+        except ValueError:
+            reasons.append(f"audited_exclusion_expiry_invalid:{workflow_id}")
+            failure_classes.append("workflow_audited_exclusion")
+            continue
+        if expires_at <= date.today():
+            reasons.append(f"audited_exclusion_expired:{workflow_id}:{exclusion.expires_at}")
+            failure_classes.append("workflow_audited_exclusion")
+        if not exclusion.owner.strip() or not exclusion.reason.strip():
+            reasons.append(f"audited_exclusion_incomplete:{workflow_id}")
+            failure_classes.append("workflow_audited_exclusion")
+
+
+def _verify_preflight_artifact(
+    path: Path,
+    *,
+    contract: WorkflowContract,
+    job_contract: WorkflowJobContract,
+    workflow_hash: str,
+    contract_hash: str | None,
+) -> tuple[list[str], list[str]]:
+    reasons: list[str] = []
+    failures: list[str] = []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return ([f"dlp_artifact_unparseable:{path.name}"], ["workflow_dlp_proof_missing"])
+    if payload.get("schema_version") != 1:
+        reasons.append("workflow_preflight_artifact_schema_version_mismatch")
+        failures.append("workflow_dlp_proof_missing")
+    if payload.get("workflow_id") != contract.workflow_id:
+        reasons.append("workflow_preflight_artifact_workflow_id_mismatch")
+        failures.append("workflow_dlp_proof_missing")
+    if payload.get("job_id") != job_contract.job_id:
+        reasons.append("workflow_preflight_artifact_job_id_mismatch")
+        failures.append("workflow_dlp_proof_missing")
+    if payload.get("valid") is not True:
+        reasons.append("workflow_preflight_artifact_not_valid")
+        failures.append("workflow_dlp_proof_missing")
+    if payload.get("dlp_scan_clean") is not True:
+        reasons.append("workflow_preflight_artifact_dlp_not_clean")
+        failures.append("workflow_dlp_proof_missing")
+    observed_token = str(payload.get("token_provenance") or "")
+    if observed_token != job_contract.token_source:
+        reasons.append(f"workflow_preflight_artifact_token_mismatch:{observed_token}!={job_contract.token_source}")
+        failures.append("workflow_token_source")
+    observed_network = tuple(payload.get("network_policy") or ())
+    if tuple(sorted(observed_network)) != tuple(sorted(job_contract.network_policy)):
+        reasons.append("workflow_preflight_artifact_network_policy_mismatch")
+        failures.append("workflow_network_policy")
+    if not payload.get("workflow_hash"):
+        reasons.append("workflow_preflight_artifact_workflow_hash_missing")
+        failures.append("workflow_dlp_proof_missing")
+    elif payload.get("workflow_hash") != workflow_hash:
+        reasons.append("workflow_preflight_artifact_workflow_hash_mismatch")
+        failures.append("workflow_dlp_proof_missing")
+    if payload.get("contract_hash") != contract_hash:
+        reasons.append("workflow_preflight_artifact_contract_hash_mismatch")
+        failures.append("workflow_dlp_proof_missing")
+    runtime_paths = tuple(str(item) for item in payload.get("runtime_write_paths") or ())
+    if not runtime_paths or not all(
+        any(re.fullmatch(pattern, item) for pattern in job_contract.allowed_write_path_patterns)
+        for item in runtime_paths
+    ):
+        reasons.append("workflow_preflight_artifact_runtime_paths_mismatch")
+        failures.append("path_allowlist_violation")
+    return reasons, failures
+
+
+def generated_workflow_inventory(workspace_root: str | Path) -> str:
+    discovered = discover_aria_workflows(workspace_root)
+    rows = []
+    for workflow_id, path in sorted(discovered.items()):
+        rows.append({
+            "workflow_id": workflow_id,
+            "path": path.relative_to(Path(workspace_root)).as_posix(),
+            "contracted": workflow_id in WORKFLOW_CONTRACTS,
+            "audited_exclusion": workflow_id in AUDITED_WORKFLOW_EXCLUSIONS,
+        })
+    return json.dumps(rows, indent=2, sort_keys=True) + "\n"
+
+
+__all__ = [
+    "AUDITED_WORKFLOW_EXCLUSIONS",
+    "UPLOAD_ARTIFACT_ACTION",
+    "WORKFLOW_CONTRACTS",
+    "AuditedWorkflowExclusion",
+    "WorkflowContract",
+    "WorkflowContractVerdict",
+    "WorkflowJobContract",
+    "discover_aria_workflows",
+    "generated_workflow_inventory",
+    "verify_workflow_contract",
+    "workflow_contract_hash",
+    "workflow_contract_registry",
+    "workflow_hash",
+    "workflow_job_contract_hash",
+]

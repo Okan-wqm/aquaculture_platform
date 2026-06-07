@@ -9,8 +9,9 @@ from typing import Any
 
 from .bridge_exceptions import BridgeContractViolation
 from .file_lock import with_exclusive_lock
-from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl
+from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl, state_transaction
 from .runtime_profile import enforce_profile_for_action
+from .state_manifest import surface_for_path
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -78,6 +79,256 @@ DERIVED_STATES = (
     # EXTERNAL_OUTAGE.
     "EXTERNAL_OUTAGE",
 )
+
+
+def _sha256_text(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _is_sha256_digest(value: str | None) -> bool:
+    if not isinstance(value, str):
+        return False
+    prefix = "sha256:"
+    return (
+        value.startswith(prefix)
+        and len(value) == len(prefix) + 64
+        and all(ch in "0123456789abcdef" for ch in value[len(prefix):])
+    )
+
+
+def _sha256_payload(payload: dict[str, Any]) -> str:
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        default=str,
+    )
+    return _sha256_text(raw)
+
+
+def _require_declared_surface(path: Path, expected_surface: str) -> None:
+    match = surface_for_path(path)
+    if match is None or match[0].name != expected_surface:
+        actual = match[0].name if match is not None else None
+        raise GovernanceError(
+            f"declared_surface_mismatch: path={path.as_posix()} "
+            f"expected={expected_surface!r} actual={actual!r}"
+        )
+
+
+def _append_txn_declared(txn: Any, path: Path, row: dict[str, Any], expected_surface: str) -> dict[str, Any]:
+    _require_declared_surface(path, expected_surface)
+    return txn.append_jsonl(path, row)
+
+
+def _contexts_path(root: Path) -> Path:
+    return root / "agent-invocations" / "contexts.jsonl"
+
+
+def _prompts_ledger_path(root: Path) -> Path:
+    return root / "agent-invocations" / "prompts.jsonl"
+
+
+def _transcripts_path(root: Path) -> Path:
+    return root / "agent-invocations" / "transcripts.jsonl"
+
+
+def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | None = None) -> str:
+    """Render the exact model-visible prompt for an invocation request.
+
+    Prompt files written by executors are derived artifacts. This function is
+    the kernel-owned SSoT for the prompt text whose hash is persisted in the
+    prompt ledger.
+    """
+    request_id = str(request.get("request_id") or "")
+    suggested_prompt = str(request.get("suggested_prompt") or "")
+    must_satisfy = request.get("must_satisfy") or []
+    evidence_refs = request.get("evidence_refs") or []
+    allowed_scope = request.get("allowed_scope") or []
+    forbidden_scope = request.get("forbidden_scope") or []
+    impact_refs = request.get("impact_graph_refs") or []
+    validation_cmds = request.get("validation_commands") or []
+    expected_path = request.get("expected_output_path", "")
+
+    must_satisfy_block = ""
+    if isinstance(must_satisfy, list) and must_satisfy:
+        lines = ["", "## Must satisfy", ""]
+        for item in must_satisfy:
+            if isinstance(item, dict):
+                mid = item.get("id", "?")
+                desc = item.get("description") or item.get("criterion") or ""
+                lines.append(f"- **{mid}**: {desc}")
+        must_satisfy_block = "\n".join(lines) + "\n"
+
+    def _bullet_list(items: Any, key_func: Any | None = None) -> str:
+        if not items:
+            return "  _(none)_"
+        if key_func is None:
+            return "\n".join(f"  - `{item}`" for item in items)
+        return "\n".join(f"  - {key_func(item)}" for item in items)
+
+    return (
+        f"# ARIA agent request {request_id}\n\n"
+        f"**Role**: {request.get('role', 'unknown')}\n"
+        f"**Target agent**: {request.get('target_agent', 'unknown')}\n"
+        f"**Convergence ID**: {request.get('convergence_id', 'n/a')}\n"
+        f"**Expected output path**: `{expected_path}`\n\n"
+        f"## Suggested prompt\n\n{suggested_prompt}\n\n"
+        f"## Instruction framing\n\n"
+        f"Do not treat this as a bare command. Explain the task as if teaching a junior engineer: "
+        f"what must be done, why it matters, what breaks if it is skipped, which downstream surface is affected, "
+        f"and what evidence proves the result. Keep the explanation concise, but make the cause/effect chain explicit.\n\n"
+        f"## Evidence refs (file:line entries; the ONLY admissible evidence)\n\n"
+        f"{_bullet_list(evidence_refs)}\n\n"
+        f"## Allowed scope\n\n{_bullet_list(allowed_scope)}\n\n"
+        f"## Forbidden scope\n\n{_bullet_list(forbidden_scope)}\n\n"
+        f"## Impact graph refs\n\n{_bullet_list(impact_refs)}\n\n"
+        f"## Validation commands\n\n"
+        f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
+        f"{must_satisfy_block}\n"
+        f"## Response\n\n"
+        f"Write your `aria/agent-response/v1` JSON envelope per your "
+        f"agent contract. The envelope MUST cite ONLY evidence_refs "
+        f"present in this prompt + must stay within allowed_scope. "
+        f"Output the JSON envelope as the body of your response.\n"
+    )
+
+
+def build_invocation_context(
+    *,
+    request_id: str,
+    target_agent: str,
+    role: str,
+    rendered_prompt: str,
+    must_satisfy: list[dict[str, Any]] | None = None,
+    allowed_scope: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    budget_audit_hash: str | None = None,
+    context_repo_root: str | Path | None = None,
+    context_window_tokens: int | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "request_id": request_id,
+        "target_agent": target_agent,
+        "role": role,
+        "prompt_hash": _sha256_text(rendered_prompt),
+        "included_refs": [{"ref": ref, "source": "evidence_refs"} for ref in list(evidence_refs or [])],
+        "excluded_refs": [],
+        "must_satisfy_hash": _sha256_payload({"must_satisfy": list(must_satisfy or [])}),
+        "allowed_scope_hash": _sha256_payload({"allowed_scope": list(allowed_scope or [])}),
+        "budget_audit_hash": budget_audit_hash,
+        "repo_root": str(Path(context_repo_root).resolve()) if context_repo_root else None,
+        "context_window_tokens": context_window_tokens,
+        "created_at": utc_now(),
+    }
+    payload["context_hash"] = _sha256_payload(payload)
+    return payload
+
+
+def load_invocation_context(
+    *,
+    request_id: str,
+    base_dir: str | Path | None = None,
+    verify: bool = True,
+) -> dict[str, Any] | None:
+    root = ensure_tools_dir(base_dir)
+    rows = load_jsonl(_contexts_path(root), verify=verify)
+    for row in reversed(rows):
+        if row.get("request_id") == request_id:
+            return row
+    return None
+
+
+def verify_invocation_context_binding(
+    *,
+    request_id: str,
+    context_hash: str,
+    prompt_hash: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    if not _is_sha256_digest(context_hash):
+        raise GovernanceError("context_hash_must_be_sha256")
+    if not _is_sha256_digest(prompt_hash):
+        raise GovernanceError("prompt_hash_must_be_sha256")
+    root = ensure_tools_dir(base_dir)
+    context = load_invocation_context(request_id=request_id, base_dir=root, verify=True)
+    if context is None:
+        raise GovernanceError(f"invocation_context_not_found:{request_id}")
+    if context.get("context_hash") != context_hash:
+        raise GovernanceError("invocation_context_hash_binding_mismatch")
+    prompts = load_jsonl(_prompts_ledger_path(root), verify=True)
+    prompt = next(
+        (
+            row for row in reversed(prompts)
+            if row.get("request_id") == request_id
+            and row.get("context_hash") == context_hash
+        ),
+        None,
+    )
+    if prompt is None:
+        raise GovernanceError(f"invocation_prompt_not_found:{request_id}")
+    if prompt.get("prompt_hash") != prompt_hash:
+        raise GovernanceError("invocation_prompt_hash_binding_mismatch")
+    return {"context": context, "prompt": prompt}
+
+
+def _verify_transcript_artifact_ref(
+    *,
+    artifact_ref: str | None,
+    transcript_hash: str | None,
+    output_path: Path,
+) -> Path:
+    if not artifact_ref or not str(artifact_ref).strip():
+        raise GovernanceError("transcript_artifact_ref_required")
+    if not _is_sha256_digest(transcript_hash):
+        raise GovernanceError("transcript_hash_must_be_sha256")
+    artifact = Path(str(artifact_ref)).expanduser().resolve()
+    if artifact == output_path.resolve():
+        raise GovernanceError("transcript_artifact_cannot_equal_output_envelope")
+    if not artifact.exists() or not artifact.is_file():
+        raise GovernanceError(f"transcript_artifact_not_found:{artifact.as_posix()}")
+    actual = _sha256_file(artifact)
+    if actual != transcript_hash:
+        raise GovernanceError(
+            f"transcript_hash_mismatch: expected={transcript_hash} actual={actual}"
+        )
+    return artifact
+
+
+def record_transcript(
+    *,
+    invocation_id: str,
+    request_id: str,
+    claim_id: str,
+    agent_id: str,
+    transcript_hash: str,
+    artifact_ref: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    if not invocation_id or not str(invocation_id).strip():
+        raise GovernanceError("transcript_invocation_id_required")
+    if not _is_sha256_digest(transcript_hash):
+        raise GovernanceError("transcript_hash_must_be_sha256")
+    root = ensure_tools_dir(base_dir)
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "invocation_id": invocation_id,
+        "request_id": request_id,
+        "claim_id": claim_id,
+        "agent_id": agent_id,
+        "transcript_hash": transcript_hash,
+        "artifact_ref": artifact_ref,
+    }
+    path = _transcripts_path(root)
+    _require_declared_surface(path, "agent_invocation_transcripts")
+    return append_jsonl(path, row)
 
 
 def create_agent_invocation_request(
@@ -160,33 +411,82 @@ def create_agent_invocation_request(
                 raise GovernanceError(
                     "create_agent_invocation_request_evidence_refs_must_be_list_of_strings"
                 )
-    # Plan 020 Phase 2.B — opt-in context budget gate.
-    # Default off (backward-compat for every existing caller). When True,
-    # the gate audits request + agent .md + knowledge bookmark tokens
-    # against the role-class cap (judges 0.35 / planners 0.55 / executors
-    # 0.45 / emergency 0.65 / default 0.40) and raises GovernanceError on
-    # cap aimed. Audit row goes to aria-tools/context-audits.jsonl
-    # regardless of enforcement (read-only audit + write-ledger=True path).
-    if enforce_context_budget:
-        # Local import keeps the module-level import graph free of a
-        # cycle: context_budget_gate imports runtime_profile which is fine,
-        # but importing context_budget_gate at module level here would
-        # bake in a hard dependency on the entire token-estimation path
-        # for every legacy caller (each create_agent_invocation_request
-        # call would pull tiktoken probing). Lazy import keeps the cost
-        # to opt-in callers.
-        from .context_budget_gate import enforce_context_budget as _enforce_ctx
-        _enforce_ctx(
-            request={"suggested_prompt": suggested_prompt, "must_satisfy": []},
-            target_agent=target_agent,
-            role=role,
-            base_dir=base_dir,
-            repo_root=context_repo_root,
-            context_window_tokens_override=context_window_tokens_override,
-            role_cap_override=role_cap_override,
-        )
     root = ensure_tools_dir(base_dir)
-    request_id = _request_id(target_agent, role, suggested_prompt, convergence_id, round_number)
+    request_id = _request_id(
+        target_agent,
+        role,
+        suggested_prompt,
+        convergence_id,
+        round_number,
+        {
+            "allowed_scope": list(allowed_scope or []),
+            "cycle_id": cycle_id,
+            "evidence_refs": list(evidence_refs or []),
+            "finding_id": finding_id,
+            "judgment_group_id": judgment_group_id,
+            "must_satisfy": list(must_satisfy or []),
+            "plan_revision_hash": plan_revision_hash,
+            "pressure_event_id": pressure_event_id,
+            "run_id": run_id,
+            "tool_id": tool_id,
+        },
+    )
+    existing_request = _find_request_by_id(root, request_id)
+    if existing_request is not None:
+        return existing_request
+    from .context_budget_gate import CONTEXT_AUDITS_FILENAME, audit_dispatch_context
+
+    budget_request = {
+        "suggested_prompt": suggested_prompt,
+        "must_satisfy": list(must_satisfy or []),
+        "allowed_scope": list(allowed_scope or []),
+        "evidence_refs": list(evidence_refs or []),
+    }
+    budget_audit = audit_dispatch_context(
+        request=budget_request,
+        target_agent=target_agent,
+        role=role,
+        base_dir=base_dir,
+        repo_root=context_repo_root,
+        context_window_tokens_override=context_window_tokens_override,
+        role_cap_override=role_cap_override,
+        write_ledger=False,
+    )
+    if enforce_context_budget and budget_audit["cap_breached"]:
+        audit_path = root / CONTEXT_AUDITS_FILENAME
+        _require_declared_surface(audit_path, "context_audits")
+        persisted_audit = append_jsonl(audit_path, budget_audit)
+        append_tools_governance(
+            root,
+            "context_budget_audited",
+            {
+                "target_agent": target_agent,
+                "role": role,
+                "total_estimate": budget_audit["total_estimate"],
+                "percent_of_context_window": budget_audit["percent_of_context_window"],
+                "cap_applied": budget_audit["cap_applied"],
+                "cap_breached": True,
+                "audit_ledger_hash": persisted_audit.get("ledger_hash"),
+            },
+        )
+        append_tools_governance(
+            root,
+            "context_budget_exceeded",
+            {
+                "target_agent": target_agent,
+                "role": role,
+                "cap_applied": budget_audit["cap_applied"],
+                "percent_observed": budget_audit["percent_of_context_window"],
+                "total_estimate": budget_audit["total_estimate"],
+                "context_window_tokens": budget_audit["context_window_tokens"],
+                "audit_ledger_hash": persisted_audit.get("ledger_hash"),
+            },
+        )
+        raise GovernanceError(
+            f"context_budget_exceeded: role={role!r} cap={budget_audit['cap_applied']:.2f} "
+            f"observed={budget_audit['percent_of_context_window']:.4f} "
+            f"target_agent={target_agent!r}"
+        )
     expected = expected_output_path or _default_expected_output_path(root, request_id, convergence_id, round_number, role)
     row: dict[str, Any] = {
         "$schema": "aria/agent-invocation-request/v1",
@@ -259,7 +559,72 @@ def create_agent_invocation_request(
         row["run_id"] = run_id
     if judgment_group_id is not None:
         row["judgment_group_id"] = judgment_group_id
-    return append_jsonl(root / "agent-invocations" / "requests.jsonl", row)
+    rendered_prompt = render_invocation_prompt(row)
+    audit_path = root / CONTEXT_AUDITS_FILENAME
+    contexts_path = _contexts_path(root)
+    prompts_path = _prompts_ledger_path(root)
+    requests_path = root / "agent-invocations" / "requests.jsonl"
+    with state_transaction([audit_path, contexts_path, prompts_path, requests_path]) as txn:
+        existing_locked = next(
+            (
+                item for item in reversed(txn.load_jsonl(requests_path, verify=True))
+                if item.get("request_id") == request_id
+            ),
+            None,
+        )
+        if existing_locked is not None:
+            return existing_locked
+        persisted_audit = _append_txn_declared(
+            txn, audit_path, budget_audit, "context_audits",
+        )
+        context_row = build_invocation_context(
+            request_id=request_id,
+            target_agent=target_agent,
+            role=role,
+            rendered_prompt=rendered_prompt,
+            must_satisfy=must_satisfy,
+            allowed_scope=allowed_scope,
+            evidence_refs=evidence_refs,
+            budget_audit_hash=str(persisted_audit.get("ledger_hash") or ""),
+            context_repo_root=context_repo_root,
+            context_window_tokens=int(budget_audit.get("context_window_tokens") or 0) or None,
+        )
+        prompt_row = {
+            "schema_version": 1,
+            "recorded_at": utc_now(),
+            "request_id": request_id,
+            "context_hash": context_row["context_hash"],
+            "prompt_hash": _sha256_text(rendered_prompt),
+            "prompt_text": rendered_prompt,
+        }
+        stored_context = _append_txn_declared(
+            txn, contexts_path, context_row, "agent_invocation_contexts",
+        )
+        stored_prompt = _append_txn_declared(
+            txn, prompts_path, prompt_row, "agent_invocation_prompts",
+        )
+        row["budget_audit_hash"] = persisted_audit.get("ledger_hash")
+        row["context_hash"] = context_row["context_hash"]
+        row["prompt_hash"] = prompt_row["prompt_hash"]
+        row["context_ledger_hash"] = stored_context.get("ledger_hash")
+        row["prompt_ledger_hash"] = stored_prompt.get("ledger_hash")
+        persisted_request = _append_txn_declared(
+            txn, requests_path, row, "agent_invocation_requests",
+        )
+    append_tools_governance(
+        root,
+        "context_budget_audited",
+        {
+            "target_agent": target_agent,
+            "role": role,
+            "total_estimate": budget_audit["total_estimate"],
+            "percent_of_context_window": budget_audit["percent_of_context_window"],
+            "cap_applied": budget_audit["cap_applied"],
+            "cap_breached": budget_audit["cap_breached"],
+            "audit_ledger_hash": persisted_request.get("budget_audit_hash"),
+        },
+    )
+    return persisted_request
 
 
 def _submit_legacy_invocation_result_internal(
@@ -840,6 +1205,11 @@ def claim_request(
         "impact_graph_refs": envelope.get("impact_graph_refs", []),
         "validation_commands": envelope.get("validation_commands", []),
         "plan_revision_hash": envelope.get("plan_revision_hash"),
+        "context_hash": envelope.get("context_hash"),
+        "prompt_hash": envelope.get("prompt_hash"),
+        "context_ledger_hash": envelope.get("context_ledger_hash"),
+        "prompt_ledger_hash": envelope.get("prompt_ledger_hash"),
+        "budget_audit_hash": envelope.get("budget_audit_hash"),
         # Ledger-hash anchors (2 fields per plan §B.3 + §B.5):
         "claim_ledger_hash": claim_ledger_hash_value,
         "request_ledger_hash": request_ledger_hash_value,
@@ -1049,6 +1419,10 @@ def submit_claim_result(
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
     lock_timeout_seconds: float | None = None,
+    context_hash: str | None = None,
+    prompt_hash: str | None = None,
+    transcript_hash: str | None = None,
+    transcript_artifact_ref: str | None = None,
 ) -> dict[str, Any]:
     """Validate and persist an agent's submitted result against its leased claim.
 
@@ -1109,6 +1483,17 @@ def submit_claim_result(
 
     request_id = claim_event["request_id"]
     request = _find_request(root, request_id)
+    binding = verify_invocation_context_binding(
+        request_id=request_id,
+        context_hash=str(context_hash or ""),
+        prompt_hash=str(prompt_hash or ""),
+        base_dir=root,
+    )
+    transcript_artifact = _verify_transcript_artifact_ref(
+        artifact_ref=transcript_artifact_ref,
+        transcript_hash=transcript_hash,
+        output_path=output,
+    )
     results_path = root / "agent-invocations" / "results.jsonl"
 
     # Plan 025 §A.1 — read+parse envelope BEFORE the idempotency check.
@@ -1331,6 +1716,15 @@ def submit_claim_result(
         # subsequent state lives in agent-result-bridge-status.jsonl.
         from .bridge_status_ledger import bridge_status_for_role
         envelope_role = envelope.get("role")
+        transcript_row = record_transcript(
+            invocation_id=request_id,
+            request_id=request_id,
+            claim_id=claim_id,
+            agent_id=agent_id,
+            transcript_hash=str(transcript_hash),
+            artifact_ref=transcript_artifact.as_posix(),
+            base_dir=root,
+        )
         row = {
             "$schema": "aria/agent-claim-result/v1",
             "schema_version": 1,
@@ -1343,6 +1737,13 @@ def submit_claim_result(
             "output_hash": output_hash,
             "content_hash": output_hash,  # §C.2 alias
             "envelope_evidence_hash": submitted_hash,
+            "context_hash": context_hash,
+            "prompt_hash": prompt_hash,
+            "transcript_hash": transcript_hash,
+            "transcript_artifact_ref": transcript_artifact.as_posix(),
+            "context_ledger_hash": binding["context"].get("ledger_hash"),
+            "prompt_ledger_hash": binding["prompt"].get("ledger_hash"),
+            "transcript_ledger_hash": transcript_row.get("ledger_hash"),
             "bridge_status": bridge_status_for_role(envelope_role),  # §C.5
             "checked_evidence_count": len(revalidation["checked_refs"]),
             "submitted_at": utc_now(),

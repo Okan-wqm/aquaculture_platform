@@ -12,14 +12,37 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .feedback import normalize_feedback_event, pressure_evidence_fingerprint, slug
-from .ledger import read_jsonl, rewrite_jsonl, verify_jsonl, write_index
+from .ledger import append_jsonl, read_jsonl, rewrite_jsonl, verify_jsonl, write_index
 from .tool_registry import GovernanceError, SCHEMA_VERSION as TOOLS_SCHEMA_VERSION, append_tools_governance, covered_tool_ledgers, tools_contract_version, update_tools_index
-from .workspace import WorkspacePaths, canonical_identity, canonical_identity_source, default_actor, record_workspace_governance, repo_hash, workspace_paths
+from .workspace import WorkspacePaths, canonical_identity, canonical_identity_source, default_actor, governance_event, record_workspace_governance, repo_hash, workspace_paths
 
 
 MIGRATION_PHASES = ("started", "copied", "validated", "finalized")
 TOOLS_LOCK_TIMEOUT_SECONDS = 30
 TOOLS_LOCK_STALE_SECONDS = 120
+MIGRATION_REWRITE_EXPIRES_AT = "2026-12-31T00:00:00+00:00"
+
+
+def _rewrite_migration_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    rewrite_jsonl(
+        path,
+        rows,
+        allow_legacy=True,
+        legacy_reason="operator_acknowledged_migration_rewrite",
+        expires_at=MIGRATION_REWRITE_EXPIRES_AT,
+    )
+
+
+def _append_tools_migration_governance(root: Path, kind: str, details: dict[str, Any]) -> dict[str, Any]:
+    if (root / "repo_identity.json").exists():
+        return append_tools_governance(root, kind, details)
+    return append_jsonl(
+        root / "governance.jsonl",
+        governance_event(kind=kind, details=details),
+        allow_legacy=True,
+        legacy_reason="operator_acknowledged_tools_migration_bootstrap",
+        expires_at=MIGRATION_REWRITE_EXPIRES_AT,
+    )
 
 
 def migrate_workspace_v1_to_v2(
@@ -88,7 +111,7 @@ def rollback_workspace_v2_to_v1(
     shutil.copytree(backup, paths.workspace_root)
     paths = workspace_paths(Path(workspace_root), Path(workspace_base) if workspace_base else None)
     if force_discard_since_migration:
-        rewrite_jsonl(paths.ledgers["since_migration_events"], since_rows)
+        _rewrite_migration_jsonl(paths.ledgers["since_migration_events"], since_rows)
     record_workspace_governance(
         paths,
         "rollback_started",
@@ -145,7 +168,7 @@ def migrate_tools_v1_to_v2(
             _atomic_write_json(root / "repo_identity.json", identity)
             if not (root / "registry.json").exists():
                 _atomic_write_json(root / "registry.json", {"schema_version": TOOLS_SCHEMA_VERSION, "tools": []})
-            append_tools_governance(
+            _append_tools_migration_governance(
                 root,
                 "tools_root_bootstrapped",
                 {"tools_dir": root.as_posix(), "schema_version": 2, "bound_repo_hash": repo_hash(repo_root)},
@@ -164,7 +187,7 @@ def migrate_tools_v1_to_v2(
         backup = Path(existing_state.get("backup_path") or _tools_backup_dir(root))
         dropped_legacy_fields: list[str] = []
 
-        append_tools_governance(
+        _append_tools_migration_governance(
             root,
             "migration_started",
             {
@@ -185,7 +208,7 @@ def migrate_tools_v1_to_v2(
 
         for path in covered_tool_ledgers(root).values():
             rows = [_restamp(row) for row in read_jsonl(path)]
-            rewrite_jsonl(path, rows)
+            _rewrite_migration_jsonl(path, rows)
             result = verify_jsonl(path)
             if result.get("valid") is not True:
                 raise GovernanceError(f"migration_validation_failed:{path.name}")
@@ -208,7 +231,7 @@ def migrate_tools_v1_to_v2(
         update_tools_index(root)
         _write_migration_state(root, "finalized", backup)
         _append_migration_phase(root, "finalized")
-        append_tools_governance(
+        _append_tools_migration_governance(
             root,
             "migration_completed",
             {
@@ -251,9 +274,9 @@ def rollback_tools_v2_to_v1(
         shutil.copytree(tmp_restore, root)
         shutil.rmtree(tmp_restore)
         if force_discard_since_migration:
-            rewrite_jsonl(root / "since_migration_events.jsonl", since_rows)
+            _rewrite_migration_jsonl(root / "since_migration_events.jsonl", since_rows)
             update_tools_index(root)
-        append_tools_governance(
+        _append_tools_migration_governance(
             root,
             "rollback_started",
             {
@@ -263,8 +286,8 @@ def rollback_tools_v2_to_v1(
                 "force_discard_since_migration": force_discard_since_migration,
             },
         )
-        append_tools_governance(root, "rollback_phase", {"phase": "restored_backup", "restored_ledger": "all"})
-        append_tools_governance(
+        _append_tools_migration_governance(root, "rollback_phase", {"phase": "restored_backup", "restored_ledger": "all"})
+        _append_tools_migration_governance(
             root,
             "rollback_completed",
             {
@@ -518,7 +541,7 @@ def _migrate_workspace_ledgers(paths: WorkspacePaths) -> None:
         path = paths.ledgers[name]
         path.parent.mkdir(parents=True, exist_ok=True)
         rows = [normalize_feedback_event(row) for row in read_jsonl(path)]
-        rewrite_jsonl(path, rows)
+        _rewrite_migration_jsonl(path, rows)
     pressure_rows = []
     id_map = _legacy_feedback_id_map(paths)
     for row in read_jsonl(paths.ledgers["pressure"]):
@@ -534,7 +557,7 @@ def _migrate_workspace_ledgers(paths: WorkspacePaths) -> None:
         subtype = str(migrated.get("subtype") or "legacy")
         migrated["evidence_fingerprint"] = pressure_evidence_fingerprint(primitive, subtype, feedback_ids)
         pressure_rows.append(migrated)
-    rewrite_jsonl(paths.ledgers["pressure"], pressure_rows)
+    _rewrite_migration_jsonl(paths.ledgers["pressure"], pressure_rows)
     paths.ledgers["governance"].parent.mkdir(parents=True, exist_ok=True)
     paths.ledgers["governance"].touch(exist_ok=True)
 
@@ -631,7 +654,7 @@ def _clean_orphan_partial_backups(root: Path) -> None:
         return
     for partial in backups.glob("migration-v0-to-v2-*.partial"):
         shutil.rmtree(partial)
-        append_tools_governance(root, "orphan_partial_backup_cleaned", {"path": partial.as_posix()})
+        _append_tools_migration_governance(root, "orphan_partial_backup_cleaned", {"path": partial.as_posix()})
 
 
 def _write_migration_state(root: Path, phase: str, backup: Path) -> None:
@@ -648,7 +671,7 @@ def _write_migration_state(root: Path, phase: str, backup: Path) -> None:
 
 
 def _append_migration_phase(root: Path, phase: str) -> None:
-    append_tools_governance(root, "migration_phase", {"phase": phase, "schema_from": 1, "schema_to": 2})
+    _append_tools_migration_governance(root, "migration_phase", {"phase": phase, "schema_from": 1, "schema_to": 2})
 
 
 @contextmanager
@@ -701,7 +724,7 @@ def _reap_stale_lock(lock_path: Path, root: Path) -> bool:
         lock_path.unlink()
     except FileNotFoundError:
         return False
-    append_tools_governance(
+    _append_tools_migration_governance(
         root,
         "lock_reaped",
         {"stale_lock_pid": pid, "lock_age_seconds": int(age), "reaped_by_pid": os.getpid()},

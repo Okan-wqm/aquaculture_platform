@@ -178,9 +178,9 @@ class ShadowSamplerSkipsScopeOutTests(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _append_run(self, **kwargs) -> None:
-        from aria_kernel.ledger import append_jsonl
+        from tests._helpers.declared_fixtures import append_declared_fixture
         run = _make_run(recorded_at=self.now_iso, **kwargs)
-        append_jsonl(runs_path(self.base), run)
+        append_declared_fixture(runs_path(self.base), run, expected_surface="runs")
 
     def test_clean_run_counted(self) -> None:
         self._append_run(run_id="r1", raw_findings_count=3, scope_out_mutations=[])

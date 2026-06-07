@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .impact_graph import list_impact_graphs
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .runs_reader import read_runs_rows
 from .performance import list_performance_baselines
 from .research import list_research_sources
@@ -77,7 +77,11 @@ def generate_fitness_report(
             "performance_baselines": len(perf_baselines),
         },
     }
-    return append_jsonl(root / "fitness" / "fitness-reports.jsonl", report)
+    return append_declared_jsonl(
+        root / "fitness" / "fitness-reports.jsonl",
+        report,
+        expected_surface="fitness_reports",
+    )
 
 
 def generate_recommendation_candidate(
@@ -114,11 +118,18 @@ def generate_recommendation_candidate(
         "status": "ready_for_operator" if complete else "blocked",
         "blocked_by": [] if complete else ["recommendation_evidence_incomplete"],
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "fitness" / "recommendation-candidates.jsonl", row)
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "fitness" / "recommendation-candidates.jsonl",
+        row,
+        expected_surface="fitness_recommendation_candidates",
+    )
 
 
 def list_fitness_reports(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(ensure_tools_dir(base_dir) / "fitness" / "fitness-reports.jsonl")
+    return load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "fitness" / "fitness-reports.jsonl",
+        expected_surface="fitness_reports",
+    )
 
 
 def agent_fitness_score(
@@ -129,13 +140,20 @@ def agent_fitness_score(
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
     now = _agent_fitness_now()
-    previous = load_jsonl(root / "fitness" / "agent-fitness.jsonl")
+    previous = load_declared_jsonl(
+        root / "fitness" / "agent-fitness.jsonl",
+        expected_surface="fitness_agent",
+    )
     last_at = _last_computed_at(previous)
     if not force and last_at is not None and now - last_at < timedelta(days=6):
         return {"schema_version": 1, "cycle_id": cycle_id, "status": "skipped", "reason": "weekly_gate", "last_computed_at": _format_dt(last_at)}
     rows = _compute_agent_fitness(root, cycle_id=cycle_id, computed_at=now)
     for row in rows:
-        append_jsonl(root / "fitness" / "agent-fitness.jsonl", row)
+        append_declared_jsonl(
+            root / "fitness" / "agent-fitness.jsonl",
+            row,
+            expected_surface="fitness_agent",
+        )
     from .tool_registry import append_tools_governance, update_tools_index
 
     update_tools_index(root)
@@ -146,7 +164,10 @@ def agent_fitness_score(
 def latest_agent_fitness(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     root = ensure_tools_dir(base_dir)
     latest: dict[str, dict[str, Any]] = {}
-    for row in load_jsonl(root / "fitness" / "agent-fitness.jsonl"):
+    for row in load_declared_jsonl(
+        root / "fitness" / "agent-fitness.jsonl",
+        expected_surface="fitness_agent",
+    ):
         name = row.get("agent_name")
         if isinstance(name, str) and name:
             latest[name] = row
@@ -154,8 +175,8 @@ def latest_agent_fitness(*, base_dir: str | Path | None = None) -> list[dict[str
 
 
 def _compute_agent_fitness(root: Path, *, cycle_id: str, computed_at: datetime) -> list[dict[str, Any]]:
-    requests = load_jsonl(root / "dispatch" / "requests.jsonl")
-    verifications = load_jsonl(root / "dispatch" / "verification-results.jsonl")
+    requests = load_declared_jsonl(root / "dispatch" / "requests.jsonl", expected_surface="dispatch_requests")
+    verifications = load_declared_jsonl(root / "dispatch" / "verification-results.jsonl", expected_surface="dispatch_verification_results")
     by_assignment = {str(row.get("assignment_id")): row for row in verifications if row.get("assignment_id")}
     agents = sorted({str(row.get("target_agent")) for row in requests if isinstance(row.get("target_agent"), str) and row.get("target_agent")})
     rows: list[dict[str, Any]] = []

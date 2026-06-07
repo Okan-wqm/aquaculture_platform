@@ -8,6 +8,7 @@ missing satisfaction matrix entries, evidence ref missing on disk.
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,18 +20,35 @@ from aria_kernel.agent_invocations import (
     submit_claim_result,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.declared_fixtures import sha256_file
 
 
 def _seed_repo() -> Path:
     """Create a tempdir that looks like a repo root."""
     repo = Path(tempfile.mkdtemp(prefix="aria-e2e-"))
     (repo / "src.txt").write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=repo,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    subprocess.run(["git", "config", "user.email", "aria-test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "ARIA Test"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "src.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "seed evidence"], cwd=repo, check=True, stdout=subprocess.DEVNULL)
     return repo
 
 
 class SubmitResultE2ETests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = _seed_repo()
+        self.target_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            text=True,
+        ).strip()
         self.tools = self.repo / "aria-tools"
         ensure_tools_dir(self.tools)
 
@@ -53,6 +71,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             ],
             allowed_scope=["**"],
             convergence_id="conv-001",
+            target_sha=self.target_sha,
             base_dir=self.tools,
         )
         claim = claim_request(
@@ -94,9 +113,34 @@ class SubmitResultE2ETests(unittest.TestCase):
         out_path.write_text(json.dumps(envelope), encoding="utf-8")
         return out_path
 
+    def _transcript_artifact(self, request: dict, claim: dict) -> Path:
+        transcript = self.tools / "agent-invocations" / "transcripts" / f"{claim['claim_id']}.txt"
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        transcript.write_text(
+            "\n".join(
+                [
+                    f"request_id={request['request_id']}",
+                    f"claim_id={claim['claim_id']}",
+                    "model_transcript=fixture transcript for accepted submit-result path",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return transcript
+
+    def _binding_kwargs(self, request: dict, transcript_path: Path) -> dict[str, str]:
+        return {
+            "context_hash": str(request["context_hash"]),
+            "prompt_hash": str(request["prompt_hash"]),
+            "transcript_hash": sha256_file(transcript_path),
+            "transcript_artifact_ref": transcript_path.resolve().as_posix(),
+        }
+
     def test_full_claim_submit_accept_flow(self) -> None:
         request, claim = self._claim()
         out = self._good_envelope(request=request, claim=claim)
+        transcript = self._transcript_artifact(request, claim)
         result = submit_claim_result(
             claim_id=claim["claim_id"],
             agent_id="judge-worker-001",
@@ -104,6 +148,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             output_path=out,
             workspace_root=self.repo,
             base_dir=self.tools,
+            **self._binding_kwargs(request, transcript),
         )
         self.assertEqual(result["status"], "accepted", result)
         # Plan 026R §C.5 — derive_request_state is bridge-aware. For
@@ -119,6 +164,47 @@ class SubmitResultE2ETests(unittest.TestCase):
             request_id=request["request_id"], base_dir=self.tools,
         )
         self.assertIn(state, {"ACCEPTED", "ACCEPTED_PENDING_BRIDGE"})
+
+    def test_accepted_result_requires_matching_transcript_artifact(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        bad_transcript = self.tools / "agent-invocations" / "outputs" / "transcript.txt"
+        bad_transcript.parent.mkdir(parents=True, exist_ok=True)
+        bad_transcript.write_text("different transcript\n", encoding="utf-8")
+        from aria_kernel.tool_registry import GovernanceError
+
+        with self.assertRaisesRegex(GovernanceError, "transcript_artifact_hash_mismatch"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                context_hash=str(request["context_hash"]),
+                prompt_hash=str(request["prompt_hash"]),
+                transcript_hash=sha256_file(out),
+                transcript_artifact_ref=bad_transcript.resolve().as_posix(),
+            )
+
+    def test_accepted_result_rejects_output_envelope_as_transcript(self) -> None:
+        request, claim = self._claim()
+        out = self._good_envelope(request=request, claim=claim)
+        from aria_kernel.tool_registry import GovernanceError
+
+        with self.assertRaisesRegex(GovernanceError, "transcript_artifact_must_not_be_output_envelope"):
+            submit_claim_result(
+                claim_id=claim["claim_id"],
+                agent_id="judge-worker-001",
+                lease_token=claim["lease_token"],
+                output_path=out,
+                workspace_root=self.repo,
+                base_dir=self.tools,
+                context_hash=str(request["context_hash"]),
+                prompt_hash=str(request["prompt_hash"]),
+                transcript_hash=sha256_file(out),
+                transcript_artifact_ref=out.resolve().as_posix(),
+            )
 
     def test_evidence_pointing_at_missing_file_rejected(self) -> None:
         request, claim = self._claim()
@@ -199,11 +285,16 @@ class SubmitResultE2ETests(unittest.TestCase):
         )
         # Patch the request row so separation_of_duties forbids judge-worker-001.
         # (Direct edit is fine for the test; in production the planner sets it.)
-        from aria_kernel.ledger import load_jsonl, rewrite_jsonl
+        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl
         req_path = self.tools / "agent-invocations" / "requests.jsonl"
-        rows = load_jsonl(req_path)
+        rows = load_declared_jsonl(req_path, expected_surface="agent_invocation_requests")
         rows[-1]["separation_of_duties"] = {"forbidden_agent_ids": ["judge-worker-001"]}
-        rewrite_jsonl(req_path, rows)
+        rewrite_declared_jsonl(
+            req_path,
+            rows,
+            expected_surface="agent_invocation_requests",
+            migration_id="test-fixture-separation-of-duties",
+        )
 
         claim = claim_request(
             request_id=request["request_id"],

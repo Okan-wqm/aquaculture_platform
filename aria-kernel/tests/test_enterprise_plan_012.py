@@ -17,9 +17,9 @@ from aria_kernel import (
     run_validation_commands,
     verify_integrity,
 )
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class EnterprisePlan012Tests(unittest.TestCase):
@@ -133,7 +133,7 @@ class EnterprisePlan012Tests(unittest.TestCase):
         self.assertEqual(first["trend"]["overall_delta"], 0.0)
         self.assertTrue(first["blocked_by"])
 
-        append_jsonl(
+        append_declared_fixture(
             runs_path(self.tools_dir),
             {
                 "schema_version": 1,
@@ -143,6 +143,7 @@ class EnterprisePlan012Tests(unittest.TestCase):
                 "status": "ok",
                 "runner": {"raw_findings_count": 0},
             },
+            expected_surface="runs",
         )
         second = generate_fitness_report(cycle_id="cycle-2", base_dir=self.tools_dir)
         self.assertGreaterEqual(second["trend"]["window"], 1)

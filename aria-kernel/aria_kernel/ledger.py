@@ -6,6 +6,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -16,12 +17,16 @@ from .state_manifest import surface_for_path
 __all__ = [
     "LedgerIntegrityError",
     "StateTransaction",
+    "append_declared_jsonl",
     "append_jsonl",
     "file_hash",
     "load_index",
+    "load_declared_jsonl",
     "load_jsonl",
     "load_jsonl_verified",
     "read_jsonl",
+    "rewrite_declared_json",
+    "rewrite_declared_jsonl",
     "rewrite_jsonl",
     "state_transaction",
     "verify_index_hashes",
@@ -190,13 +195,71 @@ class StateTransaction:
         path: str | Path,
         *,
         verify: bool | None = None,
+        allow_legacy: bool = False,
+        legacy_reason: str | None = None,
+        expires_at: str | None = None,
+        test_fixture: bool = False,
     ) -> list[dict[str, Any]]:
         resolved = self._canonical_path(path)
         use_verify = self.verify_reads if verify is None else verify
-        return load_jsonl(resolved, verify=use_verify)
+        return load_jsonl(
+            resolved,
+            verify=use_verify,
+            allow_legacy=allow_legacy,
+            legacy_reason=legacy_reason,
+            expires_at=expires_at,
+            test_fixture=test_fixture,
+        )
 
-    def append_jsonl(self, path: str | Path, record: dict[str, Any]) -> dict[str, Any]:
+    def load_declared_jsonl(
+        self,
+        path: str | Path,
+        *,
+        expected_surface: str,
+        verify: bool | None = None,
+    ) -> list[dict[str, Any]]:
         resolved = self._canonical_path(path)
+        use_verify = self.verify_reads if verify is None else verify
+        return load_declared_jsonl(
+            resolved,
+            expected_surface=expected_surface,
+            verify=use_verify,
+        )
+
+    def append_jsonl(
+        self,
+        path: str | Path,
+        record: dict[str, Any],
+        *,
+        allow_legacy: bool = False,
+        legacy_reason: str | None = None,
+        expires_at: str | None = None,
+        test_fixture: bool = False,
+    ) -> dict[str, Any]:
+        resolved = self._canonical_path(path)
+        _assert_raw_jsonl_append_allowed(
+            resolved,
+            allow_legacy=allow_legacy,
+            legacy_reason=legacy_reason,
+            expires_at=expires_at,
+            test_fixture=test_fixture,
+        )
+        return _append_jsonl_locked_body(resolved, record)
+
+    def append_declared_jsonl(
+        self,
+        path: str | Path,
+        record: dict[str, Any],
+        *,
+        expected_surface: str,
+        bypass_profile_gate: bool = False,
+    ) -> dict[str, Any]:
+        resolved = self._canonical_path(path)
+        _assert_declared_surface(
+            resolved,
+            expected_surface=expected_surface,
+            enforce_write_profile=not bypass_profile_gate,
+        )
         return _append_jsonl_locked_body(resolved, record)
 
 
@@ -273,7 +336,11 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 def load_jsonl(
     path: Path,
     *,
-    verify: bool = False,
+    verify: bool | None = False,
+    allow_legacy: bool = False,
+    legacy_reason: str | None = None,
+    expires_at: str | None = None,
+    test_fixture: bool = False,
 ) -> list[dict[str, Any]]:
     """Public ledger loader.
 
@@ -292,9 +359,25 @@ def load_jsonl(
     ``tests/test_verify_on_read.py`` scans those modules and
     raises if any ``load_jsonl(`` callsite omits the kwarg.
     """
+    resolved = Path(path).resolve()
+    match = surface_for_path(resolved)
+    if match is not None:
+        surface, _base_dir = match
+        if surface.enterprise_required and surface.strict_read and verify is not True:
+            if not _raw_jsonl_legacy_allowed(
+                allow_legacy=allow_legacy,
+                legacy_reason=legacy_reason,
+                expires_at=expires_at,
+                test_fixture=test_fixture,
+            ):
+                # Enterprise strict surfaces are never returned through
+                # best-effort reads. Legacy callsites keep working, but
+                # the data path is verified until they are migrated to
+                # load_declared_jsonl and covered by static invariants.
+                verify = True
     if verify:
-        return load_jsonl_verified(path)
-    return read_jsonl(path)
+        return load_jsonl_verified(resolved)
+    return read_jsonl(resolved)
 
 
 def _canonical_json(record: dict[str, Any]) -> str:
@@ -311,6 +394,7 @@ def _record_hash(record: dict[str, Any], previous_hash: str | None = None) -> st
 
 def _append_jsonl_locked_body(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
+    _verify_existing_declared_chain_before_append(path)
     rows = read_jsonl(path)
     previous_hash = (
         str(rows[-1].get("ledger_hash"))
@@ -375,7 +459,15 @@ def _append_jsonl_unlocked(path: Path, record: dict[str, Any]) -> dict[str, Any]
     return _append_jsonl_locked_body(path, record)
 
 
-def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+def append_jsonl(
+    path: Path,
+    record: dict[str, Any],
+    *,
+    allow_legacy: bool = False,
+    legacy_reason: str | None = None,
+    expires_at: str | None = None,
+    test_fixture: bool = False,
+) -> dict[str, Any]:
     """Plan 026R §A.1 — public atomic append primitive.
 
     Acquires the lock(s) declared by ``_lock_requirements_for_path``:
@@ -384,16 +476,222 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     already hold the per-file lock use ``_append_jsonl_unlocked``
     directly to avoid POSIX flock re-acquisition).
     """
-    requirement = _lock_requirements_for_path(path)
+    resolved = Path(path).resolve()
+    _assert_raw_jsonl_append_allowed(
+        resolved,
+        allow_legacy=allow_legacy,
+        legacy_reason=legacy_reason,
+        expires_at=expires_at,
+        test_fixture=test_fixture,
+    )
+    requirement = _lock_requirements_for_path(resolved)
     if requirement.index_group_lock_path is None:
         with with_exclusive_lock(requirement.file_lock_path):
-            return _append_jsonl_unlocked(path, record)
+            return _append_jsonl_unlocked(resolved, record)
     with with_exclusive_lock(requirement.index_group_lock_path):
         with with_exclusive_lock(requirement.file_lock_path):
-            return _append_jsonl_unlocked(path, record)
+            return _append_jsonl_unlocked(resolved, record)
 
 
-def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+def append_declared_jsonl(
+    path: Path,
+    record: dict[str, Any],
+    *,
+    expected_surface: str,
+    bypass_profile_gate: bool = False,
+) -> dict[str, Any]:
+    """Append only when ``path`` is declared in ``state_manifest``.
+
+    Enterprise-governed writers use this instead of the legacy
+    ``append_jsonl`` primitive. The manifest check is intentionally before
+    the profile gate: an unknown governed path is a configuration error and
+    must fail closed rather than falling through to a broad profile label.
+    """
+    _assert_declared_surface(
+        path,
+        expected_surface=expected_surface,
+        enforce_write_profile=not bypass_profile_gate,
+    )
+    resolved = Path(path).resolve()
+    requirement = _lock_requirements_for_path(resolved)
+    if requirement.index_group_lock_path is None:
+        with with_exclusive_lock(requirement.file_lock_path):
+            return _append_jsonl_unlocked(resolved, record)
+    with with_exclusive_lock(requirement.index_group_lock_path):
+        with with_exclusive_lock(requirement.file_lock_path):
+            return _append_jsonl_unlocked(resolved, record)
+
+
+def _assert_raw_jsonl_append_allowed(
+    path: Path,
+    *,
+    allow_legacy: bool,
+    legacy_reason: str | None,
+    expires_at: str | None,
+    test_fixture: bool,
+) -> None:
+    match = surface_for_path(path)
+    if match is None:
+        return
+    surface, _base_dir = match
+    if not surface.enterprise_required:
+        return
+    if _raw_jsonl_legacy_allowed(
+        allow_legacy=allow_legacy,
+        legacy_reason=legacy_reason,
+        expires_at=expires_at,
+        test_fixture=test_fixture,
+    ):
+        return
+    raise LedgerIntegrityError(
+        "raw_jsonl_declared_surface_rejected: "
+        f"surface={surface.name!r} path={path.as_posix()} "
+        "use append_declared_jsonl(..., expected_surface=...) or pass "
+        "an explicit migration/test legacy context"
+    )
+
+
+def _raw_jsonl_legacy_allowed(
+    *,
+    allow_legacy: bool,
+    legacy_reason: str | None,
+    expires_at: str | None,
+    test_fixture: bool,
+) -> bool:
+    if test_fixture:
+        return True
+    if not allow_legacy:
+        return False
+    if not legacy_reason or not legacy_reason.strip():
+        return False
+    if not expires_at or not expires_at.strip():
+        return False
+    try:
+        parsed = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc) > datetime.now(timezone.utc)
+
+
+def rewrite_declared_json(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    expected_surface: str,
+    bypass_profile_gate: bool = False,
+) -> None:
+    """Atomically rewrite a declared JSON surface under manifest authority."""
+    _assert_declared_surface(
+        path,
+        expected_surface=expected_surface,
+        enforce_write_profile=not bypass_profile_gate,
+    )
+    _atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def rewrite_declared_jsonl(
+    path: Path,
+    rows: list[dict[str, Any]],
+    *,
+    expected_surface: str,
+    migration_id: str | None = None,
+    bypass_profile_gate: bool = False,
+) -> None:
+    """Atomically rewrite a declared JSONL surface under manifest authority.
+
+    This is the only governed rewrite path for enterprise state. The optional
+    ``migration_id`` is intentionally explicit: full-ledger rewrites are
+    migration/backfill events, not ordinary runtime writes.
+    """
+    _assert_declared_surface(
+        path,
+        expected_surface=expected_surface,
+        enforce_write_profile=not bypass_profile_gate,
+    )
+    if migration_id is not None and not str(migration_id).strip():
+        raise LedgerIntegrityError("rewrite_declared_jsonl_migration_id_empty")
+    _rewrite_jsonl_locked(Path(path).resolve(), rows)
+
+
+def load_declared_jsonl(
+    path: Path,
+    *,
+    expected_surface: str,
+    verify: bool = True,
+) -> list[dict[str, Any]]:
+    """Load a declared JSONL surface with strict verification by default."""
+    surface, _base_dir = _assert_declared_surface(
+        path,
+        expected_surface=expected_surface,
+        enforce_write_profile=False,
+    )
+    if surface.strict_read and not verify:
+        raise LedgerIntegrityError(
+            "declared_jsonl_strict_read_required: "
+            f"surface={surface.name!r} path={Path(path).resolve().as_posix()}"
+        )
+    return load_jsonl(path, verify=verify)
+
+
+def _assert_declared_surface(
+    path: str | Path,
+    *,
+    expected_surface: str,
+    enforce_write_profile: bool,
+) -> tuple[Any, Path]:
+    match = surface_for_path(path)
+    if match is None:
+        raise LedgerIntegrityError(
+            f"declared_jsonl_unknown_surface: {Path(path).resolve().as_posix()}"
+        )
+    surface, _base_dir = match
+    if surface.name != expected_surface:
+        raise LedgerIntegrityError(
+            "declared_jsonl_surface_mismatch: "
+            f"expected={expected_surface!r} actual={surface.name!r} "
+            f"path={Path(path).resolve().as_posix()}"
+        )
+    if (
+        enforce_write_profile
+        and surface.root_kind == "tools"
+        and surface.enterprise_required
+        and surface.profile_surface
+    ):
+        from .runtime_profile import enforce_profile_for_write
+
+        enforce_profile_for_write(surface.profile_surface, base_dir=_base_dir)
+    return surface, _base_dir
+
+
+def _verify_existing_declared_chain_before_append(path: Path) -> None:
+    match = surface_for_path(path)
+    if match is None:
+        return
+    surface, _base_dir = match
+    if not surface.enterprise_required or not surface.strict_read:
+        return
+    if not path.exists() or path.stat().st_size == 0:
+        return
+    result = verify_jsonl(path)
+    if not result.get("valid", False):
+        raise LedgerIntegrityError(
+            f"declared_jsonl_refuses_append_to_corrupt_chain: "
+            f"surface={surface.name!r} path={path.resolve().as_posix()} "
+            f"reason={result.get('reason')} line={result.get('line')}"
+        )
+
+
+def rewrite_jsonl(
+    path: Path,
+    rows: list[dict[str, Any]],
+    *,
+    allow_legacy: bool = False,
+    legacy_reason: str | None = None,
+    expires_at: str | None = None,
+    test_fixture: bool = False,
+) -> None:
     """Plan 026R §A.2 — safe rewrite under the same lock order as append.
 
     Acquires the (optional) index-group lock OUTER + per-file lock INNER,
@@ -402,6 +700,18 @@ def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     refreshes the adjacent index. Restores the hash chain from scratch
     (this is the intended migration / backfill primitive).
     """
+    resolved = Path(path).resolve()
+    _assert_raw_jsonl_rewrite_allowed(
+        resolved,
+        allow_legacy=allow_legacy,
+        legacy_reason=legacy_reason,
+        expires_at=expires_at,
+        test_fixture=test_fixture,
+    )
+    _rewrite_jsonl_locked(resolved, rows)
+
+
+def _rewrite_jsonl_locked(path: Path, rows: list[dict[str, Any]]) -> None:
     requirement = _lock_requirements_for_path(path)
     if requirement.index_group_lock_path is None:
         with with_exclusive_lock(requirement.file_lock_path):
@@ -410,6 +720,35 @@ def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     with with_exclusive_lock(requirement.index_group_lock_path):
         with with_exclusive_lock(requirement.file_lock_path):
             _rewrite_jsonl_unlocked(path, rows)
+
+
+def _assert_raw_jsonl_rewrite_allowed(
+    path: Path,
+    *,
+    allow_legacy: bool,
+    legacy_reason: str | None,
+    expires_at: str | None,
+    test_fixture: bool,
+) -> None:
+    match = surface_for_path(path)
+    if match is None:
+        return
+    surface, _base_dir = match
+    if not surface.enterprise_required:
+        return
+    if _raw_jsonl_legacy_allowed(
+        allow_legacy=allow_legacy,
+        legacy_reason=legacy_reason,
+        expires_at=expires_at,
+        test_fixture=test_fixture,
+    ):
+        return
+    raise LedgerIntegrityError(
+        "raw_jsonl_declared_surface_rewrite_rejected: "
+        f"surface={surface.name!r} path={path.as_posix()} "
+        "use rewrite_declared_jsonl(..., expected_surface=...) or pass "
+        "an explicit migration/test legacy context"
+    )
 
 
 def _rewrite_jsonl_unlocked(path: Path, rows: list[dict[str, Any]]) -> None:

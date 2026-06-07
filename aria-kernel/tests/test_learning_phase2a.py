@@ -8,10 +8,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from aria_kernel.learning import LEARNING_HOOK_ORDER, load_decay_thresholds, run_learning_pass
-from aria_kernel.ledger import LedgerIntegrityError, append_jsonl, read_jsonl
+from aria_kernel.ledger import LedgerIntegrityError, read_jsonl
 from aria_kernel.pressure import effective_workspace_pressures
 from aria_kernel.tool_registry import ensure_tools_binding
 from aria_kernel.workspace import ensure_workspace, workspace_paths
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class LearningPhase2ATests(unittest.TestCase):
@@ -29,7 +30,11 @@ class LearningPhase2ATests(unittest.TestCase):
 
     def test_learning_pass_hook_order_and_decay_idempotency(self):
         now = datetime(2026, 5, 5, tzinfo=timezone.utc)
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-old", now - timedelta(days=190)))
+        append_declared_fixture(
+            self.paths.ledgers["pressure"],
+            self._pressure("PE-old", now - timedelta(days=190)),
+            expected_surface="workspace_memory_pressure",
+        )
 
         first = run_learning_pass(self.paths, cycle_id="cyc-20260505T000000Z", tools_root=self.tools_dir, now=now)
         self.assertEqual([row["hook_name"] for row in first["hooks"]], list(LEARNING_HOOK_ORDER))
@@ -54,7 +59,11 @@ class LearningPhase2ATests(unittest.TestCase):
             json.dumps({"faded": "1d", "sleeping": "2d", "archived": "30d"}) + "\n",
             encoding="utf-8",
         )
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-override", now - timedelta(days=2)))
+        append_declared_fixture(
+            self.paths.ledgers["pressure"],
+            self._pressure("PE-override", now - timedelta(days=2)),
+            expected_surface="workspace_memory_pressure",
+        )
 
         self.assertEqual(load_decay_thresholds(self.paths)["sleeping"], 2)
         run_learning_pass(self.paths, cycle_id="cyc-20260505T000000Z", tools_root=self.tools_dir, now=now)
@@ -64,8 +73,12 @@ class LearningPhase2ATests(unittest.TestCase):
 
     def test_terminal_pressures_do_not_decay(self):
         now = datetime(2026, 5, 5, tzinfo=timezone.utc)
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-closed", now - timedelta(days=400)))
-        append_jsonl(
+        append_declared_fixture(
+            self.paths.ledgers["pressure"],
+            self._pressure("PE-closed", now - timedelta(days=400)),
+            expected_surface="workspace_memory_pressure",
+        )
+        append_declared_fixture(
             self.paths.ledgers["pressure_state"],
             {
                 "$schema": "aria/pressure-state-event/v1",
@@ -82,6 +95,7 @@ class LearningPhase2ATests(unittest.TestCase):
                 "details": {},
                 "schema_version": 1,
             },
+            expected_surface="workspace_memory_pressure_state",
         )
 
         result = run_learning_pass(self.paths, cycle_id="cyc-20260505T000000Z", tools_root=self.tools_dir, now=now)
@@ -106,7 +120,11 @@ class LearningPhase2ATests(unittest.TestCase):
 
     def test_integrity_failure_aborts_before_hooks(self):
         now = datetime(2026, 5, 5, tzinfo=timezone.utc)
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-tampered", now))
+        append_declared_fixture(
+            self.paths.ledgers["pressure"],
+            self._pressure("PE-tampered", now),
+            expected_surface="workspace_memory_pressure",
+        )
         payload = self.paths.ledgers["pressure"].read_text(encoding="utf-8")
         self.paths.ledgers["pressure"].write_text(payload.replace("PE-tampered", "PE-mutated"), encoding="utf-8")
 

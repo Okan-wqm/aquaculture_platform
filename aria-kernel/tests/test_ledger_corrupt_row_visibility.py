@@ -25,9 +25,8 @@ Tests:
 3. Corrupt handoff row + tolerant mode → corruption row in sink,
    list_handoffs returns valid rows only.
 4. handoff_ledger invalid on_corruption mode → reject.
-5. finding._refresh_index with corrupt finding doc emits diagnostic
-   AND continues building index (legitimate silent-skip with audit
-   surface; deadlock-avoidance per the docstring).
+5. finding._refresh_index ignores corrupt derived finding docs and
+   builds index only from canonical finding-events.jsonl.
 6. emit_ledger_corruption_diagnostic without base_dir falls back to
    stderr without raising.
 7. emit_ledger_corruption_diagnostic to a perm-denied sink falls
@@ -37,6 +36,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -133,10 +133,10 @@ class FindingIndexRebuildCorruptionTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_corrupt_finding_doc_emits_diagnostic_and_continues(self) -> None:
-        """Plan 024 §H-7 acceptance (5): rebuild index does not deadlock
-        on a single corrupt finding doc, but the corruption surfaces in
-        the diagnostic sink so operators see the broken state."""
-        from aria_kernel.finding import _refresh_index, _index_path
+        """Finding index rebuild ignores corrupt derived docs and replays
+        canonical finding-events.jsonl as the only authority."""
+        from aria_kernel.finding import _events_path, _refresh_index
+        from aria_kernel.ledger import append_declared_jsonl
         valid = self.findings_dir / "F-001.json"
         valid.write_text(
             '{"finding_id": "F-001", "severity": "LOW", "status": "OPEN", '
@@ -144,17 +144,22 @@ class FindingIndexRebuildCorruptionTests(unittest.TestCase):
             '"evidence_chain_id": "chain_x", "created_at": "2026-05-09T00:00:00Z"}',
             encoding="utf-8",
         )
+        append_declared_jsonl(
+            _events_path(self.repo),
+            {
+                "event": "finding_emitted",
+                "event_id": "finding:F-001:emitted",
+                "finding_id": "F-001",
+                "record": json.loads(valid.read_text(encoding="utf-8")),
+            },
+            expected_surface="repo_finding_events",
+        )
         corrupt = self.findings_dir / "F-002.json"
         corrupt.write_text("{ MALFORMED JSON", encoding="utf-8")
         index = _refresh_index(self.repo)
-        # Index built skipping corrupt; valid finding present.
         ids = {r["finding_id"] for r in index["findings"]}
         self.assertEqual(ids, {"F-001"})
-        # Diagnostic sink captures the skip event.
-        sink = load_jsonl(_sink_path(self.tools))
-        self.assertEqual(len(sink), 1)
-        self.assertEqual(sink[0]["kind"], "ledger_index_rebuild_skip")
-        self.assertIn("F-002.json", sink[0]["ledger"])
+        self.assertFalse(_sink_path(self.tools).exists())
 
 
 class DiagnosticSinkFallbackTests(unittest.TestCase):

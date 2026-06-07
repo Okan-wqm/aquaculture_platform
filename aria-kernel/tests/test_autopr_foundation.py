@@ -21,11 +21,11 @@ from aria_kernel import (
     verify_integrity,
     run_validation_commands,
 )
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.proposal import proposal_packet_from_task, record_proposal_from_amplification
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class AutoPrFoundationTests(unittest.TestCase):
@@ -90,7 +90,7 @@ class AutoPrFoundationTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        append_jsonl(
+        append_declared_fixture(
             runs_path(self.tools_dir),
             {
                 "schema_version": 1,
@@ -102,6 +102,7 @@ class AutoPrFoundationTests(unittest.TestCase):
                 "emitted_findings": [],
                 "runner": {"raw_findings_count": 3},
             },
+            expected_surface="runs",
         )
         payload = generate_task_candidates(cycle_id="cycle-1", base_dir=self.tools_dir)
         self.assertEqual(payload["task_count"], 2)

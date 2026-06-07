@@ -47,6 +47,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
@@ -59,8 +60,30 @@ jobs:
 
       - name: Compute sweep plan (dry run)
         id: plan
+        env:
+          STALE_AFTER_INPUT: ${{ github.event.inputs.stale_after || '30' }}
+          DRY_RUN_INPUT: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
-          STALE_AFTER="${{ github.event.inputs.stale_after || '30' }}"
+          set -euo pipefail
+          STALE_AFTER="${STALE_AFTER_INPUT}"
+          DRY_RUN="${DRY_RUN_INPUT}"
+          if ! [[ "$STALE_AFTER" =~ ^[0-9]{1,3}$ ]]; then
+            echo "::error::stale_after must be a positive integer day count: $STALE_AFTER" >&2
+            exit 1
+          fi
+          if [ "$STALE_AFTER" -lt 1 ] || [ "$STALE_AFTER" -gt 365 ]; then
+            echo "::error::stale_after must be between 1 and 365: $STALE_AFTER" >&2
+            exit 1
+          fi
+          case "$DRY_RUN" in
+            true|false) ;;
+            *)
+              echo "::error::dry_run must be true or false: $DRY_RUN" >&2
+              exit 1
+              ;;
+          esac
+          echo "stale_after=${STALE_AFTER}" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts sweep \
             --dry-run --stale-after=${STALE_AFTER} | tee /tmp/sweep-plan.txt
@@ -71,45 +94,73 @@ jobs:
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Apply sweep
-        if: steps.plan.outputs.has_changes == 'true' && github.event.inputs.dry_run != 'true'
+      - name: Persist enterprise workflow preflight
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        env:
+          PYTHONPATH: aria-kernel
         run: |
-          STALE_AFTER="${{ github.event.inputs.stale_after || '30' }}"
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          registry = "docs/reviews/_registry/findings.jsonl"
+          verdict = verify_workflow_preflight(
+              workflow_id="finding-state-sweep",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=[registry],
+              path_allowlist=[registry],
+              network_policy=["github_api"],
+              network_enforcement_evidence="GitHub App PR API via automation/open-report-pr.sh",
+              token_provenance="github_app:installation",
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="publish deterministic finding state sweep through automation PR",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "finding-state-sweep-preflight.json",
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Apply sweep
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        env:
+          STALE_AFTER: ${{ steps.plan.outputs.stale_after }}
+        run: |
+          set -euo pipefail
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts sweep \
             --stale-after=${STALE_AFTER}
 
       - name: Verify post-sweep chain integrity
-        if: steps.plan.outputs.has_changes == 'true' && github.event.inputs.dry_run != 'true'
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
         run: |
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts verify
 
-      - name: Open PR with sweep mutations
-        if: steps.plan.outputs.has_changes == 'true' && github.event.inputs.dry_run != 'true'
-        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
-        with:
-          branch: automation/finding-state-sweep
-          delete-branch: true
-          title: 'chore(findings): daily state sweep — OPEN→STALE, past-deadline→BLOCKED'
-          body: |
-            Daily sweep output (30-day staleness + deadline-past escalation).
+      - name: Open or update sweep PR
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN }}
+        run: |
+          set -euo pipefail
+          BODY_FILE="$RUNNER_TEMP/finding-state-sweep-pr-body.md"
+          {
+            echo "Daily sweep output (30-day staleness + deadline-past escalation)."
+            echo ""
+            echo '```'
+            cat /tmp/sweep-plan.txt
+            echo '```'
+            echo ""
+            echo "CODEOWNERS review is required before merge. Reject this PR if a listed transition should not apply."
+          } > "$BODY_FILE"
 
-            ```
-            $(cat /tmp/sweep-plan.txt)
-            ```
-
-            **CODEOWNERS review required** — the registry is append-only
-            for content but state-transitions may land here via the
-            automated sweep. Reject this PR if a listed transition
-            should not apply (e.g., a finding you intend to close this
-            week should move to RESOLVED instead of STALE).
-          commit-message: |
-            chore(findings): automated state sweep — 30-day stale + past-deadline
-
-            Closes: docs/reviews/_registry/findings.jsonl
-          labels: |
-            automation
-            registry
-            sweep
-          reviewers: Okan-wqm
+          export PR_BRANCH="automation/finding-state-sweep"
+          export PR_TITLE="chore(findings): daily state sweep - OPEN to STALE, past-deadline to BLOCKED"
+          export PR_BODY_FILE="$BODY_FILE"
+          export COMMIT_MESSAGE="chore(findings): automated state sweep"
+          export CHANGED_PATHS="docs/reviews/_registry/findings.jsonl"
+          bash tools/scripts/automation/open-report-pr.sh

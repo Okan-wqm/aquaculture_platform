@@ -3744,3 +3744,13 @@ Root cause: chart and solver pH domains were duplicated, `currentPH` and H₂S m
 Fix: add shared Deffeyes pH-domain constants, introduce `h2sMeasuredAtPH` while preserving `currentPH` as a deprecated alias, extend engine/UI/report/MCP coverage, add a test-only shared-ui source alias, wrap farm-module standalone startup in a `QueryClientProvider`, and add the Playwright water chemistry release smoke for chart mode, report print, and CSP safety.
 
 Status: RESOLVED on `feat/water-chemistry-leaf-train-20260606`.
+
+## ORPHAN-HIGH-086 — ARIA control-plane proof lacked workflow preflight, evidence trust, and isolated burn-in
+
+Severity: HIGH. ARIA docs, workflows, and runtime helpers described enterprise autonomy proof surfaces, but the control plane did not consistently bind workflow write authority, token provenance, artifact trust, merge authority, and observe-mode burn-in evidence to executable gates. A workflow could claim authority without a real YAML contract, docs could drift from runtime SSoT, and operational proof could run outside an isolated, hash-bound evidence bundle.
+
+Root cause: ARIA hardening had evolved across kernel code, GitHub workflows, runbooks, and docs without one proof slice that made ARIA explicitly non-authoritative for production while still proving its own control-plane preconditions. Existing tests covered pieces of the kernel but not the workflow contract, evidence bundle integrity, genesis lifecycle boundaries, merge authority, and clean burn-in acceptance as one chain.
+
+Fix: add workflow contract/preflight verification, evidence trust and ledger-reference checks, merge authority invariants, enterprise readiness/genesis lifecycle guards, observe burn-in artifact schema and verifier, ARIA operational proof workflow, docs/runtime SSoT cleanup, and hardened automation-report PR helpers. The SSoT invariant now verifies the documented authority target as a reachable ancestor instead of requiring an impossible self-referential commit hash.
+
+Status: RESOLVED on `feat/aria-control-plane-proof-20260606`.

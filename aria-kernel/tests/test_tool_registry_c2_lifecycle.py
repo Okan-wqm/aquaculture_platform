@@ -34,6 +34,8 @@ from aria_kernel.tool_registry import (
 )
 from aria_kernel.tool_registry import _update_tool_internal  # noqa: PLC2701 — test fixture only
 
+FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
+
 
 def _seed_tools() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="aria-c2-lifecycle-"))
@@ -68,7 +70,7 @@ def _manifest(*, tool_id: str = "fake-adapter", status: str = "DRAFT", version: 
         "schema_version": 2,
         "runner": {
             "type": "subprocess",
-            "argv": ["python3", "fake.py"],
+            "argv": ["python3", FAKE_RUNNER.as_posix()],
             "cwd": ".",
             "timeout_ms": 60000,
             "stdin_json": True,

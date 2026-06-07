@@ -21,10 +21,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.cli import main as cli_main
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._gh_mock import gh_create_success, recorded_calls, reset_recorded
 
 
@@ -105,7 +105,11 @@ def _seed_proposal_and_action(*, repo: Path, proposal_id: str = "PROP-CLI-01") -
         "status": "ready_for_pr",
         "blocked_by": [],
     }
-    append_jsonl(tools / "apply" / "actions.jsonl", action_row)
+    append_declared_fixture(
+        tools / "apply" / "actions.jsonl",
+        action_row,
+        expected_surface="apply_actions",
+    )
     return proposal
 
 
@@ -235,14 +239,18 @@ class PrCliListActionsTests(unittest.TestCase):
 
     def test_list_actions_after_seed_returns_rows(self) -> None:
         # Seed a synthetic action row directly in the ledger.
-        append_jsonl(self.tools / "pr-actions.jsonl", {
-            "schema_version": 1,
-            "proposal_id": "PROP-X",
-            "branch": "aria/seed",
-            "action": "prepare_branch",
-            "status": "planned",
-            "dry_run": True,
-        })
+        append_declared_fixture(
+            self.tools / "pr-actions.jsonl",
+            {
+                "schema_version": 1,
+                "proposal_id": "PROP-X",
+                "branch": "aria/seed",
+                "action": "prepare_branch",
+                "status": "planned",
+                "dry_run": True,
+            },
+            expected_surface="pr_actions",
+        )
         exit_code, stdout = _run_cli([
             "pr", "list-actions",
             "--tools-dir", str(self.tools),

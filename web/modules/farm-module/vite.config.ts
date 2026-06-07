@@ -4,6 +4,8 @@ import federation from '@originjs/vite-plugin-federation';
 import { resolve } from 'path';
 import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
 
+const farmModuleBase = process.env.VITE_FARM_MODULE_BASE ?? '/remotes/farm-module/';
+
 /**
  * Vite Konfigürasyonu - Farm Module Microfrontend
  *
@@ -62,7 +64,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     preview: { port: 3002 },
-    base: '/remotes/farm-module/',
+    base: farmModuleBase,
     build: {
       target: 'esnext',
     },

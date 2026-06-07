@@ -121,15 +121,13 @@ class TestJaccardSimilarity(unittest.TestCase):
 class TestSecretScrubCoverage(unittest.TestCase):
 
     def test_aws_key_redacted(self):
-        fake_aws_key = "AKIA" + "1234567890ABCDEF"
-        s, types = secret_scrub.scrub_text(f"token={fake_aws_key}")
-        self.assertNotIn(fake_aws_key, s)
+        s, types = secret_scrub.scrub_text("token=AKIA1234567890ABCDEF")
+        self.assertNotIn("AKIA1234567890ABCDEF", s)
         self.assertIn("aws_access_key", types)
 
     def test_github_pat_redacted(self):
-        fake_pat = "ghp_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
-        s, types = secret_scrub.scrub_text(f"auth: {fake_pat}")
-        self.assertNotIn(fake_pat, s)
+        s, types = secret_scrub.scrub_text("auth: ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ")
+        self.assertNotIn("ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ", s)
         self.assertIn("github_pat", types)
 
     def test_email_and_ipv4_redacted(self):
@@ -143,7 +141,7 @@ class TestSecretScrubCoverage(unittest.TestCase):
         """Per I-V8.5-07 governance discipline: redaction_types list
         MUST contain pattern names only, never the original matched
         string."""
-        raw_secret = "AKIA" + "0123456789ABCDEF"
+        raw_secret = "AKIA0123456789ABCDEF"
         _, types = secret_scrub.scrub_text(f"x={raw_secret}")
         for t in types:
             self.assertNotIn(raw_secret, t,

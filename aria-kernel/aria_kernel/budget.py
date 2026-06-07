@@ -152,7 +152,6 @@ from .file_lock import with_exclusive_lock  # noqa: E402
 
 PER_RUN_BUDGET_LEDGER_FILENAME = "budget-ledger.jsonl"
 DEFAULT_MAX_BUDGET_USD_PER_RUN = 20.00
-DEFAULT_MAX_BUDGET_USD_PER_CYCLE = 1.50
 
 
 class BudgetReservationMissing(GovernanceError):
@@ -236,7 +235,6 @@ def reserve_cycle_budget(
     estimated_cost_usd: float,
     base_dir: str | Path,
     max_budget_usd_per_run: float | None = None,
-    max_budget_usd_per_cycle: float | None = None,
 ) -> str:
     """Reserve cycle budget; return reservation_token (ledger_hash)."""
     if not isinstance(estimated_cost_usd, (int, float)) or estimated_cost_usd <= 0:
@@ -248,16 +246,6 @@ def reserve_cycle_budget(
         if max_budget_usd_per_run is not None
         else os.environ.get("MAX_BUDGET_USD_PER_RUN", DEFAULT_MAX_BUDGET_USD_PER_RUN)
     )
-    cycle_cap = float(
-        max_budget_usd_per_cycle
-        if max_budget_usd_per_cycle is not None
-        else os.environ.get("MAX_BUDGET_USD_PER_CYCLE", DEFAULT_MAX_BUDGET_USD_PER_CYCLE)
-    )
-    if estimated_cost_usd > cycle_cap:
-        raise BudgetExhausted(
-            f"reserve_cycle_budget: cycle_id={cycle_id} estimated=${estimated_cost_usd:.4f} "
-            f"> max_budget_usd_per_cycle=${cycle_cap:.4f}"
-        )
     remaining = _per_run_remaining(base_dir, cap)
     if estimated_cost_usd > remaining:
         raise BudgetExhausted(
@@ -270,7 +258,6 @@ def reserve_cycle_budget(
         "cycle_id": cycle_id,
         "estimated_cost_usd": float(estimated_cost_usd),
         "max_budget_usd_per_run": cap,
-        "max_budget_usd_per_cycle": cycle_cap,
         "recorded_at": utc_now(),
         "schema_version": 1,
     }

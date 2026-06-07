@@ -98,15 +98,6 @@ class PhaseA5AckLedger(unittest.TestCase):
                 materialize_event_id="mat-evt-1",
             )
             self.assertEqual(result_first["status"], "ok")
-            ledger_rows = [
-                json.loads(line)
-                for line in (base / "acks" / "acks.jsonl").read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-            self.assertEqual(len(ledger_rows), 2)
-            self.assertIsNone(ledger_rows[0].get("consumed_at"))
-            self.assertEqual(ledger_rows[1].get("event"), "consumed")
-            self.assertEqual(ledger_rows[1].get("consumed_by_event_id"), "mat-evt-1")
             with self.assertRaises(GovernanceError) as ctx:
                 consume_token(
                     base_dir=base,

@@ -16,13 +16,6 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _AGENT_FILE = _REPO_ROOT / ".claude" / "agents" / "aria-implementer.md"
-_SHARED_CONTRACT_FILE = (
-    _REPO_ROOT
-    / ".claude"
-    / "agents"
-    / "_shared"
-    / "aria-implementer-safety-contract.md"
-)
 
 
 # The 17 canonical refusal classes (mirror of
@@ -55,11 +48,7 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
     def setUpClass(cls):
         cls.assertTrue(cls, _AGENT_FILE.exists(),
                        f"agent file not found at {_AGENT_FILE}")
-        cls.assertTrue(cls, _SHARED_CONTRACT_FILE.exists(),
-                       f"shared safety contract not found at {_SHARED_CONTRACT_FILE}")
         cls.body = _AGENT_FILE.read_text()
-        cls.shared_contract = _SHARED_CONTRACT_FILE.read_text()
-        cls.contract_body = cls.body + "\n" + cls.shared_contract
 
     def test_i_v9_impl_01_agent_file_exists_runtime_location(self):
         """aria-implementer.md MUST live at runtime location (Lane-A
@@ -106,31 +95,31 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
         self.assertIn("<untrusted_cross_review_summary>", self.body)
 
     def test_i_v9_impl_01_self_mod_prohibition_present(self):
-        self.assertIn("## Self-Modification Prohibition", self.contract_body)
-        self.assertIn("READONLY_PATHS", self.contract_body)
-        self.assertIn(".claude/agents/", self.contract_body)
-        self.assertIn("aria-kernel/aria_kernel/", self.contract_body)
+        self.assertIn("## Self-Modification Prohibition", self.body)
+        self.assertIn("READONLY_PATHS", self.body)
+        self.assertIn(".claude/agents/", self.body)
+        self.assertIn("aria-kernel/aria_kernel/", self.body)
 
     def test_i_v9_impl_01_network_egress_prohibition_present(self):
-        self.assertIn("## Network Egress Prohibition", self.contract_body)
-        self.assertIn("--unshare-net", self.contract_body)
-        self.assertIn("aria-impl-", self.contract_body)
+        self.assertIn("## Network Egress Prohibition", self.body)
+        self.assertIn("--unshare-net", self.body)
+        self.assertIn("aria-impl-", self.body)
 
     def test_i_v9_impl_01_safety_disable_prohibition_present(self):
-        self.assertIn("## Safety Disable Prohibition", self.contract_body)
-        self.assertIn("implementation_safety.py", self.contract_body)
+        self.assertIn("## Safety Disable Prohibition", self.body)
+        self.assertIn("implementation_safety.py", self.body)
 
     def test_i_v9_impl_01_canonical_validation_suite_present(self):
-        self.assertIn("## Canonical Validation Suite", self.contract_body)
-        self.assertIn("nx affected --target=test", self.contract_body)
-        self.assertIn("nx affected --target=lint", self.contract_body)
-        self.assertIn("npm run type-check", self.contract_body)
+        self.assertIn("## Canonical Validation Suite", self.body)
+        self.assertIn("nx affected --target=test", self.body)
+        self.assertIn("nx affected --target=lint", self.body)
+        self.assertIn("npm run type-check", self.body)
 
     def test_i_v9_impl_01_seventeen_refusal_classes(self):
-        """All 17 canonical refusal classes MUST appear in the SSOT contract."""
+        """All 17 canonical refusal classes MUST appear in the body."""
         missing = set()
         for cls in CANONICAL_REFUSAL_CLASSES:
-            if cls not in self.contract_body:
+            if cls not in self.body:
                 missing.add(cls)
         self.assertEqual(
             missing, set(),
@@ -145,7 +134,7 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
         self.assertIn("reason_class", self.body)
         # Either in the refusal-class introduction OR in the JSON
         # envelope shape (both occur in canonical document).
-        self.assertIn("Refusal Patterns", self.contract_body)
+        self.assertIn("Refusal Patterns", self.body)
 
     def test_i_v9_impl_01_pr_title_prefix_documented(self):
         self.assertIn("[ARIA-AUTO]", self.body)
@@ -170,11 +159,7 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
             "branch", "pr_number", "diff_hash", "branch_tip_sha",
             "base_branch_sha", "signer_key_fp", "validation_results",
         ):
-            self.assertIn(
-                f'"{field}"',
-                self.contract_body,
-                f"output envelope missing {field}",
-            )
+            self.assertIn(f'"{field}"', self.body, f"output envelope missing {field}")
 
 
 class TestV9ImplementerHashRegistry(unittest.TestCase):

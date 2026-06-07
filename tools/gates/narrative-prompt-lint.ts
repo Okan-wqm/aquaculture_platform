@@ -41,48 +41,39 @@
  *   2 — usage error or registry missing
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 const TOKEN_BUDGET_PER_FILE = 2000;
-
-function writeStdout(message = ''): void {
-  process.stdout.write(`${message}\n`);
-}
-
-function writeStderr(message = ''): void {
-  process.stderr.write(`${message}\n`);
-}
 
 const FRONTMATTER_RE = /^---\n(.*?)\n---\n/s;
 const PEDAGOGY_TIER_RE = /^pedagogy-tier:\s*(\d+)\s*$/m;
 const NAME_RE = /^name:\s*(\S+)\s*$/m;
 const PROHIBITION_HEADER_RE = /^### Prohibition:\s*(?<summary>[^\n]+)\n/gm;
 const RULE_CLASS_RE = /^\*?\*?rule-class:\*?\*?\s*(?<ruleClass>[a-z][a-z0-9_-]*)\s*$/m;
-const IMPERATIVE_PREFIX_RE =
-  /^(?:Never|Don't|Do not|MUST NOT|Must not|FORBIDDEN|Forbidden|Reject|Refuse|Block|Always)\b/i;
+const IMPERATIVE_PREFIX_RE = /^(?:Never|Don't|Do not|MUST NOT|Must not|FORBIDDEN|Forbidden|Reject|Refuse|Block|Always)\b/i;
 
 const SECTION_MARKERS: ReadonlyArray<readonly [string, RegExp]> = [
-  ['Rule', /\*\*Rule\.\*\*/i],
-  ['The temptation', /\*\*The temptation\.\*\*/i],
-  ['Why it looks correct', /\*\*Why it looks correct\.\*\*/i],
-  ['The downstream consequence', /\*\*The downstream consequence\.\*\*/i],
-  ['The correct path', /\*\*The correct path\.\*\*/i],
+  ["Rule", /\*\*Rule\.\*\*/i],
+  ["The temptation", /\*\*The temptation\.\*\*/i],
+  ["Why it looks correct", /\*\*Why it looks correct\.\*\*/i],
+  ["The downstream consequence", /\*\*The downstream consequence\.\*\*/i],
+  ["The correct path", /\*\*The correct path\.\*\*/i],
 ];
 
 const REQUIRED_SECTIONS_FULL = [
-  'Rule',
-  'The temptation',
-  'Why it looks correct',
-  'The downstream consequence',
-  'The correct path',
+  "Rule",
+  "The temptation",
+  "Why it looks correct",
+  "The downstream consequence",
+  "The correct path",
 ] as const;
 
 const REQUIRED_SECTIONS_WITHOUT_CONSEQUENCE = [
-  'Rule',
-  'The temptation',
-  'Why it looks correct',
-  'The correct path',
+  "Rule",
+  "The temptation",
+  "Why it looks correct",
+  "The correct path",
 ] as const;
 
 interface RegistryEntry {
@@ -140,28 +131,25 @@ function extractProhibitions(body: string): ProhibitionBlock[] {
   const blocks: ProhibitionBlock[] = [];
   for (let idx = 0; idx < matches.length; idx++) {
     const headerMatch = matches[idx];
-    if (!headerMatch) continue;
-    const headerStart = headerMatch.index ?? 0;
-    const nextHeaderStart =
-      idx + 1 < matches.length ? (matches[idx + 1]?.index ?? body.length) : body.length;
-    let end = nextHeaderStart;
-    const afterHeader = body.slice(headerStart + headerMatch[0].length, end);
+    const start = headerMatch.index ?? 0;
+    let end = idx + 1 < matches.length ? matches[idx + 1].index ?? body.length : body.length;
+    const afterHeader = body.slice(headerMatch.index! + headerMatch[0].length, end);
     const nextH3 = afterHeader.match(/^### /m);
     if (nextH3 && nextH3.index !== undefined) {
-      end = headerStart + headerMatch[0].length + nextH3.index;
+      end = headerMatch.index! + headerMatch[0].length + nextH3.index;
     }
-    const raw = body.slice(headerStart, end);
-    const summary = headerMatch.groups?.summary?.trim() ?? '';
+    const raw = body.slice(start, end);
+    const summary = headerMatch.groups?.summary?.trim() ?? "";
     const rcMatch = RULE_CLASS_RE.exec(raw);
     const ruleClass = rcMatch?.groups?.ruleClass ?? null;
     const sections = detectSections(raw);
     const ruleLineMatch = /\*\*Rule\.\*\*\s*\n?\s*(?<line>[^\n]*)/i.exec(raw);
-    const ruleFirstLine = (ruleLineMatch?.groups?.line ?? '')
+    const ruleFirstLine = (ruleLineMatch?.groups?.line ?? "")
       .trim()
-      .replace(/^`+|`+$/g, '')
-      .replace(/^\*+|\*+$/g, '')
+      .replace(/^`+|`+$/g, "")
+      .replace(/^\*+|\*+$/g, "")
       .trim();
-    const startLine = body.slice(0, headerStart).split('\n').length;
+    const startLine = body.slice(0, start).split("\n").length;
     blocks.push({
       summary,
       rule_class: ruleClass,
@@ -174,18 +162,17 @@ function extractProhibitions(body: string): ProhibitionBlock[] {
 }
 
 function parseAgentFile(filePath: string): FileValidationResult {
-  const text = fs.readFileSync(filePath, 'utf-8');
+  const text = fs.readFileSync(filePath, "utf-8");
   const fmMatch = text.match(FRONTMATTER_RE);
   let agentName: string | null = null;
   let pedagogyTier: number | null = null;
   let body = text;
   if (fmMatch) {
-    const fm = fmMatch[1] ?? '';
+    const fm = fmMatch[1];
     const nameMatch = fm.match(NAME_RE);
     const tierMatch = fm.match(PEDAGOGY_TIER_RE);
-    const tierValue = tierMatch?.[1];
     agentName = nameMatch?.[1] ?? null;
-    pedagogyTier = tierValue ? parseInt(tierValue, 10) : null;
+    pedagogyTier = tierMatch ? parseInt(tierMatch[1], 10) : null;
     body = text.slice(fmMatch[0].length);
   }
   const prohibitions = extractProhibitions(body);
@@ -203,9 +190,7 @@ function validateFile(filePath: string, registry: PedagogyRegistry): FileValidat
   const result = parseAgentFile(filePath);
   const tier = result.pedagogy_tier;
   if (tier === null) {
-    result.violations.push(
-      `${path.basename(filePath)}: missing \`pedagogy-tier:\` frontmatter (Plan ARIA-V4 §2a I-V4-01)`,
-    );
+    result.violations.push(`${path.basename(filePath)}: missing \`pedagogy-tier:\` frontmatter (Plan ARIA-V4 §2a I-V4-01)`);
     return result;
   }
 
@@ -227,7 +212,7 @@ function validateFile(filePath: string, registry: PedagogyRegistry): FileValidat
   if (tier === 1) {
     // Tier-1: no narrative blocks expected.
     for (const block of result.prohibitions) {
-      if (block.sections_present.some((s) => s !== 'Rule')) {
+      if (block.sections_present.some((s) => s !== "Rule")) {
         result.violations.push(
           `${path.basename(filePath)}:${block.start_line} — Tier-1 file contains a narrative-shape Prohibition block (${block.summary}); either remove the narrative sections or reclassify the agent as Tier-2/3 (Plan ARIA-V4 §2a)`,
         );
@@ -253,7 +238,7 @@ function validateFile(filePath: string, registry: PedagogyRegistry): FileValidat
       );
     }
     // Consequence-leak protection.
-    if (isProtected && block.sections_present.includes('The downstream consequence')) {
+    if (isProtected && block.sections_present.includes("The downstream consequence")) {
       result.violations.push(
         `${path.basename(filePath)}:${block.start_line} prohibition ${JSON.stringify(block.summary)} rule_class=${JSON.stringify(block.rule_class)} is on the consequence-leak allowlist for ${result.agent_name}; remove the consequence section (Plan ARIA-V4 §2d I-V4-06)`,
       );
@@ -263,17 +248,17 @@ function validateFile(filePath: string, registry: PedagogyRegistry): FileValidat
 }
 
 function findAriaAgentFiles(repoRoot: string): string[] {
-  const agentsDir = path.join(repoRoot, '.claude', 'agents');
+  const agentsDir = path.join(repoRoot, ".claude", "agents");
   const files: string[] = [];
   for (const f of fs.readdirSync(agentsDir)) {
-    if (f.startsWith('aria-') && f.endsWith('.md')) {
+    if (f.startsWith("aria-") && f.endsWith(".md")) {
       files.push(path.join(agentsDir, f));
     }
   }
-  const maintenanceDir = path.join(agentsDir, '_maintenance');
+  const maintenanceDir = path.join(agentsDir, "_maintenance");
   if (fs.existsSync(maintenanceDir)) {
     for (const f of fs.readdirSync(maintenanceDir)) {
-      if (f.startsWith('aria-') && f.endsWith('.md')) {
+      if (f.startsWith("aria-") && f.endsWith(".md")) {
         files.push(path.join(maintenanceDir, f));
       }
     }
@@ -285,18 +270,16 @@ function main(): number {
   const argv = process.argv.slice(2);
   // Repo-root resolution — walk up from this file to find .git OR rely on cwd.
   const repoRoot = process.cwd();
-  const registryPath = path.join(repoRoot, '.claude', 'agents', '_pedagogy-registry.json');
+  const registryPath = path.join(repoRoot, ".claude", "agents", "_pedagogy-registry.json");
   if (!fs.existsSync(registryPath)) {
-    writeStderr(`[narrative-prompt-lint] FATAL: registry missing at ${registryPath}`);
+    console.error(`[narrative-prompt-lint] FATAL: registry missing at ${registryPath}`);
     return 2;
   }
-  const registry = JSON.parse(
-    fs.readFileSync(registryPath, 'utf-8'),
-  ) as unknown as PedagogyRegistry;
+  const registry: PedagogyRegistry = JSON.parse(fs.readFileSync(registryPath, "utf-8"));
 
   const targets = argv.length > 0 ? argv : findAriaAgentFiles(repoRoot);
   if (targets.length === 0) {
-    writeStderr('[narrative-prompt-lint] FATAL: no ARIA agent files found');
+    console.error("[narrative-prompt-lint] FATAL: no ARIA agent files found");
     return 2;
   }
 
@@ -306,20 +289,16 @@ function main(): number {
     if (result.violations.length > 0) {
       totalViolations += result.violations.length;
       for (const v of result.violations) {
-        writeStderr(`[narrative-prompt-lint] ${v}`);
+        console.error(`[narrative-prompt-lint] ${v}`);
       }
     }
   }
 
   if (totalViolations > 0) {
-    writeStderr(
-      `[narrative-prompt-lint] FAIL: ${totalViolations} violation(s) across ${targets.length} file(s)`,
-    );
+    console.error(`[narrative-prompt-lint] FAIL: ${totalViolations} violation(s) across ${targets.length} file(s)`);
     return 1;
   }
-  writeStdout(
-    `[narrative-prompt-lint] OK: ${targets.length} file(s) pass the Plan ARIA-V4 pedagogy contract`,
-  );
+  console.log(`[narrative-prompt-lint] OK: ${targets.length} file(s) pass the Plan ARIA-V4 pedagogy contract`);
   return 0;
 }
 

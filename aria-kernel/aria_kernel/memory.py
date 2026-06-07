@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl, load_jsonl
-from .runs_reader import read_runs_rows
 from .feedback_store import load_feedback
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
@@ -785,7 +784,7 @@ def _mark_quarantined_source_beliefs(root: Path, cycle_id: str, quarantined_tool
 def _ingest_memory_candidates(root: Path, cycle_id: str, quarantined_tool_ids: set[str] | None = None) -> int:
     quarantined_tool_ids = quarantined_tool_ids or set()
     written = 0
-    for run in list(read_runs_rows(runs_path(root), base_dir=root)):
+    for run in load_jsonl(runs_path(root)):
         if run.get("cycle_id") != cycle_id:
             continue
         for candidate in _array_of_dicts(run.get("memory_candidates")):
@@ -1000,8 +999,6 @@ def _verify_fates_integrity(
     snapshot: dict[str, Any] | None = None,
     workspace_root: str | Path | None = None,
     base_dir: str | Path | None = None,
-    snapshot_mode: str | None = None,
-    base_commit_sha: str | None = None,
 ) -> None:
     """Plan ARIA-V2 §3.3 — verify FATES.files content_hash against the
     immutable snapshot's git-tree bytes (committed mode) or emit a
@@ -1029,19 +1026,14 @@ def _verify_fates_integrity(
         through to the pre-§3.3 disk-read behavior for backward-compat;
         existing tests + callsites continue to function unchanged.
     """
+    import hashlib
     from .evidence_validator import _canonical_evidence_path
     files = fates.get("files", []) if isinstance(fates, dict) else []
     if not isinstance(files, list):
         return
 
-    if snapshot is None and (snapshot_mode is not None or base_commit_sha is not None):
-        snapshot = {
-            "snapshot_mode": snapshot_mode,
-            "base_commit_sha": base_commit_sha,
-        }
-
-    snapshot_mode = (snapshot or {}).get("snapshot_mode") if snapshot else snapshot_mode
-    base_sha = (snapshot or {}).get("base_commit_sha") if snapshot else base_commit_sha
+    snapshot_mode = (snapshot or {}).get("snapshot_mode") if snapshot else None
+    base_sha = (snapshot or {}).get("base_commit_sha") if snapshot else None
 
     # Plan ARIA-V2 §3.3 — committed mode reads from immutable git tree
     if snapshot is not None and snapshot_mode == "committed" and base_sha and workspace_root is not None:
@@ -1085,18 +1077,9 @@ def _verify_fates_integrity(
                 f"memory_fates_path_traversal_rejected: "
                 f"path={raw_path!r} reason={exc}"
             )
-        actual_hash = _fates_actual_hash(
-            workspace_path=workspace_path,
-            relative_path=_rel,
-            absolute_path=absolute,
-            snapshot_mode=snapshot_mode,
-            base_commit_sha=base_sha,
-        )
-        if actual_hash is None:
-            # File deleted between discovery + memory; legitimate
-            # signal but not a tamper — operator path follows the
-            # missing-evidence belief invalidation flow.
+        if not absolute.exists() or not absolute.is_file():
             continue
+        actual_hash = "sha256:" + hashlib.sha256(absolute.read_bytes()).hexdigest()
         if actual_hash != stored_hash:
             raise GovernanceError(
                 f"memory_fates_content_hash_mismatch: "
@@ -1209,31 +1192,6 @@ def _emit_fates_working_tree_drift_observed(
                 "dirty_snapshot": (snapshot or {}).get("dirty_snapshot"),
             },
         )
-
-def _fates_actual_hash(
-    *,
-    workspace_path: Path,
-    relative_path: str,
-    absolute_path: Path,
-    snapshot_mode: str | None,
-    base_commit_sha: str | None,
-) -> str | None:
-    import hashlib
-    import subprocess
-
-    if snapshot_mode == "committed" and isinstance(base_commit_sha, str) and base_commit_sha.strip():
-        completed = subprocess.run(
-            ["git", "show", f"{base_commit_sha}:{relative_path}"],
-            cwd=workspace_path,
-            capture_output=True,
-            text=False,
-            check=False,
-        )
-        if completed.returncode == 0:
-            return "sha256:" + hashlib.sha256(completed.stdout).hexdigest()
-    if not absolute_path.exists() or not absolute_path.is_file():
-        return None
-    return "sha256:" + hashlib.sha256(absolute_path.read_bytes()).hexdigest()
 
 
 def _evidence_hashes(root: Path, cycle_id: str, evidence_refs: list[str]) -> list[str]:

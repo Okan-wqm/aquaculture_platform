@@ -32,8 +32,6 @@ _ALLOWLIST = _REPO_ROOT / "tests" / "invariants" / "agent-pedagogy.allowlist.jso
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
-from aria_kernel.pedagogy_lint import is_agent_markdown_file
-
 
 class PhaseV5_3PedagogyLint(unittest.TestCase):
     # I-V5.3-01 — every agent file declares pedagogy-tier.
@@ -51,8 +49,7 @@ class PhaseV5_3PedagogyLint(unittest.TestCase):
         """
         import re
         agent_files = sorted(
-            p for p in _AGENTS_DIR.rglob("*.md")
-            if is_agent_markdown_file(p, _AGENTS_DIR)
+            p for p in _AGENTS_DIR.rglob("*.md") if p.name != "README.md"
         )
         self.assertGreaterEqual(
             len(agent_files), 80,

@@ -32,13 +32,8 @@ from pathlib import Path
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_KERNEL_ROOT = _REPO_ROOT / "aria-kernel"
 _AGENTS_DIR = _REPO_ROOT / ".claude" / "agents"
 _PEDAGOGY_REGISTRY = _AGENTS_DIR / "_pedagogy-registry.json"
-if str(_KERNEL_ROOT) not in sys.path:
-    sys.path.insert(0, str(_KERNEL_ROOT))
-
-from aria_kernel.pedagogy_lint import is_agent_markdown_file
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 _PEDAGOGY_TIER_RE = re.compile(r"^pedagogy-tier:\s*(\d+)\s*$", re.MULTILINE)
@@ -58,7 +53,7 @@ def _aria_agent_files() -> list[Path]:
     """
     return sorted(
         p for p in _AGENTS_DIR.rglob("*.md")
-        if is_agent_markdown_file(p, _AGENTS_DIR)
+        if p.name != "README.md"
     )
 
 

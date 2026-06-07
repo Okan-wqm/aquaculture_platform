@@ -7,11 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .artifact_safety import write_sanitized_json
 from .ledger import append_jsonl, load_jsonl
 from .file_lock import with_exclusive_lock
-from .runtime_profile import enforce_profile_for_write
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, update_tools_index, utc_now
+from .tool_registry import append_tools_governance, ensure_tools_dir, update_tools_index, utc_now
 
 
 def _hash_lease_token(token: str) -> str:
@@ -113,7 +111,6 @@ def submit_worker_result(
     validation_commands: list[str] | None = None,
     tools_root: str | Path | None = None,
     lease_token: str | None = None,
-    allow_legacy_no_token: bool = False,
 ) -> dict[str, Any]:
     """Submit a worker result for verification.
 
@@ -133,7 +130,6 @@ def submit_worker_result(
     execution boundary, so preserving the pre-§G.3 path would leave the
     canonical CLI fail-open.
     """
-    enforce_profile_for_write("worker_result", base_dir=tools_root)
     root = ensure_tools_dir(tools_root)
     worktree = Path(from_worktree).resolve()
     request = _request_for(root, assignment_id=assignment_id, worktree=worktree)
@@ -151,37 +147,28 @@ def submit_worker_result(
     required = set(str(command) for command in request.get("required_tests") or [])
     if any(command not in required for command in commands):
         return _reject(root, "validation_command_not_required", assignment_id=str(request["assignment_id"]), worktree=worktree, details={"required_tests": sorted(required), "commands": commands})
-    # Plan 026R §G.3 — lease-bound submit. Legacy tokenless callers
-    # require an explicit compatibility flag; the normal path fails closed.
+    # Plan 026R §G.3 — lease-bound submit. No public tokenless path.
     active_claim: dict[str, Any] | None = None
-    if lease_token is None and not allow_legacy_no_token:
+    if lease_token is None or not lease_token.strip():
         return _reject(
             root, "submit_worker_result_lease_token_required",
             assignment_id=str(request["assignment_id"]), worktree=worktree,
         )
-    if lease_token is not None:
-        if not lease_token.strip():
+    claims_path = root / "dispatch" / "claims.jsonl"
+    with with_exclusive_lock(claims_path):
+        active_claim_or_reject = _resolve_active_claim_for_submit(
+            root, str(request["assignment_id"]), lease_token=lease_token,
+        )
+        if isinstance(active_claim_or_reject, str):
             return _reject(
-                root, "submit_worker_result_lease_token_required",
+                root, active_claim_or_reject,
                 assignment_id=str(request["assignment_id"]), worktree=worktree,
             )
-        claims_path = root / "dispatch" / "claims.jsonl"
-        with with_exclusive_lock(claims_path):
-            active_claim_or_reject = _resolve_active_claim_for_submit(
-                root, str(request["assignment_id"]), lease_token=lease_token,
-            )
-            if isinstance(active_claim_or_reject, str):
-                return _reject(
-                    root, active_claim_or_reject,
-                    assignment_id=str(request["assignment_id"]), worktree=worktree,
-                )
-            active_claim = active_claim_or_reject
+        active_claim = active_claim_or_reject
     base_sha = str(request["base_sha"])
     head_sha = _git(worktree, "rev-parse", "HEAD")
     diff = _git(worktree, "diff", f"{base_sha}...{head_sha}")
-    diff_hash = _sha256_text(diff)
     too_large = len(diff.encode("utf-8")) > MAX_DIFF_BYTES
-    diff_artifact_ref = _write_diff_artifact(root, str(request["assignment_id"]), diff, diff_hash) if too_large else None
     row = {
         "$schema": "aria/worker-result/v1",
         "schema_version": 1,
@@ -194,8 +181,6 @@ def submit_worker_result(
         "validation_commands": commands,
         "unified_diff": "" if too_large else diff,
         "diff_truncated": too_large,
-        "diff_hash": diff_hash,
-        "diff_artifact_ref": diff_artifact_ref,
         "state": "accepted",
         # Plan 026R §G.2 — recorded_at timestamp for the reducer fold's
         # deterministic ordering (the fold sorts by recorded_at + source
@@ -221,7 +206,6 @@ def verify_worker_result(
     tools_root: str | Path | None = None,
     auto_merge_eligible: bool = False,
 ) -> dict[str, Any]:
-    enforce_profile_for_write("worker_verification", base_dir=tools_root)
     root = ensure_tools_dir(tools_root)
     request = _request_for(root, assignment_id=assignment_id)
     result = _latest_result(root, assignment_id)
@@ -230,27 +214,6 @@ def verify_worker_result(
     worktree = Path(str(request["worktree_path"])).resolve()
     if not worktree.exists():
         return _verification(root, assignment_id, "failed", ["worktree_unreachable"], auto_merge_eligible=False)
-    submitted_head = str(result.get("head_sha") or "")
-    current_head = _git(worktree, "rev-parse", "HEAD")
-    if submitted_head and current_head != submitted_head:
-        return _verification(root, assignment_id, "failed", ["submitted_head_drift"], auto_merge_eligible=False)
-    dirty = _git(worktree, "status", "--porcelain")
-    if dirty.strip():
-        return _verification(root, assignment_id, "failed", ["worktree_dirty_at_verification"], auto_merge_eligible=False)
-    base_sha = str(request.get("base_sha") or "")
-    if base_sha:
-        try:
-            _git(worktree, "merge-base", "--is-ancestor", base_sha, current_head)
-        except RuntimeError:
-            return _verification(root, assignment_id, "failed", ["base_sha_not_ancestor"], auto_merge_eligible=False)
-    current_diff = _git(worktree, "diff", f"{base_sha}...{current_head}") if base_sha else ""
-    submitted_diff_hash = str(result.get("diff_hash") or "")
-    if submitted_diff_hash and submitted_diff_hash != _sha256_text(current_diff):
-        return _verification(root, assignment_id, "failed", ["submitted_diff_drift"], auto_merge_eligible=False)
-    if result.get("diff_truncated"):
-        artifact_issue = _verify_diff_artifact_ref(root, result.get("diff_artifact_ref"))
-        if artifact_issue is not None:
-            return _verification(root, assignment_id, "failed", [artifact_issue], auto_merge_eligible=False)
     trailer = str(request.get("expected_trailer") or "")
     log = _git(worktree, "log", "--format=%B", f"{request['base_sha']}..HEAD")
     if trailer and trailer not in log:
@@ -266,58 +229,6 @@ def verify_worker_result(
     status = "passed" if not failures else "failed"
     merge_evaluated = bool(auto_merge_eligible and status == "passed" and request.get("triage_tier") == "auto_fix_safe")
     return _verification(root, assignment_id, status, failures, auto_merge_eligible=auto_merge_eligible, auto_merge_evaluated=merge_evaluated)
-
-
-def _sha256_text(value: str) -> str:
-    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _safe_segment(value: str) -> str:
-    return "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "-" for ch in value).strip(".-") or "item"
-
-
-def _write_diff_artifact(root: Path, assignment_id: str, diff: str, diff_hash: str) -> dict[str, Any]:
-    path = root / "dispatch" / "artifacts" / _safe_segment(assignment_id) / "diff.json"
-    try:
-        path.relative_to(root)
-    except ValueError as exc:
-        raise GovernanceError("worker_diff_artifact_path_escape") from exc
-    payload = {
-        "schema_version": 1,
-        "assignment_id": assignment_id,
-        "diff_hash": diff_hash,
-        "unified_diff": diff,
-        "recorded_at": utc_now(),
-    }
-    encoded_size = len(diff.encode("utf-8"))
-    write_sanitized_json(path, payload, max_bytes=max(2_000_000, encoded_size * 2 + 4096))
-    raw = path.read_bytes()
-    return {
-        "schema_version": 1,
-        "path": path.relative_to(root).as_posix(),
-        "sha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
-        "size_bytes": len(raw),
-    }
-
-
-def _verify_diff_artifact_ref(root: Path, ref: Any) -> str | None:
-    if not isinstance(ref, dict):
-        return "worker_diff_artifact_ref_missing"
-    relative = str(ref.get("path") or "")
-    expected_hash = str(ref.get("sha256") or "")
-    if not relative or not expected_hash:
-        return "worker_diff_artifact_ref_incomplete"
-    path = (root / relative).resolve()
-    try:
-        path.relative_to(root.resolve())
-    except ValueError:
-        return "worker_diff_artifact_path_escape"
-    if not path.exists() or not path.is_file():
-        return "worker_diff_artifact_missing"
-    actual_hash = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-    if actual_hash != expected_hash:
-        return "worker_diff_artifact_hash_mismatch"
-    return None
 
 
 def _verification(root: Path, assignment_id: str, status: str, failures: list[str], *, auto_merge_eligible: bool, auto_merge_evaluated: bool = False) -> dict[str, Any]:

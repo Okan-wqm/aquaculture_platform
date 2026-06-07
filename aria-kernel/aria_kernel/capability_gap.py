@@ -9,7 +9,6 @@ from .agent_priors import related_agents_for_paths
 from .agent_network import latest_agent_network_hash
 from .fitness import list_fitness_reports
 from .ledger import append_jsonl, load_jsonl
-from .runs_reader import read_runs_rows
 from .memory import list_memory
 from .pressure import effective_workspace_pressures
 from .tool_health import runs_path
@@ -118,19 +117,18 @@ def _gaps_from_adapter_registry(
         ]
     tools = [tool for tool in registry.get("tools", []) if isinstance(tool, dict)]
     registry_ids = {str(tool.get("tool_id")) for tool in tools if tool.get("tool_id")}
+    repo_root = Path(getattr(paths, "repo_root", Path.cwd())).resolve()
+    manifest_dir = repo_root / "tools" / "aria-adapters"
     manifests = {}
-    if paths is not None:
-        repo_root = Path(getattr(paths, "repo_root")).resolve()
-        manifest_dir = repo_root / "tools" / "aria-adapters"
-        if manifest_dir.exists():
-            for manifest in manifest_dir.glob("*.tool.json"):
-                try:
-                    payload = json.loads(manifest.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    continue
-                tool_id = str(payload.get("tool_id") or "")
-                if tool_id:
-                    manifests[tool_id] = manifest
+    if manifest_dir.exists():
+        for manifest in manifest_dir.glob("*.tool.json"):
+            try:
+                payload = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            tool_id = str(payload.get("tool_id") or "")
+            if tool_id:
+                manifests[tool_id] = manifest
     manifest_ids = set(manifests)
     gaps: list[dict[str, Any]] = []
     for tool in tools:
@@ -271,7 +269,7 @@ def _gaps_from_unowned_pressures(cycle_id: str, paths: Any, root: Path, index_ha
 
 def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | None) -> list[dict[str, Any]]:
     gaps = []
-    for run in list(read_runs_rows(runs_path(root), base_dir=root)):
+    for run in load_jsonl(runs_path(root)):
         if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
             continue
         raw_count = int(run.get("runner", {}).get("raw_findings_count") or 0)

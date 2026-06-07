@@ -131,7 +131,7 @@ class TestV9BashAllowlist(unittest.TestCase):
             ["git", "diff", "HEAD~1..HEAD"],
             ["git", "rev-parse", "HEAD"],
             ["git", "push", "origin", "aria-impl-abc123def456"],
-            ["gh", "pr", "create", "--base", "main", "--head", "aria-impl-abc"],
+            ["gh", "pr", "create", "--base", "snowball", "--head", "aria-impl-abc"],
             ["gh", "pr", "checks", "42"],
             ["gh", "pr", "merge", "--squash", "42"],
             ["nx", "affected", "--target=test"],
@@ -156,14 +156,12 @@ class TestV9SecretScan(unittest.TestCase):
     """I-V9-SECRET-01 — verify_no_secret_in_diff + envelope."""
 
     def test_i_v9_secret_01_aws_access_key_caught(self):
-        fake_aws_key = "AKIA" + "IOSFODNN7EXAMPLE"
-        diff = f"{fake_aws_key} in test fixture"
+        diff = "AKIAIOSFODNN7EXAMPLE in test fixture"
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_diff(diff)
 
     def test_i_v9_secret_01_github_pat_caught(self):
-        fake_pat = "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789"
-        diff = f"token = {fake_pat}"
+        diff = "token = ghp_abcdefghijklmnopqrstuvwxyz0123456789"
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_diff(diff)
 
@@ -183,21 +181,19 @@ class TestV9SecretScan(unittest.TestCase):
 
     def test_i_v9_secret_01_envelope_scan(self):
         """Envelope content scanned at JSON-serialize level."""
-        fake_aws_key = "AKIA" + "IOSFODNN7EXAMPLE"
-        bad = {"details": {"validation_results": [{"stdout": fake_aws_key}]}}
+        bad = {"details": {"validation_results": [{"stdout": "AKIAIOSFODNN7EXAMPLE"}]}}
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_envelope(bad)
 
     def test_i_v9_secret_01_error_message_does_not_leak_value(self):
         """SecretLeakDetected message MUST count hits but NOT include
         the actual matched values."""
-        fake_aws_key = "AKIA" + "IOSFODNN7EXAMPLE"
-        diff = fake_aws_key
+        diff = "AKIAIOSFODNN7EXAMPLE"
         try:
             _is.verify_no_secret_in_diff(diff)
             self.fail("expected SecretLeakDetected")
         except _is.SecretLeakDetected as exc:
-            self.assertNotIn(fake_aws_key, str(exc))
+            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", str(exc))
             self.assertIn("REDACTED", str(exc).upper())
 
 

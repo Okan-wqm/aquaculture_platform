@@ -116,11 +116,6 @@ TIER_IMPERATIVE_ONLY = {1}  # Tier-1: bare imperative allowed
 # Plan ARIA-V5 §3e v2 R-P4 — allowlist expiry in days from entry date.
 ALLOWLIST_EXPIRY_DAYS = 30
 
-# Shared shards under .claude/agents/_shared are included by the agent
-# loader via explicit references. They are contract fragments, not
-# invokable agents, so the universal agent frontmatter lint skips them.
-NON_AGENT_FRAGMENT_DIRS = frozenset({"_shared"})
-
 
 @dataclass
 class Violation:
@@ -172,22 +167,6 @@ class LintReport:
             "lint_pass_rate": self.lint_pass_rate,
             "violations": [v.to_dict() for v in self.violations],
         }
-
-
-def is_agent_markdown_file(path: Path, agents_dir: Path) -> bool:
-    """Return True for invokable agent markdown files.
-
-    ``agents_dir`` is the root ``.claude/agents`` directory. README
-    files and shared prompt-contract fragments are not runtime agents
-    and must not be counted in registry/frontmatter invariants.
-    """
-    if path.name == "README.md":
-        return False
-    try:
-        rel_parts = path.relative_to(agents_dir).parts
-    except ValueError:
-        rel_parts = path.parts
-    return not any(part in NON_AGENT_FRAGMENT_DIRS for part in rel_parts)
 
 
 def _strip_frontmatter(text: str) -> tuple[str, int]:
@@ -430,7 +409,7 @@ def run_pedagogy_lint(
     report = LintReport()
     agent_files = sorted(
         p for p in agents_dir.rglob("*.md")
-        if is_agent_markdown_file(p, agents_dir)
+        if p.name not in {"README.md"}
     )
     for path in agent_files:
         report.agents_scanned += 1

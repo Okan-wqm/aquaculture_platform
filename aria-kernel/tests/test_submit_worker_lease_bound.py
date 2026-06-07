@@ -203,6 +203,15 @@ class SubmitWorkerLeaseBoundTests(unittest.TestCase):
         self.assertEqual(result["state"], "rejected")
         self.assertEqual(result["reason"], "submit_worker_result_lease_expired")
 
+    def test_missing_lease_expiry_rejects_fail_closed(self) -> None:
+        self._seed_request_and_claim(lease_expires_at="")
+        result = submit_worker_result(
+            from_worktree=self.worktree, assignment_id="A-1",
+            tools_root=self.base, lease_token="secret-lease-12345678",
+        )
+        self.assertEqual(result["state"], "rejected")
+        self.assertEqual(result["reason"], "submit_worker_result_lease_expired")
+
     def test_released_claim_token_rejects_specific_reason(self) -> None:
         # Claim was released — the lease_token no longer valid.
         _seed_request(

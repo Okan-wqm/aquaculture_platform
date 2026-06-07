@@ -85,7 +85,7 @@ CYCLE_INDEPENDENT_EVENT_KINDS: frozenset[str] = frozenset({
     "autonomous_host_lease_refreshed",
     "autonomous_host_lease_blocked",
     "autonomous_host_lease_released",
-    "codex_mock_mode_resolved",
+    "mock_mode_default_flipped",
     "lock_reaped",
     "canonical_identity_offline_fallback",
     "gate_activity_visibility_restored",

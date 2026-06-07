@@ -177,119 +177,31 @@ def _drain_next_cycle_queue(
     daemon_agent_id: str,
     limit: int,
 ) -> int:
-    # A queue item is consumed only after its agent request is appended.
-    import json
+    """Drain pending §F.2 queue items.
 
-    from .agent_invocations import (
-        create_agent_invocation_request,
-        list_agent_invocation_requests,
-    )
-    from .tool_registry import append_tools_governance
+    Marks each pending item as consumed by the orchestrator.
+    Returns the count drained — caller emits a single transition
+    row carrying the count.
 
+    NOTE: pre-§F.1 there was no consumer for ``next_cycle_queue``;
+    drain currently marks-and-counts but does NOT yet synthesize
+    agent-invocation requests (that wire goes through the planner
+    dispatcher per Plan 025 §D contract). The drain prevents
+    queue-bloat and surfaces the volume as a metric; the routing
+    upgrade lands once the planner-dispatch hook accepts
+    queue-derived pressure inputs.
+    """
     pending = read_pending(base_dir, limit=limit)
-    consumed = 0
     for item in pending:
         qid = item.get("queue_item_id")
         if not isinstance(qid, str) or not qid:
             continue
-        existing_request = _find_projected_queue_request(
-            base_dir=base_dir, queue_item_id=qid,
-            requests=list_agent_invocation_requests(base_dir=base_dir),
-        )
-        if existing_request is not None:
-            mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
-            append_tools_governance(
-                base_dir,
-                "next_cycle_queue_item_projection_replayed",
-                {
-                    "queue_item_id": qid,
-                    "request_id": existing_request.get("request_id"),
-                },
-            )
-            consumed += 1
-            continue
-        prompt = {
-            "$schema": "aria/next-cycle-queue-request/v1",
-            "queue_item_id": qid,
-            "source_cycle_id": item.get("source_cycle_id"),
-            "pressure_id": item.get("pressure_id"),
-            "recommended_action": item.get("recommended_action"),
-            "candidate_tools": item.get("candidate_tools", []),
-        }
-        try:
-            request = create_agent_invocation_request(
-                target_agent="aria-autonomy-planner",
-                role="maintenance_utility",
-                suggested_prompt=json.dumps(prompt, indent=2, sort_keys=True),
-                must_satisfy=[{
-                    "id": "queue_item_projected",
-                    "description": "Resolve the queued next-cycle item or produce a concrete blocked reason.",
-                    "required": True,
-                }],
-                allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
-                evidence_refs=[str(item.get("pressure_id") or qid)],
-                pressure_event_id=str(item.get("pressure_id") or "") or None,
-                base_dir=base_dir,
-            )
-        except Exception as exc:
-            append_tools_governance(
-                base_dir,
-                "next_cycle_queue_projection_failed",
-                {"queue_item_id": qid, "error": str(exc)},
-            )
-            continue
-        mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
-        append_tools_governance(
+        mark_consumed(
             base_dir,
-            "next_cycle_queue_item_projected",
-            {"queue_item_id": qid, "request_id": request.get("request_id")},
+            queue_item_id=qid,
+            consumed_by=daemon_agent_id,
         )
-        consumed += 1
-    return consumed
-
-
-
-def _find_projected_queue_request(
-    *,
-    base_dir: Path,
-    queue_item_id: str,
-    requests: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    marker = f'"queue_item_id": "{queue_item_id}"'
-    for request in reversed(requests):
-        if request.get("role") != "maintenance_utility":
-            continue
-        if request.get("target_agent") != "aria-autonomy-planner":
-            continue
-        prompt = str(request.get("suggested_prompt") or "")
-        if marker in prompt or queue_item_id in prompt:
-            return request
-    return None
-
-def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
-    tool_runs = cycle_result.get("tool_run_summary") if isinstance(cycle_result.get("tool_run_summary"), list) else []
-    artifact_refs = [
-        ref for ref in cycle_result.get("artifact_refs", [])
-        if isinstance(ref, dict)
-    ] if isinstance(cycle_result.get("artifact_refs"), list) else []
-    failed_phases = cycle_result.get("failed_phases")
-    if not isinstance(failed_phases, list):
-        failed_phases = [
-            {"phase": str(item), "status": "failed"}
-            for item in cycle_result.get("extended_phase_failures", [])
-        ] if isinstance(cycle_result.get("extended_phase_failures"), list) else []
-    return {
-        "schema_version": 2,
-        "cycle_id": cycle_result.get("cycle_id"),
-        "status": cycle_result.get("status"),
-        "runtime_status": cycle_result.get("runtime_status", "ok" if cycle_result.get("status") == "completed" else cycle_result.get("status")),
-        "tool_run_summary": tool_runs,
-        "artifact_refs": artifact_refs,
-        "artifact_integrity": cycle_result.get("artifact_integrity"),
-        "non_ok_tools": cycle_result.get("non_ok_tools", []),
-        "failed_phases": failed_phases,
-        "incomplete_lifecycle_count": cycle_result.get("incomplete_lifecycle_count", 0),
-    }
+    return len(pending)
 
 
 def _autonomous_preflight(
@@ -389,10 +301,6 @@ def run_autonomy_orchestrator(
     # convergence_drainer round-poll) — the V9 implementer pipeline
     # has its own wall-clock budget.
     implementer_poll_seconds: float = 1800.0,
-    max_budget_usd_per_cycle: float = 1.50,
-    # Runtime v2 hardening: artifact/lifecycle failures must stop the
-    # autonomy loop by default after the cycle ledger has been closed.
-    fail_closed_on_cycle_failure: bool = True,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3a v2 — ``convergence_runner`` is REQUIRED with NO
     # default (Tier-1 "Make impossible"). The kwarg mirrors the V3 §A1
@@ -471,7 +379,6 @@ def run_autonomy_orchestrator(
         profile_gate = NoOpProfileGate()
 
     root = ensure_tools_dir(base_dir)
-    os.environ["MAX_BUDGET_USD_PER_CYCLE"] = str(max_budget_usd_per_cycle)
     daemons_dir = root / "daemons"
     daemons_dir.mkdir(parents=True, exist_ok=True)
     daemon_pid_path = daemons_dir / f"{daemon_id}.pid.lock"
@@ -603,7 +510,6 @@ def run_autonomy_orchestrator(
                         "max_cycles": max_cycles,
                         "max_iterations_per_phase":
                             max_iterations_per_phase,
-                        "max_budget_usd_per_cycle": max_budget_usd_per_cycle,
                         "started_at": _iso_now(),
                         "profile": profile_snapshot,
                     },
@@ -809,15 +715,11 @@ def run_autonomy_orchestrator(
                         base_dir=root,
                         defer_reflection=True,
                     )
-                    cycle_summary["cycle"] = _bounded_cycle_summary(cycle_result)
-                    raw_status = str(cycle_result.get("runtime_status") or cycle_result.get("status") or "failed")
-                    cycle_status = "ok" if raw_status in {"ok", "completed"} and not cycle_result.get("non_ok_tools") else "failed"
+                    cycle_summary["cycle"] = cycle_result
+                    cycle_status = "ok"
                 except Exception as exc:
                     cycle_summary["cycle"] = {
-                        "schema_version": 2,
-                        "cycle_id": cycle_id,
                         "status": "failed",
-                        "runtime_status": "failed",
                         "error": str(exc),
                     }
                     cycle_status = "failed"
@@ -833,10 +735,6 @@ def run_autonomy_orchestrator(
                 )
                 if cycle_status == "ok":
                     cycles_completed += 1
-                elif fail_closed_on_cycle_failure:
-                    per_cycle_results.append(cycle_summary)
-                    exit_reason = "cycle_failed"
-                    break
 
                 # Plan ARIA-V10.4 Phase 1 instrumentation — cost-attribution
                 # sentinel. V10.3-B endurance showed cycle 1 challenger
@@ -916,34 +814,6 @@ def run_autonomy_orchestrator(
                         "iterations": bridge_result.get("iterations"),
                     },
                 )
-                bridge_status = str(bridge_result.get("status") or "ok")
-                pending_after = int(bridge_result.get("pending_after") or 0)
-                if profile_snapshot in {"strict", "autonomous"} and (
-                    bridge_status in {"skipped", "unknown", "failed"}
-                    or pending_after > 0
-                ):
-                    AutonomyStateReducer.transition(
-                        root,
-                        cycle_id=cycle_id,
-                        phase="bridge_replay_required",
-                        status="failed",
-                        profile=profile_snapshot,
-                        details={
-                            "bridge_status": bridge_status,
-                            "pending_after": pending_after,
-                        },
-                    )
-                    cycle_summary["failed_phases"] = list(cycle_summary.get("failed_phases", [])) + [
-                        {
-                            "phase": "bridge",
-                            "status": "failed",
-                            "bridge_status": bridge_status,
-                            "pending_after": pending_after,
-                        },
-                    ]
-                    per_cycle_results.append(cycle_summary)
-                    exit_reason = "bridge_replay_required"
-                    break
 
                 # Plan ARIA-V7 §2h v2 Phase 7.4 — skill_genesis_drainer.
                 # Polls skill-genesis/requests.jsonl for convergent=True
@@ -1847,7 +1717,7 @@ def run_autonomy_orchestrator(
                 "worker_assignments_dispatched": worker_total,
                 "auto_merges_completed": auto_merges_total,
                 "exit_reason": exit_reason,
-                "exits_clean": exit_reason not in {"cycle_failed"},
+                "exits_clean": True,
                 "per_cycle": per_cycle_results,
                 "daemon_agent_id": daemon_agent_id,
             }

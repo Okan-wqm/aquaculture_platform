@@ -50,7 +50,7 @@ from __future__ import annotations
 import json
 import os
 import socket
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -64,7 +64,6 @@ from .tool_registry import (
 
 _LOCKS_DIR_RELATIVE = ("locks",)
 _LEASE_FILENAME = "autonomous-host.lock"
-_REMOTE_CAS_LEASE_FILENAME = "autonomous-host.cas.json"
 _LEASE_DURATION_MINUTES: int = 5
 
 
@@ -85,32 +84,6 @@ class HostLease:
             expires = datetime.fromisoformat(
                 self.lease_expires_at.replace("Z", "+00:00")
             )
-        except ValueError:
-            return False
-        return expires > datetime.now(timezone.utc)
-
-
-@dataclass(frozen=True)
-class RemoteCasLease:
-    """Remote-visible compare-and-swap lease record.
-
-    This is the autonomous real-mode lease authority. The legacy
-    ``HostLease`` file remains a local witness; this record carries the
-    compare fields needed for local/GitHub-runner contention handling.
-    """
-
-    lease_id: str
-    epoch: int
-    owner: str
-    target_ref: str
-    head_sha: str
-    acquired_at: str
-    heartbeat_at: str
-    expires_at: str
-
-    def is_fresh(self) -> bool:
-        try:
-            expires = datetime.fromisoformat(self.expires_at.replace("Z", "+00:00"))
         except ValueError:
             return False
         return expires > datetime.now(timezone.utc)
@@ -190,138 +163,6 @@ def _build_lease(host_id: str, pid: int) -> HostLease:
         .isoformat()
         .replace("+00:00", "Z"),
     )
-
-
-def _remote_cas_lease_path(base_dir: str | Path) -> Path:
-    return _locks_dir(base_dir) / _REMOTE_CAS_LEASE_FILENAME
-
-
-def _read_remote_cas_lease(base_dir: str | Path) -> RemoteCasLease | None:
-    path = _remote_cas_lease_path(base_dir)
-    if not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    try:
-        return RemoteCasLease(
-            lease_id=str(payload["lease_id"]),
-            epoch=int(payload["epoch"]),
-            owner=str(payload["owner"]),
-            target_ref=str(payload["target_ref"]),
-            head_sha=str(payload["head_sha"]),
-            acquired_at=str(payload["acquired_at"]),
-            heartbeat_at=str(payload["heartbeat_at"]),
-            expires_at=str(payload["expires_at"]),
-        )
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
-def _atomic_write_remote_cas_lease(path: Path, lease: RemoteCasLease) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
-    tmp.write_text(
-        json.dumps(asdict(lease), indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    tmp.replace(path)
-
-
-def _build_remote_cas_lease(
-    *,
-    previous: RemoteCasLease | None,
-    owner: str,
-    target_ref: str,
-    head_sha: str,
-) -> RemoteCasLease:
-    import hashlib
-
-    now = _utc_now()
-    epoch = (previous.epoch + 1) if previous is not None else 1
-    seed = f"{owner}:{target_ref}:{head_sha}:{epoch}:{now.isoformat()}"
-    return RemoteCasLease(
-        lease_id="sha256:" + hashlib.sha256(seed.encode("utf-8")).hexdigest(),
-        epoch=epoch,
-        owner=owner,
-        target_ref=target_ref,
-        head_sha=head_sha,
-        acquired_at=now.isoformat().replace("+00:00", "Z"),
-        heartbeat_at=now.isoformat().replace("+00:00", "Z"),
-        expires_at=(now + timedelta(minutes=_LEASE_DURATION_MINUTES)).isoformat().replace("+00:00", "Z"),
-    )
-
-
-def acquire_remote_cas_lease(
-    *,
-    base_dir: str | Path,
-    target_ref: str,
-    head_sha: str,
-    owner: str | None = None,
-    allow_same_owner_refresh: bool = True,
-) -> RemoteCasLease:
-    """Acquire the remote-visible autonomous lease with CAS semantics.
-
-    The compare fields are ``epoch``, ``owner``, ``target_ref``,
-    ``head_sha``, and ``expires_at``. A fresh lease held by another
-    owner fails closed. A stale lease can be reaped by incrementing
-    epoch. Same-owner refresh is allowed only when the target ref and
-    head SHA still match, preventing a stale heartbeat from silently
-    carrying a lease across a different commit.
-    """
-    root = ensure_tools_dir(base_dir)
-    holder = owner or _resolve_host_id()
-    if not target_ref or not head_sha:
-        raise GovernanceError("remote_cas_lease_requires_target_ref_and_head_sha")
-    existing = _read_remote_cas_lease(root)
-    if existing is not None and existing.is_fresh():
-        same_owner = existing.owner == holder
-        same_target = existing.target_ref == target_ref and existing.head_sha == head_sha
-        if not (same_owner and same_target and allow_same_owner_refresh):
-            append_tools_governance(
-                root,
-                "remote_cas_lease_blocked",
-                {
-                    "requesting_owner": holder,
-                    "requesting_target_ref": target_ref,
-                    "requesting_head_sha": head_sha,
-                    "existing": asdict(existing),
-                },
-            )
-            raise GovernanceError(
-                "remote_cas_lease_blocked: fresh lease held by "
-                f"{existing.owner!r} for {existing.target_ref}@{existing.head_sha}"
-            )
-    next_lease = _build_remote_cas_lease(
-        previous=existing,
-        owner=holder,
-        target_ref=target_ref,
-        head_sha=head_sha,
-    )
-    _atomic_write_remote_cas_lease(_remote_cas_lease_path(root), next_lease)
-    append_tools_governance(
-        root,
-        "remote_cas_lease_acquired",
-        {
-            "lease_id": next_lease.lease_id,
-            "epoch": next_lease.epoch,
-            "owner": holder,
-            "target_ref": target_ref,
-            "head_sha": head_sha,
-            "predecessor_was_stale": existing is not None and not existing.is_fresh(),
-        },
-    )
-    return next_lease
-
-
-def remote_cas_lease_state(base_dir: str | Path) -> dict[str, Any]:
-    existing = _read_remote_cas_lease(base_dir)
-    if existing is None:
-        return {"state": "no_lease"}
-    payload = asdict(existing)
-    payload["state"] = "fresh" if existing.is_fresh() else "stale"
-    return payload
 
 
 def acquire_lease(
@@ -458,10 +299,7 @@ def lease_state(base_dir: str | Path) -> dict[str, Any]:
 
 __all__ = [
     "HostLease",
-    "RemoteCasLease",
-    "acquire_remote_cas_lease",
     "acquire_lease",
     "lease_state",
     "release_lease",
-    "remote_cas_lease_state",
 ]

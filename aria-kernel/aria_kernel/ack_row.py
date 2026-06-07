@@ -29,10 +29,10 @@ Field semantics:
   ``signature`` — HMAC-SHA256 of the canonical row content.
   ``signed_key_id`` — UUID of the HMAC key version used; resolved
     against the rolling key list at verify time.
-  ``consumed_at`` — legacy compatibility field. New consumes do not
-    mutate the mint row; they append ``aria/ack-consumption/v1`` rows.
-  ``consumed_by_event_id`` — legacy compatibility field paired with
-    ``consumed_at`` on pre-append-only ledgers.
+  ``consumed_at`` — ISO-8601 UTC when materialize consumed this
+    token; ``None`` until first consumption.
+  ``consumed_by_event_id`` — materialize_event_id that consumed
+    this token; ``None`` until consumption.
   ``breaker_state_at_mint`` — ``"ok"`` / ``"tripped"`` snapshot.
   ``profile_state_at_mint`` — full profile state hash.
   ``commit_sha_at_mint`` — workspace HEAD SHA at mint.
@@ -40,8 +40,8 @@ Field semantics:
     the draft (forward link in the audit chain).
 
 I-V3-19 (one-time consumption) is enforced by the ack_ledger
-append-only reducer: ``consume_token`` rejects if either a legacy
-``consumed_at`` value or a newer ``event=consumed`` transition exists.
+mutate primitive: ``consume_token`` rejects if ``consumed_at`` is
+non-null.
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ class AckLedgerRow:
     # Autonomous-conditional fields
     classifier_decision_hash: str | None = None
     auto_reason_code: str | None = None
-    # Legacy lifecycle fields (new consumption appends a transition row)
+    # Lifecycle fields (populated post-mint by consume_token)
     consumed_at: str | None = None
     consumed_by_event_id: str | None = None
     # Audit chain link

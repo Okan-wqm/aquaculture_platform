@@ -3,7 +3,7 @@
 Closes security-reviewer findings inline as Tier-1/Tier-3 anchors:
 
 * CRIT-002 — branch-bypass via `gh api`. ``verify_branch_protection``
-  asserts the main branch carries the 4 required GitHub
+  asserts the snowball branch carries the 4 required GitHub
   branch-protection rules; autonomy refuses to start otherwise.
 * CRIT-004 — commit signature kernel verification. Preflight asserts
   ``required_signatures.enabled = true`` so every commit landing on
@@ -65,7 +65,7 @@ class PreflightVerdict:
 
 
 # Plan ARIA-V9.0-C + V10.3-B prereq — the 3 required branch-protection
-# rules on the ARIA target branch (main). Adding a 4th rule = ADR +
+# rules on the ARIA work branch (snowball). Adding a 4th rule = ADR +
 # arbiter approval + invariant update. The list ordering MUST stay
 # stable (governance rows reference these keys).
 #
@@ -169,7 +169,7 @@ def _check_protection_field(payload: dict[str, Any], dotted: str, expected: str)
 
 def verify_branch_protection(
     *,
-    branch: str = "main",
+    branch: str = "snowball",
     repo: str | None = None,
     gh_cli: str = "gh",
 ) -> tuple[bool, tuple[str, ...]]:
@@ -231,7 +231,7 @@ def verify_preflight(
     *,
     profile: str,
     workspace_root: str | Path,
-    branch: str = "main",
+    branch: str = "snowball",
     repo: str | None = None,
     skip_remote: bool = False,
 ) -> PreflightVerdict:

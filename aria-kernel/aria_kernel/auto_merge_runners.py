@@ -441,32 +441,121 @@ def evaluate_v9_implementation_merge(
     gh_cli: str = "gh",
     sleep_fn: Any = None,
 ) -> V9MergeDecision:
-    """Demoted V9 implementation merge surface.
+    """Plan ARIA-V9.6 — synchronous merge orchestration.
 
-    Plan 2026-05-25 makes ``auto_merge.merge_if_green`` the only real
-    merge executor. This legacy V9 surface remains importable so old
-    orchestration code can fail closed with an auditable decision, but
-    it must never call ``gh pr merge`` or otherwise merge a PR.
+    4-gate evaluation:
+      1. Profile precondition: autonomous required for actual merge
+         (strict profile returns eligible=False with
+         autonomous_profile_preconditions_not_met).
+      2. PR checks all SUCCESS via poll_pr_checks (max 60 × 15s).
+      3. branch_tip_sha matches expected via verify_branch_tip
+         (closes sec HIGH-002 + ai HIGH-007).
+      4. auto_merge.evaluate_auto_merge returns approved (uses
+         existing DEFAULT_POLICY.hard_forbidden_globs which includes
+         .github/workflows/, aria-kernel/, infrastructure/,
+         package.json — sec CRIT-003).
+
+    On all 4 gates passing: invokes `gh pr merge --squash` (NOT
+    --auto — synchronous; the daemon stays in control of the merge
+    moment so headRefOid drift between the eligibility check and
+    the merge cannot occur).
+
+    On any gate failing: returns V9MergeDecision(eligible=False,
+    rejection_class=<one of the V9.0-B canonical classes>) so the
+    orchestrator can route to record_implementation_rejected.
+
+    Idempotency_key_hash is computed regardless of outcome so audit
+    rows correlate.
     """
     from datetime import datetime, timezone
-
-    _ = (profile, adapter, policy, gh_cli, sleep_fn)
     decision_at = datetime.now(timezone.utc).isoformat()
     idempotency_key = compute_v9_idempotency_key(
-        plan_id=plan_id,
-        diff_hash=diff_hash,
-        pr_number=pr_number,
-        base_branch=base_branch,
-        branch_tip_sha=branch_tip_sha,
+        plan_id=plan_id, diff_hash=diff_hash, pr_number=pr_number,
+        base_branch=base_branch, branch_tip_sha=branch_tip_sha,
     )
+
+    def _reject(rejection_class: str, check_summary: tuple[str, ...] = ()) -> V9MergeDecision:
+        return V9MergeDecision(
+            eligible=False,
+            plan_id=plan_id,
+            pr_number=pr_number,
+            rejection_class=rejection_class,
+            idempotency_key_hash=idempotency_key,
+            decision_at_utc=decision_at,
+            pre_merge_branch_tip_sha=None,
+            merge_sha=None,
+            check_summary=check_summary,
+        )
+
+    # Gate 1: profile precondition
+    if profile != "autonomous":
+        return _reject("autonomous_profile_preconditions_not_met")
+
+    # Gate 2: CI checks all SUCCESS
+    status, summary = poll_pr_checks(
+        pr_number=pr_number, gh_cli=gh_cli, sleep_fn=sleep_fn,
+    )
+    if status != "all_success":
+        if status == "ci_check_red":
+            return _reject("ci_check_red", summary)
+        if status == "ci_check_skipped_or_neutral":
+            return _reject("ci_check_skipped_or_neutral", summary)
+        return _reject("ci_check_timeout", summary)
+
+    # Gate 3: branch_tip_sha matches
+    if not verify_branch_tip(
+        pr_number=pr_number,
+        expected_branch_tip_sha=branch_tip_sha,
+        gh_cli=gh_cli,
+    ):
+        return _reject("branch_tip_drift", summary)
+
+    # Gate 4: evaluate_auto_merge eligibility
+    if adapter is not None:
+        from .auto_merge import evaluate_auto_merge
+        eligibility = evaluate_auto_merge(
+            adapter=adapter,
+            pr_number=pr_number,
+            policy=policy,
+        )
+        if not eligibility.get("eligible", False):
+            return _reject("merge_policy_violation", summary)
+
+    # All gates passed → synchronous gh pr merge --squash
+    try:
+        proc = subprocess.run(
+            [gh_cli, "pr", "merge", str(pr_number), "--squash"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return _reject("ci_check_timeout", summary)
+    if proc.returncode != 0:
+        return _reject("merge_policy_violation", summary)
+
+    # Capture merged sha
+    merge_sha: str | None = None
+    try:
+        view_proc = subprocess.run(
+            [gh_cli, "pr", "view", str(pr_number),
+             "--json", "mergeCommit"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if view_proc.returncode == 0:
+            view_payload = json.loads(view_proc.stdout)
+            mc = view_payload.get("mergeCommit") if isinstance(view_payload, dict) else None
+            if isinstance(mc, dict):
+                merge_sha = mc.get("oid")
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        merge_sha = None
+
     return V9MergeDecision(
-        eligible=False,
+        eligible=True,
         plan_id=plan_id,
         pr_number=pr_number,
-        rejection_class="v9_merge_path_disabled_use_merge_if_green",
+        rejection_class=None,
         idempotency_key_hash=idempotency_key,
         decision_at_utc=decision_at,
-        pre_merge_branch_tip_sha=None,
-        merge_sha=None,
-        check_summary=("v9_merge_path_disabled",),
+        pre_merge_branch_tip_sha=branch_tip_sha,
+        merge_sha=merge_sha,
+        check_summary=summary,
     )

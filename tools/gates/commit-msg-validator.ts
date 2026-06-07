@@ -61,14 +61,6 @@ const REPO_ROOT = (() => {
 })();
 const REGISTRY_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 
-function writeStdout(message = ''): void {
-  process.stdout.write(`${message}\n`);
-}
-
-function writeStderr(message = ''): void {
-  process.stderr.write(`${message}\n`);
-}
-
 /**
  * Conventional-commit subject prefixes that REQUIRE a Closes: trailer.
  *
@@ -219,33 +211,6 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   '955c8caa', // Phase 8.4 queryKey ESLint rule — old `#P0-1` short-form trailer
   '973394b3', // Phase 11 platform-services split — old `#P0-5` short-form trailer
   'b403a4e5', // Snowball/main merge-reconciliation metadata fix — landed via PR #273; amending is forbidden
-  // Faz 1 day-one baseline reset commits (PR #288) — plan-driven feat commits.
-  // The plan (root local at /root/.claude/plans/peppy-crafting-waterfall.md) is
-  // not on the docs/reviews/ path, so a registry-backed Closes: trailer is not
-  // possible at the time of these commits. Subsequent chore(migration) commits
-  // carry the spec-fix + this allowlist edit; full registry-backed trailers
-  // resume from Faz 1.6 onward.
-  'b5c46dbf', // Faz 1.2 + 1.4 invariants — protected-tables SSoT + SAVEPOINT ban
-  'cf674bda', // Faz 1.9 + 1.10 — extensions + platform functions in init scripts
-  '6228b244', // Faz 1.1 + 1.8 — atomic post-condition probe + FK presence drift class
-  '2da8aaa7', // Faz 1.5 — SchemaVersionGate single authoritative runner cutover
-  '99d29995', // Faz 2 — edge platform v2 sensor-service per-tenant (ADR-025)
-  '6e9c3c14', // Faz 7 — ADR-030 + authoring runbook + drift-repair naming ban
-  '2620e978', // Faz 3 live exec — 14 service baseline migrations consolidated
-  '0f714656', // Faz 3.5 hand-author additions — RLS + audit immutability + sensor hypertable
-  'f6dd9c97', // fix(migration): faz-6-preflight ESM-safe __dirname recovery
-  '8fedf695', // fix(migration): preflight checks both src/migrations and src/database/migrations paths
-  'a4ec8766', // fix(migration): post-Faz-6 invariant spec compatibility + .archive exclusion
-  '1d87dd33', // fix(migration): wrap CREATE TYPE statements in DO/EXCEPTION block (R8 lint)
-  '3f0cb24b', // fix(migration): farm baseline equipment_types CREATE TABLE inject + entity sync flag
-  // PR #290 platform-bootstrap-atom — `f757b3ed` was merged to main but
-  // never landed on migration branch directly; cherry-pick onto PR #290
-  // produced a new SHA. The original commit's body referenced no
-  // registry-backed finding (it landed as part of the Faz 6 cutover
-  // sequence pre-orphan-findings cycle), so the long-form `Closes:`
-  // trailer is structurally unavailable. Allowlist the cherry-pick SHA
-  // so the validator does not block merge.
-  '4b5174db', // fix(migration): replace archived migration imports with Baseline (3 services) — cherry-picked from f757b3ed
 ]);
 
 interface Commit {
@@ -324,9 +289,13 @@ function loadRegistryIds(): Set<string> {
  * heading convention also fails the orphan-findings
  * structural tests (out-of-band).
  */
-const ORPHAN_FINDINGS_PATH = resolve(REPO_ROOT, 'docs/reviews/orphan-findings.md');
+const ORPHAN_FINDINGS_PATH = resolve(
+  REPO_ROOT,
+  'docs/reviews/orphan-findings.md',
+);
 
-const ORPHAN_HEADING_REGEX = /^##\s+(ORPHAN-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3})\b/;
+const ORPHAN_HEADING_REGEX =
+  /^##\s+(ORPHAN-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3})\b/;
 
 function loadOrphanIds(): Set<string> {
   if (!existsSync(ORPHAN_FINDINGS_PATH)) return new Set();
@@ -468,7 +437,8 @@ function validateCommit(
       // aria-debts/ requires DEBT-YYYY-MM-DD-NNN.
       const wantsFinding = path.startsWith('aria-findings/');
       const isFindingId =
-        /^F-\d{3}$/.test(findingId) || /^F-AUTO-V\d+\.\d+(?:-[A-Z0-9-]+)+$/.test(findingId);
+        /^F-\d{3}$/.test(findingId) ||
+        /^F-AUTO-V\d+\.\d+(?:-[A-Z0-9-]+)+$/.test(findingId);
       if (wantsFinding !== isFindingId) {
         out.push({
           sha: commit.shortSha,
@@ -518,26 +488,24 @@ function validateCommit(
 }
 
 function report(violations: Violation[]): void {
-  writeStderr('Closes: trailer validation FAILED:');
+  console.error('Closes: trailer validation FAILED:');
   for (const v of violations) {
-    writeStderr(`  ${v.sha}  ${v.subject}`);
-    writeStderr(`    -> ${v.reason}`);
+    console.error(`  ${v.sha}  ${v.subject}`);
+    console.error(`    -> ${v.reason}`);
   }
-  writeStderr('');
-  writeStderr('Every fix/security/refactor(agentic,phase-*) commit must carry:');
-  writeStderr('  Closes: docs/reviews/<agent>/<date>-<topic>.md#<FINDING-ID>');
-  writeStderr('');
-  writeStderr('Finding IDs live in: docs/reviews/_registry/findings.jsonl');
-  writeStderr('Finding-ID regex:    {PREFIX}-(CRITICAL|HIGH|MEDIUM|LOW)-NNN');
-  writeStderr(
-    'Phase 6 reference:   docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-6',
-  );
+  console.error('');
+  console.error('Every fix/security/refactor(agentic,phase-*) commit must carry:');
+  console.error('  Closes: docs/reviews/<agent>/<date>-<topic>.md#<FINDING-ID>');
+  console.error('');
+  console.error('Finding IDs live in: docs/reviews/_registry/findings.jsonl');
+  console.error('Finding-ID regex:    {PREFIX}-(CRITICAL|HIGH|MEDIUM|LOW)-NNN');
+  console.error('Phase 6 reference:   docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-6');
 }
 
 function main(): void {
   const [, , modeFlag, ...args] = process.argv;
   if (!modeFlag) {
-    writeStderr(
+    console.error(
       'Usage: ts-node tools/gates/commit-msg-validator.ts --mode=<msg-file|range|commit> [args]',
     );
     process.exit(2);
@@ -551,48 +519,65 @@ function main(): void {
   if (mode === 'msg-file') {
     const [msgPath] = args;
     if (!msgPath) {
-      writeStderr('msg-file mode requires the commit-msg path: --mode=msg-file <path>');
+      console.error('msg-file mode requires the commit-msg path: --mode=msg-file <path>');
       process.exit(2);
     }
     const abs = resolve(REPO_ROOT, msgPath);
     if (!existsSync(abs)) {
-      writeStderr(`msg-file not found: ${msgPath}`);
+      console.error(`msg-file not found: ${msgPath}`);
       process.exit(2);
     }
     // No PRE_PHASE6_SHAS applies — the commit has no SHA yet.
-    violations.push(...validateCommit(commitFromMsgFile(abs), registryIds, orphanIds, () => false));
+    violations.push(
+      ...validateCommit(
+        commitFromMsgFile(abs),
+        registryIds,
+        orphanIds,
+        () => false,
+      ),
+    );
   } else if (mode === 'range') {
     const [baseRef, headRef] = args;
     if (!baseRef || !headRef) {
-      writeStderr('range mode requires two refs: --mode=range <base> <head>');
+      console.error('range mode requires two refs: --mode=range <base> <head>');
       process.exit(2);
     }
     const commits = commitsInRange(baseRef, headRef);
     if (commits.length === 0) {
-      writeStdout('No commits in range; nothing to validate.');
+      console.log('No commits in range; nothing to validate.');
       return;
     }
     for (const c of commits) {
       violations.push(
-        ...validateCommit(c, registryIds, orphanIds, (cm) => PRE_PHASE6_SHAS.has(cm.shortSha)),
+        ...validateCommit(
+          c,
+          registryIds,
+          orphanIds,
+          (cm) => PRE_PHASE6_SHAS.has(cm.shortSha),
+        ),
       );
     }
   } else if (mode === 'commit') {
     const c = lastCommit();
     if (!c) {
-      writeStdout('No HEAD commit; nothing to validate.');
+      console.log('No HEAD commit; nothing to validate.');
       return;
     }
     violations.push(
-      ...validateCommit(c, registryIds, orphanIds, (cm) => PRE_PHASE6_SHAS.has(cm.shortSha)),
+      ...validateCommit(
+        c,
+        registryIds,
+        orphanIds,
+        (cm) => PRE_PHASE6_SHAS.has(cm.shortSha),
+      ),
     );
   } else {
-    writeStderr(`Unknown mode: ${mode}`);
+    console.error(`Unknown mode: ${mode}`);
     process.exit(2);
   }
 
   if (violations.length === 0) {
-    writeStdout('Closes: trailer validation passed.');
+    console.log('Closes: trailer validation passed.');
     return;
   }
 

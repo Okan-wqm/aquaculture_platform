@@ -36,23 +36,23 @@ class TestV9IdempotencyKey(unittest.TestCase):
     def test_key_is_sha256(self):
         k = _am.compute_v9_idempotency_key(
             plan_id="p", diff_hash="sha256:" + "0" * 64,
-            pr_number=42, base_branch="main",
+            pr_number=42, base_branch="snowball",
             branch_tip_sha="abcdef",
         )
         self.assertTrue(k.startswith("sha256:"))
         self.assertEqual(len(k), len("sha256:") + 64)
 
-    def test_key_changes_on_v9_merge_path_disabled_use_merge_if_green(self):
+    def test_key_changes_on_branch_tip_drift(self):
         """arb HIGH-006 — 5-tuple includes branch_tip_sha so
         force-push between mint + merge produces a DIFFERENT key."""
         k_before = _am.compute_v9_idempotency_key(
             plan_id="p", diff_hash="sha256:" + "0" * 64,
-            pr_number=42, base_branch="main",
+            pr_number=42, base_branch="snowball",
             branch_tip_sha="abc",
         )
         k_after = _am.compute_v9_idempotency_key(
             plan_id="p", diff_hash="sha256:" + "0" * 64,
-            pr_number=42, base_branch="main",
+            pr_number=42, base_branch="snowball",
             branch_tip_sha="xyz",  # rebased branch tip
         )
         self.assertNotEqual(k_before, k_after)
@@ -60,12 +60,12 @@ class TestV9IdempotencyKey(unittest.TestCase):
     def test_key_changes_on_pr_number(self):
         k1 = _am.compute_v9_idempotency_key(
             plan_id="p", diff_hash="sha256:" + "0" * 64,
-            pr_number=42, base_branch="main",
+            pr_number=42, base_branch="snowball",
             branch_tip_sha="abc",
         )
         k2 = _am.compute_v9_idempotency_key(
             plan_id="p", diff_hash="sha256:" + "0" * 64,
-            pr_number=43, base_branch="main",
+            pr_number=43, base_branch="snowball",
             branch_tip_sha="abc",
         )
         self.assertNotEqual(k1, k2)
@@ -167,7 +167,7 @@ class TestV9BranchTipVerification(unittest.TestCase):
                 pr_number=42, expected_branch_tip_sha="abc123def456",
             ))
 
-    def test_v9_merge_path_disabled_use_merge_if_green_returns_false(self):
+    def test_branch_tip_drift_returns_false(self):
         payload = json.dumps({"headRefOid": "DIFFERENT_SHA"})
         with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
              mock.patch("aria_kernel.auto_merge_runners.subprocess.run",
@@ -192,19 +192,19 @@ class TestV9MergeOrchestration(unittest.TestCase):
     """4-gate evaluation: profile, checks, branch_tip, evaluate_auto_merge."""
 
     def test_strict_profile_rejected(self):
-        """Legacy V9 merge surface is disabled before profile gates."""
+        """Gate 1: profile != autonomous → autonomous_profile_preconditions_not_met."""
         d = _am.evaluate_v9_implementation_merge(
             plan_id="p", pr_number=42,
             diff_hash="sha256:" + "0" * 64,
-            branch_tip_sha="abc", base_branch="main",
+            branch_tip_sha="abc", base_branch="snowball",
             profile="strict",
             sleep_fn=lambda _: None,
         )
         self.assertFalse(d.eligible)
-        self.assertEqual(d.rejection_class, "v9_merge_path_disabled_use_merge_if_green")
+        self.assertEqual(d.rejection_class, "autonomous_profile_preconditions_not_met")
 
     def test_ci_red_rejected(self):
-        """Legacy V9 merge surface is disabled before CI gates."""
+        """Gate 2: ci_check_red → rejection."""
         rows = [{"name": "test", "state": "FAILURE", "bucket": "fail"}]
         with mock.patch("aria_kernel.auto_merge_runners.shutil.which", return_value="/usr/bin/gh"), \
              mock.patch("aria_kernel.auto_merge_runners.subprocess.run",
@@ -212,15 +212,15 @@ class TestV9MergeOrchestration(unittest.TestCase):
             d = _am.evaluate_v9_implementation_merge(
                 plan_id="p", pr_number=42,
                 diff_hash="sha256:" + "0" * 64,
-                branch_tip_sha="abc", base_branch="main",
+                branch_tip_sha="abc", base_branch="snowball",
                 profile="autonomous",
                 sleep_fn=lambda _: None,
             )
             self.assertFalse(d.eligible)
-            self.assertEqual(d.rejection_class, "v9_merge_path_disabled_use_merge_if_green")
+            self.assertEqual(d.rejection_class, "ci_check_red")
 
-    def test_v9_merge_path_disabled_use_merge_if_green_rejected(self):
-        """Legacy V9 merge surface is disabled before branch-tip gates."""
+    def test_branch_tip_drift_rejected(self):
+        """Gate 3: headRefOid mismatch → branch_tip_drift."""
         green_rows = [{"name": "test", "state": "SUCCESS", "bucket": "pass"}]
         drift_payload = {"headRefOid": "DIFFERENT_TIP"}
 
@@ -240,12 +240,12 @@ class TestV9MergeOrchestration(unittest.TestCase):
                 plan_id="p", pr_number=42,
                 diff_hash="sha256:" + "0" * 64,
                 branch_tip_sha="EXPECTED_TIP",
-                base_branch="main",
+                base_branch="snowball",
                 profile="autonomous",
                 sleep_fn=lambda _: None,
             )
             self.assertFalse(d.eligible)
-            self.assertEqual(d.rejection_class, "v9_merge_path_disabled_use_merge_if_green")
+            self.assertEqual(d.rejection_class, "branch_tip_drift")
 
 
 class TestV9PublicApi(unittest.TestCase):

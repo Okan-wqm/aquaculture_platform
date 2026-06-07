@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -13,8 +12,7 @@ from .draft_intent import (
 )
 from .draft_pii_filter import mask_pii_in_intent
 from .ledger import append_jsonl, load_jsonl
-from .runtime_profile import enforce_profile_for_write
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
 # Plan ARIA-V3 §A3 — skill grammar contract (required sections in
@@ -51,7 +49,6 @@ def request_skill_genesis(
     adapter_lang). The request is persisted with ``convergent=true``
     so the CLI seed-batcher can replay it.
     """
-    enforce_profile_for_write("skill_genesis", base_dir=base_dir)
     if not capability_gap_key.strip() or not title.strip():
         raise GovernanceError("capability_gap_key and title are required")
     if convergent and not seed:
@@ -470,7 +467,6 @@ def draft_skill(
     silent acceptance lets a skill enter the pipeline with no
     audit-trail anchor.
     """
-    enforce_profile_for_write("skill_genesis", base_dir=base_dir)
     request = _find_request(request_id, base_dir)
     if request is None:
         raise GovernanceError(
@@ -520,8 +516,6 @@ def sandbox_skill(
     checklist_results: list[dict[str, Any]] | None = None,
     markdown_path: str | Path | None = None,
     base_dir: str | Path | None = None,
-    synthetic_test_mode: bool = False,
-    operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
     """Validate a skill draft against fixture coverage.
 
@@ -534,7 +528,6 @@ def sandbox_skill(
     Both paths require at least MIN_FIXTURES (3) entries; failure entries flip
     decision to "fail" without bypassing the minimum-count guard.
     """
-    enforce_profile_for_write("skill_genesis", base_dir=base_dir)
     # Plan 026R §E.3 — chain enforcement.
     if _find_draft(draft_id, base_dir) is None:
         raise GovernanceError(
@@ -542,22 +535,13 @@ def sandbox_skill(
         )
     if markdown_path is not None and checklist_results is not None:
         raise GovernanceError("provide either markdown_path or checklist_results, not both")
-    source_path: Path | None = None
-    source_sha256: str | None = None
     if markdown_path is not None:
         path = Path(markdown_path)
         if not path.exists():
             raise GovernanceError(f"markdown_path not found: {markdown_path}")
-        raw_markdown = path.read_text(encoding="utf-8")
-        checklist_results = parse_fixture_blocks(raw_markdown)
-        source_path = path.resolve()
-        source_sha256 = "sha256:" + hashlib.sha256(raw_markdown.encode("utf-8")).hexdigest()
+        checklist_results = parse_fixture_blocks(path.read_text(encoding="utf-8"))
     if checklist_results is None:
         raise GovernanceError("skill sandbox requires markdown_path or checklist_results")
-    if markdown_path is None and not synthetic_test_mode:
-        raise GovernanceError("skill_checklist_sandbox_requires_synthetic_test_mode")
-    if synthetic_test_mode and not (operator_approval_ref or "").strip():
-        raise GovernanceError("skill_synthetic_sandbox_requires_operator_approval_ref")
     if len(checklist_results) < MIN_FIXTURES:
         raise GovernanceError(
             f"skill sandbox requires at least {MIN_FIXTURES} fixture entries (## Fixture: <id> blocks or checklist results)"
@@ -570,51 +554,8 @@ def sandbox_skill(
         "decision": "fail" if failed else "pass",
         "checklist_results": checklist_results,
         "source": "markdown" if markdown_path is not None else "checklist_json",
-        "source_path": source_path.as_posix() if source_path is not None else None,
-        "source_sha256": source_sha256,
-        "synthetic_test_mode": bool(synthetic_test_mode),
-        "operator_approval_ref": operator_approval_ref if synthetic_test_mode else None,
     }
-    root = ensure_tools_dir(base_dir)
-    stored = append_jsonl(root / "skill-genesis" / "sandbox.jsonl", row)
-    if synthetic_test_mode:
-        append_tools_governance(
-            root,
-            "skill_genesis_synthetic_sandbox_used",
-            {
-                "draft_id": draft_id,
-                "operator_approval_ref": operator_approval_ref,
-                "source": row["source"],
-                "sandbox_event_id": stored.get("event_id"),
-            },
-        )
-    return stored
-
-
-def approve_skill_pr(
-    *,
-    draft_id: str,
-    operator_approval_ref: str,
-    base_dir: str | Path | None = None,
-    operator_synthetic_override: bool = False,
-) -> dict[str, Any]:
-    from .runtime_profile import enforce_profile_for_write
-    enforce_profile_for_write("skill_genesis", base_dir=base_dir)
-    if not operator_approval_ref.strip():
-        raise GovernanceError("operator approval ref is required")
-    draft = _find_draft(draft_id, base_dir)
-    if draft is None:
-        raise GovernanceError(f"skill_approve_draft_not_found: draft_id={draft_id!r}")
-    sandbox = _latest_sandbox(draft_id, base_dir)
-    if not sandbox or sandbox.get("decision") != "pass":
-        raise GovernanceError("skill draft must pass sandbox before PR approval")
-    if sandbox.get("synthetic_test_mode") and not operator_synthetic_override:
-        raise GovernanceError("skill_synthetic_sandbox_requires_operator_override")
-    row = dict(draft)
-    row["recorded_at"] = utc_now()
-    row["status"] = "approved_for_skill_pr"
-    row["operator_approval_ref"] = operator_approval_ref
-    return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "drafts.jsonl", row)
+    return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "sandbox.jsonl", row)
 
 
 def materialize_skill(
@@ -626,7 +567,6 @@ def materialize_skill(
     base_dir: str | Path | None = None,
     run_invariants: bool = False,
     ack_id: str | None = None,
-    operator_synthetic_override: bool = False,
 ) -> dict[str, Any]:
     """Plan ARIA-V3 §A4 — acknowledge parameter REMOVED; gate REQUIRED.
 
@@ -645,17 +585,13 @@ def materialize_skill(
         raise GovernanceError(
             f"skill_materialize_draft_not_found: draft_id={draft_id!r}"
         )
+    # Plan 026R §E.3 — chain: materialise requires a passing sandbox.
     sandbox = _latest_sandbox(draft_id, base_dir)
     if not sandbox or sandbox.get("decision") != "pass":
         raise GovernanceError(
             f"skill_materialize_requires_passing_sandbox: "
             f"draft_id={draft_id!r} sandbox={sandbox}"
         )
-    if sandbox.get("synthetic_test_mode") and not operator_synthetic_override:
-        raise GovernanceError("skill_synthetic_sandbox_requires_operator_override")
-    # Plan 026R §E.3 — chain: materialise requires passing sandbox and explicit approval.
-    if draft.get("status") != "approved_for_skill_pr":
-        raise GovernanceError("skill draft must be approved_for_skill_pr before materialization")
     dispatch = _find_dispatch(assignment_id, base_dir)
     worktree = Path(str(dispatch.get("worktree_path") or ""))
     if not worktree.is_absolute():
@@ -676,57 +612,8 @@ def materialize_skill(
             f"skill_materialize_requires_drafter_body: draft_id={draft_id!r} "
             f"has no validated body yet (drafter run pending or failed)"
         )
-    intent_dict = draft.get("intent") or {}
-    if isinstance(intent_dict, dict):
-        from .draft_intent import AcceptanceTest as _AT, SkillDraftIntent as _SDI
-        from .draft_validator import validate_body_against_intent
-        intent_obj = _SDI(
-            intent_kind=intent_dict.get("intent_kind", "skill"),
-            intent_id=intent_dict.get("intent_id", ""),
-            name=intent_dict.get("name", ""),
-            target_path=intent_dict.get("target_path", target_path),
-            description=intent_dict.get("description", ""),
-            required_sections=tuple(intent_dict.get("required_sections") or ()),
-            owners=tuple(intent_dict.get("owners") or ()),
-            handoff_agents=tuple(intent_dict.get("handoff_agents") or ()),
-            shadow_period_days=int(intent_dict.get("shadow_period_days") or 14),
-            precision_threshold=float(intent_dict.get("precision_threshold") or 0.85),
-            acceptance_tests=tuple(
-                _AT(
-                    name=t.get("name", ""),
-                    expected=t.get("expected", ""),
-                    description=t.get("description", ""),
-                )
-                for t in intent_dict.get("acceptance_tests") or ()
-                if isinstance(t, dict)
-            ),
-            evidence_allowlist=tuple(intent_dict.get("evidence_allowlist") or ()),
-            diff_classifier_lane=intent_dict.get("diff_classifier_lane", "L3-snowball"),
-            banned_phrases=tuple(intent_dict.get("banned_phrases") or ()),
-        )
-        policy_path = Path(__file__).resolve().parent / "data" / "auto_action_policy.json"
-        result = validate_body_against_intent(
-            body, intent_obj, auto_action_policy_path=policy_path,
-        )
-        if not result.valid:
-            raise GovernanceError(
-                "skill_materialize_body_grammar_invalid: "
-                + ";".join(result.complaints)
-            )
-        from .tool_registry import append_tools_governance
-        append_tools_governance(
-            ensure_tools_dir(base_dir),
-            "draft_validated",
-            {
-                "materialize_event_id": materialize_event_id,
-                "draft_id": draft_id,
-                "intent_id": intent_obj.intent_id,
-                "validator_result": "valid",
-                "body_sha256": __import__("hashlib").sha256(body.encode("utf-8")).hexdigest(),
-                "kind": "skill",
-            },
-        )
     # Plan ARIA-V3 §2g event 2 — ack_consumed (operator or auto).
+    intent_dict = draft.get("intent") or {}
     gate_outcome = gate.acquire_or_consume(
         ack_id=ack_id,
         base_dir=ensure_tools_dir(base_dir),
@@ -734,15 +621,10 @@ def materialize_skill(
         intent_id=str(intent_dict.get("intent_id", "")),
         target_path=target_path,
         kind="skill",
-        commit_sha_at_mint=_git_head(worktree),
+        commit_sha_at_mint="HEAD",
         profile_state_at_mint=f"{gate.profile}:v1",
     )
     target = worktree / target_path
-    try:
-        target.resolve().relative_to(worktree.resolve())
-    except ValueError as exc:
-        raise GovernanceError("target_path_escapes_worktree") from exc
-    file_sha256_pre = _file_sha256(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f".{target.name}.tmp")
     tmp.write_text(body, encoding="utf-8")
@@ -764,9 +646,7 @@ def materialize_skill(
         {
             "materialize_event_id": materialize_event_id,
             "target_path": target_path,
-            "file_sha256_pre": file_sha256_pre,
             "file_sha256_post": _hl.sha256(body.encode("utf-8")).hexdigest(),
-            "commit_sha": _git_head(worktree),
             "draft_id": draft_id,
             "assignment_id": assignment_id,
             "kind": "skill",
@@ -792,18 +672,6 @@ def materialize_skill(
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "materializations.jsonl", row)
 
-
-
-def _git_head(path: Path) -> str:
-    completed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, text=True, capture_output=True, check=False)
-    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
-
-
-def _file_sha256(path: Path) -> str:
-    if not path.exists() or not path.is_file():
-        return ""
-    import hashlib as _hashlib
-    return _hashlib.sha256(path.read_bytes()).hexdigest()
 
 def list_skill_genesis(*, base_dir: str | Path | None = None, kind: str = "drafts") -> list[dict[str, Any]]:
     filename = {

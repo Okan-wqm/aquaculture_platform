@@ -221,10 +221,9 @@ class TestSecretScrub(unittest.TestCase):
     """Smoke test for secret_scrub.scrub_text (used by C5)."""
 
     def test_scrub_redacts_known_patterns(self):
-        fake_aws_key = "AKIA" + "1234567890ABCDEF"
-        text = f"API key {fake_aws_key} used by alice@example.com from 192.168.1.1"
+        text = "API key AKIA1234567890ABCDEF used by alice@example.com from 192.168.1.1"
         scrubbed, types = secret_scrub.scrub_text(text)
-        self.assertNotIn(fake_aws_key, scrubbed)
+        self.assertNotIn("AKIA1234567890ABCDEF", scrubbed)
         self.assertNotIn("alice@example.com", scrubbed)
         self.assertNotIn("192.168.1.1", scrubbed)
         self.assertIn("aws_access_key", types)

@@ -168,7 +168,7 @@ class PreflightFailFastTests(unittest.TestCase):
             valid=False,
             profile="autonomous",
             reasons=("synthetic_failure_test",),
-            branch="main",
+            branch="snowball",
             repo=None,
             gh_token_present=False,
             gh_app_installation=False,

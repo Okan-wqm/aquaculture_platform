@@ -41,8 +41,6 @@ import sys
 from pathlib import Path
 from typing import Any, Literal
 
-from .agent_surface import PLANNER_BRIDGE_ROLES
-
 # Plan ARIA-V9.0-B — assert_never is the canonical exhaustiveness
 # tool. Python 3.11+ ships it under typing; earlier targets fall back
 # to typing_extensions if present, else a runtime stub that raises
@@ -70,6 +68,14 @@ else:  # pragma: no cover — kernel pins Python >= 3.11
 PlannerBridgeRole = Literal[
     "primary_plan", "challenger_plan", "cross_review", "implementation",
 ]
+PLANNER_BRIDGE_ROLES: frozenset[str] = frozenset({
+    "primary_plan",
+    "challenger_plan",
+    "cross_review",
+    "implementation",
+})
+
+
 def is_planner_bridge_role(role: str | None) -> bool:
     return role in PLANNER_BRIDGE_ROLES
 

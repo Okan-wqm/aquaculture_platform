@@ -243,7 +243,7 @@ def _implementation_suggested_prompt(
     return (
         "Apply the CONVERGED plan's key_changes via Edit/Write under\n"
         "sandboxed Bash. Run validation_commands (canonical suite\n"
-        "REQUIRED). Open PR via gh pr create --base main. Submit\n"
+        "REQUIRED). Open PR via gh pr create --base snowball. Submit\n"
         "aria/agent-response/v1 envelope where `details.implementation`\n"
         "carries {branch, pr_number, diff_hash, branch_tip_sha,\n"
         " base_branch_sha, validation_results, signer_key_fp}.\n"

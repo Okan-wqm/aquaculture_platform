@@ -32,11 +32,11 @@ Append-only invariant (locked by I-V3-18):
 
 One-time consumption (locked by I-V3-19):
 
-  * ``consume_token(ack_id)`` rejects when a legacy ``consumed_at``
-    value or a newer ``event=consumed`` transition already exists. It
-    appends an ``aria/ack-consumption/v1`` transition row instead of
-    rewriting the mint row, then returns a compatibility view to the
-    caller (``materialize_*`` in Phase A4).
+  * ``consume_token(ack_id)`` rejects when ``consumed_at`` is
+    already non-null. Returns the verified row to the caller
+    (``materialize_*`` in Phase A4) so the materialise pipeline
+    can link the row into its three-event audit chain
+    (AUDITTRAIL-CRITICAL-003).
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any
 
 from .ack_row import ACK_ACTOR_KINDS, AckLedgerRow
-from .ledger import append_jsonl, load_jsonl, state_transaction
+from .ledger import append_jsonl, load_jsonl, rewrite_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 _LEDGER_RELATIVE = ("acks", "acks.jsonl")
@@ -73,26 +73,27 @@ def _key_file_path(base_dir: str | Path) -> Path:
     return Path(base_dir).joinpath(*_KEY_FILE_RELATIVE)
 
 
-_HASH_SUBJECT_BASE_EXCLUDE: frozenset[str] = frozenset({
+_HASH_SUBJECT_EXCLUDE: frozenset[str] = frozenset({
+    # Mutates post-mint (consume).
     "signature",
+    "consumed_at",
+    "consumed_by_event_id",
+    # Plan ARIA-V2 §A.1 ledger hash chain — appended by
+    # ``append_jsonl`` AFTER the HMAC subject is computed. Excluding
+    # these keeps the HMAC stable across append (which mutates the
+    # row) and rewrite_jsonl (which re-computes the chain). The
+    # ledger's own integrity invariant covers the chain hashes
+    # independently (V2 §A.1 verify_jsonl).
     "ledger_hash",
     "previous_ledger_hash",
 })
 
 
 def _canonical_row_bytes(row: dict[str, Any]) -> bytes:
-    """Return the signed HMAC subject for mint or transition rows.
-
-    Legacy mint rows excluded ``consumed_at`` and
-    ``consumed_by_event_id`` because consumption used to rewrite the
-    mint row in place. New append-only consumption rows bind those
-    fields into the signature because they are immutable transition
-    data.
+    """Hash subject: every field EXCEPT signature + consumed-state +
+    ledger chain hashes. Sorted JSON for determinism.
     """
-    exclude = set(_HASH_SUBJECT_BASE_EXCLUDE)
-    if row.get("event") != "consumed":
-        exclude.update({"consumed_at", "consumed_by_event_id"})
-    subject = {k: v for k, v in row.items() if k not in exclude}
+    subject = {k: v for k, v in row.items() if k not in _HASH_SUBJECT_EXCLUDE}
     return json.dumps(subject, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
@@ -479,65 +480,47 @@ def consume_token(
     ack_id: str,
     materialize_event_id: str,
 ) -> dict[str, Any]:
-    """Append an immutable consumption transition for ``ack_id``.
+    """Plan ARIA-V3 §A5 + I-V3-19 — one-time consumption.
 
-    Compatibility rule: pre-2026-05-26 rows that were rewritten with
-    ``consumed_at`` populated still read as consumed. New consumption
-    never rewrites the mint row; it appends ``event="consumed"`` signed
-    with the same key as the mint row.
+    Rewrites the ledger with the consumed-at + consumed_by_event_id
+    fields populated for the matching row. Raises if the token was
+    already consumed (one-time-use invariant).
     """
     root = ensure_tools_dir(base_dir)
-    ledger_path = _ledger_path(root)
-    with state_transaction([ledger_path]) as txn:
-        rows = txn.load_jsonl(ledger_path, verify=True)
-        target_row: dict[str, Any] | None = None
-        consumed_transition: dict[str, Any] | None = None
-        for row in rows:
-            if row.get("ack_id") != ack_id:
-                continue
-            if row.get("event") == "consumed" or row.get("$schema") == "aria/ack-consumption/v1":
-                consumed_transition = row
-                continue
-            if row.get("actor_kind") in ACK_ACTOR_KINDS:
-                target_row = row
-        if target_row is None:
-            raise GovernanceError(f"ack_token_not_found: ack_id={ack_id!r}")
-        if target_row.get("consumed_at") is not None or consumed_transition is not None:
-            consumed_at = (
-                consumed_transition or target_row
-            ).get("consumed_at")
-            consumed_by = (
-                consumed_transition or target_row
-            ).get("consumed_by_event_id")
-            raise GovernanceError(
-                f"ack_token_already_consumed: ack_id={ack_id!r} "
-                f"consumed_at={consumed_at} by={consumed_by!r}"
-            )
-        verification = verify_row(target_row, base_dir=root)
-        if not verification.get("valid"):
-            raise GovernanceError(
-                f"ack_token_signature_invalid: ack_id={ack_id!r} "
-                f"reason={verification.get('reason')}"
-            )
-        consumed_at = _utc_now()
-        key = _resolve_key(root, key_id=str(target_row["signed_key_id"]))
-        transition_row: dict[str, Any] = {
-            "$schema": "aria/ack-consumption/v1",
-            "schema_version": 1,
-            "event": "consumed",
-            "ack_id": ack_id,
-            "consumed_at": consumed_at,
-            "consumed_by_event_id": materialize_event_id,
-            "signed_key_id": target_row["signed_key_id"],
-            "parent_ack_ledger_hash": target_row.get("ledger_hash"),
-            "draft_id": target_row.get("draft_id"),
-            "intent_id": target_row.get("intent_id"),
-            "target_path": target_row.get("target_path"),
-        }
-        transition_row["signature"] = _hmac_sign(
-            key["secret"], _canonical_row_bytes(transition_row),
+    rows = load_jsonl(_ledger_path(root))
+    found_index: int | None = None
+    for idx, row in enumerate(rows):
+        if row.get("ack_id") == ack_id:
+            found_index = idx
+            break
+    if found_index is None:
+        raise GovernanceError(f"ack_token_not_found: ack_id={ack_id!r}")
+    target_row = dict(rows[found_index])
+    if target_row.get("consumed_at") is not None:
+        raise GovernanceError(
+            f"ack_token_already_consumed: ack_id={ack_id!r} "
+            f"consumed_at={target_row['consumed_at']} "
+            f"by={target_row.get('consumed_by_event_id')!r}"
         )
-        persisted_transition = txn.append_jsonl(ledger_path, transition_row)
+    # Re-verify HMAC before consuming (defense-in-depth: a
+    # corrupted ledger row should not pass through the gate).
+    verification = verify_row(target_row, base_dir=root)
+    if not verification.get("valid"):
+        raise GovernanceError(
+            f"ack_token_signature_invalid: ack_id={ack_id!r} "
+            f"reason={verification.get('reason')}"
+        )
+    consumed_row = dict(target_row)
+    consumed_row["consumed_at"] = _utc_now()
+    consumed_row["consumed_by_event_id"] = materialize_event_id
+    # Re-sign with the SAME key so verification still passes after
+    # consumption mutates the row.
+    head_key = _resolve_key(root, key_id=consumed_row["signed_key_id"])
+    consumed_row["signature"] = _hmac_sign(
+        head_key["secret"], _canonical_row_bytes(consumed_row),
+    )
+    rows[found_index] = consumed_row
+    rewrite_jsonl(_ledger_path(root), rows)
     from .tool_registry import append_tools_governance
     append_tools_governance(
         root,
@@ -545,19 +528,14 @@ def consume_token(
         {
             "ack_id": ack_id,
             "materialize_event_id": materialize_event_id,
-            "consumed_at": consumed_at,
-            "consumption_ledger_hash": persisted_transition.get("ledger_hash"),
+            "consumed_at": consumed_row["consumed_at"],
         },
     )
-    compatible_row = dict(target_row)
-    compatible_row["consumed_at"] = consumed_at
-    compatible_row["consumed_by_event_id"] = materialize_event_id
     return {
         "status": "ok",
         "ack_id": ack_id,
-        "consumed_at": consumed_at,
-        "row": compatible_row,
-        "consumption_row": persisted_transition,
+        "consumed_at": consumed_row["consumed_at"],
+        "row": consumed_row,
     }
 
 

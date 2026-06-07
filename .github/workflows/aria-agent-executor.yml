@@ -3,17 +3,17 @@ name: aria-agent-executor
 # Plan ARIA-V3 §B1 — scheduled CI executor for ARIA's bound-agent
 # pipeline. Runs once per off-hours window OR on manual dispatch; pulls
 # the next pending agent request from the kernel's queue, invokes
-# Codex CLI via ChatGPT-managed auth, submits the result.
+# Claude Code via OAuth, submits the result.
 #
 # Argv contract status (DEBT-2026-05-08-001 retired by V3 §B1): the
 # kernel-side argv shape is now PROVEN — see
 # tools/aria-poc/ci_executor_contract_proven.md (locked by invariant
-# I-V3-21). The workflow ships with CODEX_CLI_MOCK default flipped
+# I-V3-21). The workflow ships with CLAUDE_CODE_MOCK default flipped
 # to 'false' (production); `vars.ARIA_MOCK_KILL_SWITCH` is read
 # AHEAD of the default so operators can keep mock active without
 # editing this file (INFRA-MEDIUM-011). The operator's single
 # supervised live invocation populates the verified_at_commit /
-# codex_cli_version_minimum fields in the proven-contract doc.
+# claude_cli_version_minimum fields in the proven-contract doc.
 #
 # Lease-token redaction:
 #   - LEASE token flows ONLY through ARIA_LEASE_TOKEN env var.
@@ -31,7 +31,7 @@ on:
         required: false
         type: string
       mock:
-        description: 'Run in mock mode (no real Codex CLI invocation)'
+        description: 'Run in mock mode (no real Claude Code invocation)'
         required: false
         default: 'false'
         type: choice
@@ -40,7 +40,7 @@ on:
           - 'false'
 
 concurrency:
-  group: aria-agent-executor-main
+  group: aria-agent-executor-snowball
   cancel-in-progress: false
 
 permissions:
@@ -48,12 +48,13 @@ permissions:
 
 jobs:
   executor:
-    runs-on: [self-hosted, linux, codex]
+    runs-on: ubuntu-latest
     timeout-minutes: 35
+    if: github.ref == 'refs/heads/snowball'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: main
+          ref: snowball
           persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -64,35 +65,25 @@ jobs:
         with:
           node-version: '20'
 
-      # Plan ARIA-V3 §B1 INFRA-CRITICAL-003 — verify the pinned Codex
-      # CLI floor BEFORE the executor step. The proven-contract doc
+      # Plan ARIA-V3 §B1 INFRA-CRITICAL-003 — install pinned Claude
+      # Code CLI BEFORE the executor step. The proven-contract doc
       # (tools/aria-poc/ci_executor_contract_proven.md) is the SSoT
       # for the argv shape; this step ensures the binary that
       # interprets that argv is present and version-pinned. The
       # --ignore-scripts flag satisfies V2 I-25 clause 4
       # (INFRA-CRITICAL-001 supply chain).
-      - name: Pre-flight - Codex CLI present
+      - name: Install claude binary (pinned)
         run: |
           set -euo pipefail
-          REQUIRED_CODEX_VERSION="0.135.0"
-          CODEX_VERSION="$(codex --version | awk '{print $2}')"
-          python3 - "$REQUIRED_CODEX_VERSION" "$CODEX_VERSION" <<'PY'
-          import sys
-          def parse(value):
-              return tuple(int(part) for part in value.split('.'))
-          required = parse(sys.argv[1])
-          current = parse(sys.argv[2])
-          if current < required:
-              raise SystemExit(f"codex-cli {sys.argv[2]} is below required {sys.argv[1]}")
-          print(f"codex-cli {sys.argv[2]} satisfies required {sys.argv[1]}")
-          PY
+          npm install -g --ignore-scripts @anthropic-ai/claude-code@1.0.0
+          claude --version || true
 
       # Plan ARIA-V3 §B2 + §2n + INFRA-HIGH-004 — cross-host lease
       # check. If a local daemon currently holds the autonomous-loop
       # lease (e.g. operator is running ``aria-kernel autonomy run``
       # on their laptop), this GHA cron MUST refuse to enter the
       # autonomous path to prevent double-claim / double-materialize
-      # races. The lease state is read from the mainline
+      # races. The lease state is read from the snowball-committed
       # ``aria-tools/locks/autonomous-host.lock`` file; a fresh lease
       # (< 5 min old) belonging to a different host blocks the cron.
       # The cron exits cleanly with reason ``autonomous_host_lease_blocked``
@@ -130,16 +121,19 @@ jobs:
       # The kill switch (vars.ARIA_MOCK_KILL_SWITCH) is read AHEAD
       # of the workflow default — operator opt-out path (Plan
       # ARIA-V3 §B1 INFRA-MEDIUM-011). The mock_source value flows
-      # into the ci_executor via CODEX_CLI_MOCK_SOURCE so the
-      # codex_mock_mode_resolved audit event (AUDITTRAIL-HIGH-009)
+      # into the ci_executor via CLAUDE_CODE_MOCK_SOURCE so the
+      # mock_mode_default_flipped audit event (AUDITTRAIL-HIGH-009)
       # records exactly which layer decided the mock state.
-      - name: Pre-flight - Codex auth + mock-mode kill-switch resolution
+      - name: Pre-flight — OAuth token presence + mock-mode kill-switch resolution
         id: preflight
         env:
           KILL_SWITCH: ${{ vars.ARIA_MOCK_KILL_SWITCH }}
           INPUT_MOCK: ${{ github.event.inputs.mock }}
+          OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
+          # Plan ARIA-V3 §B1 — kill switch wins over input wins over
+          # default. Workflow default is now 'false' (production).
           if [ -n "${KILL_SWITCH:-}" ]; then
             EFFECTIVE_MOCK="${KILL_SWITCH}"
             MOCK_SOURCE="kill_switch"
@@ -148,18 +142,13 @@ jobs:
             MOCK_SOURCE="workflow_dispatch_input"
           else
             EFFECTIVE_MOCK="false"
-            MOCK_SOURCE="workflow_default_codex"
+            MOCK_SOURCE="workflow_default_post_b1"
           fi
           echo "effective_mock=${EFFECTIVE_MOCK}" >> "$GITHUB_OUTPUT"
           echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
-          if [ "${EFFECTIVE_MOCK}" = "false" ]; then
-            if env | grep -E '^(OPENAI_API_KEY|CODEX_API_KEY)=' >/dev/null; then
-              echo "::error::API-key Codex mode is disallowed for ARIA; use ChatGPT-managed codex login on the trusted runner." >&2
-              exit 1
-            fi
-            codex login status --json >/tmp/aria-codex-auth.json 2>/tmp/aria-codex-auth.err \
-              || codex doctor --json >/tmp/aria-codex-auth.json 2>>/tmp/aria-codex-auth.err \
-              || { echo "::error::Codex ChatGPT auth preflight failed" >&2; cat /tmp/aria-codex-auth.err >&2; exit 1; }
+          if [ "${EFFECTIVE_MOCK}" = "false" ] && [ -z "${OAUTH_TOKEN:-}" ]; then
+            echo "::error::CLAUDE_CODE_OAUTH_TOKEN is unset but effective_mock=false; refusing to start. Set secrets.CLAUDE_CODE_OAUTH_TOKEN or vars.ARIA_MOCK_KILL_SWITCH=true to keep mock active." >&2
+            exit 1
           fi
 
       # Plan 020 Phase 3.C — session_start handoff snapshot.
@@ -211,13 +200,21 @@ jobs:
       - name: Run CI executor
         if: steps.pending.outputs.request_id != ''
         env:
-          CODEX_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
-          CODEX_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
-          ARIA_CODEX_REQUIRE_USAGE: '1'
+          # Plan ARIA-V3 §B1 — effective_mock resolved by preflight
+          # in this priority order: kill switch > workflow_dispatch
+          # input > workflow default ('false', flipped from 'true').
+          # CLAUDE_CODE_MOCK_SOURCE is consumed by ci_executor.py to
+          # emit mock_mode_default_flipped audit event (AUDITTRAIL-HIGH-009).
+          CLAUDE_CODE_MOCK: ${{ steps.preflight.outputs.effective_mock }}
+          CLAUDE_CODE_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           MAX_TURNS_PER_RUN: '12'
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
         run: |
+          # ::add-mask:: ensures the OAuth token never appears in logs
+          # even on accidental echo.
+          echo "::add-mask::${CLAUDE_CODE_OAUTH_TOKEN:-NEVER_SET}"
           PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \
             "${{ steps.pending.outputs.request_id }}"
 
@@ -229,9 +226,8 @@ jobs:
           # runs.jsonl deliberately excluded (lease token / over-disclosure
           # protection per spike doc artefact policy).
           name: aria-response-${{ steps.pending.outputs.request_id }}
-          path: aria-tools/agent-invocations/outputs/${{ steps.pending.outputs.request_id }}.json
-          if-no-files-found: error
-          retention-days: 7
+          path: aria-tools/agent-invocations/outputs/**
+          retention-days: 30
 
       # Plan 020 Phase 3.C — session_stop handoff snapshot.
       # WHY here (post-upload, always): runs even when the executor

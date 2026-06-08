@@ -32,22 +32,23 @@ import {
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
 import { SubEquipmentSection } from '../components/SubEquipmentSection';
 
-// Equipment categories for two-stage selection
-// Values must match backend equipment_types.category column (lowercase in DB)
+// Equipment categories for two-stage selection.
+// Values match GraphQL enum wire values; normalizeCategory accepts legacy
+// lower-case DB strings returned by older generated hooks.
 const EQUIPMENT_CATEGORIES = [
-  { value: 'tank', label: 'Tank' },
-  { value: 'pond', label: 'Pond' },
-  { value: 'cage', label: 'Cage' },
-  { value: 'pump', label: 'Pump' },
-  { value: 'filtration', label: 'Filter' },
-  { value: 'heating_cooling', label: 'Heater/Chiller' },
-  { value: 'monitoring', label: 'Sensor' },
-  { value: 'aeration', label: 'Blower/Aerator' },
-  { value: 'feeding', label: 'Feeder' },
-  { value: 'electrical', label: 'Generator' },
-  { value: 'water_treatment', label: 'Water Treatment' },
-  { value: 'plumbing', label: 'Plumbing' },
-  { value: 'other', label: 'Other' },
+  { value: 'TANK', label: 'Tank' },
+  { value: 'POND', label: 'Pond' },
+  { value: 'CAGE', label: 'Cage' },
+  { value: 'PUMP', label: 'Pump' },
+  { value: 'FILTRATION', label: 'Filter' },
+  { value: 'HEATING_COOLING', label: 'Heater/Chiller' },
+  { value: 'MONITORING', label: 'Sensor' },
+  { value: 'AERATION', label: 'Blower/Aerator' },
+  { value: 'FEEDING', label: 'Feeder' },
+  { value: 'ELECTRICAL', label: 'Generator' },
+  { value: 'WATER_TREATMENT', label: 'Water Treatment' },
+  { value: 'PLUMBING', label: 'Plumbing' },
+  { value: 'OTHER', label: 'Other' },
 ];
 
 const statusColors: Record<string, string> = {
@@ -67,7 +68,11 @@ const statusColors: Record<string, string> = {
   QUARANTINE: 'bg-red-100 text-red-800',
 };
 
-const TANK_CATEGORIES = ['tank', 'pond', 'cage'];
+const TANK_CATEGORIES = ['TANK', 'POND', 'CAGE'];
+
+function normalizeCategory(category?: string): string {
+  return category ? category.toUpperCase() : '';
+}
 
 // PERF-018: Pre-compile the camelCase regex once at module scope so it is not
 // reallocated inside the render loop on every equipment card render.
@@ -107,7 +112,10 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
       if (typeof value === 'object' && !Array.isArray(value)) {
         const nested = value as Record<string, unknown>;
         return [
-          <div key={`${key}-header`} className="text-sm font-semibold text-gray-700 mt-1 capitalize">
+          <div
+            key={`${key}-header`}
+            className="text-sm font-semibold text-gray-700 mt-1 capitalize"
+          >
             {camelCaseToLabel(key)}
           </div>,
           ...Object.entries(nested)
@@ -117,7 +125,9 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
                 <span className="text-gray-500 capitalize">{camelCaseToLabel(subKey)}:</span>
                 <span className="text-gray-900 font-medium">
                   {typeof subValue === 'boolean'
-                    ? (subValue ? 'Yes' : 'No')
+                    ? subValue
+                      ? 'Yes'
+                      : 'No'
                     : typeof subValue === 'object'
                       ? JSON.stringify(subValue)
                       : String(subValue)}
@@ -137,23 +147,25 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
 
 const typeIcons: Record<string, string> = {
   'fish-tank': 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
-  'tank': 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
-  'pond': 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
-  'cage': 'M4 4h16v16H4V4zm2 2v12h12V6H6zm2 2h8v8H8V8z',
+  tank: 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
+  pond: 'M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
+  cage: 'M4 4h16v16H4V4zm2 2v12h12V6H6zm2 2h8v8H8V8z',
   'water-pump': 'M13 10V3L4 14h7v7l9-11h-7z',
-  'pump': 'M13 10V3L4 14h7v7l9-11h-7z',
-  'drum-filter': 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z',
-  'filtration': 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z',
-  'blower': 'M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-  'aeration': 'M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  pump: 'M13 10V3L4 14h7v7l9-11h-7z',
+  'drum-filter':
+    'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z',
+  filtration:
+    'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z',
+  blower: 'M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+  aeration: 'M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   'auto-feeder': 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
-  'feeding': 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+  feeding: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
 };
 
 interface EquipmentFormData {
   name: string;
   code: string;
-  selectedCategory: string;  // Category for two-stage selection
+  selectedCategory: string; // Category for two-stage selection
   equipmentTypeId: string;
   siteId: string;
   departmentId: string;
@@ -166,9 +178,9 @@ interface EquipmentFormData {
   warrantyEndDate: string;
   supplierId: string;
   description: string;
-  parentEquipmentId: string;  // Parent equipment for hierarchy
+  parentEquipmentId: string; // Parent equipment for hierarchy
   isVisibleInSensor: boolean;
-  specifications: Record<string, unknown>;  // Dynamic specifications
+  specifications: Record<string, unknown>; // Dynamic specifications
 }
 
 const initialFormData: EquipmentFormData = {
@@ -232,7 +244,7 @@ export const EquipmentTab: React.FC = () => {
 
   // Delete preview query
   const { data: deletePreview, isLoading: isPreviewLoading } = useEquipmentDeletePreview(
-    equipmentToDelete?.id ?? null
+    equipmentToDelete?.id ?? null,
   );
 
   // Transform backend preview to dialog format
@@ -245,7 +257,7 @@ export const EquipmentTab: React.FC = () => {
       affectedItems.push({
         type: 'childEquipment',
         label: 'Alt Ekipmanlar',
-        items: deletePreview.affectedItems.childEquipment.map(e => ({
+        items: deletePreview.affectedItems.childEquipment.map((e) => ({
           id: e.id,
           name: e.name,
           code: e.code,
@@ -258,7 +270,7 @@ export const EquipmentTab: React.FC = () => {
       affectedItems.push({
         type: 'subEquipment',
         label: 'Alt Parçalar',
-        items: deletePreview.affectedItems.subEquipment.map(e => ({
+        items: deletePreview.affectedItems.subEquipment.map((e) => ({
           id: e.id,
           name: e.name,
           code: e.code,
@@ -285,7 +297,7 @@ export const EquipmentTab: React.FC = () => {
   const filteredTypesByCategory = useMemo(() => {
     if (!formData.selectedCategory || !equipmentTypes) return [];
     return equipmentTypes.filter(
-      (type) => type.category === formData.selectedCategory
+      (type) => normalizeCategory(type.category) === formData.selectedCategory,
     );
   }, [formData.selectedCategory, equipmentTypes]);
 
@@ -312,7 +324,8 @@ export const EquipmentTab: React.FC = () => {
 
   // Count orphaned equipment (no system associations)
   const orphanedCount = equipment.filter(
-    eq => (!eq.systemIds || eq.systemIds.length === 0) && (!eq.systems || eq.systems.length === 0)
+    (eq) =>
+      (!eq.systemIds || eq.systemIds.length === 0) && (!eq.systems || eq.systems.length === 0),
   ).length;
 
   // Get available parent equipment (exclude current equipment if editing, and filter by site if selected)
@@ -330,20 +343,25 @@ export const EquipmentTab: React.FC = () => {
   }, [equipment, editingId, formData.siteId]);
 
   // PERF-004: memoize to avoid re-running O(n) filter on unrelated state changes
-  const filteredEquipment = useMemo(() => equipment.filter(eq => {
-    const matchesSearch =
-      eq.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      eq.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      eq.serialNumber?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = selectedType === 'all' || eq.equipmentType?.code === selectedType;
-    const matchesStatus = selectedStatus === 'all' || eq.status === selectedStatus;
-    const isOrphaned = (!eq.systemIds || eq.systemIds.length === 0) && (!eq.systems || eq.systems.length === 0);
-    const matchesOrphanFilter = !showOrphanedOnly || isOrphaned;
-    return matchesSearch && matchesType && matchesStatus && matchesOrphanFilter;
-  }), [equipment, searchTerm, selectedType, selectedStatus, showOrphanedOnly]);
+  const filteredEquipment = useMemo(
+    () =>
+      equipment.filter((eq) => {
+        const matchesSearch =
+          eq.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          eq.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          eq.serialNumber?.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesType = selectedType === 'all' || eq.equipmentType?.code === selectedType;
+        const matchesStatus = selectedStatus === 'all' || eq.status === selectedStatus;
+        const isOrphaned =
+          (!eq.systemIds || eq.systemIds.length === 0) && (!eq.systems || eq.systems.length === 0);
+        const matchesOrphanFilter = !showOrphanedOnly || isOrphaned;
+        return matchesSearch && matchesType && matchesStatus && matchesOrphanFilter;
+      }),
+    [equipment, searchTerm, selectedType, selectedStatus, showOrphanedOnly],
+  );
 
   // Get unique types for filter from equipment types API
-  const types = (equipmentTypes || []).map(type => ({
+  const types = (equipmentTypes || []).map((type) => ({
     value: type.code,
     label: type.name,
   }));
@@ -359,17 +377,22 @@ export const EquipmentTab: React.FC = () => {
   }, []);
 
   // Handle type change - reset specifications with defaults
-  const handleTypeChange = useCallback((typeId: string) => {
-    const selectedType = equipmentTypes?.find((t) => t.id === typeId);
-    const schema = selectedType?.specificationSchema as unknown as SpecificationSchema | undefined;
-    const defaults = schema ? getDefaultSpecificationValues(schema) : {};
+  const handleTypeChange = useCallback(
+    (typeId: string) => {
+      const selectedType = equipmentTypes?.find((t) => t.id === typeId);
+      const schema = selectedType?.specificationSchema as unknown as
+        | SpecificationSchema
+        | undefined;
+      const defaults = schema ? getDefaultSpecificationValues(schema) : {};
 
-    setFormData((prev) => ({
-      ...prev,
-      equipmentTypeId: typeId,
-      specifications: defaults,
-    }));
-  }, [equipmentTypes]);
+      setFormData((prev) => ({
+        ...prev,
+        equipmentTypeId: typeId,
+        specifications: defaults,
+      }));
+    },
+    [equipmentTypes],
+  );
 
   // Handle specifications change
   const handleSpecificationsChange = useCallback((specs: Record<string, unknown>) => {
@@ -388,15 +411,27 @@ export const EquipmentTab: React.FC = () => {
       return;
     }
     if (!formData.departmentId) {
-      toast({ title: 'Validation Error', description: 'Please select a department.', variant: 'error' });
+      toast({
+        title: 'Validation Error',
+        description: 'Please select a department.',
+        variant: 'error',
+      });
       return;
     }
     if (formData.systemIds.length === 0) {
-      toast({ title: 'Validation Error', description: 'Please select at least one system.', variant: 'error' });
+      toast({
+        title: 'Validation Error',
+        description: 'Please select at least one system.',
+        variant: 'error',
+      });
       return;
     }
     if (!formData.equipmentTypeId) {
-      toast({ title: 'Validation Error', description: 'Please select an equipment type.', variant: 'error' });
+      toast({
+        title: 'Validation Error',
+        description: 'Please select an equipment type.',
+        variant: 'error',
+      });
       return;
     }
 
@@ -406,7 +441,9 @@ export const EquipmentTab: React.FC = () => {
       if (Object.keys(specErrors).length > 0) {
         toast({
           title: 'Validation Error',
-          description: 'Please fill in all required specification fields: ' + Object.values(specErrors).join(', '),
+          description:
+            'Please fill in all required specification fields: ' +
+            Object.values(specErrors).join(', '),
           variant: 'error',
         });
         return;
@@ -414,19 +451,19 @@ export const EquipmentTab: React.FC = () => {
     }
 
     // Tank/Pond/Cage category: volume must be > 0
-    const TANK_VOLUME_CATEGORIES = ['tank', 'pond', 'cage', 'raceway', 'net_pen'];
-    if (TANK_VOLUME_CATEGORIES.includes(formData.selectedCategory?.toLowerCase() ?? '')) {
+    const TANK_VOLUME_CATEGORIES = ['TANK', 'POND', 'CAGE'];
+    if (TANK_VOLUME_CATEGORIES.includes(formData.selectedCategory ?? '')) {
       const specs = (formData.specifications || {}) as Record<string, unknown>;
       const volume = Number(specs.volume) || 0;
       const dims = specs.dimensions as Record<string, unknown> | undefined;
-      const hasValidDimensions = dims && (
-        (Number(dims.diameter) > 0 && Number(dims.depth) > 0) ||
-        (Number(dims.length) > 0 && Number(dims.width) > 0 && Number(dims.depth) > 0)
-      );
+      const hasValidDimensions =
+        dims &&
+        ((Number(dims.diameter) > 0 && Number(dims.depth) > 0) ||
+          (Number(dims.length) > 0 && Number(dims.width) > 0 && Number(dims.depth) > 0));
       if (volume <= 0 && !hasValidDimensions) {
         toast({
           title: 'Validation Error',
-          description: 'Tank hacmi 0\'dan buyuk olmalidir veya gecerli boyutlar girilmelidir.',
+          description: "Tank hacmi 0'dan buyuk olmalidir veya gecerli boyutlar girilmelidir.",
           variant: 'error',
         });
         return;
@@ -479,7 +516,11 @@ export const EquipmentTab: React.FC = () => {
       setEditingId(null);
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to save equipment:', err);
-      toast({ title: 'Error', description: 'Failed to save equipment. Please try again.', variant: 'error' });
+      toast({
+        title: 'Error',
+        description: 'Failed to save equipment. Please try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -488,7 +529,7 @@ export const EquipmentTab: React.FC = () => {
     // Get siteId from the equipment's department
     const siteId = eq.department?.siteId || '';
     // Get category from equipment type
-    const category = eq.equipmentType?.category || '';
+    const category = normalizeCategory(eq.equipmentType?.category);
     setFormData({
       name: eq.name,
       code: eq.code,
@@ -513,7 +554,7 @@ export const EquipmentTab: React.FC = () => {
   };
 
   const handleSiteChange = (siteId: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       siteId,
       departmentId: '', // Reset department when site changes
@@ -522,17 +563,17 @@ export const EquipmentTab: React.FC = () => {
   };
 
   const handleDepartmentChange = (departmentId: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       departmentId,
     }));
   };
 
   const handleSystemToggle = (systemId: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       systemIds: prev.systemIds.includes(systemId)
-        ? prev.systemIds.filter(id => id !== systemId)
+        ? prev.systemIds.filter((id) => id !== systemId)
         : [...prev.systemIds, systemId],
     }));
   };
@@ -550,7 +591,11 @@ export const EquipmentTab: React.FC = () => {
       setEquipmentToDelete(null);
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to delete equipment:', err);
-      toast({ title: 'Error', description: 'Failed to delete equipment. Please try again.', variant: 'error' });
+      toast({
+        title: 'Error',
+        description: 'Failed to delete equipment. Please try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -578,7 +623,12 @@ export const EquipmentTab: React.FC = () => {
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
             </svg>
           </div>
           <select
@@ -587,8 +637,10 @@ export const EquipmentTab: React.FC = () => {
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Types</option>
-            {types.map(type => (
-              <option key={type.value} value={type.value}>{type.label}</option>
+            {types.map((type) => (
+              <option key={type.value} value={type.value}>
+                {type.label}
+              </option>
             ))}
           </select>
           <select
@@ -631,7 +683,12 @@ export const EquipmentTab: React.FC = () => {
               className={`px-3 py-2 ${viewMode === 'grid' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
+                />
               </svg>
             </button>
             <button
@@ -639,7 +696,12 @@ export const EquipmentTab: React.FC = () => {
               className={`px-3 py-2 ${viewMode === 'table' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6h16M4 10h16M4 14h16M4 18h16"
+                />
               </svg>
             </button>
           </div>
@@ -652,7 +714,12 @@ export const EquipmentTab: React.FC = () => {
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
           >
             <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+              />
             </svg>
             Add Equipment
           </button>
@@ -670,15 +737,27 @@ export const EquipmentTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load equipment. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
+          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+            Retry
+          </button>
         </div>
       )}
 
       {/* Orphan Warning Notice */}
       {!isLoading && !error && orphanedCount > 0 && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center">
-          <svg className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          <svg
+            className="w-5 h-5 text-red-500 mr-2 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+            />
           </svg>
           <span className="text-sm text-red-700">
             {orphanedCount} equipment item(s) are not associated with any system
@@ -702,8 +781,22 @@ export const EquipmentTab: React.FC = () => {
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center">
                     <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-                      <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={typeIcons[eq.equipmentType?.code || ''] || typeIcons[eq.equipmentType?.category || ''] || typeIcons['fish-tank']} />
+                      <svg
+                        className="w-6 h-6 text-blue-600"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d={
+                            typeIcons[eq.equipmentType?.code || ''] ||
+                            typeIcons[eq.equipmentType?.category || ''] ||
+                            typeIcons['fish-tank']
+                          }
+                        />
                       </svg>
                     </div>
                     <div>
@@ -711,7 +804,9 @@ export const EquipmentTab: React.FC = () => {
                       <p className="text-sm text-gray-500">{eq.code}</p>
                     </div>
                   </div>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 text-gray-800'}`}>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 text-gray-800'}`}
+                  >
                     {eq.status}
                   </span>
                 </div>
@@ -726,52 +821,87 @@ export const EquipmentTab: React.FC = () => {
                     <span>{eq.department?.name || '-'}</span>
                   </div>
                   {/* System Association */}
-                  {(eq.systemIds && eq.systemIds.length > 0) || (eq.systems && eq.systems.length > 0) ? (
+                  {(eq.systemIds && eq.systemIds.length > 0) ||
+                  (eq.systems && eq.systems.length > 0) ? (
                     <div className="flex items-center text-gray-600">
                       <span className="text-gray-400 w-24">Systems:</span>
                       <span className="text-sm">
-                        {eq.systems?.map(s => s.systemName).join(', ') || `${eq.systemIds?.length || 0} system(s)`}
+                        {eq.systems?.map((s) => s.systemName).join(', ') ||
+                          `${eq.systemIds?.length || 0} system(s)`}
                       </span>
                     </div>
                   ) : (
                     <div className="flex items-center text-red-600">
-                      <svg className="w-4 h-4 mr-1 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      <svg
+                        className="w-4 h-4 mr-1 text-red-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                        />
                       </svg>
                       <span className="text-sm font-medium">Not associated with any system</span>
                     </div>
                   )}
                   <div className="flex items-center text-gray-600">
                     <span className="text-gray-400 w-24">Model:</span>
-                    <span>{eq.manufacturer || ''} {eq.model || '-'}</span>
+                    <span>
+                      {eq.manufacturer || ''} {eq.model || '-'}
+                    </span>
                   </div>
                   {/* Parent Equipment */}
                   {eq.parentEquipment && (
                     <div className="flex items-center text-gray-600">
                       <span className="text-gray-400 w-24">Parent:</span>
                       <span className="flex items-center">
-                        <svg className="w-3 h-3 mr-1 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                        <svg
+                          className="w-3 h-3 mr-1 text-blue-500"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 10l7-7m0 0l7 7m-7-7v18"
+                          />
                         </svg>
                         {eq.parentEquipment.name}
                       </span>
                     </div>
                   )}
                   {/* Auto Filling Badge for feeders */}
-                  {eq.equipmentType?.code?.startsWith('feeder-') && !!(eq.specifications as Record<string, unknown>)?.autoFilling && (
-                    <div className="flex items-center">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                        Auto Fill
-                      </span>
-                    </div>
-                  )}
+                  {eq.equipmentType?.code?.startsWith('feeder-') &&
+                    !!(eq.specifications as Record<string, unknown>)?.autoFilling && (
+                      <div className="flex items-center">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                          Auto Fill
+                        </span>
+                      </div>
+                    )}
                   {/* Sub Equipment Count */}
                   {(eq.subEquipmentCount || 0) > 0 && (
                     <div className="flex items-center text-gray-600">
                       <span className="text-gray-400 w-24">Sub-equip:</span>
                       <span className="flex items-center text-blue-600">
-                        <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                        <svg
+                          className="w-3 h-3 mr-1"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                          />
                         </svg>
                         {eq.subEquipmentCount} item(s)
                       </span>
@@ -782,21 +912,33 @@ export const EquipmentTab: React.FC = () => {
                 {/* Specifications */}
                 {eq.specifications && Object.keys(eq.specifications).length > 0 && (
                   <div className="border-t border-gray-200 pt-4">
-                    <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Specifications</h4>
-                    <div className="space-y-1">
-                      {renderSpecifications(eq.specifications)}
-                    </div>
+                    <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                      Specifications
+                    </h4>
+                    <div className="space-y-1">{renderSpecifications(eq.specifications)}</div>
                   </div>
                 )}
               </div>
 
               <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 rounded-b-lg flex justify-between items-center">
                 <span className="text-xs text-gray-500">
-                  {eq.warrantyEndDate ? `Warranty: ${new Date(eq.warrantyEndDate).toLocaleDateString()}` : 'No warranty info'}
+                  {eq.warrantyEndDate
+                    ? `Warranty: ${new Date(eq.warrantyEndDate).toLocaleDateString()}`
+                    : 'No warranty info'}
                 </span>
                 <div className="flex space-x-2">
-                  <button onClick={() => handleEdit(eq)} className="text-blue-600 hover:text-blue-800 text-sm font-medium">Edit</button>
-                  <button onClick={() => handleDelete(eq)} className="text-red-600 hover:text-red-800 text-sm font-medium">Delete</button>
+                  <button
+                    onClick={() => handleEdit(eq)}
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDelete(eq)}
+                    className="text-red-600 hover:text-red-800 text-sm font-medium"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             </div>
@@ -810,38 +952,74 @@ export const EquipmentTab: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Equipment</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Systems</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hierarchy</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Equipment
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Type
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Location
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Systems
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Hierarchy
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Model
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredEquipment.map((eq) => (
-                <tr key={eq.id} className={`${
-                  (eq.systemIds && eq.systemIds.length > 0) || (eq.systems && eq.systems.length > 0)
-                    ? 'hover:bg-blue-50 border-l-4 border-l-blue-500'
-                    : 'bg-red-50 border-l-4 border-l-red-500'
-                }`}>
+                <tr
+                  key={eq.id}
+                  className={`${
+                    (eq.systemIds && eq.systemIds.length > 0) ||
+                    (eq.systems && eq.systems.length > 0)
+                      ? 'hover:bg-blue-50 border-l-4 border-l-blue-500'
+                      : 'bg-red-50 border-l-4 border-l-red-500'
+                  }`}
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{eq.name}</div>
                     <div className="text-sm text-gray-500">{eq.code}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{eq.equipmentType?.name || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{eq.department?.name || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {eq.equipmentType?.name || '-'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {eq.department?.name || '-'}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {(eq.systemIds && eq.systemIds.length > 0) || (eq.systems && eq.systems.length > 0) ? (
+                    {(eq.systemIds && eq.systemIds.length > 0) ||
+                    (eq.systems && eq.systems.length > 0) ? (
                       <span className="text-gray-500">
-                        {eq.systems?.map(s => s.systemName).join(', ') || `${eq.systemIds?.length || 0} system(s)`}
+                        {eq.systems?.map((s) => s.systemName).join(', ') ||
+                          `${eq.systemIds?.length || 0} system(s)`}
                       </span>
                     ) : (
                       <span className="flex items-center text-red-600">
-                        <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        <svg
+                          className="w-4 h-4 mr-1"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                          />
                         </svg>
                         Not associated
                       </span>
@@ -849,16 +1027,42 @@ export const EquipmentTab: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {eq.parentEquipment ? (
-                      <span className="flex items-center text-blue-600" title={`Parent: ${eq.parentEquipment.name}`}>
-                        <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                      <span
+                        className="flex items-center text-blue-600"
+                        title={`Parent: ${eq.parentEquipment.name}`}
+                      >
+                        <svg
+                          className="w-3 h-3 mr-1"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 10l7-7m0 0l7 7m-7-7v18"
+                          />
                         </svg>
                         {eq.parentEquipment.code}
                       </span>
                     ) : (eq.subEquipmentCount || 0) > 0 ? (
-                      <span className="flex items-center text-green-600" title={`${eq.subEquipmentCount} sub-equipment`}>
-                        <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                      <span
+                        className="flex items-center text-green-600"
+                        title={`${eq.subEquipmentCount} sub-equipment`}
+                      >
+                        <svg
+                          className="w-3 h-3 mr-1"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                          />
                         </svg>
                         {eq.subEquipmentCount}
                       </span>
@@ -867,14 +1071,28 @@ export const EquipmentTab: React.FC = () => {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 text-gray-800'}`}>
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 text-gray-800'}`}
+                    >
                       {eq.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{eq.manufacturer || ''} {eq.model || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {eq.manufacturer || ''} {eq.model || '-'}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button onClick={() => handleEdit(eq)} className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
-                    <button onClick={() => handleDelete(eq)} className="text-red-600 hover:text-red-900">Delete</button>
+                    <button
+                      onClick={() => handleEdit(eq)}
+                      className="text-blue-600 hover:text-blue-900 mr-3"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(eq)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -886,8 +1104,18 @@ export const EquipmentTab: React.FC = () => {
       {/* Empty State */}
       {!isLoading && !error && filteredEquipment.length === 0 && (
         <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <svg
+            className="mx-auto h-12 w-12 text-gray-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+            />
           </svg>
           <h3 className="mt-2 text-sm font-medium text-gray-900">No equipment found</h3>
           <p className="mt-1 text-sm text-gray-500">
@@ -900,7 +1128,10 @@ export const EquipmentTab: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setIsModalOpen(false)} />
+            <div
+              className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+              onClick={() => setIsModalOpen(false)}
+            />
             <div className="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:max-w-2xl sm:w-full max-h-[90vh] overflow-y-auto">
               <form onSubmit={handleSubmit}>
                 <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
@@ -921,7 +1152,9 @@ export const EquipmentTab: React.FC = () => {
                             type="text"
                             required
                             value={formData.name}
-                            onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, name: e.target.value }))
+                            }
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
@@ -931,7 +1164,9 @@ export const EquipmentTab: React.FC = () => {
                             type="text"
                             required
                             value={formData.code}
-                            onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, code: e.target.value }))
+                            }
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
@@ -940,16 +1175,20 @@ export const EquipmentTab: React.FC = () => {
                       {/* Two-stage type selection */}
                       <div className="grid grid-cols-2 gap-4 mt-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Category *</label>
+                          <label className="block text-sm font-medium text-gray-700">
+                            Category *
+                          </label>
                           <select
                             value={formData.selectedCategory}
-                            onChange={e => handleCategoryChange(e.target.value)}
+                            onChange={(e) => handleCategoryChange(e.target.value)}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                             required
                           >
                             <option value="">Select Category...</option>
-                            {EQUIPMENT_CATEGORIES.map(cat => (
-                              <option key={cat.value} value={cat.value}>{cat.label}</option>
+                            {EQUIPMENT_CATEGORIES.map((cat) => (
+                              <option key={cat.value} value={cat.value}>
+                                {cat.label}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -957,14 +1196,20 @@ export const EquipmentTab: React.FC = () => {
                           <label className="block text-sm font-medium text-gray-700">Type *</label>
                           <select
                             value={formData.equipmentTypeId}
-                            onChange={e => handleTypeChange(e.target.value)}
+                            onChange={(e) => handleTypeChange(e.target.value)}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                             required
                             disabled={!formData.selectedCategory}
                           >
-                            <option value="">{formData.selectedCategory ? 'Select Type...' : 'Select category first...'}</option>
-                            {filteredTypesByCategory.map(type => (
-                              <option key={type.id} value={type.id}>{type.name}</option>
+                            <option value="">
+                              {formData.selectedCategory
+                                ? 'Select Type...'
+                                : 'Select category first...'}
+                            </option>
+                            {filteredTypesByCategory.map((type) => (
+                              <option key={type.id} value={type.id}>
+                                {type.name}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -972,10 +1217,14 @@ export const EquipmentTab: React.FC = () => {
 
                       <div className="grid grid-cols-2 gap-4 mt-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Status *</label>
+                          <label className="block text-sm font-medium text-gray-700">
+                            Status *
+                          </label>
                           <select
                             value={formData.status}
-                            onChange={e => setFormData(prev => ({ ...prev, status: e.target.value }))}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, status: e.target.value }))
+                            }
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           >
                             <optgroup label="General">
@@ -999,15 +1248,21 @@ export const EquipmentTab: React.FC = () => {
                           </select>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                          <label className="block text-sm font-medium text-gray-700">
+                            Supplier
+                          </label>
                           <select
                             value={formData.supplierId}
-                            onChange={e => setFormData(prev => ({ ...prev, supplierId: e.target.value }))}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
+                            }
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           >
                             <option value="">Select Supplier...</option>
-                            {suppliers.map(sup => (
-                              <option key={sup.id} value={sup.id}>{sup.name}</option>
+                            {suppliers.map((sup) => (
+                              <option key={sup.id} value={sup.id}>
+                                {sup.name}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -1024,48 +1279,73 @@ export const EquipmentTab: React.FC = () => {
                           <label className="block text-sm font-medium text-gray-700">Site *</label>
                           <select
                             value={formData.siteId}
-                            onChange={e => handleSiteChange(e.target.value)}
+                            onChange={(e) => handleSiteChange(e.target.value)}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                             required
                           >
                             <option value="">Select Site...</option>
-                            {sites.map(site => (
-                              <option key={site.id} value={site.id}>{site.name}</option>
+                            {sites.map((site) => (
+                              <option key={site.id} value={site.id}>
+                                {site.name}
+                              </option>
                             ))}
                           </select>
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Department *</label>
+                          <label className="block text-sm font-medium text-gray-700">
+                            Department *
+                          </label>
                           <select
                             value={formData.departmentId}
-                            onChange={e => handleDepartmentChange(e.target.value)}
+                            onChange={(e) => handleDepartmentChange(e.target.value)}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                             required
                             disabled={!formData.siteId}
                           >
-                            <option value="">{deptError ? 'Departmanlar yüklenemedi' : !formData.siteId ? 'Önce site seçin...' : departments.length === 0 ? 'Bu site için departman bulunamadı' : 'Departman seçin...'}</option>
-                            {departments.map(dept => (
-                              <option key={dept.id} value={dept.id}>{dept.name}</option>
+                            <option value="">
+                              {deptError
+                                ? 'Departmanlar yüklenemedi'
+                                : !formData.siteId
+                                  ? 'Önce site seçin...'
+                                  : departments.length === 0
+                                    ? 'Bu site için departman bulunamadı'
+                                    : 'Departman seçin...'}
+                            </option>
+                            {departments.map((dept) => (
+                              <option key={dept.id} value={dept.id}>
+                                {dept.name}
+                              </option>
                             ))}
                           </select>
-                          {deptError && <p className="text-xs text-red-500 mt-1">Departmanlar yüklenirken hata oluştu</p>}
+                          {deptError && (
+                            <p className="text-xs text-red-500 mt-1">
+                              Departmanlar yüklenirken hata oluştu
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="mt-4">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Systems * <span className="text-gray-400 text-xs font-normal">(Select all systems this equipment serves)</span>
+                          Systems *{' '}
+                          <span className="text-gray-400 text-xs font-normal">
+                            (Select all systems this equipment serves)
+                          </span>
                         </label>
                         {!formData.siteId ? (
                           <p className="text-sm text-gray-500 italic">Select a site first...</p>
                         ) : systems.length === 0 ? (
-                          <p className="text-sm text-gray-500 italic">No systems available for this site</p>
+                          <p className="text-sm text-gray-500 italic">
+                            No systems available for this site
+                          </p>
                         ) : (
                           <div className="max-h-32 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1">
-                            {systems.map(sys => (
+                            {systems.map((sys) => (
                               <label
                                 key={sys.id}
                                 className={`flex items-center p-2 rounded cursor-pointer hover:bg-gray-50 ${
-                                  formData.systemIds.includes(sys.id) ? 'bg-blue-50 border border-blue-200' : ''
+                                  formData.systemIds.includes(sys.id)
+                                    ? 'bg-blue-50 border border-blue-200'
+                                    : ''
                                 }`}
                               >
                                 <input
@@ -1081,7 +1361,9 @@ export const EquipmentTab: React.FC = () => {
                           </div>
                         )}
                         {formData.systemIds.length > 0 && (
-                          <p className="mt-1 text-xs text-blue-600">{formData.systemIds.length} system(s) selected</p>
+                          <p className="mt-1 text-xs text-blue-600">
+                            {formData.systemIds.length} system(s) selected
+                          </p>
                         )}
                       </div>
                     </div>
@@ -1092,46 +1374,72 @@ export const EquipmentTab: React.FC = () => {
                         Hierarchy
                       </h4>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Parent Equipment</label>
+                        <label className="block text-sm font-medium text-gray-700">
+                          Parent Equipment
+                        </label>
                         <select
                           value={formData.parentEquipmentId}
-                          onChange={e => setFormData(prev => ({ ...prev, parentEquipmentId: e.target.value }))}
+                          onChange={(e) =>
+                            setFormData((prev) => ({ ...prev, parentEquipmentId: e.target.value }))
+                          }
                           className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">None (Root Equipment)</option>
-                          {availableParentEquipment.map(eq => (
+                          {availableParentEquipment.map((eq) => (
                             <option key={eq.id} value={eq.id}>
                               {eq.name} ({eq.code}) - {eq.equipmentType?.name}
                             </option>
                           ))}
                         </select>
                         <p className="mt-1 text-xs text-gray-500">
-                          Optional. Select if this equipment is a sub-component of another equipment.
+                          Optional. Select if this equipment is a sub-component of another
+                          equipment.
                         </p>
                       </div>
 
                       {/* Show current child equipment when editing */}
-                      {editingId && equipment.find(eq => eq.id === editingId)?.childEquipment?.length ? (
+                      {editingId &&
+                      equipment.find((eq) => eq.id === editingId)?.childEquipment?.length ? (
                         <div className="mt-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Sub-Equipment</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Sub-Equipment
+                          </label>
                           <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
                             <div className="space-y-2">
-                              {equipment.find(eq => eq.id === editingId)?.childEquipment?.map(child => (
-                                <div key={child.id} className="flex items-center justify-between text-sm">
-                                  <span className="flex items-center">
-                                    <svg className="w-4 h-4 text-gray-400 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                    </svg>
-                                    {child.name} ({child.code})
-                                  </span>
-                                  <span className={`px-2 py-0.5 text-xs rounded-full ${statusColors[child.status] || 'bg-gray-100 text-gray-800'}`}>
-                                    {child.status}
-                                  </span>
-                                </div>
-                              ))}
+                              {equipment
+                                .find((eq) => eq.id === editingId)
+                                ?.childEquipment?.map((child) => (
+                                  <div
+                                    key={child.id}
+                                    className="flex items-center justify-between text-sm"
+                                  >
+                                    <span className="flex items-center">
+                                      <svg
+                                        className="w-4 h-4 text-gray-400 mr-2"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M9 5l7 7-7 7"
+                                        />
+                                      </svg>
+                                      {child.name} ({child.code})
+                                    </span>
+                                    <span
+                                      className={`px-2 py-0.5 text-xs rounded-full ${statusColors[child.status] || 'bg-gray-100 text-gray-800'}`}
+                                    >
+                                      {child.status}
+                                    </span>
+                                  </div>
+                                ))}
                             </div>
                             <p className="mt-2 text-xs text-gray-500">
-                              To add sub-equipment, edit or create equipment and set this equipment as their parent.
+                              To add sub-equipment, edit or create equipment and set this equipment
+                              as their parent.
                             </p>
                           </div>
                         </div>
@@ -1154,11 +1462,15 @@ export const EquipmentTab: React.FC = () => {
                       </h4>
                       <div className="grid grid-cols-3 gap-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Manufacturer</label>
+                          <label className="block text-sm font-medium text-gray-700">
+                            Manufacturer
+                          </label>
                           <input
                             type="text"
                             value={formData.manufacturer}
-                            onChange={e => setFormData(prev => ({ ...prev, manufacturer: e.target.value }))}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
+                            }
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
@@ -1167,36 +1479,50 @@ export const EquipmentTab: React.FC = () => {
                           <input
                             type="text"
                             value={formData.model}
-                            onChange={e => setFormData(prev => ({ ...prev, model: e.target.value }))}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, model: e.target.value }))
+                            }
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Serial Number</label>
+                          <label className="block text-sm font-medium text-gray-700">
+                            Serial Number
+                          </label>
                           <input
                             type="text"
                             value={formData.serialNumber}
-                            onChange={e => setFormData(prev => ({ ...prev, serialNumber: e.target.value }))}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, serialNumber: e.target.value }))
+                            }
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4 mt-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Purchase Date</label>
+                          <label className="block text-sm font-medium text-gray-700">
+                            Purchase Date
+                          </label>
                           <input
                             type="date"
                             value={formData.purchaseDate}
-                            onChange={e => setFormData(prev => ({ ...prev, purchaseDate: e.target.value }))}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, purchaseDate: e.target.value }))
+                            }
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Warranty Expiry</label>
+                          <label className="block text-sm font-medium text-gray-700">
+                            Warranty Expiry
+                          </label>
                           <input
                             type="date"
                             value={formData.warrantyEndDate}
-                            onChange={e => setFormData(prev => ({ ...prev, warrantyEndDate: e.target.value }))}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, warrantyEndDate: e.target.value }))
+                            }
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
@@ -1228,7 +1554,9 @@ export const EquipmentTab: React.FC = () => {
                         type="checkbox"
                         id="isVisibleInSensor"
                         checked={formData.isVisibleInSensor}
-                        onChange={(e) => setFormData(prev => ({ ...prev, isVisibleInSensor: e.target.checked }))}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, isVisibleInSensor: e.target.checked }))
+                        }
                         className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                       />
                       <label htmlFor="isVisibleInSensor" className="text-sm text-gray-700">

@@ -1,25 +1,10 @@
-import * as crypto from 'crypto';
+import { GoneException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ConflictException,
-  BadRequestException,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
-
-import {
-  SystemSetting,
+  DEFAULT_SYSTEM_SETTINGS,
   SettingCategory,
   SettingValueType,
-  DEFAULT_SYSTEM_SETTINGS,
 } from '../entities/system-setting.entity';
-
-// ============================================================================
-// DTOs
-// ============================================================================
 
 export interface CreateSystemSettingDto {
   key: string;
@@ -65,599 +50,161 @@ export interface SettingsByCategory {
   [category: string]: SystemSettingResponse[];
 }
 
-// ============================================================================
-// Service
-// ============================================================================
+export interface EmailConfig {
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUsername: string;
+  hasSmtpPassword: boolean;
+  fromAddress: string;
+  fromName: string;
+}
+
+export interface EmailSendConfig extends Omit<EmailConfig, 'hasSmtpPassword'> {
+  smtpPassword: string;
+}
+
+const LEGACY_CONFIG_STORE_GONE =
+  'admin-api direct system_settings writes are retired; use config-service effective configuration APIs';
 
 @Injectable()
 export class SystemSettingService {
   private readonly logger = new Logger(SystemSettingService.name);
-  private readonly encryptionKey: string;
+  private readonly bootTime = new Date();
 
-  /**
-   * Pre-derived AES-256 encryption key (32 bytes).
-   * Derived once at startup via scrypt with a deployment-specific salt.
-   */
-  private readonly derivedKey: Buffer;
-
-  constructor(
-    @InjectRepository(SystemSetting)
-    private readonly settingRepository: Repository<SystemSetting>,
-  ) {
-    // SECURITY: Fail fast in production if encryption key is not configured
-    const key = process.env['ENCRYPTION_KEY'];
-    if (!key && process.env['NODE_ENV'] === 'production') {
-      throw new Error('SECURITY: ENCRYPTION_KEY environment variable must be set in production');
-    }
-    if (!key) {
-      this.logger.warn('ENCRYPTION_KEY not configured - using insecure dev key. DO NOT use in production!');
-    }
-    this.encryptionKey = key || 'DEV-ONLY-ENCRYPTION-KEY-DO-NOT-USE-IN-PROD';
-    this.derivedKey = this.deriveKey(this.encryptionKey);
-  }
-
-  /**
-   * Derives a 32-byte AES-256 encryption key using scrypt with a deployment-specific salt.
-   * The salt is derived from the master key's SHA-256 hash to ensure deterministic
-   * derivation while avoiding the literal 'salt' anti-pattern (C-10).
-   *
-   * @param masterKey - The master encryption key from environment
-   * @returns 32-byte derived key suitable for AES-256
-   */
-  private deriveKey(masterKey: string): Buffer {
-    const salt = crypto.createHash('sha256')
-      .update(`${masterKey}-encryption-salt-v2`)
-      .digest()
-      .subarray(0, 16);
-    return crypto.scryptSync(masterKey, salt, 32);
-  }
-
-  // ============================================================================
-  // Initialization
-  // ============================================================================
-
-  /**
-   * Seed default settings on application startup
-   */
   async seedDefaultSettings(): Promise<void> {
-    this.logger.log('Checking for missing default settings...');
-
-    const existingKeys = (await this.settingRepository.find()).map(s => s.key);
-    const missingSettings = DEFAULT_SYSTEM_SETTINGS.filter(
-      s => !existingKeys.includes(s.key)
-    );
-
-    if (missingSettings.length === 0) {
-      this.logger.log('All default settings already exist');
-      return;
-    }
-
-    const settings = missingSettings.map(s =>
-      this.settingRepository.create({
-        key: s.key,
-        value: s.value,
-        valueType: s.valueType,
-        category: s.category,
-        description: s.description,
-        displayName: s.displayName,
-        isPublic: s.isPublic ?? false,
-        isReadOnly: s.isReadOnly ?? false,
-        requiresRestart: s.requiresRestart ?? false,
-        defaultValue: s.value,
-      })
-    );
-
-    await this.settingRepository.save(settings);
-    this.logger.log(`Seeded ${missingSettings.length} default settings`);
+    this.logger.log('Skipping legacy system_settings seed; config-service owns system configuration');
   }
 
-  // ============================================================================
-  // CRUD Operations
-  // ============================================================================
-
-  /**
-   * Get all settings grouped by category
-   */
   async getAllSettings(includePrivate = true): Promise<SettingsByCategory> {
-    const query = this.settingRepository.createQueryBuilder('setting');
-
-    if (!includePrivate) {
-      query.where('setting.isPublic = :isPublic', { isPublic: true });
-    }
-
-    query.orderBy('setting.category', 'ASC').addOrderBy('setting.sortOrder', 'ASC');
-
-    const settings = await query.getMany();
     const grouped: SettingsByCategory = {};
-
-    for (const setting of settings) {
-      const category = setting.category;
-      if (!grouped[category]) {
-        grouped[category] = [];
-      }
-      grouped[category].push(this.toResponse(setting));
+    for (const setting of DEFAULT_SYSTEM_SETTINGS) {
+      if (!includePrivate && !setting.isPublic) continue;
+      const response = this.defaultSettingToResponse(setting.key);
+      if (!grouped[setting.category]) grouped[setting.category] = [];
+      const bucket = grouped[setting.category];
+      if (bucket) bucket.push(response);
     }
-
     return grouped;
   }
 
-  /**
-   * Get settings by category
-   */
   async getSettingsByCategory(
     category: SettingCategory,
     includePrivate = true,
   ): Promise<SystemSettingResponse[]> {
-    const query = this.settingRepository
-      .createQueryBuilder('setting')
-      .where('setting.category = :category', { category });
-
-    if (!includePrivate) {
-      query.andWhere('setting.isPublic = :isPublic', { isPublic: true });
-    }
-
-    query.orderBy('setting.sortOrder', 'ASC');
-
-    const settings = await query.getMany();
-    return settings.map(s => this.toResponse(s));
+    const all = await this.getAllSettings(includePrivate);
+    return all[category] ?? [];
   }
 
-  /**
-   * Get setting by key
-   */
   async getSettingByKey(key: string): Promise<SystemSettingResponse> {
-    const setting = await this.settingRepository.findOne({ where: { key } });
-
-    if (!setting) {
-      throw new NotFoundException(`Setting with key "${key}" not found`);
+    if (!DEFAULT_SYSTEM_SETTINGS.some((setting) => setting.key === key)) {
+      throw new NotFoundException(`Setting with key "${key}" is not exposed by the legacy adapter`);
     }
-
-    return this.toResponse(setting);
+    return this.defaultSettingToResponse(key);
   }
 
-  /**
-   * Get raw setting value (for internal use)
-   */
   async getValue<T = unknown>(key: string, defaultValue?: T): Promise<T> {
-    const setting = await this.settingRepository.findOne({ where: { key } });
-
-    if (!setting) {
-      if (defaultValue !== undefined) {
-        return defaultValue;
-      }
-      throw new NotFoundException(`Setting with key "${key}" not found`);
-    }
-
-    return this.parseValue(setting) as T;
+    const env = this.envOverrideForKey(key);
+    if (env !== undefined) return this.coerceValue(env, defaultValue) as T;
+    const setting = DEFAULT_SYSTEM_SETTINGS.find((candidate) => candidate.key === key);
+    if (setting) return this.coerceValue(setting.value, defaultValue) as T;
+    if (defaultValue !== undefined) return defaultValue;
+    throw new NotFoundException(`Setting with key "${key}" is not exposed by the legacy adapter`);
   }
 
-  /**
-   * Get multiple settings by keys
-   */
   async getSettingsByKeys(keys: string[]): Promise<SystemSettingResponse[]> {
-    const settings = await this.settingRepository.find({
-      where: { key: In(keys) },
-    });
-    return settings.map(s => this.toResponse(s));
+    return keys
+      .filter((key) => DEFAULT_SYSTEM_SETTINGS.some((setting) => setting.key === key))
+      .map((key) => this.defaultSettingToResponse(key));
   }
 
-  /**
-   * Create a new setting
-   */
-  async createSetting(dto: CreateSystemSettingDto): Promise<SystemSettingResponse> {
-    const existing = await this.settingRepository.findOne({ where: { key: dto.key } });
-
-    if (existing) {
-      throw new ConflictException(`Setting with key "${dto.key}" already exists`);
-    }
-
-    // Validate value if validation rule exists
-    if (dto.validationRule) {
-      this.validateValue(dto.value, dto.validationRule, dto.valueType || SettingValueType.STRING);
-    }
-
-    // Encrypt if needed
-    const valueToStore =
-      dto.valueType === SettingValueType.ENCRYPTED
-        ? this.encryptValue(dto.value)
-        : dto.value;
-
-    const setting = this.settingRepository.create({
-      ...dto,
-      value: valueToStore,
-      valueType: dto.valueType || SettingValueType.STRING,
-    });
-
-    const saved = await this.settingRepository.save(setting);
-    this.logger.log(`Created setting: ${dto.key}`);
-    return this.toResponse(saved);
+  async createSetting(_dto: CreateSystemSettingDto): Promise<SystemSettingResponse> {
+    this.throwLegacyGone();
   }
 
-  /**
-   * Update a setting
-   */
-  async updateSetting(key: string, dto: UpdateSystemSettingDto): Promise<SystemSettingResponse> {
-    const setting = await this.settingRepository.findOne({ where: { key } });
-
-    if (!setting) {
-      throw new NotFoundException(`Setting with key "${key}" not found`);
-    }
-
-    if (setting.isReadOnly) {
-      throw new BadRequestException(`Setting "${key}" is read-only`);
-    }
-
-    if (dto.value !== undefined) {
-      // Validate if rule exists
-      if (setting.validationRule) {
-        this.validateValue(dto.value, setting.validationRule, setting.valueType);
-      }
-
-      // Encrypt if needed
-      setting.value =
-        setting.valueType === SettingValueType.ENCRYPTED
-          ? this.encryptValue(dto.value)
-          : dto.value;
-    }
-
-    if (dto.description !== undefined) setting.description = dto.description;
-    if (dto.displayName !== undefined) setting.displayName = dto.displayName;
-    if (dto.isPublic !== undefined) setting.isPublic = dto.isPublic;
-    if (dto.requiresRestart !== undefined) setting.requiresRestart = dto.requiresRestart;
-    if (dto.sortOrder !== undefined) setting.sortOrder = dto.sortOrder;
-    if (dto.updatedBy) setting.updatedBy = dto.updatedBy;
-
-    const saved = await this.settingRepository.save(setting);
-    this.logger.log(`Updated setting: ${key}`);
-    return this.toResponse(saved);
+  async updateSetting(_key: string, _dto: UpdateSystemSettingDto): Promise<SystemSettingResponse> {
+    this.throwLegacyGone();
   }
 
-  /**
-   * Reset setting to default value
-   * Fix: MEDIUM-003 -- audit trail with updatedBy
-   */
-  async resetToDefault(key: string, updatedBy?: string): Promise<SystemSettingResponse> {
-    const setting = await this.settingRepository.findOne({ where: { key } });
-
-    if (!setting) {
-      throw new NotFoundException(`Setting with key "${key}" not found`);
-    }
-
-    if (setting.isReadOnly) {
-      throw new BadRequestException(`Setting "${key}" is read-only`);
-    }
-
-    if (!setting.defaultValue) {
-      throw new BadRequestException(`Setting "${key}" has no default value`);
-    }
-
-    setting.value = setting.defaultValue;
-    if (updatedBy) {
-      setting.updatedBy = updatedBy;
-    }
-    const saved = await this.settingRepository.save(setting);
-
-    this.logger.log(`Reset setting to default: ${key}${updatedBy ? ` by ${updatedBy}` : ''}`);
-    return this.toResponse(saved);
+  async resetToDefault(_key: string, _updatedBy?: string): Promise<SystemSettingResponse> {
+    this.throwLegacyGone();
   }
 
-  /**
-   * Delete a custom setting
-   */
-  async deleteSetting(key: string): Promise<void> {
-    const setting = await this.settingRepository.findOne({ where: { key } });
-
-    if (!setting) {
-      throw new NotFoundException(`Setting with key "${key}" not found`);
-    }
-
-    if (setting.isReadOnly) {
-      throw new BadRequestException(`Cannot delete read-only setting "${key}"`);
-    }
-
-    // Check if it's a default setting
-    const isDefault = DEFAULT_SYSTEM_SETTINGS.some(s => s.key === key);
-    if (isDefault) {
-      throw new BadRequestException(`Cannot delete default setting "${key}"`);
-    }
-
-    await this.settingRepository.remove(setting);
-    this.logger.log(`Deleted setting: ${key}`);
+  async deleteSetting(_key: string): Promise<void> {
+    this.throwLegacyGone();
   }
 
-  // ============================================================================
-  // Bulk Operations
-  // ============================================================================
-
-  /**
-   * Update multiple settings at once
-   */
   async bulkUpdate(
-    updates: { key: string; value: string }[],
-    updatedBy?: string,
+    _updates: { key: string; value: string }[],
+    _updatedBy?: string,
   ): Promise<SystemSettingResponse[]> {
-    const results: SystemSettingResponse[] = [];
-    const requiresRestart: string[] = [];
-
-    for (const update of updates) {
-      const result = await this.updateSetting(update.key, {
-        value: update.value,
-        updatedBy,
-      });
-      results.push(result);
-
-      if (result.requiresRestart) {
-        requiresRestart.push(update.key);
-      }
-    }
-
-    if (requiresRestart.length > 0) {
-      this.logger.warn(
-        `Settings requiring restart were updated: ${requiresRestart.join(', ')}`
-      );
-    }
-
-    return results;
+    this.throwLegacyGone();
   }
 
-  /**
-   * Export all settings as JSON
-   */
   async exportSettings(): Promise<Record<string, unknown>> {
-    const settings = await this.settingRepository.find({
-      where: { isReadOnly: false },
-    });
-
     const exported: Record<string, unknown> = {};
-    for (const setting of settings) {
-      // Skip encrypted values for export
-      if (setting.valueType === SettingValueType.ENCRYPTED) {
-        continue;
-      }
-      exported[setting.key] = this.parseValue(setting);
+    for (const setting of DEFAULT_SYSTEM_SETTINGS) {
+      if (setting.valueType === SettingValueType.ENCRYPTED) continue;
+      exported[setting.key] = await this.getValue(setting.key);
     }
-
     return exported;
   }
 
-  /**
-   * Import settings from JSON
-   */
   async importSettings(
-    data: Record<string, unknown>,
-    updatedBy?: string,
+    _data: Record<string, unknown>,
+    _updatedBy?: string,
   ): Promise<{ imported: number; skipped: number; errors: string[] }> {
-    let imported = 0;
-    let skipped = 0;
-    const errors: string[] = [];
-
-    for (const [key, value] of Object.entries(data)) {
-      try {
-        const setting = await this.settingRepository.findOne({ where: { key } });
-
-        if (!setting) {
-          errors.push(`Setting "${key}" does not exist`);
-          skipped++;
-          continue;
-        }
-
-        if (setting.isReadOnly) {
-          errors.push(`Setting "${key}" is read-only`);
-          skipped++;
-          continue;
-        }
-
-        if (setting.valueType === SettingValueType.ENCRYPTED) {
-          errors.push(`Cannot import encrypted setting "${key}"`);
-          skipped++;
-          continue;
-        }
-
-        await this.updateSetting(key, {
-          value: this.stringifyValue(value, setting.valueType),
-          updatedBy,
-        });
-        imported++;
-      } catch (error) {
-        errors.push(`Failed to import "${key}": ${(error as Error).message}`);
-        skipped++;
-      }
-    }
-
-    this.logger.log(`Imported ${imported} settings, skipped ${skipped}`);
-    return { imported, skipped, errors };
+    this.throwLegacyGone();
   }
 
-  // ============================================================================
-  // Specialized Getters
-  // ============================================================================
-
-  /**
-   * Get email configuration (safe for API responses - password is masked)
-   */
-  async getEmailConfig(): Promise<{
-    smtpHost: string;
-    smtpPort: number;
-    smtpSecure: boolean;
-    smtpUsername: string;
-    smtpPassword: string;
-    fromAddress: string;
-    fromName: string;
-  }> {
-    const keys = [
-      'email.smtp_host',
-      'email.smtp_port',
-      'email.smtp_secure',
-      'email.smtp_username',
-      'email.smtp_password',
-      'email.from_address',
-      'email.from_name',
-    ];
-
-    const settings = await this.settingRepository.find({
-      where: { key: In(keys) },
-    });
-
-    const getValue = (key: string, defaultValue: unknown) => {
-      const setting = settings.find(s => s.key === key);
-      return setting ? this.parseValue(setting) : defaultValue;
-    };
-
+  async getEmailConfig(): Promise<EmailConfig> {
     return {
-      smtpHost: getValue('email.smtp_host', '') as string,
-      smtpPort: getValue('email.smtp_port', 587) as number,
-      smtpSecure: getValue('email.smtp_secure', false) as boolean,
-      smtpUsername: getValue('email.smtp_username', '') as string,
-      smtpPassword: '********',
-      fromAddress: getValue('email.from_address', 'noreply@aquaculture.io') as string,
-      fromName: getValue('email.from_name', 'Aquaculture Platform') as string,
+      smtpHost: this.env('SMTP_HOST', ''),
+      smtpPort: this.envNumber('SMTP_PORT', 587),
+      smtpSecure: this.envBoolean('SMTP_SECURE', false),
+      smtpUsername: this.env('SMTP_USER', ''),
+      hasSmtpPassword: this.env('SMTP_PASSWORD', '').trim().length > 0,
+      fromAddress: this.env('SMTP_FROM', 'noreply@aquaculture.io'),
+      fromName: this.env('SMTP_FROM_NAME', 'Aquaculture Platform'),
     };
   }
 
-  /**
-   * Get email configuration with real SMTP password (for internal email sending only)
-   */
-  async getEmailConfigForSending(): Promise<{
-    smtpHost: string;
-    smtpPort: number;
-    smtpSecure: boolean;
-    smtpUsername: string;
-    smtpPassword: string;
-    fromAddress: string;
-    fromName: string;
-  }> {
-    const keys = [
-      'email.smtp_host',
-      'email.smtp_port',
-      'email.smtp_secure',
-      'email.smtp_username',
-      'email.smtp_password',
-      'email.from_address',
-      'email.from_name',
-    ];
-
-    const settings = await this.settingRepository.find({
-      where: { key: In(keys) },
-    });
-
-    const getValue = (key: string, defaultValue: unknown) => {
-      const setting = settings.find(s => s.key === key);
-      return setting ? this.parseValue(setting) : defaultValue;
-    };
-
-    const getRawValue = (key: string, defaultValue: string): string => {
-      const setting = settings.find(s => s.key === key);
-      if (!setting) return defaultValue;
-      if (setting.valueType === SettingValueType.ENCRYPTED) {
-        try {
-          return this.decryptValue(setting.value);
-        } catch {
-          return setting.value || defaultValue;
-        }
-      }
-      return setting.value || defaultValue;
-    };
-
+  async getEmailConfigForSending(): Promise<EmailSendConfig> {
+    const config = await this.getEmailConfig();
     return {
-      smtpHost: getValue('email.smtp_host', '') as string,
-      smtpPort: getValue('email.smtp_port', 587) as number,
-      smtpSecure: getValue('email.smtp_secure', false) as boolean,
-      smtpUsername: getValue('email.smtp_username', '') as string,
-      smtpPassword: getRawValue('email.smtp_password', ''),
-      fromAddress: getValue('email.from_address', 'noreply@aquaculture.io') as string,
-      fromName: getValue('email.from_name', 'Aquaculture Platform') as string,
+      smtpHost: config.smtpHost,
+      smtpPort: config.smtpPort,
+      smtpSecure: config.smtpSecure,
+      smtpUsername: config.smtpUsername,
+      smtpPassword: this.env('SMTP_PASSWORD', ''),
+      fromAddress: config.fromAddress,
+      fromName: config.fromName,
     };
   }
 
-  /**
-   * Update email configuration
-   */
-  async updateEmailConfig(config: {
-    smtpHost?: string;
-    smtpPort?: number;
-    smtpSecure?: boolean;
-    smtpUsername?: string;
-    smtpPassword?: string;
-    fromAddress?: string;
-    fromName?: string;
-  }, updatedBy?: string): Promise<void> {
-    const keyMap: Record<string, string> = {
-      smtpHost: 'email.smtp_host',
-      smtpPort: 'email.smtp_port',
-      smtpSecure: 'email.smtp_secure',
-      smtpUsername: 'email.smtp_username',
-      smtpPassword: 'email.smtp_password',
-      fromAddress: 'email.from_address',
-      fromName: 'email.from_name',
-    };
-
-    for (const [field, key] of Object.entries(keyMap)) {
-      const value = config[field as keyof typeof config];
-      if (value !== undefined) {
-        await this.upsertSetting(key, value, updatedBy);
-      }
-    }
-
-    this.logger.log('Email configuration updated');
+  async updateEmailConfig(
+    _config: {
+      smtpHost?: string;
+      smtpPort?: number;
+      smtpSecure?: boolean;
+      smtpUsername?: string;
+      smtpPassword?: string;
+      fromAddress?: string;
+      fromName?: string;
+    },
+    _updatedBy?: string,
+  ): Promise<void> {
+    this.throwLegacyGone();
   }
 
-  /**
-   * Upsert a setting (create or update)
-   */
-  private async upsertSetting(key: string, value: unknown, updatedBy?: string): Promise<void> {
-    let setting = await this.settingRepository.findOne({ where: { key } });
-
-    const valueType = typeof value === 'number' ? SettingValueType.NUMBER :
-                      typeof value === 'boolean' ? SettingValueType.BOOLEAN : SettingValueType.STRING;
-    const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
-
-    if (setting) {
-      setting.value = stringValue;
-      setting.updatedBy = updatedBy || 'system';
-    } else {
-      setting = this.settingRepository.create({
-        key,
-        value: stringValue,
-        valueType,
-        category: this.getCategoryFromKey(key),
-        displayName: key.replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-        isPublic: false,
-        isReadOnly: false,
-        updatedBy: updatedBy || 'system',
-      });
-    }
-
-    await this.settingRepository.save(setting);
-  }
-
-  /**
-   * Get category from setting key
-   */
-  private getCategoryFromKey(key: string): SettingCategory {
-    const prefix = key.split('.')[0] || '';
-    const categoryMap: Record<string, SettingCategory> = {
-      'email': SettingCategory.EMAIL,
-      'security': SettingCategory.SECURITY,
-      'rate_limit': SettingCategory.RATE_LIMIT,
-      'storage': SettingCategory.STORAGE,
-      'billing': SettingCategory.BILLING,
-      'maintenance': SettingCategory.MAINTENANCE,
-      'notification': SettingCategory.NOTIFICATION,
-      'feature': SettingCategory.FEATURE_FLAG,
-      'integration': SettingCategory.INTEGRATION,
-      'sms': SettingCategory.SMS,
-    };
-    return categoryMap[prefix] ?? SettingCategory.GENERAL;
-  }
-
-  /**
-   * Get security configuration
-   */
   async getSecurityConfig(): Promise<{
     sessionTimeoutMinutes: number;
     maxLoginAttempts: number;
     lockoutDurationMinutes: number;
     passwordMinLength: number;
+    passwordRequireUppercase: boolean;
+    passwordRequireNumbers: boolean;
+    passwordRequireSymbols: boolean;
     mfaEnabled: boolean;
     enforceHttps: boolean;
   }> {
@@ -666,14 +213,31 @@ export class SystemSettingService {
       maxLoginAttempts: await this.getValue('security.max_login_attempts', 5),
       lockoutDurationMinutes: await this.getValue('security.lockout_duration_minutes', 30),
       passwordMinLength: await this.getValue('security.password_min_length', 8),
+      passwordRequireUppercase: await this.getValue('security.password_require_uppercase', true),
+      passwordRequireNumbers: await this.getValue('security.password_require_numbers', true),
+      passwordRequireSymbols: await this.getValue('security.password_require_symbols', false),
       mfaEnabled: await this.getValue('security.mfa_enabled', true),
       enforceHttps: await this.getValue('security.enforce_https', true),
     };
   }
 
-  /**
-   * Get rate limit configuration
-   */
+  async updateSecurityConfig(
+    _config: {
+      sessionTimeoutMinutes?: number;
+      maxLoginAttempts?: number;
+      lockoutDurationMinutes?: number;
+      passwordMinLength?: number;
+      passwordRequireUppercase?: boolean;
+      passwordRequireNumbers?: boolean;
+      passwordRequireSymbols?: boolean;
+      mfaEnabled?: boolean;
+      enforceHttps?: boolean;
+    },
+    _updatedBy?: string,
+  ): Promise<void> {
+    this.throwLegacyGone();
+  }
+
   async getRateLimitConfig(): Promise<{
     globalRpm: number;
     perUserRpm: number;
@@ -688,339 +252,170 @@ export class SystemSettingService {
     };
   }
 
-  /**
-   * Get maintenance mode status
-   */
+  async updateRateLimitConfig(
+    _config: {
+      globalRpm?: number;
+      perUserRpm?: number;
+      perTenantRpm?: number;
+      apiKeyRpm?: number;
+    },
+    _updatedBy?: string,
+  ): Promise<void> {
+    this.throwLegacyGone();
+  }
+
   async getMaintenanceStatus(): Promise<{
     enabled: boolean;
     message: string;
     allowedIps: string[];
   }> {
     return {
-      enabled: await this.getValue('maintenance.mode_enabled', false),
-      message: await this.getValue('maintenance.message', 'System is under maintenance'),
-      allowedIps: await this.getValue('maintenance.allowed_ips', []),
+      enabled: this.envBoolean('MAINTENANCE_MODE', false),
+      message: this.env('MAINTENANCE_MESSAGE', 'System is under maintenance'),
+      allowedIps: this.env('MAINTENANCE_ALLOWED_IPS', '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
     };
   }
 
-  /**
-   * Toggle maintenance mode
-   */
   async setMaintenanceMode(
-    enabled: boolean,
-    message?: string,
-    allowedIps?: string[],
-    updatedBy?: string,
+    _enabled: boolean,
+    _message?: string,
+    _allowedIps?: string[],
+    _updatedBy?: string,
   ): Promise<void> {
-    await this.updateSetting('maintenance.mode_enabled', {
-      value: String(enabled),
-      updatedBy,
-    });
-
-    if (message !== undefined) {
-      await this.updateSetting('maintenance.message', {
-        value: message,
-        updatedBy,
-      });
-    }
-
-    if (allowedIps !== undefined) {
-      await this.updateSetting('maintenance.allowed_ips', {
-        value: JSON.stringify(allowedIps),
-        updatedBy,
-      });
-    }
-
-    this.logger.warn(`Maintenance mode ${enabled ? 'ENABLED' : 'DISABLED'} by ${updatedBy}`);
+    this.throwLegacyGone();
   }
 
-  /**
-   * Check if a feature is enabled
-   */
-  async isFeatureEnabled(featureKey: string, defaultValue = false): Promise<boolean> {
-    try {
-      return await this.getValue(`feature.${featureKey}`, defaultValue);
-    } catch {
-      return defaultValue;
-    }
-  }
-
-  // ============================================================================
-  // Helper Methods
-  // ============================================================================
-
-  /**
-   * Parse stored value based on type
-   */
-  private parseValue(setting: SystemSetting): unknown {
-    switch (setting.valueType) {
-      case SettingValueType.NUMBER:
-        return Number(setting.value);
-      case SettingValueType.BOOLEAN:
-        return setting.value === 'true';
-      case SettingValueType.JSON:
-        try {
-          return JSON.parse(setting.value);
-        } catch {
-          return setting.value;
-        }
-      case SettingValueType.ENCRYPTED:
-        return '********'; // Never expose encrypted values
-      default:
-        return setting.value;
-    }
-  }
-
-  /**
-   * Stringify value for storage
-   */
-  private stringifyValue(value: unknown, valueType: SettingValueType): string {
-    if (valueType === SettingValueType.JSON) {
-      return JSON.stringify(value);
-    }
-    return String(value);
-  }
-
-  /**
-   * Convert entity to response DTO
-   */
-  private toResponse(setting: SystemSetting): SystemSettingResponse {
+  async getBillingConfig(): Promise<{
+    currency: string;
+    taxRate: number;
+    invoiceDueDays: number;
+    gracePeriodDays: number;
+  }> {
     return {
-      id: setting.id,
+      currency: this.env('BILLING_CURRENCY', 'USD'),
+      taxRate: this.envNumber('BILLING_TAX_RATE', 0),
+      invoiceDueDays: this.envNumber('BILLING_INVOICE_DUE_DAYS', 30),
+      gracePeriodDays: this.envNumber('BILLING_GRACE_PERIOD_DAYS', 7),
+    };
+  }
+
+  async updateBillingConfig(
+    _config: {
+      currency?: string;
+      taxRate?: number;
+      invoiceDueDays?: number;
+      gracePeriodDays?: number;
+    },
+    _updatedBy?: string,
+  ): Promise<void> {
+    this.throwLegacyGone();
+  }
+
+  async isFeatureEnabled(featureKey: string, defaultValue = false): Promise<boolean> {
+    const envKey = `FEATURE_${featureKey.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
+    return this.envBoolean(envKey, defaultValue);
+  }
+
+  private defaultSettingToResponse(key: string): SystemSettingResponse {
+    const setting = DEFAULT_SYSTEM_SETTINGS.find((candidate) => candidate.key === key);
+    if (!setting) {
+      throw new NotFoundException(`Setting with key "${key}" is not exposed by the legacy adapter`);
+    }
+    return {
+      id: `legacy:${setting.key}`,
       key: setting.key,
-      value: this.parseValue(setting),
+      value: this.coerceByType(this.envOverrideForKey(setting.key) ?? setting.value, setting.valueType),
       valueType: setting.valueType,
       category: setting.category,
       description: setting.description,
       displayName: setting.displayName,
-      isPublic: setting.isPublic,
-      isReadOnly: setting.isReadOnly,
-      requiresRestart: setting.requiresRestart,
-      defaultValue: setting.defaultValue
-        ? this.parseValue({ ...setting, value: setting.defaultValue })
-        : undefined,
-      updatedAt: setting.updatedAt,
+      isPublic: setting.isPublic ?? false,
+      isReadOnly: true,
+      requiresRestart: setting.requiresRestart ?? false,
+      defaultValue: this.coerceByType(setting.value, setting.valueType),
+      updatedAt: this.bootTime,
     };
   }
 
-  /**
-   * Validate value against validation rule
-   */
-  private validateValue(value: string, rule: string, valueType: SettingValueType): void {
-    // Check if rule is a regex
-    if (rule.startsWith('/') && rule.endsWith('/')) {
-      const regex = new RegExp(rule.slice(1, -1));
-      if (!regex.test(value)) {
-        throw new BadRequestException(`Value does not match validation rule: ${rule}`);
-      }
-      return;
-    }
-
-    // Check if rule is a JSON schema (simplified)
-    try {
-      const schema = JSON.parse(rule);
-      if (schema.min !== undefined && Number(value) < schema.min) {
-        throw new BadRequestException(`Value must be at least ${schema.min}`);
-      }
-      if (schema.max !== undefined && Number(value) > schema.max) {
-        throw new BadRequestException(`Value must be at most ${schema.max}`);
-      }
-      if (schema.enum && !schema.enum.includes(value)) {
-        throw new BadRequestException(`Value must be one of: ${schema.enum.join(', ')}`);
-      }
-    } catch (e) {
-      if (e instanceof BadRequestException) throw e;
-      // If not valid JSON schema, treat as literal match
-    }
-  }
-
-  /**
-   * Get billing configuration
-   */
-  async getBillingConfig(): Promise<{
-    stripeEnabled: boolean;
-    defaultCurrency: string;
-    taxRate: number;
-    invoiceDueDays: number;
-  }> {
-    return {
-      stripeEnabled: await this.getValue('billing.stripe_enabled', false),
-      defaultCurrency: await this.getValue('billing.default_currency', 'USD'),
-      taxRate: await this.getValue('billing.tax_rate', 0),
-      invoiceDueDays: await this.getValue('billing.invoice_due_days', 30),
+  private envOverrideForKey(key: string): string | undefined {
+    const explicit = process.env[`SYSTEM_SETTING_${key.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`];
+    if (explicit !== undefined) return explicit;
+    const direct: Record<string, string | undefined> = {
+      'email.smtp_host': process.env['SMTP_HOST'],
+      'email.smtp_port': process.env['SMTP_PORT'],
+      'email.smtp_secure': process.env['SMTP_SECURE'],
+      'email.smtp_username': process.env['SMTP_USER'],
+      'email.smtp_password': process.env['SMTP_PASSWORD'],
+      'email.from_address': process.env['SMTP_FROM'],
+      'email.from_name': process.env['SMTP_FROM_NAME'],
+      'maintenance.mode_enabled': process.env['MAINTENANCE_MODE'],
+      'maintenance.message': process.env['MAINTENANCE_MESSAGE'],
+      'maintenance.allowed_ips': process.env['MAINTENANCE_ALLOWED_IPS'],
     };
+    return direct[key];
   }
 
-  /**
-   * Update billing configuration
-   */
-  async updateBillingConfig(
-    config: {
-      stripeEnabled?: boolean;
-      defaultCurrency?: string;
-      taxRate?: number;
-      invoiceDueDays?: number;
-    },
-    updatedBy?: string,
-  ): Promise<void> {
-    if (config.stripeEnabled !== undefined) {
-      await this.updateSetting('billing.stripe_enabled', {
-        value: String(config.stripeEnabled),
-        updatedBy,
-      });
-    }
-
-    if (config.defaultCurrency !== undefined) {
-      await this.updateSetting('billing.default_currency', {
-        value: config.defaultCurrency,
-        updatedBy,
-      });
-    }
-
-    if (config.taxRate !== undefined) {
-      await this.updateSetting('billing.tax_rate', {
-        value: String(config.taxRate),
-        updatedBy,
-      });
-    }
-
-    if (config.invoiceDueDays !== undefined) {
-      await this.updateSetting('billing.invoice_due_days', {
-        value: String(config.invoiceDueDays),
-        updatedBy,
-      });
-    }
-  }
-
-  /**
-   * Update security configuration
-   */
-  async updateSecurityConfig(
-    config: {
-      sessionTimeoutMinutes?: number;
-      maxLoginAttempts?: number;
-      lockoutDurationMinutes?: number;
-      passwordMinLength?: number;
-      mfaEnabled?: boolean;
-      enforceHttps?: boolean;
-    },
-    updatedBy?: string,
-  ): Promise<void> {
-    const keyMap: Record<string, string> = {
-      sessionTimeoutMinutes: 'security.session_timeout_minutes',
-      maxLoginAttempts: 'security.max_login_attempts',
-      lockoutDurationMinutes: 'security.lockout_duration_minutes',
-      passwordMinLength: 'security.password_min_length',
-      mfaEnabled: 'security.mfa_enabled',
-      enforceHttps: 'security.enforce_https',
-    };
-
-    for (const [field, key] of Object.entries(keyMap)) {
-      const value = config[field as keyof typeof config];
-      if (value !== undefined) {
-        await this.upsertSetting(key, value, updatedBy);
+  private coerceValue<T>(value: string, defaultValue?: T): unknown {
+    if (typeof defaultValue === 'number') return Number(value);
+    if (typeof defaultValue === 'boolean') return this.toBoolean(value);
+    if (Array.isArray(defaultValue)) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value.split(',').map((item) => item.trim()).filter(Boolean);
       }
     }
-
-    this.logger.log('Security configuration updated');
-  }
-
-  /**
-   * Update rate limit configuration
-   */
-  async updateRateLimitConfig(
-    config: {
-      globalRpm?: number;
-      perUserRpm?: number;
-      perTenantRpm?: number;
-      apiKeyRpm?: number;
-    },
-    updatedBy?: string,
-  ): Promise<void> {
-    const keyMap: Record<string, string> = {
-      globalRpm: 'rate_limit.global_rpm',
-      perUserRpm: 'rate_limit.per_user_rpm',
-      perTenantRpm: 'rate_limit.per_tenant_rpm',
-      apiKeyRpm: 'rate_limit.api_key_rpm',
-    };
-
-    for (const [field, key] of Object.entries(keyMap)) {
-      const value = config[field as keyof typeof config];
-      if (value !== undefined) {
-        await this.upsertSetting(key, value, updatedBy);
+    if (typeof defaultValue === 'object' && defaultValue !== null) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return defaultValue;
       }
     }
-
-    this.logger.log('Rate limit configuration updated');
+    return value;
   }
 
-  /**
-   * Encrypts a value using AES-256-GCM with a random IV (C-11 migration from CBC).
-   * Uses authenticated encryption to prevent padding oracle attacks (CVE-class).
-   * Output format: iv:authTag:ciphertext (all hex-encoded).
-   *
-   * @param value - The plaintext value to encrypt
-   * @returns Encrypted string in format iv:authTag:ciphertext
-   */
-  private encryptValue(value: string): string {
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv('aes-256-gcm', this.derivedKey, iv);
-    const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-    const authTag = cipher.getAuthTag();
-    return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
-  }
-
-  /**
-   * Decrypts a value encrypted with AES-256-GCM.
-   * Supports legacy AES-256-CBC format (iv:ciphertext) for backward compatibility
-   * during data migration. Legacy data will be re-encrypted in GCM format on next write.
-   *
-   * @param encryptedValue - The encrypted string (GCM: iv:authTag:ciphertext, legacy CBC: iv:ciphertext)
-   * @returns Decrypted plaintext
-   */
-  private decryptValue(encryptedValue: string): string {
-    const parts = encryptedValue.split(':');
-
-    if (parts.length === 3) {
-      // New GCM format: iv:authTag:ciphertext
-      const [ivHex, authTagHex, ciphertextHex] = parts;
-      const iv = Buffer.from(ivHex!, 'hex');
-      const authTag = Buffer.from(authTagHex!, 'hex');
-      const ciphertext = Buffer.from(ciphertextHex!, 'hex');
-      const decipher = crypto.createDecipheriv('aes-256-gcm', this.derivedKey, iv);
-      decipher.setAuthTag(authTag);
-      return decipher.update(ciphertext).toString('utf8') + decipher.final('utf8');
+  private coerceByType(value: string, valueType: SettingValueType): unknown {
+    if (valueType === SettingValueType.NUMBER) return Number(value);
+    if (valueType === SettingValueType.BOOLEAN) return this.toBoolean(value);
+    if (valueType === SettingValueType.JSON) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return null;
+      }
     }
-
-    // Legacy CBC format (iv:ciphertext) — backward compatibility for existing data.
-    // Derive legacy key using the old static 'salt' to decrypt pre-migration data.
-    return this.decryptLegacyCbc(encryptedValue);
+    if (valueType === SettingValueType.ENCRYPTED) return '********';
+    return value;
   }
 
-  /**
-   * Decrypts legacy AES-256-CBC encrypted values from before the GCM migration.
-   * Uses the old static salt derivation for backward compatibility only.
-   * Data decrypted via this path will be re-encrypted with GCM on next write.
-   *
-   * @param encryptedValue - Legacy CBC encrypted string (iv:ciphertext)
-   * @returns Decrypted plaintext
-   * @deprecated Will be removed once all data is migrated to GCM format
-   */
-  private decryptLegacyCbc(encryptedValue: string): string {
-    const parts = encryptedValue.split(':');
-    const ivHex = parts[0];
-    const encrypted = parts[1];
+  private env(key: string, defaultValue: string): string {
+    return process.env[key] ?? defaultValue;
+  }
 
-    if (!ivHex || !encrypted) {
-      throw new Error('Invalid encrypted value format');
-    }
+  private envNumber(key: string, defaultValue: number): number {
+    const raw = process.env[key];
+    if (raw === undefined || raw.trim() === '') return defaultValue;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : defaultValue;
+  }
 
-    // Legacy key derivation with static 'salt' — kept only for backward compatibility
-    const legacyKey = crypto.scryptSync(this.encryptionKey, 'salt', 32);
-    const iv = Buffer.from(ivHex, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-cbc', legacyKey, iv);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+  private envBoolean(key: string, defaultValue: boolean): boolean {
+    const raw = process.env[key];
+    if (raw === undefined || raw.trim() === '') return defaultValue;
+    return this.toBoolean(raw);
+  }
+
+  private toBoolean(value: unknown): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    return ['true', '1', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+  }
+
+  private throwLegacyGone(): never {
+    throw new GoneException(LEGACY_CONFIG_STORE_GONE);
   }
 }

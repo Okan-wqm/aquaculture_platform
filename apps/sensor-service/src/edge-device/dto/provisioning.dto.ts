@@ -176,6 +176,10 @@ export interface DeviceActivationResponse {
   tenant_id: string;
   device_code: string;
   mqtt_tls_enabled?: boolean;
+  provisioning_blob_b64?: string;
+  provisioning_signature_b64?: string;
+  provisioning_key_epoch?: number;
+  provisioning_bundle_version?: number;
   config?: Record<string, unknown>;
 }
 
@@ -317,6 +321,10 @@ export interface SelfRegisterResponse {
   mqtt_password: string;
   tenant_id: string;
   mqtt_tls_enabled?: boolean;
+  provisioning_blob_b64?: string;
+  provisioning_signature_b64?: string;
+  provisioning_key_epoch?: number;
+  provisioning_bundle_version?: number;
   config?: Record<string, unknown>;
 }
 

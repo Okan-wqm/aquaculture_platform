@@ -29,10 +29,10 @@ from aria_kernel import (
     verify_integrity,
 )
 from aria_kernel.agent_genesis import approve_agent_pr, evaluate_genesis_sandbox
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.fixture_runner import fixture_runs_path, tool_manifest_hash
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import get_tool
+from tests._helpers.declared_fixtures import append_declared_fixture
 from aria_kernel.tool_registry import GovernanceError
 
 
@@ -211,7 +211,7 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             },
             base_dir=self.tools_dir,
         )
-        append_jsonl(
+        append_declared_fixture(
             fixture_runs_path(self.tools_dir),
             {
                 "schema_version": 1,
@@ -222,6 +222,7 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
                 "fixture_baseline_passed": True,
                 "semantic_fixture_passed": True,
             },
+            expected_surface="agent_eval_fixture_runs",
         )
         for index in range(5):
             record_run(
@@ -272,7 +273,11 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             },
             "target_path": ".claude/agents/aria-demo.md",
         }
-        append_jsonl(drafts_dir / "drafts.jsonl", draft)
+        append_declared_fixture(
+            drafts_dir / "drafts.jsonl",
+            draft,
+            expected_surface="agent_genesis_drafts",
+        )
         # Plan 022 §H-4 — synthetic fixture_results without execution
         # provenance require synthetic_test_mode=True opt-in.
         evaluate_genesis_sandbox(

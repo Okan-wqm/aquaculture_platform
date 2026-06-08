@@ -1,3 +1,5 @@
+<!-- ARIA-CURRENT-STATE-NOTICE: Historical/compatibility runbook. For live ARIA runtime authority, see docs/aria/CURRENT_STATE.md and executable contracts. Snowball branch-protection instructions below are compatibility material unless reaffirmed there. -->
+
 # Runbook — ARIA GitHub App Setup (V9.0-C precondition)
 
 **Owner:** Operator (Okan)

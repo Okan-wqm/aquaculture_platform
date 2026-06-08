@@ -1,8 +1,8 @@
 # ARIA Current State
 
-Date: 2026-05-31
-Target ref: `origin/main`
-Last verified commit: `ffdef128aee928ba09f8fceb847fa56ab6caa334`
+Date: 2026-06-06
+Target ref: `aria/context-proof-20260605`
+Last verified commit: `d56c8c6deadbfddd6caa6a80b527f94b3b4c83af`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -29,9 +29,11 @@ When two sources disagree, the lower-priority source must be updated, generated 
 - Agent role/lifecycle SSoT: `aria-kernel/aria_kernel/agent_surface.py`
 - Agent request/response contract: `aria-kernel/aria_kernel/agent_contract.py`
 - Transactional append/index primitive: `aria-kernel/aria_kernel/ledger.py`
-- Merge authority: `aria-kernel/aria_kernel/auto_merge.py::merge_if_green`
+- Merge authority: `aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready`
 - Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, `tools/aria-poc/codex_runtime.py`
 - Runtime artifact safety boundary: `aria-kernel/aria_kernel/artifact_safety.py`
+- Enterprise autonomy burn-in: `aria-kernel/aria_kernel/burn_in.py`
+- Observe burn-in report schema: `docs/aria/schemas/autonomy-burn-in-report.schema.json`
 
 ## Runtime
 
@@ -47,7 +49,11 @@ Legacy Claude/Anthropic executor language in older docs is historical or compati
 
 `runtime_artifacts.py` owns artifact graph verification. Promotion evidence must be artifact-bearing, hash-bound, path-contained, indexed, and connected to the relevant cycle/run ledgers. Lifecycle-only cycles do not authorize promotion.
 
+`ARIA Operational Proof` is the GitHub Actions proof lane for isolated temp-tools runtime verification and strict/mock autonomy smoke. It must not write repo-local ARIA runtime state.
+
 `agent_surface.py` owns request roles, invocation roles, dispatchable roles, bridge-required roles, target-agent whitelist, role-target pairing, and derived request lifecycle labels. Callers must consume that SSoT rather than maintaining local role sets.
+
+`autonomy burn-in observe` is the first enterprise autonomy acceptance slice. It runs discovery, memory, pressure, and triage for exactly 30 observe attempts with at least 20 valid cycles, and fails if agent claims, tool runs, PR lifecycle, runtime promotions, or agent/skill materializations are observed. It is not a full autonomous merge proof.
 
 ## Clean Trial Rule
 
@@ -56,3 +62,7 @@ A clean ARIA trial must run from an isolated worktree at the declared target com
 ## Documentation State
 
 The ARIA docs set contains historical material. Sections still saying only the PoC exists, the kernel does not exist, live runtime is Claude/Anthropic, or auto-merge is categorically impossible are superseded unless explicitly restated by this file and the executable contracts above.
+
+For the bilingual architecture explainer with diagrams, see `docs/aria/ARCHITECTURE.md`. That document is explanatory only: it must defer to this file, executable contracts, and machine-checked invariants whenever there is a conflict.
+
+For the enterprise autonomy SSoT and burn-in acceptance matrix, see `docs/aria/ENTERPRISE_AUTONOMY_SSOT.md`.

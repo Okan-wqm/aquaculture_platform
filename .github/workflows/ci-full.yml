@@ -9,7 +9,7 @@ name: CI - Full
 on:
   schedule:
     # Run weekly instead of daily (saves runner minutes)
-    - cron: '0 2 * * 0'  # Sunday at 2 AM
+    - cron: '0 2 * * 0' # Sunday at 2 AM
   workflow_dispatch:
   push:
     tags:
@@ -244,25 +244,39 @@ jobs:
           NX_NO_CLOUD: 'true'
 
       - name: Generate SRI hash map
+        run: bash scripts/generate-sri-hashes.sh --base-dir "$PWD"
+
+      - name: Assert SRI hash map completeness
         run: |
-          mkdir -p web/shell/src/generated
-          printf '{' > web/shell/src/generated/remoteHashes.json
-          FIRST=true
-          for module in dashboard farm-module hr-module sensor-module hydroponics-module admin-panel tenant-admin; do
-            ENTRY="web/modules/$module/dist/assets/remoteEntry.js"
-            if [ -f "$ENTRY" ]; then
-              HASH=$(openssl dgst -sha256 -binary "$ENTRY" | openssl base64 -A)
-              if [ "$FIRST" = "true" ]; then
-                FIRST=false
-              else
-                printf ',' >> web/shell/src/generated/remoteHashes.json
-              fi
-              printf '\n  "/remotes/%s/assets/remoteEntry.js": "sha256-%s"' "$module" "$HASH" >> web/shell/src/generated/remoteHashes.json
-            fi
-          done
-          printf '\n}\n' >> web/shell/src/generated/remoteHashes.json
-          echo "Generated SRI hash map:"
-          cat web/shell/src/generated/remoteHashes.json
+          node -e "
+          const fs = require('node:fs');
+          const path = 'web/shell/src/generated/remoteHashes.json';
+          const expected = [
+            '/remotes/admin-panel/assets/remoteEntry.js',
+            '/remotes/dashboard/assets/remoteEntry.js',
+            '/remotes/farm-module/assets/remoteEntry.js',
+            '/remotes/hr-module/assets/remoteEntry.js',
+            '/remotes/hydroponics-module/assets/remoteEntry.js',
+            '/remotes/sensor-module/assets/remoteEntry.js',
+            '/remotes/tenant-admin/assets/remoteEntry.js',
+          ];
+          const map = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const keys = Object.keys(map).sort();
+          const missing = expected.filter((key) => !Object.prototype.hasOwnProperty.call(map, key));
+          const extra = keys.filter((key) => !expected.includes(key));
+          const invalid = expected.filter((key) => !/^sha384-[A-Za-z0-9+/=]+$/.test(map[key] ?? ''));
+          if (missing.length || extra.length || invalid.length) {
+            console.error(JSON.stringify({ missing, extra, invalid }, null, 2));
+            process.exit(1);
+          }
+          console.log('SRI hash map complete for ' + expected.length + ' remotes.');
+          "
+
+      - name: Build shell with generated SRI hash map
+        run: npx nx build shell
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
 
       - name: Upload hash map artifact
         # SEC-CI-002: pinned to SHA
@@ -271,6 +285,44 @@ jobs:
           name: remote-hash-pins-${{ github.run_number }}
           path: web/shell/src/generated/remoteHashes.json
           retention-days: 14
+
+  deploy-ssot-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # SEC-CI-002: pinned to SHA
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        # SEC-CI-002: pinned to SHA
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+
+      - name: Service catalog artifacts are fresh
+        run: npm run service-catalog:check
+
+      - name: GraphQL registry artifacts are fresh
+        run: npm run graphql:generate-registry-artifacts -- --check
+
+      - name: Run fast invariants
+        run: npm run invariants:fast
+
+      - name: Run schema drift registration gate
+        run: npm run gates:schema-drift-registration
+
+      - name: Validate deploy manifests
+        run: |
+          npm run gates:criticality-manifest
+          npm run gates:signals-manifest
+          npm run validate:required-secrets
+          bash scripts/ci/validate-deploy-ssot.sh
 
   security-scan:
     runs-on: ubuntu-latest
@@ -338,7 +390,16 @@ jobs:
         run: npx license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;Unlicense'
 
   build-status:
-    needs: [lint-and-typecheck, test, build, security-scan, license-check]
+    needs:
+      [
+        lint-and-typecheck,
+        test,
+        build,
+        generate-sri-hashes,
+        deploy-ssot-gates,
+        security-scan,
+        license-check,
+      ]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -354,6 +415,14 @@ jobs:
           fi
           if [ "${{ needs.build.result }}" != "success" ]; then
             echo "Build failed"
+            exit 1
+          fi
+          if [ "${{ needs.generate-sri-hashes.result }}" != "success" ]; then
+            echo "SRI hash generation failed"
+            exit 1
+          fi
+          if [ "${{ needs.deploy-ssot-gates.result }}" != "success" ]; then
+            echo "Deploy SSOT gates failed"
             exit 1
           fi
           if [ "${{ needs.security-scan.result }}" != "success" ]; then

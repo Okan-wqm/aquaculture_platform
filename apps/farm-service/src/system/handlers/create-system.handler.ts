@@ -1,32 +1,28 @@
 /**
  * Create System Command Handler
  */
-import { randomUUID } from 'crypto';
-
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { ConflictException, NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
-import { SystemCreatedEvent , createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { SystemCreatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { DataSource } from 'typeorm';
 import { CreateSystemCommand } from '../commands/create-system.command';
 import { System, SystemStatus } from '../entities/system.entity';
 import { Site } from '../../site/entities/site.entity';
 import { Department } from '../../department/entities/department.entity';
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { systemAuditSnapshot } from './system-audit.util';
 
 @CommandHandler(CreateSystemCommand)
 export class CreateSystemHandler implements ICommandHandler<CreateSystemCommand, System> {
   private readonly logger = new Logger(CreateSystemHandler.name);
 
   constructor(
-    @InjectRepository(System)
-    private readonly systemRepository: Repository<System>,
-    @InjectRepository(Site)
-    private readonly siteRepository: Repository<Site>,
-    @InjectRepository(Department)
-    private readonly departmentRepository: Repository<Department>,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: CreateSystemCommand): Promise<System> {
@@ -34,108 +30,118 @@ export class CreateSystemHandler implements ICommandHandler<CreateSystemCommand,
 
     this.logger.log(`Creating system "${input.name}" for tenant ${tenantId}`);
 
-    // Verify site exists and belongs to tenant
-    const site = await this.siteRepository.findOne({
-      where: { id: input.siteId, tenantId },
-    });
-    if (!site) {
-      throw new NotFoundException(`Site with ID "${input.siteId}" not found`);
-    }
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
+      const siteRepository = tenantManagerRepo(queryRunner.manager, Site, tenantId);
+      const departmentRepository = tenantManagerRepo(queryRunner.manager, Department, tenantId);
 
-    // Verify department exists if provided
-    if (input.departmentId) {
-      const department = await this.departmentRepository.findOne({
-        where: { id: input.departmentId, tenantId },
+      const site = await siteRepository.findOne({
+        where: { id: input.siteId, tenantId },
       });
-      if (!department) {
-        throw new NotFoundException(`Department with ID "${input.departmentId}" not found`);
+      if (!site) {
+        throw new NotFoundException(`Site with ID "${input.siteId}" not found`);
       }
-      if (department.siteId !== input.siteId) {
-        throw new BadRequestException(
-          `Department with ID "${input.departmentId}" does not belong to Site "${input.siteId}"`
-        );
-      }
-    }
 
-    // Verify parent system exists if provided
-    if (input.parentSystemId) {
-      const parentSystem = await this.systemRepository.findOne({
-        where: { id: input.parentSystemId, tenantId },
+      if (input.departmentId) {
+        const department = await departmentRepository.findOne({
+          where: { id: input.departmentId, tenantId },
+        });
+        if (!department) {
+          throw new NotFoundException(`Department with ID "${input.departmentId}" not found`);
+        }
+        if (department.siteId !== input.siteId) {
+          throw new BadRequestException(
+            `Department with ID "${input.departmentId}" does not belong to Site "${input.siteId}"`,
+          );
+        }
+      }
+
+      if (input.parentSystemId) {
+        const parentSystem = await systemRepository.findOne({
+          where: { id: input.parentSystemId, tenantId },
+        });
+        if (!parentSystem) {
+          throw new NotFoundException(`Parent system with ID "${input.parentSystemId}" not found`);
+        }
+        if (parentSystem.siteId !== input.siteId) {
+          throw new BadRequestException(
+            `Parent system with ID "${input.parentSystemId}" does not belong to Site "${input.siteId}"`,
+          );
+        }
+        if (
+          input.departmentId &&
+          parentSystem.departmentId &&
+          parentSystem.departmentId !== input.departmentId
+        ) {
+          throw new BadRequestException(
+            `Parent system with ID "${input.parentSystemId}" does not belong to Department "${input.departmentId}"`,
+          );
+        }
+      }
+
+      const normalizedCode = input.code.toUpperCase();
+
+      const existingByCode = await systemRepository.findOne({
+        where: { siteId: input.siteId, code: normalizedCode, tenantId },
       });
-      if (!parentSystem) {
-        throw new NotFoundException(`Parent system with ID "${input.parentSystemId}" not found`);
-      }
-      if (parentSystem.siteId !== input.siteId) {
-        throw new BadRequestException(
-          `Parent system with ID "${input.parentSystemId}" does not belong to Site "${input.siteId}"`
+      if (existingByCode) {
+        throw new ConflictException(
+          `System with code "${normalizedCode}" already exists in this site`,
         );
       }
-      if (
-        input.departmentId &&
-        parentSystem.departmentId &&
-        parentSystem.departmentId !== input.departmentId
-      ) {
-        throw new BadRequestException(
-          `Parent system with ID "${input.parentSystemId}" does not belong to Department "${input.departmentId}"`
-        );
-      }
-    }
 
-    const normalizedCode = input.code.toUpperCase();
+      const system = systemRepository.create({
+        siteId: input.siteId,
+        departmentId: input.departmentId,
+        parentSystemId: input.parentSystemId,
+        name: input.name,
+        code: normalizedCode,
+        type: input.type,
+        status: input.status ?? SystemStatus.OPERATIONAL,
+        description: input.description,
+        totalVolumeM3: input.totalVolumeM3,
+        maxBiomassKg: input.maxBiomassKg,
+        tankCount: input.tankCount,
+        isActive: true,
+        isDeleted: false,
+        createdBy: userId,
+        updatedBy: userId,
+      });
 
-    // Check for duplicate code within tenant and site
-    const existingByCode = await this.systemRepository.findOne({
-      where: { tenantId, siteId: input.siteId, code: normalizedCode },
+      const savedSystem = await systemRepository.save(system);
+
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'System',
+        entityId: savedSystem.id,
+        action: AuditAction.CREATE,
+        userId,
+        changes: { after: systemAuditSnapshot(savedSystem) },
+        metadata: { source: 'SITES_SETUP' },
+        entityVersion: savedSystem.version,
+        summary: `Created system ${savedSystem.code}`,
+      });
+
+      const event: SystemCreatedEvent = {
+        ...createBaseEvent<SystemCreatedEvent>('SystemCreated', tenantId, {
+          aggregateId: savedSystem.id,
+          aggregateType: 'System',
+          userId,
+        }),
+        systemId: savedSystem.id,
+        siteId: savedSystem.siteId,
+        departmentId: savedSystem.departmentId,
+        name: savedSystem.name,
+        code: savedSystem.code,
+        type: savedSystem.type,
+        status: savedSystem.status,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        aggregateId: savedSystem.id,
+      });
+
+      this.logger.log(`System "${savedSystem.name}" created with ID ${savedSystem.id}`);
+      return savedSystem;
     });
-    if (existingByCode) {
-      throw new ConflictException(`System with code "${normalizedCode}" already exists in this site`);
-    }
-
-    // Create system entity
-    const system = this.systemRepository.create({
-      tenantId,
-      siteId: input.siteId,
-      departmentId: input.departmentId,
-      parentSystemId: input.parentSystemId,
-      name: input.name,
-      code: normalizedCode,
-      type: input.type,
-      status: input.status ?? SystemStatus.OPERATIONAL,
-      description: input.description,
-      totalVolumeM3: input.totalVolumeM3,
-      maxBiomassKg: input.maxBiomassKg,
-      tankCount: input.tankCount,
-      isActive: true,
-      isDeleted: false,
-      createdBy: userId,
-      updatedBy: userId,
-    });
-
-    const savedSystem = await this.systemRepository.save(system);
-
-    this.logger.log(`System "${savedSystem.name}" created with ID ${savedSystem.id}`);
-
-    // Publish domain event: SystemCreated
-    if (this.eventBus) {
-      try {
-        const event: SystemCreatedEvent = {
-          ...createBaseEvent<SystemCreatedEvent>('SystemCreated', tenantId),
-          systemId: savedSystem.id,
-          siteId: savedSystem.siteId,
-          departmentId: savedSystem.departmentId,
-          name: savedSystem.name,
-          code: savedSystem.code,
-          type: savedSystem.type,
-          status: savedSystem.status,
-          version: 1,
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published SystemCreatedEvent for system ${savedSystem.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish SystemCreatedEvent: ${(eventError as Error).message}`);
-      }
-    }
-
-    return savedSystem;
   }
 }

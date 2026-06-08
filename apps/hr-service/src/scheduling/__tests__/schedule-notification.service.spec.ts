@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import { NOTIFICATION_COMMAND_SUBJECTS } from '@platform/event-contracts';
+import { of } from 'rxjs';
 import { ScheduleNotificationService } from '../services/schedule-notification.service';
 import { WeeklyPlan, WeeklyPlanStatus } from '../entities/weekly-plan.entity';
 import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-entry.entity';
@@ -138,15 +140,131 @@ describe('ScheduleNotificationService', () => {
     it('should return empty result when no plans found', async () => {
       planRepository.find.mockResolvedValue([]);
 
-      const result = await service.sendScheduledNotifications(
-        'tenant-1',
-        new Date('2026-01-12'),
-      );
+      const result = await service.sendScheduledNotifications('tenant-1', new Date('2026-01-12'));
 
       expect(result.success).toBe(true);
       expect(result.notifiedCount).toBe(0);
       expect(result.failedCount).toBe(0);
       expect(result.errors).toHaveLength(0);
+    });
+  });
+
+  describe('notification command payloads', () => {
+    it('sends weekly schedule email commands on the shared notification subject', async () => {
+      const natsClient = {
+        send: jest.fn().mockReturnValue(
+          of({
+            success: true,
+            deliveryId: 'hr-schedule:tenant-1:emp-1:2026-01-12',
+            tenantId: 'tenant-1',
+            channel: 'email',
+          }),
+        ),
+      };
+      (
+        service as unknown as {
+          natsClient: typeof natsClient;
+          sendScheduleEmail: (data: unknown) => Promise<void>;
+        }
+      ).natsClient = natsClient;
+
+      await (
+        service as unknown as {
+          sendScheduleEmail: (data: unknown) => Promise<void>;
+        }
+      ).sendScheduleEmail({
+        employeeId: 'emp-1',
+        employeeName: 'Ahmet Yilmaz',
+        employeeEmail: 'ahmet@example.com',
+        tenantId: 'tenant-1',
+        tenantName: 'Tenant One',
+        weekStartDate: '2026-01-12',
+        weekEndDate: '2026-01-18',
+        entries: [],
+        totalWorkDays: 5,
+        totalWorkHours: 40,
+        overtimeHours: 0,
+      });
+
+      expect(natsClient.send).toHaveBeenCalledWith(
+        NOTIFICATION_COMMAND_SUBJECTS.SEND_EMAIL,
+        expect.objectContaining({
+          deliveryId: 'hr-schedule:tenant-1:emp-1:2026-01-12',
+          requestReference: 'hr-schedule:tenant-1:emp-1:2026-01-12',
+          tenantId: 'tenant-1',
+          source: 'hr-service',
+          recipientRef: {
+            kind: 'tenantContactRef',
+            ref: 'hr.employee.email:emp-1',
+          },
+          templateId: 'hr.weekly_schedule.email',
+          templateVersion: '1',
+          templateVariables: expect.objectContaining({
+            employeeName: 'Ahmet Yilmaz',
+            scheduleEntryCount: 0,
+          }),
+        }),
+      );
+    });
+
+    it('sends overtime warning commands with manager contact ref and template variables', async () => {
+      const natsClient = {
+        send: jest.fn().mockReturnValue(
+          of({
+            success: true,
+            deliveryId: 'hr-overtime:tenant-1:emp-1:2026-01-12:exceeded_limit',
+            tenantId: 'tenant-1',
+            channel: 'email',
+          }),
+        ),
+      };
+      (
+        service as unknown as {
+          natsClient: typeof natsClient;
+          sendOvertimeWarning: (data: unknown) => Promise<void>;
+        }
+      ).natsClient = natsClient;
+
+      await (
+        service as unknown as {
+          sendOvertimeWarning: (data: unknown) => Promise<void>;
+        }
+      ).sendOvertimeWarning({
+        employeeId: 'emp-1',
+        employeeName: 'Ahmet Yilmaz',
+        employeeEmail: 'ahmet@example.com',
+        managerEmail: 'manager@example.com',
+        tenantId: 'tenant-1',
+        weekStartDate: '2026-01-12',
+        weekEndDate: '2026-01-18',
+        warningType: 'exceeded_limit',
+        plannedOvertimeMinutes: 780,
+        maxOvertimeMinutes: 720,
+      });
+
+      expect(natsClient.send).toHaveBeenCalledWith(
+        NOTIFICATION_COMMAND_SUBJECTS.SEND_EMAIL,
+        expect.objectContaining({
+          deliveryId: 'hr-overtime:tenant-1:emp-1:2026-01-12:exceeded_limit',
+          requestReference: 'hr-overtime:tenant-1:emp-1:2026-01-12:exceeded_limit',
+          recipientRef: {
+            kind: 'tenantContactRef',
+            ref: 'hr.manager.email:emp-1',
+          },
+          templateId: 'hr.overtime_warning.email',
+          templateVariables: expect.objectContaining({
+            warningType: 'exceeded_limit',
+            urgency: 'high',
+            overtimeHours: 13,
+            maxHours: 12,
+            isExceeded: true,
+          }),
+          metadata: expect.objectContaining({
+            employeeId: 'emp-1',
+            recipientRole: 'manager',
+          }),
+        }),
+      );
     });
   });
 
@@ -158,7 +276,7 @@ describe('ScheduleNotificationService', () => {
         employee: {
           ...mockEmployee,
           firstName: '<script>alert("xss")</script>',
-          lastName: 'O\'Brien & Co.',
+          lastName: "O'Brien & Co.",
         } as Employee,
       };
 

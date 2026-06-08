@@ -716,13 +716,6 @@ export function createMigrationRunnerService(
       migration: Migration,
     ): Promise<void> {
       await queryRunner.query(
-        `CREATE TABLE IF NOT EXISTS "${schema}"."${migrationsTableName}" (
-           "id" SERIAL NOT NULL PRIMARY KEY,
-           "timestamp" bigint NOT NULL,
-           "name" varchar NOT NULL
-         )`,
-      );
-      await queryRunner.query(
         `INSERT INTO "${schema}"."${migrationsTableName}" ("timestamp", "name")
          SELECT $1::bigint, $2::varchar
          WHERE NOT EXISTS (

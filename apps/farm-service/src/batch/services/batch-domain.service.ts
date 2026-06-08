@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Batch, BatchStatus, BatchType } from '../entities/batch.entity';
+import { BatchLifecyclePolicyService } from './batch-lifecycle-policy.service';
 
 /**
  * IP-3: Batch domain logic — extracted from batch.entity.ts.
@@ -14,6 +15,10 @@ import { Batch, BatchStatus, BatchType } from '../entities/batch.entity';
  */
 @Injectable()
 export class BatchDomainService {
+  constructor(
+    private readonly lifecyclePolicy: BatchLifecyclePolicyService = new BatchLifecyclePolicyService(),
+  ) {}
+
 
   // ── Biomass & Weight ──────────────────────────────────────────────────────
 
@@ -139,19 +144,7 @@ export class BatchDomainService {
    *   CLOSED → (terminal)
    */
   canTransitionTo(batch: Batch, newStatus: BatchStatus): boolean {
-    const validTransitions: Record<BatchStatus, BatchStatus[]> = {
-      [BatchStatus.QUARANTINE]: [BatchStatus.ACTIVE, BatchStatus.FAILED],
-      [BatchStatus.ACTIVE]: [BatchStatus.GROWING, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
-      [BatchStatus.GROWING]: [BatchStatus.PRE_HARVEST, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
-      [BatchStatus.PRE_HARVEST]: [BatchStatus.HARVESTING, BatchStatus.GROWING, BatchStatus.FAILED],
-      [BatchStatus.HARVESTING]: [BatchStatus.HARVESTED, BatchStatus.FAILED],
-      [BatchStatus.HARVESTED]: [BatchStatus.CLOSED],
-      [BatchStatus.TRANSFERRED]: [BatchStatus.CLOSED],
-      [BatchStatus.FAILED]: [BatchStatus.CLOSED],
-      [BatchStatus.CLOSED]: [],
-    };
-
-    return validTransitions[batch.status]?.includes(newStatus) ?? false;
+    return this.lifecyclePolicy.canTransitionStatus(batch.status, newStatus);
   }
 
   /** Is the batch in an active production state? */

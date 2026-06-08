@@ -19,6 +19,7 @@ from aria_kernel.migration import migrate_tools_v1_to_v2, migrate_workspace_v1_t
 from aria_kernel.pressure import list_workspace_pressures
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class V13ContractTests(unittest.TestCase):
@@ -35,7 +36,7 @@ class V13ContractTests(unittest.TestCase):
     def test_tools_v0_root_with_ledgers_migrates_and_rolls_back_with_audit(self):
         tools = self.base / "aria-tools"
         tools.mkdir()
-        append_jsonl(tools / "runs.jsonl", {"schema_version": 1, "run_id": "run-1", "cycle_id": "cycle-1"})
+        append_jsonl(tools / "runs.jsonl", {"schema_version": 1, "run_id": "run-1", "cycle_id": "cycle-1"}, test_fixture=True)
 
         with self.assertRaisesRegex(GovernanceError, "ambiguous_tools_root"):
             ensure_tools_dir(tools)
@@ -93,7 +94,7 @@ class V13ContractTests(unittest.TestCase):
         tools = self.base / "v1-tools"
         tools.mkdir()
         (tools / "repo_identity.json").write_text('{"schema_version":1,"aria_tools_contract_version":1}\n', encoding="utf-8")
-        append_jsonl(tools / "runs.jsonl", {"schema_version": 1, "run_id": "run-1", "cycle_id": "cycle-1"})
+        append_jsonl(tools / "runs.jsonl", {"schema_version": 1, "run_id": "run-1", "cycle_id": "cycle-1"}, test_fixture=True)
 
         result = migrate_tools_v1_to_v2(
             tools_dir=tools,
@@ -111,7 +112,7 @@ class V13ContractTests(unittest.TestCase):
     def test_v2_with_unfinished_migration_state_resumes_instead_of_noop(self):
         tools = self.base / "mixed-tools"
         tools.mkdir()
-        append_jsonl(tools / "runs.jsonl", {"schema_version": 1, "run_id": "run-1", "cycle_id": "cycle-1"})
+        append_jsonl(tools / "runs.jsonl", {"schema_version": 1, "run_id": "run-1", "cycle_id": "cycle-1"}, test_fixture=True)
         first = migrate_tools_v1_to_v2(
             tools_dir=tools,
             workspace_root=self.repo,
@@ -241,7 +242,11 @@ class V13ContractTests(unittest.TestCase):
             acknowledge=True,
             reason="workspace migration",
         )
-        append_jsonl(paths.ledgers["missed_signals"], normalize_feedback_event({"kind": "missed_signal", "refs": ["apps/api/src/app.ts:1"], "summary": "post"}))
+        append_declared_fixture(
+            paths.ledgers["missed_signals"],
+            normalize_feedback_event({"kind": "missed_signal", "refs": ["apps/api/src/app.ts:1"], "summary": "post"}),
+            expected_surface="workspace_memory_missed_signals",
+        )
 
         rollback = rollback_workspace_v2_to_v1(
             workspace_root=self.repo,
@@ -340,7 +345,11 @@ class V13ContractTests(unittest.TestCase):
                 "capability_gap_key": "repo:scope_violation:ts",
             },
         )
-        append_jsonl(paths.ledgers["missed_signals"], old)
+        append_declared_fixture(
+            paths.ledgers["missed_signals"],
+            old,
+            expected_surface="workspace_memory_missed_signals",
+        )
 
         event = build_feedback_event(self._args(kind="missed_signal", ref="libs/backend-common/src/foo.ts:1"), paths=paths)
         add_feedback(paths, event)
@@ -369,15 +378,29 @@ class V13ContractTests(unittest.TestCase):
         paths_b = workspace_paths(self.repo, base_b)
         ensure_workspace(paths_a)
         ensure_workspace(paths_b)
-        append_jsonl(paths_a.ledgers["pressure"], self._pressure("PE-a"))
+        append_declared_fixture(
+            paths_a.ledgers["pressure"],
+            self._pressure("PE-a"),
+            expected_surface="workspace_memory_pressure",
+        )
 
         self.assertEqual([row["event_id"] for row in list_workspace_pressures(paths_a)], ["PE-a"])
         self.assertEqual(list_workspace_pressures(paths_b), [])
 
         tools_a = self.base / "tools-a"
         tools_b = self.base / "tools-b"
-        append_jsonl(tools_a / "memory" / "beliefs.jsonl", {"belief_id": "belief-1", "status": "active", "schema_version": 1})
-        append_jsonl(tools_b / "memory" / "beliefs.jsonl", {"belief_id": "belief-1", "status": "active", "schema_version": 1})
+        ensure_tools_dir(tools_a)
+        ensure_tools_dir(tools_b)
+        append_declared_fixture(
+            tools_a / "memory" / "beliefs.jsonl",
+            {"belief_id": "belief-1", "status": "active", "schema_version": 1},
+            expected_surface="memory_beliefs",
+        )
+        append_declared_fixture(
+            tools_b / "memory" / "beliefs.jsonl",
+            {"belief_id": "belief-1", "status": "active", "schema_version": 1},
+            expected_surface="memory_beliefs",
+        )
         withdraw_belief(belief_id="belief-1", reason="operator rejected", base_dir=tools_a)
         self.assertEqual(list_memory(kind="beliefs", base_dir=tools_a)[0]["status"], "withdrawn")
         self.assertEqual(list_memory(kind="beliefs", base_dir=tools_b)[0]["status"], "active")

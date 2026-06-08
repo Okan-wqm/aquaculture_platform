@@ -1,12 +1,24 @@
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { AUTH_ADMIN_COMMAND_SUBJECTS } from '@platform/event-contracts';
+import { of, throwError } from 'rxjs';
 import { DataSource } from 'typeorm';
 
 import { ModulesService, ModuleDto, ModuleStats, TenantModuleAssignment } from '../modules.service';
+import { AuthTenantProvisioningClientService } from '../../tenant/services/auth-tenant-provisioning-client.service';
 
 // Mock DataSource
 const mockDataSource = {
   query: jest.fn(),
+};
+
+const mockAuthProvisioningClient = {
+  assignTenantModules: jest.fn(),
+  removeTenantModule: jest.fn(),
+};
+
+const mockAuthNatsClient = {
+  send: jest.fn(),
 };
 
 // Helper to create mock module data
@@ -26,6 +38,15 @@ const createMockModule = (overrides: Partial<ModuleDto> = {}): ModuleDto => ({
   ...overrides,
 });
 
+const createMockModuleSnapshot = (overrides: Partial<ModuleDto> = {}) => {
+  const module = createMockModule(overrides);
+  return {
+    ...module,
+    createdAt: module.createdAt.toISOString(),
+    updatedAt: module.updatedAt.toISOString(),
+  };
+};
+
 // Helper to create mock tenant module assignment
 const createMockAssignment = (overrides: Partial<TenantModuleAssignment> = {}): TenantModuleAssignment => ({
   id: 'assignment-uuid-123',
@@ -44,6 +65,21 @@ describe('ModulesService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockDataSource.query.mockReset();
+    mockAuthNatsClient.send.mockReset();
+    mockAuthProvisioningClient.assignTenantModules.mockResolvedValue({
+      success: true,
+      modulesAssigned: 1,
+    });
+    mockAuthProvisioningClient.removeTenantModule.mockResolvedValue({
+      success: true,
+      modulesRemoved: 1,
+    });
+    mockAuthNatsClient.send.mockReturnValue(of({
+      success: true,
+      module: createMockModuleSnapshot({ tenantsCount: 0 }),
+      moduleId: 'module-id',
+    }));
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -51,6 +87,14 @@ describe('ModulesService', () => {
         {
           provide: DataSource,
           useValue: mockDataSource,
+        },
+        {
+          provide: AuthTenantProvisioningClientService,
+          useValue: mockAuthProvisioningClient,
+        },
+        {
+          provide: 'AUTH_NATS_CLIENT',
+          useValue: mockAuthNatsClient,
         },
       ],
     }).compile();
@@ -292,22 +336,17 @@ describe('ModulesService', () => {
 
     it('should create module with all fields', async () => {
       const mockCreated = createMockModule({ ...createDto, id: 'new-module-id' });
-      mockDataSource.query.mockResolvedValueOnce([mockCreated]);
+      mockAuthNatsClient.send.mockReturnValueOnce(of({
+        success: true,
+        module: createMockModuleSnapshot(mockCreated),
+      }));
 
       const result = await service.createModule(createDto);
 
       expect(result).toEqual({ ...mockCreated, tenantsCount: 0 });
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO auth.modules'),
-        [
-          createDto.code,
-          createDto.name,
-          createDto.description,
-          createDto.defaultRoute,
-          createDto.icon,
-          createDto.isCore,
-          createDto.price,
-        ],
+      expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
+        AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_MODULE,
+        expect.objectContaining(createDto),
       );
     });
 
@@ -318,36 +357,49 @@ describe('ModulesService', () => {
         defaultRoute: '/minimal',
       };
       const mockCreated = createMockModule({ ...minimalDto, id: 'minimal-id' });
-      mockDataSource.query.mockResolvedValueOnce([mockCreated]);
+      mockAuthNatsClient.send.mockReturnValueOnce(of({
+        success: true,
+        module: createMockModuleSnapshot(mockCreated),
+      }));
 
       await service.createModule(minimalDto);
 
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.any(String),
-        ['MINIMAL', 'Minimal Module', null, '/minimal', null, false, 0],
+      expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
+        AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_MODULE,
+        expect.objectContaining({
+          code: 'MINIMAL',
+          name: 'Minimal Module',
+          description: null,
+          defaultRoute: '/minimal',
+          icon: null,
+          isCore: false,
+          price: 0,
+        }),
       );
     });
 
     it('should throw ConflictException on duplicate code', async () => {
-      const error = new Error('Duplicate key') as Error & { code: string };
-      error.code = '23505';
-      mockDataSource.query.mockRejectedValueOnce(error);
+      mockAuthNatsClient.send.mockReturnValueOnce(of({
+        success: false,
+        errorCode: 'DUPLICATE_MODULE',
+      }));
 
       await expect(service.createModule(createDto)).rejects.toThrow(ConflictException);
     });
 
     it('should throw ConflictException with correct message on duplicate code', async () => {
-      const error = new Error('Duplicate key') as Error & { code: string };
-      error.code = '23505';
-      mockDataSource.query.mockRejectedValueOnce(error);
+      mockAuthNatsClient.send.mockReturnValueOnce(of({
+        success: false,
+        errorCode: 'DUPLICATE_MODULE',
+      }));
 
       await expect(service.createModule(createDto)).rejects.toThrow(`Module with code ${createDto.code} already exists`);
     });
 
-    it('should throw error on other database failures', async () => {
-      mockDataSource.query.mockRejectedValueOnce(new Error('Insert failed'));
+    it('should throw error on auth-service failures', async () => {
+      mockAuthNatsClient.send.mockReturnValueOnce(throwError(() => new Error('NATS failed')));
 
-      await expect(service.createModule(createDto)).rejects.toThrow('Insert failed');
+      await expect(service.createModule(createDto)).rejects.toThrow('NATS failed');
     });
   });
 
@@ -363,22 +415,13 @@ describe('ModulesService', () => {
       };
       const mockUpdated = createMockModule({ ...updateDto, id: 'module-id' });
       mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'module-id' }]) // update query
         .mockResolvedValueOnce([mockUpdated]); // getModuleById
 
       const result = await service.updateModule('module-id', updateDto);
 
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('UPDATE auth.modules'),
-        expect.arrayContaining([
-          updateDto.name,
-          updateDto.description,
-          updateDto.defaultRoute,
-          updateDto.icon,
-          updateDto.isActive,
-          updateDto.price,
-          'module-id',
-        ]),
+      expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
+        AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_MODULE,
+        expect.objectContaining({ moduleId: 'module-id', ...updateDto }),
       );
       expect(result.name).toBe('Updated Name');
     });
@@ -387,14 +430,13 @@ describe('ModulesService', () => {
       const updateDto = { name: 'Only Name' };
       const mockUpdated = createMockModule({ ...updateDto, id: 'module-id' });
       mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'module-id' }])
         .mockResolvedValueOnce([mockUpdated]);
 
       await service.updateModule('module-id', updateDto);
 
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('name = $'),
-        expect.arrayContaining(['Only Name', 'module-id']),
+      expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
+        AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_MODULE,
+        expect.objectContaining({ moduleId: 'module-id', name: 'Only Name' }),
       );
     });
 
@@ -407,8 +449,8 @@ describe('ModulesService', () => {
       expect(result).toEqual(mockModule);
     });
 
-    it('should throw error on database failure', async () => {
-      mockDataSource.query.mockRejectedValueOnce(new Error('Update failed'));
+    it('should throw error on auth-service failure', async () => {
+      mockAuthNatsClient.send.mockReturnValueOnce(throwError(() => new Error('Update failed')));
 
       await expect(service.updateModule('module-id', { name: 'Test' })).rejects.toThrow('Update failed');
     });
@@ -418,7 +460,6 @@ describe('ModulesService', () => {
     it('should activate module', async () => {
       const mockModule = createMockModule({ isActive: true });
       mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'module-id' }])
         .mockResolvedValueOnce([mockModule]);
 
       const result = await service.setModuleStatus('module-id', true);
@@ -429,7 +470,6 @@ describe('ModulesService', () => {
     it('should deactivate module', async () => {
       const mockModule = createMockModule({ isActive: false });
       mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'module-id' }])
         .mockResolvedValueOnce([mockModule]);
 
       const result = await service.setModuleStatus('module-id', false);
@@ -440,25 +480,32 @@ describe('ModulesService', () => {
 
   describe('deleteModule', () => {
     it('should delete module with no assignments', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ count: '0' }]) // check assignments
-        .mockResolvedValueOnce([{ id: 'module-id' }]); // delete
+      mockAuthNatsClient.send.mockReturnValueOnce(of({
+        success: true,
+        moduleId: 'module-id',
+      }));
 
       await expect(service.deleteModule('module-id')).resolves.toBeUndefined();
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('DELETE FROM auth.modules'),
-        ['module-id'],
+      expect(mockAuthNatsClient.send).toHaveBeenCalledWith(
+        AUTH_ADMIN_COMMAND_SUBJECTS.DELETE_MODULE,
+        { moduleId: 'module-id' },
       );
     });
 
     it('should throw ConflictException when module has assignments', async () => {
-      mockDataSource.query.mockResolvedValueOnce([{ count: '5' }]);
+      mockAuthNatsClient.send.mockReturnValueOnce(of({
+        success: false,
+        errorCode: 'MODULE_ASSIGNED',
+      }));
 
       await expect(service.deleteModule('module-id')).rejects.toThrow(ConflictException);
     });
 
     it('should throw ConflictException with correct message when module has assignments', async () => {
-      mockDataSource.query.mockResolvedValueOnce([{ count: '5' }]);
+      mockAuthNatsClient.send.mockReturnValueOnce(of({
+        success: false,
+        errorCode: 'MODULE_ASSIGNED',
+      }));
 
       await expect(service.deleteModule('module-id')).rejects.toThrow(
         'Cannot delete module that is assigned to tenants',
@@ -466,15 +513,16 @@ describe('ModulesService', () => {
     });
 
     it('should throw NotFoundException when module not found', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([{ count: '0' }])
-        .mockResolvedValueOnce([]);
+      mockAuthNatsClient.send.mockReturnValueOnce(of({
+        success: false,
+        errorCode: 'MODULE_NOT_FOUND',
+      }));
 
       await expect(service.deleteModule('non-existent')).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw error on database failure', async () => {
-      mockDataSource.query.mockRejectedValueOnce(new Error('Delete failed'));
+    it('should throw error on auth-service failure', async () => {
+      mockAuthNatsClient.send.mockReturnValueOnce(throwError(() => new Error('Delete failed')));
 
       await expect(service.deleteModule('module-id')).rejects.toThrow('Delete failed');
     });
@@ -584,63 +632,65 @@ describe('ModulesService', () => {
     };
 
     it('should assign module to tenant', async () => {
-      const mockInsert = { id: 'assignment-id', tenantId: 'tenant-uuid', moduleId: 'module-uuid' };
       const mockAssignment = createMockAssignment();
       mockDataSource.query
         .mockResolvedValueOnce([]) // checkExtendedColumns
-        .mockResolvedValueOnce([mockInsert]) // insert
         .mockResolvedValueOnce([mockAssignment]); // get full details
 
       const result = await service.assignModuleToTenant(assignDto);
 
       expect(result).toEqual(mockAssignment);
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO auth.tenant_modules'),
-        ['tenant-uuid', 'module-uuid', null, 'tenant-uuid'],
+      expect(mockAuthProvisioningClient.assignTenantModules).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 'tenant-uuid',
+          moduleIds: ['module-uuid'],
+          modules: [{ moduleId: 'module-uuid' }],
+          assignedBy: 'tenant-uuid',
+          operationId: expect.any(String),
+          requestReference: expect.stringMatching(/^AssignModules:tenant-uuid:tenant-uuid:[a-f0-9]{64}$/),
+          actor: { id: 'tenant-uuid', type: 'user' },
+          auditMetadata: {
+            source: 'admin-api-service',
+            commandType: 'AssignModules',
+          },
+        }),
       );
     });
 
     it('should assign module with expiration date', async () => {
       const expiresAt = new Date('2025-12-31');
       const dtoWithExpiry = { ...assignDto, expiresAt };
-      const mockInsert = { id: 'assignment-id' };
       const mockAssignment = createMockAssignment({ expiresAt });
       mockDataSource.query
         .mockResolvedValueOnce([]) // checkExtendedColumns
-        .mockResolvedValueOnce([mockInsert])
         .mockResolvedValueOnce([mockAssignment]);
 
       const result = await service.assignModuleToTenant(dtoWithExpiry);
 
       expect(result.expiresAt).toEqual(expiresAt);
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.any(String),
-        ['tenant-uuid', 'module-uuid', expiresAt, 'tenant-uuid'],
+      expect(mockAuthProvisioningClient.assignTenantModules).toHaveBeenCalledWith(
+        expect.objectContaining({
+          modules: [expect.objectContaining({ expiresAt: expiresAt.toISOString() })],
+        }),
       );
     });
 
-    it('should update existing assignment (upsert)', async () => {
-      const mockInsert = { id: 'existing-assignment-id' };
+    it('should delegate existing assignment upsert to auth-service', async () => {
       const mockAssignment = createMockAssignment();
       mockDataSource.query
         .mockResolvedValueOnce([]) // checkExtendedColumns
-        .mockResolvedValueOnce([mockInsert])
         .mockResolvedValueOnce([mockAssignment]);
 
       await service.assignModuleToTenant(assignDto);
 
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('ON CONFLICT'),
-        expect.any(Array),
-      );
+      expect(mockAuthProvisioningClient.assignTenantModules).toHaveBeenCalledTimes(1);
     });
 
-    it('should throw error on database failure', async () => {
-      mockDataSource.query
-        .mockResolvedValueOnce([]) // checkExtendedColumns
-        .mockRejectedValueOnce(new Error('Insert failed'));
+    it('should throw error on auth-service handoff failure', async () => {
+      mockDataSource.query.mockResolvedValueOnce([]); // checkExtendedColumns
+      mockAuthProvisioningClient.assignTenantModules.mockRejectedValueOnce(new Error('Assign failed'));
 
-      await expect(service.assignModuleToTenant(assignDto)).rejects.toThrow('Insert failed');
+      await expect(service.assignModuleToTenant(assignDto)).rejects.toThrow('Assign failed');
     });
   });
 
@@ -649,9 +699,19 @@ describe('ModulesService', () => {
       mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-id' }]);
 
       await expect(service.removeModuleFromTenant('tenant-id', 'module-id')).resolves.toBeUndefined();
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('DELETE FROM auth.tenant_modules'),
-        ['tenant-id', 'module-id'],
+      expect(mockAuthProvisioningClient.removeTenantModule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 'tenant-id',
+          moduleId: 'module-id',
+          removedBy: 'tenant-id',
+          operationId: expect.any(String),
+          requestReference: expect.stringMatching(/^RemoveModule:tenant-id:tenant-id:[a-f0-9]{64}$/),
+          actor: { id: 'tenant-id', type: 'user' },
+          auditMetadata: {
+            source: 'admin-api-service',
+            commandType: 'RemoveModule',
+          },
+        }),
       );
     });
 
@@ -669,10 +729,11 @@ describe('ModulesService', () => {
       );
     });
 
-    it('should throw error on database failure', async () => {
-      mockDataSource.query.mockRejectedValueOnce(new Error('Delete failed'));
+    it('should throw error on auth-service handoff failure', async () => {
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-id' }]);
+      mockAuthProvisioningClient.removeTenantModule.mockRejectedValueOnce(new Error('Remove failed'));
 
-      await expect(service.removeModuleFromTenant('tenant-id', 'module-id')).rejects.toThrow('Delete failed');
+      await expect(service.removeModuleFromTenant('tenant-id', 'module-id')).rejects.toThrow('Remove failed');
     });
   });
 
@@ -683,15 +744,11 @@ describe('ModulesService', () => {
         moduleId: 'shared-module',
       }));
 
-      // With Promise.all, all checkExtendedColumns fire first, then inserts, then selects
+      // With Promise.all, all checkExtendedColumns fire first, then detail selects
       // So we need to order mocks accordingly:
       // 5 checkExtendedColumns results
       for (let i = 0; i < 5; i++) {
         mockDataSource.query.mockResolvedValueOnce([]); // checkExtendedColumns
-      }
-      // 5 insert results
-      for (const dto of assignments) {
-        mockDataSource.query.mockResolvedValueOnce([{ id: `assignment-${dto.tenantId}` }]);
       }
       // 5 select results
       for (const dto of assignments) {
@@ -751,7 +808,10 @@ describe('ModulesService', () => {
     });
 
     it('should prevent deleting core modules with assignments', async () => {
-      mockDataSource.query.mockResolvedValueOnce([{ count: '10' }]);
+      mockAuthNatsClient.send.mockReturnValueOnce(of({
+        success: false,
+        errorCode: 'MODULE_ASSIGNED',
+      }));
 
       await expect(service.deleteModule('core-module-id')).rejects.toThrow(ConflictException);
     });
@@ -770,7 +830,6 @@ describe('ModulesService', () => {
       const mockAssignment = createMockAssignment({ expiresAt: futureDate });
       mockDataSource.query
         .mockResolvedValueOnce([]) // checkExtendedColumns
-        .mockResolvedValueOnce([{ id: 'assignment-id' }])
         .mockResolvedValueOnce([mockAssignment]);
 
       const result = await service.assignModuleToTenant(dto);
@@ -786,7 +845,6 @@ describe('ModulesService', () => {
       const mockAssignment = createMockAssignment({ expiresAt: null });
       mockDataSource.query
         .mockResolvedValueOnce([]) // checkExtendedColumns
-        .mockResolvedValueOnce([{ id: 'assignment-id' }])
         .mockResolvedValueOnce([mockAssignment]);
 
       const result = await service.assignModuleToTenant(dto);

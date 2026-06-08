@@ -40,6 +40,91 @@ describe('parseArgs — --down N --schema <name> happy path', () => {
   });
 });
 
+describe('parseArgs — tenant-schema-provisioner mode', () => {
+  it('defaults tenant-schema-provisioner to one claim', () => {
+    const out = parseArgs(['tenant-schema-provisioner']);
+    expect(out).toEqual({
+      mode: 'tenant-schema-provisioner',
+      provisionerRunMode: 'once',
+    });
+  });
+
+  it('parses tenant-schema-provisioner --once', () => {
+    const out = parseArgs(['tenant-schema-provisioner', '--once']);
+    expect(out).toEqual({
+      mode: 'tenant-schema-provisioner',
+      provisionerRunMode: 'once',
+    });
+  });
+
+  it('parses tenant-schema-provisioner --loop', () => {
+    const out = parseArgs(['tenant-schema-provisioner', '--loop']);
+    expect(out).toEqual({
+      mode: 'tenant-schema-provisioner',
+      provisionerRunMode: 'loop',
+    });
+  });
+
+  it('rejects provisioner mode combined with rollback flags', () => {
+    expect(() =>
+      parseArgs(['tenant-schema-provisioner', '--down', '1', '--schema', 'farm']),
+    ).toThrow(/cannot be combined/i);
+  });
+
+  it('rejects provisioner run flags without provisioner mode', () => {
+    expect(() => parseArgs(['--once'])).toThrow(/only accepted after/i);
+  });
+});
+
+describe('parseArgs — tenant-schema-rollback mode', () => {
+  it('parses tenant rollback for one tenant schema', () => {
+    const out = parseArgs([
+      'tenant-schema-rollback',
+      '--tenant',
+      'tenant_1234567890abcdef',
+      '--schema',
+      'farm',
+      '--down',
+      '2',
+    ]);
+    expect(out).toEqual({
+      mode: 'tenant-schema-rollback',
+      tenantRollbackTarget: 'tenant',
+      tenantRollbackTenant: 'tenant_1234567890abcdef',
+      schema: 'farm',
+      down: 2,
+    });
+  });
+
+  it('parses tenant rollback fan-out for all tenants', () => {
+    const out = parseArgs(['tenant-schema-rollback', '--all', '--schema', 'farm', '--down', '1']);
+    expect(out).toEqual({
+      mode: 'tenant-schema-rollback',
+      tenantRollbackTarget: 'all',
+      schema: 'farm',
+      down: 1,
+    });
+  });
+
+  it('rejects tenant rollback without an explicit tenant scope', () => {
+    expect(() =>
+      parseArgs(['tenant-schema-rollback', '--schema', 'farm', '--down', '1']),
+    ).toThrow(/requires --tenant <id> or --all/i);
+  });
+
+  it('rejects tenant rollback without source schema and down count', () => {
+    expect(() => parseArgs(['tenant-schema-rollback', '--all'])).toThrow(
+      /requires --schema <source> --down <N>/i,
+    );
+  });
+
+  it('rejects mixed tenant rollback scopes', () => {
+    expect(() =>
+      parseArgs(['tenant-schema-rollback', '--all', '--tenant', 'tenant_1234567890abcdef']),
+    ).toThrow(/only one of --tenant or --all/i);
+  });
+});
+
 describe('parseArgs — --down rejects malformed argument', () => {
   it('rejects --down with no argument', () => {
     expect(() => parseArgs(['--down'])).toThrow(/requires an integer/i);

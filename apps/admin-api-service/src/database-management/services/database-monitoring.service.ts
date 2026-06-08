@@ -414,18 +414,11 @@ export class DatabaseMonitoringService {
     );
 
     if (!extCheck[0]?.exists) {
-      // Try to create the extension (requires appropriate privileges)
-      try {
-        await queryRunner.query('CREATE EXTENSION IF NOT EXISTS pg_stat_statements');
-        this.logger.log('Successfully created pg_stat_statements extension');
-      } catch (createError) {
-        this.logger.warn(
-          'pg_stat_statements extension is not available and cannot be created. '
-          + 'This requires shared_preload_libraries configuration. '
-          + 'Falling back to pg_stat_activity for active query monitoring.',
-        );
-        return this.getSlowQueriesFromPgActivity(queryRunner, limit);
-      }
+      this.logger.warn(
+        'pg_stat_statements extension is not installed by db-migrate/infra. '
+        + 'Falling back to pg_stat_activity for active query monitoring.',
+      );
+      return this.getSlowQueriesFromPgActivity(queryRunner, limit);
     }
 
     try {
@@ -829,7 +822,9 @@ export class DatabaseMonitoringService {
             indexType: 'btree',
             reason: `High sequential scan count (${table.seq_scan}) with ${table.row_count} rows`,
             estimatedImpact: table.row_count > 10000 ? 'high' : 'medium',
-            createStatement: `CREATE INDEX idx_${table.table_name}_${columns.join('_')} ON "${table.schemaname}"."${table.table_name}" (${columns.map(c => `"${c}"`).join(', ')})`,
+            recommendedAction: 'add_index',
+            indexName: `idx_${table.table_name}_${columns.join('_')}`,
+            authority: 'db-migrate',
           });
         }
       }
@@ -856,7 +851,9 @@ export class DatabaseMonitoringService {
           indexType: 'btree',
           reason: `Unused index "${idx.index_name}" (${idx.index_size})`,
           estimatedImpact: 'low',
-          createStatement: `DROP INDEX IF EXISTS "${idx.schemaname}"."${idx.index_name}"`,
+          recommendedAction: 'review_unused_index',
+          indexName: idx.index_name,
+          authority: 'db-migrate',
         });
       }
 

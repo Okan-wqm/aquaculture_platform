@@ -10,8 +10,16 @@
 import 'reflect-metadata';
 import { randomBytes } from 'crypto';
 
-import { createTenantConnectionBootstrap, getTenantSchemaName, withTenantContext } from '@aquaculture/backend-common';
-import { bootPostgresContainer, HarnessContext, shutdownHarness } from '@platform/migration-harness';
+import {
+  createTenantConnectionBootstrap,
+  getTenantSchemaName,
+  withTenantContext,
+} from '@aquaculture/backend-common';
+import {
+  bootPostgresContainer,
+  HarnessContext,
+  shutdownHarness,
+} from '@platform/migration-harness';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, Repository } from 'typeorm';
 
@@ -21,11 +29,19 @@ import { TankAllocation, AllocationType } from '../../batch/entities/tank-alloca
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation } from '../../batch/entities/tank-operation.entity';
 import { BatchService } from '../../batch/services/batch.service';
-import { Department, DepartmentStatus, DepartmentType } from '../../department/entities/department.entity';
+import {
+  Department,
+  DepartmentStatus,
+  DepartmentType,
+} from '../../department/entities/department.entity';
 import { Feed, FeedStatus, FeedType, FloatingType } from '../../feed/entities/feed.entity';
 import { CreateFeedingRecordCommand } from '../../feeding/commands/create-feeding-record.command';
 import { FeedInventory, InventoryStatus } from '../../feeding/entities/feed-inventory.entity';
-import { FeedingRecord, FeedingMethod, FishAppetite } from '../../feeding/entities/feeding-record.entity';
+import {
+  FeedingRecord,
+  FeedingMethod,
+  FishAppetite,
+} from '../../feeding/entities/feeding-record.entity';
 import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feeding-record.handler';
 import { GetFeedingRecordsHandler } from '../../feeding/query-handlers/get-feeding-records.handler';
 import { GetFeedingSummaryHandler } from '../../feeding/query-handlers/get-feeding-summary.handler';
@@ -40,7 +56,13 @@ import {
 } from '../../species/entities/species.entity';
 import { Site, SiteStatus, SiteType } from '../../site/entities/site.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
-import { Tank, TankMaterial, TankStatus, TankType, WaterType } from '../../tank/entities/tank.entity';
+import {
+  Tank,
+  TankMaterial,
+  TankStatus,
+  TankType,
+  WaterType,
+} from '../../tank/entities/tank.entity';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
@@ -206,10 +228,14 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       batchRepository.findOneOrFail({ where: { id: fixtureA.batch.id, tenantId: TENANT_A } }),
     );
     const tenantAInventory = await withTenantContext(TENANT_A, () =>
-      inventoryRepository.findOneOrFail({ where: { id: fixtureA.inventory.id, tenantId: TENANT_A } }),
+      inventoryRepository.findOneOrFail({
+        where: { id: fixtureA.inventory.id, tenantId: TENANT_A },
+      }),
     );
     const tenantBInventory = await withTenantContext(TENANT_B, () =>
-      inventoryRepository.findOneOrFail({ where: { id: fixtureB.inventory.id, tenantId: TENANT_B } }),
+      inventoryRepository.findOneOrFail({
+        where: { id: fixtureB.inventory.id, tenantId: TENANT_B },
+      }),
     );
 
     expect(Number(tenantABatch.totalFeedConsumed)).toBe(10);
@@ -440,9 +466,11 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     return Number(rows[0]?.count ?? 0);
   }
 
-  async function outboxRows(tenantId: string): Promise<Array<{ eventType: string; payload: { tenantId?: string } }>> {
+  async function outboxRows(
+    tenantId: string,
+  ): Promise<Array<{ eventType: string; payload: { tenantId?: string } }>> {
     return dataSource!.query(
-      `SELECT "eventType", "payload" FROM "farm"."farm_outbox" WHERE "tenantId" = $1 ORDER BY "eventType" ASC`,
+      `SELECT "eventType", "payload" FROM "farm"."outbox_events" WHERE "tenantId" = $1 ORDER BY "eventType" ASC`,
       [tenantId],
     );
   }
@@ -451,23 +479,43 @@ describe('Feeding record tenant isolation on real Postgres', () => {
 async function createTenantSchema(dataSource: DataSource, schema: string): Promise<void> {
   await dataSource.query(`CREATE SCHEMA "${schema}"`);
   await dataSource.query(`CREATE TABLE "${schema}"."sites" (LIKE "farm"."sites" INCLUDING ALL)`);
-  await dataSource.query(`CREATE TABLE "${schema}"."departments" (LIKE "farm"."departments" INCLUDING ALL)`);
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."departments" (LIKE "farm"."departments" INCLUDING ALL)`,
+  );
   await dataSource.query(`CREATE TABLE "${schema}"."tanks" (LIKE "farm"."tanks" INCLUDING ALL)`);
-  await dataSource.query(`CREATE TABLE "${schema}"."species" (LIKE "farm"."species" INCLUDING ALL)`);
-  await dataSource.query(`CREATE TABLE "${schema}"."batches_v2" (LIKE "farm"."batches_v2" INCLUDING ALL)`);
-  await dataSource.query(`CREATE TABLE "${schema}"."batch_documents" (LIKE "farm"."batch_documents" INCLUDING ALL)`);
-  await dataSource.query(`CREATE TABLE "${schema}"."tank_allocations" (LIKE "farm"."tank_allocations" INCLUDING ALL)`);
-  await dataSource.query(`CREATE TABLE "${schema}"."tank_batches" (LIKE "farm"."tank_batches" INCLUDING ALL)`);
-  await dataSource.query(`CREATE TABLE "${schema}"."tank_operations" (LIKE "farm"."tank_operations" INCLUDING ALL)`);
-  await dataSource.query(`CREATE TABLE "${schema}"."suppliers" (LIKE "farm"."suppliers" INCLUDING ALL)`);
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."species" (LIKE "farm"."species" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."batches_v2" (LIKE "farm"."batches_v2" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."batch_documents" (LIKE "farm"."batch_documents" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."tank_allocations" (LIKE "farm"."tank_allocations" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."tank_batches" (LIKE "farm"."tank_batches" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."tank_operations" (LIKE "farm"."tank_operations" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."suppliers" (LIKE "farm"."suppliers" INCLUDING ALL)`,
+  );
   await dataSource.query(`CREATE TABLE "${schema}"."feeds" (LIKE "farm"."feeds" INCLUDING ALL)`);
-  await dataSource.query(`CREATE TABLE "${schema}"."feed_inventory" (LIKE "farm"."feed_inventory" INCLUDING ALL)`);
-  await dataSource.query(`CREATE TABLE "${schema}"."feeding_records" (LIKE "farm"."feeding_records" INCLUDING ALL)`);
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."feed_inventory" (LIKE "farm"."feed_inventory" INCLUDING ALL)`,
+  );
+  await dataSource.query(
+    `CREATE TABLE "${schema}"."feeding_records" (LIKE "farm"."feeding_records" INCLUDING ALL)`,
+  );
 }
 
 async function createFarmOutboxTable(dataSource: DataSource): Promise<void> {
   await dataSource.query(`
-    CREATE TABLE IF NOT EXISTS "farm"."farm_outbox" (
+    CREATE TABLE IF NOT EXISTS "farm"."outbox_events" (
       "id" BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
       "eventType" VARCHAR(100) NOT NULL,
       "tenantId" UUID NULL,

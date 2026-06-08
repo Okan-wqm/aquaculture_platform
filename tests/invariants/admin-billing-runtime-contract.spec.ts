@@ -6,6 +6,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import yaml from 'js-yaml';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const ADMIN_BILLING_SERVICE_GLOB = 'apps/admin-api-service/src/billing/**/*.ts';
@@ -18,18 +19,25 @@ const ADMIN_BILLING_FILES = execFileSync(
   .filter(Boolean);
 const BILLING_ADMIN_COMMAND_SUBJECT = 'request.billing.admin.>';
 
-function readRepoFile(path: string): string {
-  return readFileSync(resolve(REPO_ROOT, path), 'utf-8');
+interface NatsServicesManifest {
+  services?: Array<{
+    name?: string;
+    publish?: string[];
+    subscribe?: string[];
+  }>;
 }
 
-function extractYamlList(block: string, key: 'publish' | 'subscribe'): string {
-  const nextKey = key === 'publish' ? 'subscribe' : undefined;
-  const pattern =
-    nextKey === undefined
-      ? new RegExp(`\\n    ${key}:\\n([\\s\\S]*?)(?=\\n\\s*$)`)
-      : new RegExp(`\\n    ${key}:\\n([\\s\\S]*?)\\n    ${nextKey}:`);
+interface ComposeManifest {
+  services?: Record<
+    string,
+    {
+      environment?: Record<string, string | number | boolean | null>;
+    }
+  >;
+}
 
-  return pattern.exec(block)?.[1] ?? '';
+function readRepoFile(path: string): string {
+  return readFileSync(resolve(REPO_ROOT, path), 'utf-8');
 }
 
 function extractNatsAllowList(userBlock: string, direction: 'publish' | 'subscribe'): string {
@@ -37,14 +45,6 @@ function extractNatsAllowList(userBlock: string, direction: 'publish' | 'subscri
     new RegExp(`${direction}:\\s*\\{\\s*allow:\\s*\\[([\\s\\S]*?)\\n\\s*\\]`).exec(
       userBlock,
     )?.[1] ?? ''
-  );
-}
-
-function extractComposeServiceBlock(compose: string, serviceName: string): string {
-  return (
-    new RegExp(`\\n  ${serviceName}:\\n[\\s\\S]*?(?=\\n  [a-zA-Z0-9_-]+:\\n|\\n\\S|\\s*$)`).exec(
-      `\n${compose}`,
-    )?.[0] ?? ''
   );
 }
 
@@ -78,16 +78,16 @@ describe('INVARIANT: admin billing read models use UUID tenant contracts', () =>
 
 describe('INVARIANT: billing-service owns platform-admin billing mutations', () => {
   it('allows billing-service to subscribe, not publish, billing admin command subjects in NATS SSoT', () => {
-    const servicesYaml = readRepoFile('infrastructure/nats/services.yaml');
-    const billingServiceBlock =
-      /- name: billing_service[\s\S]*?(?=\n[ ]{2}# ---------------------------------------------------------------------------|\n[ ]{2}- name:|\n*$)/.exec(
-        servicesYaml,
-      )?.[0] ?? '';
-    const publishList = extractYamlList(billingServiceBlock, 'publish');
-    const subscribeList = extractYamlList(billingServiceBlock, 'subscribe');
+    const manifest = yaml.load(
+      readRepoFile('infrastructure/nats/services.yaml'),
+    ) as NatsServicesManifest | null;
+    const billingService = manifest?.services?.find(
+      (service) => service.name === 'billing_service',
+    );
 
-    expect(publishList).not.toContain(`- "${BILLING_ADMIN_COMMAND_SUBJECT}"`);
-    expect(subscribeList).toContain(`- "${BILLING_ADMIN_COMMAND_SUBJECT}"`);
+    expect(billingService).toBeDefined();
+    expect(billingService?.publish ?? []).not.toContain(BILLING_ADMIN_COMMAND_SUBJECT);
+    expect(billingService?.subscribe ?? []).toContain(BILLING_ADMIN_COMMAND_SUBJECT);
   });
 
   it('keeps generated NATS config in lockstep with the billing-service subscribe ACL', () => {
@@ -128,17 +128,22 @@ describe('INVARIANT: billing schema hardening belongs to db-migrate', () => {
 
   it('does not let billing-service perform runtime schema DDL when db-migrate is authoritative', () => {
     const billingAppModule = readRepoFile('apps/billing-service/src/app.module.ts');
+    const dbMigrateAuthorityUtil = readRepoFile(
+      'libs/backend-common/src/database/db-migrate-authority.util.ts',
+    );
+    const databaseIndex = readRepoFile('libs/backend-common/src/database/index.ts');
 
     expect(billingAppModule).toContain('billingSchemaDdlOwnedByDbMigrate');
-    expect(billingAppModule).toContain('resolveBillingSchemaDdlOwnedByDbMigrate');
-    expect(billingAppModule).toContain("env['DB_MIGRATE_AUTHORITATIVE']");
-    expect(billingAppModule).toContain("env['NODE_ENV']");
-    expect(billingAppModule).toContain("env['AQUA_ENV']");
-    expect(billingAppModule).toContain("nodeEnv === 'production'");
-    expect(billingAppModule).toContain("aquaEnv === 'production'");
-    expect(billingAppModule).toContain("aquaEnv === 'staging'");
+    expect(billingAppModule).toContain('isSchemaDdlOwnedByDbMigrate(process.env)');
     expect(billingAppModule).toContain('autoApply: !billingSchemaDdlOwnedByDbMigrate');
     expect(billingAppModule).toContain('AuditColumnsModule.forRoot');
+    expect(databaseIndex).toContain("export * from './db-migrate-authority.util'");
+    expect(dbMigrateAuthorityUtil).toContain("env['DB_MIGRATE_AUTHORITATIVE']");
+    expect(dbMigrateAuthorityUtil).toContain("env['NODE_ENV']");
+    expect(dbMigrateAuthorityUtil).toContain("env['AQUA_ENV']");
+    expect(dbMigrateAuthorityUtil).toContain("nodeEnv === 'production'");
+    expect(dbMigrateAuthorityUtil).toContain("aquaEnv === 'production'");
+    expect(dbMigrateAuthorityUtil).toContain("aquaEnv === 'staging'");
     expect(billingAppModule).not.toContain(
       "const billingSchemaDdlOwnedByDbMigrate = process.env['DB_MIGRATE_AUTHORITATIVE'] === 'true';",
     );
@@ -146,13 +151,11 @@ describe('INVARIANT: billing schema hardening belongs to db-migrate', () => {
 
   it('sets the production compose contract that keeps billing runtime DDL disabled', () => {
     for (const composePath of ['docker-compose.droplet.yml', 'docker-compose.prod.yml']) {
-      const billingService = extractComposeServiceBlock(
-        readRepoFile(composePath),
-        'billing-service',
-      );
+      const compose = yaml.load(readRepoFile(composePath)) as ComposeManifest | null;
+      const environment = compose?.services?.['billing-service']?.environment;
 
-      expect(billingService).toContain('DB_MIGRATE_AUTHORITATIVE: "true"');
-      expect(billingService).toContain('DATABASE_MIGRATIONS_RUN: "false"');
+      expect(environment?.DB_MIGRATE_AUTHORITATIVE).toBe('true');
+      expect(environment?.DATABASE_MIGRATIONS_RUN).toBe('false');
     }
   });
 });

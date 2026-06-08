@@ -14,20 +14,20 @@ bootstrapService(AppModule, {
   enableTelemetry: true,
   hasGraphQL: true,
 
-  // SECURITY: In production, INTERNAL_SERVICE_SECRET is required for authenticating
-  // inter-service requests. Without it, any external client could forge internal
-  // service headers and bypass auth.
+  // SECURITY: In production, v2 service-identity keyring signing is required for
+  // authenticating inter-service requests. Without it, gateway subgraph requests
+  // cannot produce audience-bound signatures.
   environmentGuards: [
     () => {
       if (
         process.env['NODE_ENV'] === 'production' &&
-        !process.env['INTERNAL_SERVICE_SECRET']
+        (!process.env['SERVICE_IDENTITY_KEYRING'] ||
+          !process.env['SERVICE_IDENTITY_SIGNING_KID'])
       ) {
         throw new Error(
-          'FATAL: INTERNAL_SERVICE_SECRET must be set in production. ' +
-          'Without it, inter-service authentication is disabled and attackers can ' +
-          'spoof internal service headers to bypass authorization. ' +
-          'Generate a strong secret: openssl rand -base64 48',
+          'FATAL: SERVICE_IDENTITY_KEYRING and SERVICE_IDENTITY_SIGNING_KID must be set in production. ' +
+          'Without them, inter-service authentication is disabled and attackers can ' +
+          'spoof internal service headers to bypass authorization.',
         );
       }
     },
@@ -110,7 +110,7 @@ bootstrapService(AppModule, {
     } else if (isProduction) {
       // FAIL-LOUD: missing REDIS_URL in production is the same silent
       // break — refuse to start. Mirrors the existing pattern for
-      // WS_CORS_ORIGINS and INTERNAL_SERVICE_SECRET (see
+      // WS_CORS_ORIGINS and SERVICE_IDENTITY_KEYRING (see
       // environmentGuards above).
       throw new Error(
         'FATAL: REDIS_URL must be set in production — Socket.IO Redis adapter requires it for horizontal-scale broadcast. ' +

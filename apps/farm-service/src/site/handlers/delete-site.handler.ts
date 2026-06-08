@@ -2,38 +2,30 @@
  * Delete Site Command Handler
  * Supports cascade soft delete of all related items
  */
-import { randomUUID } from 'crypto';
-
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
-import { NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
-import { SiteDeletedEvent , createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { SiteDeletedEvent, createBaseEvent } from '@platform/event-contracts';
+import { DataSource, In } from 'typeorm';
 import { DeleteSiteCommand } from '../commands/delete-site.command';
 import { Site } from '../entities/site.entity';
 import { Department } from '../../department/entities/department.entity';
 import { System } from '../../system/entities/system.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { siteAuditSnapshot } from './site-audit.util';
 
 @CommandHandler(DeleteSiteCommand)
 export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boolean> {
   private readonly logger = new Logger(DeleteSiteHandler.name);
 
   constructor(
-    @InjectRepository(Site)
-    private readonly siteRepository: Repository<Site>,
-    @InjectRepository(Department)
-    private readonly departmentRepository: Repository<Department>,
-    @InjectRepository(System)
-    private readonly systemRepository: Repository<System>,
-    @InjectRepository(Equipment)
-    private readonly equipmentRepository: Repository<Equipment>,
-    @InjectRepository(Tank)
-    private readonly tankRepository: Repository<Tank>,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: DeleteSiteCommand): Promise<boolean> {
@@ -41,152 +33,139 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
 
     this.logger.log(`Deleting site ${siteId} for tenant ${tenantId} (cascade: ${cascade})`);
 
-    // Find existing site
-    const site = await this.siteRepository.findOne({
-      where: { id: siteId, tenantId, isDeleted: false },
-    });
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const siteRepository = tenantManagerRepo(queryRunner.manager, Site, tenantId);
+      const departmentRepository = tenantManagerRepo(queryRunner.manager, Department, tenantId);
+      const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
+      const equipmentRepository = tenantManagerRepo(queryRunner.manager, Equipment, tenantId);
+      const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
 
-    if (!site) {
-      throw new NotFoundException(`Site with ID "${siteId}" not found`);
-    }
+      const site = await siteRepository.findOne({
+        where: { id: siteId, isDeleted: false, tenantId },
+      });
 
-    // Get all departments for this site
-    const departments = await this.departmentRepository.find({
-      where: { siteId, tenantId, isDeleted: false },
-    });
-
-    const departmentIds = departments.map((d) => d.id);
-
-    if (!cascade) {
-      // Old behavior: block if site has departments
-      if (departments.length > 0) {
-        throw new BadRequestException(
-          `Cannot delete site "${site.name}". It has ${departments.length} department(s). Use cascade=true to delete all related items.`
-        );
+      if (!site) {
+        throw new NotFoundException(`Site with ID "${siteId}" not found`);
       }
-    } else {
-      // Cascade delete all related items
-      this.logger.log(`Cascade deleting site ${siteId} with all related items`);
 
-      const now = new Date();
+      const before = siteAuditSnapshot(site);
+      const departments = await departmentRepository.find({
+        where: { siteId, isDeleted: false, tenantId },
+      });
+      const departmentIds = departments.map((d) => d.id);
 
-      // 1. Check for tanks with active biomass (blocker)
-      if (departmentIds.length > 0) {
-        const tanksWithBiomass = await this.tankRepository
-          .createQueryBuilder('tank')
-          .where('tank.tenantId = :tenantId', { tenantId })
-          .andWhere('tank.departmentId IN (:...departmentIds)', { departmentIds })
-          .andWhere('tank.currentBiomass > 0')
-          .andWhere('tank.isActive = true')
-          .getMany();
-
-        if (tanksWithBiomass.length > 0) {
-          const totalBiomass = tanksWithBiomass.reduce(
-            (sum, t) => sum + Number(t.currentBiomass || 0),
-            0,
-          );
+      if (!cascade) {
+        if (departments.length > 0) {
           throw new BadRequestException(
-            `Cannot delete site "${site.name}". ${tanksWithBiomass.length} tank(s) contain ${totalBiomass.toFixed(2)} kg of active biomass. Please harvest or transfer fish before deleting.`
+            `Cannot delete site "${site.name}". It has ${departments.length} department(s). Use cascade=true to delete all related items.`,
           );
         }
-      }
+      } else {
+        this.logger.log(`Cascade deleting site ${siteId} with all related items`);
 
-      // 2. Soft delete all tanks in departments
-      if (departmentIds.length > 0) {
-        await this.tankRepository
-          .createQueryBuilder()
-          .update(Tank)
-          .set({
-            isActive: false,
-            updatedBy: userId,
-          })
-          .where('tenantId = :tenantId', { tenantId })
-          .andWhere('departmentId IN (:...departmentIds)', { departmentIds })
-          .execute();
+        const now = new Date();
 
-        this.logger.log(`Soft deleted tanks for site ${siteId}`);
-      }
+        if (departmentIds.length > 0) {
+          const tanksWithBiomass = await tankRepository
+            .createQueryBuilder('tank')
+            .andWhere('tank.departmentId IN (:...departmentIds)', { departmentIds })
+            .andWhere('tank.currentBiomass > 0')
+            .andWhere('tank.isActive = true')
+            .getMany();
 
-      // 3. Soft delete all equipment in departments
-      if (departmentIds.length > 0) {
-        await this.equipmentRepository
-          .createQueryBuilder()
-          .update(Equipment)
-          .set({
+          if (tanksWithBiomass.length > 0) {
+            const totalBiomass = tanksWithBiomass.reduce(
+              (sum, t) => sum + Number(t.currentBiomass || 0),
+              0,
+            );
+            throw new BadRequestException(
+              `Cannot delete site "${site.name}". ${tanksWithBiomass.length} tank(s) contain ${totalBiomass.toFixed(2)} kg of active biomass. Please harvest or transfer fish before deleting.`,
+            );
+          }
+
+          await tankRepository.update(
+            { departmentId: In(departmentIds) },
+            {
+              isActive: false,
+              updatedBy: userId,
+            },
+          );
+
+          await equipmentRepository.update(
+            { departmentId: In(departmentIds), isDeleted: false },
+            {
+              isDeleted: true,
+              deletedAt: now,
+              deletedBy: userId,
+              isActive: false,
+              updatedBy: userId,
+            },
+          );
+
+          this.logger.log(`Soft deleted tanks and equipment for site ${siteId}`);
+        }
+
+        await systemRepository.update(
+          { siteId, isDeleted: false },
+          {
             isDeleted: true,
             deletedAt: now,
             deletedBy: userId,
             isActive: false,
             updatedBy: userId,
-          })
-          .where('tenantId = :tenantId', { tenantId })
-          .andWhere('departmentId IN (:...departmentIds)', { departmentIds })
-          .andWhere('isDeleted = false')
-          .execute();
+          },
+        );
 
-        this.logger.log(`Soft deleted equipment for site ${siteId}`);
+        await departmentRepository.update(
+          { siteId, isDeleted: false },
+          {
+            siteId: null as unknown as string,
+            updatedBy: userId,
+          },
+        );
+
+        this.logger.log(`Soft deleted systems and orphaned departments for site ${siteId}`);
       }
 
-      // 4. Soft delete all systems for this site
-      await this.systemRepository
-        .createQueryBuilder()
-        .update(System)
-        .set({
-          isDeleted: true,
-          deletedAt: now,
-          deletedBy: userId,
-          isActive: false,
-        })
-        .where('tenantId = :tenantId', { tenantId })
-        .andWhere('siteId = :siteId', { siteId })
-        .andWhere('isDeleted = false')
-        .execute();
+      site.isDeleted = true;
+      site.deletedAt = new Date();
+      site.deletedBy = userId;
+      site.isActive = false;
+      site.updatedBy = userId;
+      const deletedSite = await siteRepository.save(site);
 
-      this.logger.log(`Soft deleted systems for site ${siteId}`);
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'Site',
+        entityId: deletedSite.id,
+        action: AuditAction.SOFT_DELETE,
+        userId,
+        changes: {
+          before,
+          after: siteAuditSnapshot(deletedSite),
+        },
+        metadata: { source: 'SITES_SETUP' },
+        entityVersion: deletedSite.version,
+        summary: `Soft deleted site ${deletedSite.code}`,
+      });
 
-      // 5. Orphan departments (set siteId to null) instead of deleting
-      // Departments will remain but show as "Not associated with any site"
-      await this.departmentRepository
-        .createQueryBuilder()
-        .update(Department)
-        .set({
-          siteId: undefined,
-          updatedBy: userId,
-        })
-        .where('tenantId = :tenantId', { tenantId })
-        .andWhere('siteId = :siteId', { siteId })
-        .andWhere('isDeleted = false')
-        .execute();
+      const event: SiteDeletedEvent = {
+        ...createBaseEvent<SiteDeletedEvent>('SiteDeleted', tenantId, {
+          aggregateId: deletedSite.id,
+          aggregateType: 'Site',
+          userId,
+        }),
+        siteId: deletedSite.id,
+        name: deletedSite.name,
+        code: deletedSite.code,
+        deletedAt: deletedSite.deletedAt ?? new Date(),
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        aggregateId: deletedSite.id,
+      });
 
-      this.logger.log(`Orphaned departments for site ${siteId} (set siteId to null)`);
-    }
-
-    // 6. Soft delete the site itself
-    site.isDeleted = true;
-    site.deletedAt = new Date();
-    site.deletedBy = userId;
-    site.isActive = false;
-    site.updatedBy = userId;
-    await this.siteRepository.save(site);
-
-    this.logger.log(`Site ${siteId} marked as deleted`);
-
-    // Publish domain event: SiteDeleted
-    if (this.eventBus) {
-      try {
-        const event: SiteDeletedEvent = {
-          ...createBaseEvent<SiteDeletedEvent>('SiteDeleted', tenantId),
-          siteId: site.id,
-          name: site.name,
-          code: site.code,
-          deletedAt: new Date(),
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published SiteDeletedEvent for site ${site.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish SiteDeletedEvent: ${(eventError as Error).message}`);
-      }
-    }
+      this.logger.log(`Site ${siteId} marked as deleted`);
+    });
 
     return true;
   }

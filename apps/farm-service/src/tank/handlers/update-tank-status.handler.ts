@@ -3,141 +3,96 @@
  * @module Tank/Handlers
  */
 import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { Repository } from 'typeorm';
+import { TankStatusChangedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
 
-import {
-  defaultFarmStockProjectionForDirectHandlerConstruction,
-} from '../../common/services/direct-handler-dependency-defaults';
+import { defaultFarmStockProjectionForDirectHandlerConstruction } from '../../common/services/direct-handler-dependency-defaults';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { UpdateTankStatusCommand } from '../commands/update-tank-status.command';
 import { Tank, TankStatus } from '../entities/tank.entity';
+import { assertTankStatusTransition } from './tank-status.policy';
 
 @CommandHandler(UpdateTankStatusCommand)
-export class UpdateTankStatusHandler
-  implements ICommandHandler<UpdateTankStatusCommand, Tank>
-{
+export class UpdateTankStatusHandler implements ICommandHandler<UpdateTankStatusCommand, Tank> {
   private readonly logger = new Logger(UpdateTankStatusHandler.name);
 
   constructor(
-    @InjectRepository(Tank)
-    private readonly tankRepository: Repository<Tank>,
+    private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
-    private readonly farmStockProjection: FarmStockProjectionService =
-      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly outboxPublisher: OutboxPublisher,
+    private readonly farmStockProjection: FarmStockProjectionService = defaultFarmStockProjectionForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: UpdateTankStatusCommand): Promise<Tank> {
     const { tenantId, userId, input } = command;
 
-    this.logger.log(
-      `Updating tank status: ${input.id} to ${input.status} for tenant: ${tenantId}`,
-    );
+    this.logger.log(`Updating tank status: ${input.id} to ${input.status} for tenant: ${tenantId}`);
 
-    // Find existing
-    const tank = await this.tankRepository.findOne({
-      where: { id: input.id, tenantId },
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
+
+      const tank = await tankRepository.findOne({
+        where: { id: input.id, tenantId },
+      });
+
+      if (!tank) {
+        throw new NotFoundException(`Tank with id "${input.id}" not found`);
+      }
+
+      const oldStatus = tank.status;
+
+      assertTankStatusTransition(tank, input.status);
+
+      const changedAt = new Date();
+      tank.status = input.status;
+      tank.statusChangedAt = changedAt;
+      tank.statusReason = input.reason;
+      tank.updatedBy = userId;
+
+      const saved = await tankRepository.save(tank);
+      await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [saved.id]);
+
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'Tank',
+        entityId: saved.id,
+        action: AuditAction.UPDATE,
+        userId,
+        changes: {
+          before: { status: oldStatus },
+          after: { status: saved.status, reason: input.reason },
+          changedFields: ['status', 'statusChangedAt', 'statusReason'],
+        },
+        metadata: { source: 'SITES_SETUP_TANK' },
+        entityVersion: saved.version,
+        summary: `Updated tank ${saved.code} status from ${oldStatus} to ${saved.status}`,
+      });
+
+      const event: TankStatusChangedEvent = {
+        ...createBaseEvent<TankStatusChangedEvent>('TankStatusChanged', tenantId, {
+          aggregateId: saved.id,
+          aggregateType: 'Tank',
+          userId,
+        }),
+        tankId: saved.id,
+        previousStatus: oldStatus,
+        newStatus: saved.status,
+        reason: input.reason,
+        changedAt,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        aggregateId: saved.id,
+      });
+
+      this.logger.log(`Tank status updated: ${saved.id} from ${oldStatus} to ${saved.status}`);
+
+      return saved;
     });
-
-    if (!tank) {
-      throw new NotFoundException(`Tank with id "${input.id}" not found`);
-    }
-
-    const oldStatus = tank.status;
-
-    // Validate status transition
-    if (!tank.canTransitionTo(input.status)) {
-      throw new BadRequestException(
-        `Invalid status transition from "${oldStatus}" to "${input.status}". ` +
-          `Allowed transitions: ${this.getAllowedTransitions(oldStatus).join(', ')}`,
-      );
-    }
-
-    // Additional validations based on target status
-    this.validateStatusChange(tank, input.status);
-
-    // Update status
-    tank.status = input.status;
-    tank.statusChangedAt = new Date();
-    tank.statusReason = input.reason;
-    tank.updatedBy = userId;
-
-    // Save
-    const saved = await this.tankRepository.save(tank);
-    await this.farmStockProjection.refreshContainers(
-      this.tankRepository.manager,
-      tenantId,
-      [saved.id],
-    );
-
-    // Audit log
-    await this.auditLogService.log({
-      tenantId,
-      entityType: 'Tank',
-      entityId: saved.id,
-      action: AuditAction.UPDATE,
-      userId,
-      changes: {
-        before: { status: oldStatus },
-        after: { status: saved.status, reason: input.reason },
-        changedFields: ['status', 'statusChangedAt', 'statusReason'],
-      },
-    });
-
-    this.logger.log(
-      `Tank status updated: ${saved.id} from ${oldStatus} to ${saved.status}`,
-    );
-
-    return saved;
   }
 
-  /**
-   * Additional validations for specific status changes
-   */
-  private validateStatusChange(tank: Tank, newStatus: TankStatus): void {
-    switch (newStatus) {
-      case TankStatus.HARVESTING:
-        // Tank must have biomass to harvest
-        if (tank.currentBiomass <= 0) {
-          throw new BadRequestException(
-            'Cannot start harvesting: tank has no biomass',
-          );
-        }
-        break;
-
-      case TankStatus.INACTIVE:
-        // Tank must be empty to deactivate
-        if (tank.currentBiomass > 0) {
-          throw new BadRequestException(
-            'Cannot deactivate tank with active biomass',
-          );
-        }
-        break;
-    }
-  }
-
-  /**
-   * Get allowed transitions for a given status
-   */
-  private getAllowedTransitions(status: TankStatus): TankStatus[] {
-    const transitions: Record<TankStatus, TankStatus[]> = {
-      [TankStatus.INACTIVE]: [TankStatus.PREPARING],
-      [TankStatus.PREPARING]: [TankStatus.ACTIVE, TankStatus.INACTIVE],
-      [TankStatus.ACTIVE]: [
-        TankStatus.HARVESTING,
-        TankStatus.MAINTENANCE,
-        TankStatus.QUARANTINE,
-      ],
-      [TankStatus.HARVESTING]: [TankStatus.CLEANING],
-      [TankStatus.CLEANING]: [TankStatus.PREPARING, TankStatus.MAINTENANCE],
-      [TankStatus.MAINTENANCE]: [TankStatus.PREPARING, TankStatus.INACTIVE],
-      [TankStatus.FALLOW]: [TankStatus.PREPARING],
-      [TankStatus.QUARANTINE]: [TankStatus.ACTIVE, TankStatus.CLEANING],
-    };
-
-    return transitions[status] || [];
-  }
 }

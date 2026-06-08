@@ -10,7 +10,7 @@
  *      security event is dispatched.
  *
  *   2. An extensible hash-pinning map that, when populated (e.g. at CI/CD time
- *      via a generated file), verifies SHA-256 digests of fetched remote bundles
+ *      via a generated file), applies SHA-384 SRI pins to remote bundles
  *      before they execute.
  *
  * Current limitation: Vite MF loads remotes via <script> injection, not fetch(),
@@ -54,11 +54,11 @@ const REMOTE_SCRIPT_ALLOWLIST: RegExp[] = [
 // That file is gitignored; on local dev the catch below returns an empty map
 // and hash verification is skipped (allowlist guard still applies).
 //
-// Format: { '/remotes/<module>/assets/remoteEntry.js': 'sha256-<base64>' }
+// Format: { '/remotes/<module>/assets/remoteEntry.js': 'sha384-<base64>' }
 // ---------------------------------------------------------------------------
 let REMOTE_HASH_PINS: Record<string, string> = {};
 const generatedHashPins = import.meta.glob<Record<string, string>>(
-  './generated/remoteHashes.json',
+  '../generated/remoteHashes.json',
   { eager: true, import: 'default' },
 );
 REMOTE_HASH_PINS = Object.values(generatedHashPins)[0] ?? {};
@@ -88,7 +88,7 @@ function reportViolation(src: string): void {
     window.dispatchEvent(
       new CustomEvent('aquaculture:security-violation', {
         detail: { type: 'REMOTE_SCRIPT_BLOCKED', src, timestamp: Date.now() },
-      })
+      }),
     );
   }
 }
@@ -166,7 +166,7 @@ function validateAndEnforceScriptSrc(src: string, scriptElement: HTMLScriptEleme
     // eslint-disable-next-line no-console
     console.warn(
       `[SH-SEC-04] No integrity hash pinned for federation script: ${src}. ` +
-        'Populate REMOTE_HASH_PINS at build time for full SRI enforcement.'
+        'Populate REMOTE_HASH_PINS at build time for full SRI enforcement.',
     );
     return src;
   }
@@ -191,7 +191,7 @@ function validateAndEnforceScriptSrc(src: string, scriptElement: HTMLScriptEleme
           timestamp: Date.now(),
           severity: 'critical',
         },
-      })
+      }),
     );
   }
 
@@ -243,11 +243,7 @@ export function installRemoteIntegrityGuard(): void {
 
   Document.prototype.createElement = function patchedCreateElement<
     K extends keyof HTMLElementTagNameMap,
-  >(
-    this: Document,
-    tagName: K,
-    options?: ElementCreationOptions
-  ): HTMLElementTagNameMap[K] {
+  >(this: Document, tagName: K, options?: ElementCreationOptions): HTMLElementTagNameMap[K] {
     const element = originalCreateElement.call(this, tagName, options);
 
     if (tagName.toLowerCase() !== 'script') {
@@ -258,10 +254,7 @@ export function installRemoteIntegrityGuard(): void {
 
     // Intercept src assignment via property descriptor override
     let _src = '';
-    const descriptor = Object.getOwnPropertyDescriptor(
-      HTMLScriptElement.prototype,
-      'src'
-    );
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
 
     Object.defineProperty(script, 'src', {
       get() {
@@ -290,17 +283,11 @@ export function installRemoteIntegrityGuard(): void {
   Element.prototype.setAttribute = function patchedSetAttribute(
     this: Element,
     name: string,
-    value: string
+    value: string,
   ): void {
     // Only intercept 'src' attribute on script elements
-    if (
-      name.toLowerCase() === 'src' &&
-      this instanceof HTMLScriptElement
-    ) {
-      const validatedSrc = validateAndEnforceScriptSrc(
-        value,
-        this as HTMLScriptElement
-      );
+    if (name.toLowerCase() === 'src' && this instanceof HTMLScriptElement) {
+      const validatedSrc = validateAndEnforceScriptSrc(value, this as HTMLScriptElement);
       // If blocked, set empty src to prevent loading
       originalSetAttribute.call(this, name, validatedSrc);
       return;

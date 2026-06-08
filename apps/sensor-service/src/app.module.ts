@@ -51,6 +51,15 @@ import { SensorTypeDefinition } from './database/entities/sensor-type-definition
 import { EdgeDeviceModule } from './edge-device/edge-device.module';
 import { DeviceIoConfig } from './edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from './edge-device/entities/edge-device.entity';
+import {
+  EdgeAuditArchiveV2,
+  EdgeDeviceV2,
+  EdgeFirmwareReleaseV2,
+  EdgeLicenseV2,
+  EdgePolicyV2,
+  EdgeProvisioningRecordV2,
+  EdgeWitnessV2,
+} from './edge-device/entities/v2';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
@@ -160,6 +169,13 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             ScadaPackage,
             DashboardLayout,
             EdgeDevice,
+            EdgeDeviceV2,
+            EdgePolicyV2,
+            EdgeLicenseV2,
+            EdgeFirmwareReleaseV2,
+            EdgeProvisioningRecordV2,
+            EdgeWitnessV2,
+            EdgeAuditArchiveV2,
             DeviceIoConfig,
             LoRaDevice,
             TenantProvisioningKey,
@@ -214,7 +230,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
         const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
         return {
-          autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/sensor.graphql') },
+          autoSchemaFile: {
+            federation: 2,
+            path: join(process.cwd(), 'dist/graphql/subgraphs/sensor.graphql'),
+          },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -397,7 +416,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'sensor-service'),
       inject: [ConfigService],
     },
     // Tenant guard - ensures tenant isolation

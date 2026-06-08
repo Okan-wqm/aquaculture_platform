@@ -24,12 +24,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .agent_genesis import BANNED_PHRASES
 from .diagnostics import emit_ledger_corruption_diagnostic
+from .evidence_trust import classify_evidence_ref
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding
 
 
@@ -73,6 +77,7 @@ ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
 
 SEVERITY_RANK = {"INFORMATIONAL": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
 SCHEMA_VERSION = 1
+FINDING_ID_RE = re.compile(r"^F-\d{3,}$")
 
 
 def _findings_dir(repo_root: Path) -> Path:
@@ -81,6 +86,10 @@ def _findings_dir(repo_root: Path) -> Path:
 
 def _index_path(repo_root: Path) -> Path:
     return _findings_dir(repo_root) / "_index.json"
+
+
+def _events_path(repo_root: Path) -> Path:
+    return _findings_dir(repo_root) / "finding-events.jsonl"
 
 
 def _utc_now() -> str:
@@ -108,15 +117,15 @@ def _check_banned_phrases(text: str, *, field: str) -> None:
 
 
 def _allocate_finding_id(repo_root: Path) -> str:
-    """Allocate the next zero-padded sequential ID (F-001, F-002, ...)."""
-    findings_dir = _findings_dir(repo_root)
-    if not findings_dir.exists():
-        return "F-001"
-    existing = sorted(p.stem for p in findings_dir.glob("F-*.json"))
+    """Allocate the next zero-padded sequential ID from the event ledger."""
+    existing: list[str] = []
+    for event in load_declared_jsonl(_events_path(repo_root), expected_surface="repo_finding_events"):
+        finding_id = str(event.get("finding_id") or "")
+        if event.get("event") == "finding_emitted" and FINDING_ID_RE.match(finding_id):
+            existing.append(finding_id)
     if not existing:
         return "F-001"
-    last = existing[-1]
-    last_num = int(last.split("-", 1)[1])
+    last_num = max(int(finding_id.split("-", 1)[1]) for finding_id in existing)
     return f"F-{last_num + 1:03d}"
 
 
@@ -176,6 +185,50 @@ def _validate_inputs(
             _check_banned_phrases(text, field="interpretations[].text")
 
 
+def _target_sha(repo_root: Path) -> str:
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0 or not completed.stdout.strip():
+        raise GovernanceError("finding_evidence_target_sha_unavailable")
+    return completed.stdout.strip()
+
+
+def _normalize_evidences(
+    repo_root: Path,
+    evidences: list[dict[str, Any]],
+    *,
+    target_sha: str,
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for ev in evidences:
+        row = dict(ev)
+        envelope = classify_evidence_ref(
+            row.get("ref"),
+            workspace_root=repo_root,
+            source_hint="repo_source",
+            context="finding",
+            target_sha=target_sha,
+        )
+        if envelope.self_output_class == "aria_self_output":
+            raise GovernanceError(
+                f"finding evidence cannot cite ARIA self-output: {row.get('ref')!r}"
+            )
+        if envelope.trust_grade != "repo_verified":
+            raise GovernanceError(
+                "finding evidence must be repo_verified at target_sha: "
+                f"ref={row.get('ref')!r} trust_grade={envelope.trust_grade!r} "
+                f"errors={envelope.validation_errors!r}"
+            )
+        row["evidence_envelope"] = envelope.to_dict()
+        normalized.append(row)
+    return normalized
+
+
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
@@ -188,70 +241,18 @@ def _refresh_index(
     *,
     on_corruption: str = "advisory",
 ) -> dict[str, Any]:
-    """Rebuild the finding-doc index.
-
-    Plan 025 §A.3 — explicit ``on_corruption`` parameter:
-
-    - ``"advisory"`` (default) — preserves the deadlock-avoidance
-      rationale below: bulk index rebuild MUST NOT block on a
-      sibling-process write-in-flight, so a corrupt or unreadable
-      finding doc is skipped after emitting to the diagnostic
-      sink. The default is now type-system-visible (was implicit
-      via comment-only documentation).
-    - ``"strict"`` — opt-in for future critical-finding ledger
-      replay paths; raises ``GovernanceError`` on the first
-      corrupt or unreadable finding doc after emitting to the
-      diagnostic sink.
-
-    Mode validation happens at function entry — silent degradation
-    to one of the two valid modes is BANNED.
-    """
+    """Rebuild the finding index from the canonical event ledger only."""
     if on_corruption not in {"strict", "advisory"}:
         raise GovernanceError(
             f"refresh_index_invalid_on_corruption_mode: "
             f"{on_corruption!r} (must be 'strict' or 'advisory')"
         )
-    findings_dir = _findings_dir(repo_root)
-    index: dict[str, Any] = {"schema_version": 1, "generated_at": _utc_now(), "findings": []}
-    if not findings_dir.exists():
-        _atomic_write_json(_index_path(repo_root), index)
-        return index
     rows: list[dict[str, Any]] = []
-    for path in sorted(findings_dir.glob("F-*.json")):
-        try:
-            doc = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            # Plan 024 §H-7 — surface corruption to the diagnostic sink
-            # before silent-skipping. The finding ledger is critical
-            # (audit trail of recorded findings) so the sink event is
-            # the primary signal that the index is incomplete; the
-            # advisory default skip is preserved here for backward
-            # compatibility with bulk index rebuilds (a single corrupt
-            # finding should not block emission of new findings — that
-            # would be a deadlock if the corrupt finding is itself
-            # written by a sibling process). Operators reading the
-            # diagnostic sink see exactly which finding doc is corrupt
-            # and can repair it. Plan 025 §A.3 — the advisory-vs-
-            # strict choice is now an explicit ``on_corruption``
-            # parameter rather than implicit-via-comment, so future
-            # critical-replay paths can opt in to STRICT without
-            # forking the function.
-            corruption = {
-                "kind": "ledger_index_rebuild_skip",
-                "ledger": str(path),
-                "line_no": None,
-                "error": str(exc),
-                "raw_excerpt": None,
-            }
-            base_dir = repo_root / "aria-tools"
-            # Plan 024 §H-7 — sink owns its own stderr fallback;
-            # caller-side ``try/except: pass`` swallow is BANNED.
-            emit_ledger_corruption_diagnostic(corruption, base_dir=base_dir)
-            if on_corruption == "strict":
-                raise GovernanceError(
-                    f"finding_doc_corrupt_strict_mode: {path}: {exc}"
-                )
-            continue
+    replayed = _replay_findings(repo_root)
+    event_rows = load_declared_jsonl(_events_path(repo_root), expected_surface="repo_finding_events")
+    source_tip = event_rows[-1].get("ledger_hash") if event_rows else None
+    for finding_id in sorted(replayed):
+        doc = replayed[finding_id]
         rows.append(
             {
                 "finding_id": doc.get("finding_id"),
@@ -261,10 +262,18 @@ def _refresh_index(
                 "claim_summary": doc.get("claim_summary"),
                 "evidence_chain_id": doc.get("evidence_chain_id"),
                 "created_at": doc.get("created_at"),
-                "path": path.name,
+                "path": f"{finding_id}.json",
+                "source_event_id": doc.get("source_event_id"),
+                "source_ledger_hash": doc.get("source_ledger_hash"),
             }
         )
-    index["findings"] = rows
+    index: dict[str, Any] = {
+        "schema_version": 2,
+        "generated_at": _utc_now(),
+        "source_ledger": _events_path(repo_root).relative_to(repo_root).as_posix(),
+        "source_ledger_tip_hash": source_tip,
+        "findings": rows,
+    }
     _atomic_write_json(_index_path(repo_root), index)
     return index
 
@@ -323,44 +332,55 @@ def emit_finding(
         interpretations=interpretations,
     )
 
-    # V10.5 Phase 1 (ARCH-CRIT-002 fix) — fcntl lock on _allocate_finding_id
-    # + write to prevent TOCTOU race when watchdog daemon emits concurrently
-    # with planner-dispatch / ci_executor. Pre-V10.5 two concurrent emitters
-    # could allocate the same F-{N:03d} ID → second writer overwrites first.
+    target_sha = _target_sha(repo_path)
+    evidences = _normalize_evidences(repo_path, evidences, target_sha=target_sha)
     findings_dir = _findings_dir(repo_path)
     findings_dir.mkdir(parents=True, exist_ok=True)
     alloc_lock_path = findings_dir / ".alloc.lock"
+    chain_id = _evidence_chain_id(evidences)
     with with_exclusive_lock(alloc_lock_path, timeout_seconds=5.0):
         finding_id = _allocate_finding_id(repo_path)
-    chain_id = _evidence_chain_id(evidences)
-    record: dict[str, Any] = {
-        "$schema": "aria/finding/v1",
-        "finding_id": finding_id,
-        "severity": severity,
-        "status": "OPEN",
-        "claim_type": claim_type,
-        "claim_summary": claim_summary,
-        "certainty": certainty,
-        "evidence_chain_id": chain_id,
-        "evidences": evidences,
-        "originating_skill": originating_skill,
-        "originating_run_id": originating_run_id,
-        "originating_pressure_event_id": originating_pressure_event_id,
-        "scope": {"files": list(scope_files)},
-        "related_specialized_agent_domains": list(related_specialized_agent_domains or []),
-        "facts": list(facts),
-        "interpretations": list(interpretations or []),
-        "recommendation": recommendation,
-        "created_at": _utc_now(),
-        "closes_in_commit": None,
-        "schema_version": SCHEMA_VERSION,
-    }
-
-    output_path = _findings_dir(repo_path) / f"{finding_id}.json"
-    if output_path.exists():
-        raise GovernanceError(f"finding {finding_id} already exists at {output_path}")
-    _atomic_write_json(output_path, record)
-    _refresh_index(repo_path)
+        record = {
+            "$schema": "aria/finding/v1",
+            "finding_id": finding_id,
+            "severity": severity,
+            "status": "OPEN",
+            "claim_type": claim_type,
+            "claim_summary": claim_summary,
+            "certainty": certainty,
+            "evidence_chain_id": chain_id,
+            "evidences": evidences,
+            "originating_skill": originating_skill,
+            "originating_run_id": originating_run_id,
+            "originating_pressure_event_id": originating_pressure_event_id,
+            "scope": {"files": list(scope_files)},
+            "related_specialized_agent_domains": list(related_specialized_agent_domains or []),
+            "facts": list(facts),
+            "interpretations": list(interpretations or []),
+            "recommendation": recommendation,
+            "created_at": _utc_now(),
+            "closes_in_commit": None,
+            "schema_version": SCHEMA_VERSION,
+        }
+        event = append_declared_jsonl(
+            _events_path(repo_path),
+            {
+                "schema_version": 1,
+                "event": "finding_emitted",
+                "event_id": f"finding:{finding_id}:emitted",
+                "finding_id": finding_id,
+                "target_sha": target_sha,
+                "record": record,
+            },
+            expected_surface="repo_finding_events",
+        )
+        record["source_event_id"] = event.get("event_id")
+        record["source_ledger_hash"] = event.get("ledger_hash")
+        output_path = _findings_dir(repo_path) / f"{finding_id}.json"
+        if output_path.exists():
+            raise GovernanceError(f"finding {finding_id} already exists at {output_path}")
+        _atomic_write_json(output_path, record)
+        _refresh_index(repo_path)
 
     append_tools_governance(
         tools_root,
@@ -379,16 +399,30 @@ def emit_finding(
 
 def list_findings(repo_root: str | Path) -> list[dict[str, Any]]:
     repo_path = Path(repo_root).resolve()
-    index = _refresh_index(repo_path)
-    return list(index.get("findings", []))
+    return [
+        {
+            "finding_id": doc.get("finding_id"),
+            "severity": doc.get("severity"),
+            "status": doc.get("status"),
+            "claim_type": doc.get("claim_type"),
+            "claim_summary": doc.get("claim_summary"),
+            "evidence_chain_id": doc.get("evidence_chain_id"),
+            "created_at": doc.get("created_at"),
+            "path": f"{doc.get('finding_id')}.json",
+            "source_ledger_hash": doc.get("source_ledger_hash"),
+        }
+        for doc in _replay_findings(repo_path).values()
+    ]
 
 
 def show_finding(repo_root: str | Path, finding_id: str) -> dict[str, Any]:
     repo_path = Path(repo_root).resolve()
-    path = _findings_dir(repo_path) / f"{finding_id}.json"
-    if not path.exists():
+    if not FINDING_ID_RE.match(finding_id):
+        raise GovernanceError(f"finding_id format invalid: {finding_id!r}")
+    record = _replay_findings(repo_path).get(finding_id)
+    if record is None:
         raise GovernanceError(f"finding {finding_id} not found")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return record
 
 
 def find_by_evidence_chain_id(repo_root: str | Path, chain_id: str) -> dict[str, Any] | None:
@@ -397,3 +431,26 @@ def find_by_evidence_chain_id(repo_root: str | Path, chain_id: str) -> dict[str,
         if row.get("evidence_chain_id") == chain_id:
             return show_finding(repo_root, row["finding_id"])
     return None
+
+
+def _replay_findings(repo_root: Path) -> dict[str, dict[str, Any]]:
+    path = _events_path(repo_root)
+    rows = load_declared_jsonl(path, expected_surface="repo_finding_events")
+    findings: dict[str, dict[str, Any]] = {}
+    for event in rows:
+        if event.get("event") != "finding_emitted":
+            continue
+        finding_id = str(event.get("finding_id") or "")
+        if not FINDING_ID_RE.match(finding_id):
+            raise GovernanceError(f"finding event has invalid finding_id: {finding_id!r}")
+        record = event.get("record")
+        if not isinstance(record, dict):
+            raise GovernanceError(f"finding event {event.get('event_id')!r} missing record")
+        source_ledger_hash = event.get("ledger_hash")
+        if not isinstance(source_ledger_hash, str) or not source_ledger_hash:
+            raise GovernanceError(f"finding event {event.get('event_id')!r} missing ledger_hash")
+        doc = dict(record)
+        doc["source_event_id"] = event.get("event_id")
+        doc["source_ledger_hash"] = source_ledger_hash
+        findings[finding_id] = doc
+    return findings

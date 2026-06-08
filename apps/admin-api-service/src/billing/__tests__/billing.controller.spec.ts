@@ -27,6 +27,9 @@ import { ModulePricingService } from '../services/module-pricing.service';
 import { PricingCalculatorService } from '../services/pricing-calculator.service';
 import { CustomPlanService } from '../services/custom-plan.service';
 import { InvoiceManagementService } from '../services/invoice-management.service';
+import { BillingAdminCommandClientService } from '../services/billing-admin-command-client.service';
+import { PaymentManagementService } from '../services/payment-management.service';
+import { UsageMeteringManagementService } from '../services/usage-metering-management.service';
 
 // ============================================================================
 // Mock Definitions
@@ -118,6 +121,28 @@ const mockInvoiceService = {
   updateOverdueStatus: jest.fn().mockResolvedValue({ updated: 0 }),
 };
 
+const mockPaymentService = {
+  getPayments: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+};
+
+const mockBillingAdminCommands = {
+  changeSubscriptionPlan: jest.fn().mockResolvedValue({ success: true }),
+  cancelSubscription: jest.fn().mockResolvedValue({ cancelled: true }),
+  reactivateSubscription: jest.fn().mockResolvedValue({ reactivated: true }),
+  extendSubscriptionTrial: jest.fn().mockResolvedValue({ extended: true }),
+  createInvoice: jest.fn().mockResolvedValue({ id: 'inv-new' }),
+  markInvoicePaid: jest.fn().mockResolvedValue({ id: 'inv-1', status: 'paid' }),
+  voidInvoice: jest.fn().mockResolvedValue({ id: 'inv-1', status: 'void' }),
+  recordPayment: jest.fn().mockResolvedValue({ id: 'payment-new' }),
+  refundPayment: jest.fn().mockResolvedValue({ id: 'refund-new' }),
+};
+
+const mockUsageMeteringService = {
+  getUsageMetrics: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+  getUsageAggregations: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+  recordUsage: jest.fn().mockResolvedValue({}),
+};
+
 // ============================================================================
 // Test Suite
 // ============================================================================
@@ -150,6 +175,9 @@ describe('BillingController', () => {
         { provide: PricingCalculatorService, useValue: mockPricingCalculator },
         { provide: CustomPlanService, useValue: mockCustomPlanService },
         { provide: InvoiceManagementService, useValue: mockInvoiceService },
+        { provide: PaymentManagementService, useValue: mockPaymentService },
+        { provide: BillingAdminCommandClientService, useValue: mockBillingAdminCommands },
+        { provide: UsageMeteringManagementService, useValue: mockUsageMeteringService },
       ],
     })
       .overrideGuard(PlatformAdminGuard)
@@ -157,6 +185,7 @@ describe('BillingController', () => {
       .compile();
 
     app = module.createNestApplication();
+    app.useGlobalGuards(mockGuard);
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -185,10 +214,9 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('PlatformAdminGuard enforcement', () => {
-    it('should have guards metadata on BillingController class', () => {
+    it('should rely on the application-level PlatformAdminGuard', () => {
       const guards = Reflect.getMetadata('__guards__', BillingController);
-      expect(guards).toBeDefined();
-      expect(guards).toContain(PlatformAdminGuard);
+      expect(guards).toBeUndefined();
     });
 
     it('should invoke guard on every request', async () => {
@@ -300,28 +328,24 @@ describe('BillingController', () => {
         .post('/billing/subscriptions/tenant/tenant-1/cancel')
         .send({ reason: 'No longer needed' });
 
-      expect(mockSubscriptionService.cancelSubscription).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.cancelSubscription).toHaveBeenCalledWith(
         'tenant-1',
         'No longer needed',
-        authenticatedUser.id,
         undefined,
+        authenticatedUser.id,
       );
     });
 
-    it('should ignore client-supplied cancelledBy in body', async () => {
-      await request(app.getHttpServer())
+    it('should reject client-supplied cancelledBy in body', async () => {
+      const res = await request(app.getHttpServer())
         .post('/billing/subscriptions/tenant/tenant-1/cancel')
         .send({
           reason: 'Closing account',
           cancelledBy: 'attacker-injected',
         });
 
-      expect(mockSubscriptionService.cancelSubscription).toHaveBeenCalledWith(
-        'tenant-1',
-        'Closing account',
-        authenticatedUser.id,
-        undefined,
-      );
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockBillingAdminCommands.cancelSubscription).not.toHaveBeenCalled();
     });
 
     it('should pass cancelImmediately flag to service', async () => {
@@ -329,11 +353,11 @@ describe('BillingController', () => {
         .post('/billing/subscriptions/tenant/tenant-1/cancel')
         .send({ reason: 'Test', cancelImmediately: true });
 
-      expect(mockSubscriptionService.cancelSubscription).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.cancelSubscription).toHaveBeenCalledWith(
         'tenant-1',
         'Test',
-        authenticatedUser.id,
         true,
+        authenticatedUser.id,
       );
     });
   });
@@ -389,7 +413,7 @@ describe('BillingController', () => {
   });
 
   // ==========================================================================
-  // 6. createSubscription -- JWT identity (C6 fix)
+  // 6. createSubscription -- billing-service SSOT boundary
   // ==========================================================================
 
   describe('POST /billing/subscriptions (createSubscription)', () => {
@@ -398,28 +422,22 @@ describe('BillingController', () => {
       planId: 'plan-starter',
     };
 
-    it('should override createdBy with JWT user.id', async () => {
-      await request(app.getHttpServer())
+    it('should reject admin-api direct subscription creation', async () => {
+      const res = await request(app.getHttpServer())
         .post('/billing/subscriptions')
         .send({ ...validSubDto, createdBy: 'attacker-id' });
 
-      expect(mockSubscriptionService.createSubscription).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
-      );
+      expect(res.status).toBe(HttpStatus.CONFLICT);
+      expect(mockSubscriptionService.createSubscription).not.toHaveBeenCalled();
     });
 
-    it('should set createdBy from JWT when absent from body', async () => {
-      await request(app.getHttpServer())
+    it('should not fall back to body-driven direct writers', async () => {
+      const res = await request(app.getHttpServer())
         .post('/billing/subscriptions')
         .send(validSubDto);
 
-      expect(mockSubscriptionService.createSubscription).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
-      );
+      expect(res.status).toBe(HttpStatus.CONFLICT);
+      expect(mockSubscriptionService.createSubscription).not.toHaveBeenCalled();
     });
   });
 
@@ -510,11 +528,14 @@ describe('BillingController', () => {
           changedBy: 'attacker-id',
         });
 
-      expect(mockSubscriptionService.changePlan).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.changeSubscriptionPlan).toHaveBeenCalledWith(
         expect.objectContaining({
-          changedBy: authenticatedUser.id,
+          tenantId: 'tenant-1',
+          newPlanId: 'plan-pro',
         }),
+        authenticatedUser.id,
       );
+      expect(mockBillingAdminCommands.changeSubscriptionPlan.mock.calls[0]?.[0]).not.toHaveProperty('changedBy');
     });
   });
 
@@ -528,7 +549,7 @@ describe('BillingController', () => {
         .post('/billing/invoices/inv-1/mark-paid')
         .send({ amount: 99.99 });
 
-      expect(mockInvoiceService.markAsPaid).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.markInvoicePaid).toHaveBeenCalledWith(
         'inv-1',
         99.99,
         authenticatedUser.id,
@@ -542,7 +563,7 @@ describe('BillingController', () => {
         .post('/billing/invoices/inv-1/void')
         .send({ reason: 'Duplicate invoice' });
 
-      expect(mockInvoiceService.voidInvoice).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.voidInvoice).toHaveBeenCalledWith(
         'inv-1',
         'Duplicate invoice',
         authenticatedUser.id,
@@ -633,13 +654,13 @@ describe('BillingController', () => {
         .post('/billing/discounts/apply')
         .send({
           code: 'SPRING2026',
-          tenantId: 'tenant-1',
+          tenantId: 'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
           originalAmount: 100,
         });
 
       expect(mockDiscountService.applyDiscount).toHaveBeenCalledWith(
         'SPRING2026',
-        'tenant-1',
+        'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
         100,
         expect.objectContaining({
           redeemedBy: authenticatedUser.id,
@@ -691,7 +712,7 @@ describe('BillingController', () => {
       await request(app.getHttpServer())
         .post('/billing/subscriptions/tenant/tenant-1/reactivate');
 
-      expect(mockSubscriptionService.reactivateSubscription).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.reactivateSubscription).toHaveBeenCalledWith(
         'tenant-1',
         authenticatedUser.id,
       );
@@ -702,7 +723,7 @@ describe('BillingController', () => {
         .post('/billing/subscriptions/tenant/tenant-1/extend-trial')
         .send({ additionalDays: 14 });
 
-      expect(mockSubscriptionService.extendTrial).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.extendSubscriptionTrial).toHaveBeenCalledWith(
         'tenant-1',
         14,
         authenticatedUser.id,

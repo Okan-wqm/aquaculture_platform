@@ -15,10 +15,13 @@ from pathlib import Path
 
 from aria_kernel.ledger import (
     LedgerIntegrityError,
+    append_declared_jsonl,
     append_jsonl,
     load_jsonl_verified,
     verify_jsonl,
 )
+from aria_kernel.state_manifest import surface_for_path
+from aria_kernel.tool_registry import ensure_tools_dir
 
 
 class VerifyJsonlStrictTests(unittest.TestCase):
@@ -88,6 +91,23 @@ class VerifyJsonlStrictTests(unittest.TestCase):
         result = verify_jsonl(path)
         self.assertFalse(result["valid"])
         self.assertEqual(result["reason"], "previous_hash_mismatch")
+
+    def test_rogue_registry_path_is_not_manifest_declared(self) -> None:
+        rogue = self.tmp / "rogue" / "registry.json"
+        rogue.parent.mkdir(parents=True)
+        rogue.write_text('{"schema_version":1,"tools":[]}\n', encoding="utf-8")
+        self.assertIsNone(surface_for_path(rogue))
+
+    def test_declared_strict_ledger_refuses_append_after_tamper(self) -> None:
+        tools = self.tmp / "aria-tools"
+        ensure_tools_dir(tools)
+        path = tools / "governance.jsonl"
+        append_declared_jsonl(path, {"event": "first"}, expected_surface="tools_governance")
+        row = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+        row["event"] = "tampered"
+        path.write_text(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(LedgerIntegrityError, "refuses_append_to_corrupt_chain"):
+            append_declared_jsonl(path, {"event": "second"}, expected_surface="tools_governance")
 
 
 class AppendStripsStaleChainFieldsTests(unittest.TestCase):

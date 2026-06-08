@@ -109,12 +109,16 @@ class OrphanReaperScanTests(unittest.TestCase):
         correctly, which works against any well-formed event chain.
         """
         from aria_kernel.tool_registry import ensure_tools_dir
-        from aria_kernel.ledger import append_jsonl
+        from tests._helpers.declared_fixtures import append_declared_fixture
         root = ensure_tools_dir(self.base)
         events_file = root / "plans" / "events.jsonl"
         events_file.parent.mkdir(parents=True, exist_ok=True)
         for row in rows:
-            append_jsonl(events_file, row)
+            append_declared_fixture(
+                events_file,
+                row,
+                expected_surface="plan_convergence_events",
+            )
 
     def test_i_v31_b2_06_finds_implementation_requested_orphan(self) -> None:
         """Plan ARIA-V3.1-B2-06 — scanner surfaces a plan whose

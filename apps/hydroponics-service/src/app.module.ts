@@ -5,15 +5,16 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import {
+  AuditLogModule,
+  AuditLogInterceptor,
+  AuditedOperationModule,
+} from '@aquaculture/backend-common/audit';
 import {
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
@@ -96,7 +97,10 @@ const complexityCache = new Map<string, number>();
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get('NODE_ENV') === 'production';
         return {
-          autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/hydroponics.graphql') },
+          autoSchemaFile: {
+            federation: 2,
+            path: join(process.cwd(), 'dist/graphql/subgraphs/hydroponics.graphql'),
+          },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -133,14 +137,19 @@ const complexityCache = new Map<string, number>();
                       operationName: request.operationName,
                       query: document,
                       variables: request.variables,
-                      estimators: [fieldExtensionsEstimator(), simpleEstimator({ defaultComplexity: 1 })],
+                      estimators: [
+                        fieldExtensionsEstimator(),
+                        simpleEstimator({ defaultComplexity: 1 }),
+                      ],
                     });
                     complexityCache.set(cacheKey, complexity);
                   }
 
                   const maxComplexity = 1000;
                   if (complexity > maxComplexity) {
-                    throw new GraphQLError(`Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`);
+                    throw new GraphQLError(
+                      `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
+                    );
                   }
                 },
               }),
@@ -199,7 +208,7 @@ const complexityCache = new Map<string, number>();
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'hydroponics-service'),
       inject: [ConfigService],
     },
     {
@@ -210,14 +219,16 @@ const complexityCache = new Map<string, number>();
     },
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector): RolesGuard =>
-        new RolesGuard(reflector),
+      useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
     },
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, configService: ConfigService, rateLimiter: SlidingWindowStrategy): ThrottlerGuard =>
-        new ThrottlerGuard(reflector, configService, rateLimiter),
+      useFactory: (
+        reflector: Reflector,
+        configService: ConfigService,
+        rateLimiter: SlidingWindowStrategy,
+      ): ThrottlerGuard => new ThrottlerGuard(reflector, configService, rateLimiter),
       inject: [Reflector, ConfigService, SlidingWindowStrategy],
     },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */

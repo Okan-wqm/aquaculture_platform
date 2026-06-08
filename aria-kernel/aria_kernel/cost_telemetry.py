@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -119,7 +119,11 @@ def record_dispatch_rationale(
     row.setdefault("schema_version", 1)
     row.setdefault("recorded_at", utc_now())
     root = ensure_tools_dir(base_dir)
-    append_jsonl(_ledger_path(root), row)
+    append_declared_jsonl(
+        _ledger_path(root),
+        row,
+        expected_surface="cost_telemetry",
+    )
     append_tools_governance(
         root,
         "dispatch_rationale_recorded",

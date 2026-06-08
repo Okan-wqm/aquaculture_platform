@@ -1,11 +1,30 @@
 import {
+  BadGatewayException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
 import { InjectDataSource } from '@nestjs/typeorm';
+import {
+  AUTH_ADMIN_COMMAND_SUBJECTS,
+  type AdminCreateModuleCommand,
+  type AdminCreateModuleResult,
+  type AdminDeleteModuleCommand,
+  type AdminDeleteModuleResult,
+  type AdminUpdateModuleCommand,
+  type AdminUpdateModuleResult,
+  type AuthModuleSnapshot,
+} from '@platform/event-contracts';
+import * as crypto from 'crypto';
+import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
+
+import { AuthTenantProvisioningClientService } from '../tenant/services/auth-tenant-provisioning-client.service';
+
+const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
 
 export interface ModuleFilter {
   isActive?: boolean;
@@ -88,11 +107,20 @@ export interface AssignModuleDto {
 @Injectable()
 export class ModulesService {
   private readonly logger = new Logger(ModulesService.name);
+  private readonly timeoutMs: number;
 
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-  ) {}
+    @Inject('AUTH_NATS_CLIENT')
+    private readonly authNatsClient: ClientProxy,
+    private readonly authProvisioningClient: AuthTenantProvisioningClientService,
+  ) {
+    const configured = parseInt(process.env['AUTH_NATS_TIMEOUT_MS'] ?? '', 10);
+    this.timeoutMs = Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_AUTH_NATS_TIMEOUT_MS;
+  }
 
   /**
    * List all modules with filtering and pagination
@@ -317,34 +345,29 @@ export class ModulesService {
     isCore?: boolean;
     price?: number;
   }): Promise<ModuleDto> {
-    try {
-      const result = await this.dataSource.query(
-        `
-        INSERT INTO auth.modules (code, name, description, "defaultRoute", icon, is_core, "isActive", price)
-        VALUES ($1, $2, $3, $4, $5, $6, true, $7)
-        RETURNING id, code, name, description, "defaultRoute" as "defaultRoute", icon,
-                  COALESCE(is_core, false) as "isCore", "isActive" as "isActive", price, "createdAt" as "createdAt"
-      `,
-        [
-          dto.code,
-          dto.name,
-          dto.description || null,
-          dto.defaultRoute,
-          dto.icon || null,
-          dto.isCore || false,
-          dto.price || 0,
-        ],
-      );
+    const command: AdminCreateModuleCommand = {
+      code: dto.code,
+      name: dto.name,
+      description: dto.description ?? null,
+      defaultRoute: dto.defaultRoute,
+      icon: dto.icon ?? null,
+      isCore: dto.isCore ?? false,
+      price: dto.price ?? 0,
+    };
+    const result = await this.sendAuthAdminCommand<
+      AdminCreateModuleCommand,
+      AdminCreateModuleResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_MODULE, command);
 
-      this.logger.log(`Created module: ${dto.code}`);
-      return { ...result[0], tenantsCount: 0 };
-    } catch (error) {
-      if ((error as { code?: string }).code === '23505') {
+    if (!result.success || !result.module) {
+      if (result.errorCode === 'DUPLICATE_MODULE') {
         throw new ConflictException(`Module with code ${dto.code} already exists`);
       }
-      this.logger.error(`Failed to create module: ${(error as Error).message}`);
-      throw error;
+      throw new BadGatewayException(result.error ?? 'Auth-service module creation failed');
     }
+
+    this.logger.log(`Created module via auth-service: ${dto.code}`);
+    return this.toModuleDto(result.module, 0);
   }
 
   /**
@@ -361,58 +384,36 @@ export class ModulesService {
       price?: number;
     },
   ): Promise<ModuleDto> {
-    const updates: string[] = [];
-    const params: (string | boolean | number)[] = [];
-    let paramIndex = 1;
-
-    if (dto.name !== undefined) {
-      updates.push(`name = $${paramIndex++}`);
-      params.push(dto.name);
-    }
-    if (dto.description !== undefined) {
-      updates.push(`description = $${paramIndex++}`);
-      params.push(dto.description);
-    }
-    if (dto.defaultRoute !== undefined) {
-      updates.push(`"defaultRoute" = $${paramIndex++}`);
-      params.push(dto.defaultRoute);
-    }
-    if (dto.icon !== undefined) {
-      updates.push(`icon = $${paramIndex++}`);
-      params.push(dto.icon);
-    }
-    if (dto.isActive !== undefined) {
-      updates.push(`"isActive" = $${paramIndex++}`);
-      params.push(dto.isActive);
-    }
-    if (dto.price !== undefined) {
-      updates.push(`price = $${paramIndex++}`);
-      params.push(dto.price);
-    }
-
-    if (updates.length === 0) {
+    const patchKeys = Object.keys(dto).filter(
+      (key) => (dto as Record<string, unknown>)[key] !== undefined,
+    );
+    if (patchKeys.length === 0) {
       return this.getModuleById(id);
     }
 
-    updates.push(`"updatedAt" = NOW()`);
-    params.push(id);
+    const command: AdminUpdateModuleCommand = {
+      moduleId: id,
+      ...(dto.name !== undefined && { name: dto.name }),
+      ...(dto.description !== undefined && { description: dto.description }),
+      ...(dto.defaultRoute !== undefined && { defaultRoute: dto.defaultRoute }),
+      ...(dto.icon !== undefined && { icon: dto.icon }),
+      ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+      ...(dto.price !== undefined && { price: dto.price }),
+    };
+    const result = await this.sendAuthAdminCommand<
+      AdminUpdateModuleCommand,
+      AdminUpdateModuleResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_MODULE, command);
 
-    try {
-      await this.dataSource.query(
-        `
-        UPDATE auth.modules
-        SET ${updates.join(', ')}
-        WHERE id = $${paramIndex}
-      `,
-        params,
-      );
-
-      this.logger.log(`Updated module: ${id}`);
-      return this.getModuleById(id);
-    } catch (error) {
-      this.logger.error(`Failed to update module: ${(error as Error).message}`);
-      throw error;
+    if (!result.success) {
+      if (result.errorCode === 'MODULE_NOT_FOUND') {
+        throw new NotFoundException(`Module with ID ${id} not found`);
+      }
+      throw new BadGatewayException(result.error ?? 'Auth-service module update failed');
     }
+
+    this.logger.log(`Updated module via auth-service: ${id}`);
+    return this.getModuleById(id);
   }
 
   /**
@@ -426,39 +427,24 @@ export class ModulesService {
    * Delete module
    */
   async deleteModule(id: string): Promise<void> {
-    try {
-      // Check if module is assigned to any tenants
-      const assignments = await this.dataSource.query(
-        `SELECT COUNT(*) as count FROM auth.tenant_modules WHERE "moduleId" = $1`,
-        [id],
-      );
+    const result = await this.sendAuthAdminCommand<
+      AdminDeleteModuleCommand,
+      AdminDeleteModuleResult
+    >(AUTH_ADMIN_COMMAND_SUBJECTS.DELETE_MODULE, { moduleId: id });
 
-      if (parseInt(assignments[0]?.count || '0', 10) > 0) {
+    if (!result.success) {
+      if (result.errorCode === 'MODULE_NOT_FOUND') {
+        throw new NotFoundException(`Module with ID ${id} not found`);
+      }
+      if (result.errorCode === 'MODULE_ASSIGNED') {
         throw new ConflictException(
           `Cannot delete module that is assigned to tenants. Remove assignments first.`,
         );
       }
-
-      const result = await this.dataSource.query(
-        `DELETE FROM auth.modules WHERE id = $1 RETURNING id`,
-        [id],
-      );
-
-      if (!result[0]) {
-        throw new NotFoundException(`Module with ID ${id} not found`);
-      }
-
-      this.logger.log(`Deleted module: ${id}`);
-    } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof ConflictException
-      ) {
-        throw error;
-      }
-      this.logger.error(`Failed to delete module: ${(error as Error).message}`);
-      throw error;
+      throw new BadGatewayException(result.error ?? 'Auth-service module deletion failed');
     }
+
+    this.logger.log(`Deleted module via auth-service: ${id}`);
   }
 
   /**
@@ -588,48 +574,29 @@ export class ModulesService {
    */
   async assignModuleToTenant(dto: AssignModuleDto): Promise<TenantModuleAssignment> {
     try {
-      // Check if tenant_modules table has quantities and configuration columns
-      // If they exist, use them; otherwise, use the basic insert
       const hasExtendedColumns = await this.checkExtendedColumns();
-
-      let result;
-      if (hasExtendedColumns && (dto.quantities || dto.configuration)) {
-        result = await this.dataSource.query(
-          `
-          INSERT INTO auth.tenant_modules (
-            "tenantId", "moduleId", "expiresAt", "assignedBy",
-            "quantities", "configuration"
-          )
-          VALUES ($1, $2, $3, $4, $5, $6)
-          ON CONFLICT ("tenantId", "moduleId") DO UPDATE SET
-            "expiresAt" = EXCLUDED."expiresAt",
-            "quantities" = COALESCE(EXCLUDED."quantities", tenant_modules."quantities"),
-            "configuration" = COALESCE(EXCLUDED."configuration", tenant_modules."configuration")
-          RETURNING id, "tenantId" as "tenantId", "moduleId" as "moduleId",
-                    "activatedAt" as "assignedAt", "expiresAt" as "expiresAt",
-                    "quantities", "configuration"
-        `,
-          [
-            dto.tenantId,
-            dto.moduleId,
-            dto.expiresAt || null,
-            dto.assignedBy || dto.tenantId,
-            dto.quantities ? JSON.stringify(dto.quantities) : null,
-            dto.configuration ? JSON.stringify(dto.configuration) : null,
-          ],
-        );
-      } else {
-        result = await this.dataSource.query(
-          `
-          INSERT INTO auth.tenant_modules ("tenantId", "moduleId", "expiresAt", "assignedBy")
-          VALUES ($1, $2, $3, $4)
-          ON CONFLICT ("tenantId", "moduleId") DO UPDATE SET "expiresAt" = $3
-          RETURNING id, "tenantId" as "tenantId", "moduleId" as "moduleId",
-                    "activatedAt" as "assignedAt", "expiresAt" as "expiresAt"
-        `,
-          [dto.tenantId, dto.moduleId, dto.expiresAt || null, dto.assignedBy || dto.tenantId],
-        );
-      }
+      const assignedBy = dto.assignedBy || dto.tenantId;
+      await this.authProvisioningClient.assignTenantModules({
+        ...buildModuleLifecycleCommandMetadata(
+          'AssignModules',
+          dto.tenantId,
+          assignedBy,
+          {
+            moduleId: dto.moduleId,
+            quantities: dto.quantities,
+            configuration: dto.configuration,
+            expiresAt: dto.expiresAt?.toISOString(),
+          },
+        ),
+        moduleIds: [dto.moduleId],
+        modules: [{
+          moduleId: dto.moduleId,
+          ...(dto.quantities ? { quantities: { ...dto.quantities } } : {}),
+          ...(dto.configuration ? { configuration: dto.configuration } : {}),
+          ...(dto.expiresAt ? { expiresAt: dto.expiresAt.toISOString() } : {}),
+        }],
+        assignedBy,
+      });
 
       // Get full assignment details
       const selectQuery = hasExtendedColumns
@@ -648,7 +615,7 @@ export class ModulesService {
           FROM auth.tenant_modules tm
           JOIN auth.tenants t ON tm."tenantId" = t.id
           JOIN auth.modules m ON tm."moduleId" = m.id
-          WHERE tm.id = $1
+          WHERE tm."tenantId" = $1 AND tm."moduleId" = $2
         `
         : `
           SELECT
@@ -663,10 +630,15 @@ export class ModulesService {
           FROM auth.tenant_modules tm
           JOIN auth.tenants t ON tm."tenantId" = t.id
           JOIN auth.modules m ON tm."moduleId" = m.id
-          WHERE tm.id = $1
+          WHERE tm."tenantId" = $1 AND tm."moduleId" = $2
         `;
 
-      const assignment = await this.dataSource.query(selectQuery, [result[0].id]);
+      const assignment = await this.dataSource.query(selectQuery, [dto.tenantId, dto.moduleId]);
+      if (!assignment[0]) {
+        throw new NotFoundException(
+          `Assignment not found after auth-service handoff for tenant ${dto.tenantId} and module ${dto.moduleId}`,
+        );
+      }
 
       this.logger.log(
         `Assigned module ${dto.moduleId} to tenant ${dto.tenantId}${dto.quantities ? ' with quantities' : ''}`,
@@ -707,11 +679,27 @@ export class ModulesService {
   ): Promise<void> {
     try {
       const result = await this.dataSource.query(
-        `DELETE FROM auth.tenant_modules WHERE "tenantId" = $1 AND "moduleId" = $2 RETURNING id`,
+        `SELECT 1 FROM auth.tenant_modules WHERE "tenantId" = $1 AND "moduleId" = $2`,
         [tenantId, moduleId],
       );
 
       if (!result[0]) {
+        throw new NotFoundException(
+          `Assignment not found for tenant ${tenantId} and module ${moduleId}`,
+        );
+      }
+
+      const removal = await this.authProvisioningClient.removeTenantModule({
+        ...buildModuleLifecycleCommandMetadata(
+          'RemoveModule',
+          tenantId,
+          tenantId,
+          { moduleId },
+        ),
+        moduleId,
+        removedBy: tenantId,
+      });
+      if ((removal.modulesRemoved ?? 0) === 0) {
         throw new NotFoundException(
           `Assignment not found for tenant ${tenantId} and module ${moduleId}`,
         );
@@ -726,4 +714,85 @@ export class ModulesService {
       throw error;
     }
   }
+
+  private async sendAuthAdminCommand<TCommand, TResult>(
+    subject: string,
+    command: TCommand,
+  ): Promise<TResult> {
+    try {
+      return await firstValueFrom(
+        this.authNatsClient.send<TResult, TCommand>(subject, command).pipe(
+          timeout(this.timeoutMs),
+          catchError((err: Error) => {
+            this.logger.error(
+              `NATS request failed: subject=${subject}, error=${err.message}`,
+            );
+            return throwError(() => err);
+          }),
+        ),
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new BadGatewayException(`Auth service error: ${message}`);
+    }
+  }
+
+  private toModuleDto(module: AuthModuleSnapshot, tenantsCount: number): ModuleDto {
+    return {
+      id: module.id,
+      code: module.code,
+      name: module.name,
+      description: module.description,
+      defaultRoute: module.defaultRoute,
+      icon: module.icon,
+      isCore: module.isCore,
+      isActive: module.isActive,
+      price: module.price,
+      tenantsCount,
+      createdAt: new Date(module.createdAt),
+      updatedAt: new Date(module.updatedAt),
+    };
+  }
+}
+
+function buildModuleLifecycleCommandMetadata(
+  commandType: string,
+  tenantId: string,
+  actorId: string,
+  payload: unknown,
+): {
+  operationId: string;
+  tenantId: string;
+  requestReference: string;
+  actor: { id: string; type: 'user' };
+  auditMetadata: Record<string, unknown>;
+} {
+  const payloadHash = hashModulePayload(payload);
+  return {
+    operationId: crypto.randomUUID(),
+    tenantId,
+    requestReference: `${commandType}:${tenantId}:${actorId}:${payloadHash}`,
+    actor: { id: actorId, type: 'user' },
+    auditMetadata: {
+      source: 'admin-api-service',
+      commandType,
+    },
+  };
+}
+
+function hashModulePayload(payload: unknown): string {
+  return crypto.createHash('sha256').update(stableModuleStringify(payload)).digest('hex');
+}
+
+function stableModuleStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableModuleStringify(item)).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableModuleStringify(record[key])}`).join(',')}}`;
+  }
+
+  return JSON.stringify(value);
 }

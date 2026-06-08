@@ -8,17 +8,87 @@
  * for a typed result. This eliminates direct SQL writes from admin-api into
  * auth-schema tables, enforcing single-writer ownership.
  *
- * Subject convention: tenant.commands.<CommandType>
+ * Subject convention: request.auth.tenant.<CommandType>
  */
 
 // ==================== NATS Subject Constants ====================
 
 export const TENANT_COMMAND_SUBJECTS = {
-  CREATE_TENANT_ADMIN: 'tenant.commands.CreateTenantAdmin',
-  SETUP_TENANT_ROLES: 'tenant.commands.SetupTenantRoles',
-  ASSIGN_TENANT_MODULES: 'tenant.commands.AssignTenantModules',
-  ROLLBACK_TENANT_PROVISIONING: 'tenant.commands.RollbackTenantProvisioning',
+  RESERVE_TENANT: 'request.auth.tenant.ReserveTenant',
+  SETUP_TENANT_ROLES: 'request.auth.tenant.SetupRoles',
+  ASSIGN_TENANT_MODULES: 'request.auth.tenant.AssignModules',
+  CREATE_FIRST_ADMIN_INVITE: 'request.auth.tenant.CreateFirstAdminInvite',
+  ACTIVATE_TENANT: 'request.auth.tenant.ActivateTenant',
+  FAIL_PROVISIONING: 'request.auth.tenant.FailProvisioning',
+  DEPROVISION_TENANT: 'request.auth.tenant.DeprovisionTenant',
+  SUSPEND_TENANT: 'request.auth.tenant.SuspendTenant',
+  ARCHIVE_TENANT: 'request.auth.tenant.ArchiveTenant',
+  REMOVE_TENANT_MODULE: 'request.auth.tenant.RemoveModule',
+  ROLLBACK_TENANT_PROVISIONING: 'request.auth.tenant.RollbackProvisioning',
 } as const;
+
+export interface AuthTenantCommandActor {
+  id: string;
+  type?: 'user' | 'service' | 'system';
+  email?: string;
+}
+
+export interface AuthTenantCommandMetadata {
+  /** Durable provisioning/lifecycle operation id owned by the orchestrator. */
+  operationId: string;
+  /** Tenant aggregate id. Admin may generate the UUID; auth-service owns the row write. */
+  tenantId: string;
+  /** Actor that requested the lifecycle mutation. */
+  actor: AuthTenantCommandActor;
+  /** Optional caller/audit reference. Auth-service derives receipt identity itself. */
+  requestReference?: string;
+  /** Safe audit metadata. Must not contain raw tokens or secrets. */
+  auditMetadata?: Record<string, unknown>;
+}
+
+export interface AuthTenantCommandResult {
+  success: boolean;
+  operationId?: string;
+  tenantId?: string;
+  status?: string;
+  error?: string;
+}
+
+export interface AuthTenantSnapshot {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  plan: string;
+  customDomain?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  settings?: Record<string, unknown> | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ==================== ReserveTenant ====================
+
+export interface ReserveTenantCommand extends AuthTenantCommandMetadata {
+  name: string;
+  slug: string;
+  description?: string;
+  customDomain?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  plan: string;
+  maxUsers?: number;
+  maxStorage?: number;
+  isTrialActive?: boolean;
+  trialEndsAt?: string;
+  settings?: Record<string, unknown>;
+  createdBy: string;
+}
+
+export interface ReserveTenantResult extends AuthTenantCommandResult {
+  tenant?: AuthTenantSnapshot;
+}
 
 // ==================== CreateTenantAdmin ====================
 
@@ -27,15 +97,15 @@ export const TENANT_COMMAND_SUBJECTS = {
  * Sent via NATS request-reply to the auth-service which owns auth.users
  * and auth.invitations tables.
  */
-export interface CreateTenantAdminCommand {
-  /** Tenant UUID */
-  tenantId: string;
+export interface CreateTenantAdminCommand extends AuthTenantCommandMetadata {
   /** Admin user email */
   email: string;
   /** Admin first name */
   firstName: string;
   /** Admin last name */
   lastName: string;
+  /** User/service actor that initiated provisioning */
+  invitedBy?: string;
   /** Correlation ID for distributed tracing */
   correlationId?: string;
 }
@@ -47,8 +117,12 @@ export interface CreateTenantAdminCommand {
  */
 export interface CreateTenantAdminResult {
   success: boolean;
+  operationId?: string;
+  tenantId?: string;
   /** UUID of the created user (only present on success) */
   userId?: string;
+  /** UUID of the canonical auth.invitations row (only present on success) */
+  invitationId?: string;
   /** Admin email echoed back for confirmation */
   email?: string;
   /** Error message (only present on failure) */
@@ -61,9 +135,7 @@ export interface CreateTenantAdminResult {
  * Command to create default roles (e.g., TENANT_ADMIN) for a tenant.
  * Sent via NATS request-reply to the auth-service which owns auth.tenant_roles.
  */
-export interface SetupTenantRolesCommand {
-  /** Tenant UUID */
-  tenantId: string;
+export interface SetupTenantRolesCommand extends AuthTenantCommandMetadata {
   /** Roles to create. If omitted, the handler creates the default set. */
   roles?: Array<{
     code: string;
@@ -74,6 +146,8 @@ export interface SetupTenantRolesCommand {
     isEditable: boolean;
     displayOrder: number;
   }>;
+  /** User/service actor that initiated provisioning */
+  createdBy?: string;
   /** Correlation ID for distributed tracing */
   correlationId?: string;
 }
@@ -83,6 +157,8 @@ export interface SetupTenantRolesCommand {
  */
 export interface SetupTenantRolesResult {
   success: boolean;
+  operationId?: string;
+  tenantId?: string;
   /** Number of roles created */
   rolesCreated?: number;
   /** Error message (only present on failure) */
@@ -95,11 +171,18 @@ export interface SetupTenantRolesResult {
  * Command to assign modules to a tenant in auth.tenant_modules.
  * Sent via NATS request-reply to the auth-service which owns the table.
  */
-export interface AssignTenantModulesCommand {
-  /** Tenant UUID */
-  tenantId: string;
+export interface AssignTenantModulesCommand extends AuthTenantCommandMetadata {
   /** Module UUIDs to assign */
   moduleIds: string[];
+  /** Optional per-module configuration used by provisioning/pricing flows */
+  modules?: Array<{
+    moduleId: string;
+    quantities?: Record<string, number | undefined>;
+    configuration?: Record<string, unknown>;
+    expiresAt?: string;
+  }>;
+  /** User/service actor that initiated provisioning */
+  assignedBy?: string;
   /** Correlation ID for distributed tracing */
   correlationId?: string;
 }
@@ -109,8 +192,35 @@ export interface AssignTenantModulesCommand {
  */
 export interface AssignTenantModulesResult {
   success: boolean;
+  operationId?: string;
+  tenantId?: string;
   /** Number of modules actually assigned (excludes duplicates) */
   modulesAssigned?: number;
+  /** Error message (only present on failure) */
+  error?: string;
+}
+
+// ==================== RemoveTenantModule ====================
+
+/**
+ * Command to disable a tenant module assignment.
+ * Sent via NATS request-reply to the auth-service which owns auth.tenant_modules.
+ */
+export interface RemoveTenantModuleCommand extends AuthTenantCommandMetadata {
+  /** Module UUID to disable */
+  moduleId: string;
+  /** User/service actor that initiated the removal */
+  removedBy?: string;
+  /** Correlation ID for distributed tracing */
+  correlationId?: string;
+}
+
+export interface RemoveTenantModuleResult {
+  success: boolean;
+  operationId?: string;
+  tenantId?: string;
+  /** Number of rows disabled */
+  modulesRemoved?: number;
   /** Error message (only present on failure) */
   error?: string;
 }
@@ -128,9 +238,7 @@ export interface AssignTenantModulesResult {
  * This is a best-effort compensating action; the handler should log
  * failures but not throw, since we are already in an error path.
  */
-export interface RollbackTenantProvisioningCommand {
-  /** Tenant UUID */
-  tenantId: string;
+export interface RollbackTenantProvisioningCommand extends AuthTenantCommandMetadata {
   /** Which provisioning steps completed and need rollback */
   completedSteps: Array<
     'create_admin' | 'setup_roles' | 'assign_modules' | 'activate_tenant'
@@ -139,6 +247,37 @@ export interface RollbackTenantProvisioningCommand {
   reason: string;
   /** Correlation ID for distributed tracing */
   correlationId?: string;
+}
+
+export interface RollbackTenantProvisioningResult {
+  success: boolean;
+  operationId?: string;
+  tenantId?: string;
+  removedUsers?: number;
+  removedInvitations?: number;
+  removedRoles?: number;
+  removedModules?: number;
+  error?: string;
+}
+
+// ==================== Tenant lifecycle status commands ====================
+
+export interface ActivateTenantCommand extends AuthTenantCommandMetadata {}
+
+export interface FailProvisioningCommand extends AuthTenantCommandMetadata {
+  reason: string;
+}
+
+export interface SuspendTenantLifecycleCommand extends AuthTenantCommandMetadata {
+  reason: string;
+}
+
+export interface DeprovisionTenantCommand extends AuthTenantCommandMetadata {
+  reason: string;
+}
+
+export interface ArchiveTenantLifecycleCommand extends AuthTenantCommandMetadata {
+  reason?: string;
 }
 
 // ==================== Admin User Lifecycle (SUPER_ADMIN ops) ====================
@@ -163,6 +302,14 @@ export const AUTH_ADMIN_COMMAND_SUBJECTS = {
   FORCE_LOGOUT_USER: 'request.auth.admin.forceLogoutUser',
   INVITE_USER: 'request.auth.admin.inviteUser',
   CHECK_USER_LIMIT: 'request.auth.admin.checkUserLimit',
+  CREATE_MODULE: 'request.auth.admin.createModule',
+  UPDATE_MODULE: 'request.auth.admin.updateModule',
+  DELETE_MODULE: 'request.auth.admin.deleteModule',
+} as const;
+
+export const AUTH_PUBLIC_COMMAND_SUBJECTS = {
+  REQUEST_PASSWORD_RESET: 'request.auth.public.requestPasswordReset',
+  RESET_PASSWORD: 'request.auth.public.resetPassword',
 } as const;
 
 /**
@@ -263,15 +410,110 @@ export interface AdminResetUserPasswordResult {
   error?: string;
 }
 
+export interface PublicRequestPasswordResetCommand {
+  email: string;
+  ipAddress?: string;
+  correlationId?: string;
+}
+
+export interface PublicRequestPasswordResetResult {
+  success: boolean;
+  errorCode?: 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface PublicResetPasswordCommand {
+  token: string;
+  newPassword: string;
+  ipAddress?: string;
+  userAgent?: string;
+  correlationId?: string;
+}
+
+export interface PublicResetPasswordResult {
+  success: boolean;
+  errorCode?: 'INVALID_OR_EXPIRED_TOKEN' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AuthModuleSnapshot {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  defaultRoute: string;
+  icon: string | null;
+  isCore: boolean;
+  isActive: boolean;
+  price: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminCreateModuleCommand {
+  code: string;
+  name: string;
+  description?: string | null;
+  defaultRoute: string;
+  icon?: string | null;
+  isCore?: boolean;
+  price?: number;
+  correlationId?: string;
+}
+
+export interface AdminCreateModuleResult {
+  success: boolean;
+  module?: AuthModuleSnapshot;
+  errorCode?: 'DUPLICATE_MODULE' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminUpdateModuleCommand {
+  moduleId: string;
+  name?: string;
+  description?: string | null;
+  defaultRoute?: string;
+  icon?: string | null;
+  isActive?: boolean;
+  price?: number;
+  correlationId?: string;
+}
+
+export interface AdminUpdateModuleResult {
+  success: boolean;
+  module?: AuthModuleSnapshot;
+  errorCode?: 'MODULE_NOT_FOUND' | 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+export interface AdminDeleteModuleCommand {
+  moduleId: string;
+  correlationId?: string;
+}
+
+export interface AdminDeleteModuleResult {
+  success: boolean;
+  moduleId?: string;
+  errorCode?: 'MODULE_NOT_FOUND' | 'MODULE_ASSIGNED' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
 // ==================== Type Union ====================
 
 /**
  * Union type for all tenant provisioning commands
  */
 export type TenantProvisioningCommand =
+  | ReserveTenantCommand
   | CreateTenantAdminCommand
   | SetupTenantRolesCommand
   | AssignTenantModulesCommand
+  | ActivateTenantCommand
+  | FailProvisioningCommand
+  | SuspendTenantLifecycleCommand
+  | DeprovisionTenantCommand
+  | ArchiveTenantLifecycleCommand
+  | RemoveTenantModuleCommand
   | RollbackTenantProvisioningCommand;
 
 /**
@@ -451,6 +693,8 @@ export interface AdminInviteUserCommand {
   invitedBy: string;
   /** Optional human message stored on the Invitation row */
   message?: string;
+  /** Whether auth-service should publish the UserInvited delivery event */
+  sendInvitation?: boolean;
   /** Correlation ID for distributed tracing */
   correlationId?: string;
 }
@@ -458,17 +702,15 @@ export interface AdminInviteUserCommand {
 /**
  * Result of `AdminInviteUserCommand`.
  *
- * `invitationToken` is the RAW token the caller delivers via email. The
- * auth-service stores only the SHA-256 hash on `Invitation.token` and
- * `User.invitationToken`; the raw value never hits any log line or audit
- * record. If the email send path fails, the caller is responsible for
- * reissuing via the resend-invitation flow (not covered by this contract).
+ * Raw invitation tokens never cross this boundary. Auth-service stores the
+ * token hash and publishes a safe `UserInvited` notification event with an
+ * opaque action-token reference for delivery.
  */
 export interface AdminInviteUserResult {
   success: boolean;
   userId?: string;
   invitationId?: string;
-  invitationToken?: string;
+  deliveryStatus?: 'queued';
   errorCode?:
     | 'USER_LIMIT_REACHED'
     | 'DUPLICATE_EMAIL'
@@ -519,4 +761,11 @@ export type AuthAdminCommand =
   | AdminDeactivateUserCommand
   | AdminForceLogoutUserCommand
   | AdminInviteUserCommand
-  | AdminCheckUserLimitQuery;
+  | AdminCheckUserLimitQuery
+  | AdminCreateModuleCommand
+  | AdminUpdateModuleCommand
+  | AdminDeleteModuleCommand;
+
+export type AuthPublicCommand =
+  | PublicRequestPasswordResetCommand
+  | PublicResetPasswordCommand;

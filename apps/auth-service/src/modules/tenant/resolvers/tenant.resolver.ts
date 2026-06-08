@@ -1,9 +1,9 @@
-import { ForbiddenException, Logger } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
+import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
 import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@aquaculture/backend-common/decorators';
 
 import { User } from '../../authentication/entities/user.entity';
-import { CreateTenantInput, UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
+import { UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
@@ -40,15 +40,6 @@ export class TenantResolver {
     private readonly tenantService: TenantService,
     private readonly auditLogService: AuditLogService,
   ) {}
-
-  @SuperAdminOnly()
-  @Mutation(() => Tenant)
-  async createTenant(
-    @Args('input') input: CreateTenantInput,
-    @Context() ctx: { req: { user: { id: string } } },
-  ): Promise<Tenant> {
-    return this.tenantService.create(input, ctx.req.user.id);
-  }
 
   @SuperAdminOnly()
   @Query(() => [Tenant])
@@ -96,8 +87,10 @@ export class TenantResolver {
     if (role !== Role.SUPER_ADMIN && userTenantId !== id) {
       throw new ForbiddenException('Access denied: You can only update your own tenant');
     }
-    // SECURITY: Role-based field filtering is handled inside TenantService.update()
-    return this.tenantService.update(id, input);
+    void input;
+    throw new BadRequestException(
+      'Tenant updates are command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   @SuperAdminOnly()
@@ -105,7 +98,10 @@ export class TenantResolver {
   async suspendTenant(
     @Args('id', { type: () => ID }) id: string,
   ): Promise<Tenant> {
-    return this.tenantService.suspend(id);
+    void id;
+    throw new BadRequestException(
+      'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   @SuperAdminOnly()
@@ -113,7 +109,10 @@ export class TenantResolver {
   async activateTenant(
     @Args('id', { type: () => ID }) id: string,
   ): Promise<Tenant> {
-    return this.tenantService.activate(id);
+    void id;
+    throw new BadRequestException(
+      'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   @SuperAdminOnly()
@@ -121,7 +120,10 @@ export class TenantResolver {
   async cancelTenant(
     @Args('id', { type: () => ID }) id: string,
   ): Promise<Tenant> {
-    return this.tenantService.cancel(id);
+    void id;
+    throw new BadRequestException(
+      'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   // ============================================================================

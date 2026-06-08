@@ -45,8 +45,8 @@ import { SchemaManagementService } from './services/schema-management.service';
     ]),
     ScheduleModule,
     // AuditModule: enables AuditLogService injection in schema, migration, and
-    // backup services. Without this, database management operations (DROP SCHEMA,
-    // run migration, restore backup) produce zero entries in the central audit log.
+    // backup services. Without this, destructive schema operations, migrations,
+    // and restores produce zero entries in the central audit log.
     AuditLogModule,
   ],
   controllers: [

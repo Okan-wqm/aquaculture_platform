@@ -3,15 +3,16 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import {
   RlsModule,
   SchemaDriftModule,
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
+import { TenantExecutionContextInterceptor } from '@aquaculture/backend-common/context';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
-import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
+import { EventStoreServiceIdentityGuard } from './guards/event-store-service-identity.guard';
 import { EventStoreModule } from './event-store/event-store.module';
 import { ProjectionsModule } from './projections/projections.module';
 import { HealthModule } from './health/health.module';
@@ -59,15 +60,13 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     ProjectionsModule,
     HealthModule,
     /**
-     * SECURITY (HIGH-004): Tenant RLS on event-store projections.
-     * stored_events and projection tables carry tenant_id; autoApply runs
-     * the helper at OnApplicationBootstrap so policies are idempotently
-     * installed on every cold start.
+     * SECURITY (HIGH-004): Tenant RLS on event-store ledger tables.
+     * EventLedgerHardening1800100000000 owns policy installation and FORCE RLS.
+     * Runtime boot only wires the pool GUC bridge; readiness asserts the DB state.
      */
     RlsModule.forPoolService({
       serviceName: 'event-store',
-      autoApply: true,
-      excludeTables: ['stored_events', 'projection_checkpoint'],
+      autoApply: false,
     }),
     /**
      * ADR-012: runtime schema-drift validator. Schema owner is `event_store`;
@@ -84,13 +83,16 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     },
     /**
      * Global authentication guard for event-store-service.
-     * InternalApiKeyGuard ensures only authenticated internal services
-     * can access event streams. This prevents unauthorized containers
-     * from reading or writing tenant event data.
+     * EventStoreServiceIdentityGuard validates canonical v2 service identity
+     * before any tenant-scoped event stream access.
      */
     {
       provide: APP_GUARD,
-      useClass: InternalApiKeyGuard,
+      useClass: EventStoreServiceIdentityGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TenantExecutionContextInterceptor,
     },
   ],
 })

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Logger, BadRequestException } from '@nestjs/common';
 import {
   Resolver,
@@ -8,6 +9,7 @@ import {
   ID,
   ResolveField,
   Parent,
+  Context,
 } from '@nestjs/graphql';
 import { Tenant, CurrentUser, Roles, Role, CurrentUserPayload } from '@aquaculture/backend-common/decorators';
 
@@ -59,6 +61,12 @@ import {
   PlcTelemetryService,
 } from '../services';
 
+interface PlcGraphqlContext {
+  req?: {
+    headers?: Record<string, string | string[] | undefined>;
+  };
+}
+
 /**
  * PLC Control GraphQL Resolver
  *
@@ -80,6 +88,12 @@ export class PlcControlResolver {
     private readonly plcAlarmService: PlcAlarmService,
     private readonly plcTelemetryService: PlcTelemetryService,
   ) {}
+
+  private resolveCorrelationId(context?: PlcGraphqlContext): string {
+    const header = context?.req?.headers?.['x-correlation-id'];
+    const value = Array.isArray(header) ? header[0] : header;
+    return value?.trim() || randomUUID();
+  }
 
   // ==================== PLC Connection Queries ====================
 
@@ -332,6 +346,8 @@ export class PlcControlResolver {
     @Args('plcConnectionId', { type: () => ID }) plcConnectionId: string,
     @Args('input') input: WriteNodeInputDto,
     @Tenant() tenantId: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Context() context: PlcGraphqlContext,
   ): Promise<boolean> {
     this.logger.log(`Writing to node ${input.nodeId} on connection: ${plcConnectionId}`);
     let parsedValue: unknown;
@@ -346,6 +362,8 @@ export class PlcControlResolver {
       input.nodeId,
       parsedValue,
       input.dataType,
+      user.sub,
+      this.resolveCorrelationId(context),
     );
     return true;
   }

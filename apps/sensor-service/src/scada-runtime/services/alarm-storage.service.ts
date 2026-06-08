@@ -96,65 +96,34 @@ export class AlarmStorageService implements OnModuleInit {
       this.logger.log('AlarmStorageService initialised — tables verified');
     } catch (error) {
       this.logger.error(
-        `AlarmStorageService: table initialisation failed — ${(error as Error).message}`,
+        `AlarmStorageService: table verification failed — ${(error as Error).message}`,
       );
+      throw error;
     }
   }
 
   /**
-   * Idempotent DDL: create tables if they do not exist.
-   * Uses CREATE TABLE IF NOT EXISTS so it is safe to call on every startup.
+   * Verify migration-owned storage tables exist before runtime writes alarms.
    */
   private async ensureTablesExist(): Promise<void> {
-    await this.dataSource.query(`
-      CREATE TABLE IF NOT EXISTS scada_alarms (
-        id            TEXT        PRIMARY KEY,
-        rule_id       TEXT        NOT NULL,
-        rule_name     TEXT        NOT NULL,
-        severity      TEXT        NOT NULL,
-        status        TEXT        NOT NULL,
-        message       TEXT        NOT NULL,
-        group_name    TEXT,
-        current_value DOUBLE PRECISION NOT NULL DEFAULT 0,
-        threshold     DOUBLE PRECISION NOT NULL DEFAULT 0,
-        on_time       BIGINT      NOT NULL,
-        off_time      BIGINT,
-        ack_time      BIGINT,
-        ack_user_id   TEXT,
-        colors_bg     TEXT,
-        colors_text   TEXT,
-        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    const rows = await this.dataSource.query(
+      `
+      SELECT expected.table_name
+      FROM (VALUES ('scada_alarms'), ('scada_alarm_chronicle')) AS expected(table_name)
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM information_schema.tables t
+        WHERE t.table_schema = 'sensor'
+          AND t.table_name = expected.table_name
+          AND t.table_type = 'BASE TABLE'
       )
-    `);
-
-    await this.dataSource.query(`
-      CREATE TABLE IF NOT EXISTS scada_alarm_chronicle (
-        id            TEXT        PRIMARY KEY,
-        rule_id       TEXT        NOT NULL,
-        rule_name     TEXT        NOT NULL,
-        severity      TEXT        NOT NULL,
-        status        TEXT        NOT NULL,
-        message       TEXT        NOT NULL,
-        group_name    TEXT,
-        current_value DOUBLE PRECISION NOT NULL DEFAULT 0,
-        threshold     DOUBLE PRECISION NOT NULL DEFAULT 0,
-        on_time       BIGINT      NOT NULL,
-        off_time      BIGINT,
-        ack_time      BIGINT,
-        ack_user_id   TEXT,
-        recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
-
-    // Index to speed up queries by severity / group / time range
-    await this.dataSource.query(`
-      CREATE INDEX IF NOT EXISTS idx_scada_alarm_chronicle_on_time
-        ON scada_alarm_chronicle (on_time DESC)
-    `);
-    await this.dataSource.query(`
-      CREATE INDEX IF NOT EXISTS idx_scada_alarm_chronicle_severity
-        ON scada_alarm_chronicle (severity)
-    `);
+      ORDER BY expected.table_name
+      `,
+    );
+    if (Array.isArray(rows) && rows.length > 0) {
+      const missing = rows.map((row: { table_name: string }) => `sensor.${row.table_name}`);
+      throw new Error(`SCADA alarm storage table(s) missing: ${missing.join(', ')}`);
+    }
   }
 
   /* ---------------------------------------------------------------- */

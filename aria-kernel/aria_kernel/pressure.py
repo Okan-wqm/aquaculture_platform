@@ -7,10 +7,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl, read_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .runs_reader import read_runs_rows
 from .tool_health import runs_path
-from .tool_registry import ensure_tools_dir, list_tools, utc_now
+from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 from .workspace import WorkspacePaths, default_actor
 
 SOURCE_WEIGHTS = {
@@ -32,6 +32,38 @@ DECAY_BUCKETS = (
     ("faded", 90),
 )
 DEFAULT_DECAY_THRESHOLDS = {"faded": 90, "sleeping": 180, "archived": 365}
+_DECLARED_SURFACE_BY_FILENAME = {
+    ("memory", "beliefs.jsonl"): "memory_beliefs",
+    ("memory", "contradictions.jsonl"): "memory_contradictions",
+    ("memory", "uncertainties.jsonl"): "memory_uncertainties",
+    ("pressure", "pressure-log.jsonl"): "pressure_log",
+    ("aria-memory", "unknowns.jsonl"): "workspace_memory_unknowns",
+    ("aria-memory", "missed_signals.jsonl"): "workspace_memory_missed_signals",
+    ("aria-memory", "external_feedback.jsonl"): "workspace_memory_external_feedback",
+    ("aria-memory", "pressure.jsonl"): "workspace_memory_pressure",
+    ("aria-memory", "pressure_state.jsonl"): "workspace_memory_pressure_state",
+    ("aria-memory", "vocabulary_rejections.jsonl"): "workspace_memory_vocabulary_rejections",
+    ("aria-memory", "since_migration_events.jsonl"): "workspace_memory_since_migration_events",
+    ("aria-memory", "governance.jsonl"): "workspace_memory_governance",
+}
+
+
+def _surface_for_local_path(path: Path) -> str | None:
+    return _DECLARED_SURFACE_BY_FILENAME.get((path.parent.name, path.name))
+
+
+def append_jsonl(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    surface = _surface_for_local_path(path)
+    if surface:
+        return append_declared_jsonl(path, payload, expected_surface=surface)
+    raise GovernanceError(f"pressure_append_unknown_surface:{path.as_posix()}")
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _surface_for_local_path(path)
+    if surface:
+        return load_declared_jsonl(path, expected_surface=surface)
+    raise GovernanceError(f"pressure_load_unknown_surface:{path.as_posix()}")
 
 
 def run_pressure(
@@ -309,7 +341,7 @@ def close_pressures_from_signals(
     now: datetime | None = None,
     decay_thresholds: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
-    feedback = read_jsonl(paths.ledgers["external_feedback"])
+    feedback = load_jsonl(paths.ledgers["external_feedback"])
     signals_by_gap: dict[str, list[dict[str, Any]]] = {}
     for row in feedback:
         if row.get("kind") != "closed_signal":
@@ -361,11 +393,11 @@ def effective_workspace_pressures(
 ) -> list[dict[str, Any]]:
     now = now or _utcnow_dt()
     thresholds = decay_thresholds or DEFAULT_DECAY_THRESHOLDS
-    pressures = read_jsonl(paths.ledgers["pressure"])
+    pressures = load_jsonl(paths.ledgers["pressure"])
     feedback_by_id = _feedback_by_id(paths)
     trusted_gap_keys, ref_statuses = _phase2_effective_context(paths)
     states_by_pressure: dict[str, list[dict[str, Any]]] = {}
-    for row in read_jsonl(paths.ledgers["pressure_state"]):
+    for row in load_jsonl(paths.ledgers["pressure_state"]):
         pressure_event_id = str(row.get("pressure_event_id") or "")
         if pressure_event_id:
             states_by_pressure.setdefault(pressure_event_id, []).append(row)
@@ -442,7 +474,7 @@ def append_pressure_state_event(
         "details": details or {},
         "schema_version": 1,
     }
-    existing_state_rows = read_jsonl(paths.ledgers["pressure_state"])
+    existing_state_rows = load_jsonl(paths.ledgers["pressure_state"])
     if any(
         row.get("pressure_event_id") == payload["pressure_event_id"]
         and row.get("to_state") == payload["to_state"]
@@ -502,7 +534,7 @@ def _pressure(
 def _feedback_by_id(paths: WorkspacePaths) -> dict[str, dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for name in ("unknowns", "missed_signals", "external_feedback"):
-        rows.extend(read_jsonl(paths.ledgers[name]))
+        rows.extend(load_jsonl(paths.ledgers[name]))
     return {str(row.get("event_id")): row for row in rows if row.get("event_id")}
 
 

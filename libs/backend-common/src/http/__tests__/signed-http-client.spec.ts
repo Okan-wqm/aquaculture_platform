@@ -1,4 +1,5 @@
 import {
+  buildSignedInternalHeaders,
   signedFetch,
   type SignedFetchCircuitBreakerLike,
   type SignedFetchCircuitBreakerOptionsLike,
@@ -41,9 +42,14 @@ describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () 
   });
 
   beforeEach(() => {
-    fetchMock = jest.fn().mockResolvedValue(
-      new Response('{"ok":true}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
-    );
+    fetchMock = jest
+      .fn()
+      .mockResolvedValue(
+        new Response('{"ok":true}', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
     global.fetch = fetchMock as unknown as typeof fetch;
   });
 
@@ -119,13 +125,11 @@ describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () 
 
   it('surfaces breaker-side errors to the caller (fail-closed throw)', async () => {
     const breakerSvc: SignedFetchCircuitBreakerLike = {
-      execute: jest
-        .fn()
-        .mockRejectedValue(
-          Object.assign(new Error('Circuit breaker is OPEN'), {
-            name: 'CircuitOpenError',
-          }),
-        ),
+      execute: jest.fn().mockRejectedValue(
+        Object.assign(new Error('Circuit breaker is OPEN'), {
+          name: 'CircuitOpenError',
+        }),
+      ),
     };
 
     await expect(
@@ -166,5 +170,58 @@ describe('signedFetch — circuit-breaker integration (CIRCUIT-MEDIUM-004)', () 
     expect(fetchInit).not.toHaveProperty('circuitBreakerOptions');
     expect(fetchInit).not.toHaveProperty('serviceName');
     expect(fetchInit).not.toHaveProperty('tenantId');
+  });
+});
+
+describe('buildSignedInternalHeaders — production keyring signing', () => {
+  const savedEnv = { ...process.env };
+  const productionKeyring = JSON.stringify({
+    keys: [
+      { kid: 'kid-1', secret: 'secret-one', status: 'active' },
+      { kid: 'kid-2', secret: 'secret-two', status: 'active' },
+    ],
+  });
+
+  beforeEach(() => {
+    process.env = {
+      ...savedEnv,
+      NODE_ENV: 'production',
+      SERVICE_IDENTITY_KEYRING: productionKeyring,
+      SERVICE_IDENTITY_SIGNING_KID: 'kid-2',
+    };
+  });
+
+  afterAll(() => {
+    process.env = { ...savedEnv };
+  });
+
+  it('rejects explicit secret overrides in production', () => {
+    expect(() =>
+      buildSignedInternalHeaders({
+        serviceName: 'gateway-api',
+        tenantId: 'tenant-1',
+        method: 'POST',
+        path: '/graphql',
+        body: '{"query":"{__typename}"}',
+        secret: 'override-secret',
+      }),
+    ).toThrow(/secret overrides are forbidden in production/i);
+  });
+
+  it('selects SERVICE_IDENTITY_SIGNING_KID from the keyring', () => {
+    const headers = buildSignedInternalHeaders({
+      serviceName: 'gateway-api',
+      tenantId: 'tenant-1',
+      method: 'POST',
+      path: '/graphql',
+      body: '{"query":"{__typename}"}',
+      audience: 'farm',
+      nonce: 'nonce-1',
+    });
+
+    expect(headers['X-Service-Sig-Version']).toBe('v2');
+    expect(headers['X-Service-Key-Id']).toBe('kid-2');
+    expect(headers['X-Service-Audience']).toBe('farm');
+    expect(headers['X-Service-Nonce']).toBe('nonce-1');
   });
 });

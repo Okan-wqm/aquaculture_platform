@@ -6,8 +6,13 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { NOTIFICATION_COMMAND_SUBJECTS } from '@platform/event-contracts';
+import { of } from 'rxjs';
 
-import { ChannelMember, NotificationPreference } from '../../channel/entities/channel-member.entity';
+import {
+  ChannelMember,
+  NotificationPreference,
+} from '../../channel/entities/channel-member.entity';
 import { MessageService } from '../../message/services/message.service';
 import { PresenceService } from '../../presence/presence.service';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
@@ -29,22 +34,32 @@ describe('MessagingPushService', () => {
   };
 
   const mockNatsClient = {
-    emit: jest.fn(),
+    send: jest.fn(),
     connect: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockRedis = {
     get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue('OK'),
     setex: jest.fn().mockResolvedValue('OK'),
+    del: jest.fn().mockResolvedValue(1),
   };
 
   interface PushCommandPayload {
-    userId: string;
-    title: string;
-    body: string;
-    data: {
+    deliveryId: string;
+    requestReference: string;
+    tenantId: string;
+    source: string;
+    recipientRef: {
+      kind: string;
+      ref: string;
+    };
+    templateId: string;
+    templateVersion: string;
+    templateVariables: {
       type: string;
       notificationRef: string;
+      badge?: number;
       channelId?: unknown;
       messageId?: unknown;
     };
@@ -55,15 +70,21 @@ describe('MessagingPushService', () => {
 
   const isPushCommandPayload = (value: unknown): value is PushCommandPayload =>
     isRecord(value) &&
-    typeof value['userId'] === 'string' &&
-    typeof value['title'] === 'string' &&
-    typeof value['body'] === 'string' &&
-    isRecord(value['data']) &&
-    typeof value['data']['type'] === 'string' &&
-    typeof value['data']['notificationRef'] === 'string';
+    typeof value['deliveryId'] === 'string' &&
+    typeof value['requestReference'] === 'string' &&
+    typeof value['tenantId'] === 'string' &&
+    typeof value['source'] === 'string' &&
+    isRecord(value['recipientRef']) &&
+    value['recipientRef']['kind'] === 'userId' &&
+    typeof value['recipientRef']['ref'] === 'string' &&
+    typeof value['templateId'] === 'string' &&
+    typeof value['templateVersion'] === 'string' &&
+    isRecord(value['templateVariables']) &&
+    typeof value['templateVariables']['type'] === 'string' &&
+    typeof value['templateVariables']['notificationRef'] === 'string';
 
   const getEmittedPushPayload = (index = 0): PushCommandPayload => {
-    const call: unknown = mockNatsClient.emit.mock.calls[index];
+    const call: unknown = mockNatsClient.send.mock.calls[index];
     if (!Array.isArray(call) || !isPushCommandPayload(call[1])) {
       throw new Error(`Missing push command payload at call ${index}`);
     }
@@ -85,8 +106,11 @@ describe('MessagingPushService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockRedis.get.mockResolvedValue(null);
+    mockRedis.set.mockResolvedValue('OK');
     mockRedis.setex.mockResolvedValue('OK');
+    mockRedis.del.mockResolvedValue(1);
     mockMessageService.getUnreadCount.mockResolvedValue(3);
+    mockNatsClient.send.mockReturnValue(of({ success: true }));
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -109,25 +133,31 @@ describe('MessagingPushService', () => {
       { userId: 'user-b', notificationPreference: NotificationPreference.ALL },
     ]);
     mockPresenceService.getOnlineUsers.mockResolvedValue(
-      new Map([['user-a', false], ['user-b', false]]),
+      new Map([
+        ['user-a', false],
+        ['user-b', false],
+      ]),
     );
 
     await service.handleMessageSent(basePayload);
 
-    expect(mockNatsClient.emit).toHaveBeenCalledTimes(2);
-    expect(mockNatsClient.emit).toHaveBeenCalledWith(
-      'commands.notification.sendPush',
+    expect(mockNatsClient.send).toHaveBeenCalledTimes(2);
+    expect(mockNatsClient.send).toHaveBeenCalledWith(
+      NOTIFICATION_COMMAND_SUBJECTS.SEND_PUSH,
       expect.objectContaining({
-        userId: 'user-a',
-        title: 'Alice',
-        body: 'Sent you a message',
-        data: {
+        tenantId: 'tenant-1',
+        source: 'messaging-service',
+        recipientRef: { kind: 'userId', ref: 'user-a' },
+        templateId: 'messaging.chat.message.push',
+        templateVersion: '1',
+        templateVariables: expect.objectContaining({
+          senderName: 'Alice',
           type: 'CHAT_MESSAGE',
-          notificationRef: getEmittedPushPayload(0).data.notificationRef,
-        },
+          notificationRef: getEmittedPushPayload(0).templateVariables.notificationRef,
+        }),
       }),
     );
-    expect(getEmittedPushPayload(0).data.notificationRef).toHaveLength(36);
+    expect(getEmittedPushPayload(0).templateVariables.notificationRef).toHaveLength(36);
   });
 
   it('should skip the message sender', async () => {
@@ -137,7 +167,7 @@ describe('MessagingPushService', () => {
 
     await service.handleMessageSent(basePayload);
 
-    expect(mockNatsClient.emit).not.toHaveBeenCalled();
+    expect(mockNatsClient.send).not.toHaveBeenCalled();
   });
 
   it('should skip online members', async () => {
@@ -145,13 +175,11 @@ describe('MessagingPushService', () => {
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-online', notificationPreference: NotificationPreference.ALL },
     ]);
-    mockPresenceService.getOnlineUsers.mockResolvedValue(
-      new Map([['user-online', true]]),
-    );
+    mockPresenceService.getOnlineUsers.mockResolvedValue(new Map([['user-online', true]]));
 
     await service.handleMessageSent(basePayload);
 
-    expect(mockNatsClient.emit).not.toHaveBeenCalled();
+    expect(mockNatsClient.send).not.toHaveBeenCalled();
   });
 
   it('should respect notification preference none', async () => {
@@ -159,13 +187,11 @@ describe('MessagingPushService', () => {
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-quiet', notificationPreference: NotificationPreference.NONE },
     ]);
-    mockPresenceService.getOnlineUsers.mockResolvedValue(
-      new Map([['user-quiet', false]]),
-    );
+    mockPresenceService.getOnlineUsers.mockResolvedValue(new Map([['user-quiet', false]]));
 
     await service.handleMessageSent(basePayload);
 
-    expect(mockNatsClient.emit).not.toHaveBeenCalled();
+    expect(mockNatsClient.send).not.toHaveBeenCalled();
   });
 
   it('should always notify @mentioned users (overrides mentions-only preference)', async () => {
@@ -173,19 +199,19 @@ describe('MessagingPushService', () => {
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-mentioned', notificationPreference: NotificationPreference.MENTIONS },
     ]);
-    mockPresenceService.getOnlineUsers.mockResolvedValue(
-      new Map([['user-mentioned', true]]),
-    );
+    mockPresenceService.getOnlineUsers.mockResolvedValue(new Map([['user-mentioned', true]]));
 
     await service.handleMessageSent({
       ...basePayload,
       mentionedUserIds: ['user-mentioned'],
     });
 
-    expect(mockNatsClient.emit).toHaveBeenCalledTimes(1);
-    expect(mockNatsClient.emit).toHaveBeenCalledWith(
-      'commands.notification.sendPush',
-      expect.objectContaining({ userId: 'user-mentioned' }),
+    expect(mockNatsClient.send).toHaveBeenCalledTimes(1);
+    expect(mockNatsClient.send).toHaveBeenCalledWith(
+      NOTIFICATION_COMMAND_SUBJECTS.SEND_PUSH,
+      expect.objectContaining({
+        recipientRef: { kind: 'userId', ref: 'user-mentioned' },
+      }),
     );
   });
 
@@ -194,15 +220,20 @@ describe('MessagingPushService', () => {
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
     ]);
-    mockPresenceService.getOnlineUsers.mockResolvedValue(
-      new Map([['user-a', false]]),
-    );
-    // Simulate dedup key already exists
-    mockRedis.get.mockResolvedValue('1');
+    mockPresenceService.getOnlineUsers.mockResolvedValue(new Map([['user-a', false]]));
+    // Simulate atomic dedup claim already held.
+    mockRedis.set.mockResolvedValue(null);
 
     await service.handleMessageSent(basePayload);
 
-    expect(mockNatsClient.emit).not.toHaveBeenCalled();
+    expect(mockNatsClient.send).not.toHaveBeenCalled();
+    expect(mockRedis.set).toHaveBeenCalledWith(
+      'msg:push:dedup:tenant-1:channel-1:user-a',
+      'msg-1',
+      'EX',
+      30,
+      'NX',
+    );
   });
 
   it('should never include message content in push payload', async () => {
@@ -210,16 +241,38 @@ describe('MessagingPushService', () => {
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
       { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
     ]);
-    mockPresenceService.getOnlineUsers.mockResolvedValue(
-      new Map([['user-a', false]]),
-    );
+    mockPresenceService.getOnlineUsers.mockResolvedValue(new Map([['user-a', false]]));
 
     await service.handleMessageSent(basePayload);
 
     const emittedPayload = getEmittedPushPayload();
-    expect(emittedPayload?.body).toBe('Sent you a message');
+    expect(emittedPayload.templateId).toBe('messaging.chat.message.push');
     expect(JSON.stringify(emittedPayload)).not.toContain('content');
-    expect(emittedPayload?.data).not.toHaveProperty('channelId');
-    expect(emittedPayload?.data).not.toHaveProperty('messageId');
+    expect(emittedPayload.templateVariables).not.toHaveProperty('channelId');
+    expect(emittedPayload.templateVariables).not.toHaveProperty('messageId');
+  });
+
+  it('rolls back failed recipient refs without stopping other recipients', async () => {
+    mockMemberRepo.find.mockResolvedValue([
+      { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },
+      { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
+      { userId: 'user-b', notificationPreference: NotificationPreference.ALL },
+    ]);
+    mockPresenceService.getOnlineUsers.mockResolvedValue(
+      new Map([
+        ['user-a', false],
+        ['user-b', false],
+      ]),
+    );
+    mockNatsClient.send
+      .mockReturnValueOnce(of({ success: false, error: 'provider failed' }))
+      .mockReturnValueOnce(of({ success: true }));
+
+    await service.handleMessageSent(basePayload);
+
+    expect(mockNatsClient.send).toHaveBeenCalledTimes(2);
+    expect(mockRedis.del).toHaveBeenCalledWith('msg:push:dedup:tenant-1:channel-1:user-a');
+    expect(mockRedis.del).toHaveBeenCalledWith(mockRedis.setex.mock.calls[0][0]);
+    expect(mockRedis.del).not.toHaveBeenCalledWith('msg:push:dedup:tenant-1:channel-1:user-b');
   });
 });

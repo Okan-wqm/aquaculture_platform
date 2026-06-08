@@ -18,10 +18,10 @@
  *
  * @module Batch/Handlers
  */
-import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import type { BatchClosedEvent } from '@platform/event-contracts';
@@ -32,6 +32,7 @@ import { Role, hasAnyRole } from '@aquaculture/backend-common/decorators';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
+import { BatchLifecyclePolicyService } from '../services/batch-lifecycle-policy.service';
 
 @Injectable()
 @CommandHandler(CloseBatchCommand)
@@ -41,10 +42,9 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @InjectRepository(Batch)
-    private readonly batchRepository: Repository<Batch>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
+    private readonly lifecyclePolicy: BatchLifecyclePolicyService,
     @Optional()
     private readonly metricsService?: FarmDomainMetricsService,
   ) {}
@@ -52,15 +52,11 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
   async execute(command: CloseBatchCommand): Promise<Batch> {
     const { tenantId, batchId, reason, notes, closedBy, userRoles, acknowledgeActiveTreatments } = command;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    let savedBatch: Batch;
-    try {
+    const savedBatch = await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const batchRepo = tenantManagerRepo(queryRunner.manager, Batch, tenantId);
       // Batch bul (inside TX with pessimistic lock — eliminates TOCTOU race
       // where the batch could be mutated between pre-read and the close write).
-      const batch = await queryRunner.manager.findOne(Batch, {
+      const batch = await batchRepo.findOne({
         where: { id: batchId, tenantId },
         lock: { mode: 'pessimistic_write' },
       });
@@ -154,21 +150,7 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
         );
       }
 
-      const allowedPreviousStatuses: Record<BatchCloseReason, BatchStatus[]> = {
-        [BatchCloseReason.HARVEST_COMPLETED]: [BatchStatus.HARVESTED, BatchStatus.HARVESTING],
-        [BatchCloseReason.TRANSFERRED]: [BatchStatus.TRANSFERRED],
-        [BatchCloseReason.FAILED]: [BatchStatus.FAILED, BatchStatus.QUARANTINE, BatchStatus.ACTIVE, BatchStatus.GROWING],
-        [BatchCloseReason.CANCELLED]: [BatchStatus.QUARANTINE, BatchStatus.ACTIVE],
-        // OTHER is restricted to terminal/non-operational statuses only:
-        // HARVESTED, TRANSFERRED, FAILED. Active/growing batches cannot be closed via OTHER.
-        [BatchCloseReason.OTHER]: [BatchStatus.HARVESTED, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
-      };
-
-      if (!allowedPreviousStatuses[reason].includes(batch.status)) {
-        throw new BadRequestException(
-          `Batch ${reason} nedeniyle kapatılamaz. Mevcut durum: ${batch.status}`
-        );
-      }
+      this.lifecyclePolicy.assertCanCloseForReason(batch, reason);
 
       // Final metrikleri hesapla (before mutation)
       const finalMetrics = {
@@ -203,7 +185,7 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
         batch.actualHarvestDate = closedAt;
       }
 
-      savedBatch = await queryRunner.manager.save(Batch, batch);
+      const savedBatch = await batchRepo.save(batch);
 
       // Enqueue BatchClosedEvent into the transactional outbox BEFORE commit.
       // All required contract fields are populated — `closedAt` and `totalMortality`
@@ -225,14 +207,8 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
         closedAt,
       };
       await this.outboxPublisher.enqueue(closedEvent, queryRunner.manager);
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+      return savedBatch;
+    });
 
     this.logger.log(`Batch ${batchId} closed — reason: ${reason}, tenant: ${tenantId}`);
 

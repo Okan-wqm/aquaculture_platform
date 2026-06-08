@@ -15,6 +15,7 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { getAuthUser } from '../../shared/authenticated-request';
@@ -84,6 +85,12 @@ class RollbackMigrationDto {
 export class MigrationController {
   constructor(private readonly migrationService: MigrationManagementService) {}
 
+  private assertRuntimeMigrationEndpointAllowed(): void {
+    throw new ForbiddenException(
+      'Runtime migration execution is disabled; use db-migrate workflows',
+    );
+  }
+
   // ============================================================================
   // Migration Registry
   // ============================================================================
@@ -119,6 +126,7 @@ export class MigrationController {
     @Body() dto: RunMigrationDto,
     @Req() req: Request,
   ) {
+    this.assertRuntimeMigrationEndpointAllowed();
     if (!dto.version) {
       throw new BadRequestException('version is required');
     }
@@ -140,6 +148,7 @@ export class MigrationController {
     @Body() dto: RollbackMigrationDto,
     @Req() req: Request,
   ) {
+    this.assertRuntimeMigrationEndpointAllowed();
     if (!dto.version) {
       throw new BadRequestException('version is required');
     }
@@ -163,6 +172,7 @@ export class MigrationController {
     @Body() dto: BatchMigrationDto,
     @Req() req: Request,
   ) {
+    this.assertRuntimeMigrationEndpointAllowed();
     if (!dto.version) {
       throw new BadRequestException('version is required');
     }

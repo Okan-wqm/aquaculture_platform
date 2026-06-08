@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -13,11 +13,16 @@ import {
   AuditColumnsModule,
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
+  isSchemaDdlOwnedByDbMigrate,
   RlsModule,
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
+import {
+  StripInternalHeadersMiddleware,
+  VerifiedUserAssertionMiddleware,
+} from '@aquaculture/backend-common/middleware';
 
 /**
  * ConfigMigrationRunnerService — runs pending TypeORM migrations against
@@ -52,6 +57,7 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
  * Closes: docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-069
  */
 const ConfigMigrationRunnerService = createSchemaVersionGate('config');
+const configSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -103,7 +109,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/config.graphql') },
+      autoSchemaFile: {
+        federation: 2,
+        path: join(process.cwd(), 'dist/graphql/subgraphs/config.graphql'),
+      },
       /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
        *  The gateway already blocks batching, but subgraphs must also enforce this as
        *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -154,7 +163,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      */
     RlsModule.forPoolService({
       serviceName: 'config',
-      autoApply: true,
+      autoApply: !configSchemaDdlOwnedByDbMigrate,
     }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
@@ -166,7 +175,9 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      * TIMESTAMPTZ). Closes NEW-H1 on the same OnApplicationBootstrap
      * hook.
      */
-    AuditColumnsModule.forRoot({ serviceName: 'config' }),
+    ...(configSchemaDdlOwnedByDbMigrate
+      ? []
+      : [AuditColumnsModule.forRoot({ serviceName: 'config' })]),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'config' }),
   ],
@@ -185,7 +196,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'config-service'),
       inject: [ConfigService],
     },
     // SECURITY: Tenant guard - ensures tenant isolation (defense-in-depth)
@@ -208,4 +219,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(StripInternalHeadersMiddleware, VerifiedUserAssertionMiddleware).forRoutes('*');
+  }
+}

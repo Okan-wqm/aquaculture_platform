@@ -18,6 +18,8 @@ import { Repository, DataSource, LessThan } from 'typeorm';
 import { isValidSchemaName } from '@aquaculture/backend-common/database';
 
 const execFileAsync = promisify(execFile);
+const ENCRYPTED_BACKUP_MAGIC = Buffer.from('AQBKP1');
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 
 import {
   TenantSchema,
@@ -121,7 +123,13 @@ export class BackupRestoreService {
   // pg_dump / pg_restore connection helpers
   // --------------------------------------------------------------------------
 
-  private getPgConnectionArgs(): { host: string; port: string; user: string; db: string; password: string } {
+  private getPgConnectionArgs(): {
+    host: string;
+    port: string;
+    user: string;
+    db: string;
+    password: string;
+  } {
     return {
       host: this.configService.get<string>('DATABASE_HOST', 'localhost'),
       port: this.configService.get<string>('DATABASE_PORT', '5432'),
@@ -162,10 +170,14 @@ export class BackupRestoreService {
 
       // Build pg_dump arguments
       const args: string[] = [
-        '-h', pg.host,
-        '-p', pg.port,
-        '-U', pg.user,
-        '-d', pg.db,
+        '-h',
+        pg.host,
+        '-p',
+        pg.port,
+        '-U',
+        pg.user,
+        '-d',
+        pg.db,
         `--schema=${backup.schemaName}`,
         '--format=custom',
         `--file=${filePath}`,
@@ -185,11 +197,13 @@ export class BackupRestoreService {
         timeout: 300_000, // 5 min timeout
       });
 
-      // Read file stats for size + checksum
-      const stats = await fs.promises.stat(filePath);
+      const finalFilePath = backup.isEncrypted ? await this.encryptBackupFile(filePath) : filePath;
 
-      // Generate checksum from actual dump file
-      const fileBuffer = await fs.promises.readFile(filePath);
+      // Read file stats for size + checksum
+      const stats = await fs.promises.stat(finalFilePath);
+
+      // Generate checksum from actual persisted backup file
+      const fileBuffer = await fs.promises.readFile(finalFilePath);
       const checksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
       // Gather table count for metadata
@@ -214,7 +228,8 @@ export class BackupRestoreService {
       }
 
       // Update backup record
-      backup.filePath = filePath;
+      backup.filePath = finalFilePath;
+      backup.fileName = path.basename(finalFilePath);
       backup.status = 'completed' as BackupStatus;
       backup.completedAt = new Date();
       backup.sizeBytes = stats.size;
@@ -224,19 +239,22 @@ export class BackupRestoreService {
         rowCount: totalRows,
         version: '1.0',
         compressionRatio: backup.isCompressed ? 0.3 : 1,
+        ...(backup.isEncrypted
+          ? {
+              encryptionAlgorithm: ENCRYPTION_ALGORITHM,
+              encryptionKeyId: this.getBackupEncryptionKeyId(),
+            }
+          : {}),
       };
 
       await this.backupRepository.save(backup);
 
-      // Update schema last backup time
-      if (backup.tenantId) {
-        await this.schemaRepository.update(
-          { tenantId: backup.tenantId },
-          { lastBackupAt: new Date() },
-        );
-      }
+      // Tenant schema evidence is db-migrate/provisioner owned. The backup
+      // ledger above is the durable record for this backup operation.
 
-      this.logger.log(`Backup completed: ${backup.id} (${backup.sizeBytes} bytes) -> ${filePath}`);
+      this.logger.log(
+        `Backup completed: ${backup.id} (${backup.sizeBytes} bytes) -> ${finalFilePath}`,
+      );
       return backup;
     } catch (err) {
       const error = err as Error;
@@ -333,7 +351,7 @@ export class BackupRestoreService {
    * Restore from backup
    */
   async restoreFromBackup(options: RestoreOptions): Promise<SchemaRestore> {
-    const { backupId, targetSchemaName, pointInTime, tablesToRestore, skipValidation = false } = options;
+    const { backupId, targetSchemaName, pointInTime, tablesToRestore } = options;
 
     this.logger.log(`Restoring from backup: ${backupId}`);
 
@@ -343,10 +361,7 @@ export class BackupRestoreService {
       throw new BadRequestException('Cannot restore from incomplete backup');
     }
 
-    // Validate checksum if not skipped
-    if (!skipValidation) {
-      await this.validateBackupIntegrity(backup);
-    }
+    await this.validateBackupIntegrity(backup);
 
     const finalSchemaName = targetSchemaName || backup.schemaName;
 
@@ -386,11 +401,13 @@ export class BackupRestoreService {
       }
 
       // Resolve backup file path
-      const filePath = backup.filePath || path.join(
-        this.BACKUP_BASE_PATH,
-        backup.schemaName,
-        backup.fileName.replace(/\.sql(\.gz)?$/, '.dump'),
-      );
+      const filePath =
+        backup.filePath ||
+        path.join(
+          this.BACKUP_BASE_PATH,
+          backup.schemaName,
+          backup.fileName.replace(/\.sql(\.gz)?$/, '.dump'),
+        );
 
       // Verify backup file exists
       try {
@@ -400,13 +417,23 @@ export class BackupRestoreService {
       }
 
       const pg = this.getPgConnectionArgs();
+      let restoreFilePath = filePath;
+      let decryptedTempPath: string | undefined;
+      if (backup.isEncrypted) {
+        decryptedTempPath = await this.decryptBackupFile(filePath);
+        restoreFilePath = decryptedTempPath;
+      }
 
       // Build pg_restore arguments
       const args: string[] = [
-        '-h', pg.host,
-        '-p', pg.port,
-        '-U', pg.user,
-        '-d', pg.db,
+        '-h',
+        pg.host,
+        '-p',
+        pg.port,
+        '-U',
+        pg.user,
+        '-d',
+        pg.db,
         // WHY: Use restore.targetSchemaName, not backup.schemaName.
         // Previously the restore always restored to the backup's original schema,
         // ignoring the user-specified target. This made the targetSchemaName
@@ -423,12 +450,18 @@ export class BackupRestoreService {
         }
       }
 
-      args.push(filePath);
+      args.push(restoreFilePath);
 
-      await execFileAsync('pg_restore', args, {
-        env: this.getPgEnv(pg.password),
-        timeout: 600_000, // 10 min timeout for restores
-      });
+      try {
+        await execFileAsync('pg_restore', args, {
+          env: this.getPgEnv(pg.password),
+          timeout: 600_000, // 10 min timeout for restores
+        });
+      } finally {
+        if (decryptedTempPath) {
+          await fs.promises.unlink(decryptedTempPath).catch(() => {});
+        }
+      }
 
       // Get list of restored tables for metadata
       const queryRunner = this.dataSource.createQueryRunner();
@@ -469,10 +502,7 @@ export class BackupRestoreService {
   /**
    * Point-in-time recovery
    */
-  async pointInTimeRecovery(
-    tenantId: string,
-    targetTime: Date,
-  ): Promise<SchemaRestore> {
+  async pointInTimeRecovery(tenantId: string, targetTime: Date): Promise<SchemaRestore> {
     this.logger.log(`Point-in-time recovery for tenant ${tenantId} to ${targetTime.toISOString()}`);
 
     // Find the most recent backup before target time
@@ -503,11 +533,13 @@ export class BackupRestoreService {
       throw new BadRequestException('Backup has no checksum for validation');
     }
 
-    const filePath = backup.filePath || path.join(
-      this.BACKUP_BASE_PATH,
-      backup.schemaName,
-      backup.fileName.replace(/\.sql(\.gz)?$/, '.dump'),
-    );
+    const filePath =
+      backup.filePath ||
+      path.join(
+        this.BACKUP_BASE_PATH,
+        backup.schemaName,
+        backup.fileName.replace(/\.sql(\.gz)?$/, '.dump'),
+      );
 
     try {
       const fileBuffer = await fs.promises.readFile(filePath);
@@ -524,6 +556,80 @@ export class BackupRestoreService {
       if (err instanceof BadRequestException) throw err;
       throw new NotFoundException(`Backup file not found or unreadable: ${filePath}`);
     }
+  }
+
+  private async encryptBackupFile(filePath: string): Promise<string> {
+    const key = this.getBackupEncryptionKey();
+    const iv = crypto.randomBytes(12);
+    const plaintext = await fs.promises.readFile(filePath);
+    const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    const encryptedPath = `${filePath}.enc`;
+
+    await fs.promises.writeFile(
+      encryptedPath,
+      Buffer.concat([ENCRYPTED_BACKUP_MAGIC, iv, authTag, ciphertext]),
+      { mode: 0o600 },
+    );
+    await fs.promises.unlink(filePath).catch(() => {});
+    return encryptedPath;
+  }
+
+  private async decryptBackupFile(filePath: string): Promise<string> {
+    const key = this.getBackupEncryptionKey();
+    const payload = await fs.promises.readFile(filePath);
+    const header = payload.subarray(0, ENCRYPTED_BACKUP_MAGIC.length);
+    if (!header.equals(ENCRYPTED_BACKUP_MAGIC)) {
+      throw new BadRequestException('Encrypted backup has an invalid header');
+    }
+
+    const ivStart = ENCRYPTED_BACKUP_MAGIC.length;
+    const tagStart = ivStart + 12;
+    const ciphertextStart = tagStart + 16;
+    const iv = payload.subarray(ivStart, tagStart);
+    const authTag = payload.subarray(tagStart, ciphertextStart);
+    const ciphertext = payload.subarray(ciphertextStart);
+    const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+
+    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const tempPath = path.join(
+      path.dirname(filePath),
+      `.restore-${path.basename(filePath).replace(/\.enc$/, '')}-${crypto.randomUUID()}.dump`,
+    );
+    await fs.promises.writeFile(tempPath, plaintext, { mode: 0o600 });
+    return tempPath;
+  }
+
+  private getBackupEncryptionKey(): Buffer {
+    const configured = this.configService.get<string>('BACKUP_ENCRYPTION_KEY', '').trim();
+    if (!configured) {
+      throw new BadRequestException('BACKUP_ENCRYPTION_KEY is required for encrypted backups');
+    }
+
+    const decoded = this.decodeBackupEncryptionKey(configured);
+    if (decoded.length !== 32) {
+      throw new BadRequestException('BACKUP_ENCRYPTION_KEY must decode to 32 bytes');
+    }
+    return decoded;
+  }
+
+  private decodeBackupEncryptionKey(value: string): Buffer {
+    if (/^[a-f0-9]{64}$/i.test(value)) {
+      return Buffer.from(value, 'hex');
+    }
+
+    const decoded = Buffer.from(value, 'base64');
+    if (decoded.length === 32) {
+      return decoded;
+    }
+    return Buffer.from(value, 'utf8');
+  }
+
+  private getBackupEncryptionKeyId(): string {
+    const key = this.getBackupEncryptionKey();
+    return crypto.createHash('sha256').update(key).digest('hex').slice(0, 16);
   }
 
   /**
@@ -626,7 +732,9 @@ export class BackupRestoreService {
         // Delete dump file from disk before marking as expired
         if (backup.filePath) {
           await fs.promises.unlink(backup.filePath).catch((err) => {
-            this.logger.warn(`Could not delete expired backup file ${backup.filePath}: ${err.message}`);
+            this.logger.warn(
+              `Could not delete expired backup file ${backup.filePath}: ${err.message}`,
+            );
           });
         }
         backup.status = 'expired' as BackupStatus;
@@ -662,23 +770,24 @@ export class BackupRestoreService {
       where: { status: 'active' as SchemaStatus },
     });
 
-    const completedBackups = allBackups.filter(b => b.status === 'completed');
+    const completedBackups = allBackups.filter((b) => b.status === 'completed');
     const totalSizeBytes = completedBackups.reduce((sum, b) => sum + Number(b.sizeBytes), 0);
 
     const tenantsWithBackup = new Set(
-      completedBackups.filter(b => b.tenantId).map(b => b.tenantId)
+      completedBackups.filter((b) => b.tenantId).map((b) => b.tenantId),
     ).size;
 
     const sortedBackups = [...completedBackups].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
     );
 
     return {
       totalBackups: allBackups.length,
       completedBackups: completedBackups.length,
-      failedBackups: allBackups.filter(b => b.status === 'failed').length,
+      failedBackups: allBackups.filter((b) => b.status === 'failed').length,
       totalSizeBytes,
-      avgSizeBytes: completedBackups.length > 0 ? Math.round(totalSizeBytes / completedBackups.length) : 0,
+      avgSizeBytes:
+        completedBackups.length > 0 ? Math.round(totalSizeBytes / completedBackups.length) : 0,
       oldestBackup: sortedBackups[0]?.createdAt || null,
       newestBackup: sortedBackups[sortedBackups.length - 1]?.createdAt || null,
       tenantsWithBackup,

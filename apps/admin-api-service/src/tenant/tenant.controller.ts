@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 
 import { CurrentUser } from '../decorators/current-user.decorator';
 import {
@@ -42,7 +43,6 @@ import {
   TenantUsageDto,
 } from './dto/tenant.dto';
 import { DeactivateTenantDto } from './dto/deactivate-tenant.dto';
-import { ProvisionTenantDto } from './dto/provision-tenant.dto';
 import { TenantActivity, TenantNote } from './entities/tenant-activity.entity';
 import { Tenant } from './entities/tenant.entity';
 import {
@@ -59,7 +59,6 @@ import { PaginatedResult } from './query-handlers/tenant-query.handlers';
 import { TenantActivityService } from './services/tenant-activity.service';
 import { TenantDetailService } from './services/tenant-detail.service';
 import { TenantProvisioningWorkflowService } from './services/tenant-provisioning-workflow.service';
-import { TenantProvisioningService } from './services/tenant-provisioning.service';
 
 interface AdminUser {
   id: string;
@@ -69,16 +68,11 @@ interface AdminUser {
 
 @ApiTags('Tenants')
 @Controller('tenants')
-export class TenantController {
-  private readonly logger = new Logger(TenantController.name);
+export class TenantPublicController {
+  private readonly logger = new Logger(TenantPublicController.name);
 
   constructor(
-    private readonly commandBus: CommandBus,
-    private readonly queryBus: QueryBus,
-    private readonly detailService: TenantDetailService,
-    private readonly activityService: TenantActivityService,
     private readonly provisioningWorkflowService: TenantProvisioningWorkflowService,
-    private readonly provisioningService: TenantProvisioningService,
   ) {}
 
   @Post()
@@ -94,10 +88,11 @@ export class TenantController {
       user.id,
       idempotencyKey,
     );
+    const operationId = this.operationIdFromStatusUrl(response.statusUrl);
 
-    this.provisioningWorkflowService.processOperation(response.operationId).catch((err: Error) => {
+    this.provisioningWorkflowService.processOperation(operationId).catch((err: Error) => {
       this.logger.error(
-        `Async tenant provisioning failed for operation ${response.operationId}: ${err.message}`,
+        `Async tenant provisioning failed for operation ${operationId}: ${err.message}`,
         err.stack,
       );
     });
@@ -113,6 +108,7 @@ export class TenantController {
     return this.provisioningWorkflowService.getOperation(operationId);
   }
 
+  @ThrottleSensitive()
   @Post('provisioning/:operationId/retry')
   @ApiOperation({ summary: 'Retry a failed tenant provisioning operation' })
   @HttpCode(HttpStatus.ACCEPTED)
@@ -121,6 +117,25 @@ export class TenantController {
   ): Promise<CreateTenantAcceptedResponse> {
     return this.provisioningWorkflowService.retryOperation(operationId);
   }
+
+  private operationIdFromStatusUrl(statusUrl: string): string {
+    const match = /^\/tenants\/provisioning\/([0-9a-f-]{36})$/i.exec(statusUrl);
+    if (!match?.[1]) {
+      throw new Error(`Invalid tenant provisioning statusUrl '${statusUrl}'`);
+    }
+    return match[1];
+  }
+}
+
+@ApiTags('Admin Tenants')
+@Controller('admin/tenants')
+export class TenantAdminController {
+  constructor(
+    private readonly commandBus: CommandBus,
+    private readonly queryBus: QueryBus,
+    private readonly detailService: TenantDetailService,
+    private readonly activityService: TenantActivityService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List all tenants with filtering and pagination' })
@@ -195,6 +210,7 @@ export class TenantController {
   // Bulk Operations
   // ============================================================================
 
+  @ThrottleSensitive()
   @Post('bulk/suspend')
   @ApiOperation({ summary: 'Bulk suspend multiple tenants' })
   @HttpCode(HttpStatus.OK)
@@ -205,6 +221,7 @@ export class TenantController {
     return this.detailService.bulkSuspend(dto.tenantIds, dto.reason, user.id);
   }
 
+  @ThrottleSensitive()
   @Post('bulk/activate')
   @ApiOperation({ summary: 'Bulk activate multiple tenants' })
   @HttpCode(HttpStatus.OK)
@@ -321,6 +338,7 @@ export class TenantController {
     return this.commandBus.execute(new UpdateTenantCommand(id, dto, user.id));
   }
 
+  @ThrottleSensitive()
   @Patch(':id/suspend')
   @ApiOperation({ summary: 'Suspend a tenant' })
   async suspendTenant(
@@ -331,6 +349,7 @@ export class TenantController {
     return this.commandBus.execute(new SuspendTenantCommand(id, dto, user.id));
   }
 
+  @ThrottleSensitive()
   @Patch(':id/activate')
   @ApiOperation({ summary: 'Activate a suspended tenant' })
   async activateTenant(
@@ -350,51 +369,6 @@ export class TenantController {
     return this.commandBus.execute(
       new DeactivateTenantCommand(id, dto.reason, user.id),
     );
-  }
-
-  // ============================================================================
-  // Provisioning Endpoints
-  // ============================================================================
-
-  /**
-   * ADMIN-HIGH-010: Returns 202 Accepted with a status-tracking URL.
-   * Provisioning runs asynchronously to prevent HTTP gateway timeouts
-   * caused by long-running schema creation, table creation, and seed data insertion.
-   *
-   * The client polls GET /:id/provision/status to track progress.
-   */
-  @Post(':id/provision')
-  @ApiOperation({ summary: 'Provision tenant schema and resources (async)' })
-  @HttpCode(HttpStatus.ACCEPTED)
-  async provisionTenant(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: ProvisionTenantDto,
-  ): Promise<{ accepted: true; tenantId: string; statusUrl: string }> {
-    // ADMIN-HIGH-010: Fire-and-forget with error logging.
-    // The provisioning saga tracks its own state and the client polls /status.
-    this.provisioningService.provisionTenant(id, {
-      createFirstAdmin: dto.createAdmin || false,
-      adminEmail: dto.adminEmail,
-      assignModules: dto.modules || [],
-    }).catch((err: Error) => {
-      // Non-fatal: the saga already persists step-level failures.
-      // This catch prevents unhandled rejection on the detached promise.
-      this.logger.error(`Async provisioning failed for tenant ${id}: ${err.message}`);
-    });
-
-    return {
-      accepted: true,
-      tenantId: id,
-      statusUrl: `/api/v1/tenants/${id}/provision/status`,
-    };
-  }
-
-  @Get(':id/provision/status')
-  @ApiOperation({ summary: 'Get tenant provisioning status' })
-  async getProvisioningStatus(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<{ status: string }> {
-    return this.provisioningService.getProvisioningStatus(id);
   }
 
   @Delete(':id')

@@ -1,5 +1,6 @@
 import { QueryRunner } from 'typeorm';
 import { Logger } from '@nestjs/common';
+import { hasDbMigrateDdlAuthority, isSchemaDdlOwnedByDbMigrate } from './db-migrate-authority.util';
 
 /**
  * convertAuditColumnsToTimestamptz
@@ -91,12 +92,20 @@ const SAFE_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * (TypeORM default for `@CreateDateColumn()`) and snake_case (used by
  * `farm-service.BaseEntity` via explicit `name:` mapping).
  */
-const DEFAULT_AUDIT_COLUMNS = [
-  'createdAt',
-  'updatedAt',
-  'created_at',
-  'updated_at',
-] as const;
+const DEFAULT_AUDIT_COLUMNS = ['createdAt', 'updatedAt', 'created_at', 'updated_at'] as const;
+
+function assertDbMigrateDdlAuthority(operation: string): void {
+  if (hasDbMigrateDdlAuthority()) {
+    return;
+  }
+  if (!isSchemaDdlOwnedByDbMigrate()) {
+    return;
+  }
+  throw new Error(
+    `[db-migrate authority] ${operation} is disabled in runtime services when ` +
+      `schema DDL is owned by aqua-db-migrate. Run the db-migrate container instead.`,
+  );
+}
 
 export interface ConvertAuditColumnsOptions {
   /**
@@ -181,9 +190,8 @@ async function discoverAuditColumns(
   // data type. We filter on `data_type = 'timestamp without time zone'`
   // (the standard SQL spelling for naked TIMESTAMP) so columns already
   // converted to `timestamp with time zone` are skipped.
-  const rows: Array<{ table_name: string; column_name: string }> =
-    await qr.query(
-      `
+  const rows: Array<{ table_name: string; column_name: string }> = await qr.query(
+    `
       SELECT c.table_name, c.column_name
       FROM information_schema.columns c
       JOIN information_schema.tables t
@@ -195,8 +203,8 @@ async function discoverAuditColumns(
         AND c.data_type = 'timestamp without time zone'
       ORDER BY c.table_name, c.column_name
       `,
-      [schema, [...auditColumns]],
-    );
+    [schema, [...auditColumns]],
+  );
 
   const excludeSet = new Set(excludeTables);
   return rows
@@ -230,8 +238,9 @@ export async function convertAuditColumnsToTimestamptz(
   qr: QueryRunner,
   options: ConvertAuditColumnsOptions = {},
 ): Promise<void> {
-  const logger =
-    options.logger ?? new Logger('convertAuditColumnsToTimestamptz');
+  assertDbMigrateDdlAuthority('convertAuditColumnsToTimestamptz');
+
+  const logger = options.logger ?? new Logger('convertAuditColumnsToTimestamptz');
   const auditColumns =
     options.auditColumns && options.auditColumns.length > 0
       ? options.auditColumns
@@ -269,12 +278,7 @@ export async function convertAuditColumnsToTimestamptz(
       `session TZ: ${sessionTz})`,
   );
 
-  const discovered = await discoverAuditColumns(
-    qr,
-    schema,
-    auditColumns,
-    excludeTables,
-  );
+  const discovered = await discoverAuditColumns(qr, schema, auditColumns, excludeTables);
 
   if (discovered.length === 0) {
     logger.log(
@@ -299,9 +303,7 @@ export async function convertAuditColumnsToTimestamptz(
     }
   }
 
-  logger.log(
-    `Found ${discovered.length} columns across ${byTable.size} tables in "${schema}"`,
-  );
+  logger.log(`Found ${discovered.length} columns across ${byTable.size} tables in "${schema}"`);
 
   for (const [tableName, columns] of byTable.entries()) {
     assertSafeIdentifier(tableName, 'tableName');
@@ -311,15 +313,10 @@ export async function convertAuditColumnsToTimestamptz(
     // farm BaseEntity snake_case (`created_at`) need to round-trip
     // unchanged through the SQL parser.
     const clauses = columns
-      .map(
-        (col) =>
-          `ALTER COLUMN "${col}" TYPE TIMESTAMPTZ USING "${col}" AT TIME ZONE 'UTC'`,
-      )
+      .map((col) => `ALTER COLUMN "${col}" TYPE TIMESTAMPTZ USING "${col}" AT TIME ZONE 'UTC'`)
       .join(', ');
 
-    logger.log(
-      `Converting "${schema}"."${tableName}": ${columns.join(', ')}`,
-    );
+    logger.log(`Converting "${schema}"."${tableName}": ${columns.join(', ')}`);
 
     await qr.query(`ALTER TABLE "${schema}"."${tableName}" ${clauses}`);
   }
@@ -344,8 +341,9 @@ export async function revertAuditColumnsToTimestamp(
   qr: QueryRunner,
   options: ConvertAuditColumnsOptions = {},
 ): Promise<void> {
-  const logger =
-    options.logger ?? new Logger('revertAuditColumnsToTimestamp');
+  assertDbMigrateDdlAuthority('revertAuditColumnsToTimestamp');
+
+  const logger = options.logger ?? new Logger('revertAuditColumnsToTimestamp');
   const auditColumns =
     options.auditColumns && options.auditColumns.length > 0
       ? options.auditColumns
@@ -370,9 +368,8 @@ export async function revertAuditColumnsToTimestamp(
   // (the post-up() state) so we only revert what we previously
   // converted, not random columns that happened to use timestamptz
   // for other reasons.
-  const rows: Array<{ table_name: string; column_name: string }> =
-    await qr.query(
-      `
+  const rows: Array<{ table_name: string; column_name: string }> = await qr.query(
+    `
       SELECT c.table_name, c.column_name
       FROM information_schema.columns c
       JOIN information_schema.tables t
@@ -384,8 +381,8 @@ export async function revertAuditColumnsToTimestamp(
         AND c.data_type = 'timestamp with time zone'
       ORDER BY c.table_name, c.column_name
       `,
-      [schema, [...auditColumns]],
-    );
+    [schema, [...auditColumns]],
+  );
 
   const excludeSet = new Set(excludeTables);
   const filtered = rows.filter((r) => !excludeSet.has(r.table_name));
@@ -413,10 +410,7 @@ export async function revertAuditColumnsToTimestamp(
   for (const [tableName, columns] of byTable.entries()) {
     assertSafeIdentifier(tableName, 'tableName');
     const clauses = columns
-      .map(
-        (col) =>
-          `ALTER COLUMN "${col}" TYPE TIMESTAMP USING "${col}" AT TIME ZONE 'UTC'`,
-      )
+      .map((col) => `ALTER COLUMN "${col}" TYPE TIMESTAMP USING "${col}" AT TIME ZONE 'UTC'`)
       .join(', ');
     await qr.query(`ALTER TABLE "${schema}"."${tableName}" ${clauses}`);
     logger.warn(`Reverted "${schema}"."${tableName}": ${columns.join(', ')}`);

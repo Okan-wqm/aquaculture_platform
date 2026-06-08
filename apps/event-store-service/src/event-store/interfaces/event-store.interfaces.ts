@@ -1,9 +1,13 @@
+export type EventPosition = string;
+
 /**
  * Domain event interface
  */
 export interface DomainEvent {
   eventType: string;
   payload: Record<string, unknown>;
+  producer: string;
+  producerEventId: string;
   metadata?: Record<string, unknown>;
   occurredAt: Date;
   correlationId?: string;
@@ -18,8 +22,8 @@ export interface DomainEvent {
 export interface PersistedEvent extends DomainEvent {
   id: string;
   streamName: string;
-  globalPosition: number;
-  streamPosition: number;
+  globalPosition: EventPosition;
+  streamPosition: EventPosition;
   aggregateType: string;
   aggregateId: string;
   version: number;
@@ -35,7 +39,7 @@ export interface AppendResult {
   streamName: string;
   newVersion: number;
   eventIds: string[];
-  globalPositions: number[];
+  globalPositions: EventPosition[];
 }
 
 /**
@@ -55,8 +59,8 @@ export interface EventStreamSlice {
  */
 export interface AllEventsSlice {
   events: PersistedEvent[];
-  fromPosition: number;
-  nextPosition: number;
+  fromPosition: EventPosition;
+  nextPosition: EventPosition;
   isEndOfAll: boolean;
 }
 
@@ -64,8 +68,8 @@ export interface AllEventsSlice {
  * Stream position tracking
  */
 export interface StreamPosition {
-  preparePosition: number;
-  commitPosition: number;
+  preparePosition: EventPosition;
+  commitPosition: EventPosition;
 }
 
 /**
@@ -95,7 +99,7 @@ export interface ReadOptions {
  * Options for reading all events
  */
 export interface ReadAllOptions {
-  fromPosition?: number;
+  fromPosition?: EventPosition;
   maxCount?: number;
   direction?: 'forward' | 'backward';
   eventTypes?: string[];
@@ -117,7 +121,21 @@ export interface ConcurrencyCheckResult {
 /**
  * Event handler callback type
  */
-export type EventHandler = (event: PersistedEvent) => Promise<void>;
+export interface ProjectionHandlerContext {
+  manager: EntityManager;
+  tenantId: string;
+  projectionName: string;
+  sourceGeneration: number;
+  targetGeneration: number;
+  leaseToken: string | null;
+  mode: 'live' | 'rebuild';
+  outboxPolicy: 'transactional' | 'disabled';
+}
+
+export type EventHandler = (
+  event: PersistedEvent,
+  context: ProjectionHandlerContext,
+) => Promise<void>;
 
 /**
  * Retry policy for failed event processing
@@ -128,3 +146,4 @@ export interface RetryPolicy {
   maxDelayMs: number;
   backoffMultiplier: number;
 }
+import type { EntityManager } from 'typeorm';

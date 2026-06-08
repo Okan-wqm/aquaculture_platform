@@ -22,9 +22,69 @@ const PATH = '/graphql';
 const METHOD = 'POST';
 const BODY = '{"query":"{ farms { id } }"}';
 const BODY_HASH = createHash('sha256').update(BODY).digest('hex');
+const KEY_ID = 'kid-1';
+const AUDIENCE = 'farm';
+const CONTENT_TYPE = 'application/json';
+const NONCE = 'nonce-1';
+const EMPTY_QUERY_HASH = createHash('sha256').update('').digest('hex');
+const KEYRING = [
+  {
+    kid: KEY_ID,
+    secret: SECRET,
+    status: 'active' as const,
+    callers: [SERVICE],
+    audiences: [AUDIENCE],
+  },
+];
+
+function fullHeaders() {
+  return generateServiceIdentityHeadersV2({
+    serviceName: SERVICE,
+    secret: SECRET,
+    tenantId: TENANT,
+    method: METHOD,
+    path: PATH,
+    body: BODY,
+    keyId: KEY_ID,
+    audience: AUDIENCE,
+    contentType: CONTENT_TYPE,
+    nonce: NONCE,
+  });
+}
+
+function verifyArgs(
+  h: ReturnType<typeof generateServiceIdentityHeadersV2>,
+  overrides: Partial<Parameters<typeof verifyServiceIdentityV2>[0]> = {},
+): Parameters<typeof verifyServiceIdentityV2>[0] {
+  return {
+    serviceName: h['X-Service-Identity'],
+    timestamp: h['X-Service-Timestamp'],
+    signature: h['X-Service-Signature'],
+    method: h['X-Service-Method'],
+    path: h['X-Service-Path'],
+    bodyHash: h['X-Service-Body-Hash'],
+    keyId: h['X-Service-Key-Id'],
+    audience: h['X-Service-Audience'],
+    queryHash: h['X-Service-Query-Hash'],
+    contentType: h['X-Service-Content-Type'],
+    assertionHash: h['X-Service-Assertion-Hash'],
+    nonce: h['X-Service-Nonce'],
+    effectiveTenantId: h['X-Service-Effective-Tenant-ID'],
+    observedMethod: METHOD,
+    observedPath: PATH,
+    observedBody: BODY,
+    observedQuery: '',
+    observedContentType: CONTENT_TYPE,
+    observedAssertionHash: '',
+    secret: SECRET,
+    expectedTenantId: TENANT,
+    expectedAudience: AUDIENCE,
+    ...overrides,
+  };
+}
 
 describe('service-identity v2 — generate', () => {
-  it('emits all 7 v2 headers including Sig-Version, Method, Path, Body-Hash', () => {
+  it('emits the full strict v2 header set including key, audience, query, content, assertion, and nonce', () => {
     const h = generateServiceIdentityHeadersV2({
       serviceName: SERVICE,
       secret: SECRET,
@@ -32,12 +92,23 @@ describe('service-identity v2 — generate', () => {
       method: METHOD,
       path: PATH,
       body: BODY,
+      keyId: KEY_ID,
+      audience: AUDIENCE,
+      contentType: CONTENT_TYPE,
+      nonce: NONCE,
     });
     expect(h['X-Service-Identity']).toBe(SERVICE);
     expect(h['X-Service-Sig-Version']).toBe('v2');
     expect(h['X-Service-Method']).toBe('POST');
     expect(h['X-Service-Path']).toBe(PATH);
     expect(h['X-Service-Body-Hash']).toBe(BODY_HASH);
+    expect(h['X-Service-Key-Id']).toBe(KEY_ID);
+    expect(h['X-Service-Audience']).toBe(AUDIENCE);
+    expect(h['X-Service-Query-Hash']).toBe(EMPTY_QUERY_HASH);
+    expect(h['X-Service-Content-Type']).toBe(CONTENT_TYPE);
+    expect(h['X-Service-Assertion-Hash']).toBe('');
+    expect(h['X-Service-Nonce']).toBe(NONCE);
+    expect(h['X-Service-Effective-Tenant-ID']).toBe(TENANT);
     expect(h['X-Service-Signature']).toMatch(/^[0-9a-f]{64}$/);
     expect(Date.parse(h['X-Service-Timestamp'])).not.toBeNaN();
   });
@@ -50,6 +121,9 @@ describe('service-identity v2 — generate', () => {
       method: 'post',
       path: PATH,
       body: BODY,
+      keyId: KEY_ID,
+      audience: AUDIENCE,
+      nonce: NONCE,
     });
     expect(h['X-Service-Method']).toBe('POST');
   });
@@ -62,124 +136,52 @@ describe('service-identity v2 — generate', () => {
       method: 'GET',
       path: '/health',
       body: '',
+      keyId: KEY_ID,
+      audience: 'health',
+      nonce: NONCE,
     });
-    expect(h['X-Service-Body-Hash']).toBe(
-      createHash('sha256').update('').digest('hex'),
-    );
+    expect(h['X-Service-Body-Hash']).toBe(createHash('sha256').update('').digest('hex'));
   });
 });
 
 describe('service-identity v2 — verify (round-trip)', () => {
   function freshHeaders() {
-    return generateServiceIdentityHeadersV2({
-      serviceName: SERVICE,
-      secret: SECRET,
-      tenantId: TENANT,
-      method: METHOD,
-      path: PATH,
-      body: BODY,
-    });
+    return fullHeaders();
   }
 
   it('round-trips successfully when receiver observes identical method/path/body', () => {
     const h = freshHeaders();
-    expect(
-      verifyServiceIdentityV2({
-        serviceName: h['X-Service-Identity'],
-        timestamp: h['X-Service-Timestamp'],
-        signature: h['X-Service-Signature'],
-        method: h['X-Service-Method'],
-        path: h['X-Service-Path'],
-        bodyHash: h['X-Service-Body-Hash'],
-        observedMethod: METHOD,
-        observedPath: PATH,
-        observedBody: BODY,
-        secret: SECRET,
-        expectedTenantId: TENANT,
-      }),
-    ).toBe(true);
+    expect(verifyServiceIdentityV2(verifyArgs(h))).toBe(true);
   });
 
   it('rejects when observed body differs from signed body (tamper detection)', () => {
     const h = freshHeaders();
-    expect(
-      verifyServiceIdentityV2({
-        serviceName: h['X-Service-Identity'],
-        timestamp: h['X-Service-Timestamp'],
-        signature: h['X-Service-Signature'],
-        method: h['X-Service-Method'],
-        path: h['X-Service-Path'],
-        bodyHash: h['X-Service-Body-Hash'],
-        observedMethod: METHOD,
-        observedPath: PATH,
-        observedBody: BODY + ' tampered',
-        secret: SECRET,
-        expectedTenantId: TENANT,
-      }),
-    ).toBe(false);
+    expect(verifyServiceIdentityV2(verifyArgs(h, { observedBody: BODY + ' tampered' }))).toBe(
+      false,
+    );
   });
 
   it('rejects when observed method differs from signed method', () => {
     const h = freshHeaders();
-    expect(
-      verifyServiceIdentityV2({
-        serviceName: h['X-Service-Identity'],
-        timestamp: h['X-Service-Timestamp'],
-        signature: h['X-Service-Signature'],
-        method: h['X-Service-Method'],
-        path: h['X-Service-Path'],
-        bodyHash: h['X-Service-Body-Hash'],
-        observedMethod: 'GET',
-        observedPath: PATH,
-        observedBody: BODY,
-        secret: SECRET,
-        expectedTenantId: TENANT,
-      }),
-    ).toBe(false);
+    expect(verifyServiceIdentityV2(verifyArgs(h, { observedMethod: 'GET' }))).toBe(false);
   });
 
   it('rejects when observed path differs from signed path', () => {
     const h = freshHeaders();
-    expect(
-      verifyServiceIdentityV2({
-        serviceName: h['X-Service-Identity'],
-        timestamp: h['X-Service-Timestamp'],
-        signature: h['X-Service-Signature'],
-        method: h['X-Service-Method'],
-        path: h['X-Service-Path'],
-        bodyHash: h['X-Service-Body-Hash'],
-        observedMethod: METHOD,
-        observedPath: '/admin',
-        observedBody: BODY,
-        secret: SECRET,
-        expectedTenantId: TENANT,
-      }),
-    ).toBe(false);
+    expect(verifyServiceIdentityV2(verifyArgs(h, { observedPath: '/admin' }))).toBe(false);
   });
 
   it('rejects when expected tenantId differs from signed tenantId', () => {
     const h = freshHeaders();
     expect(
-      verifyServiceIdentityV2({
-        serviceName: h['X-Service-Identity'],
-        timestamp: h['X-Service-Timestamp'],
-        signature: h['X-Service-Signature'],
-        method: h['X-Service-Method'],
-        path: h['X-Service-Path'],
-        bodyHash: h['X-Service-Body-Hash'],
-        observedMethod: METHOD,
-        observedPath: PATH,
-        observedBody: BODY,
-        secret: SECRET,
-        expectedTenantId: '22222222-2222-4222-8222-222222222222',
-      }),
+      verifyServiceIdentityV2(
+        verifyArgs(h, { expectedTenantId: '22222222-2222-4222-8222-222222222222' }),
+      ),
     ).toBe(false);
   });
 
   it('rejects when timestamp is older than maxAgeMs (replay window)', () => {
-    const oldTimestamp = new Date(
-      Date.now() - SERVICE_IDENTITY_MAX_AGE_MS - 1000,
-    ).toISOString();
+    const oldTimestamp = new Date(Date.now() - SERVICE_IDENTITY_MAX_AGE_MS - 1000).toISOString();
     // Forge a signature with the old timestamp using the same secret so we
     // verify the rejection comes from the timestamp check, not from HMAC.
     const canonical = [
@@ -190,6 +192,13 @@ describe('service-identity v2 — verify (round-trip)', () => {
       PATH,
       BODY_HASH,
       TENANT,
+      KEY_ID,
+      AUDIENCE,
+      EMPTY_QUERY_HASH,
+      CONTENT_TYPE,
+      TENANT,
+      '',
+      NONCE,
     ].join('\n');
     const sig = createHmac('sha256', SECRET).update(canonical).digest('hex');
     expect(
@@ -200,45 +209,35 @@ describe('service-identity v2 — verify (round-trip)', () => {
         method: 'POST',
         path: PATH,
         bodyHash: BODY_HASH,
+        keyId: KEY_ID,
+        audience: AUDIENCE,
+        queryHash: EMPTY_QUERY_HASH,
+        contentType: CONTENT_TYPE,
+        assertionHash: '',
+        nonce: NONCE,
+        effectiveTenantId: TENANT,
         observedMethod: 'POST',
         observedPath: PATH,
         observedBody: BODY,
+        observedQuery: '',
+        observedContentType: CONTENT_TYPE,
+        observedAssertionHash: '',
         secret: SECRET,
         expectedTenantId: TENANT,
+        expectedAudience: AUDIENCE,
       }),
     ).toBe(false);
   });
 
   it('rejects when secret differs (HMAC mismatch)', () => {
     const h = freshHeaders();
-    expect(
-      verifyServiceIdentityV2({
-        serviceName: h['X-Service-Identity'],
-        timestamp: h['X-Service-Timestamp'],
-        signature: h['X-Service-Signature'],
-        method: h['X-Service-Method'],
-        path: h['X-Service-Path'],
-        bodyHash: h['X-Service-Body-Hash'],
-        observedMethod: METHOD,
-        observedPath: PATH,
-        observedBody: BODY,
-        secret: 'wrong-secret',
-        expectedTenantId: TENANT,
-      }),
-    ).toBe(false);
+    expect(verifyServiceIdentityV2(verifyArgs(h, { secret: 'wrong-secret' }))).toBe(false);
   });
 });
 
 describe('service-identity unified verifier (verifyServiceIdentityRequest)', () => {
   it('verifies v2 headers when X-Service-Sig-Version=v2', () => {
-    const h = generateServiceIdentityHeadersV2({
-      serviceName: SERVICE,
-      secret: SECRET,
-      tenantId: TENANT,
-      method: METHOD,
-      path: PATH,
-      body: BODY,
-    });
+    const h = fullHeaders();
     const outcome = verifyServiceIdentityRequest({
       headers: {
         'x-service-identity': h['X-Service-Identity'],
@@ -248,17 +247,36 @@ describe('service-identity unified verifier (verifyServiceIdentityRequest)', () 
         'x-service-method': h['X-Service-Method'],
         'x-service-path': h['X-Service-Path'],
         'x-service-body-hash': h['X-Service-Body-Hash'],
+        'x-service-key-id': h['X-Service-Key-Id'],
+        'x-service-audience': h['X-Service-Audience'],
+        'x-service-query-hash': h['X-Service-Query-Hash'],
+        'x-service-content-type': h['X-Service-Content-Type'],
+        'x-service-assertion-hash': h['X-Service-Assertion-Hash'],
+        'x-service-nonce': h['X-Service-Nonce'],
+        'x-service-effective-tenant-id': h['X-Service-Effective-Tenant-ID'],
       },
       observedMethod: METHOD,
       observedPath: PATH,
       observedBody: BODY,
-      secret: SECRET,
+      observedQuery: '',
+      observedContentType: CONTENT_TYPE,
+      observedAssertionHash: '',
+      keyring: KEYRING,
       expectedTenantId: TENANT,
+      expectedAudience: AUDIENCE,
     });
-    expect(outcome).toEqual({ valid: true, version: 'v2' });
+    expect(outcome).toMatchObject({
+      valid: true,
+      version: 'v2',
+      serviceName: SERVICE,
+      keyId: KEY_ID,
+      audience: AUDIENCE,
+      effectiveTenantId: TENANT,
+      nonce: NONCE,
+    });
   });
 
-  it('falls back to v1 when sig-version header is absent (transition window)', () => {
+  it('rejects v1-shaped requests when sig-version header is absent', () => {
     const v1 = generateServiceIdentityHeaders(SERVICE, SECRET, TENANT);
     const outcome = verifyServiceIdentityRequest({
       headers: {
@@ -269,10 +287,10 @@ describe('service-identity unified verifier (verifyServiceIdentityRequest)', () 
       observedMethod: 'POST',
       observedPath: PATH,
       observedBody: BODY,
-      secret: SECRET,
+      keyring: KEYRING,
       expectedTenantId: TENANT,
     });
-    expect(outcome).toEqual({ valid: true, version: 'v1' });
+    expect(outcome).toEqual({ valid: false, reason: 'unknown-version' });
   });
 
   it('rejects unknown sig-version with reason=unknown-version', () => {
@@ -287,21 +305,14 @@ describe('service-identity unified verifier (verifyServiceIdentityRequest)', () 
       observedMethod: 'POST',
       observedPath: PATH,
       observedBody: BODY,
-      secret: SECRET,
+      keyring: KEYRING,
       expectedTenantId: TENANT,
     });
     expect(outcome).toEqual({ valid: false, reason: 'unknown-version' });
   });
 
   it('rejects v2 with missing extra headers as missing-headers', () => {
-    const h = generateServiceIdentityHeadersV2({
-      serviceName: SERVICE,
-      secret: SECRET,
-      tenantId: TENANT,
-      method: METHOD,
-      path: PATH,
-      body: BODY,
-    });
+    const h = fullHeaders();
     const outcome = verifyServiceIdentityRequest({
       headers: {
         'x-service-identity': h['X-Service-Identity'],
@@ -313,7 +324,7 @@ describe('service-identity unified verifier (verifyServiceIdentityRequest)', () 
       observedMethod: METHOD,
       observedPath: PATH,
       observedBody: BODY,
-      secret: SECRET,
+      keyring: KEYRING,
       expectedTenantId: TENANT,
     });
     expect(outcome).toEqual({ valid: false, reason: 'missing-headers' });
@@ -332,14 +343,7 @@ describe('service-identity unified verifier (verifyServiceIdentityRequest)', () 
   });
 
   it('reports invalid-hmac on tampered v2 signature', () => {
-    const h = generateServiceIdentityHeadersV2({
-      serviceName: SERVICE,
-      secret: SECRET,
-      tenantId: TENANT,
-      method: METHOD,
-      path: PATH,
-      body: BODY,
-    });
+    const h = fullHeaders();
     const outcome = verifyServiceIdentityRequest({
       headers: {
         'x-service-identity': h['X-Service-Identity'],
@@ -349,14 +353,101 @@ describe('service-identity unified verifier (verifyServiceIdentityRequest)', () 
         'x-service-method': h['X-Service-Method'],
         'x-service-path': h['X-Service-Path'],
         'x-service-body-hash': h['X-Service-Body-Hash'],
+        'x-service-key-id': h['X-Service-Key-Id'],
+        'x-service-audience': h['X-Service-Audience'],
+        'x-service-query-hash': h['X-Service-Query-Hash'],
+        'x-service-content-type': h['X-Service-Content-Type'],
+        'x-service-assertion-hash': h['X-Service-Assertion-Hash'],
+        'x-service-nonce': h['X-Service-Nonce'],
+        'x-service-effective-tenant-id': h['X-Service-Effective-Tenant-ID'],
       },
       observedMethod: METHOD,
       observedPath: PATH,
       observedBody: BODY,
-      secret: SECRET,
+      observedQuery: '',
+      observedContentType: CONTENT_TYPE,
+      observedAssertionHash: '',
+      keyring: KEYRING,
       expectedTenantId: TENANT,
+      expectedAudience: AUDIENCE,
     });
     expect(outcome).toEqual({ valid: false, reason: 'invalid-hmac' });
+  });
+
+  it('accepts previous keyring entries for verification but not disabled keys', () => {
+    const h = fullHeaders();
+    const baseArgs = {
+      headers: {
+        'x-service-identity': h['X-Service-Identity'],
+        'x-service-timestamp': h['X-Service-Timestamp'],
+        'x-service-signature': h['X-Service-Signature'],
+        'x-service-sig-version': h['X-Service-Sig-Version'],
+        'x-service-method': h['X-Service-Method'],
+        'x-service-path': h['X-Service-Path'],
+        'x-service-body-hash': h['X-Service-Body-Hash'],
+        'x-service-key-id': h['X-Service-Key-Id'],
+        'x-service-audience': h['X-Service-Audience'],
+        'x-service-query-hash': h['X-Service-Query-Hash'],
+        'x-service-content-type': h['X-Service-Content-Type'],
+        'x-service-assertion-hash': h['X-Service-Assertion-Hash'],
+        'x-service-nonce': h['X-Service-Nonce'],
+        'x-service-effective-tenant-id': h['X-Service-Effective-Tenant-ID'],
+      },
+      observedMethod: METHOD,
+      observedPath: PATH,
+      observedBody: BODY,
+      observedQuery: '',
+      observedContentType: CONTENT_TYPE,
+      observedAssertionHash: '',
+      expectedTenantId: TENANT,
+      expectedAudiences: [AUDIENCE],
+    };
+
+    expect(
+      verifyServiceIdentityRequest({
+        ...baseArgs,
+        keyring: [{ ...KEYRING[0]!, status: 'previous' as const }],
+      }),
+    ).toMatchObject({ valid: true, version: 'v2' });
+    expect(
+      verifyServiceIdentityRequest({
+        ...baseArgs,
+        keyring: [{ ...KEYRING[0]!, status: 'disabled' as const }],
+      }),
+    ).toEqual({ valid: false, reason: 'key-not-active' });
+  });
+
+  it('rejects audiences outside the receiver allowlist', () => {
+    const h = fullHeaders();
+    const outcome = verifyServiceIdentityRequest({
+      headers: {
+        'x-service-identity': h['X-Service-Identity'],
+        'x-service-timestamp': h['X-Service-Timestamp'],
+        'x-service-signature': h['X-Service-Signature'],
+        'x-service-sig-version': h['X-Service-Sig-Version'],
+        'x-service-method': h['X-Service-Method'],
+        'x-service-path': h['X-Service-Path'],
+        'x-service-body-hash': h['X-Service-Body-Hash'],
+        'x-service-key-id': h['X-Service-Key-Id'],
+        'x-service-audience': h['X-Service-Audience'],
+        'x-service-query-hash': h['X-Service-Query-Hash'],
+        'x-service-content-type': h['X-Service-Content-Type'],
+        'x-service-assertion-hash': h['X-Service-Assertion-Hash'],
+        'x-service-nonce': h['X-Service-Nonce'],
+        'x-service-effective-tenant-id': h['X-Service-Effective-Tenant-ID'],
+      },
+      observedMethod: METHOD,
+      observedPath: PATH,
+      observedBody: BODY,
+      observedQuery: '',
+      observedContentType: CONTENT_TYPE,
+      observedAssertionHash: '',
+      keyring: KEYRING,
+      expectedTenantId: TENANT,
+      expectedAudiences: ['billing'],
+    });
+
+    expect(outcome).toEqual({ valid: false, reason: 'audience-not-allowed' });
   });
 });
 

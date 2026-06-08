@@ -17,8 +17,10 @@ import { settingsApi } from '../services/adminApi';
 interface EmailConfig {
   smtpHost: string;
   smtpPort: number;
+  smtpSecure: boolean;
   smtpUsername: string;
-  smtpPassword: string;
+  smtpPassword?: string;
+  hasSmtpPassword?: boolean;
   fromAddress: string;
   fromName: string;
 }
@@ -32,6 +34,7 @@ interface SecurityConfig {
   passwordRequireNumbers: boolean;
   passwordRequireSymbols: boolean;
   mfaEnabled: boolean;
+  enforceHttps: boolean;
 }
 
 interface BillingConfig {
@@ -73,11 +76,18 @@ const TABS: Array<{ id: TabId; label: string; icon: string }> = [
 const DEFAULT_EMAIL_CONFIG: EmailConfig = {
   smtpHost: '',
   smtpPort: 587,
+  smtpSecure: false,
   smtpUsername: '',
   smtpPassword: '',
+  hasSmtpPassword: false,
   fromAddress: '',
   fromName: '',
 };
+
+const SMTP_SECURE_OPTIONS = [
+  { value: 'false', label: 'STARTTLS / Auto' },
+  { value: 'true', label: 'SSL/TLS' },
+];
 
 const DEFAULT_SECURITY_CONFIG: SecurityConfig = {
   sessionTimeoutMinutes: 480,
@@ -88,6 +98,7 @@ const DEFAULT_SECURITY_CONFIG: SecurityConfig = {
   passwordRequireNumbers: true,
   passwordRequireSymbols: false,
   mfaEnabled: false,
+  enforceHttps: true,
 };
 
 const DEFAULT_BILLING_CONFIG: BillingConfig = {
@@ -241,10 +252,12 @@ interface EmailTabProps {
   config: EmailConfig;
   onChange: (config: EmailConfig) => void;
   onSave: () => void;
+  onTest: () => void;
   saving: boolean;
+  testing: boolean;
 }
 
-const EmailTab: React.FC<EmailTabProps> = ({ config, onChange, onSave, saving }) => (
+const EmailTab: React.FC<EmailTabProps> = ({ config, onChange, onSave, onTest, saving, testing }) => (
   <FormSection title="Email Settings" onSave={onSave} saving={saving}>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <Input
@@ -264,11 +277,18 @@ const EmailTab: React.FC<EmailTabProps> = ({ config, onChange, onSave, saving })
         value={config.smtpUsername}
         onChange={(e) => onChange({ ...config, smtpUsername: e.target.value })}
       />
+      <Select
+        label="SMTP Security"
+        value={String(config.smtpSecure)}
+        onChange={(e) => onChange({ ...config, smtpSecure: e.target.value === 'true' })}
+        options={SMTP_SECURE_OPTIONS}
+      />
       <Input
         label="SMTP Password"
         type="password"
-        value={config.smtpPassword}
+        value={config.smtpPassword ?? ''}
         onChange={(e) => onChange({ ...config, smtpPassword: e.target.value })}
+        placeholder={config.hasSmtpPassword ? 'Existing password saved' : 'Enter SMTP password'}
       />
       <Input
         label="From Email"
@@ -283,6 +303,16 @@ const EmailTab: React.FC<EmailTabProps> = ({ config, onChange, onSave, saving })
         onChange={(e) => onChange({ ...config, fromName: e.target.value })}
         placeholder="Aquaculture Platform"
       />
+    </div>
+    <div className="mt-4 flex justify-end">
+      <Button
+        variant="outline"
+        onClick={onTest}
+        loading={testing}
+        disabled={!config.fromAddress || testing}
+      >
+        Send Test
+      </Button>
     </div>
   </FormSection>
 );
@@ -346,6 +376,11 @@ const SecurityTab: React.FC<SecurityTabProps> = ({ config, onChange, onSave, sav
       label="Enable Two-Factor Authentication (MFA)"
       checked={config.mfaEnabled}
       onChange={(checked) => onChange({ ...config, mfaEnabled: checked })}
+    />
+    <CheckboxField
+      label="Enforce HTTPS"
+      checked={config.enforceHttps}
+      onChange={(checked) => onChange({ ...config, enforceHttps: checked })}
     />
   </FormSection>
 );
@@ -487,6 +522,7 @@ const SystemSettingsPage: React.FC = () => {
   // Tab state
   const [activeTab, setActiveTab] = useState<TabId>('general');
   const [saving, setSaving] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -506,7 +542,13 @@ const SystemSettingsPage: React.FC = () => {
       settingsApi.getRateLimits(),
     ]);
 
-    if (results[0].status === 'fulfilled') setEmailConfig(results[0].value as unknown as EmailConfig);
+    if (results[0].status === 'fulfilled') {
+      setEmailConfig({
+        ...DEFAULT_EMAIL_CONFIG,
+        ...(results[0].value as unknown as EmailConfig),
+        smtpPassword: '',
+      });
+    }
     if (results[1].status === 'fulfilled') setSecurityConfig(results[1].value as unknown as SecurityConfig);
     if (results[2].status === 'fulfilled') setBillingConfig(results[2].value as unknown as BillingConfig);
     if (results[3].status === 'fulfilled') setRateLimits(results[3].value as unknown as RateLimitsConfig);
@@ -551,8 +593,31 @@ const SystemSettingsPage: React.FC = () => {
     }
   };
 
-  const handleSaveEmail = () =>
-    saveWithFeedback(() => settingsApi.updateEmailConfig(emailConfig as unknown as Record<string, unknown>), 'Email settings saved');
+  const handleSaveEmail = () => {
+    const { smtpPassword, hasSmtpPassword: _hasSmtpPassword, ...safeConfig } = emailConfig;
+    const payload: Record<string, unknown> = { ...safeConfig };
+    if (smtpPassword && smtpPassword.trim().length > 0) {
+      payload.smtpPassword = smtpPassword;
+    }
+    return saveWithFeedback(() => settingsApi.updateEmailConfig(payload), 'Email settings saved');
+  };
+
+  const handleTestEmail = async () => {
+    setTestingEmail(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await settingsApi.testEmailConfig(emailConfig.fromAddress);
+      if (result.success === false) {
+        throw new Error(String(result.error || 'SMTP test failed'));
+      }
+      setSuccess('SMTP test email sent');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'SMTP test failed');
+    } finally {
+      setTestingEmail(false);
+    }
+  };
 
   const handleSaveSecurity = () =>
     saveWithFeedback(() => settingsApi.updateSecurityConfig(securityConfig as unknown as Record<string, unknown>), 'Security settings saved');
@@ -634,7 +699,9 @@ const SystemSettingsPage: React.FC = () => {
             config={emailConfig}
             onChange={setEmailConfig}
             onSave={handleSaveEmail}
+            onTest={handleTestEmail}
             saving={saving}
+            testing={testingEmail}
           />
         )}
 

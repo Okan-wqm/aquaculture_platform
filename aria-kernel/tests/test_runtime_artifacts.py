@@ -12,6 +12,7 @@ from aria_kernel.integrity import verify_integrity
 from aria_kernel.ledger import append_jsonl, load_jsonl
 from aria_kernel.runtime_artifacts import (
     approve_runtime_v2_promotion,
+    resolve_artifact_payload,
     resolve_finding_from_artifact,
     restore_artifact,
     retention_apply,
@@ -20,6 +21,8 @@ from aria_kernel.runtime_artifacts import (
 )
 from aria_kernel.tool_health import record_run, runs_path
 from aria_kernel.tool_registry import ensure_tools_binding, register_tool
+
+FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
 
 def _tool() -> dict:
@@ -41,7 +44,7 @@ def _tool() -> dict:
         "owner": "platform",
         "runner": {
             "type": "subprocess",
-            "argv": ["python3", "-c", "print('{}')"],
+            "argv": ["python3", FAKE_RUNNER.as_posix()],
             "cwd": ".",
             "timeout_ms": 1000,
             "stdin_json": True,
@@ -151,6 +154,15 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.assertEqual(artifact_result["issues"][0]["code"], "run_artifact_missing")
         integrity = verify_integrity(tools_dir=self.tools)
         self.assertEqual(integrity["status"], "drift")
+
+    def test_resolve_artifact_payload_requires_strict_v2_ref(self) -> None:
+        record_run(_run(), base_dir=self.tools)
+        run_row = load_jsonl(runs_path(self.tools))[-1]
+        artifact_ref = dict(run_row["artifact_ref"])
+
+        self.assertIsNotNone(resolve_artifact_payload(artifact_ref, base_dir=self.tools))
+        self.assertIsNone(resolve_artifact_payload({**artifact_ref, "hash": artifact_ref["sha256"]}, base_dir=self.tools))
+        self.assertIsNone(resolve_artifact_payload({**artifact_ref, "source_surface": ["runtime_artifact"]}, base_dir=self.tools))
 
     def test_retention_requires_acknowledge_and_restores_archive(self) -> None:
         record_run(_run(cycle_id="cycle-old"), base_dir=self.tools)

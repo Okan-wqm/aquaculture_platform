@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any
 
 from .ack_row import ACK_ACTOR_KINDS, AckLedgerRow
-from .ledger import append_jsonl, load_jsonl, state_transaction
+from .ledger import append_declared_jsonl, load_declared_jsonl, state_transaction
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 _LEDGER_RELATIVE = ("acks", "acks.jsonl")
@@ -337,7 +337,11 @@ def mint_operator_ack(
     row_dict["signature"] = _hmac_sign(
         head_key["secret"], _canonical_row_bytes(row_dict),
     )
-    append_jsonl(_ledger_path(root), row_dict)
+    append_declared_jsonl(
+        _ledger_path(root),
+        row_dict,
+        expected_surface="ack_ledger",
+    )
     from .tool_registry import append_tools_governance
     append_tools_governance(
         root,
@@ -432,7 +436,11 @@ def mint_auto_ack(
     row_dict["signature"] = _hmac_sign(
         head_key["secret"], _canonical_row_bytes(row_dict),
     )
-    append_jsonl(_ledger_path(root), row_dict)
+    append_declared_jsonl(
+        _ledger_path(root),
+        row_dict,
+        expected_surface="ack_ledger",
+    )
     from .tool_registry import append_tools_governance
     append_tools_governance(
         root,
@@ -489,7 +497,10 @@ def consume_token(
     root = ensure_tools_dir(base_dir)
     ledger_path = _ledger_path(root)
     with state_transaction([ledger_path]) as txn:
-        rows = txn.load_jsonl(ledger_path, verify=True)
+        rows = txn.load_declared_jsonl(
+            ledger_path,
+            expected_surface="ack_ledger",
+        )
         target_row: dict[str, Any] | None = None
         consumed_transition: dict[str, Any] | None = None
         for row in rows:
@@ -537,7 +548,11 @@ def consume_token(
         transition_row["signature"] = _hmac_sign(
             key["secret"], _canonical_row_bytes(transition_row),
         )
-        persisted_transition = txn.append_jsonl(ledger_path, transition_row)
+        persisted_transition = txn.append_declared_jsonl(
+            ledger_path,
+            transition_row,
+            expected_surface="ack_ledger",
+        )
     from .tool_registry import append_tools_governance
     append_tools_governance(
         root,
@@ -595,7 +610,7 @@ def verify_range(
     None means full ledger.
     """
     root = ensure_tools_dir(base_dir)
-    rows = load_jsonl(_ledger_path(root))
+    rows = load_declared_jsonl(_ledger_path(root), expected_surface="ack_ledger")
     if last_n is not None:
         rows = rows[-last_n:]
     results: list[dict[str, Any]] = []

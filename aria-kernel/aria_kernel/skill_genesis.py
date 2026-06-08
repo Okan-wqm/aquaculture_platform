@@ -12,7 +12,12 @@ from .draft_intent import (
     SkillDraftIntent,
 )
 from .draft_pii_filter import mask_pii_in_intent
-from .ledger import append_jsonl, load_jsonl
+from .ledger import (
+    append_declared_jsonl,
+    append_jsonl as _append_jsonl,
+    load_declared_jsonl,
+    load_jsonl as _load_jsonl,
+)
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
@@ -27,6 +32,38 @@ _SKILL_REQUIRED_SECTIONS: tuple[str, ...] = (
 
 FIXTURE_RE = re.compile(r"^##\s+Fixture:\s*(.+)$", re.MULTILINE)
 MIN_FIXTURES = 3
+
+
+_DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
+    "skill-genesis/requests.jsonl": "skill_genesis_requests",
+    "skill-genesis/drafts.jsonl": "skill_genesis_drafts",
+    "skill-genesis/sandbox.jsonl": "skill_genesis_sandbox",
+    "skill-genesis/materializations.jsonl": "skill_genesis_materializations",
+    "dispatch/requests.jsonl": "dispatch_requests",
+}
+
+
+def _declared_surface_name(path: str | Path) -> str | None:
+    concrete = Path(path)
+    if len(concrete.parts) >= 2:
+        suffix = "/".join(concrete.parts[-2:])
+        if suffix in _DECLARED_SURFACE_BY_JSONL_SUFFIX:
+            return _DECLARED_SURFACE_BY_JSONL_SUFFIX[suffix]
+    return _DECLARED_SURFACE_BY_JSONL_SUFFIX.get(concrete.name)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return append_declared_jsonl(path, record, expected_surface=surface)
+    return _append_jsonl(path, record)
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return load_declared_jsonl(path, expected_surface=surface)
+    return _load_jsonl(path)
 
 
 def request_skill_genesis(

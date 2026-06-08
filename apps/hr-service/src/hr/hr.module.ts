@@ -11,6 +11,7 @@ import { AttendanceRecord } from '../attendance/entities/attendance-record.entit
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { EmployeeCertification } from '../training/entities/employee-certification.entity';
 import { HRResolver } from './hr.resolver';
+import { InternalHrContactController } from './controllers/internal-hr-contact.controller';
 import { EmployeeErasureService } from './services/employee-erasure.service';
 
 // Command Handlers
@@ -25,7 +26,10 @@ import { UpdateDepartmentHandler } from './handlers/update-department.handler';
 import { GetEmployeeHandler } from './query-handlers/get-employee.handler';
 import { GetEmployeesHandler } from './query-handlers/get-employees.handler';
 import { GetPayrollsHandler } from './query-handlers/get-payrolls.handler';
-import { GetDepartmentsHandler, GetDepartmentHandler } from './query-handlers/get-departments.handler';
+import {
+  GetDepartmentsHandler,
+  GetDepartmentHandler,
+} from './query-handlers/get-departments.handler';
 import { GetHRDashboardStatsHandler } from './query-handlers/get-hr-dashboard-stats.handler';
 
 const CommandHandlers = [
@@ -60,12 +64,8 @@ const QueryHandlers = [
     CqrsModule,
     HrOutboxModule,
   ],
-  providers: [
-    HRResolver,
-    ...CommandHandlers,
-    ...QueryHandlers,
-    EmployeeErasureService,
-  ],
+  providers: [HRResolver, ...CommandHandlers, ...QueryHandlers, EmployeeErasureService],
+  controllers: [InternalHrContactController],
   exports: [TypeOrmModule, EmployeeErasureService],
 })
 export class HRModule {}

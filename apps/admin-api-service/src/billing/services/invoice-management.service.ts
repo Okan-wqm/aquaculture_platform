@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
@@ -425,42 +425,12 @@ export class InvoiceManagementService {
     paidAmount: number,
     markedBy: string,
   ): Promise<{ success: boolean; invoice: InvoiceOverview }> {
-    const invoice = await this.invoiceRepo.findOne({ where: { id: invoiceId } });
-    if (!invoice) {
-      throw new NotFoundException(`Invoice not found: ${invoiceId}`);
-    }
-
-    const newAmountPaid = parseFloat(invoice.amountPaid.toString()) + paidAmount;
-    const newAmountDue = parseFloat(invoice.total.toString()) - newAmountPaid;
-    const isPaidInFull = newAmountDue <= 0;
-
-    await this.dataSource.query(
-      `
-      UPDATE billing.invoices SET
-        amount_paid = $1,
-        amount_due = $2,
-        status = $3,
-        paid_at = $4,
-        "updatedAt" = NOW()
-      WHERE id = $5
-    `,
-      [
-        newAmountPaid,
-        Math.max(0, newAmountDue),
-        isPaidInFull ? InvoiceStatus.PAID : InvoiceStatus.PARTIALLY_PAID,
-        isPaidInFull ? new Date() : null,
-        invoiceId,
-      ],
+    void invoiceId;
+    void paidAmount;
+    void markedBy;
+    throw new ConflictException(
+      'Invoice payment status mutation is billing-service-owned. Use BillingAdminCommandClientService.markInvoicePaid.',
     );
-
-    this.logger.log(`Invoice ${invoice.invoiceNumber} marked as ${isPaidInFull ? 'paid' : 'partially paid'} by ${markedBy}`);
-
-    const updatedInvoice = await this.getInvoiceById(invoiceId);
-    if (!updatedInvoice) {
-      throw new NotFoundException(`Invoice not found after payment update: ${invoiceId}`);
-    }
-
-    return { success: true, invoice: updatedInvoice };
   }
 
   /**
@@ -471,43 +441,12 @@ export class InvoiceManagementService {
     reason: string,
     voidedBy: string,
   ): Promise<{ success: boolean }> {
-    const invoice = await this.invoiceRepo.findOne({ where: { id: invoiceId } });
-    if (!invoice) {
-      throw new NotFoundException(`Invoice not found: ${invoiceId}`);
-    }
-
-    await this.dataSource.query(
-      `
-      UPDATE billing.invoices SET
-        status = $1,
-        "updatedAt" = NOW()
-      WHERE id = $2
-    `,
-      [InvoiceStatus.VOID, invoiceId],
+    void invoiceId;
+    void reason;
+    void voidedBy;
+    throw new ConflictException(
+      'Invoice voiding is billing-service-owned. Use BillingAdminCommandClientService.voidInvoice.',
     );
-
-    // Log the void action
-    await this.dataSource.query(
-      `
-      INSERT INTO admin.audit_logs (
-        id, action, "entityType", "entityId", "tenantId",
-        "performedBy", details, "createdAt"
-      ) VALUES (
-        gen_random_uuid(), 'INVOICE_VOIDED', 'invoice', $1, $2,
-        $3, $4, NOW()
-      )
-    `,
-      [
-        invoiceId,
-        invoice.tenantId,
-        voidedBy,
-        JSON.stringify({ reason, previousStatus: invoice.status }),
-      ],
-    );
-
-    this.logger.log(`Invoice ${invoice.invoiceNumber} voided by ${voidedBy}: ${reason}`);
-
-    return { success: true };
   }
 
   /**
@@ -522,22 +461,8 @@ export class InvoiceManagementService {
    * Update overdue status for invoices past due date
    */
   async updateOverdueStatus(): Promise<{ updated: number }> {
-    const result = await this.dataSource.query<UpdatedInvoiceRow[]>(
-      `
-      UPDATE billing.invoices SET
-        status = 'overdue',
-        "updatedAt" = NOW()
-      WHERE status IN ('pending', 'sent')
-        AND due_date < NOW()
-      RETURNING id
-    `,
+    throw new ConflictException(
+      'Invoice overdue reconciliation is billing-service-owned and cannot run through admin-api direct writers.',
     );
-
-    const updated = result.length;
-    if (updated > 0) {
-      this.logger.log(`Updated ${updated} invoices to overdue status`);
-    }
-
-    return { updated };
   }
 }

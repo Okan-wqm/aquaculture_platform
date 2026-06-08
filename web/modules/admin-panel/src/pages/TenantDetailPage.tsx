@@ -3,7 +3,7 @@
  * Tenant'in tum detaylarini gosteren sayfa
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -41,10 +41,12 @@ const SimpleTabs: React.FC<{
   onChange: (value: string) => void;
 }> = ({ tabs, activeTab, onChange }) => (
   <div className="border-b border-gray-200">
-    <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+    <nav className="-mb-px flex space-x-8" aria-label="Tabs" role="tablist">
       {tabs.map((tab) => (
         <button
           key={tab.value}
+          role="tab"
+          aria-selected={activeTab === tab.value}
           onClick={() => onChange(tab.value)}
           className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
             activeTab === tab.value
@@ -106,6 +108,16 @@ const getTierVariant = (tier: string): 'success' | 'warning' | 'info' | 'default
   return variants[tier] || 'default';
 };
 
+const getAvailableActions = (tenant: TenantDetail): Set<string> => {
+  if (Array.isArray(tenant.availableActions)) {
+    return new Set(tenant.availableActions);
+  }
+
+  if (tenant.status === TenantStatus.ACTIVE) return new Set(['suspend']);
+  if (tenant.status === TenantStatus.SUSPENDED) return new Set(['activate']);
+  return new Set();
+};
+
 // ============================================================================
 // Progress Bar Component
 // ============================================================================
@@ -164,11 +176,14 @@ const TenantDetailPage: React.FC = () => {
   const [newNote, setNewNote] = useState({ content: '', category: 'general' });
   const [suspendReason, setSuspendReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const detailRequestSeq = useRef(0);
 
   // Fetch tenant detail
   const fetchTenant = useCallback(async () => {
     if (!tenantId) return;
 
+    const requestId = detailRequestSeq.current + 1;
+    detailRequestSeq.current = requestId;
     try {
       setLoading(true);
       setError(null);
@@ -176,6 +191,7 @@ const TenantDetailPage: React.FC = () => {
         tenantsApi.getDetail(tenantId),
         modulesApi.list({ isActive: true, limit: 50 }),
       ]);
+      if (detailRequestSeq.current !== requestId) return;
       setTenant(detail);
       setModules(allModules.data);
       setEditForm({
@@ -190,12 +206,15 @@ const TenantDetailPage: React.FC = () => {
         region: detail.region,
       });
     } catch (err) {
+      if (detailRequestSeq.current !== requestId) return;
       console.error('Failed to fetch tenant details:', err);
       setTenant(null);
       setModules([]);
       setError('Failed to load tenant details. Please try again.');
     } finally {
-      setLoading(false);
+      if (detailRequestSeq.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [tenantId]);
 
@@ -335,11 +354,12 @@ const TenantDetailPage: React.FC = () => {
           <Button variant="outline" onClick={() => setIsEditModalOpen(true)}>
             Edit
           </Button>
-          {tenant.status === TenantStatus.ACTIVE ? (
+          {getAvailableActions(tenant).has('suspend') && (
             <Button variant="danger" onClick={() => setIsSuspendModalOpen(true)}>
               Suspend
             </Button>
-          ) : (
+          )}
+          {getAvailableActions(tenant).has('activate') && (
             <Button variant="outline" onClick={handleActivate}>
               Activate
             </Button>
@@ -436,23 +456,23 @@ const TenantDetailPage: React.FC = () => {
           <div className="space-y-4">
             <Card className="p-4">
               <h4 className="text-sm font-medium text-gray-500 mb-2">Users</h4>
-              <p className="text-3xl font-bold text-gray-900">{tenant.userStats?.total || 0}</p>
+              <p className="text-3xl font-bold text-gray-900">{tenant.userStats?.total ?? 0}</p>
               <p className="text-sm text-green-600">
-                {tenant.userStats?.active || 0} active
+                {tenant.userStats?.active ?? 0} active
               </p>
             </Card>
             <Card className="p-4">
               <h4 className="text-sm font-medium text-gray-500 mb-2">Farms</h4>
-              <p className="text-3xl font-bold text-gray-900">{tenant.farmCount || 0}</p>
+              <p className="text-3xl font-bold text-gray-900">{tenant.farmCount ?? 0}</p>
             </Card>
             <Card className="p-4">
               <h4 className="text-sm font-medium text-gray-500 mb-2">Sensors</h4>
-              <p className="text-3xl font-bold text-gray-900">{tenant.sensorCount || 0}</p>
+              <p className="text-3xl font-bold text-gray-900">{tenant.sensorCount ?? 0}</p>
             </Card>
             <Card className="p-4">
               <h4 className="text-sm font-medium text-gray-500 mb-2">Active Modules</h4>
               <p className="text-3xl font-bold text-gray-900">
-                {tenant.modules?.filter((m) => m.isActive).length || 0}
+                {tenant.modules?.filter((m) => m.isActive).length ?? 0}
               </p>
             </Card>
             <Card className="p-4">

@@ -27,14 +27,23 @@
  */
 import { Controller, Logger, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
+import { InjectRepository } from '@nestjs/typeorm';
 import {
   AUTH_ADMIN_COMMAND_SUBJECTS,
+  TENANT_COMMAND_SUBJECTS,
+  type AdminCreateModuleCommand,
+  type AdminCreateModuleResult,
   type AdminCreateUserCommand,
   type AdminCreateUserResult,
+  type AdminDeleteModuleCommand,
+  type AdminDeleteModuleResult,
   type AdminResetUserPasswordCommand,
   type AdminResetUserPasswordResult,
+  type AdminUpdateModuleCommand,
+  type AdminUpdateModuleResult,
   type AdminUpdateUserCommand,
   type AdminUpdateUserResult,
+  type AuthModuleSnapshot,
   type AdminDeactivateUserCommand,
   type AdminDeactivateUserResult,
   type AdminForceLogoutUserCommand,
@@ -43,10 +52,31 @@ import {
   type AdminInviteUserResult,
   type AdminCheckUserLimitQuery,
   type AdminCheckUserLimitResult,
+  type ActivateTenantCommand,
+  type ArchiveTenantLifecycleCommand,
+  type AssignTenantModulesCommand,
+  type AssignTenantModulesResult,
+  type CreateTenantAdminCommand,
+  type CreateTenantAdminResult,
+  type DeprovisionTenantCommand,
+  type FailProvisioningCommand,
+  type RemoveTenantModuleCommand,
+  type RemoveTenantModuleResult,
+  type ReserveTenantCommand,
+  type ReserveTenantResult,
+  type RollbackTenantProvisioningCommand,
+  type RollbackTenantProvisioningResult,
+  type SetupTenantRolesCommand,
+  type SetupTenantRolesResult,
+  type SuspendTenantLifecycleCommand,
+  type AuthTenantCommandResult,
 } from '@platform/event-contracts';
 import { ForbiddenException } from '@nestjs/common';
+import { Repository } from 'typeorm';
 
+import { Module as SystemModuleEntity } from '../../system-module/entities/module.entity';
 import { UserLifecycleService } from '../services/user-lifecycle.service';
+import { TenantProvisioningCommandService } from '../services/tenant-provisioning-command.service';
 
 /**
  * Map a typed service-layer exception to the fixed error-code vocabulary
@@ -61,12 +91,20 @@ type DeactivateErrorCode = NonNullable<AdminDeactivateUserResult['errorCode']>;
 type ForceLogoutErrorCode = NonNullable<AdminForceLogoutUserResult['errorCode']>;
 type InviteErrorCode = NonNullable<AdminInviteUserResult['errorCode']>;
 type CheckUserLimitErrorCode = NonNullable<AdminCheckUserLimitResult['errorCode']>;
+type ModuleCreateErrorCode = NonNullable<AdminCreateModuleResult['errorCode']>;
+type ModuleUpdateErrorCode = NonNullable<AdminUpdateModuleResult['errorCode']>;
+type ModuleDeleteErrorCode = NonNullable<AdminDeleteModuleResult['errorCode']>;
 
 @Controller()
 export class AuthAdminNatsHandler {
   private readonly logger = new Logger(AuthAdminNatsHandler.name);
 
-  constructor(private readonly userLifecycleService: UserLifecycleService) {}
+  constructor(
+    private readonly userLifecycleService: UserLifecycleService,
+    private readonly tenantProvisioningCommandService: TenantProvisioningCommandService,
+    @InjectRepository(SystemModuleEntity)
+    private readonly moduleRepository: Repository<SystemModuleEntity>,
+  ) {}
 
   /**
    * Create a user on behalf of a SUPER_ADMIN operator.
@@ -318,12 +356,13 @@ export class AuthAdminNatsHandler {
         primaryModuleId: command.primaryModuleId,
         invitedBy: command.invitedBy,
         message: command.message,
+        sendInvitation: command.sendInvitation,
       });
       return {
         success: true,
         userId: result.userId,
         invitationId: result.invitationId,
-        invitationToken: result.invitationToken,
+        deliveryStatus: result.deliveryStatus,
       };
     } catch (err) {
       const errorCode = this.mapInviteError(err);
@@ -366,6 +405,266 @@ export class AuthAdminNatsHandler {
     }
   }
 
+  @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.CREATE_MODULE)
+  async createModule(
+    @Payload() command: AdminCreateModuleCommand,
+  ): Promise<AdminCreateModuleResult> {
+    try {
+      const module = this.moduleRepository.create({
+        code: command.code,
+        name: command.name,
+        description: command.description ?? null,
+        defaultRoute: command.defaultRoute,
+        icon: command.icon ?? null,
+        isCore: command.isCore ?? false,
+        isActive: true,
+        price: command.price ?? 0,
+      });
+      const saved = await this.moduleRepository.save(module);
+      return { success: true, module: this.toModuleSnapshot(saved) };
+    } catch (err) {
+      const errorCode = this.mapModuleCreateError(err);
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`adminCreateModule failed: code=${errorCode}, reason=${message}`);
+      return { success: false, errorCode, error: message };
+    }
+  }
+
+  @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.UPDATE_MODULE)
+  async updateModule(
+    @Payload() command: AdminUpdateModuleCommand,
+  ): Promise<AdminUpdateModuleResult> {
+    try {
+      const module = await this.moduleRepository.findOne({ where: { id: command.moduleId } });
+      if (!module) throw new NotFoundException('Module not found');
+
+      if (command.name !== undefined) module.name = command.name;
+      if (command.description !== undefined) module.description = command.description;
+      if (command.defaultRoute !== undefined) module.defaultRoute = command.defaultRoute;
+      if (command.icon !== undefined) module.icon = command.icon;
+      if (command.isActive !== undefined) module.isActive = command.isActive;
+      if (command.price !== undefined) module.price = command.price;
+
+      const saved = await this.moduleRepository.save(module);
+      return { success: true, module: this.toModuleSnapshot(saved) };
+    } catch (err) {
+      const errorCode = this.mapModuleUpdateError(err);
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `adminUpdateModule failed: moduleId=${command.moduleId}, code=${errorCode}, reason=${message}`,
+      );
+      return { success: false, errorCode, error: message };
+    }
+  }
+
+  @MessagePattern(AUTH_ADMIN_COMMAND_SUBJECTS.DELETE_MODULE)
+  async deleteModule(
+    @Payload() command: AdminDeleteModuleCommand,
+  ): Promise<AdminDeleteModuleResult> {
+    try {
+      const assignments = await this.moduleRepository.manager.query(
+        `SELECT COUNT(*)::int AS count FROM auth.tenant_modules WHERE "moduleId" = $1`,
+        [command.moduleId],
+      );
+      if (parseInt(assignments[0]?.count ?? '0', 10) > 0) {
+        throw new ConflictException('Cannot delete module that is assigned to tenants');
+      }
+
+      const module = await this.moduleRepository.findOne({ where: { id: command.moduleId } });
+      if (!module) throw new NotFoundException('Module not found');
+
+      await this.moduleRepository.delete(command.moduleId);
+      return { success: true, moduleId: command.moduleId };
+    } catch (err) {
+      const errorCode = this.mapModuleDeleteError(err);
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `adminDeleteModule failed: moduleId=${command.moduleId}, code=${errorCode}, reason=${message}`,
+      );
+      return { success: false, errorCode, error: message };
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.RESERVE_TENANT)
+  async reserveTenant(
+    @Payload() command: ReserveTenantCommand,
+  ): Promise<ReserveTenantResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.reserveTenant(command);
+      return {
+        success: true,
+        operationId: command.operationId,
+        tenantId: command.tenantId,
+        status: result.status,
+        tenant: result.tenant,
+      };
+    } catch (err) {
+      return this.toTenantCommandFailure(command, 'reserveTenant', err);
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.SETUP_TENANT_ROLES)
+  async setupTenantRoles(
+    @Payload() command: SetupTenantRolesCommand,
+  ): Promise<SetupTenantRolesResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.setupTenantRoles(command);
+      return {
+        success: true,
+        operationId: command.operationId,
+        tenantId: command.tenantId,
+        rolesCreated: result.rolesCreated,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `setupTenantRoles failed: tenantId=${command.tenantId}, reason=${message}`,
+      );
+      return { success: false, error: message };
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.ASSIGN_TENANT_MODULES)
+  async assignTenantModules(
+    @Payload() command: AssignTenantModulesCommand,
+  ): Promise<AssignTenantModulesResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.assignTenantModules(command);
+      return {
+        success: true,
+        operationId: command.operationId,
+        tenantId: command.tenantId,
+        modulesAssigned: result.modulesAssigned,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `assignTenantModules failed: tenantId=${command.tenantId}, reason=${message}`,
+      );
+      return { success: false, error: message };
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.REMOVE_TENANT_MODULE)
+  async removeTenantModule(
+    @Payload() command: RemoveTenantModuleCommand,
+  ): Promise<RemoveTenantModuleResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.removeTenantModule(command);
+      return {
+        success: true,
+        operationId: command.operationId,
+        tenantId: command.tenantId,
+        modulesRemoved: result.modulesRemoved,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `removeTenantModule failed: tenantId=${command.tenantId}, moduleId=${command.moduleId}, reason=${message}`,
+      );
+      return { success: false, error: message };
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.CREATE_FIRST_ADMIN_INVITE)
+  async createTenantAdmin(
+    @Payload() command: CreateTenantAdminCommand,
+  ): Promise<CreateTenantAdminResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.createTenantAdmin(command);
+      return {
+        success: true,
+        operationId: command.operationId,
+        tenantId: command.tenantId,
+        userId: result.userId,
+        invitationId: result.invitationId,
+        email: result.email,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `createTenantAdmin failed: tenantId=${command.tenantId}, reason=${message}`,
+      );
+      return { success: false, error: message };
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.ACTIVATE_TENANT)
+  async activateTenantLifecycle(
+    @Payload() command: ActivateTenantCommand,
+  ): Promise<AuthTenantCommandResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.activateTenant(command);
+      return { success: true, ...result };
+    } catch (err) {
+      return this.toTenantCommandFailure(command, 'activateTenant', err);
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.FAIL_PROVISIONING)
+  async failProvisioning(
+    @Payload() command: FailProvisioningCommand,
+  ): Promise<AuthTenantCommandResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.failProvisioning(command);
+      return { success: true, ...result };
+    } catch (err) {
+      return this.toTenantCommandFailure(command, 'failProvisioning', err);
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.SUSPEND_TENANT)
+  async suspendTenantLifecycle(
+    @Payload() command: SuspendTenantLifecycleCommand,
+  ): Promise<AuthTenantCommandResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.suspendTenant(command);
+      return { success: true, ...result };
+    } catch (err) {
+      return this.toTenantCommandFailure(command, 'suspendTenant', err);
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.DEPROVISION_TENANT)
+  async deprovisionTenantLifecycle(
+    @Payload() command: DeprovisionTenantCommand,
+  ): Promise<AuthTenantCommandResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.deprovisionTenant(command);
+      return { success: true, ...result };
+    } catch (err) {
+      return this.toTenantCommandFailure(command, 'deprovisionTenant', err);
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.ARCHIVE_TENANT)
+  async archiveTenantLifecycle(
+    @Payload() command: ArchiveTenantLifecycleCommand,
+  ): Promise<AuthTenantCommandResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.archiveTenant(command);
+      return { success: true, ...result };
+    } catch (err) {
+      return this.toTenantCommandFailure(command, 'archiveTenant', err);
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.ROLLBACK_TENANT_PROVISIONING)
+  async rollbackTenantProvisioning(
+    @Payload() command: RollbackTenantProvisioningCommand,
+  ): Promise<RollbackTenantProvisioningResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.rollbackTenantProvisioning(command);
+      return { success: true, ...result };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `rollbackTenantProvisioning failed: tenantId=${command.tenantId}, reason=${message}`,
+      );
+      return { success: false, error: message };
+    }
+  }
+
   private mapInviteError(err: unknown): InviteErrorCode {
     if (err instanceof ConflictException) return 'DUPLICATE_EMAIL';
     if (err instanceof ForbiddenException) return 'ROLE_VALIDATION_FAILED';
@@ -388,5 +687,58 @@ export class AuthAdminNatsHandler {
   private mapCheckUserLimitError(err: unknown): CheckUserLimitErrorCode {
     if (err instanceof NotFoundException) return 'TENANT_NOT_FOUND';
     return 'INTERNAL_ERROR';
+  }
+
+  private mapModuleCreateError(err: unknown): ModuleCreateErrorCode {
+    if ((err as { code?: string }).code === '23505' || err instanceof ConflictException) {
+      return 'DUPLICATE_MODULE';
+    }
+    if (err instanceof BadRequestException) return 'VALIDATION_ERROR';
+    return 'INTERNAL_ERROR';
+  }
+
+  private mapModuleUpdateError(err: unknown): ModuleUpdateErrorCode {
+    if (err instanceof NotFoundException) return 'MODULE_NOT_FOUND';
+    if (err instanceof BadRequestException) return 'VALIDATION_ERROR';
+    return 'INTERNAL_ERROR';
+  }
+
+  private mapModuleDeleteError(err: unknown): ModuleDeleteErrorCode {
+    if (err instanceof NotFoundException) return 'MODULE_NOT_FOUND';
+    if (err instanceof ConflictException) return 'MODULE_ASSIGNED';
+    return 'INTERNAL_ERROR';
+  }
+
+  private toModuleSnapshot(module: SystemModuleEntity): AuthModuleSnapshot {
+    return {
+      id: module.id,
+      code: module.code,
+      name: module.name,
+      description: module.description ?? null,
+      defaultRoute: module.defaultRoute,
+      icon: module.icon ?? null,
+      isCore: module.isCore ?? false,
+      isActive: module.isActive,
+      price: module.price ?? 0,
+      createdAt: module.createdAt.toISOString(),
+      updatedAt: module.updatedAt.toISOString(),
+    };
+  }
+
+  private toTenantCommandFailure(
+    command: { operationId?: string; tenantId?: string },
+    action: string,
+    err: unknown,
+  ): AuthTenantCommandResult {
+    const message = err instanceof Error ? err.message : String(err);
+    this.logger.warn(
+      `${action} failed: tenantId=${command.tenantId ?? 'unknown'}, reason=${message}`,
+    );
+    return {
+      success: false,
+      operationId: command.operationId,
+      tenantId: command.tenantId,
+      error: message,
+    };
   }
 }

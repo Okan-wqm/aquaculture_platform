@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from .file_lock import with_exclusive_lock
-from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl
+from .ledger import (
+    _append_jsonl_unlocked,
+    _assert_declared_surface,
+    append_declared_jsonl,
+    load_declared_jsonl,
+)
 from .agent_network import latest_agent_network_hash
 from .pressure import effective_workspace_pressures
 from .tool_registry import (
@@ -34,6 +39,54 @@ DEFAULT_AUTO_BATCH_LIMIT = 10
 # rows; the claim ledger lives at dispatch/claims.jsonl.
 DEFAULT_LEASE_SECONDS = 1800
 LEASE_TOKEN_BYTES = 24
+
+
+_DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
+    "triage/decisions.jsonl": "triage_decisions",
+    "dispatch/requests.jsonl": "dispatch_requests",
+    "dispatch/claims.jsonl": "dispatch_claims",
+    "dispatch/worker-results.jsonl": "dispatch_worker_results",
+    "dispatch/verification-results.jsonl": "dispatch_verification_results",
+    "governance.jsonl": "tools_governance",
+    "pr-lifecycle.jsonl": "pr_lifecycle",
+}
+
+
+def _declared_surface_name(path: str | Path) -> str | None:
+    concrete = Path(path)
+    if len(concrete.parts) >= 2:
+        suffix = "/".join(concrete.parts[-2:])
+        if suffix in _DECLARED_SURFACE_BY_JSONL_SUFFIX:
+            return _DECLARED_SURFACE_BY_JSONL_SUFFIX[suffix]
+    return _DECLARED_SURFACE_BY_JSONL_SUFFIX.get(concrete.name)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return append_declared_jsonl(path, record, expected_surface=surface)
+    raise GovernanceError(f"worker_dispatch_append_unknown_surface:{path.as_posix()}")
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return load_declared_jsonl(path, expected_surface=surface)
+    raise GovernanceError(f"worker_dispatch_load_unknown_surface:{path.as_posix()}")
+
+
+def _append_declared_jsonl_unlocked(
+    path: Path,
+    record: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> dict[str, Any]:
+    _assert_declared_surface(
+        path,
+        expected_surface=expected_surface,
+        enforce_write_profile=True,
+    )
+    return _append_jsonl_unlocked(path.resolve(), record)
 
 
 def create_dispatch_request(
@@ -543,7 +596,11 @@ def claim_assignment(
         # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
         # at the enclosing block; use the unlocked helper to avoid POSIX flock
         # re-acquisition.
-        _append_jsonl_unlocked(claims_path, row)
+        _append_declared_jsonl_unlocked(
+            claims_path,
+            row,
+            expected_surface="dispatch_claims",
+        )
     # Mirror dispatch_request_state_changed event so the existing
     # state-derivation reads pick the new picked_up state without
     # adding a second derivation source.
@@ -632,7 +689,11 @@ def release_claim_assignment(
         # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
         # at the enclosing block; use the unlocked helper to avoid POSIX flock
         # re-acquisition.
-        _append_jsonl_unlocked(claims_path, row)
+        _append_declared_jsonl_unlocked(
+            claims_path,
+            row,
+            expected_surface="dispatch_claims",
+        )
     pe_id = claim_event.get("pressure_event_id")
     if pe_id:
         # State derivation rolls back to pending so the next

@@ -65,9 +65,7 @@ interface TokenPayload {
  * guard prevents double-registration errors when NestJS rebuilds the module.
  */
 const farmWsConnections =
-  (promClient.register.getSingleMetric(
-    'farm_ws_connected_clients',
-  ) as promClient.Gauge<string>) ??
+  (promClient.register.getSingleMetric('farm_ws_connected_clients') as promClient.Gauge<string>) ??
   new promClient.Gauge({
     name: 'farm_ws_connected_clients',
     help: 'Number of Socket.IO clients currently connected to /farms',
@@ -92,11 +90,7 @@ const farmWsBroadcasts =
   transports: ['websocket', 'polling'],
 })
 export class FarmGateway
-  implements
-    OnGatewayInit,
-    OnGatewayConnection,
-    OnGatewayDisconnect,
-    OnModuleDestroy
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy
 {
   @WebSocketServer()
   server!: Server;
@@ -117,8 +111,7 @@ export class FarmGateway
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {
-    this.isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
     // CORS allowlist validity is enforced at module-load time by
     // `buildWsCorsConfig('FarmGateway')`, which throws in production
     // if WS_CORS_ORIGINS is missing. No per-instance check needed —
@@ -166,17 +159,13 @@ export class FarmGateway
       // and detect tenants with zero or abnormally high connections.
       farmWsConnections.inc({ tenant: tenantId }, 1);
 
-      this.logger.log(
-        `Farm client ${client.id} connected for tenant ${tenantId}`,
-      );
+      this.logger.log(`Farm client ${client.id} connected for tenant ${tenantId}`);
       client.emit('connected', {
         message: 'Connected to farm domain event stream',
         tenantId,
       });
     } catch (error) {
-      this.logger.error(
-        `Farm gateway connection error: ${(error as Error).message}`,
-      );
+      this.logger.error(`Farm gateway connection error: ${(error as Error).message}`);
       client.disconnect();
     }
   }
@@ -214,83 +203,163 @@ export class FarmGateway
   }
 
   /** Broadcast a BatchCreated event to all connected clients of the tenant. */
-  broadcastBatchCreated(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchCreated(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchCreated', payload);
   }
 
   /** Broadcast a BatchHarvested event. */
-  broadcastBatchHarvested(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchHarvested(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchHarvested', payload);
   }
 
   /** Broadcast a BatchTransferred event. */
-  broadcastBatchTransferred(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchTransferred(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchTransferred', payload);
   }
 
   /** Broadcast a BatchStatusChanged event. */
-  broadcastBatchStatusChanged(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchStatusChanged(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchStatusChanged', payload);
   }
 
   /** Broadcast a BatchClosed event. */
-  broadcastBatchClosed(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchClosed(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchClosed', payload);
   }
 
   /** Broadcast a BatchAllocatedToTank event. */
-  broadcastBatchAllocatedToTank(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastBatchAllocatedToTank(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'batchAllocatedToTank', payload);
   }
 
   /** Broadcast a MortalityRecorded event. */
-  broadcastMortalityRecorded(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastMortalityRecorded(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'mortalityRecorded', payload);
   }
 
   /** Broadcast a CullRecorded event. */
-  broadcastCullRecorded(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastCullRecorded(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'cullRecorded', payload);
   }
 
   /** Broadcast a FeedingRecorded event. */
-  broadcastFeedingRecorded(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastFeedingRecorded(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'feedingRecorded', payload);
   }
 
   /** Broadcast a FeedInventoryLow alert. */
-  broadcastFeedInventoryLow(
-    tenantId: string,
-    payload: Record<string, unknown>,
-  ): void {
+  broadcastFeedInventoryLow(tenantId: string, payload: Record<string, unknown>): void {
     this.emitFarmEvent(tenantId, 'feedInventoryLow', payload);
+  }
+
+  /** Broadcast a SiteCreated setup event. */
+  broadcastSiteCreated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'siteCreated', payload);
+  }
+
+  /** Broadcast a SiteUpdated setup event. */
+  broadcastSiteUpdated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'siteUpdated', payload);
+  }
+
+  /** Broadcast a SiteDeleted setup event. */
+  broadcastSiteDeleted(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'siteDeleted', payload);
+  }
+
+  /** Broadcast a DepartmentCreated setup event. */
+  broadcastDepartmentCreated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'departmentCreated', payload);
+  }
+
+  /** Broadcast a DepartmentUpdated setup event. */
+  broadcastDepartmentUpdated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'departmentUpdated', payload);
+  }
+
+  /** Broadcast a DepartmentDeleted setup event. */
+  broadcastDepartmentDeleted(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'departmentDeleted', payload);
+  }
+
+  /** Broadcast a SystemCreated setup event. */
+  broadcastSystemCreated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'systemCreated', payload);
+  }
+
+  /** Broadcast a SystemUpdated setup event. */
+  broadcastSystemUpdated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'systemUpdated', payload);
+  }
+
+  /** Broadcast a SystemDeleted setup event. */
+  broadcastSystemDeleted(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'systemDeleted', payload);
+  }
+
+  /** Broadcast a SiteContactsChanged setup event. */
+  broadcastSiteContactsChanged(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'siteContactsChanged', payload);
+  }
+
+  /** Broadcast a TankCreated setup event. */
+  broadcastTankCreated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'tankCreated', payload);
+  }
+
+  /** Broadcast a TankUpdated setup event. */
+  broadcastTankUpdated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'tankUpdated', payload);
+  }
+
+  /** Broadcast a TankStatusChanged setup event. */
+  broadcastTankStatusChanged(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'tankStatusChanged', payload);
+  }
+
+  /** Broadcast a TankDeleted setup event. */
+  broadcastTankDeleted(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'tankDeleted', payload);
+  }
+
+  /** Broadcast an EquipmentCreated setup event. */
+  broadcastEquipmentCreated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'equipmentCreated', payload);
+  }
+
+  /** Broadcast an EquipmentUpdated setup event. */
+  broadcastEquipmentUpdated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'equipmentUpdated', payload);
+  }
+
+  /** Broadcast an EquipmentDeleted setup event. */
+  broadcastEquipmentDeleted(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'equipmentDeleted', payload);
+  }
+
+  /** Broadcast a SubEquipmentCreated setup event. */
+  broadcastSubEquipmentCreated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'subEquipmentCreated', payload);
+  }
+
+  /** Broadcast a SubEquipmentUpdated setup event. */
+  broadcastSubEquipmentUpdated(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'subEquipmentUpdated', payload);
+  }
+
+  /** Broadcast a SubEquipmentDeleted setup event. */
+  broadcastSubEquipmentDeleted(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'subEquipmentDeleted', payload);
+  }
+
+  /** Broadcast a SupplierApprovedSitesChanged setup event. */
+  broadcastSupplierApprovedSitesChanged(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'supplierApprovedSitesChanged', payload);
+  }
+
+  /** Broadcast a FeederCalibrationsSaved setup event. */
+  broadcastFeederCalibrationsSaved(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'feederCalibrationsSaved', payload);
   }
 
   /** Get connected client count (used by health probes / metrics). */
@@ -317,8 +386,7 @@ export class FarmGateway
 
     const queryToken = client.handshake.query.token;
     if (typeof queryToken === 'string') {
-      const isProduction =
-        this.configService?.get<string>('NODE_ENV') === 'production';
+      const isProduction = this.configService?.get<string>('NODE_ENV') === 'production';
       if (isProduction) {
         this.logger.warn(
           `SECURITY: Farm client ${client.id} rejected — query parameter ` +
@@ -361,10 +429,7 @@ export class FarmGateway
       );
 
       if (typeof result !== 'object' || result === null) return null;
-      if (
-        typeof result['tenantId'] !== 'string' ||
-        result['tenantId'].length === 0
-      ) {
+      if (typeof result['tenantId'] !== 'string' || result['tenantId'].length === 0) {
         return null;
       }
       if (typeof result['sub'] !== 'string' || result['sub'].length === 0) {
@@ -386,9 +451,7 @@ export class FarmGateway
 
       return result as TokenPayload;
     } catch (error) {
-      this.logger.debug(
-        `Farm token validation failed: ${(error as Error).message}`,
-      );
+      this.logger.debug(`Farm token validation failed: ${(error as Error).message}`);
       return null;
     }
   }

@@ -1,14 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, IsNull } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import {
+  NOTIFICATION_COMMAND_SUBJECTS,
+  type NotificationSendEmailCommand,
+  type NotificationSendResult,
+} from '@platform/event-contracts';
+import { firstValueFrom, timeout } from 'rxjs';
 
-// Optional microservices support - stub interface when module not available
-interface ClientProxy {
-  emit(pattern: string, data: unknown): void;
-}
 import { WeeklyPlan, WeeklyPlanStatus } from '../entities/weekly-plan.entity';
-import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-entry.entity';
+import { WeeklyPlanEntry } from '../entities/weekly-plan-entry.entity';
 import { SchedulingSettings } from '../entities/scheduling-settings.entity';
 import { Employee } from '../../hr/entities/employee.entity';
 import { Shift } from '../../attendance/entities/shift.entity';
@@ -93,8 +96,8 @@ export interface OvertimeWarningData {
 @Injectable()
 export class ScheduleNotificationService {
   private readonly logger = new Logger(ScheduleNotificationService.name);
-  private natsClient: ClientProxy | null = null;
   private readonly isEnabled: boolean;
+  private readonly notificationCommandTimeoutMs: number;
 
   constructor(
     @InjectRepository(WeeklyPlan)
@@ -108,25 +111,26 @@ export class ScheduleNotificationService {
     @InjectRepository(Shift)
     private readonly shiftRepository: Repository<Shift>,
     private readonly configService: ConfigService,
+    @Optional()
+    @Inject('NATS_SERVICE')
+    private readonly natsClient?: ClientProxy,
   ) {
     this.isEnabled = this.configService.get('NATS_ENABLED', 'true') === 'true';
+    const configuredTimeout = Number.parseInt(
+      this.configService.get<string>('NOTIFICATION_COMMAND_TIMEOUT_MS', '10000'),
+      10,
+    );
+    this.notificationCommandTimeoutMs = Number.isFinite(configuredTimeout)
+      ? configuredTimeout
+      : 10_000;
 
-    if (this.isEnabled) {
-      this.initializeNatsClient();
-    } else {
+    if (!this.isEnabled) {
       this.logger.warn('Schedule notification service disabled (NATS not enabled)');
+    } else if (!this.natsClient) {
+      this.logger.error(
+        'Schedule notification service enabled but NATS_SERVICE client is not registered',
+      );
     }
-  }
-
-  /**
-   * Initialize NATS client for microservice communication
-   * Note: Notifications are disabled when @nestjs/microservices is not available
-   */
-  private initializeNatsClient(): void {
-    // NATS notifications are disabled - @nestjs/microservices not available
-    // To enable, add @nestjs/microservices to dependencies and implement client creation
-    this.logger.warn('Schedule notifications disabled - microservices module not configured');
-    this.natsClient = null;
   }
 
   /**
@@ -136,10 +140,7 @@ export class ScheduleNotificationService {
    * @param weeklyPlanIds - Array of plan IDs to notify
    * @returns NotificationResult with success/failure details
    */
-  async notifyEmployees(
-    tenantId: string,
-    weeklyPlanIds: string[],
-  ): Promise<NotificationResult> {
+  async notifyEmployees(tenantId: string, weeklyPlanIds: string[]): Promise<NotificationResult> {
     const result: NotificationResult = {
       success: true,
       notifiedCount: 0,
@@ -185,7 +186,8 @@ export class ScheduleNotificationService {
         if (!employee?.email) {
           result.errors.push({
             employeeId: plan.employeeId,
-            employeeName: `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim() || 'Unknown',
+            employeeName:
+              `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim() || 'Unknown',
             error: 'Employee email not found',
           });
           result.failedCount++;
@@ -199,10 +201,7 @@ export class ScheduleNotificationService {
         await this.sendScheduleEmail(emailData);
 
         // Update plan's notifiedAt
-        await this.planRepository.update(
-          { id: plan.id, tenantId },
-          { notifiedAt: new Date() },
-        );
+        await this.planRepository.update({ id: plan.id, tenantId }, { notifiedAt: new Date() });
 
         result.notifiedCount++;
         this.logger.log(`Schedule notification sent for plan ${plan.id} to ${employee.email}`);
@@ -228,10 +227,7 @@ export class ScheduleNotificationService {
    * Auto-notify on plan publish if settings allow
    * Called from PublishWeeklyPlanHandler after successful publish
    */
-  async autoNotifyOnPublish(
-    tenantId: string,
-    planId: string,
-  ): Promise<boolean> {
+  async autoNotifyOnPublish(tenantId: string, planId: string): Promise<boolean> {
     const settings = await this.settingsRepository.findOne({ where: { tenantId } });
 
     if (!settings?.autoNotifyEmployees) {
@@ -286,15 +282,14 @@ export class ScheduleNotificationService {
     settings?: SchedulingSettings | null,
   ): Promise<ScheduleEmailData> {
     // Load shift details for entries
-    const shiftIds = plan.entries
-      ?.filter((e) => e.shiftId)
-      .map((e) => e.shiftId!) || [];
+    const shiftIds = plan.entries?.filter((e) => e.shiftId).map((e) => e.shiftId!) || [];
 
-    const shifts = shiftIds.length > 0
-      ? await this.shiftRepository.find({
-          where: { id: In(shiftIds) },
-        })
-      : [];
+    const shifts =
+      shiftIds.length > 0
+        ? await this.shiftRepository.find({
+            where: { id: In(shiftIds) },
+          })
+        : [];
 
     const shiftMap = new Map(shifts.map((s) => [s.id, s]));
 
@@ -311,8 +306,14 @@ export class ScheduleNotificationService {
           entryType: entry.entryType,
           shiftName: shift?.name,
           shiftCode: shift?.code,
-          startTime: (entry.plannedStartTime instanceof Date ? entry.plannedStartTime.toISOString() : entry.plannedStartTime) || shift?.startTime?.toString().slice(0, 5),
-          endTime: (entry.plannedEndTime instanceof Date ? entry.plannedEndTime.toISOString() : entry.plannedEndTime) || shift?.endTime?.toString().slice(0, 5),
+          startTime:
+            (entry.plannedStartTime instanceof Date
+              ? entry.plannedStartTime.toISOString()
+              : entry.plannedStartTime) || shift?.startTime?.toString().slice(0, 5),
+          endTime:
+            (entry.plannedEndTime instanceof Date
+              ? entry.plannedEndTime.toISOString()
+              : entry.plannedEndTime) || shift?.endTime?.toString().slice(0, 5),
           totalHours: entry.plannedMinutes > 0 ? entry.plannedMinutes / 60 : undefined,
         };
       });
@@ -344,95 +345,45 @@ export class ScheduleNotificationService {
       throw new Error('NATS client not initialized');
     }
 
-    const emailPayload = {
-      type: 'schedule_notification',
-      to: data.employeeEmail,
-      subject: this.buildEmailSubject(data),
-      template: 'weekly_schedule',
-      data: {
-        ...data,
-        // Add formatted schedule table for template
-        scheduleTableHtml: this.generateScheduleTableHtml(data.entries),
+    const requestReference = `hr-schedule:${data.tenantId}:${data.employeeId}:${data.weekStartDate}`;
+    const emailPayload: NotificationSendEmailCommand = {
+      deliveryId: requestReference,
+      requestReference,
+      tenantId: data.tenantId,
+      source: 'hr-service',
+      recipientRef: {
+        kind: 'tenantContactRef',
+        ref: `hr.employee.email:${data.employeeId}`,
+      },
+      templateId: 'hr.weekly_schedule.email',
+      templateVersion: '1',
+      templateVariables: {
+        employeeName: data.employeeName,
+        tenantName: data.tenantName ?? null,
+        weekStartDate: data.weekStartDate,
+        weekEndDate: data.weekEndDate,
+        totalWorkDays: data.totalWorkDays,
+        totalWorkHours: data.totalWorkHours,
+        overtimeHours: data.overtimeHours,
+        notes: data.notes ?? null,
+        scheduleEntryCount: data.entries.length,
+      },
+      metadata: {
+        type: 'schedule_notification',
+        employeeId: data.employeeId,
       },
     };
 
     try {
-      // Emit async notification event
-      this.natsClient.emit('notification.email.send', emailPayload);
-      this.logger.debug(`Schedule email event emitted for ${data.employeeEmail}`);
+      const result = await this.sendNotificationCommand(emailPayload);
+      if (!result.success) {
+        throw new Error(result.error ?? 'Notification command failed');
+      }
+      this.logger.debug(`Schedule email command accepted for employee ${data.employeeId}`);
     } catch (error) {
-      this.logger.error(`Failed to emit notification event: ${(error as Error).message}`);
+      this.logger.error(`Failed to send notification command: ${(error as Error).message}`);
       throw error;
     }
-  }
-
-  /**
-   * Build email subject line
-   */
-  private buildEmailSubject(data: ScheduleEmailData): string {
-    const weekStartFormatted = this.formatDateTR(new Date(data.weekStartDate));
-    const weekEndFormatted = this.formatDateTR(new Date(data.weekEndDate));
-    return `Haftalik Calisma Programiniz: ${weekStartFormatted} - ${weekEndFormatted}`;
-  }
-
-  /**
-   * Generate HTML table for schedule entries
-   */
-  private generateScheduleTableHtml(entries: ScheduleEntryData[]): string {
-    const rows = entries
-      .map((entry) => {
-        let cellContent: string;
-        let cellClass: string;
-
-        switch (entry.entryType) {
-          case 'off':
-            cellContent = 'TATIL';
-            cellClass = 'off';
-            break;
-          case 'leave':
-            cellContent = 'IZIN';
-            cellClass = 'leave';
-            break;
-          case 'holiday':
-            cellContent = 'RESMI TATIL';
-            cellClass = 'holiday';
-            break;
-          case 'training':
-            cellContent = `EGITIM${entry.startTime ? ` (${entry.startTime}-${entry.endTime})` : ''}`;
-            cellClass = 'training';
-            break;
-          case 'work':
-          default:
-            cellContent = entry.startTime && entry.endTime
-              ? `${entry.startTime} - ${entry.endTime}`
-              : entry.shiftCode || 'MESAI';
-            cellClass = 'work';
-        }
-
-        return `
-          <tr>
-            <td class="day-name">${this.escapeHtml(entry.dayNameTR)}</td>
-            <td class="date">${this.escapeHtml(this.formatDateShort(new Date(entry.date)))}</td>
-            <td class="schedule ${cellClass}">${this.escapeHtml(cellContent)}</td>
-          </tr>
-        `;
-      })
-      .join('');
-
-    return `
-      <table class="schedule-table">
-        <thead>
-          <tr>
-            <th>Gun</th>
-            <th>Tarih</th>
-            <th>Program</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-    `;
   }
 
   /**
@@ -459,28 +410,6 @@ export class ScheduleNotificationService {
       day: 'numeric',
       month: 'long',
     });
-  }
-
-  /**
-   * Format date as short string (e.g., "13 Oca")
-   */
-  private formatDateShort(date: Date): string {
-    return date.toLocaleDateString('tr-TR', {
-      day: 'numeric',
-      month: 'short',
-    });
-  }
-
-  /**
-   * Escape HTML special characters
-   */
-  private escapeHtml(str: string): string {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
   }
 
   // =====================
@@ -548,7 +477,7 @@ export class ScheduleNotificationService {
       await this.sendOvertimeWarning(warningData);
       this.logger.warn(
         `Overtime warning sent: ${warningType} for employee ${plan.employee.id} ` +
-        `(${overtimeMinutes}/${maxWeeklyOvertimeMinutes} minutes)`,
+          `(${overtimeMinutes}/${maxWeeklyOvertimeMinutes} minutes)`,
       );
       return true;
     } catch (error) {
@@ -569,33 +498,44 @@ export class ScheduleNotificationService {
     const overtimeHours = Math.round((data.plannedOvertimeMinutes / 60) * 10) / 10;
     const maxHours = Math.round((data.maxOvertimeMinutes / 60) * 10) / 10;
 
-    let subject: string;
     let urgency: 'low' | 'medium' | 'high';
 
     switch (data.warningType) {
       case 'exceeded_limit':
-        subject = `UYARI: Haftalik Fazla Mesai Limiti Asildi (${overtimeHours}/${maxHours} saat)`;
         urgency = 'high';
         break;
       case 'monthly_limit':
-        subject = `UYARI: Aylik Fazla Mesai Limitine Yaklasiliyor`;
         urgency = 'high';
         break;
       case 'approaching_limit':
       default:
-        subject = `Bilgi: Haftalik Fazla Mesai Limitine Yaklasiliyor (${overtimeHours}/${maxHours} saat)`;
         urgency = 'medium';
     }
 
-    const emailPayload = {
-      type: 'overtime_warning',
-      to: data.managerEmail || data.employeeEmail, // Send to manager if available
-      cc: data.managerEmail ? data.employeeEmail : undefined,
-      subject,
-      template: 'overtime_warning',
-      urgency,
-      data: {
-        ...data,
+    const requestReference = `hr-overtime:${data.tenantId}:${data.employeeId}:${data.weekStartDate}:${data.warningType}`;
+    const emailPayload: NotificationSendEmailCommand = {
+      deliveryId: requestReference,
+      requestReference,
+      tenantId: data.tenantId,
+      source: 'hr-service',
+      recipientRef: {
+        kind: 'tenantContactRef',
+        ref: data.managerEmail
+          ? `hr.manager.email:${data.employeeId}`
+          : `hr.employee.email:${data.employeeId}`,
+      },
+      templateId: 'hr.overtime_warning.email',
+      templateVersion: '1',
+      templateVariables: {
+        employeeName: data.employeeName,
+        weekStartDate: data.weekStartDate,
+        weekEndDate: data.weekEndDate,
+        warningType: data.warningType,
+        plannedOvertimeMinutes: data.plannedOvertimeMinutes,
+        maxOvertimeMinutes: data.maxOvertimeMinutes,
+        currentMonthlyMinutes: data.currentMonthlyMinutes ?? null,
+        maxMonthlyMinutes: data.maxMonthlyMinutes ?? null,
+        urgency,
         overtimeHours,
         maxHours,
         weekStartFormatted: this.formatDateTR(new Date(data.weekStartDate)),
@@ -603,14 +543,39 @@ export class ScheduleNotificationService {
         isExceeded: data.warningType === 'exceeded_limit',
         warningMessage: this.getOvertimeWarningMessage(data.warningType, overtimeHours, maxHours),
       },
+      metadata: {
+        type: 'overtime_warning',
+        urgency,
+        employeeId: data.employeeId,
+        recipientRole: data.managerEmail ? 'manager' : 'employee',
+      },
     };
 
     try {
-      this.natsClient.emit('notification.email.send', emailPayload);
-      this.logger.debug(`Overtime warning event emitted for ${data.employeeName}`);
+      const result = await this.sendNotificationCommand(emailPayload);
+      if (!result.success) {
+        throw new Error(result.error ?? 'Notification command failed');
+      }
+      this.logger.debug(`Overtime warning command accepted for employee ${data.employeeId}`);
     } catch (error) {
-      throw new Error(`Failed to emit overtime warning: ${(error as Error).message}`);
+      throw new Error(`Failed to send overtime warning: ${(error as Error).message}`);
     }
+  }
+
+  private async sendNotificationCommand(
+    command: NotificationSendEmailCommand,
+  ): Promise<NotificationSendResult> {
+    if (!this.natsClient) {
+      throw new Error('NATS client not initialized');
+    }
+    return firstValueFrom(
+      this.natsClient
+        .send<
+          NotificationSendResult,
+          NotificationSendEmailCommand
+        >(NOTIFICATION_COMMAND_SUBJECTS.SEND_EMAIL, command)
+        .pipe(timeout(this.notificationCommandTimeoutMs)),
+    ) as Promise<NotificationSendResult>;
   }
 
   /**
@@ -623,14 +588,18 @@ export class ScheduleNotificationService {
   ): string {
     switch (warningType) {
       case 'exceeded_limit':
-        return `Planlanan fazla mesai suresi (${overtimeHours} saat), haftalik limit olan ${maxHours} saati asti. ` +
-          `Lutfen planlamayı gozden gecirin veya onay alin.`;
+        return (
+          `Planlanan fazla mesai suresi (${overtimeHours} saat), haftalik limit olan ${maxHours} saati asti. ` +
+          `Lutfen planlamayı gozden gecirin veya onay alin.`
+        );
       case 'monthly_limit':
         return `Aylik fazla mesai limiti yaklasiliyor. Lutfen aylik toplami kontrol edin.`;
       case 'approaching_limit':
       default:
-        return `Planlanan fazla mesai suresi (${overtimeHours} saat), haftalik limitin %80'ine (${maxHours} saat) ulasti. ` +
-          `Ek mesai planlamasi dikkatli yapin.`;
+        return (
+          `Planlanan fazla mesai suresi (${overtimeHours} saat), haftalik limitin %80'ine (${maxHours} saat) ulasti. ` +
+          `Ek mesai planlamasi dikkatli yapin.`
+        );
     }
   }
 

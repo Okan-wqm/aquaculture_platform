@@ -65,7 +65,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_resolver import resolve_agent_md_path
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -487,7 +487,11 @@ def run_all_validators(
 
     if write_ledger:
         root = ensure_tools_dir(base_dir)
-        append_jsonl(root / VALIDATIONS_FILENAME, summary)
+        append_declared_jsonl(
+            root / VALIDATIONS_FILENAME,
+            summary,
+            expected_surface="surface_validations",
+        )
         for fail in failures:
             append_tools_governance(root, "surface_validation_failed", fail)
     return summary

@@ -90,6 +90,9 @@ READONLY_PATHS: tuple[str, ...] = (
 # first match wins. Order is irrelevant (set semantics) but each
 # pattern MUST anchor at ^ to prevent partial-match smuggling.
 ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
+    re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+[\w./-]+\.py(\s+\S+)*\s*$"),
+    re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+-m\s+unittest(\s+\S+)*\s*$"),
+    re.compile(r"^node\s+(\./)?node_modules/ts-node/dist/bin\.js(\s+\S+)*\s*$"),
     re.compile(r"^git\s+add(\s+\S+)*\s*$"),
     re.compile(r"^git\s+commit(\s+-[a-zA-Z]+)*(\s+-m\s+.+)?$"),
     re.compile(r"^git\s+diff(\s+\S+)*\s*$"),
@@ -101,7 +104,6 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^gh\s+pr\s+checks(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+view(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+diff(\s+\S+)*\s*$"),
-    re.compile(r"^gh\s+pr\s+merge\s+--squash(\s+\S+)*\s*$"),
     re.compile(r"^npm\s+test(\s+\S+)*\s*$"),
     re.compile(r"^nx\s+(affected|test|lint|build)(\s+\S+)*\s*$"),
     re.compile(r"^pytest(\s+\S+)*\s*$"),
@@ -110,6 +112,16 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^prettier(\s+\S+)*\s*$"),
     re.compile(r"^eslint(\s+\S+)*\s*$"),
 })
+TRUSTED_PYTHON_SCRIPT_PREFIXES: tuple[str, ...] = (
+    "tools/aria-adapters/",
+    "tools/aria-poc/",
+    "aria-kernel/tests/_helpers/",
+)
+FORBIDDEN_ABSOLUTE_PYTHON_SCRIPT_PREFIXES: tuple[str, ...] = (
+    "/tmp/",
+    "/var/tmp/",
+    "/dev/shm/",
+)
 
 # Plan ARIA-V9.0-D — DENIED_BASH_COMMANDS regex denylist. Even if a
 # command somehow passed the allowlist, the deny pattern set fires
@@ -127,9 +139,11 @@ DENIED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^(apt|apt-get|yum|dnf|pacman|brew)\b"),  # pkg install
     re.compile(r"^(docker|kubectl|helm)\b"),            # orchestration
     re.compile(r"^gh\s+api\s+(-X\s+)?(DELETE|PATCH|PUT)\b"),  # GH API mutation
+    re.compile(r"^gh\s+api\b.*(?:^|\s)/?repos/[^/\s]+/[^/\s]+/pulls/[^/\s]+/merge(?:[/?#]\S*)?(?:\s|$)"),
     re.compile(r"^gh\s+workflow\b"),                    # workflow mutation
     re.compile(r"^gh\s+secret\b"),                      # secret list/set
     re.compile(r"^gh\s+release\b"),                     # release create
+    re.compile(r"^gh\s+pr\s+merge\b"),                  # merge authority only
     re.compile(r"^(env|printenv|set)\s*$"),             # env exfil bare dump
     re.compile(r"\$GH_TOKEN\b"),                        # token reference
     re.compile(r"\$GITHUB_TOKEN\b"),
@@ -149,6 +163,7 @@ DENIED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
 # explicit for I-V9-GH-01 invariant + dispatcher-side validation.
 FORBIDDEN_GH_API_PATHS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/repos/[^/]+/[^/]+/branches/[^/]+/protection"),
+    re.compile(r"^/repos/[^/]+/[^/]+/pulls/[^/]+/merge(?:[/?#].*)?$"),
     re.compile(r"^/repos/[^/]+/[^/]+/actions/"),
     re.compile(r"^/repos/[^/]+/[^/]+/secrets/"),
     re.compile(r"^/orgs/"),
@@ -333,7 +348,7 @@ def verify_no_path_escape(path: str | Path, workspace_root: str | Path) -> Path:
     return resolved
 
 
-def verify_bash_command_allowed(argv: list[str]) -> None:
+def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = None) -> None:
     """Hard-fail check 8 — Bash allowlist (NOT blocklist).
 
     Joins argv with spaces, tests against:
@@ -352,6 +367,7 @@ def verify_bash_command_allowed(argv: list[str]) -> None:
             raise BashDenylistHit(
                 f"DENY rule hit: pattern={denied.pattern!r} argv0={argv[0]!r}"
             )
+    _verify_python_script_target(argv, cwd=cwd)
     for allowed in ALLOWED_BASH_COMMANDS:
         if allowed.match(line):
             return
@@ -361,13 +377,59 @@ def verify_bash_command_allowed(argv: list[str]) -> None:
     )
 
 
+def _verify_python_script_target(argv: list[str] | tuple[str, ...], *, cwd: str | Path | None) -> None:
+    if len(argv) < 2:
+        return
+    executable = Path(str(argv[0])).name
+    if not re.fullmatch(r"python3?(\.\d+)?", executable):
+        return
+    script = str(argv[1])
+    if script == "-m":
+        return
+    if not script.endswith(".py"):
+        return
+    script_path = Path(script)
+    if script_path.is_absolute():
+        effective_absolute = script_path.as_posix()
+        if not any(f"/{prefix}" in effective_absolute for prefix in TRUSTED_PYTHON_SCRIPT_PREFIXES):
+            if any(effective_absolute.startswith(prefix) for prefix in FORBIDDEN_ABSOLUTE_PYTHON_SCRIPT_PREFIXES):
+                raise BashAllowlistMiss("python script path must not come from tmp")
+            raise BashAllowlistMiss("python script path must be trusted repo code")
+        return
+    raw_cwd = "." if cwd is None else str(cwd)
+    cwd_path = Path(raw_cwd)
+    if cwd_path.is_absolute() or ".." in cwd_path.parts:
+        raise BashAllowlistMiss("python runner cwd must be workspace-relative")
+    effective = _normalize_policy_path((cwd_path / script_path).as_posix())
+    if not any(effective.startswith(prefix) for prefix in TRUSTED_PYTHON_SCRIPT_PREFIXES):
+        raise BashAllowlistMiss(f"python script path is not trusted: {effective}")
+
+
+def _normalize_policy_path(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    parts: list[str] = []
+    for part in normalized.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            raise BashAllowlistMiss("python script path must not contain traversal")
+        parts.append(part)
+    return "/".join(parts)
+
+
 def is_gh_api_path_forbidden(path: str) -> bool:
     """Hard-fail check 8b — gh api path forbidden? Used by callers
     that do a finer-grained inspection of ``gh api <PATH>`` argv
     structure rather than relying on the regex allowlist alone."""
     if not isinstance(path, str):
         return True  # fail closed
-    return any(p.search(path) for p in FORBIDDEN_GH_API_PATHS)
+    stripped = path.strip()
+    if not stripped:
+        return True
+    if any(token in stripped for token in ("{", "}", "$(", "`", ";", "&&", "||")):
+        return True
+    normalized = stripped if stripped.startswith("/") else "/" + stripped
+    return any(p.search(normalized) for p in FORBIDDEN_GH_API_PATHS)
 
 
 def _bwrap_available() -> bool:

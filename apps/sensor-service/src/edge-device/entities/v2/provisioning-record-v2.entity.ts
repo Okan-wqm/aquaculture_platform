@@ -1,7 +1,7 @@
 /**
  * EdgeProvisioningRecordV2 — ceremony attestation for device activation.
  *
- * Per ADR-025. Per-tenant under sensor schema. Supersedes ADR-022's
+ * Per ADR-034. Per-tenant under sensor schema. Supersedes ADR-022's
  * `edge.provisioning_records`. Each row records a single ceremony:
  * device activation moment, witness identities, fingerprint hash chain.
  * Witnesses live in the sibling `witnesses` junction table.

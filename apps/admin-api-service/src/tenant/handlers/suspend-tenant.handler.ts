@@ -5,6 +5,7 @@ import {
   Logger,
   Inject,
 } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
@@ -25,6 +26,7 @@ import {
   ArchiveTenantCommand,
 } from '../commands/tenant.commands';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
+import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 
 @Injectable()
 @CommandHandler(SuspendTenantCommand)
@@ -41,6 +43,7 @@ export class SuspendTenantHandler
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
+    private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
   async execute(command: SuspendTenantCommand): Promise<Tenant> {
@@ -60,21 +63,38 @@ export class SuspendTenantHandler
         throw new NotFoundException(`Tenant with ID '${tenantId}' not found`);
       }
 
-      if (tenant.status === TenantStatus.SUSPENDED) {
-        throw new BadRequestException('Tenant is already suspended');
-      }
-
-      if (tenant.status === TenantStatus.ARCHIVED) {
-        throw new BadRequestException('Cannot suspend an archived tenant');
+      if (tenant.status !== TenantStatus.ACTIVE) {
+        throw new BadRequestException(
+          'Only active tenants can be suspended. Provisioning states must use the tenant provisioning workflow.',
+        );
       }
 
       const previousStatus = tenant.status;
+      await this.authProvisioningClient.suspendTenant({
+        ...buildLifecycleCommandMetadata(
+          'SuspendTenant',
+          tenantId,
+          suspendedBy,
+          { reason: data.reason },
+        ),
+        reason: data.reason,
+      });
       tenant.status = TenantStatus.SUSPENDED;
       tenant.suspendedAt = new Date();
       tenant.suspendedReason = data.reason;
       tenant.suspendedBy = suspendedBy;
 
-      const savedTenant = await queryRunner.manager.save(tenant);
+      await queryRunner.manager.query(
+        `INSERT INTO admin.tenant_activities
+           ("tenantId", "activityType", title, description,
+            "previousValue", "newValue", "performedBy", "createdAt")
+         VALUES
+           ($1, 'suspended', 'Status changed: suspended', $2,
+            jsonb_build_object('status', $3::text),
+            '{"status":"suspended"}'::jsonb,
+            $4, NOW())`,
+        [tenantId, data.reason || 'Tenant suspended', previousStatus, suspendedBy],
+      );
 
       await queryRunner.commitTransaction();
 
@@ -109,7 +129,7 @@ export class SuspendTenantHandler
       };
       await this.eventBus.publish(statusChangedEvent);
 
-      return savedTenant;
+      return tenant;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -134,6 +154,7 @@ export class ActivateTenantHandler
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
+    private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
   async execute(command: ActivateTenantCommand): Promise<Tenant> {
@@ -153,22 +174,38 @@ export class ActivateTenantHandler
         throw new NotFoundException(`Tenant with ID '${tenantId}' not found`);
       }
 
-      if (tenant.status === TenantStatus.ACTIVE) {
-        throw new BadRequestException('Tenant is already active');
-      }
-
-      if (tenant.status === TenantStatus.ARCHIVED) {
-        throw new BadRequestException('Cannot activate an archived tenant');
+      if (tenant.status !== TenantStatus.SUSPENDED) {
+        throw new BadRequestException(
+          'Only suspended tenants can be activated. Provisioning states must use the tenant provisioning retry/finalize workflow.',
+        );
       }
 
       const previousStatus = tenant.status;
+      await this.authProvisioningClient.activateTenant({
+        ...buildLifecycleCommandMetadata(
+          'ActivateTenant',
+          tenantId,
+          activatedBy,
+          {},
+        ),
+      });
       tenant.status = TenantStatus.ACTIVE;
       tenant.suspendedAt = undefined;
       tenant.suspendedReason = undefined;
       tenant.suspendedBy = undefined;
       tenant.lastActivityAt = new Date();
 
-      const savedTenant = await queryRunner.manager.save(tenant);
+      await queryRunner.manager.query(
+        `INSERT INTO admin.tenant_activities
+           ("tenantId", "activityType", title, description,
+            "previousValue", "newValue", "performedBy", "createdAt")
+         VALUES
+           ($1, 'activated', 'Status changed: active', 'Tenant activated',
+            jsonb_build_object('status', $2::text),
+            '{"status":"active"}'::jsonb,
+            $3, NOW())`,
+        [tenantId, previousStatus, activatedBy],
+      );
 
       await queryRunner.commitTransaction();
 
@@ -196,7 +233,7 @@ export class ActivateTenantHandler
       };
       await this.eventBus.publish(statusChangedEvent);
 
-      return savedTenant;
+      return tenant;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -221,6 +258,7 @@ export class DeactivateTenantHandler
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
+    private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
   async execute(command: DeactivateTenantCommand): Promise<Tenant> {
@@ -249,9 +287,16 @@ export class DeactivateTenantHandler
       }
 
       const previousStatus = tenant.status;
+      await this.authProvisioningClient.deprovisionTenant({
+        ...buildLifecycleCommandMetadata(
+          'DeprovisionTenant',
+          tenantId,
+          deactivatedBy,
+          { reason },
+        ),
+        reason,
+      });
       tenant.status = TenantStatus.DEACTIVATED;
-
-      const savedTenant = await queryRunner.manager.save(tenant);
 
       await queryRunner.commitTransaction();
 
@@ -273,7 +318,7 @@ export class DeactivateTenantHandler
       };
       await this.eventBus.publish(statusChangedEvent);
 
-      return savedTenant;
+      return tenant;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -298,6 +343,7 @@ export class ArchiveTenantHandler
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
+    private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
   async execute(command: ArchiveTenantCommand): Promise<Tenant> {
@@ -328,9 +374,15 @@ export class ArchiveTenantHandler
       }
 
       const previousStatus = tenant.status;
+      await this.authProvisioningClient.archiveTenant({
+        ...buildLifecycleCommandMetadata(
+          'ArchiveTenant',
+          tenantId,
+          archivedBy,
+          {},
+        ),
+      });
       tenant.status = TenantStatus.ARCHIVED;
-
-      const savedTenant = await queryRunner.manager.save(tenant);
 
       await queryRunner.commitTransaction();
 
@@ -358,7 +410,7 @@ export class ArchiveTenantHandler
       };
       await this.eventBus.publish(statusChangedEvent);
 
-      return savedTenant;
+      return tenant;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -366,4 +418,29 @@ export class ArchiveTenantHandler
       await queryRunner.release();
     }
   }
+}
+
+function buildLifecycleCommandMetadata(
+  commandType: string,
+  tenantId: string,
+  actorId: string,
+  _payload: unknown,
+): {
+  operationId: string;
+  tenantId: string;
+  actor: { id: string; type: 'user' };
+  requestReference: string;
+  auditMetadata: Record<string, unknown>;
+} {
+  const operationId = crypto.randomUUID();
+  return {
+    operationId,
+    tenantId,
+    actor: { id: actorId, type: 'user' },
+    requestReference: `${commandType}:${tenantId}:${actorId}`,
+    auditMetadata: {
+      source: 'admin-api-service',
+      commandType,
+    },
+  };
 }

@@ -13,9 +13,9 @@ import type {
 } from '@platform/event-contracts';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
 import { InAppNotificationService } from '../services/in-app.service';
-import { PushService } from '../services/push.service';
 import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
 import { DeviceToken } from '../entities/device-token.entity';
+import { NotificationChannel } from '../entities/notification-log.entity';
 
 // UUID v4 regex for tenant ID validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -76,7 +76,6 @@ export class TaskEventHandler
   constructor(
     private readonly dispatcher: NotificationDispatcherService,
     private readonly inAppService: InAppNotificationService,
-    private readonly pushService: PushService,
     private readonly dlqService: DeadLetterQueueService,
     @InjectRepository(DeviceToken)
     private readonly deviceTokenRepository: Repository<DeviceToken>,
@@ -189,8 +188,7 @@ export class TaskEventHandler
   }
 
   /**
-   * Send push notifications to all registered devices for a user.
-   * Fire-and-forget: logs errors but does not throw.
+   * Send task push notification through the command receipt path.
    */
   private async sendPushToUser(
     tenantId: string,
@@ -200,33 +198,32 @@ export class TaskEventHandler
     eventType: string,
   ): Promise<void> {
     try {
-      const tokens = await this.deviceTokenRepository.find({
+      const deviceToken = await this.deviceTokenRepository.findOne({
         where: { userId, tenantId },
+        order: { lastSeenAt: 'DESC', createdAt: 'DESC' },
       });
 
-      if (tokens.length === 0) {
+      if (!deviceToken) {
         this.logger.debug(
           `No device tokens found for user ${userId.substring(0, 8)}... -- skipping push`,
         );
         return;
       }
 
-      for (const dt of tokens) {
-        try {
-          await this.pushService.sendTaskPush(dt.token, {
-            title,
-            taskId,
-            type: eventType,
-          });
-        } catch (pushErr) {
-          this.logger.warn(
-            `Push failed for device ${dt.id.substring(0, 8)}...: ${(pushErr as Error).message}`,
-          );
-        }
-      }
+      await this.dispatcher.dispatchCommandNotification({
+        tenantId,
+        channel: NotificationChannel.PUSH,
+        recipient: deviceToken.token,
+        recipientLogRef: `userId:${userId}`,
+        deliveryId: `task:${tenantId}:${taskId}:${eventType}:${userId}`,
+        requestReference: `task:${tenantId}:${taskId}:${eventType}:${userId}`,
+        source: 'notification-service.task-event-handler',
+        subject: `task.${eventType}.push`,
+        message: `template:task.${eventType}.push`,
+      });
     } catch (err) {
       this.logger.warn(
-        `Failed to look up device tokens for push: ${(err as Error).message}`,
+        `Failed to dispatch task push command: ${(err as Error).message}`,
       );
     }
   }

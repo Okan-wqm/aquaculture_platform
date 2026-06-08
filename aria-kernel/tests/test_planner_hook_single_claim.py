@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import hashlib
 import os
 import sys
 import tempfile
@@ -37,6 +38,7 @@ import ci_executor  # noqa: E402
 from aria_kernel.agent_invocations import (  # noqa: E402
     claim_request,
     create_agent_invocation_request,
+    render_invocation_prompt,
 )
 from aria_kernel.planner_dispatch_hook import (  # noqa: E402
     CLAIM_METADATA_ENV_VAR,
@@ -145,6 +147,8 @@ class SingleClaimSerialiserTests(_SingleClaimBase):
             "claim_id", "request_id", "agent_id",
             "expected_output_path", "role",
             "must_satisfy", "allowed_scope", "evidence_refs",
+            "context_hash", "prompt_hash",
+            "context_ledger_hash", "prompt_ledger_hash",
             "lease_expires_at",
             "claim_ledger_hash", "request_ledger_hash",
         ):
@@ -265,19 +269,34 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
         def fake_run(argv, *args, **kwargs):
             captured.append(tuple(argv))
             if "claim" in argv:
+                claim_payload = {
+                    "lease_token": "test-token",
+                    "claim_id": "test-claim",
+                    "request_id": self.req["request_id"],
+                    "agent_id": self.agent_id,
+                    "role": "evidence_judgment",
+                    "target_agent": "aria-evidence-judge",
+                    "convergence_id": self.req.get("convergence_id"),
+                    "expected_output_path": self.req["expected_output_path"],
+                    "suggested_prompt": self.req["suggested_prompt"],
+                    "must_satisfy": [{"id": "S1", "description": "x"}],
+                    "allowed_scope": ["aria-kernel/**"],
+                    "forbidden_scope": [],
+                    "evidence_refs": ["aria-kernel/src"],
+                    "impact_graph_refs": [],
+                    "validation_commands": [],
+                    "context_hash": self.claim["context_hash"],
+                    "context_ledger_hash": self.claim["context_ledger_hash"],
+                    "prompt_ledger_hash": self.claim["prompt_ledger_hash"],
+                }
+                rendered = render_invocation_prompt(claim_payload)
+                claim_payload["prompt_hash"] = (
+                    "sha256:"
+                    + hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+                )
                 return MagicMock(
                     returncode=0,
-                    stdout=json.dumps({
-                        "lease_token": "test-token",
-                        "claim_id": "test-claim",
-                        "request_id": self.req["request_id"],
-                        "agent_id": self.agent_id,
-                        "role": "evidence_judgment",
-                        "expected_output_path": self.req["expected_output_path"],
-                        "must_satisfy": [{"id": "S1", "description": "x"}],
-                        "allowed_scope": ["aria-kernel/**"],
-                        "evidence_refs": ["aria-kernel/src"],
-                    }),
+                    stdout=json.dumps(claim_payload),
                     stderr="",
                 )
             return MagicMock(returncode=0, stdout="{}", stderr="")

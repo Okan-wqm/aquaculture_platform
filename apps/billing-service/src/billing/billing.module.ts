@@ -15,7 +15,6 @@ import { StripeWebhookEventEntity } from './entities/stripe-webhook-event.entity
 import { SubscriptionModuleItem } from './entities/subscription-module-item.entity';
 import { Subscription } from './entities/subscription.entity';
 import { TenantUsageMetrics } from './entities/tenant-usage-metrics.entity';
-import { TenantSubscriptionRequestedHandler } from './event-handlers/tenant-subscription-requested.handler';
 import { BillingAdminNatsHandler } from './handlers/billing-admin-nats.handler';
 import { CancelSubscriptionHandler } from './handlers/cancel-subscription.handler';
 import { ChangeSubscriptionPlanHandler } from './handlers/change-subscription-plan.handler';
@@ -59,9 +58,7 @@ const QueryHandlers = [
   GetTenantBillingHandler,
 ];
 
-const EventHandlers = [
-  TenantSubscriptionRequestedHandler,
-];
+const EventHandlers: never[] = [];
 
 @Module({
   imports: [
@@ -83,5 +80,4 @@ const EventHandlers = [
   ],
   exports: [TypeOrmModule],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class BillingModule {}

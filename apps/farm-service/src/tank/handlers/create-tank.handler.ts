@@ -2,151 +2,170 @@
  * Create Tank Command Handler
  * @module Tank/Handlers
  */
-import {
-  Logger,
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import { Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { Repository } from 'typeorm';
+import { TankCreatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
 
-import {
-  defaultFarmStockProjectionForDirectHandlerConstruction,
-} from '../../common/services/direct-handler-dependency-defaults';
+import { defaultFarmStockProjectionForDirectHandlerConstruction } from '../../common/services/direct-handler-dependency-defaults';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
 import { Department } from '../../department/entities/department.entity';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { System } from '../../system/entities/system.entity';
 import { CreateTankCommand } from '../commands/create-tank.command';
 import { Tank, TankType } from '../entities/tank.entity';
+import { tankAuditSnapshot } from './tank-audit.util';
 
 @CommandHandler(CreateTankCommand)
-export class CreateTankHandler
-  implements ICommandHandler<CreateTankCommand, Tank>
-{
+export class CreateTankHandler implements ICommandHandler<CreateTankCommand, Tank> {
   private readonly logger = new Logger(CreateTankHandler.name);
 
   constructor(
-    @InjectRepository(Tank)
-    private readonly tankRepository: Repository<Tank>,
-    @InjectRepository(Department)
-    private readonly departmentRepository: Repository<Department>,
+    private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
     private readonly codeGeneratorService: CodeGeneratorService,
-    private readonly farmStockProjection: FarmStockProjectionService =
-      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly outboxPublisher: OutboxPublisher,
+    private readonly farmStockProjection: FarmStockProjectionService = defaultFarmStockProjectionForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: CreateTankCommand): Promise<Tank> {
     const { tenantId, userId, input } = command;
 
-    this.logger.log(
-      `Creating tank: ${input.name} for tenant: ${tenantId}`,
-    );
+    this.logger.log(`Creating tank: ${input.name} for tenant: ${tenantId}`);
 
-    // Validate department exists
-    const department = await this.departmentRepository.findOne({
-      where: { id: input.departmentId, tenantId },
-    });
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
+      const departmentRepository = tenantManagerRepo(queryRunner.manager, Department, tenantId);
+      const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
 
-    if (!department) {
-      throw new NotFoundException(
-        `Department with id "${input.departmentId}" not found`,
+      const department = await departmentRepository.findOne({
+        where: { id: input.departmentId, tenantId },
+      });
+
+      if (!department) {
+        throw new NotFoundException(`Department with id "${input.departmentId}" not found`);
+      }
+      if (department.isDeleted) {
+        throw new BadRequestException(`Department with id "${input.departmentId}" is deleted`);
+      }
+
+      if (input.systemId) {
+        const system = await systemRepository.findOne({ where: { id: input.systemId, tenantId } });
+        if (!system) {
+          throw new NotFoundException(`System with id "${input.systemId}" not found`);
+        }
+        if (system.isDeleted) {
+          throw new BadRequestException(`System with id "${input.systemId}" is deleted`);
+        }
+        if (system.siteId !== department.siteId) {
+          throw new BadRequestException(
+            `System "${system.name}" does not belong to the same site as the department`,
+          );
+        }
+      }
+
+      this.validateDimensions(input.tankType, input);
+
+      const code = await this.codeGeneratorService.generateTankCodeWithManager(
+        queryRunner.manager,
+        tenantId,
       );
-    }
 
-    // Validate dimensions based on tank type
-    this.validateDimensions(input.tankType, input);
+      const tank = tankRepository.create({
+        name: input.name,
+        code,
+        description: input.description,
+        departmentId: input.departmentId,
+        systemId: input.systemId,
+        containerKind: input.containerKind,
+        equipmentTypeId: input.equipmentTypeId,
+        equipmentTypeCode: input.equipmentTypeCode,
+        tankType: input.tankType,
+        material: input.material,
+        waterType: input.waterType,
+        diameter: input.diameter,
+        length: input.length,
+        width: input.width,
+        depth: input.depth,
+        waterDepth: input.waterDepth,
+        freeboard: input.freeboard,
+        volume: input.volume ?? 0,
+        maxBiomass: input.maxBiomass,
+        currentBiomass: 0,
+        maxDensity: input.maxDensity || 30,
+        waterFlow: input.waterFlow,
+        aeration: input.aeration as Tank['aeration'],
+        location: input.location,
+        status: input.status,
+        installationDate: input.installationDate ? new Date(input.installationDate) : undefined,
+        notes: input.notes,
+        isActive: true,
+        createdBy: userId,
+        updatedBy: userId,
+      });
 
-    // Generate unique code
-    const code = await this.codeGeneratorService.generateTankCode(tenantId);
+      tank.calculateVolume();
 
-    // Create entity
-    const tank = this.tankRepository.create({
-      tenantId,
-      name: input.name,
-      code,
-      description: input.description,
-      departmentId: input.departmentId,
-      systemId: input.systemId,
-      tankType: input.tankType,
-      material: input.material,
-      waterType: input.waterType,
-      diameter: input.diameter,
-      length: input.length,
-      width: input.width,
-      depth: input.depth,
-      waterDepth: input.waterDepth,
-      freeboard: input.freeboard,
-      volume: 0, // Will be calculated in BeforeInsert
-      maxBiomass: input.maxBiomass,
-      currentBiomass: 0,
-      maxDensity: input.maxDensity || 30,
-      waterFlow: input.waterFlow,
-      aeration: input.aeration as Tank['aeration'],
-      location: input.location,
-      status: input.status,
-      installationDate: input.installationDate
-        ? new Date(input.installationDate)
-        : undefined,
-      notes: input.notes,
-      isActive: true,
-      createdBy: userId,
-      updatedBy: userId,
+      if (tank.volume <= 0 && input.volume && input.volume > 0) {
+        tank.volume = input.volume;
+      }
+
+      if (tank.volume <= 0) {
+        throw new BadRequestException(
+          'Invalid dimensions: calculated volume must be greater than 0',
+        );
+      }
+
+      const maxByDensity = tank.volume * (input.maxDensity || 30);
+      if (input.maxBiomass > maxByDensity) {
+        this.logger.warn(
+          `maxBiomass (${input.maxBiomass}kg) exceeds density limit (${maxByDensity.toFixed(2)}kg at ${input.maxDensity || 30}kg/m³)`,
+        );
+      }
+
+      const saved = await tankRepository.save(tank);
+      await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [saved.id]);
+
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'Tank',
+        entityId: saved.id,
+        action: AuditAction.CREATE,
+        userId,
+        changes: { after: tankAuditSnapshot(saved) },
+        metadata: { source: 'SITES_SETUP_TANK' },
+        entityVersion: saved.version,
+        summary: `Created tank ${saved.code}`,
+      });
+
+      const event: TankCreatedEvent = {
+        ...createBaseEvent<TankCreatedEvent>('TankCreated', tenantId, {
+          aggregateId: saved.id,
+          aggregateType: 'Tank',
+          userId,
+        }),
+        tankId: saved.id,
+        departmentId: saved.departmentId,
+        systemId: saved.systemId,
+        name: saved.name,
+        code: saved.code,
+        tankType: saved.tankType,
+        status: saved.status,
+        volume: Number(saved.volume),
+        maxBiomass: Number(saved.maxBiomass),
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        aggregateId: saved.id,
+      });
+
+      this.logger.log(`Tank created: ${saved.id} - ${saved.code} (${saved.volume.toFixed(2)}m³)`);
+
+      return saved;
     });
-
-    // Volume is calculated in BeforeInsert hook
-    // but we can verify it here
-    tank.calculateVolume();
-
-    if (tank.volume <= 0) {
-      throw new BadRequestException(
-        'Invalid dimensions: calculated volume must be greater than 0',
-      );
-    }
-
-    // Validate maxBiomass against maxDensity
-    const maxByDensity = tank.volume * (input.maxDensity || 30);
-    if (input.maxBiomass > maxByDensity) {
-      this.logger.warn(
-        `maxBiomass (${input.maxBiomass}kg) exceeds density limit (${maxByDensity.toFixed(2)}kg at ${input.maxDensity || 30}kg/m³)`,
-      );
-    }
-
-    // Save
-    const saved = await this.tankRepository.save(tank);
-    await this.farmStockProjection.refreshContainers(
-      this.tankRepository.manager,
-      tenantId,
-      [saved.id],
-    );
-
-    // Audit log
-    await this.auditLogService.log({
-      tenantId,
-      entityType: 'Tank',
-      entityId: saved.id,
-      action: AuditAction.CREATE,
-      userId,
-      changes: {
-        after: {
-          name: saved.name,
-          code: saved.code,
-          tankType: saved.tankType,
-          volume: saved.volume,
-          maxBiomass: saved.maxBiomass,
-          departmentId: saved.departmentId,
-        },
-      },
-    });
-
-    this.logger.log(
-      `Tank created: ${saved.id} - ${saved.code} (${saved.volume.toFixed(2)}m³)`,
-    );
-
-    return saved;
   }
 
   /**
@@ -175,26 +194,22 @@ export class CreateTankHandler
       case TankType.RACEWAY:
       case TankType.D_END:
         if (!input.length || input.length <= 0) {
-          throw new BadRequestException(
-            `Length is required for ${tankType} tanks and must be > 0`,
-          );
+          throw new BadRequestException(`Length is required for ${tankType} tanks and must be > 0`);
         }
         if (!input.width || input.width <= 0) {
-          throw new BadRequestException(
-            `Width is required for ${tankType} tanks and must be > 0`,
-          );
+          throw new BadRequestException(`Width is required for ${tankType} tanks and must be > 0`);
         }
         break;
 
       case TankType.OTHER: {
         // For OTHER type, at least one dimension set should be provided
         const hasCircular = input.diameter && input.diameter > 0;
-        const hasRectangular =
-          input.length && input.length > 0 && input.width && input.width > 0;
+        const hasRectangular = input.length && input.length > 0 && input.width && input.width > 0;
+        const hasManualVolume = 'volume' in input && Number((input as { volume?: number }).volume) > 0;
 
-        if (!hasCircular && !hasRectangular) {
+        if (!hasCircular && !hasRectangular && !hasManualVolume) {
           throw new BadRequestException(
-            'For OTHER tank type, provide either diameter OR (length and width)',
+            'For OTHER tank type, provide either diameter, (length and width), or manual volume',
           );
         }
         break;

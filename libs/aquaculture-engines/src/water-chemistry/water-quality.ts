@@ -7,6 +7,7 @@
  * ionic strength corrections, and borate/sulfate/fluoride contributions.
  */
 
+import { DEFFEYES_SOLVER_PH_DOMAIN } from './domains.js';
 import { tempCToK } from './types.js';
 
 // ============================================================================
@@ -428,16 +429,25 @@ export function calcAlkOfDicPh(dicMM: number, pHnbs: number, tempC: number, S: n
  * Uses bisection method to find pH where CO2(DIC, pH) = co2CritMg
  * Returns pH on NBS scale
  */
-export function calcPhForCritCO2(dicMM: number, co2CritMg: number, tempC: number, S: number): number {
+export function calcPhForCritCO2(
+  dicMM: number,
+  co2CritMg: number,
+  tempC: number,
+  S: number,
+  minPH = DEFFEYES_SOLVER_PH_DOMAIN.minPH,
+  maxPH = DEFFEYES_SOLVER_PH_DOMAIN.maxPH
+): number {
   const co2CritMM = co2MgToMm(co2CritMg);
   if (dicMM <= 0 || co2CritMM <= 0) return NaN;
+  if (!isFinite(minPH) || !isFinite(maxPH) || minPH >= maxPH) return NaN;
   // CO2 = DIC * alpha0 → alpha0 = co2Crit / DIC
   const targetAlpha0 = co2CritMM / dicMM;
-  if (targetAlpha0 >= 1) return 0; // All CO2
-  if (targetAlpha0 <= 0) return 14;
+  if (targetAlpha0 >= 1) return minPH;
+  if (targetAlpha0 <= 0) return maxPH;
 
   // Bisection on NBS pH
-  let lo = 4.0, hi = 12.0;
+  let lo = minPH;
+  let hi = maxPH;
   for (let i = 0; i < 100; i++) {
     const mid = (lo + hi) / 2;
     const pHfree = phNbsToFree(mid, tempC, S);
@@ -456,8 +466,19 @@ export function calcPhForCritCO2(dicMM: number, co2CritMg: number, tempC: number
  * Find pH (NBS) given alkalinity (meq/L) and DIC (mmol/L)
  * Uses bisection method
  */
-export function calcPhForAlkDic(alkMeq: number, dicMM: number, tempC: number, S: number): number {
-  let lo = 4.0, hi = 12.0;
+export function calcPhForAlkDic(
+  alkMeq: number,
+  dicMM: number,
+  tempC: number,
+  S: number,
+  minPH = DEFFEYES_SOLVER_PH_DOMAIN.minPH,
+  maxPH = DEFFEYES_SOLVER_PH_DOMAIN.maxPH
+): number {
+  if (!isFinite(alkMeq) || !isFinite(dicMM) || dicMM <= 0) return NaN;
+  if (!isFinite(minPH) || !isFinite(maxPH) || minPH >= maxPH) return NaN;
+
+  let lo = minPH;
+  let hi = maxPH;
   for (let i = 0; i < 100; i++) {
     const mid = (lo + hi) / 2;
     const calcAlk = calcAlkOfDicPh(dicMM, mid, tempC, S);

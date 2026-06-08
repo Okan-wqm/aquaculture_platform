@@ -9,7 +9,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.tsx",
-    "test": "vitest"
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:water-chemistry": "vitest run src/pages/water-chemistry/WaterChemistryPage.spec.ts src/pages/water-chemistry/components/DeffeyesChart.spec.tsx src/pages/water-chemistry/components/DeffeyesPhChart.spec.tsx src/pages/water-chemistry/waterChemistryReportExport.spec.ts"
   },
   "dependencies": {
     "@aquaculture/shared-ui": "file:../../shared-ui",
@@ -30,11 +32,15 @@
   },
   "devDependencies": {
     "@originjs/vite-plugin-federation": "^1.3.5",
+    "@testing-library/jest-dom": "^6.2.0",
+    "@testing-library/react": "^14.1.2",
+    "@testing-library/user-event": "^14.5.2",
     "@types/leaflet": "^1.9.8",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.16",
+    "jsdom": "^24.0.0",
     "polygon-clipping": "^0.14.3",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",

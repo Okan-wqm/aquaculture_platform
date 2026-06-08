@@ -14,7 +14,7 @@ if (!globalThis.ResizeObserver) {
       this.callback = callback;
     }
 
-    observe(target: Element) {
+    observe(target: Element): void {
       this.callback([
         {
           target,
@@ -33,9 +33,13 @@ if (!globalThis.ResizeObserver) {
       ], this);
     }
 
-    unobserve() {}
+    unobserve(): void {
+      return undefined;
+    }
 
-    disconnect() {}
+    disconnect(): void {
+      return undefined;
+    }
   };
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import {
   alkMgToMeq,
   calcAlkOfDicPh,
@@ -46,7 +47,10 @@ const fixture = {
   h2sLimitUgL: 25,
 };
 
-function generatePair() {
+type DeffeyesChartResult = ReturnType<typeof generateDeffeyesChartData>;
+type DeffeyesPHChartResult = ReturnType<typeof generateDeffeyesPHChartData>;
+
+function generatePair(): { legacy: DeffeyesChartResult; ph: DeffeyesPHChartResult } {
   const params = {
     tempC: fixture.tempC,
     pH: fixture.pH,
@@ -91,7 +95,25 @@ function generatePair() {
   return { legacy, ph };
 }
 
-function generatePHData(overrides: Partial<typeof fixture> = {}) {
+function requireValue<T>(value: T | null | undefined, label: string): T {
+  expect(value).toBeDefined();
+  if (value == null) {
+    throw new Error(`${label} should be defined`);
+  }
+  return value;
+}
+
+function requireLineEndpoints<T>(values: readonly T[], label: string): { first: T; last: T } {
+  expect(values.length).toBeGreaterThan(1);
+  const first = values[0];
+  const last = values.at(-1);
+  if (first == null || last == null) {
+    throw new Error(`${label} should contain endpoints`);
+  }
+  return { first, last };
+}
+
+function generatePHData(overrides: Partial<typeof fixture> = {}): DeffeyesPHChartResult {
   const f = { ...fixture, ...overrides };
   return generateDeffeyesPHChartData(
     { tempC: f.tempC, pH: f.pH, salinity: f.salinity, alkalinity: f.alkalinity },
@@ -323,10 +345,8 @@ describe('DIC/pH Deffeyes projection', () => {
     expect(ph.projectionStats.projected).toBeGreaterThan(0);
     const alkalinityStats = ph.projectionStats.layers.alkalinity;
     const pHReferenceStats = ph.projectionStats.layers.pHReferences;
-    expect(alkalinityStats).toBeDefined();
-    expect(pHReferenceStats).toBeDefined();
-    expect(alkalinityStats!.projected).toBeGreaterThan(0);
-    expect(pHReferenceStats!.projected).toBe(ph.pHReferences.length * 2);
+    expect(requireValue(alkalinityStats, 'alkalinity projection stats').projected).toBeGreaterThan(0);
+    expect(requireValue(pHReferenceStats, 'pH reference projection stats').projected).toBe(ph.pHReferences.length * 2);
 
     const extremeAlkData = generateDeffeyesPHChartData(
       { tempC: fixture.tempC, pH: fixture.pH, salinity: fixture.salinity, alkalinity: fixture.alkalinity },
@@ -359,17 +379,15 @@ describe('DIC/pH Deffeyes projection', () => {
     ];
 
     for (const testCase of directionCases) {
-      const reagent = REAGENTS.find(r => r.name === testCase.reagent);
-      expect(reagent).toBeDefined();
+      const reagent = requireValue(REAGENTS.find(r => r.name === testCase.reagent), testCase.reagent);
 
-      const source = reagentDirectionLine(startDIC, startALK, reagent!, 2);
+      const source = reagentDirectionLine(startDIC, startALK, reagent, 2);
       const projected = projectAlkDicLineToDicPh(source, fixture.tempC, fixture.salinity, {
         truncateOnInvalid: true,
       });
 
       expect(projected.length).toBeGreaterThan(2);
-      const first = projected[0]!;
-      const last = projected[projected.length - 1]!;
+      const { first, last } = requireLineEndpoints(projected, `${testCase.reagent} projected line`);
       const dicDelta = last.CT - first.CT;
       const phDelta = last.pH - first.pH;
 
@@ -578,13 +596,11 @@ describe('DIC/pH Deffeyes projection', () => {
 
   it('preserves diagonal reagent slope in source space and round-trips its pH projection', () => {
     const { legacy } = generatePair();
-    const reagent = REAGENTS.find(r => r.name === 'Sodium Bicarbonate');
-    expect(reagent).toBeDefined();
+    const reagent = requireValue(REAGENTS.find(r => r.name === 'Sodium Bicarbonate'), 'Sodium Bicarbonate');
 
-    const source = reagentDirectionLine(legacy.currentPoint.DIC, legacy.currentPoint.ALK, reagent!, 2);
-    const firstSource = source[0]!;
-    const lastSource = source[source.length - 1]!;
-    expect((lastSource.AT - firstSource.AT) / (lastSource.CT - firstSource.CT)).toBeCloseTo(reagent!.slope, 5);
+    const source = reagentDirectionLine(legacy.currentPoint.DIC, legacy.currentPoint.ALK, reagent, 2);
+    const { first: firstSource, last: lastSource } = requireLineEndpoints(source, 'Sodium Bicarbonate source line');
+    expect((lastSource.AT - firstSource.AT) / (lastSource.CT - firstSource.CT)).toBeCloseTo(reagent.slope, 5);
 
     const projected = projectAlkDicLineToDicPh(source, fixture.tempC, fixture.salinity, {
       truncateOnInvalid: true,
@@ -608,7 +624,7 @@ describe('DIC/pH Deffeyes projection', () => {
 
     expect(path.length).toBeGreaterThan(1);
     const projectedSegments = path.slice(0, -1).flatMap((step, index) => {
-      const next = path[index + 1]!;
+      const next = requireValue(path[index + 1], `forward dosing step ${index + 1}`);
       const stepSegments = sampleAlkDicSegmentSegmentsToDicPh(
         { CT: step.dic, AT: step.alk },
         { CT: next.dic, AT: next.alk },

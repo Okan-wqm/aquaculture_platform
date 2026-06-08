@@ -1,8 +1,11 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import federation from '@originjs/vite-plugin-federation';
 import { resolve } from 'path';
-import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
+
+import { getCoreSharedConfig } from '@aquaculture/shared-ui/federation/federationSharedConfig';
+import federation from '@originjs/vite-plugin-federation';
+import react from '@vitejs/plugin-react';
+import { defineConfig, type PluginOption } from 'vite';
+
+const createReactPlugin = react as () => PluginOption[];
 
 const farmModuleBase = process.env.VITE_FARM_MODULE_BASE ?? '/remotes/farm-module/';
 
@@ -21,7 +24,7 @@ export default defineConfig(({ mode }) => {
   return {
     envDir: resolve(__dirname, '../../..'),
     plugins: [
-      react(),
+      createReactPlugin(),
       federation({
         name: 'farmModule',
         filename: 'remoteEntry.js',

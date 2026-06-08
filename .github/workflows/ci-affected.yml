@@ -20,6 +20,7 @@ permissions:
 
 env:
   NODE_VERSION: '22'
+  NPM_CONFIG_CACHE: .npm-cache
   SENS_API_GATEWAY_CI_FEATURES: health,telemetry,metrics,strict-security,scada-display,lorawan,signed-deploy,tpm,st-bytecode,multi-task-scheduler,opc-ua-server,live-debug,license-enforce
 
 jobs:

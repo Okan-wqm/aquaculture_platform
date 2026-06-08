@@ -5,6 +5,7 @@
  * using Millero thermodynamic constants.
  */
 
+import { DEFFEYES_LEGACY_PH_DOMAIN } from './domains.js';
 import {
   alphaZero,
   alphaOne,
@@ -16,7 +17,6 @@ import {
   calcKspCalcite,
   calcKspAragonite,
 } from './water-quality.js';
-import { DEFFEYES_LEGACY_PH_DOMAIN } from './domains.js';
 
 /**
  * Calculate CO2 level (mg/L) from alkalinity and pH

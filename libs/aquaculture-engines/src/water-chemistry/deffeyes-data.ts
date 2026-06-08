@@ -774,7 +774,7 @@ export function projectAlkDicLineWithStats(
   const segments: DicPhSegment[] = [];
   let currentSegment: DicPhPoint[] = [];
   const stats = emptyProjectionCounters();
-  const flush = () => {
+  const flush = (): void => {
     if (currentSegment.length >= 2) {
       segments.push(currentSegment);
     }
@@ -887,7 +887,7 @@ function generateCO2PHToxicZone(
 ): DicPhToxicZone | null {
   const boundarySegments: DicPhSegment[] = [];
   let currentSegment: DicPhPoint[] = [];
-  const flush = () => {
+  const flush = (): void => {
     if (currentSegment.length >= 2) {
       boundarySegments.push(currentSegment);
     }
@@ -990,7 +990,7 @@ function generateSafeBands(
   let upper: DicPhPoint[] = [];
   const step = maxDIC / 160;
 
-  const flush = () => {
+  const flush = (): void => {
     if (lower.length >= 2 && upper.length >= 2) {
       bands.push([...lower, ...upper.reverse()]);
     }
@@ -1068,13 +1068,14 @@ export function generateDeffeyesPHChartData(
   const targetPoint = legacyData.targetPoint && target && showTarget
     ? roundedPoint({ CT: legacyData.targetPoint.DIC, pH: target.targetpH, AT: legacyData.targetPoint.ALK })
     : null;
-  const targetPathProjection: ProjectedDicPhLine = legacyData.targetPoint && targetPoint
+  const legacyTargetPoint = legacyData.targetPoint;
+  const targetPathProjection: ProjectedDicPhLine = legacyTargetPoint && targetPoint
     ? projectAlkDicLineWithStats(
         Array.from({ length: 49 }, (_, i) => {
           const t = i / 48;
           return {
-            CT: legacyData.currentPoint.DIC + (legacyData.targetPoint!.DIC - legacyData.currentPoint.DIC) * t,
-            AT: legacyData.currentPoint.ALK + (legacyData.targetPoint!.ALK - legacyData.currentPoint.ALK) * t,
+            CT: legacyData.currentPoint.DIC + (legacyTargetPoint.DIC - legacyData.currentPoint.DIC) * t,
+            AT: legacyData.currentPoint.ALK + (legacyTargetPoint.ALK - legacyData.currentPoint.ALK) * t,
           };
         }),
         tempC,

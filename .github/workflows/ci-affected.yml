@@ -402,6 +402,137 @@ jobs:
           NX_NO_CLOUD: 'true'
           NODE_OPTIONS: '--max-old-space-size=4096'
 
+      - name: Run focused farm water-chemistry tests
+        run: |
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          if git diff --name-only "$BASE_REF"...HEAD | grep -Eq '^(\.github/workflows/ci-affected\.yml|e2e/|web/modules/farm-module/(package\.json|vite\.config\.ts|src/pages/water-chemistry/)|libs/aquaculture-engines/src/water-chemistry/)'; then
+            npm --workspace @aquaculture/farm-module run test:water-chemistry
+          else
+            echo "No farm water-chemistry files changed; skipping focused water-chemistry gate."
+          fi
+        timeout-minutes: 20
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+  farm-water-chemistry-e2e:
+    needs: [install, detect-changes]
+    if: >-
+      needs.detect-changes.outputs.has_changes == 'true' &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: ph
+            chart_mode: ph
+            allow_override: 'false'
+            expect_mode: ph
+            path: ''
+          - scenario: legacy-denies-query
+            chart_mode: legacy
+            allow_override: 'false'
+            expect_mode: legacy
+            path: '?deffeyesMode=ph'
+          - scenario: legacy-diagnostic-override
+            chart_mode: legacy
+            allow_override: 'true'
+            expect_mode: ph
+            path: '?deffeyesMode=ph'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore node_modules
+        id: cache-nm
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Fallback install if cache missed
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci --ignore-scripts --no-audit
+
+      - name: Install e2e smoke dependencies
+        run: |
+          npm --prefix e2e ci --ignore-scripts --no-audit
+          npm --prefix e2e exec playwright install --with-deps chromium
+
+      - name: Run production water-chemistry browser smoke
+        run: |
+          set -euo pipefail
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          if ! git diff --name-only "$BASE_REF"...HEAD | grep -Eq '^(\.github/workflows/ci-affected\.yml|e2e/|web/modules/farm-module/(package\.json|vite\.config\.ts|src/pages/water-chemistry/)|libs/aquaculture-engines/src/water-chemistry/)'; then
+            echo "No farm water-chemistry release files changed; skipping browser smoke."
+            exit 0
+          fi
+
+          VITE_DEFFEYES_CHART_MODE="${{ matrix.chart_mode }}" \
+          VITE_DEFFEYES_ALLOW_DIAGNOSTIC_MODE_OVERRIDE="${{ matrix.allow_override }}" \
+          npx nx build farm-module
+
+          mkdir -p web/shell/src/generated
+          FARM_REMOTE_ENTRY="web/modules/farm-module/dist/assets/remoteEntry.js"
+          if [ ! -f "$FARM_REMOTE_ENTRY" ]; then
+            echo "Missing farm remote entry at $FARM_REMOTE_ENTRY"
+            exit 1
+          fi
+          FARM_REMOTE_HASH="$(openssl dgst -sha256 -binary "$FARM_REMOTE_ENTRY" | openssl base64 -A)"
+          cat > web/shell/src/generated/remoteHashes.json <<JSON
+          {
+            "/remotes/farm-module/assets/remoteEntry.js": "sha256-${FARM_REMOTE_HASH}"
+          }
+          JSON
+
+          npx nx build shell
+
+          node e2e/scripts/serve-water-chemistry-shell.mjs > /tmp/farm-water-chemistry-shell.log 2>&1 &
+          SERVER_PID="$!"
+          trap 'kill "$SERVER_PID" >/dev/null 2>&1 || true' EXIT
+
+          for _ in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:4302/sites/water-chemistry >/dev/null \
+              && curl -fsS http://127.0.0.1:4302/remotes/farm-module/assets/remoteEntry.js >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "${ready:-false}" != "true" ]; then
+            cat /tmp/farm-water-chemistry-shell.log
+            exit 1
+          fi
+
+          FARM_WATER_CHEMISTRY_URL="http://127.0.0.1:4302/sites/water-chemistry" \
+          FARM_WATER_CHEMISTRY_EXPECT_REMOTE_ENTRY="true" \
+          FARM_WATER_CHEMISTRY_EXPECT_MODE="${{ matrix.expect_mode }}" \
+          FARM_WATER_CHEMISTRY_PATH="${{ matrix.path }}" \
+          npm run test:e2e:water-chemistry
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+      - name: Upload water-chemistry smoke artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: farm-water-chemistry-e2e-${{ matrix.scenario }}
+          path: |
+            /tmp/farm-water-chemistry-shell.log
+            e2e/playwright-report/**
+            e2e/test-results/**
+
   # ---------------------------------------------------------------------------
   # Build: PR + push-to-main deploy gate.
   # On PR this validates the code compiles before merge; on main it prevents
@@ -1091,6 +1222,7 @@ jobs:
       - pre-flight
       - infra-image-build-check
       - security-audit
+      - farm-water-chemistry-e2e
       - sensor-service-gates
       - sens-api-gateway-rust
       - sens-enterprise-validation
@@ -1118,6 +1250,7 @@ jobs:
             "pre-flight:${{ needs.pre-flight.result }}" \
             "infra-image-build-check:${{ needs.infra-image-build-check.result }}" \
             "security-audit:${{ needs.security-audit.result }}" \
+            "farm-water-chemistry-e2e:${{ needs.farm-water-chemistry-e2e.result }}" \
             "sensor-service-gates:${{ needs.sensor-service-gates.result }}" \
             "sens-api-gateway-rust:${{ needs.sens-api-gateway-rust.result }}" \
             "sens-enterprise-validation:${{ needs.sens-enterprise-validation.result }}"; do

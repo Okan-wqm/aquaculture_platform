@@ -6,6 +6,7 @@
  */
 
 export * from './types.js';
+export * from './domains.js';
 export * from './water-quality.js';
 export * from './ammonia-calc.js';
 export * from './co2-calc.js';

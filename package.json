@@ -27,6 +27,7 @@
     "build:web": "nx run-many --target=build --projects=shared-ui,shell,dashboard,farm-module,process-editor,admin-panel",
     "test": "nx affected --target=test",
     "test:all": "nx run-many --target=test --all",
+    "test:e2e:water-chemistry": "npm --prefix e2e run test:water-chemistry",
     "lint": "nx affected --target=lint",
     "lint:all": "nx run-many --target=lint --all",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",

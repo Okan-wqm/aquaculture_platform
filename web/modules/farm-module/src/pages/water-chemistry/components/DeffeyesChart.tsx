@@ -11,22 +11,20 @@
  * - Reagent direction line (optional)
  * - Visibility toggles for each layer
  */
+import type { DeffeyesChartData, DosingVisualization, OnDemandStep, SafeZone } from '@platform/aquaculture-engines';
 import React, { useMemo, useState } from 'react';
 import {
-  ComposedChart,
-  Line,
   Area,
-  XAxis,
-  YAxis,
   CartesianGrid,
-  Tooltip,
-  Legend,
+  ComposedChart,
+  Customized,
+  Line,
   ResponsiveContainer,
   Scatter,
-  Label,
-  Customized,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
-import type { DeffeyesChartData, OnDemandStep } from '@platform/aquaculture-engines';
 
 interface DeffeyesChartProps {
   data: DeffeyesChartData;
@@ -35,8 +33,40 @@ interface DeffeyesChartProps {
   onDemandPath?: OnDemandStep[];
 }
 
+type AlkDicPoint = { CT: number; AT: number };
+
+interface ScatterShapeProps {
+  cx?: number;
+  cy?: number;
+  payload?: {
+    angle?: number;
+  };
+}
+
+interface AxisScale {
+  scale?: (value: number) => number;
+}
+
+interface CustomizedLayerProps {
+  xAxisMap?: Record<string, AxisScale>;
+  yAxisMap?: Record<string, AxisScale>;
+}
+
+function getChartScales(props: CustomizedLayerProps): {
+  xScale: (value: number) => number;
+  yScale: (value: number) => number;
+} | null {
+  const xAxis = props.xAxisMap ? Object.values(props.xAxisMap)[0] : undefined;
+  const yAxis = props.yAxisMap ? Object.values(props.yAxisMap)[0] : undefined;
+  if (!xAxis?.scale || !yAxis?.scale) return null;
+  return { xScale: xAxis.scale, yScale: yAxis.scale };
+}
+
 /** Select subset of isolines for display - show every 0.5 pH */
-function selectDisplayIsolines(data: DeffeyesChartData) {
+function selectDisplayIsolines(data: DeffeyesChartData): {
+  major: DeffeyesChartData['isolines'];
+  minor: DeffeyesChartData['isolines'];
+} {
   const majorPHs = new Set<number>();
   for (let pH = 5.0; pH <= 12.0; pH += 0.5) {
     majorPHs.add(parseFloat(pH.toFixed(2)));
@@ -75,11 +105,11 @@ function interpolateAT(
  * Area with baseValue=0 fills between curve and x-axis.
  */
 function clipCO2Boundary(
-  rawPoints: Array<{ CT: number; AT: number }>,
+  rawPoints: AlkDicPoint[],
   maxDIC: number,
   maxALK: number
-): Array<{ CT: number; AT: number }> {
-  const result: Array<{ CT: number; AT: number }> = [];
+): AlkDicPoint[] {
+  const result: AlkDicPoint[] = [];
 
   for (let i = 0; i < rawPoints.length; i++) {
     const curr = rawPoints[i];
@@ -125,11 +155,11 @@ function clipCO2Boundary(
  * Area with baseValue=maxALK fills between line and top edge.
  */
 function clipNH3Boundary(
-  rawPoints: Array<{ CT: number; AT: number }>,
+  rawPoints: AlkDicPoint[],
   maxDIC: number,
   maxALK: number
-): Array<{ CT: number; AT: number }> {
-  const result: Array<{ CT: number; AT: number }> = [];
+): AlkDicPoint[] {
+  const result: AlkDicPoint[] = [];
 
   for (let i = 0; i < rawPoints.length; i++) {
     const curr = rawPoints[i];
@@ -187,7 +217,7 @@ function clipNH3Boundary(
 }
 
 /** Custom shape for current operating point (blue star) */
-const StarShape: React.FC<any> = (props) => {
+const StarShape: React.FC<ScatterShapeProps> = (props) => {
   const { cx, cy } = props;
   if (cx == null || cy == null) return null;
   const r = 8;
@@ -202,7 +232,7 @@ const StarShape: React.FC<any> = (props) => {
 };
 
 /** Custom arrowhead shape for reagent direction line tip */
-const ArrowShape: React.FC<any> = (props) => {
+const ArrowShape: React.FC<ScatterShapeProps> = (props) => {
   const { cx, cy, payload } = props;
   if (cx == null || cy == null) return null;
   const angle = payload?.angle ?? 0;
@@ -223,7 +253,7 @@ const ArrowShape: React.FC<any> = (props) => {
 };
 
 /** Custom shape for target point (black X) */
-const CrossShape: React.FC<any> = (props) => {
+const CrossShape: React.FC<ScatterShapeProps> = (props) => {
   const { cx, cy } = props;
   if (cx == null || cy == null) return null;
   const s = 7;
@@ -236,7 +266,7 @@ const CrossShape: React.FC<any> = (props) => {
 };
 
 /** Custom shape for intermediate dosing point (orange diamond) */
-const DiamondShape: React.FC<any> = (props) => {
+const DiamondShape: React.FC<ScatterShapeProps> = (props) => {
   const { cx, cy } = props;
   if (cx == null || cy == null) return null;
   const s = 7;
@@ -270,6 +300,114 @@ const LayerToggle: React.FC<{
   </label>
 );
 
+function createSafeZoneLayer(safeZone: SafeZone): React.FC<CustomizedLayerProps> {
+  return function SafeZoneLayer(props: CustomizedLayerProps) {
+    const scales = getChartScales(props);
+    if (!scales) return null;
+    const { xScale, yScale } = scales;
+    const corners = [
+      safeZone.topLeft,
+      safeZone.topRight,
+      safeZone.bottomRight,
+      safeZone.bottomLeft,
+    ];
+    const points = corners.map(corner => `${xScale(corner.DIC)},${yScale(corner.ALK)}`).join(' ');
+
+    return (
+      <polygon
+        points={points}
+        fill="#22c55e"
+        fillOpacity={0.15}
+        stroke="#16a34a"
+        strokeWidth={1.5}
+        strokeDasharray="4 4"
+      />
+    );
+  };
+}
+
+function createDosingWedgeLayer(viz: DosingVisualization): React.FC<CustomizedLayerProps> {
+  return function DosingWedgeLayer(props: CustomizedLayerProps) {
+    const scales = getChartScales(props);
+    if (!scales) return null;
+    const { xScale, yScale } = scales;
+    const polygonPoints: string[] = [];
+
+    for (const point of viz.reagentLine1.points) {
+      const px = xScale(point.CT);
+      const py = yScale(point.AT);
+      if (isFinite(px) && isFinite(py)) polygonPoints.push(`${px},${py}`);
+    }
+    for (let i = viz.reagentLine2.points.length - 1; i >= 0; i--) {
+      const point = viz.reagentLine2.points[i];
+      if (!point) continue;
+      const px = xScale(point.CT);
+      const py = yScale(point.AT);
+      if (isFinite(px) && isFinite(py)) polygonPoints.push(`${px},${py}`);
+    }
+
+    if (polygonPoints.length < 3) return null;
+    return (
+      <polygon
+        points={polygonPoints.join(' ')}
+        fill="#f59e0b"
+        fillOpacity={0.12}
+        stroke="#f59e0b"
+        strokeWidth={0}
+      />
+    );
+  };
+}
+
+function createOnDemandArrowLayer(
+  steps: OnDemandStep[],
+  maxDIC: number,
+  maxALK: number
+): React.FC<CustomizedLayerProps> {
+  return function OnDemandArrowLayer(props: CustomizedLayerProps) {
+    const scales = getChartScales(props);
+    if (!scales) return null;
+    const { xScale, yScale } = scales;
+
+    return (
+      <g>
+        {steps.slice(1).map((step, idx) => {
+          const prev = steps[idx];
+          if (!prev) return null;
+          const cx = xScale(step.dic);
+          const cy = yScale(step.alk);
+          const px = xScale(prev.dic);
+          const py = yScale(prev.alk);
+          if (!isFinite(cx) || !isFinite(cy) || !isFinite(px) || !isFinite(py)) return null;
+
+          const dx = (cx - px) / maxDIC;
+          const dy = (cy - py) / maxALK;
+          const angle = Math.atan2(dy, dx);
+          const isLast = idx === steps.length - 2;
+          const size = isLast ? 11 : 9;
+          const color = idx === 0 ? '#f97316' : '#dc2626';
+          const a1 = angle + Math.PI * 0.8;
+          const a2 = angle - Math.PI * 0.8;
+
+          return (
+            <g key={`od-arrow-${idx}`}>
+              <polygon
+                points={`${cx},${cy} ${cx + size * Math.cos(a1)},${cy + size * Math.sin(a1)} ${cx + size * Math.cos(a2)},${cy + size * Math.sin(a2)}`}
+                fill={color}
+                stroke="white"
+                strokeWidth={0.5}
+              />
+              {isLast && (
+                <circle cx={cx} cy={cy} r={5} fill="#f97316" stroke="white" strokeWidth={1.5} />
+              )}
+            </g>
+          );
+        })}
+      </g>
+    );
+  };
+}
+
 const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
   data,
   maxDIC = 6,
@@ -289,6 +427,20 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
   const { major, minor } = useMemo(() => selectDisplayIsolines(data), [data]);
 
   const safeZone = data.safeZone;
+  const dosingVisualization = data.dosingVisualization;
+  const onDemandSteps = useMemo(
+    () => onDemandPath && onDemandPath.length > 1 ? onDemandPath : [],
+    [onDemandPath]
+  );
+  const SafeZoneLayer = useMemo(() => safeZone ? createSafeZoneLayer(safeZone) : null, [safeZone]);
+  const DosingWedgeLayer = useMemo(
+    () => dosingVisualization ? createDosingWedgeLayer(dosingVisualization) : null,
+    [dosingVisualization]
+  );
+  const OnDemandArrowLayer = useMemo(
+    () => onDemandSteps.length > 1 ? createOnDemandArrowLayer(onDemandSteps, maxDIC, maxALK) : null,
+    [maxALK, maxDIC, onDemandSteps]
+  );
 
   const visibleMajor = major.filter(iso => {
     const firstPt = iso.points[0];
@@ -353,7 +505,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
           <LayerToggle label="Current" color="#2563eb" checked={showCurrentPoint} onChange={setShowCurrentPoint} />
           <LayerToggle label="Dosing Path" color="#f59e0b" checked={showDosing} onChange={setShowDosing} />
           <LayerToggle label="Target" color="#111827" checked={showTarget} onChange={setShowTarget} />
-          {onDemandPath && onDemandPath.length > 1 && (
+          {onDemandSteps.length > 1 && (
             <LayerToggle label="On-Demand" color="#f97316" checked={showOnDemand} onChange={setShowOnDemand} />
           )}
         </div>
@@ -420,39 +572,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             )}
 
             {/* Safe Zone (quadrilateral bounded by NH3 line, CO2 line, alkMin, alkMax) */}
-            {showSafeZone && safeZone && (
-              <Customized
-                component={(props: any) => {
-                  const { xAxisMap, yAxisMap } = props;
-                  if (!xAxisMap || !yAxisMap) return null;
-                  const xAxis = Object.values(xAxisMap)[0] as any;
-                  const yAxis = Object.values(yAxisMap)[0] as any;
-                  if (!xAxis?.scale || !yAxis?.scale) return null;
-                  const xScale = xAxis.scale;
-                  const yScale = yAxis.scale;
-
-                  // 4 corners: topLeft, topRight, bottomRight, bottomLeft
-                  const corners = [
-                    safeZone!.topLeft,
-                    safeZone!.topRight,
-                    safeZone!.bottomRight,
-                    safeZone!.bottomLeft,
-                  ];
-                  const pts = corners.map(c => `${xScale(c.DIC)},${yScale(c.ALK)}`).join(' ');
-
-                  return (
-                    <polygon
-                      points={pts}
-                      fill="#22c55e"
-                      fillOpacity={0.15}
-                      stroke="#16a34a"
-                      strokeWidth={1.5}
-                      strokeDasharray="4 4"
-                    />
-                  );
-                }}
-              />
-            )}
+            {showSafeZone && SafeZoneLayer && <Customized component={SafeZoneLayer} />}
 
             {/* Minor pH isolines (thin, transparent) */}
             {showIsolines && visibleMinor.map((iso) => (
@@ -487,7 +607,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             ))}
 
             {/* Reagent direction line */}
-            {data.reagentLine && (
+            {showDosing && data.reagentLine && (
               <Line
                 data={data.reagentLine}
                 dataKey="AT"
@@ -502,7 +622,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             )}
 
             {/* Reagent arrowhead */}
-            {reagentArrow && (
+            {showDosing && reagentArrow && (
               <Scatter
                 data={reagentArrow}
                 shape={<ArrowShape />}
@@ -513,14 +633,14 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             )}
 
             {/* Two-reagent dosing visualization */}
-            {showDosing && data.dosingVisualization && (
+            {showDosing && dosingVisualization && (
               <>
                 {/* Reagent 1 direction line (from current point) */}
                 <Line
-                  data={data.dosingVisualization.reagentLine1.points}
+                  data={dosingVisualization.reagentLine1.points}
                   dataKey="AT"
-                  name={data.dosingVisualization.reagentLine1.label}
-                  stroke={data.dosingVisualization.reagentLine1.color}
+                  name={dosingVisualization.reagentLine1.label}
+                  stroke={dosingVisualization.reagentLine1.color}
                   strokeWidth={1.5}
                   strokeDasharray="4 4"
                   strokeOpacity={0.6}
@@ -530,10 +650,10 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 />
                 {/* Reagent 2 direction line (from current point) */}
                 <Line
-                  data={data.dosingVisualization.reagentLine2.points}
+                  data={dosingVisualization.reagentLine2.points}
                   dataKey="AT"
-                  name={data.dosingVisualization.reagentLine2.label}
-                  stroke={data.dosingVisualization.reagentLine2.color}
+                  name={dosingVisualization.reagentLine2.label}
+                  stroke={dosingVisualization.reagentLine2.color}
                   strokeWidth={1.5}
                   strokeDasharray="4 4"
                   strokeOpacity={0.6}
@@ -543,30 +663,30 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 />
 
                 {/* Step1/step2 bold path + intermediate point (only when target ON and dosing path computed) */}
-                {showTarget && data.dosingVisualization.step1Path.length > 0 && (
+                {showTarget && dosingVisualization.step1Path.length > 0 && (
                   <>
                     <Line
-                      data={data.dosingVisualization.step1Path}
+                      data={dosingVisualization.step1Path}
                       dataKey="AT"
-                      name={data.dosingVisualization.step1Label}
-                      stroke={data.dosingVisualization.reagentLine1.color}
+                      name={dosingVisualization.step1Label}
+                      stroke={dosingVisualization.reagentLine1.color}
                       strokeWidth={3}
                       dot={false}
                       type="monotone"
                       legendType="none"
                     />
                     <Line
-                      data={data.dosingVisualization.step2Path}
+                      data={dosingVisualization.step2Path}
                       dataKey="AT"
-                      name={data.dosingVisualization.step2Label}
-                      stroke={data.dosingVisualization.reagentLine2.color}
+                      name={dosingVisualization.step2Label}
+                      stroke={dosingVisualization.reagentLine2.color}
                       strokeWidth={3}
                       dot={false}
                       type="monotone"
                       legendType="none"
                     />
                     <Scatter
-                      data={[{ CT: data.dosingVisualization.intermediatePoint.DIC, AT: data.dosingVisualization.intermediatePoint.ALK }]}
+                      data={[{ CT: dosingVisualization.intermediatePoint.DIC, AT: dosingVisualization.intermediatePoint.ALK }]}
                       name="Intermediate"
                       shape={<DiamondShape />}
                       legendType="none"
@@ -576,46 +696,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 )}
 
                 {/* Reachable wedge (filled area between two reagent lines) - always shown */}
-                <Customized
-                  component={(props: any) => {
-                    const { xAxisMap, yAxisMap } = props;
-                    if (!xAxisMap || !yAxisMap) return null;
-                    const xAxis = Object.values(xAxisMap)[0] as any;
-                    const yAxis = Object.values(yAxisMap)[0] as any;
-                    if (!xAxis?.scale || !yAxis?.scale) return null;
-                    const xScale = xAxis.scale;
-                    const yScale = yAxis.scale;
-
-                    const viz = data.dosingVisualization!;
-                    const line1 = viz.reagentLine1.points;
-                    const line2 = viz.reagentLine2.points;
-
-                    // Build polygon: line1 forward + line2 reversed
-                    const polygonPoints: string[] = [];
-                    for (const p of line1) {
-                      const px = xScale(p.CT);
-                      const py = yScale(p.AT);
-                      if (isFinite(px) && isFinite(py)) polygonPoints.push(`${px},${py}`);
-                    }
-                    for (let i = line2.length - 1; i >= 0; i--) {
-                      const p = line2[i];
-                      const px = xScale(p.CT);
-                      const py = yScale(p.AT);
-                      if (isFinite(px) && isFinite(py)) polygonPoints.push(`${px},${py}`);
-                    }
-
-                    if (polygonPoints.length < 3) return null;
-                    return (
-                      <polygon
-                        points={polygonPoints.join(' ')}
-                        fill="#f59e0b"
-                        fillOpacity={0.12}
-                        stroke="#f59e0b"
-                        strokeWidth={0}
-                      />
-                    );
-                  }}
-                />
+                {DosingWedgeLayer && <Customized component={DosingWedgeLayer} />}
               </>
             )}
 
@@ -649,8 +730,8 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
               />
             )}
 
-            {/* Dashed line from current to target (only when current point is also shown) */}
-            {showCurrentPoint && showTarget && data.targetPoint && (
+            {/* Dashed line from current to target */}
+            {showTarget && data.targetPoint && (
               <Line
                 data={[
                   { CT: data.currentPoint.DIC, AT: data.currentPoint.ALK },
@@ -688,11 +769,12 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             )}
 
             {/* On-Demand path: arrows from step to step */}
-            {showOnDemand && onDemandPath && onDemandPath.length > 1 && (
+            {showOnDemand && onDemandSteps.length > 1 && (
               <>
                 {/* Arrow segments between consecutive steps */}
-                {onDemandPath.slice(0, -1).map((step, idx) => {
-                  const next = onDemandPath[idx + 1];
+                {onDemandSteps.slice(0, -1).map((step, idx) => {
+                  const next = onDemandSteps[idx + 1];
+                  if (!next) return null;
                   const segColor = idx === 0 ? '#f97316' : '#dc2626';
                   return (
                     <Line
@@ -713,55 +795,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 })}
 
                 {/* Arrowheads at each intermediate/final point (using Customized) */}
-                <Customized
-                  component={(props: any) => {
-                    const { xAxisMap, yAxisMap } = props;
-                    if (!xAxisMap || !yAxisMap) return null;
-                    const xAxis = Object.values(xAxisMap)[0] as any;
-                    const yAxis = Object.values(yAxisMap)[0] as any;
-                    if (!xAxis?.scale || !yAxis?.scale) return null;
-                    const xScale = xAxis.scale;
-                    const yScale = yAxis.scale;
-
-                    return (
-                      <g>
-                        {onDemandPath!.slice(1).map((step, idx) => {
-                          const prev = onDemandPath![idx];
-                          const cx = xScale(step.dic);
-                          const cy = yScale(step.alk);
-                          if (!isFinite(cx) || !isFinite(cy)) return null;
-
-                          // Arrow direction in SVG coords
-                          const px = xScale(prev.dic);
-                          const py = yScale(prev.alk);
-                          const dx = (cx - px) / maxDIC;
-                          const dy = (cy - py) / maxALK;
-                          const angle = Math.atan2(dy, dx);
-
-                          const isLast = idx === onDemandPath!.length - 2;
-                          const size = isLast ? 11 : 9;
-                          const color = idx === 0 ? '#f97316' : '#dc2626';
-                          const a1 = angle + Math.PI * 0.8;
-                          const a2 = angle - Math.PI * 0.8;
-
-                          return (
-                            <g key={`od-arrow-${idx}`}>
-                              <polygon
-                                points={`${cx},${cy} ${cx + size * Math.cos(a1)},${cy + size * Math.sin(a1)} ${cx + size * Math.cos(a2)},${cy + size * Math.sin(a2)}`}
-                                fill={color}
-                                stroke="white"
-                                strokeWidth={0.5}
-                              />
-                              {isLast && (
-                                <circle cx={cx} cy={cy} r={5} fill="#f97316" stroke="white" strokeWidth={1.5} />
-                              )}
-                            </g>
-                          );
-                        })}
-                      </g>
-                    );
-                  }}
-                />
+                {OnDemandArrowLayer && <Customized component={OnDemandArrowLayer} />}
               </>
             )}
           </ComposedChart>

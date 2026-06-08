@@ -6,6 +6,7 @@
  */
 
 import { getKNH4, getKH2S, phNbsToFree, swsToFree, totToFree } from './water-quality.js';
+import { DEFFEYES_LEGACY_PH_DOMAIN } from './domains.js';
 
 /**
  * Calculate the fraction of un-ionized NH3 at given conditions
@@ -64,7 +65,8 @@ export function criticalPHforNH3(
   const targetFraction = nh3Limit / tan;
 
   // Bisection on NBS pH
-  let lo = 4.0, hi = 12.0;
+  let lo = DEFFEYES_LEGACY_PH_DOMAIN.minPH;
+  let hi = DEFFEYES_LEGACY_PH_DOMAIN.maxPH;
   for (let i = 0; i < 100; i++) {
     const mid = (lo + hi) / 2;
     const f = fractionNH3(mid, tempC, S);
@@ -177,7 +179,7 @@ export function calcH2S(totalSulfide: number, pHnbs: number, tempC: number, S: n
 }
 
 /**
- * Calculate total sulfide from measured H₂S at current pH
+ * Calculate total sulfide from measured H₂S at the measurement pH
  * h2sMeasured in µg/L → totalSulfide in µg/L
  */
 export function calcTotalSulfide(h2sMeasured: number, pHnbs: number, tempC: number, S: number): number {
@@ -188,14 +190,14 @@ export function calcTotalSulfide(h2sMeasured: number, pHnbs: number, tempC: numb
 
 /**
  * Find the critical pH (NBS) where H₂S reaches the toxic limit.
- * Logic: from measured H₂S at current pH, compute total sulfide,
+ * Logic: from measured H₂S at its measurement pH, compute total sulfide,
  * then find pH where totalSulfide × fractionH2S(pH) = h2sLimit.
  *
  * H₂S fraction DECREASES with rising pH (opposite of NH3).
  * So critical pH is the pH BELOW which H₂S exceeds the limit.
  *
- * @param h2sMeasured - Measured H₂S at current pH (µg/L)
- * @param currentPH - Current pH (NBS)
+ * @param h2sMeasured - Measured H₂S at the measurement pH (µg/L)
+ * @param h2sMeasuredAtPH - pH where h2sMeasured was sampled (NBS)
  * @param h2sLimit - Toxic H₂S limit (µg/L)
  * @param tempC - Temperature in Celsius
  * @param S - Salinity in ppt
@@ -203,7 +205,7 @@ export function calcTotalSulfide(h2sMeasured: number, pHnbs: number, tempC: numb
  */
 export function criticalPHforH2S(
   h2sMeasured: number,
-  currentPH: number,
+  h2sMeasuredAtPH: number,
   h2sLimit: number,
   tempC: number,
   S: number
@@ -211,7 +213,7 @@ export function criticalPHforH2S(
   if (h2sMeasured <= 0 || h2sLimit <= 0) return NaN;
 
   // Calculate total sulfide from the measurement
-  const totalSulfide = calcTotalSulfide(h2sMeasured, currentPH, tempC, S);
+  const totalSulfide = calcTotalSulfide(h2sMeasured, h2sMeasuredAtPH, tempC, S);
   if (!isFinite(totalSulfide) || totalSulfide <= 0) return NaN;
 
   // Target fraction: at critical pH, totalSulfide * fraction = h2sLimit
@@ -220,7 +222,8 @@ export function criticalPHforH2S(
 
   // H₂S fraction decreases with increasing pH
   // Bisection: find pH where fractionH2S = targetFraction
-  let lo = 4.0, hi = 12.0;
+  let lo = DEFFEYES_LEGACY_PH_DOMAIN.minPH;
+  let hi = DEFFEYES_LEGACY_PH_DOMAIN.maxPH;
   for (let i = 0; i < 100; i++) {
     const mid = (lo + hi) / 2;
     const f = fractionH2S(mid, tempC, S);
@@ -270,21 +273,21 @@ export function h2sStatus(
  *
  * @param tempC - Temperature
  * @param S - Salinity
- * @param h2sMeasured - Measured H₂S at current pH (µg/L)
- * @param currentPH - Current pH for total sulfide calculation
+ * @param h2sMeasured - Measured H₂S at the measurement pH (µg/L)
+ * @param h2sMeasuredAtPH - pH where h2sMeasured was sampled
  * @param h2sLimit - Toxic H₂S limit (µg/L)
  */
 export function generateH2SvsPHData(
   tempC: number,
   S: number,
   h2sMeasured: number,
-  currentPH: number,
+  h2sMeasuredAtPH: number,
   h2sLimit: number,
   pHmin = 5.0,
   pHmax = 9.5,
   step = 0.05
 ): Array<{ pH: number; H2S_pct: number; HS_pct: number; H2S_ugL: number; limit: number }> {
-  const totalSulfide = calcTotalSulfide(h2sMeasured, currentPH, tempC, S);
+  const totalSulfide = calcTotalSulfide(h2sMeasured, h2sMeasuredAtPH, tempC, S);
   const data: Array<{ pH: number; H2S_pct: number; HS_pct: number; H2S_ugL: number; limit: number }> = [];
   for (let pH = pHmin; pH <= pHmax + 0.001; pH += step) {
     const f = fractionH2S(pH, tempC, S);

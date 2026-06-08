@@ -382,7 +382,18 @@ jobs:
             # after Jest has torn the environment down.
             MIGRATION_HARNESS_POSTGRES_IMAGE="$(node scripts/ci/print-migration-harness-postgres-image.mjs)"
             echo "Prewarming migration-harness PostgreSQL image from canonical setup.ts"
-            docker pull "$MIGRATION_HARNESS_POSTGRES_IMAGE"
+            for attempt in 1 2 3; do
+              if docker pull "$MIGRATION_HARNESS_POSTGRES_IMAGE"; then
+                break
+              fi
+              if [ "$attempt" = "3" ]; then
+                echo "Migration harness PostgreSQL image pull failed after 3 attempts."
+                exit 1
+              fi
+              delay=$((attempt * 10))
+              echo "Migration harness PostgreSQL image pull failed on attempt ${attempt}; retrying in ${delay}s."
+              sleep "$delay"
+            done
             npx nx run migration-harness:test
           else
             echo "migration-harness is not affected; skipping isolated Testcontainers gate."

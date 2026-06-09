@@ -158,11 +158,14 @@ function runEslint(cwd, files, label) {
     process.exit(1);
   }
 
-  if ((result.status ?? 0) > 1 && !existsSync(outputPath)) {
+  if ((result.status ?? 0) > 1) {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
+    console.error(
+      `lint-changed-files: ESLint failed for ${label} with exit code ${result.status}.`,
+    );
     rmSync(outputDir, { recursive: true, force: true });
-    process.exit(result.status ?? 1);
+    process.exit(result.status);
   }
 
   if (!existsSync(outputPath)) {

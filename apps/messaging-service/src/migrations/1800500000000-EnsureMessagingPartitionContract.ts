@@ -25,6 +25,8 @@ function isPartitionContractRow(value: unknown): value is PartitionContractRow {
   reason:
     'messages/message_receipts partition parents are source-schema DDL; tenant schemas are provisioned from this source contract',
 })
+// TENANT_AWARE_SOURCE_SCHEMA_DDL_OK: partition parent/index DDL is source-only
+// and tenant ledgers record this migration as source-only skipped.
 export class EnsureMessagingPartitionContract1800500000000
   implements MigrationInterface
 {

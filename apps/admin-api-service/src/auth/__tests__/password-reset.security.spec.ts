@@ -24,9 +24,10 @@ describe('PasswordResetController Security', () => {
     success?: boolean;
     message?: string;
   };
+  type AuthNatsSend = jest.Mock<unknown, [string, unknown]>;
 
   const mockAuthNatsClient = {
-    send: jest.fn(),
+    send: jest.fn() as AuthNatsSend,
   };
 
   function httpServer(): TestApp {
@@ -35,6 +36,22 @@ describe('PasswordResetController Security', () => {
 
   function responseBody(res: request.Response): PasswordResetResponseBody {
     return res.body as PasswordResetResponseBody;
+  }
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  function authCommandAt(index: number): Record<string, unknown> {
+    const call = mockAuthNatsClient.send.mock.calls[index];
+    if (!call) {
+      throw new Error(`Expected auth NATS command at call index ${index}`);
+    }
+    const payload = call[1];
+    if (!isRecord(payload)) {
+      throw new Error(`Expected auth NATS command payload at call index ${index}`);
+    }
+    return payload;
   }
 
   beforeAll(async () => {
@@ -159,7 +176,7 @@ describe('PasswordResetController Security', () => {
         .post('/auth/forgot-password')
         .send({ email: 'test@test.com' });
 
-      const command = mockAuthNatsClient.send.mock.calls[0]![1] as Record<string, unknown>;
+      const command = authCommandAt(0);
 
       expect(command).not.toHaveProperty('rawToken');
       expect(command).not.toHaveProperty('resetLink');

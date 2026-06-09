@@ -123,33 +123,22 @@ function eslintCommand() {
   return { command: 'npx', prefixArgs: ['eslint'] };
 }
 
-function parseJsonOutput(stdout, label, status, stderr) {
-  if (!stdout.trim()) {
-    if (stderr) process.stderr.write(stderr);
-    console.error(`lint-changed-files: ESLint produced no JSON for ${label}.`);
-    process.exit(status ?? 1);
-  }
-
-  try {
-    return JSON.parse(stdout);
-  } catch (error) {
-    if (stdout) process.stdout.write(stdout);
-    if (stderr) process.stderr.write(stderr);
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(
-      `lint-changed-files: failed to parse ESLint JSON for ${label}: ${message}`,
-    );
-    process.exit(status ?? 1);
-  }
-}
-
 function runEslint(cwd, files, label) {
   if (files.length === 0) return [];
 
+  const outputDir = mkdtempSync(join(tmpdir(), 'aqua-eslint-json-'));
+  const outputPath = join(outputDir, 'eslint-results.json');
   const { command, prefixArgs } = eslintCommand();
   const result = spawnSync(
     command,
-    [...prefixArgs, '--format', 'json', ...files],
+    [
+      ...prefixArgs,
+      '--format',
+      'json',
+      '--output-file',
+      outputPath,
+      ...files,
+    ],
     {
       cwd,
       encoding: 'utf8',
@@ -165,20 +154,39 @@ function runEslint(cwd, files, label) {
     console.error(
       `lint-changed-files: failed to start ESLint for ${label}: ${result.error.message}`,
     );
+    rmSync(outputDir, { recursive: true, force: true });
     process.exit(1);
   }
 
-  if ((result.status ?? 0) > 1 && !result.stdout.trim()) {
+  if ((result.status ?? 0) > 1 && !existsSync(outputPath)) {
+    if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
+    rmSync(outputDir, { recursive: true, force: true });
     process.exit(result.status ?? 1);
   }
 
-  return parseJsonOutput(
-    result.stdout,
-    label,
-    result.status,
-    result.stderr,
-  );
+  if (!existsSync(outputPath)) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    console.error(`lint-changed-files: ESLint produced no JSON for ${label}.`);
+    rmSync(outputDir, { recursive: true, force: true });
+    process.exit(result.status ?? 1);
+  }
+
+  const rawJson = readFileSync(outputPath, 'utf8');
+  rmSync(outputDir, { recursive: true, force: true });
+
+  try {
+    return JSON.parse(rawJson);
+  } catch (error) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      `lint-changed-files: failed to parse ESLint JSON for ${label}: ${message}`,
+    );
+    process.exit(result.status ?? 1);
+  }
 }
 
 function toRelativeFilePath(filePath, cwd) {

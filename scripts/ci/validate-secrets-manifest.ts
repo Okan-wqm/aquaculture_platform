@@ -120,6 +120,20 @@ function setEntryValue(
   (entry as Record<string, string>)[key] = value;
 }
 
+function requiredMatchGroup(
+  path: string,
+  lineNo: number,
+  match: RegExpMatchArray,
+  index: number,
+  label: string,
+): string {
+  const value = match[index];
+  if (typeof value !== 'string') {
+    failInvocation(`manifest ${path}:${lineNo} missing regex capture for ${label}`);
+  }
+  return value;
+}
+
 function parseRequiredSecretsManifest(path: string, text: string): Manifest {
   const manifest: Manifest = {};
   let section: ManifestListSection | null = null;
@@ -177,7 +191,9 @@ function parseRequiredSecretsManifest(path: string, text: string): Manifest {
       if (!item) {
         failInvocation(`manifest ${path}:${lineNo} expected a compose_files list item`);
       }
-      ensureSection('compose_files').push(parseStringScalar(path, lineNo, item[1]));
+      ensureSection('compose_files').push(
+        parseStringScalar(path, lineNo, requiredMatchGroup(path, lineNo, item, 1, 'compose file')),
+      );
       continue;
     }
 
@@ -185,13 +201,25 @@ function parseRequiredSecretsManifest(path: string, text: string): Manifest {
     if (entryStart) {
       currentEntry = {};
       ensureSection(section).push(currentEntry as RequiredEnvEntry);
-      setEntryValue(path, lineNo, currentEntry, entryStart[1], entryStart[2]);
+      setEntryValue(
+        path,
+        lineNo,
+        currentEntry,
+        requiredMatchGroup(path, lineNo, entryStart, 1, 'entry key'),
+        requiredMatchGroup(path, lineNo, entryStart, 2, 'entry value'),
+      );
       continue;
     }
 
     const entryField = line.match(/^    ([a-z_]+):\s*(.+)$/);
     if (entryField && currentEntry) {
-      setEntryValue(path, lineNo, currentEntry, entryField[1], entryField[2]);
+      setEntryValue(
+        path,
+        lineNo,
+        currentEntry,
+        requiredMatchGroup(path, lineNo, entryField, 1, 'entry key'),
+        requiredMatchGroup(path, lineNo, entryField, 2, 'entry value'),
+      );
       continue;
     }
 
@@ -205,7 +233,7 @@ function extractRequiredVars(composePath: string): Set<string> {
   const text = readFileSync(composePath, 'utf8');
   const vars = new Set<string>();
   for (const m of text.matchAll(REQUIRED_VAR_PATTERN)) {
-    vars.add(m[1]);
+    vars.add(requiredMatchGroup(composePath, 0, m, 1, 'required compose var'));
   }
   return vars;
 }

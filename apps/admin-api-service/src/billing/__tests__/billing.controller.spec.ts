@@ -13,7 +13,7 @@
  * Uses NestJS TestingModule with mocked services.
  */
 
-import { INestApplication, ValidationPipe, HttpStatus } from '@nestjs/common';
+import { ExecutionContext, HttpStatus, INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
@@ -155,12 +155,18 @@ describe('BillingController', () => {
     roles: ['SUPER_ADMIN'],
   };
 
+  type AuthenticatedBillingRequest = {
+    user?: typeof authenticatedUser;
+  };
+
+  function allowAuthenticatedBillingRequest(context: ExecutionContext): boolean {
+    const req = context.switchToHttp().getRequest<AuthenticatedBillingRequest>();
+    req.user = { ...authenticatedUser };
+    return true;
+  }
+
   const mockGuard = {
-    canActivate: jest.fn().mockImplementation((context) => {
-      const req = context.switchToHttp().getRequest();
-      req.user = { ...authenticatedUser };
-      return true;
-    }),
+    canActivate: jest.fn(allowAuthenticatedBillingRequest),
   };
 
   beforeAll(async () => {
@@ -201,11 +207,7 @@ describe('BillingController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGuard.canActivate.mockImplementation((context) => {
-      const req = context.switchToHttp().getRequest();
-      req.user = { ...authenticatedUser };
-      return true;
-    });
+    mockGuard.canActivate.mockImplementation(allowAuthenticatedBillingRequest);
   });
 
   // ==========================================================================

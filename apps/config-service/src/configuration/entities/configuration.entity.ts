@@ -111,11 +111,11 @@ export class Configuration {
   @Field({ nullable: true })
   deletedAt?: Date | null;
 
-  @Column({ nullable: true, length: 100, name: 'deleted_by' })
+  @Column({ type: 'varchar', nullable: true, length: 100, name: 'deleted_by' })
   @Field({ nullable: true })
   deletedBy?: string | null;
 
-  @Column({ nullable: true, length: 255, name: 'delete_reason' })
+  @Column({ type: 'varchar', nullable: true, length: 255, name: 'delete_reason' })
   @Field({ nullable: true })
   deleteReason?: string | null;
 

@@ -68,7 +68,7 @@ function header(format: 'json' | 'yaml'): string {
   return lines.map((line) => `# ${line}`).join('\n');
 }
 
-function jsonArtifact(value: unknown): string {
+function jsonArtifact(value: Record<string, unknown>): string {
   const metadata = JSON.parse(header('json')) as Record<string, unknown>;
   return `${JSON.stringify({ metadata, ...value }, null, 2)}\n`;
 }

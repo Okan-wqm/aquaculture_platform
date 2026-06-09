@@ -26,11 +26,12 @@ import {
   getTenantSchemaName,
   tenantMigrationLedgerTable,
 } from '@aquaculture/backend-common/database';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
-import { generateServiceIdentityHeadersV2 } from '@aquaculture/backend-common/utils';
 import { NatsEventBus } from '@platform/event-bus';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
 import { STORAGE_OBJECT_VERIFIER } from '../src/message/services/storage-object-verifier.port';
+import { PartitionManagerService } from '../src/partition/partition-manager.service';
 import { Baseline1800000000000 } from '../src/migrations/1800000000000-Baseline';
 import { CreateMessagingOutboxTable1800200000000 } from '../src/migrations/1800200000000-CreateMessagingOutboxTable';
 import { AddUserAiConsentTenantUserUnique1800300000000 } from '../src/migrations/1800300000000-AddUserAiConsentTenantUserUnique';
@@ -52,6 +53,8 @@ const MESSAGING_SOURCE_SCHEMA = 'messaging';
 const MessagingE2eMigrationRunner = createMigrationRunnerService(MESSAGING_SOURCE_SCHEMA, {
   tenantAware: false,
 });
+const GRAPHQL_CONTENT_TYPE = 'application/json';
+const MESSAGING_SERVICE_AUDIENCE = 'messaging';
 let sourceMigrationPromise: Promise<void> | undefined;
 
 function getE2eInternalServiceSecret(): string {
@@ -323,22 +326,26 @@ export function gqlRequest(
     query: (gql: string, variables?: Record<string, unknown>) => {
       const body =
         variables === undefined ? { query: gql } : { query: gql, variables };
+      const bodyString = JSON.stringify(body);
       const serviceHeaders: Record<string, string> = {
-        ...generateServiceIdentityHeadersV2({
+        ...buildSignedInternalHeaders({
           serviceName: 'gateway-api',
           secret: getE2eInternalServiceSecret(),
           tenantId,
           method: 'POST',
           path: '/graphql',
-          body: JSON.stringify(body),
+          body: bodyString,
+          audience: MESSAGING_SERVICE_AUDIENCE,
+          contentType: GRAPHQL_CONTENT_TYPE,
         }),
       };
       return supertest(httpServer)
         .post('/graphql')
         .set(serviceHeaders)
+        .set('content-type', GRAPHQL_CONTENT_TYPE)
         .set('x-user-payload', userPayload)
         .set('x-tenant-id', tenantId)
-        .send(body);
+        .send(bodyString);
     },
   };
 }
@@ -474,15 +481,12 @@ export async function setupTenantSchemas(
       }
     });
 
-    // Partitions for `messages` / `message_receipts` are created by
-    // PartitionManagerService.onApplicationBootstrap (the runtime SSoT).
-    // Per INFRA-CRITICAL-012, the test fixture must NOT create its own
-    // partitions — the runtime service uses naming `<table>_<year>_<month>`
-    // and PostgreSQL detects overlapping FOR VALUES ranges (regardless of
-    // partition NAME), so any duplicate creator deadlocks the boot. The
-    // PartitionManagerService runs at app bootstrap inside the test's
-    // createE2eTestApp() flow and ensures current + next 2 months exist.
+    // Partition DDL is intentionally not emitted by this fixture. Tenant
+    // schemas are created after app bootstrap in these E2E suites, so call
+    // the canonical runtime partition service once schemas exist.
   }
+
+  await new PartitionManagerService(dataSource).onApplicationBootstrap();
 }
 
 async function backfillTenantMigrationLedger(
@@ -532,23 +536,6 @@ async function clonePartitionedTable(
   targetSchema: string,
   tablename: string,
 ): Promise<void> {
-  // Get column definitions from the source table
-  const columns: { column_name: string; full_data_type: string; is_nullable: string; column_default: string | null }[] =
-    await dataSource.query(
-      `SELECT
-         a.attname AS column_name,
-         format_type(a.atttypid, a.atttypmod) AS full_data_type,
-         CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
-         pg_get_expr(d.adbin, d.adrelid) AS column_default
-       FROM pg_attribute a
-       LEFT JOIN pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
-       WHERE a.attrelid = ($1 || '.' || $2)::regclass
-         AND a.attnum > 0
-         AND NOT a.attisdropped
-       ORDER BY a.attnum`,
-      [sourceSchema, tablename],
-    );
-
   // Get the partition key expression
   const partKey: { partition_expr: string }[] = await dataSource.query(
     `SELECT pg_get_partkeydef(c.oid) as partition_expr
@@ -557,18 +544,12 @@ async function clonePartitionedTable(
     [sourceSchema, tablename],
   );
 
-  if (columns.length === 0 || partKey.length === 0) return;
-
-  const colDefs = columns.map((c) => {
-    const nullable = c.is_nullable === 'NO' ? ' NOT NULL' : '';
-    const def = c.column_default ? ` DEFAULT ${c.column_default}` : '';
-    return `"${c.column_name}" ${c.full_data_type}${nullable}${def}`;
-  });
+  if (partKey.length === 0) return;
 
   const partExpr = partKey[0]!.partition_expr;
 
   await dataSource.query(
-    `CREATE TABLE "${targetSchema}"."${tablename}" (${colDefs.join(', ')}) PARTITION BY ${partExpr}`,
+    `CREATE TABLE "${targetSchema}"."${tablename}" (LIKE "${sourceSchema}"."${tablename}" INCLUDING ALL) PARTITION BY ${partExpr}`,
   );
 }
 

@@ -6,7 +6,7 @@ import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/ap
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import { Request } from 'express';
-import { GraphQLError } from 'graphql';
+import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
@@ -34,6 +34,15 @@ interface GraphQLContextRequest extends Request {
   };
   tenantId?: string;
 }
+
+type QueryComplexityOperationContext = {
+  request: {
+    operationName?: string;
+    variables?: Record<string, unknown>;
+  };
+  document: DocumentNode;
+  schema: GraphQLSchema;
+};
 import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
@@ -207,7 +216,11 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
         plugins: [
           {
             requestDidStart: async () => ({
-              async didResolveOperation({ request, document, schema }) {
+              async didResolveOperation({
+                request,
+                document,
+                schema,
+              }: QueryComplexityOperationContext) {
                 const rawLimit = configService.get<number | string>(
                   'FARM_GRAPHQL_MAX_COMPLEXITY',
                   1000,

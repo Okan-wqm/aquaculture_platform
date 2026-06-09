@@ -5,7 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { GraphQLError } from 'graphql';
+import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
@@ -84,6 +84,16 @@ import { ToolExecutionAudit } from './audit/tool-execution-audit.entity';
 // This avoids recomputing complexity for identical operations on every request.
 const complexityCache = new Map<string, number>();
 
+type QueryComplexityOperationContext = {
+  request: {
+    query?: string;
+    operationName?: string;
+    variables?: Record<string, unknown>;
+  };
+  document: DocumentNode;
+  schema: GraphQLSchema;
+};
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -152,7 +162,11 @@ const complexityCache = new Map<string, number>();
           plugins: [
             {
               requestDidStart: async () => ({
-                async didResolveOperation({ request, document, schema }) {
+                async didResolveOperation({
+                  request,
+                  document,
+                  schema,
+                }: QueryComplexityOperationContext) {
                   // Cache complexity by document hash to avoid re-computation for
                   // identical operations. The hash key incorporates the operation name
                   // so distinct named operations in the same document are treated separately.

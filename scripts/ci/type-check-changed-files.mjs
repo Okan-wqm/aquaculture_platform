@@ -95,7 +95,12 @@ function projectRootFor(file) {
     return `${top}/${second}`;
   }
   if (top === 'e2e') return 'e2e';
+  if (top === 'mcp' && second) return `${top}/${second}`;
+  if (top === 'scripts' && second) return 'scripts';
   if (top === 'tests' && second === 'invariants') return 'tests/invariants';
+  if (top === 'tests' && second === 'e2e' && third) {
+    return `${top}/${second}/${third}`;
+  }
   if (top === 'tools' && second) return `${top}/${second}`;
 
   return null;
@@ -118,6 +123,10 @@ function tsconfigFor(file) {
 
   if (root === 'tools/scripts') {
     return firstExisting(['tools/scripts/tsconfig.json', 'tsconfig.base.json']);
+  }
+
+  if (root === 'scripts') {
+    return firstExisting(['scripts/tsconfig.json', 'tools/gates/tsconfig.json']);
   }
 
   if (root.startsWith('tools/')) {

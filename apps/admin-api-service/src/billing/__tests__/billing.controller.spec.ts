@@ -13,7 +13,14 @@
  * Uses NestJS TestingModule with mocked services.
  */
 
-import { ExecutionContext, HttpStatus, INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  ConflictException,
+  ExecutionContext,
+  HttpStatus,
+  INestApplication,
+  NotFoundException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
@@ -178,6 +185,17 @@ describe('BillingController', () => {
 
   function throttleConfigMetadata(target: object): ThrottleConfigMetadata | undefined {
     return Reflect.getMetadata('THROTTLE_CONFIG', target) as ThrottleConfigMetadata | undefined;
+  }
+
+  function firstChangePlanRequest(): Record<string, unknown> {
+    const calls = mockBillingAdminCommands.changeSubscriptionPlan.mock.calls as Array<
+      [Record<string, unknown>, string]
+    >;
+    const payload = calls[0]?.[0];
+    if (!payload) {
+      throw new Error('Expected changeSubscriptionPlan to be called with a request payload');
+    }
+    return payload;
   }
 
   const mockGuard = {
@@ -551,7 +569,7 @@ describe('BillingController', () => {
         }),
         authenticatedUser.id,
       );
-      expect(mockBillingAdminCommands.changeSubscriptionPlan.mock.calls[0]?.[0]).not.toHaveProperty('changedBy');
+      expect(firstChangePlanRequest()).not.toHaveProperty('changedBy');
     });
   });
 
@@ -744,7 +762,6 @@ describe('BillingController', () => {
 
   describe('Error handling', () => {
     it('should propagate NotFoundException from plan service', async () => {
-      const { NotFoundException } = require('@nestjs/common');
       mockPlanService.findById.mockRejectedValueOnce(
         new NotFoundException('Plan not found'),
       );
@@ -755,7 +772,6 @@ describe('BillingController', () => {
     });
 
     it('should propagate ConflictException from discount service', async () => {
-      const { ConflictException } = require('@nestjs/common');
       mockDiscountService.create.mockRejectedValueOnce(
         new ConflictException('Discount code already exists'),
       );

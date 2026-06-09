@@ -312,7 +312,7 @@ export class BillingController {
 
   @ThrottleSensitive()
   @Post('subscriptions')
-  async createSubscription(@Req() req: Request): Promise<unknown> {
+  createSubscription(@Req() req: Request): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to create a subscription');
     throw new ConflictException(
@@ -378,7 +378,7 @@ export class BillingController {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to change a subscription plan');
     const { changedBy: _changedBy, ...safeRequest } = request as PlanChangeRequest & { changedBy?: unknown };
-    return this.billingAdminCommands.changeSubscriptionPlan(safeRequest as PlanChangeRequest, userId);
+    return this.billingAdminCommands.changeSubscriptionPlan(safeRequest, userId);
   }
 
   // Fix: H8 -- per-route throttle: subscription cancel is sensitive (3 req / 5 min)
@@ -418,7 +418,7 @@ export class BillingController {
   @ThrottleSensitive()
   @Post('subscriptions/process-renewals')
   @HttpCode(HttpStatus.OK)
-  async processRenewals(): Promise<unknown> {
+  processRenewals(): never {
     throw new ConflictException(
       'Subscription renewal processing is billing-service-owned and cannot be run through admin-api direct writers.',
     );

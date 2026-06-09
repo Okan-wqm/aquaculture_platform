@@ -189,7 +189,13 @@ describe('ARIA live runtime/documentation SSoT', () => {
   it('CURRENT_STATE file.py::symbol anchors resolve through Python AST', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
     const anchors = [...current.matchAll(/([\w./-]+\.py)::([A-Za-z_]\w*)/g)]
-      .map((match) => ({ file: match[1], symbol: match[2] }));
+      .map((match) => {
+        const [, file, symbol] = match;
+        if (!file || !symbol) {
+          throw new Error(`Malformed ARIA anchor match: ${match[0] ?? '<empty>'}`);
+        }
+        return { file, symbol };
+      });
     expect(anchors.length).toBeGreaterThan(0);
     const script = [
       'import ast, sys',

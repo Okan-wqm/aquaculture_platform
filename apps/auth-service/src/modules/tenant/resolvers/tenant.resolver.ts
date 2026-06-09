@@ -1,13 +1,13 @@
+import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@aquaculture/backend-common/decorators';
 import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
-import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@aquaculture/backend-common/decorators';
 
+import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';
 import { UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
-import { AuditLogService } from '../../../audit/audit-log.service';
 
 /**
  * Minimal public tenant info exposed by the unauthenticated tenantBySlug query.

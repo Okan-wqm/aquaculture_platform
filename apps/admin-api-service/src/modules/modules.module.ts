@@ -1,10 +1,11 @@
-import { Module } from '@nestjs/common';
 import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
+
+import { AuthTenantProvisioningClientService } from '../tenant/services/auth-tenant-provisioning-client.service';
 
 import { ModulesController } from './modules.controller';
 import { ModulesService } from './modules.service';
-import { AuthTenantProvisioningClientService } from '../tenant/services/auth-tenant-provisioning-client.service';
 
 @Module({
   imports: [

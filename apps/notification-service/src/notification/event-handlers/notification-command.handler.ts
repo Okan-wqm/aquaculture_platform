@@ -1,10 +1,10 @@
 import { createHash } from 'crypto';
 
+import { signedFetch } from '@aquaculture/backend-common/http';
 import { BadRequestException, Controller, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
-import { signedFetch } from '@aquaculture/backend-common/http';
 import {
   NOTIFICATION_COMMAND_SUBJECTS,
   type NotificationCommandChannel,

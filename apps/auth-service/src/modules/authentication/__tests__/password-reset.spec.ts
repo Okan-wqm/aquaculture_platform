@@ -1,26 +1,39 @@
 import * as crypto from 'crypto';
 
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BypassRlsService } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
-import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, SelectQueryBuilder } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import { ActionToken } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
-import { MfaService } from '../services/mfa.service';
 import { AuthenticationService } from '../services/authentication.service';
+import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
 
+interface PasswordResetRequestedEvent {
+  eventType: string;
+  userId: string;
+  actionTokenId: string;
+  cryptoShredKeyId: string;
+  email?: unknown;
+  resetToken?: unknown;
+}
+
+interface PasswordResetCompletedEvent {
+  eventType: string;
+  userId: string;
+}
 
 // ============================================================================
 // Mock Helpers
@@ -73,7 +86,7 @@ const mockInvitationRepository = {
 
 const mockActionTokenRepository = {
   create: jest.fn((data: Record<string, unknown>) => ({ ...data })),
-  save: jest.fn(async (entity: Record<string, unknown>) => ({
+  save: jest.fn((entity: Record<string, unknown>) => Promise.resolve({
     id: 'action-token-id',
     ...entity,
   })),
@@ -93,8 +106,8 @@ const mockJwtService = {
 };
 
 const mockConfigService = {
-  get: jest.fn((key: string, defaultValue?: any) => {
-    const config: Record<string, any> = {
+  get: jest.fn((key: string, defaultValue?: unknown): unknown => {
+    const config: Record<string, string | number | boolean> = {
       JWT_EXPIRES_IN: '15m',
       JWT_AUDIENCE: 'test-audience',
       MIN_LOGIN_DURATION_MS: 0, // Disable timing delays for tests
@@ -141,12 +154,12 @@ describe('AuthenticationService - Password Reset Flow', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockActionTokenRepository.create.mockImplementation((data: Record<string, unknown>) => ({ ...data }));
-    mockActionTokenRepository.save.mockImplementation(async (entity: Record<string, unknown>) => ({
+    mockActionTokenRepository.save.mockImplementation((entity: Record<string, unknown>) => Promise.resolve({
       id: 'action-token-id',
       ...entity,
     }));
     mockActionTokenRepository.findOne.mockResolvedValue(null);
-    mockTokenService.generateTokens.mockImplementation(async (user: User) => ({
+    mockTokenService.generateTokens.mockImplementation((user: User) => Promise.resolve({
       accessToken: 'mock-access-token',
       refreshToken: 'mock-refresh-token',
       user,
@@ -197,11 +210,13 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       // Verify save was called with hashed token (SHA-256 hex = 64 chars)
       expect(mockUserRepository.save).toHaveBeenCalledTimes(1);
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.passwordResetToken).toBeDefined();
       expect(savedUser.passwordResetToken).toHaveLength(64); // SHA-256 hex digest
       expect(savedUser.passwordResetExpires).toBeInstanceOf(Date);
-      expect(savedUser.passwordResetExpires!.getTime()).toBeGreaterThan(Date.now());
+      const expiresAt = savedUser.passwordResetExpires?.getTime();
+      expect(expiresAt).toBeDefined();
+      expect(expiresAt ?? 0).toBeGreaterThan(Date.now());
     });
 
     it('should set token expiry to 1 hour from now', async () => {
@@ -213,11 +228,12 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
       const after = Date.now();
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
-      const expiresAt = savedUser.passwordResetExpires!.getTime();
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
+      const expiresAt = savedUser.passwordResetExpires?.getTime();
+      expect(expiresAt).toBeDefined();
       // Expiry should be approximately 1 hour from now (within 5 second tolerance)
-      expect(expiresAt).toBeGreaterThanOrEqual(before + 60 * 60 * 1000 - 5000);
-      expect(expiresAt).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
+      expect(expiresAt ?? 0).toBeGreaterThanOrEqual(before + 60 * 60 * 1000 - 5000);
+      expect(expiresAt ?? 0).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
     });
 
     it('should publish PasswordResetRequested event with opaque action token id', async () => {
@@ -228,7 +244,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
 
       expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
-      const event = mockEventBus.publish.mock.calls[0][0];
+      const [event] = mockEventBus.publish.mock.calls[0] as [PasswordResetRequestedEvent];
       expect(event.eventType).toBe('PasswordResetRequested');
       expect(event.userId).toBe('user-uuid-123');
       expect(event.actionTokenId).toBe('action-token-id');
@@ -352,9 +368,10 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.resetPassword(plainToken, 'NewPass123!');
 
       // Verify createQueryBuilder was used with the hashed token
+      const dateMatcher: unknown = expect.any(Date);
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
         'user.passwordResetExpires > :now',
-        expect.objectContaining({ now: expect.any(Date) }),
+        expect.objectContaining({ now: dateMatcher }),
       );
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
         'user.passwordResetToken = :tokenHash',
@@ -376,7 +393,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.passwordResetToken).toBeNull();
       expect(savedUser.passwordResetExpires).toBeNull();
     });
@@ -397,7 +414,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.failedLoginAttempts).toBe(0);
       expect(savedUser.lockedUntil).toBeNull();
     });
@@ -470,12 +487,14 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const publishCalls = mockEventBus.publish.mock.calls;
+      const publishCalls = mockEventBus.publish.mock.calls as Array<
+        [PasswordResetRequestedEvent | PasswordResetCompletedEvent]
+      >;
       const resetCompletedEvent = publishCalls.find(
-        (call: any[]) => call[0].eventType === 'PasswordResetCompleted',
+        (call) => call[0].eventType === 'PasswordResetCompleted',
       );
       expect(resetCompletedEvent).toBeDefined();
-      expect(resetCompletedEvent![0].userId).toBe('user-uuid-123');
+      expect(resetCompletedEvent?.[0].userId).toBe('user-uuid-123');
     });
 
     it('should log PASSWORD_RESET_SUCCESS audit event', async () => {
@@ -515,7 +534,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.password).toBe('NewPass123!');
     });
   });

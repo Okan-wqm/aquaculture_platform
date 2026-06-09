@@ -111,6 +111,11 @@ function changedTypeScriptFiles() {
 }
 
 function eslintCommand() {
+  const override = process.env.ESLINT_BIN;
+  if (override) {
+    return { command: override, prefixArgs: [] };
+  }
+
   const binary = join(
     repoRoot,
     'node_modules',
@@ -123,16 +128,21 @@ function eslintCommand() {
   return { command: 'npx', prefixArgs: ['eslint'] };
 }
 
-function runEslint(cwd, files, label) {
-  if (files.length === 0) return [];
-
+function runEslintChunk(cwd, files, label) {
   const outputDir = mkdtempSync(join(tmpdir(), 'aqua-eslint-json-'));
   const outputPath = join(outputDir, 'eslint-results.json');
   const { command, prefixArgs } = eslintCommand();
+  const pluginResolverArgs = process.env.ESLINT_RESOLVE_PLUGINS_RELATIVE_TO
+    ? [
+        '--resolve-plugins-relative-to',
+        process.env.ESLINT_RESOLVE_PLUGINS_RELATIVE_TO,
+      ]
+    : [];
   const result = spawnSync(
     command,
     [
       ...prefixArgs,
+      ...pluginResolverArgs,
       '--format',
       'json',
       '--output-file',
@@ -162,7 +172,8 @@ function runEslint(cwd, files, label) {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     console.error(
-      `lint-changed-files: ESLint failed for ${label} with exit code ${result.status}.`,
+      `lint-changed-files: ESLint failed for ${label} with ` +
+        `exit code ${result.status} signal ${result.signal ?? 'none'}.`,
     );
     rmSync(outputDir, { recursive: true, force: true });
     process.exit(result.status);
@@ -171,7 +182,10 @@ function runEslint(cwd, files, label) {
   if (!existsSync(outputPath)) {
     if (result.stdout) process.stdout.write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
-    console.error(`lint-changed-files: ESLint produced no JSON for ${label}.`);
+    console.error(
+      `lint-changed-files: ESLint produced no JSON for ${label} ` +
+        `(exit=${result.status ?? 'null'}, signal=${result.signal ?? 'none'}).`,
+    );
     rmSync(outputDir, { recursive: true, force: true });
     process.exit(result.status ?? 1);
   }
@@ -190,6 +204,33 @@ function runEslint(cwd, files, label) {
     );
     process.exit(result.status ?? 1);
   }
+}
+
+function eslintChunkSize() {
+  const raw = process.env.ESLINT_CHUNK_SIZE ?? '40';
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    console.error(`lint-changed-files: invalid ESLINT_CHUNK_SIZE=${raw}`);
+    process.exit(2);
+  }
+  return parsed;
+}
+
+function runEslint(cwd, files, label) {
+  if (files.length === 0) return [];
+
+  const chunkSize = eslintChunkSize();
+  const results = [];
+  for (let index = 0; index < files.length; index += chunkSize) {
+    const chunk = files.slice(index, index + chunkSize);
+    const chunkLabel =
+      files.length > chunkSize
+        ? `${label} files ${index + 1}-${index + chunk.length}/${files.length}`
+        : label;
+    results.push(...runEslintChunk(cwd, chunk, chunkLabel));
+  }
+
+  return results;
 }
 
 function toRelativeFilePath(filePath, cwd) {

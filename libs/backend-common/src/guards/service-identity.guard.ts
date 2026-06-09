@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 import {
   Injectable,
   CanActivate,
@@ -9,9 +11,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { createHash } from 'crypto';
-import { serviceIdentityAudienceForService } from '../../../../platform/libs/service-catalog/src/index';
 
+import { serviceIdentityAudienceForService } from '../../../../platform/libs/service-catalog/src/index';
+import { SecurityEventService } from '../security/security-event.service';
 import type { TenantRequest } from '../types/tenant-request.interface';
 import {
   getServiceIdentityHeader,
@@ -19,7 +21,6 @@ import {
   verifyServiceIdentityRequest,
 } from '../utils/service-identity.util';
 import type { ServiceIdentityKeyringEntry } from '../utils/service-identity.util';
-import { SecurityEventService } from '../security/security-event.service';
 
 /**
  * ServiceIdentityGuard validates GraphQL subgraph calls using the canonical

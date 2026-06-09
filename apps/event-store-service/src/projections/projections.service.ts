@@ -1,13 +1,22 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
-import { SchedulerRegistry } from '@nestjs/schedule';
+
+import { StoredEvent } from '../event-store/entities/stored-event.entity';
+import {
+  EventHandler,
+  ProjectionHandlerContext,
+  RetryPolicy,
+} from '../event-store/interfaces/event-store.interfaces';
+
 import {
   ProjectionCheckpoint,
   ProjectionStatus,
@@ -17,12 +26,6 @@ import {
   ProjectionRebuild,
   ProjectionRebuildStatus,
 } from './entities/projection-rebuild.entity';
-import { StoredEvent } from '../event-store/entities/stored-event.entity';
-import {
-  EventHandler,
-  ProjectionHandlerContext,
-  RetryPolicy,
-} from '../event-store/interfaces/event-store.interfaces';
 
 const MAX_ERROR_LENGTH = 500;
 const EMA_ALPHA = 0.1;

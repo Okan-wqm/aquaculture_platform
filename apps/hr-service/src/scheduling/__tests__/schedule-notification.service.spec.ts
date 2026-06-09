@@ -1,15 +1,16 @@
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
 import { NOTIFICATION_COMMAND_SUBJECTS } from '@platform/event-contracts';
 import { of } from 'rxjs';
-import { ScheduleNotificationService } from '../services/schedule-notification.service';
-import { WeeklyPlan, WeeklyPlanStatus } from '../entities/weekly-plan.entity';
-import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-entry.entity';
-import { SchedulingSettings } from '../entities/scheduling-settings.entity';
-import { Employee } from '../../hr/entities/employee.entity';
+import { Repository } from 'typeorm';
+
 import { Shift, WeekDay } from '../../attendance/entities/shift.entity';
+import { Employee } from '../../hr/entities/employee.entity';
+import { SchedulingSettings } from '../entities/scheduling-settings.entity';
+import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-entry.entity';
+import { WeeklyPlan, WeeklyPlanStatus } from '../entities/weekly-plan.entity';
+import { ScheduleNotificationService } from '../services/schedule-notification.service';
 
 describe('ScheduleNotificationService', () => {
   let service: ScheduleNotificationService;

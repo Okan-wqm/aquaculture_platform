@@ -1,4 +1,5 @@
 import { NotificationChannel } from '../entities/notification-log.entity';
+
 import { NotificationDispatcherService } from './notification-dispatcher.service';
 
 type CommandInput = Parameters<NotificationDispatcherService['dispatchCommandNotification']>[0];

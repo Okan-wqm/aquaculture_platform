@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -14,10 +16,10 @@ import {
   EntityManager,
   Brackets,
 } from 'typeorm';
-import { createHash } from 'crypto';
-import { StoredEvent } from '../entities/stored-event.entity';
+
 import { EventStream } from '../entities/event-stream.entity';
 import { Snapshot } from '../entities/snapshot.entity';
+import { StoredEvent } from '../entities/stored-event.entity';
 import {
   DomainEvent,
   PersistedEvent,

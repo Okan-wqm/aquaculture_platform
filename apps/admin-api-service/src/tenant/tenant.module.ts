@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -37,8 +37,8 @@ import {
   GetExpiringTrialsHandler,
   SearchTenantsHandler,
 } from './query-handlers/tenant-query.handlers';
-import { TenantActivityService } from './services/tenant-activity.service';
 import { AuthTenantProvisioningClientService } from './services/auth-tenant-provisioning-client.service';
+import { TenantActivityService } from './services/tenant-activity.service';
 import { TenantDetailService } from './services/tenant-detail.service';
 import { TenantProvisioningWorkflowService } from './services/tenant-provisioning-workflow.service';
 import { TenantProvisioningService } from './services/tenant-provisioning.service';

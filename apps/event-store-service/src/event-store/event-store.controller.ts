@@ -1,3 +1,4 @@
+import type { TenantRequest } from '@aquaculture/backend-common/types';
 import {
   Controller,
   Get,
@@ -14,10 +15,9 @@ import {
   UnauthorizedException,
   BadRequestException,
 } from '@nestjs/common';
-import type { TenantRequest } from '@aquaculture/backend-common/types';
 import { Type } from 'class-transformer';
 import { IsNumber, IsOptional, Min } from 'class-validator';
-import { EventStoreService } from './services/event-store.service';
+
 import {
   AppendEventsDto,
   ReadStreamDto,
@@ -35,6 +35,7 @@ import {
   SnapshotData,
   ConcurrencyCheckResult,
 } from './interfaces/event-store.interfaces';
+import { EventStoreService } from './services/event-store.service';
 
 // UUID v4 regex for tenant ID validation (shared with projections controller)
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

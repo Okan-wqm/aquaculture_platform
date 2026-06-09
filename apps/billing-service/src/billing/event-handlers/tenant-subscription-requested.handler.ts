@@ -1,15 +1,16 @@
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { EventsHandler, IEventHandler, CommandBus } from '@nestjs/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
+import { InjectRepository } from '@nestjs/typeorm';
 import { EventHandler, NatsEventBus } from '@platform/event-bus';
-import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { createBaseEvent, SubscriptionProvisioningFailedEvent } from '@platform/event-contracts';
+import { DataSource, Repository } from 'typeorm';
+
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
-import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
-import { SubscriptionModuleItem } from '../entities/subscription-module-item.entity';
 import { Plan } from '../entities/plan.entity';
+import { SubscriptionModuleItem } from '../entities/subscription-module-item.entity';
+import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
 
 // UUID v4 regex — matches the same pattern used throughout the billing service
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

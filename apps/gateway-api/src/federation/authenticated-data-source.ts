@@ -1,12 +1,14 @@
 import { createHash } from 'crypto';
+
 import { RemoteGraphQLDataSource } from '@apollo/gateway';
+import type { GraphQLDataSourceProcessOptions } from '@apollo/gateway/dist/datasources/types';
+import type { ResponsePath } from '@apollo/query-planner';
 import {
   GatewayGraphQLRequestContext,
   GatewayGraphQLResponse,
 } from '@apollo/server-gateway-interface';
-import type { GraphQLDataSourceProcessOptions } from '@apollo/gateway/dist/datasources/types';
-import type { ResponsePath } from '@apollo/query-planner';
 import { buildGatewayVerifiedUserAssertion, buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+
 import { JwtPayload } from '../guards/auth.guard';
 
 export interface RequestHeaders {

@@ -1,15 +1,17 @@
 import { createHash } from 'node:crypto';
+
 import { Field, ObjectType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
+
+import {
+  CONFIG_SECRET_REDACTED_VALUE,
+  SYSTEM_TENANT_ID,
+} from '../configuration.constants';
 import {
   Configuration,
   ConfigEnvironment,
   ConfigValueType,
 } from '../entities/configuration.entity';
-import {
-  CONFIG_SECRET_REDACTED_VALUE,
-  SYSTEM_TENANT_ID,
-} from '../configuration.constants';
 
 export type EffectiveConfigurationSource = 'tenant' | 'system';
 export type EffectiveConfigurationSecretMode = 'none' | 'redacted';

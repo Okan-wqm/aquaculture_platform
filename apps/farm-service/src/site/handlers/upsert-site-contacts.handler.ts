@@ -19,18 +19,19 @@
  *
  * Returns the post-write set of `SiteContact` rows.
  */
-import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { DataSource } from 'typeorm';
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { createBaseEvent, type SiteContactsChangedEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
 
-import { UpsertSiteContactsCommand } from '../commands/upsert-site-contacts.command';
-import { Site } from '../entities/site.entity';
-import { SiteContact } from '../entities/site-contact.entity';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { UpsertSiteContactsCommand } from '../commands/upsert-site-contacts.command';
+import { SiteContact } from '../entities/site-contact.entity';
+import { Site } from '../entities/site.entity';
+
 import { siteContactAuditSnapshot } from './site-audit.util';
 
 @CommandHandler(UpsertSiteContactsCommand)

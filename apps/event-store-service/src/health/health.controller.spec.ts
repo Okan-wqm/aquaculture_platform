@@ -1,4 +1,5 @@
 import { HttpStatus } from '@nestjs/common';
+
 import { HealthController } from './health.controller';
 
 describe('EventStore HealthController', () => {

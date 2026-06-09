@@ -1,22 +1,24 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@nestjs/cqrs';
-import { ScheduleModule } from '@nestjs/schedule';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { TenantExecutionContextInterceptor } from '@aquaculture/backend-common/context';
 import {
   RlsModule,
   SchemaDriftModule,
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
-import { TenantExecutionContextInterceptor } from '@aquaculture/backend-common/context';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
-import { EventStoreServiceIdentityGuard } from './guards/event-store-service-identity.guard';
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { CqrsModule } from '@nestjs/cqrs';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { EventStoreModule } from './event-store/event-store.module';
-import { ProjectionsModule } from './projections/projections.module';
-import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { EventStoreServiceIdentityGuard } from './guards/event-store-service-identity.guard';
+import { HealthModule } from './health/health.module';
+import { ProjectionsModule } from './projections/projections.module';
+
 // Migration class imports removed — TypeOrmModule now uses the glob
 // pattern '/migrations/[0-9]*.{js,ts}' to load every timestamped migration
 // on disk while excluding support files from TypeORM's migration loader

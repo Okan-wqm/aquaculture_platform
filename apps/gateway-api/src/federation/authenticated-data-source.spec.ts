@@ -1,6 +1,8 @@
 import { createHash } from 'crypto';
+
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { verifyServiceIdentityRequest } from '@aquaculture/backend-common/utils';
+
 import { AuthenticatedDataSource } from './authenticated-data-source';
 import type { GatewayContext } from './authenticated-data-source';
 

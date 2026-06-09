@@ -1,8 +1,8 @@
 /**
  * Delete SubEquipment Command Handler
  */
-import { Logger, NotFoundException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { SubEquipmentDeletedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -13,6 +13,7 @@ import { AuditLogService } from '../../database/services/audit-log.service';
 import { DeleteSubEquipmentCommand } from '../commands/delete-sub-equipment.command';
 import { Equipment } from '../entities/equipment.entity';
 import { SubEquipment } from '../entities/sub-equipment.entity';
+
 import { subEquipmentAuditSnapshot } from './equipment-audit.util';
 
 type CountUpdateRepository<T> = {

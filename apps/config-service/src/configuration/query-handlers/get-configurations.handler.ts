@@ -2,17 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
-import {
-  GetConfigurationsQuery,
-  GetConfigurationsByServiceQuery,
-  GetConfigurationHistoryQuery,
-} from '../queries/get-configurations.query';
+
+import { SYSTEM_TENANT_ID } from '../configuration.constants';
 import {
   Configuration,
   ConfigurationHistory,
   ConfigEnvironment,
 } from '../entities/configuration.entity';
-import { SYSTEM_TENANT_ID } from '../configuration.constants';
+import {
+  GetConfigurationsQuery,
+  GetConfigurationsByServiceQuery,
+  GetConfigurationHistoryQuery,
+} from '../queries/get-configurations.query';
 
 @Injectable()
 @QueryHandler(GetConfigurationsQuery)

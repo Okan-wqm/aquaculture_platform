@@ -12,10 +12,7 @@ import { BillingCycle } from '../entities/plan-definition.entity';
 import { DiscountCodeService } from './discount-code.service';
 import { PlanDefinitionService } from './plan-definition.service';
 import { SubscriptionCoreService } from './subscription-core.service';
-import {
-  PlanChangeRequest,
-  PlanChangeResult,
-} from './subscription-types';
+import { PlanChangeRequest } from './subscription-types';
 
 /**
  * Subscription Plan Change Service
@@ -37,7 +34,7 @@ export class SubscriptionPlanChangeService {
   /**
    * Change subscription plan (upgrade/downgrade)
    */
-  async changePlan(request: PlanChangeRequest): Promise<PlanChangeResult> {
+  changePlan(request: PlanChangeRequest): never {
     void request;
     throw new ConflictException(
       'Subscription plan changes are billing-service-owned. Use BillingAdminCommandClientService.changeSubscriptionPlan.',
@@ -75,7 +72,7 @@ export class SubscriptionPlanChangeService {
     ]);
 
     const comparison = await this.planService.comparePlans(currentPlanId, newPlanId);
-    const billingCycle = newBillingCycle || (subscription.billingCycle as BillingCycle);
+    const billingCycle = newBillingCycle || subscription.billingCycle;
 
     const proration = this.planService.calculateProratedPricing(
       currentPlan,

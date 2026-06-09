@@ -1,3 +1,10 @@
+import type { TenantRequest } from '@aquaculture/backend-common/types';
+import {
+  getServiceIdentityHeader,
+  parseServiceIdentityKeyring,
+  verifyServiceIdentityRequest,
+  type ServiceIdentityKeyringEntry,
+} from '@aquaculture/backend-common/utils';
 import {
   CanActivate,
   ExecutionContext,
@@ -5,15 +12,8 @@ import {
   UnauthorizedException,
   Logger,
 } from '@nestjs/common';
-import { Request } from 'express';
-import {
-  getServiceIdentityHeader,
-  parseServiceIdentityKeyring,
-  verifyServiceIdentityRequest,
-  type ServiceIdentityKeyringEntry,
-} from '@aquaculture/backend-common/utils';
-import type { TenantRequest } from '@aquaculture/backend-common/types';
 import { eventStoreTenantScopePolicyForService } from '@platform/service-catalog';
+import { Request } from 'express';
 
 const PUBLIC_HEALTH_PATHS = new Set(['/health', '/health/live', '/health/ready']);
 const LEGACY_TENANT_SCOPE_POLICY_ENV = 'EVENT_STORE_ALLOWED_SERVICE_TENANT_SCOPES';

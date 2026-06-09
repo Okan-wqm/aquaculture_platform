@@ -1,9 +1,10 @@
+import { SYSTEM_TENANT_ID } from '../configuration.constants';
 import {
   Configuration,
   ConfigEnvironment,
   ConfigValueType,
 } from '../entities/configuration.entity';
-import { SYSTEM_TENANT_ID } from '../configuration.constants';
+
 import { toEffectiveConfigurationDto } from './effective-configuration.dto';
 
 function configuration(overrides: Partial<Configuration> = {}): Configuration {

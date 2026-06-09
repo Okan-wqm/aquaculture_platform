@@ -1,24 +1,25 @@
 import {
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import {
   Resolver,
   Query,
   Mutation,
   Args,
   Context,
 } from '@nestjs/graphql';
-import {
-  UnauthorizedException,
-  ForbiddenException,
-} from '@nestjs/common';
-import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import {
-  Configuration,
-  ConfigEnvironment,
-} from './entities/configuration.entity';
+
+import { UpsertConfigurationCommand } from './commands/upsert-configuration.command';
 import {
   EffectiveConfigurationDto,
   toEffectiveConfigurationDto,
 } from './dto/effective-configuration.dto';
-import { UpsertConfigurationCommand } from './commands/upsert-configuration.command';
+import {
+  Configuration,
+  ConfigEnvironment,
+} from './entities/configuration.entity';
 import { GetConfigurationQuery } from './queries/get-configuration.query';
 import { GetConfigurationsByServiceQuery } from './queries/get-configurations.query';
 

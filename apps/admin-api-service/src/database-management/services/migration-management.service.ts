@@ -19,7 +19,6 @@ import {
   SchemaMigration,
   MigrationStatus,
   MigrationPlan,
-  MigrationResult,
 } from '../entities/database-management.entity';
 
 // ============================================================================
@@ -127,12 +126,12 @@ export class MigrationManagementService {
   /**
    * Run migration for single tenant
    */
-  async runMigration(
+  runMigration(
     tenantId: string,
     version: string,
     isDryRun = false,
     executedBy?: string,
-  ): Promise<MigrationResult> {
+  ): never {
     this.rejectRuntimeMigration(
       `Rejected runtime migration request tenant=${tenantId} version=${version} ` +
         `dryRun=${isDryRun} executedBy=${executedBy ?? 'unknown'}`,
@@ -146,11 +145,11 @@ export class MigrationManagementService {
   /**
    * Run migration for all active tenants
    */
-  async runBatchMigration(
+  runBatchMigration(
     version: string,
     isDryRun = false,
     executedBy?: string,
-  ): Promise<MigrationResult[]> {
+  ): never {
     this.rejectRuntimeMigration(
       `Rejected runtime batch migration request version=${version} ` +
         `dryRun=${isDryRun} executedBy=${executedBy ?? 'unknown'}`,
@@ -188,7 +187,7 @@ export class MigrationManagementService {
       const migration = migrationMap.get(schema.tenantId);
       return {
         tenantId: schema.tenantId,
-        status: migration?.status || ('pending' as MigrationStatus),
+        status: migration?.status || 'pending',
         completedAt: migration?.completedAt || null,
       };
     });
@@ -213,11 +212,11 @@ export class MigrationManagementService {
   /**
    * Rollback migration for tenant
    */
-  async rollbackMigration(
+  rollbackMigration(
     tenantId: string,
     version: string,
     executedBy?: string,
-  ): Promise<MigrationResult> {
+  ): never {
     this.rejectRuntimeMigration(
       `Rejected runtime rollback request tenant=${tenantId} version=${version} ` +
         `executedBy=${executedBy ?? 'unknown'}`,

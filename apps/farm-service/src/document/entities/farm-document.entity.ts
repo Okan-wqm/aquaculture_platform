@@ -1,3 +1,5 @@
+import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
+import GraphQLJSON from 'graphql-type-json';
 import {
   Column,
   CreateDateColumn,
@@ -7,8 +9,6 @@ import {
   UpdateDateColumn,
   VersionColumn,
 } from 'typeorm';
-import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
-import GraphQLJSON from 'graphql-type-json';
 
 export enum FarmDocumentState {
   PENDING_UPLOAD = 'PENDING_UPLOAD',

@@ -1,4 +1,6 @@
 import { randomUUID } from 'crypto';
+
+import { Tenant, CurrentUser, Roles, Role, CurrentUserPayload } from '@aquaculture/backend-common/decorators';
 import { Logger, BadRequestException } from '@nestjs/common';
 import {
   Resolver,
@@ -11,12 +13,6 @@ import {
   Parent,
   Context,
 } from '@nestjs/graphql';
-import { Tenant, CurrentUser, Roles, Role, CurrentUserPayload } from '@aquaculture/backend-common/decorators';
-
-import { PlcConnection, PlcConnectionStatus } from '../entities/plc-connection.entity';
-import { FeedingParameter, ParameterStatus } from '../entities/feeding-parameter.entity';
-import { PlcAlarm, AlarmSeverity, AlarmSource } from '../entities/plc-alarm.entity';
-import { PlcTelemetry } from '../entities/plc-telemetry.entity';
 
 import {
   CreatePlcConnectionDto,
@@ -53,7 +49,10 @@ import {
   MethodCallResultDto,
   WriteNodeInputDto,
 } from '../dto';
-
+import { FeedingParameter, ParameterStatus } from '../entities/feeding-parameter.entity';
+import { PlcAlarm, AlarmSeverity, AlarmSource } from '../entities/plc-alarm.entity';
+import { PlcConnection, PlcConnectionStatus } from '../entities/plc-connection.entity';
+import { PlcTelemetry } from '../entities/plc-telemetry.entity';
 import {
   PlcConnectionService,
   FeedingParameterService,

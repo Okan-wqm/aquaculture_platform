@@ -1,6 +1,9 @@
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
+
 import yaml from 'js-yaml';
+
+import { SCHEMA_REGISTRY } from '../../apps/db-migrate/src/schema-registry';
 import {
   PLATFORM_SERVICE_CATALOG,
   backendImageBuildTargets,
@@ -13,7 +16,6 @@ import {
   serviceCatalogById,
   validateServiceCatalog,
 } from '../../platform/libs/service-catalog/src';
-import { SCHEMA_REGISTRY } from '../../apps/db-migrate/src/schema-registry';
 
 interface CriticalityManifest {
   services: Array<{ name: string; level: string }>;

@@ -6,8 +6,6 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-import { BillingCycle } from '../entities/plan-definition.entity';
-
 import { SubscriptionCoreService } from './subscription-core.service';
 import {
   SubscriptionOverview,
@@ -170,11 +168,7 @@ export class SubscriptionRenewalService {
   /**
    * Process subscription renewals
    */
-  async processRenewals(): Promise<{
-    processed: number;
-    failed: number;
-    errors: string[];
-  }> {
+  processRenewals(): never {
     throw new ConflictException(
       'Subscription renewal reconciliation is billing-service-owned and cannot run through admin-api direct writers.',
     );
@@ -217,7 +211,7 @@ export class SubscriptionRenewalService {
   /**
    * Mark subscription as past due
    */
-  async markAsPastDue(subscriptionId: string): Promise<void> {
+  markAsPastDue(subscriptionId: string): never {
     void subscriptionId;
     throw new ConflictException(
       'Past-due subscription transitions are billing-service-owned and cannot run through admin-api direct writers.',
@@ -227,7 +221,7 @@ export class SubscriptionRenewalService {
   /**
    * Suspend subscription for non-payment
    */
-  async suspendForNonPayment(subscriptionId: string): Promise<void> {
+  suspendForNonPayment(subscriptionId: string): never {
     void subscriptionId;
     throw new ConflictException(
       'Non-payment suspension is billing-service-owned and cannot run through admin-api direct writers.',

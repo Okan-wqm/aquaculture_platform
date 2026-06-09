@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+
 import { SentinelProxyPolicy } from '../sentinel-proxy.policy';
 
 describe('SentinelProxyPolicy', () => {

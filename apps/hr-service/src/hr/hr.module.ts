@@ -1,17 +1,18 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
-import { HrOutboxModule } from '../hr-outbox.module';
-import { Employee } from './entities/employee.entity';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
-import { Payroll } from './entities/payroll.entity';
-import { PayrollAudit } from './entities/payroll-audit.entity';
-import { DepartmentHR } from './entities/department.entity';
 import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
+import { HrOutboxModule } from '../hr-outbox.module';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { EmployeeCertification } from '../training/entities/employee-certification.entity';
-import { HRResolver } from './hr.resolver';
+
 import { InternalHrContactController } from './controllers/internal-hr-contact.controller';
+import { DepartmentHR } from './entities/department.entity';
+import { Employee } from './entities/employee.entity';
+import { PayrollAudit } from './entities/payroll-audit.entity';
+import { Payroll } from './entities/payroll.entity';
+import { HRResolver } from './hr.resolver';
 import { EmployeeErasureService } from './services/employee-erasure.service';
 
 // Command Handlers

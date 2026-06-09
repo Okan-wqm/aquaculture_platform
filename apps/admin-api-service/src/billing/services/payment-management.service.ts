@@ -1,7 +1,6 @@
 import {
   ConflictException,
   Injectable,
-  InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -67,23 +66,6 @@ type PaymentOverviewRow = Omit<PaymentOverview, 'amount' | 'refundedAmount'> & {
   amount: DbNumeric;
   refundedAmount: DbNumeric;
 };
-
-interface InvoicePaymentSourceRow {
-  id: string;
-  tenantId: string;
-  status: string;
-  amountDue: DbNumeric;
-  total: DbNumeric;
-}
-
-interface PaymentRefundSourceRow {
-  id: string;
-  tenantId: string;
-  invoiceId: string;
-  amount: DbNumeric;
-  refundedAmount: DbNumeric;
-  status: string;
-}
 
 function dbNumber(value: DbNumeric): number {
   if (value === null || value === undefined || value === '') {
@@ -211,10 +193,10 @@ export class PaymentManagementService {
   /**
    * Record a payment for an invoice
    */
-  async recordPayment(
+  recordPayment(
     dto: RecordPaymentDto,
     recordedBy: string,
-  ): Promise<PaymentOverview> {
+  ): never {
     void dto;
     void recordedBy;
     throw new ConflictException(
@@ -225,10 +207,10 @@ export class PaymentManagementService {
   /**
    * Refund a payment (full or partial)
    */
-  async refundPayment(
+  refundPayment(
     dto: RefundPaymentDto,
     refundedBy: string,
-  ): Promise<PaymentOverview> {
+  ): never {
     void dto;
     void refundedBy;
     throw new ConflictException(

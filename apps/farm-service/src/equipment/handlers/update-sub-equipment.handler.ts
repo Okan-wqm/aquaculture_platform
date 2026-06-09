@@ -1,8 +1,8 @@
 /**
  * Update SubEquipment Command Handler
  */
-import { ConflictException, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { ConflictException, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { SubEquipmentUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -12,6 +12,7 @@ import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { UpdateSubEquipmentCommand } from '../commands/update-sub-equipment.command';
 import { SubEquipment } from '../entities/sub-equipment.entity';
+
 import { subEquipmentAuditSnapshot } from './equipment-audit.util';
 
 @CommandHandler(UpdateSubEquipmentCommand)

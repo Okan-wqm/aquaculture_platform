@@ -6,7 +6,6 @@
  * handler/repository path writes to the active tenant schema, never to the
  * source `farm` schema, and immediate get/list queries see the committed edit.
  */
-import 'reflect-metadata';
 import { randomBytes } from 'crypto';
 
 import {
@@ -14,54 +13,23 @@ import {
   getTenantSchemaName,
   withTenantContext,
 } from '@aquaculture/backend-common';
+import { ConfigService } from '@nestjs/config';
+import { CommandBus } from '@platform/cqrs';
 import {
   bootPostgresContainer,
   HarnessContext,
   shutdownHarness,
 } from '@platform/migration-harness';
-import { CommandBus } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
+import 'reflect-metadata';
 import { DataSource, ObjectLiteral, Repository } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
 
-import { AddFeedInventoryCommand } from '../../feeding/commands/add-feed-inventory.command';
-import {
-  AdjustFeedInventoryCommand,
-  AdjustmentType,
-} from '../../feeding/commands/adjust-feed-inventory.command';
-import { FeedInventory, InventoryStatus } from '../../feeding/entities/feed-inventory.entity';
-import { AddFeedInventoryHandler } from '../../feeding/handlers/add-feed-inventory.handler';
-import { AdjustFeedInventoryHandler } from '../../feeding/handlers/adjust-feed-inventory.handler';
-import { FarmOutbox } from '../../outbox/farm-outbox.entity';
+import { BatchDocument } from '../../batch/entities/batch-document.entity';
+import { Batch } from '../../batch/entities/batch.entity';
+import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { AuditLog } from '../../database/entities/audit-log.entity';
 import { CodeSequence } from '../../database/entities/code-sequence.entity';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
-import { GetFeedInventoryHandler } from '../../feeding/query-handlers/get-feed-inventory.handler';
-import { GetFeedInventoryQuery } from '../../feeding/queries/get-feed-inventory.query';
-import { CreateFeedCommand } from '../../feed/commands/create-feed.command';
-import { DeleteFeedCommand } from '../../feed/commands/delete-feed.command';
-import { UpdateFeedCommand } from '../../feed/commands/update-feed.command';
-import { Feed, FeedStatus, FeedType } from '../../feed/entities/feed.entity';
-import { FeedSite } from '../../feed/entities/feed-site.entity';
-import { FeedTypeSpecies } from '../../feed/entities/feed-type-species.entity';
-import { CreateFeedHandler } from '../../feed/handlers/create-feed.handler';
-import { DeleteFeedHandler } from '../../feed/handlers/delete-feed.handler';
-import { GetFeedHandler } from '../../feed/handlers/get-feed.handler';
-import { ListFeedsHandler } from '../../feed/handlers/list-feeds.handler';
-import { UpdateFeedHandler } from '../../feed/handlers/update-feed.handler';
-import { GetFeedQuery } from '../../feed/queries/get-feed.query';
-import { ListFeedsQuery } from '../../feed/queries/list-feeds.query';
-import { CreateSiteCommand } from '../../site/commands/create-site.command';
-import { DeleteSiteCommand } from '../../site/commands/delete-site.command';
-import { UpdateSiteCommand } from '../../site/commands/update-site.command';
-import { Site, SiteStatus } from '../../site/entities/site.entity';
-import { CreateSiteHandler } from '../../site/handlers/create-site.handler';
-import { DeleteSiteHandler } from '../../site/handlers/delete-site.handler';
-import { GetSiteHandler } from '../../site/handlers/get-site.handler';
-import { ListSitesHandler } from '../../site/handlers/list-sites.handler';
-import { UpdateSiteHandler } from '../../site/handlers/update-site.handler';
-import { GetSiteQuery } from '../../site/queries/get-site.query';
-import { ListSitesQuery } from '../../site/queries/list-sites.query';
 import { CreateDepartmentCommand } from '../../department/commands/create-department.command';
 import { DeleteDepartmentCommand } from '../../department/commands/delete-department.command';
 import { UpdateDepartmentCommand } from '../../department/commands/update-department.command';
@@ -79,32 +47,16 @@ import { UpdateDepartmentHandler } from '../../department/handlers/update-depart
 import { GetDepartmentDeletePreviewQuery } from '../../department/queries/get-department-delete-preview.query';
 import { GetDepartmentQuery } from '../../department/queries/get-department.query';
 import { ListDepartmentsQuery } from '../../department/queries/list-departments.query';
-import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
-import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
-import { EquipmentType, EquipmentCategory } from '../../equipment/entities/equipment-type.entity';
-import { FeederCalibration } from '../../equipment/entities/feeder-calibration.entity';
-import { SubEquipment } from '../../equipment/entities/sub-equipment.entity';
-import { SubEquipmentType } from '../../equipment/entities/sub-equipment-type.entity';
-import { TankEquipmentAdapterService } from '../../equipment/services/tank-equipment-adapter.service';
-import { System } from '../../system/entities/system.entity';
-import { SubSystem } from '../../system/entities/sub-system.entity';
-import { CreateSystemCommand } from '../../system/commands/create-system.command';
-import { DeleteSystemCommand } from '../../system/commands/delete-system.command';
-import { UpdateSystemCommand } from '../../system/commands/update-system.command';
-import { GetSystemDeletePreviewQuery } from '../../system/queries/get-system-delete-preview.query';
-import { SystemStatus, SystemType } from '../../system/entities/system.entity';
-import { CreateSystemHandler } from '../../system/handlers/create-system.handler';
-import { DeleteSystemHandler } from '../../system/handlers/delete-system.handler';
-import { GetSystemDeletePreviewHandler } from '../../system/handlers/get-system-delete-preview.handler';
-import { GetSystemHandler } from '../../system/handlers/get-system.handler';
-import { ListSystemsHandler } from '../../system/handlers/list-systems.handler';
-import { UpdateSystemHandler } from '../../system/handlers/update-system.handler';
-import { GetSystemQuery } from '../../system/queries/get-system.query';
-import { ListSystemsQuery } from '../../system/queries/list-systems.query';
 import { CreateEquipmentCommand } from '../../equipment/commands/create-equipment.command';
 import { DeleteEquipmentCommand } from '../../equipment/commands/delete-equipment.command';
 import { SaveFeederCalibrationsCommand } from '../../equipment/commands/save-feeder-calibrations.command';
 import { UpdateEquipmentCommand } from '../../equipment/commands/update-equipment.command';
+import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
+import { EquipmentType, EquipmentCategory } from '../../equipment/entities/equipment-type.entity';
+import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
+import { FeederCalibration } from '../../equipment/entities/feeder-calibration.entity';
+import { SubEquipmentType } from '../../equipment/entities/sub-equipment-type.entity';
+import { SubEquipment } from '../../equipment/entities/sub-equipment.entity';
 import { CreateEquipmentHandler } from '../../equipment/handlers/create-equipment.handler';
 import { DeleteEquipmentHandler } from '../../equipment/handlers/delete-equipment.handler';
 import { GetEquipmentHandler } from '../../equipment/handlers/get-equipment.handler';
@@ -113,10 +65,68 @@ import { SaveFeederCalibrationsHandler } from '../../equipment/handlers/save-fee
 import { UpdateEquipmentHandler } from '../../equipment/handlers/update-equipment.handler';
 import { GetEquipmentQuery } from '../../equipment/queries/get-equipment.query';
 import { ListEquipmentQuery } from '../../equipment/queries/list-equipment.query';
+import { TankEquipmentAdapterService } from '../../equipment/services/tank-equipment-adapter.service';
+import { CreateFeedCommand } from '../../feed/commands/create-feed.command';
+import { DeleteFeedCommand } from '../../feed/commands/delete-feed.command';
+import { UpdateFeedCommand } from '../../feed/commands/update-feed.command';
+import { FeedSite } from '../../feed/entities/feed-site.entity';
+import { FeedTypeSpecies } from '../../feed/entities/feed-type-species.entity';
+import { Feed, FeedStatus, FeedType } from '../../feed/entities/feed.entity';
+import { CreateFeedHandler } from '../../feed/handlers/create-feed.handler';
+import { DeleteFeedHandler } from '../../feed/handlers/delete-feed.handler';
+import { GetFeedHandler } from '../../feed/handlers/get-feed.handler';
+import { ListFeedsHandler } from '../../feed/handlers/list-feeds.handler';
+import { UpdateFeedHandler } from '../../feed/handlers/update-feed.handler';
+import { GetFeedQuery } from '../../feed/queries/get-feed.query';
+import { ListFeedsQuery } from '../../feed/queries/list-feeds.query';
+import { AddFeedInventoryCommand } from '../../feeding/commands/add-feed-inventory.command';
+import {
+  AdjustFeedInventoryCommand,
+  AdjustmentType,
+} from '../../feeding/commands/adjust-feed-inventory.command';
+import { FeedInventory, InventoryStatus } from '../../feeding/entities/feed-inventory.entity';
+import { AddFeedInventoryHandler } from '../../feeding/handlers/add-feed-inventory.handler';
+import { AdjustFeedInventoryHandler } from '../../feeding/handlers/adjust-feed-inventory.handler';
+import { GetFeedInventoryQuery } from '../../feeding/queries/get-feed-inventory.query';
+import { GetFeedInventoryHandler } from '../../feeding/query-handlers/get-feed-inventory.handler';
+import { FarmOutbox } from '../../outbox/farm-outbox.entity';
+import { SentinelHubSettings } from '../../sentinel-hub/entities/sentinel-hub-settings.entity';
+import { SentinelHubService } from '../../sentinel-hub/sentinel-hub.service';
+import { CreateSiteCommand } from '../../site/commands/create-site.command';
+import { DeleteSiteCommand } from '../../site/commands/delete-site.command';
+import { UpdateSiteCommand } from '../../site/commands/update-site.command';
+import { Site, SiteStatus } from '../../site/entities/site.entity';
+import { CreateSiteHandler } from '../../site/handlers/create-site.handler';
+import { DeleteSiteHandler } from '../../site/handlers/delete-site.handler';
+import { GetSiteHandler } from '../../site/handlers/get-site.handler';
+import { ListSitesHandler } from '../../site/handlers/list-sites.handler';
+import { UpdateSiteHandler } from '../../site/handlers/update-site.handler';
+import { GetSiteQuery } from '../../site/queries/get-site.query';
+import { ListSitesQuery } from '../../site/queries/list-sites.query';
+import { Species } from '../../species/entities/species.entity';
+import { SetSupplierApprovedSitesCommand } from '../../supplier/commands/set-supplier-approved-sites.command';
+import { SupplierSite } from '../../supplier/entities/supplier-site.entity';
+import { Supplier, SupplierStatus, SupplierType } from '../../supplier/entities/supplier.entity';
+import { SetSupplierApprovedSitesHandler } from '../../supplier/handlers/set-supplier-approved-sites.handler';
+import { CreateSystemCommand } from '../../system/commands/create-system.command';
+import { DeleteSystemCommand } from '../../system/commands/delete-system.command';
+import { UpdateSystemCommand } from '../../system/commands/update-system.command';
+import { SubSystem } from '../../system/entities/sub-system.entity';
+import { System } from '../../system/entities/system.entity';
+import { SystemStatus, SystemType } from '../../system/entities/system.entity';
+import { CreateSystemHandler } from '../../system/handlers/create-system.handler';
+import { DeleteSystemHandler } from '../../system/handlers/delete-system.handler';
+import { GetSystemDeletePreviewHandler } from '../../system/handlers/get-system-delete-preview.handler';
+import { GetSystemHandler } from '../../system/handlers/get-system.handler';
+import { ListSystemsHandler } from '../../system/handlers/list-systems.handler';
+import { UpdateSystemHandler } from '../../system/handlers/update-system.handler';
+import { GetSystemDeletePreviewQuery } from '../../system/queries/get-system-delete-preview.query';
+import { GetSystemQuery } from '../../system/queries/get-system.query';
+import { ListSystemsQuery } from '../../system/queries/list-systems.query';
 import { CreateTankCommand } from '../../tank/commands/create-tank.command';
 import { DeleteTankCommand } from '../../tank/commands/delete-tank.command';
-import { UpdateTankCommand } from '../../tank/commands/update-tank.command';
 import { UpdateTankStatusCommand } from '../../tank/commands/update-tank-status.command';
+import { UpdateTankCommand } from '../../tank/commands/update-tank.command';
 import {
   Tank,
   TankMaterial,
@@ -124,22 +134,14 @@ import {
   TankType,
   WaterType,
 } from '../../tank/entities/tank.entity';
-import { TankBatch } from '../../batch/entities/tank-batch.entity';
-import { Batch } from '../../batch/entities/batch.entity';
-import { BatchDocument } from '../../batch/entities/batch-document.entity';
 import { CreateTankHandler } from '../../tank/handlers/create-tank.handler';
 import { DeleteTankHandler } from '../../tank/handlers/delete-tank.handler';
 import { GetTankHandler } from '../../tank/handlers/get-tank.handler';
 import { ListTanksHandler } from '../../tank/handlers/list-tanks.handler';
-import { UpdateTankHandler } from '../../tank/handlers/update-tank.handler';
 import { UpdateTankStatusHandler } from '../../tank/handlers/update-tank-status.handler';
+import { UpdateTankHandler } from '../../tank/handlers/update-tank.handler';
 import { GetTankQuery } from '../../tank/queries/get-tank.query';
 import { ListTanksQuery } from '../../tank/queries/list-tanks.query';
-import { Species } from '../../species/entities/species.entity';
-import { SetSupplierApprovedSitesCommand } from '../../supplier/commands/set-supplier-approved-sites.command';
-import { Supplier, SupplierStatus, SupplierType } from '../../supplier/entities/supplier.entity';
-import { SupplierSite } from '../../supplier/entities/supplier-site.entity';
-import { SetSupplierApprovedSitesHandler } from '../../supplier/handlers/set-supplier-approved-sites.handler';
 import { CreateParameterConfigCommand } from '../../water-quality/commands/create-parameter-config.command';
 import { DeleteParameterConfigCommand } from '../../water-quality/commands/delete-parameter-config.command';
 import { UpdateParameterConfigCommand } from '../../water-quality/commands/update-parameter-config.command';
@@ -151,13 +153,12 @@ import {
 import { CreateParameterConfigHandler } from '../../water-quality/handlers/create-parameter-config.handler';
 import { DeleteParameterConfigHandler } from '../../water-quality/handlers/delete-parameter-config.handler';
 import { UpdateParameterConfigHandler } from '../../water-quality/handlers/update-parameter-config.handler';
-import { GetParameterConfigHandler } from '../../water-quality/query-handlers/get-parameter-config.handler';
-import { ListParameterConfigsHandler } from '../../water-quality/query-handlers/list-parameter-configs.handler';
 import { GetParameterConfigQuery } from '../../water-quality/queries/get-parameter-config.query';
 import { ListParameterConfigsQuery } from '../../water-quality/queries/list-parameter-configs.query';
+import { GetParameterConfigHandler } from '../../water-quality/query-handlers/get-parameter-config.handler';
+import { ListParameterConfigsHandler } from '../../water-quality/query-handlers/list-parameter-configs.handler';
 import { ParameterConfigCacheService } from '../../water-quality/services/parameter-config-cache.service';
-import { SentinelHubSettings } from '../../sentinel-hub/entities/sentinel-hub-settings.entity';
-import { SentinelHubService } from '../../sentinel-hub/sentinel-hub.service';
+
 import {
   createFarmOutboxTable,
   createSourceEquipmentTypesReferenceTable,

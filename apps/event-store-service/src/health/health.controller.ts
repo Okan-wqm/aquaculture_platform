@@ -1,9 +1,10 @@
-import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
 import { StandardHealthController } from '@aquaculture/backend-common/health';
 import type { ReadinessResponse } from '@aquaculture/backend-common/health';
-import { DataSource } from 'typeorm';
+import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { Response } from 'express';
+import { DataSource } from 'typeorm';
+
 import { assertEventStoreTenantScopePolicy } from '../guards/event-store-service-identity.guard';
 
 /**

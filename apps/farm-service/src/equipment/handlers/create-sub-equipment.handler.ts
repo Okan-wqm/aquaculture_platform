@@ -1,8 +1,8 @@
 /**
  * Create SubEquipment Command Handler
  */
-import { BadRequestException, ConflictException, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { BadRequestException, ConflictException, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { SubEquipmentCreatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -15,6 +15,7 @@ import { CreateSubEquipmentCommand } from '../commands/create-sub-equipment.comm
 import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
 import { SubEquipmentType } from '../entities/sub-equipment-type.entity';
 import { SubEquipment } from '../entities/sub-equipment.entity';
+
 import { subEquipmentAuditSnapshot } from './equipment-audit.util';
 
 type CountUpdateRepository<T> = {

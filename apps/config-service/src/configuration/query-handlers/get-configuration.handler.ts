@@ -2,12 +2,13 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
+
+import { SYSTEM_TENANT_ID } from '../configuration.constants';
+import { Configuration, ConfigEnvironment } from '../entities/configuration.entity';
 import {
   GetConfigurationQuery,
   GetConfigurationByIdQuery,
 } from '../queries/get-configuration.query';
-import { Configuration, ConfigEnvironment } from '../entities/configuration.entity';
-import { SYSTEM_TENANT_ID } from '../configuration.constants';
 
 @Injectable()
 @QueryHandler(GetConfigurationQuery)

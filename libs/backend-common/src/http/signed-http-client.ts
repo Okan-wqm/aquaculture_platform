@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'crypto';
+
 import { serviceIdentityAudienceForService } from '../../../../platform/libs/service-catalog/src/index';
 import {
   generateServiceIdentityHeadersV2,

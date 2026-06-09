@@ -2,22 +2,23 @@
  * Update Tank Command Handler
  * @module Tank/Handlers
  */
-import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { TankUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
+import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { defaultFarmStockProjectionForDirectHandlerConstruction } from '../../common/services/direct-handler-dependency-defaults';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { Department } from '../../department/entities/department.entity';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { System } from '../../system/entities/system.entity';
-import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { UpdateTankCommand } from '../commands/update-tank.command';
 import { Tank } from '../entities/tank.entity';
+
 import { tankAuditSnapshot } from './tank-audit.util';
 import { assertTankStatusTransition } from './tank-status.policy';
 

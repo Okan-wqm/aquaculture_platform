@@ -18,20 +18,21 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Role, hasAnyRole } from '@aquaculture/backend-common/decorators';
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
-import type { BatchClosedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
-import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
-import { Batch, BatchStatus } from '../entities/batch.entity';
-import { Role, hasAnyRole } from '@aquaculture/backend-common/decorators';
-import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import type { BatchClosedEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
+
 import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
+import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
+import { Batch, BatchStatus } from '../entities/batch.entity';
 import { BatchLifecyclePolicyService } from '../services/batch-lifecycle-policy.service';
 
 @Injectable()

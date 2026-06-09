@@ -1,3 +1,4 @@
+import type { TenantRequest } from '@aquaculture/backend-common/types';
 import {
   Controller,
   Get,
@@ -11,9 +12,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request, Response as ExpressResponse } from 'express';
-import type { TenantRequest } from '@aquaculture/backend-common/types';
 
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+
 import { SentinelHubService } from './sentinel-hub.service';
 import { SentinelProxyPolicy } from './sentinel-proxy.policy';
 

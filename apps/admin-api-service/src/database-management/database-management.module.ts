@@ -4,13 +4,12 @@
  * Multi-tenant database schema, migration, backup ve monitoring yönetimi.
  */
 
+import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common/database';
-import { AuditLogModule } from '../audit/audit.module';
 
-// Entities
+import { AuditLogModule } from '../audit/audit.module';
 import { BackupController } from './controllers/backup.controller';
 import { DatabaseExplorerController } from './controllers/explorer.controller';
 import { MigrationController } from './controllers/migration.controller';
@@ -24,14 +23,10 @@ import {
   DatabaseMetric,
   SlowQueryLog,
 } from './entities/database-management.entity';
-
-// Services
 import { BackupRestoreService } from './services/backup-restore.service';
 import { DatabaseMonitoringService } from './services/database-monitoring.service';
 import { MigrationManagementService } from './services/migration-management.service';
 import { SchemaManagementService } from './services/schema-management.service';
-
-// Controllers
 
 @Module({
   imports: [

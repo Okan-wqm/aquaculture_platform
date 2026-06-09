@@ -1,25 +1,23 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
+  BadRequestException,
   Body,
-  Param,
-  Query,
-  Req,
+  Controller,
+  Delete,
+  Get,
   HttpCode,
   HttpStatus,
-  BadRequestException,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-
-import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined, MaxLength, Min, Max, ArrayMaxSize, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined, MaxLength, Min, Max, ArrayMaxSize, ValidateNested } from 'class-validator';
 import { Request } from 'express';
-import { getAuthUser } from '../../shared/authenticated-request';
 
-import { Public } from '../../decorators/public.decorator';
+import { getAuthUser } from '../../shared/authenticated-request';
 import {
   FeatureToggleScope,
   FeatureToggleStatus,
@@ -628,18 +626,18 @@ export class GlobalSettingsController {
   // ============================================================================
 
   @Post('configs')
-  async createConfig(@Body() dto: CreateConfigDto) {
+  createConfig(@Body() dto: CreateConfigDto): never {
     return this.globalSettingsService.createConfig(dto);
   }
 
   @Get('configs')
-  async queryConfigs(
+  queryConfigs(
     @Query('category') category?: ConfigCategory,
     @Query('isSecret') isSecret?: string,
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): ReturnType<GlobalSettingsService['queryConfigs']> {
     return this.globalSettingsService.queryConfigs({
       category,
       isSecret: isSecret !== undefined ? isSecret === 'true' : undefined,
@@ -650,22 +648,22 @@ export class GlobalSettingsController {
   }
 
   @Get('configs/:id')
-  async getConfig(@Param('id') id: string) {
+  getConfig(@Param('id') id: string): never {
     return this.globalSettingsService.getConfigEntity(id);
   }
 
   @Put('configs/:id')
-  async updateConfig(
+  updateConfig(
     @Param('id') id: string,
     @Body() dto: UpdateConfigDto,
-  ) {
+  ): never {
     return this.globalSettingsService.updateConfig(id, dto.value, 'admin', dto.reason);
   }
 
   @Post('configs/bulk-update')
-  async bulkUpdateConfigs(
+  bulkUpdateConfigs(
     @Body() dto: BulkUpdateConfigsDto,
-  ) {
+  ): never {
     return this.globalSettingsService.bulkUpdateConfigs(dto.updates, 'admin');
   }
 
@@ -676,22 +674,21 @@ export class GlobalSettingsController {
   /** SEC-M19: Removed @Public() — this endpoint exposes platform configuration
    *  and must be protected by the global APP_GUARD (PlatformAdminGuard). */
   @Get('provisioning-config')
-  async getProvisioningConfig() {
+  getProvisioningConfig(): ReturnType<GlobalSettingsService['getProvisioningConfig']> {
     return this.globalSettingsService.getProvisioningConfig();
   }
 
   @Put('provisioning-config')
-  async updateProvisioningConfig(
+  updateProvisioningConfig(
     @Body() body: Record<string, string>,
     @Req() req: Request,
-  ) {
+  ): never {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Invalid configuration payload');
     }
     const user = getAuthUser(req);
     const updatedBy = user?.email || user?.id || 'admin';
-    await this.globalSettingsService.updateProvisioningConfig(body, updatedBy);
-    return { success: true };
+    return this.globalSettingsService.updateProvisioningConfig(body, updatedBy);
   }
 
   // ============================================================================

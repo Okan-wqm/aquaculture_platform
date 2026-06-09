@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AuditLog } from '../infrastructure/audit';
+
 import { FeedingParameter } from './entities/feeding-parameter.entity';
 import { PlcAlarm } from './entities/plc-alarm.entity';
 import { PlcConnection } from './entities/plc-connection.entity';
 import { PlcTelemetry } from './entities/plc-telemetry.entity';
-import { AuditLog } from '../infrastructure/audit';
 
 // Services
 import {

@@ -4,22 +4,18 @@
  * Tenant database yedekleme ve geri yükleme servisi.
  */
 
-import * as crypto from 'crypto';
 import { execFile } from 'child_process';
-import { promisify } from 'util';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { promisify } from 'util';
 
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { isValidSchemaName } from '@aquaculture/backend-common/database';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, LessThan } from 'typeorm';
-import { isValidSchemaName } from '@aquaculture/backend-common/database';
-
-const execFileAsync = promisify(execFile);
-const ENCRYPTED_BACKUP_MAGIC = Buffer.from('AQBKP1');
-const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, LessThan, Repository } from 'typeorm';
 
 import {
   TenantSchema,
@@ -32,6 +28,14 @@ import {
   BackupOptions,
   RestoreOptions,
 } from '../entities/database-management.entity';
+
+const execFileAsync = promisify(execFile);
+const ENCRYPTED_BACKUP_MAGIC = Buffer.from('AQBKP1');
+const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+
+function ignoreCleanupError(_error: unknown): void {
+  void _error;
+}
 
 // ============================================================================
 // Service
@@ -264,7 +268,7 @@ export class BackupRestoreService {
       await this.backupRepository.save(backup);
 
       // Cleanup partial dump file
-      await fs.promises.unlink(filePath).catch(() => {});
+      await fs.promises.unlink(filePath).catch(ignoreCleanupError);
 
       this.logger.error(`Backup failed for schema ${backup.schemaName}: ${error.message}`);
       throw error;
@@ -459,7 +463,7 @@ export class BackupRestoreService {
         });
       } finally {
         if (decryptedTempPath) {
-          await fs.promises.unlink(decryptedTempPath).catch(() => {});
+          await fs.promises.unlink(decryptedTempPath).catch(ignoreCleanupError);
         }
       }
 
@@ -572,7 +576,7 @@ export class BackupRestoreService {
       Buffer.concat([ENCRYPTED_BACKUP_MAGIC, iv, authTag, ciphertext]),
       { mode: 0o600 },
     );
-    await fs.promises.unlink(filePath).catch(() => {});
+    await fs.promises.unlink(filePath).catch(ignoreCleanupError);
     return encryptedPath;
   }
 

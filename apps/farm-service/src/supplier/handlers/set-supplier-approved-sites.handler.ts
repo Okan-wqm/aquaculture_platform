@@ -18,19 +18,20 @@
  *
  * The caller receives the post-write set of `SupplierSite` rows.
  */
-import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { DataSource, In } from 'typeorm';
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
+import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { createBaseEvent, type SupplierApprovedSitesChangedEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource, In } from 'typeorm';
 
-import { SetSupplierApprovedSitesCommand } from '../commands/set-supplier-approved-sites.command';
-import { Supplier } from '../entities/supplier.entity';
-import { SupplierSite } from '../entities/supplier-site.entity';
-import { Site } from '../../site/entities/site.entity';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { Site } from '../../site/entities/site.entity';
+import { SetSupplierApprovedSitesCommand } from '../commands/set-supplier-approved-sites.command';
+import { SupplierSite } from '../entities/supplier-site.entity';
+import { Supplier } from '../entities/supplier.entity';
+
 import { supplierSiteAuditSnapshot } from './supplier-audit.util';
 
 @CommandHandler(SetSupplierApprovedSitesCommand)

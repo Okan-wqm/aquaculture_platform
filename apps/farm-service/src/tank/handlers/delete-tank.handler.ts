@@ -2,20 +2,21 @@
  * Delete Tank Command Handler
  * @module Tank/Handlers
  */
-import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { TankDeletedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
+import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { defaultFarmStockProjectionForDirectHandlerConstruction } from '../../common/services/direct-handler-dependency-defaults';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
-import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { DeleteTankCommand } from '../commands/delete-tank.command';
 import { Tank } from '../entities/tank.entity';
+
 import { tankAuditSnapshot } from './tank-audit.util';
 
 @CommandHandler(DeleteTankCommand)

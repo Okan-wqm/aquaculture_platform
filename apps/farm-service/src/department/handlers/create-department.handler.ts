@@ -1,17 +1,19 @@
 /**
  * Create Department Command Handler
  */
-import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import { DepartmentCreatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
-import { CreateDepartmentCommand } from '../commands/create-department.command';
-import { Department, DepartmentStatus } from '../entities/department.entity';
-import { Site } from '../../site/entities/site.entity';
+
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { Site } from '../../site/entities/site.entity';
+import { CreateDepartmentCommand } from '../commands/create-department.command';
+import { Department, DepartmentStatus } from '../entities/department.entity';
+
 import { departmentAuditSnapshot } from './department-audit.util';
 
 @CommandHandler(CreateDepartmentCommand)

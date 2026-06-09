@@ -17,27 +17,27 @@
 // invokes — every "should reject password X" assertion was
 // passing because the SUT called the real, un-mocked bcryptjs
 // while the test mocked an unrelated bcrypt instance.
-// Aligning to bcryptjs makes the spies intercept the real call
-// path AND silences the missing-types error. Surfaced by PR-31
-// (PROC-MEDIUM-007 ratchet).
-import * as bcrypt from 'bcryptjs';
-import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
+import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BypassRlsService } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
+// Aligning to bcryptjs makes the spies intercept the real call
+// path AND silences the missing-types error. Surfaced by PR-31
+// (PROC-MEDIUM-007 ratchet).
+import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { ActionToken } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
-import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { AuthenticationService } from '../services/authentication.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
@@ -120,7 +120,7 @@ const mockInvitationRepository = {
 
 const mockActionTokenRepository = {
   create: jest.fn((data: Record<string, unknown>) => ({ ...data })),
-  save: jest.fn(async (entity: Record<string, unknown>) => ({
+  save: jest.fn((entity: Record<string, unknown>) => Promise.resolve({
     id: 'action-token-id',
     ...entity,
   })),
@@ -239,7 +239,7 @@ describe('AuthenticationService', () => {
     ]);
     mockSessionManager.countActiveSessions.mockResolvedValue(0);
     mockSessionManager.revokeAllSessions.mockResolvedValue(undefined);
-    mockTokenService.generateTokens.mockImplementation(async (user: User) => ({
+    mockTokenService.generateTokens.mockImplementation((user: User) => Promise.resolve({
       accessToken: 'mock-access-token',
       refreshToken: 'mock-refresh-token',
       user,
@@ -365,9 +365,7 @@ describe('AuthenticationService', () => {
       mockTenantRepository.findOne.mockResolvedValue(suspendedTenant);
       mockBcryptCompare.mockResolvedValue(true);
 
-      await expect(service.login(validInput)).rejects.toThrow(
-        expect.objectContaining({ message: expect.any(String) }),
-      );
+      await expect(service.login(validInput)).rejects.toThrow();
     });
 
     it('throws UnauthorizedException for pending-invitation user', async () => {

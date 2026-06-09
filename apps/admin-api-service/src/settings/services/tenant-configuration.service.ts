@@ -4,7 +4,6 @@ import { GoneException, Injectable, Logger, NotFoundException } from '@nestjs/co
 
 import {
   ApiConfig,
-  ApiKeyConfig,
   BrandingConfig,
   createDefaultTenantConfiguration,
   DataRetentionConfig,
@@ -99,9 +98,9 @@ const LEGACY_CONFIG_STORE_GONE =
 export class TenantConfigurationService {
   private readonly logger = new Logger(TenantConfigurationService.name);
 
-  async requestDefaultConfigurationProvisioning(
+  requestDefaultConfigurationProvisioning(
     dto: CreateTenantConfigurationDto,
-  ): Promise<TenantConfigurationProvisioningRequest> {
+  ): TenantConfigurationProvisioningRequest {
     const sections = Object.keys(dto).filter((key) => key !== 'tenantId') as Array<
       keyof UpdateTenantConfigurationDto
     >;
@@ -119,209 +118,209 @@ export class TenantConfigurationService {
     return request;
   }
 
-  async createConfiguration(_dto: CreateTenantConfigurationDto): Promise<TenantConfiguration> {
+  createConfiguration(_dto: CreateTenantConfigurationDto): never {
     this.throwLegacyGone();
   }
 
-  async getConfigurationByTenantId(tenantId: string): Promise<TenantConfiguration> {
+  getConfigurationByTenantId(tenantId: string): TenantConfiguration {
     return this.defaultConfiguration(tenantId);
   }
 
-  async getOrCreateConfiguration(tenantId: string): Promise<TenantConfiguration> {
+  getOrCreateConfiguration(tenantId: string): TenantConfiguration {
     return this.getConfigurationByTenantId(tenantId);
   }
 
-  async updateConfiguration(
+  updateConfiguration(
     _tenantId: string,
     _dto: UpdateTenantConfigurationDto,
-  ): Promise<TenantConfiguration> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async deleteConfiguration(_tenantId: string): Promise<void> {
+  deleteConfiguration(_tenantId: string): never {
     this.throwLegacyGone();
   }
 
-  async getUserLimits(tenantId: string): Promise<UserLimitsConfig> {
+  getUserLimits(tenantId: string): UserLimitsConfig {
     return this.defaultConfiguration(tenantId).userLimits;
   }
 
-  async updateUserLimits(
+  updateUserLimits(
     _tenantId: string,
     _limits: Partial<UserLimitsConfig>,
     _updatedBy?: string,
-  ): Promise<UserLimitsConfig> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async getStorageConfig(tenantId: string): Promise<StorageConfig> {
+  getStorageConfig(tenantId: string): StorageConfig {
     return this.defaultConfiguration(tenantId).storageConfig;
   }
 
-  async updateStorageConfig(
+  updateStorageConfig(
     _tenantId: string,
     _storage: Partial<StorageConfig>,
     _updatedBy?: string,
-  ): Promise<StorageConfig> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async updateStorageUsage(_tenantId: string, _usedStorageGB: number): Promise<void> {
+  updateStorageUsage(_tenantId: string, _usedStorageGB: number): never {
     this.throwLegacyGone();
   }
 
-  async checkStorageLimit(tenantId: string, additionalSizeGB: number): Promise<boolean> {
-    const storage = await this.getStorageConfig(tenantId);
+  checkStorageLimit(tenantId: string, additionalSizeGB: number): boolean {
+    const storage = this.getStorageConfig(tenantId);
     return storage.usedStorageGB + additionalSizeGB <= storage.totalStorageGB;
   }
 
-  async getApiConfig(tenantId: string): Promise<ApiConfig> {
+  getApiConfig(tenantId: string): ApiConfig {
     return this.defaultConfiguration(tenantId).apiConfig;
   }
 
-  async updateApiConfig(
+  updateApiConfig(
     _tenantId: string,
     _apiConfig: Partial<ApiConfig>,
     _updatedBy?: string,
-  ): Promise<ApiConfig> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async createApiKey(
+  createApiKey(
     _tenantId: string,
     _dto: CreateApiKeyDto,
-  ): Promise<{ apiKey: string; keyConfig: ApiKeyConfig }> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async revokeApiKey(_tenantId: string, _keyId: string): Promise<void> {
+  revokeApiKey(_tenantId: string, _keyId: string): never {
     this.throwLegacyGone();
   }
 
-  async validateApiKey(_tenantId: string, _rawKey: string): Promise<ApiKeyConfig | null> {
+  validateApiKey(_tenantId: string, _rawKey: string): never {
     throw new NotFoundException('Tenant API keys are not exposed by the legacy adapter');
   }
 
-  async getWebhooks(tenantId: string): Promise<WebhookConfig[]> {
+  getWebhooks(tenantId: string): WebhookConfig[] {
     return this.defaultConfiguration(tenantId).notificationConfig.webhooks;
   }
 
-  async createWebhook(_tenantId: string, _dto: CreateWebhookDto): Promise<WebhookConfig> {
+  createWebhook(_tenantId: string, _dto: CreateWebhookDto): never {
     this.throwLegacyGone();
   }
 
-  async updateWebhook(
+  updateWebhook(
     _tenantId: string,
     _webhookId: string,
     _updates: Partial<CreateWebhookDto>,
-  ): Promise<WebhookConfig> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async deleteWebhook(_tenantId: string, _webhookId: string): Promise<void> {
+  deleteWebhook(_tenantId: string, _webhookId: string): never {
     this.throwLegacyGone();
   }
 
-  async getDomainConfig(tenantId: string): Promise<DomainConfig> {
+  getDomainConfig(tenantId: string): DomainConfig {
     return this.defaultConfiguration(tenantId).domainConfig;
   }
 
-  async initiateCustomDomainVerification(
+  initiateCustomDomainVerification(
     _tenantId: string,
     _dto: VerifyDomainDto,
-  ): Promise<{ verificationToken: string; dnsRecord: string }> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async verifyCustomDomain(_tenantId: string): Promise<boolean> {
+  verifyCustomDomain(_tenantId: string): never {
     this.throwLegacyGone();
   }
 
-  async getBrandingConfig(tenantId: string): Promise<BrandingConfig> {
+  getBrandingConfig(tenantId: string): BrandingConfig {
     return this.defaultConfiguration(tenantId).brandingConfig;
   }
 
-  async updateBranding(
+  updateBranding(
     _tenantId: string,
     _dto: UpdateBrandingDto,
     _updatedBy?: string,
-  ): Promise<BrandingConfig> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async getSecurityConfig(tenantId: string): Promise<TenantSecurityConfig> {
+  getSecurityConfig(tenantId: string): TenantSecurityConfig {
     return this.defaultConfiguration(tenantId).securityConfig;
   }
 
-  async updateSecurityConfig(
+  updateSecurityConfig(
     _tenantId: string,
     _security: Partial<TenantSecurityConfig>,
     _updatedBy?: string,
-  ): Promise<TenantSecurityConfig> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async addToIpWhitelist(_tenantId: string, _ip: string): Promise<string[]> {
+  addToIpWhitelist(_tenantId: string, _ip: string): never {
     this.throwLegacyGone();
   }
 
-  async removeFromIpWhitelist(_tenantId: string, _ip: string): Promise<string[]> {
+  removeFromIpWhitelist(_tenantId: string, _ip: string): never {
     this.throwLegacyGone();
   }
 
-  async addToIpBlacklist(_tenantId: string, _ip: string): Promise<string[]> {
+  addToIpBlacklist(_tenantId: string, _ip: string): never {
     this.throwLegacyGone();
   }
 
-  async removeFromIpBlacklist(_tenantId: string, _ip: string): Promise<string[]> {
+  removeFromIpBlacklist(_tenantId: string, _ip: string): never {
     this.throwLegacyGone();
   }
 
-  async getNotificationConfig(tenantId: string): Promise<TenantNotificationConfig> {
+  getNotificationConfig(tenantId: string): TenantNotificationConfig {
     return this.defaultConfiguration(tenantId).notificationConfig;
   }
 
-  async updateNotificationConfig(
+  updateNotificationConfig(
     _tenantId: string,
     _notification: Partial<TenantNotificationConfig>,
     _updatedBy?: string,
-  ): Promise<TenantNotificationConfig> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async getFeatureFlags(tenantId: string): Promise<FeatureFlagsConfig> {
+  getFeatureFlags(tenantId: string): FeatureFlagsConfig {
     return this.defaultConfiguration(tenantId).featureFlags;
   }
 
-  async updateFeatureFlags(
+  updateFeatureFlags(
     _tenantId: string,
     _flags: Partial<FeatureFlagsConfig>,
     _updatedBy?: string,
-  ): Promise<FeatureFlagsConfig> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async enableModule(_tenantId: string, _moduleCode: string): Promise<string[]> {
+  enableModule(_tenantId: string, _moduleCode: string): never {
     this.throwLegacyGone();
   }
 
-  async disableModule(_tenantId: string, _moduleCode: string): Promise<string[]> {
+  disableModule(_tenantId: string, _moduleCode: string): never {
     this.throwLegacyGone();
   }
 
-  async getDataRetentionConfig(tenantId: string): Promise<DataRetentionConfig> {
+  getDataRetentionConfig(tenantId: string): DataRetentionConfig {
     return this.defaultConfiguration(tenantId).dataRetention;
   }
 
-  async updateDataRetentionConfig(
+  updateDataRetentionConfig(
     _tenantId: string,
     _retention: Partial<DataRetentionConfig>,
     _updatedBy?: string,
-  ): Promise<DataRetentionConfig> {
+  ): never {
     this.throwLegacyGone();
   }
 
-  async getConfigurationSummary(tenantId: string): Promise<{
+  getConfigurationSummary(tenantId: string): {
     userLimits: { current: number; max: number };
     storage: { used: number; total: number };
     apiEnabled: boolean;
@@ -330,7 +329,7 @@ export class TenantConfigurationService {
     customDomain: string | null;
     mfaRequired: boolean;
     enabledModules: string[];
-  }> {
+  } {
     const config = this.defaultConfiguration(tenantId);
     return {
       userLimits: { current: 0, max: config.userLimits.maxUsers },

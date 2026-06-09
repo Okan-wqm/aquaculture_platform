@@ -1,5 +1,6 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import * as crypto from 'crypto';
+
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 
 import { SystemSettingService } from './system-setting.service';
@@ -19,6 +20,10 @@ export interface EmailSendOptions {
   maxRetries?: number;
   /** Base delay in ms between retries - uses exponential backoff (default: 1000) */
   retryDelayMs?: number;
+}
+
+interface SmtpSendResult {
+  messageId?: unknown;
 }
 
 /** SMTP circuit breaker state */
@@ -114,9 +119,9 @@ export class EmailSenderService implements OnModuleDestroy {
   /**
    * Initialize or reinitialize transporter with current SMTP settings
    */
-  private async initializeTransporter(): Promise<boolean> {
+  private initializeTransporter(): boolean {
     try {
-      const config = await this.settingsService.getEmailConfigForSending();
+      const config = this.settingsService.getEmailConfigForSending();
 
       // Create a hash of config to detect changes
       const configHash = JSON.stringify({
@@ -206,7 +211,7 @@ export class EmailSenderService implements OnModuleDestroy {
     // Validate retry count
     const effectiveMaxRetries = Math.min(Math.max(1, maxRetries), 5);
 
-    const initialized = await this.initializeTransporter();
+    const initialized = this.initializeTransporter();
 
     if (!initialized || !this.transporter) {
       const errorMsg = 'SMTP not configured. Please configure email settings.';
@@ -231,7 +236,7 @@ export class EmailSenderService implements OnModuleDestroy {
       attempts = attempt;
 
       try {
-        const config = await this.settingsService.getEmailConfigForSending();
+        const config = this.settingsService.getEmailConfigForSending();
         const fromAddress = config.fromAddress || 'noreply@aquaculture.io';
         const fromName = config.fromName || 'Aquaculture Platform';
 
@@ -246,11 +251,12 @@ export class EmailSenderService implements OnModuleDestroy {
           EmailSenderService.SEND_TIMEOUT_MS,
         );
 
+        const messageId = this.readMessageId(result.messageId);
         this.recordSuccess();
-        this.logger.log(`Email sent to ${to}: ${result.messageId} (attempt ${attempt}/${effectiveMaxRetries})`);
+        this.logger.log(`Email sent to ${to}: ${messageId} (attempt ${attempt}/${effectiveMaxRetries})`);
         return {
           success: true,
-          messageId: result.messageId as string,
+          messageId,
           attempts,
         };
       } catch (error) {
@@ -298,22 +304,39 @@ export class EmailSenderService implements OnModuleDestroy {
   private sendMailWithTimeout(
     mailOptions: nodemailer.SendMailOptions,
     timeoutMs: number,
-  ): Promise<nodemailer.SentMessageInfo> {
+  ): Promise<SmtpSendResult> {
     return new Promise((resolve, reject) => {
+      const transporter = this.transporter;
+      if (!transporter) {
+        reject(new Error('SMTP transporter is not initialized'));
+        return;
+      }
+
       const timer = setTimeout(() => {
         reject(new Error(`SMTP sendMail timed out after ${timeoutMs}ms`));
       }, timeoutMs);
 
-      this.transporter!.sendMail(mailOptions)
-        .then((result: nodemailer.SentMessageInfo) => {
+      transporter.sendMail(mailOptions)
+        .then((result: unknown) => {
           clearTimeout(timer);
-          resolve(result);
+          resolve(this.toSmtpSendResult(result));
         })
         .catch((error: Error) => {
           clearTimeout(timer);
           reject(error);
         });
     });
+  }
+
+  private toSmtpSendResult(value: unknown): SmtpSendResult {
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      return value;
+    }
+    return {};
+  }
+
+  private readMessageId(value: unknown): string {
+    return typeof value === 'string' ? value : '';
   }
 
   /**
@@ -348,7 +371,7 @@ export class EmailSenderService implements OnModuleDestroy {
    * A successful test also resets the circuit breaker, allowing email flow to resume.
    */
   async testConnection(): Promise<EmailResult> {
-    const initialized = await this.initializeTransporter();
+    const initialized = this.initializeTransporter();
 
     if (!initialized || !this.transporter) {
       return {

@@ -1,16 +1,18 @@
 /**
  * Create Site Command Handler
  */
-import { ConflictException, Logger } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { ConflictException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import { SiteCreatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
-import { CreateSiteCommand } from '../commands/create-site.command';
-import { Site, SiteStatus, SiteLocation, SiteAddress, SiteSettings } from '../entities/site.entity';
+
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { CreateSiteCommand } from '../commands/create-site.command';
+import { Site, SiteStatus, SiteLocation, SiteAddress, SiteSettings } from '../entities/site.entity';
+
 import { siteAuditSnapshot } from './site-audit.util';
 
 @CommandHandler(CreateSiteCommand)

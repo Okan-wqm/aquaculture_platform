@@ -1,14 +1,16 @@
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
+
+import { SYSTEM_TENANT_ID } from '../configuration.constants';
 import {
   Configuration,
   ConfigValueType,
   ConfigEnvironment,
 } from '../entities/configuration.entity';
-import { SYSTEM_TENANT_ID } from '../configuration.constants';
+
 import { EncryptionService } from './encryption.service';
-import { RedisService } from '@aquaculture/backend-common/redis';
 
 interface CacheEntry {
   value: Configuration;

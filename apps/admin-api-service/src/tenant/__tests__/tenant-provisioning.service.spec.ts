@@ -10,22 +10,23 @@
  * - İlişkisel Veri Testleri
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
-import { LegalHoldService } from '@aquaculture/backend-common/compliance';
 import { randomUUID as uuidv4 } from 'node:crypto';
-import { Repository, DataSource, QueryRunner } from 'typeorm';
 
-import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
+import { LegalHoldService } from '@aquaculture/backend-common/compliance';
+import { Test, TestingModule } from '@nestjs/testing';
+import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource, QueryRunner, Repository } from 'typeorm';
+
 import { TenantSchema } from '../../database-management/entities/database-management.entity';
+import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
 import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { Tenant, TenantStatus, TenantTier, TenantPlan } from '../entities/tenant.entity';
+import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 import {
   TenantProvisioningService,
   ProvisioningResult,
   TenantProvisioningOptions,
 } from '../services/tenant-provisioning.service';
-import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 
 // =============================================================================
 // Mock Factories
@@ -34,7 +35,9 @@ import { AuthTenantProvisioningClientService } from '../services/auth-tenant-pro
 const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
   const tenant = new Tenant();
   // Extract 'limits' from overrides since it's a getter-only property on Tenant
-  const { limits: _limits, ...safeOverrides } = overrides as any;
+  const { limits: _limits, ...safeOverrides } = overrides as Partial<Tenant> & {
+    limits?: unknown;
+  };
   Object.assign(tenant, {
     id: uuidv4(),
     name: 'Test Tenant',
@@ -114,15 +117,15 @@ const mockInfrastructureQueryResult = (sql: string): unknown[] | null => {
   return null;
 };
 
-const mockTenantClaimQuery = async (sql: string): Promise<unknown[]> => {
+const mockTenantClaimQuery = (sql: string): Promise<unknown[]> => {
   if (sql.includes('UPDATE auth.tenants') && sql.includes('RETURNING id')) {
-    return [{ id: 'claimed-tenant-id' }];
+    return Promise.resolve([{ id: 'claimed-tenant-id' }]);
   }
   const infrastructureResult = mockInfrastructureQueryResult(sql);
   if (infrastructureResult !== null) {
-    return infrastructureResult;
+    return Promise.resolve(infrastructureResult);
   }
-  return [];
+  return Promise.resolve([]);
 };
 
 // =============================================================================

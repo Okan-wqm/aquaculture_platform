@@ -2,8 +2,8 @@
  * Create Tank Command Handler
  * @module Tank/Handlers
  */
-import { Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { TankCreatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -18,6 +18,7 @@ import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projecti
 import { System } from '../../system/entities/system.entity';
 import { CreateTankCommand } from '../commands/create-tank.command';
 import { Tank, TankType } from '../entities/tank.entity';
+
 import { tankAuditSnapshot } from './tank-audit.util';
 
 @CommandHandler(CreateTankCommand)

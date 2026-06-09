@@ -1,6 +1,5 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
-
 import { applyTenantRlsToSchema } from '@aquaculture/backend-common/database';
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class AddTankSetupMetadata1800900000000 implements MigrationInterface {
   name = 'AddTankSetupMetadata1800900000000';

@@ -1,22 +1,22 @@
 /**
  * Get Equipment Delete Preview Handler
  */
-import { NotFoundException, Logger } from '@nestjs/common';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { NotFoundException, Logger } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { DataSource, In } from 'typeorm';
 
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
-import { GetEquipmentDeletePreviewQuery } from '../queries/get-equipment-delete-preview.query';
-import { Equipment } from '../entities/equipment.entity';
-import { SubEquipment } from '../entities/sub-equipment.entity';
 import {
   EquipmentDeletePreviewResponse,
   EquipmentChildSummary,
   SubEquipmentSummary,
 } from '../dto/equipment-delete-preview.response';
 import { EquipmentResponse } from '../dto/equipment.response';
+import { Equipment } from '../entities/equipment.entity';
+import { SubEquipment } from '../entities/sub-equipment.entity';
+import { GetEquipmentDeletePreviewQuery } from '../queries/get-equipment-delete-preview.query';
 import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.service';
 
 @QueryHandler(GetEquipmentDeletePreviewQuery)

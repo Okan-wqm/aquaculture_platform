@@ -1,7 +1,6 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
 import { EmailTemplateController } from './controllers/email-template.controller';
 import { IpAccessController } from './controllers/ip-access.controller';
 import { TenantConfigurationController } from './controllers/tenant-configuration.controller';
@@ -9,8 +8,6 @@ import {
   EmailTemplate,
   IpAccessRule,
 } from './entities';
-
-// Services
 import {
   TenantConfigurationService,
   SystemSettingService,
@@ -18,8 +15,6 @@ import {
   IpAccessService,
 } from './services';
 import { EmailSenderService } from './services/email-sender.service';
-
-// Controllers
 import { SettingsController } from './settings.controller';
 
 @Module({
@@ -58,7 +53,7 @@ export class SettingsModule implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     // Seed default settings and templates on startup
-    await this.systemSettingService.seedDefaultSettings();
+    this.systemSettingService.seedDefaultSettings();
     await this.emailTemplateService.seedDefaultTemplates();
   }
 }

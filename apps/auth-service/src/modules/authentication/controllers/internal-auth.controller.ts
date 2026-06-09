@@ -1,5 +1,7 @@
 import * as crypto from 'crypto';
 
+import { Public } from '@aquaculture/backend-common/decorators';
+import type { TenantRequest } from '@aquaculture/backend-common/types';
 import {
   Controller,
   ForbiddenException,
@@ -9,8 +11,6 @@ import {
   Req,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Public } from '@aquaculture/backend-common/decorators';
-import type { TenantRequest } from '@aquaculture/backend-common/types';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 

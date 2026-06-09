@@ -1,10 +1,12 @@
+import * as crypto from 'crypto';
+
 import {
   BadGatewayException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
   NotFoundException,
-  ConflictException,
 } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -18,7 +20,6 @@ import {
   type AdminUpdateModuleResult,
   type AuthModuleSnapshot,
 } from '@platform/event-contracts';
-import * as crypto from 'crypto';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
 

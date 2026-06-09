@@ -1,6 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import type {
@@ -11,11 +10,13 @@ import type {
   TaskCompletedEvent,
   TaskOverdueEvent,
 } from '@platform/event-contracts';
-import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
-import { InAppNotificationService } from '../services/in-app.service';
-import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
+import { Repository } from 'typeorm';
+
 import { DeviceToken } from '../entities/device-token.entity';
 import { NotificationChannel } from '../entities/notification-log.entity';
+import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
+import { InAppNotificationService } from '../services/in-app.service';
+import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
 
 // UUID v4 regex for tenant ID validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

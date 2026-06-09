@@ -1,11 +1,12 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import type { TenantRequest } from '@aquaculture/backend-common/types';
 import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { EventStoreController } from '../event-store.controller';
-import { EventStoreService } from '../services/event-store.service';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { EventStream } from '../entities/event-stream.entity';
 import { Snapshot } from '../entities/snapshot.entity';
+import { EventStoreController } from '../event-store.controller';
 import { PersistedEvent } from '../interfaces/event-store.interfaces';
-import type { TenantRequest } from '@aquaculture/backend-common/types';
+import { EventStoreService } from '../services/event-store.service';
 
 /**
  * Mock factories for the event-store controller's collaborator return shapes.

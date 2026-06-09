@@ -19,10 +19,11 @@
  * objects and NotificationConfig arrays; it does not import the engine.
  */
 
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import * as http from 'http';
 import * as https from 'https';
+
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
 import type {

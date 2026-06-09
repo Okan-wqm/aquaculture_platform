@@ -25,7 +25,14 @@
  *
  * @see libs/event-contracts/src/tenant-commands.ts (AUTH_ADMIN_COMMAND_SUBJECTS)
  */
-import { Controller, Logger, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Controller,
+  ForbiddenException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
@@ -71,12 +78,11 @@ import {
   type SuspendTenantLifecycleCommand,
   type AuthTenantCommandResult,
 } from '@platform/event-contracts';
-import { ForbiddenException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 
 import { Module as SystemModuleEntity } from '../../system-module/entities/module.entity';
-import { UserLifecycleService } from '../services/user-lifecycle.service';
 import { TenantProvisioningCommandService } from '../services/tenant-provisioning-command.service';
+import { UserLifecycleService } from '../services/user-lifecycle.service';
 
 /**
  * Map a typed service-layer exception to the fixed error-code vocabulary
@@ -95,6 +101,10 @@ type ModuleCreateErrorCode = NonNullable<AdminCreateModuleResult['errorCode']>;
 type ModuleUpdateErrorCode = NonNullable<AdminUpdateModuleResult['errorCode']>;
 type ModuleDeleteErrorCode = NonNullable<AdminDeleteModuleResult['errorCode']>;
 
+interface CountRow {
+  count?: unknown;
+}
+
 @Controller()
 export class AuthAdminNatsHandler {
   private readonly logger = new Logger(AuthAdminNatsHandler.name);
@@ -105,6 +115,16 @@ export class AuthAdminNatsHandler {
     @InjectRepository(SystemModuleEntity)
     private readonly moduleRepository: Repository<SystemModuleEntity>,
   ) {}
+
+  private rowsFromQuery<T extends object>(value: unknown): T[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter(
+      (row): row is T =>
+        typeof row === 'object' && row !== null && !Array.isArray(row),
+    );
+  }
 
   /**
    * Create a user on behalf of a SUPER_ADMIN operator.
@@ -462,11 +482,11 @@ export class AuthAdminNatsHandler {
     @Payload() command: AdminDeleteModuleCommand,
   ): Promise<AdminDeleteModuleResult> {
     try {
-      const assignments = await this.moduleRepository.manager.query(
+      const assignments = this.rowsFromQuery<CountRow>(await this.moduleRepository.manager.query(
         `SELECT COUNT(*)::int AS count FROM auth.tenant_modules WHERE "moduleId" = $1`,
         [command.moduleId],
-      );
-      if (parseInt(assignments[0]?.count ?? '0', 10) > 0) {
+      ));
+      if (Number(assignments[0]?.count ?? 0) > 0) {
         throw new ConflictException('Cannot delete module that is assigned to tenants');
       }
 

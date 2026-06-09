@@ -1,11 +1,11 @@
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { AUTH_ADMIN_COMMAND_SUBJECTS } from '@platform/event-contracts';
+import { AUTH_ADMIN_COMMAND_SUBJECTS, type AuthModuleSnapshot } from '@platform/event-contracts';
 import { of, throwError } from 'rxjs';
 import { DataSource } from 'typeorm';
 
-import { ModulesService, ModuleDto, ModuleStats, TenantModuleAssignment } from '../modules.service';
 import { AuthTenantProvisioningClientService } from '../../tenant/services/auth-tenant-provisioning-client.service';
+import { ModulesService, ModuleDto, TenantModuleAssignment } from '../modules.service';
 
 // Mock DataSource
 const mockDataSource = {
@@ -38,10 +38,13 @@ const createMockModule = (overrides: Partial<ModuleDto> = {}): ModuleDto => ({
   ...overrides,
 });
 
-const createMockModuleSnapshot = (overrides: Partial<ModuleDto> = {}) => {
+const createMockModuleSnapshot = (
+  overrides: Partial<ModuleDto> = {},
+): AuthModuleSnapshot => {
   const module = createMockModule(overrides);
+  const { tenantsCount: _tenantsCount, ...snapshot } = module;
   return {
-    ...module,
+    ...snapshot,
     createdAt: module.createdAt.toISOString(),
     updatedAt: module.updatedAt.toISOString(),
   };
@@ -227,15 +230,16 @@ describe('ModulesService', () => {
         ]);
 
       const result = await service.getModuleStats();
+      const moduleUsageMatcher: unknown = expect.arrayContaining([
+        expect.objectContaining({ moduleName: 'Farm', tenantsCount: 10 }),
+      ]);
 
       expect(result).toEqual({
         totalModules: 10,
         activeModules: 8,
         coreModules: 3,
         totalAssignments: 25,
-        moduleUsage: expect.arrayContaining([
-          expect.objectContaining({ moduleName: 'Farm', tenantsCount: 10 }),
-        ]),
+        moduleUsage: moduleUsageMatcher,
       });
     });
 
@@ -638,6 +642,10 @@ describe('ModulesService', () => {
         .mockResolvedValueOnce([mockAssignment]); // get full details
 
       const result = await service.assignModuleToTenant(assignDto);
+      const operationIdMatcher: unknown = expect.any(String);
+      const requestReferenceMatcher: unknown = expect.stringMatching(
+        /^AssignModules:tenant-uuid:tenant-uuid:[a-f0-9]{64}$/,
+      );
 
       expect(result).toEqual(mockAssignment);
       expect(mockAuthProvisioningClient.assignTenantModules).toHaveBeenCalledWith(
@@ -646,8 +654,8 @@ describe('ModulesService', () => {
           moduleIds: ['module-uuid'],
           modules: [{ moduleId: 'module-uuid' }],
           assignedBy: 'tenant-uuid',
-          operationId: expect.any(String),
-          requestReference: expect.stringMatching(/^AssignModules:tenant-uuid:tenant-uuid:[a-f0-9]{64}$/),
+          operationId: operationIdMatcher,
+          requestReference: requestReferenceMatcher,
           actor: { id: 'tenant-uuid', type: 'user' },
           auditMetadata: {
             source: 'admin-api-service',
@@ -697,6 +705,10 @@ describe('ModulesService', () => {
   describe('removeModuleFromTenant', () => {
     it('should remove module from tenant', async () => {
       mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-id' }]);
+      const operationIdMatcher: unknown = expect.any(String);
+      const requestReferenceMatcher: unknown = expect.stringMatching(
+        /^RemoveModule:tenant-id:tenant-id:[a-f0-9]{64}$/,
+      );
 
       await expect(service.removeModuleFromTenant('tenant-id', 'module-id')).resolves.toBeUndefined();
       expect(mockAuthProvisioningClient.removeTenantModule).toHaveBeenCalledWith(
@@ -704,8 +716,8 @@ describe('ModulesService', () => {
           tenantId: 'tenant-id',
           moduleId: 'module-id',
           removedBy: 'tenant-id',
-          operationId: expect.any(String),
-          requestReference: expect.stringMatching(/^RemoveModule:tenant-id:tenant-id:[a-f0-9]{64}$/),
+          operationId: operationIdMatcher,
+          requestReference: requestReferenceMatcher,
           actor: { id: 'tenant-id', type: 'user' },
           auditMetadata: {
             source: 'admin-api-service',

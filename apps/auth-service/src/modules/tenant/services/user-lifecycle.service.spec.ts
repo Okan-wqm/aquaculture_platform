@@ -6,17 +6,18 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
 import { Role, SchemaManagerService } from '@platform/backend-common';
+import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { ActionToken } from '../../authentication/entities/action-token.entity';
-import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { Invitation } from '../../authentication/entities/invitation.entity';
+import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User } from '../../authentication/entities/user.entity';
-import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
+import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
+
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import { UserLifecycleService } from './user-lifecycle.service';
 

@@ -1,24 +1,25 @@
+import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Patch,
-  Delete,
   Body,
+  Controller,
+  Delete,
+  Get,
   Headers,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpCode,
   HttpStatus,
   Logger,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
+  Query,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { ThrottleSensitive } from '@aquaculture/backend-common/security';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../decorators/current-user.decorator';
+
 import {
   UpdateTenantCommand,
   SuspendTenantCommand,
@@ -26,6 +27,7 @@ import {
   DeactivateTenantCommand,
   ArchiveTenantCommand,
 } from './commands/tenant.commands';
+import { DeactivateTenantDto } from './dto/deactivate-tenant.dto';
 import {
   TenantDetailDto,
   BulkSuspendDto,
@@ -34,15 +36,14 @@ import {
   UpdateTenantNoteDto,
 } from './dto/tenant-detail.dto';
 import {
-  CreateTenantDto,
   CreateTenantAcceptedResponse,
-  UpdateTenantDto,
-  SuspendTenantDto,
+  CreateTenantDto,
   ListTenantsQueryDto,
+  SuspendTenantDto,
   TenantStatsDto,
   TenantUsageDto,
+  UpdateTenantDto,
 } from './dto/tenant.dto';
-import { DeactivateTenantDto } from './dto/deactivate-tenant.dto';
 import { TenantActivity, TenantNote } from './entities/tenant-activity.entity';
 import { Tenant } from './entities/tenant.entity';
 import {

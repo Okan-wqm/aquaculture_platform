@@ -51,11 +51,13 @@
  * Closes: docs/reviews/security-reviewer/2026-04-28-core-platform-review.md#SECREV-CRITICAL-002
  */
 
+import { createHash } from 'crypto';
+
 import { Injectable, NestMiddleware, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { serviceIdentityAudiencesForService } from '../../../../platform/libs/service-catalog/src/index';
 import type { Request, Response, NextFunction } from 'express';
-import { createHash } from 'crypto';
+
+import { serviceIdentityAudiencesForService } from '../../../../platform/libs/service-catalog/src/index';
 import type { TenantRequest, VerifiedServiceIdentity } from '../types/tenant-request.interface';
 import {
   getServiceIdentityHeader,

@@ -1,20 +1,20 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, IsNull } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
 import {
   NOTIFICATION_COMMAND_SUBJECTS,
   type NotificationSendEmailCommand,
   type NotificationSendResult,
 } from '@platform/event-contracts';
 import { firstValueFrom, timeout } from 'rxjs';
+import { Repository, In, IsNull } from 'typeorm';
 
-import { WeeklyPlan, WeeklyPlanStatus } from '../entities/weekly-plan.entity';
-import { WeeklyPlanEntry } from '../entities/weekly-plan-entry.entity';
-import { SchedulingSettings } from '../entities/scheduling-settings.entity';
-import { Employee } from '../../hr/entities/employee.entity';
 import { Shift } from '../../attendance/entities/shift.entity';
+import { Employee } from '../../hr/entities/employee.entity';
+import { SchedulingSettings } from '../entities/scheduling-settings.entity';
+import { WeeklyPlanEntry } from '../entities/weekly-plan-entry.entity';
+import { WeeklyPlan, WeeklyPlanStatus } from '../entities/weekly-plan.entity';
 
 /**
  * Data structure for schedule email notification

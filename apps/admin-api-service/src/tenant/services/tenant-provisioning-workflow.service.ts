@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import {
   BadRequestException,
   ConflictException,
@@ -9,14 +10,21 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
-import { createBaseEvent, type BaseEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  type BaseEvent,
+  type BillingCycle as BillingCommandBillingCycle,
+  type PlanTier as BillingCommandPlanTier,
+} from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
+import {
+  BillingCycle as ModuleBillingCycle,
+  PlanTier as ModulePlanTier,
+} from '../../billing/entities/plan-definition.entity';
 import { BillingAdminCommandClientService } from '../../billing/services/billing-admin-command-client.service';
-import { BillingCycle, PlanTier } from '../../billing/entities/plan-definition.entity';
 import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
 import {
   CreateTenantAcceptedResponse,
@@ -26,8 +34,8 @@ import {
 } from '../dto/tenant.dto';
 import { Tenant, TenantPlan, TenantSettings, TenantStatus } from '../entities/tenant.entity';
 
-import { TenantProvisioningService } from './tenant-provisioning.service';
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
+import { TenantProvisioningService } from './tenant-provisioning.service';
 
 interface TenantProvisioningRunRow {
   id: string;
@@ -251,7 +259,7 @@ export class TenantProvisioningWorkflowService {
 
   async retryOperation(operationId: string): Promise<CreateTenantAcceptedResponse> {
     let shouldProcess = false;
-    const run = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+    await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
       const lockedRows = await this.managerRows<TenantProvisioningRunRow>(
         manager,
         `SELECT id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
@@ -951,8 +959,8 @@ export class TenantProvisioningWorkflowService {
       tenantId: tenant.id,
       modules,
       assignedBy,
-      tier: this.toPlanTier(tenant.tier),
-      billingCycle: this.toBillingCycle(data.billingCycle),
+      tier: this.toModulePlanTier(tenant.tier),
+      billingCycle: this.toModuleBillingCycle(data.billingCycle),
     });
 
     if (!result.success) {
@@ -974,8 +982,8 @@ export class TenantProvisioningWorkflowService {
       requestPayloadHash: run.requestHash,
       actorId: run.actorUserId,
       tenantName: tenant.name,
-      tier: this.toPlanTier(tenant.tier) as 'starter' | 'professional' | 'enterprise',
-      billingCycle: this.toBillingCycle(data.billingCycle) as 'monthly' | 'quarterly' | 'semi_annual' | 'annual',
+      tier: this.toBillingCommandPlanTier(tenant.tier),
+      billingCycle: this.toBillingCommandCycle(data.billingCycle),
       moduleIds: data.moduleIds ?? [],
       moduleQuantities: data.moduleQuantities,
       trialDays: data.trialDays,
@@ -1015,23 +1023,42 @@ export class TenantProvisioningWorkflowService {
     }
   }
 
-  private toPlanTier(value: string | undefined): PlanTier {
-    const tierMap: Record<string, PlanTier> = {
-      starter: PlanTier.STARTER,
-      professional: PlanTier.PROFESSIONAL,
-      enterprise: PlanTier.ENTERPRISE,
+  private toModulePlanTier(value: string | undefined): ModulePlanTier {
+    const tierMap: Record<string, ModulePlanTier> = {
+      starter: ModulePlanTier.STARTER,
+      professional: ModulePlanTier.PROFESSIONAL,
+      enterprise: ModulePlanTier.ENTERPRISE,
     };
-    return tierMap[value?.toLowerCase() ?? 'starter'] ?? PlanTier.STARTER;
+    return tierMap[value?.toLowerCase() ?? 'starter'] ?? ModulePlanTier.STARTER;
   }
 
-  private toBillingCycle(value: CreateTenantDto['billingCycle']): BillingCycle {
-    const cycleMap: Record<string, BillingCycle> = {
-      monthly: BillingCycle.MONTHLY,
-      quarterly: BillingCycle.QUARTERLY,
-      semi_annual: BillingCycle.SEMI_ANNUAL,
-      annual: BillingCycle.ANNUAL,
+  private toModuleBillingCycle(value: CreateTenantDto['billingCycle']): ModuleBillingCycle {
+    const cycleMap: Record<string, ModuleBillingCycle> = {
+      monthly: ModuleBillingCycle.MONTHLY,
+      quarterly: ModuleBillingCycle.QUARTERLY,
+      semi_annual: ModuleBillingCycle.SEMI_ANNUAL,
+      annual: ModuleBillingCycle.ANNUAL,
     };
-    return cycleMap[value ?? 'monthly'] ?? BillingCycle.MONTHLY;
+    return cycleMap[value ?? 'monthly'] ?? ModuleBillingCycle.MONTHLY;
+  }
+
+  private toBillingCommandPlanTier(value: string | undefined): BillingCommandPlanTier {
+    const tierMap: Record<string, BillingCommandPlanTier> = {
+      starter: 'starter',
+      professional: 'professional',
+      enterprise: 'enterprise',
+    };
+    return tierMap[value?.toLowerCase() ?? 'starter'] ?? 'starter';
+  }
+
+  private toBillingCommandCycle(value: CreateTenantDto['billingCycle']): BillingCommandBillingCycle {
+    const cycleMap: Record<string, BillingCommandBillingCycle> = {
+      monthly: 'monthly',
+      quarterly: 'quarterly',
+      semi_annual: 'semi_annual',
+      annual: 'annual',
+    };
+    return cycleMap[value ?? 'monthly'] ?? 'monthly';
   }
 
   private getFirstName(fullName?: string): string {

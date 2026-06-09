@@ -1,38 +1,39 @@
+import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
-  Put,
-  Post,
-  Body,
   Param,
+  Post,
+  Put,
   Query,
   Req,
   UnauthorizedException,
-  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
-  IsOptional,
-  IsInt,
   IsBoolean,
   IsEmail,
-  Min,
+  IsInt,
   Max,
+  Min,
+  IsOptional,
 } from 'class-validator';
 import { Request } from 'express';
 
-import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import { getAuthUserId } from '../shared/authenticated-request';
-import { SettingCategory } from './entities/system-setting.entity';
-import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
-import { EmailSenderService } from './services/email-sender.service';
+
 import {
   BulkUpdateSettingsDto,
-  UpdateEmailConfigDto,
+  ImportSettingsDto,
   SetMaintenanceModeDto,
   UpdateBillingConfigDto,
-  ImportSettingsDto,
+  UpdateEmailConfigDto,
 } from './dto/settings.dto';
+import { SettingCategory } from './entities/system-setting.entity';
+import { EmailSenderService } from './services/email-sender.service';
+import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';
 
 // ============================================================================
 // DTOs with Validation (Fix: MEDIUM-001)
@@ -102,7 +103,9 @@ export class SettingsController {
    * Get all system settings grouped by category
    */
   @Get()
-  async getAllSettings(@Query('includePrivate') includePrivate?: string) {
+  getAllSettings(
+    @Query('includePrivate') includePrivate?: string,
+  ): ReturnType<SystemSettingService['getAllSettings']> {
     return this.settingsService.getAllSettings(includePrivate === 'true');
   }
 
@@ -110,10 +113,10 @@ export class SettingsController {
    * Get settings by category
    */
   @Get('category/:category')
-  async getSettingsByCategory(
+  getSettingsByCategory(
     @Param('category') category: SettingCategory,
     @Query('includePrivate') includePrivate?: string,
-  ) {
+  ): ReturnType<SystemSettingService['getSettingsByCategory']> {
     return this.settingsService.getSettingsByCategory(
       category,
       includePrivate === 'true',
@@ -124,7 +127,9 @@ export class SettingsController {
    * Get specific setting by key
    */
   @Get('key/:key')
-  async getSettingByKey(@Param('key') key: string) {
+  getSettingByKey(
+    @Param('key') key: string,
+  ): ReturnType<SystemSettingService['getSettingByKey']> {
     return this.settingsService.getSettingByKey(key);
   }
 
@@ -134,11 +139,11 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @Put('key/:key')
-  async updateSetting(
+  updateSetting(
     @Param('key') key: string,
     @Body() dto: UpdateSystemSettingDto,
     @Req() req: Request,
-  ) {
+  ): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.settingsService.updateSetting(key, { ...dto, updatedBy: userId });
@@ -150,7 +155,7 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @Post('key/:key/reset')
-  async resetToDefault(@Param('key') key: string, @Req() req: Request) {
+  resetToDefault(@Param('key') key: string, @Req() req: Request): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.settingsService.resetToDefault(key, userId);
@@ -162,10 +167,10 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @Put('bulk')
-  async bulkUpdate(
+  bulkUpdate(
     @Body() dto: BulkUpdateSettingsDto,
     @Req() req: Request,
-  ) {
+  ): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.settingsService.bulkUpdate(dto.updates, userId);
@@ -179,7 +184,7 @@ export class SettingsController {
    * Get email configuration
    */
   @Get('config/email')
-  async getEmailConfig() {
+  getEmailConfig(): ReturnType<SystemSettingService['getEmailConfig']> {
     return this.settingsService.getEmailConfig();
   }
 
@@ -189,19 +194,18 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @Put('config/email')
-  async updateEmailConfig(
+  updateEmailConfig(
     @Body() dto: UpdateEmailConfigDto,
     @Req() req: Request,
-  ) {
+  ): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    await this.settingsService.updateEmailConfig(dto, userId);
-    return this.settingsService.getEmailConfig();
+    return this.settingsService.updateEmailConfig(dto, userId);
   }
 
   @ThrottleSensitive()
   @Post('config/email/test')
-  async testEmailConfig(@Body() dto: TestEmailConfigDto) {
+  async testEmailConfig(@Body() dto: TestEmailConfigDto): Promise<unknown> {
     const connection = await this.emailSenderService.testConnection();
     if (!connection.success) {
       return connection;
@@ -232,7 +236,7 @@ export class SettingsController {
    * Get security configuration
    */
   @Get('config/security')
-  async getSecurityConfig() {
+  getSecurityConfig(): ReturnType<SystemSettingService['getSecurityConfig']> {
     return this.settingsService.getSecurityConfig();
   }
 
@@ -244,21 +248,20 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @Put('config/security')
-  async updateSecurityConfig(
+  updateSecurityConfig(
     @Body() body: UpdateSecurityConfigDto,
     @Req() req: Request,
-  ) {
+  ): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    await this.settingsService.updateSecurityConfig(body, userId);
-    return this.settingsService.getSecurityConfig();
+    return this.settingsService.updateSecurityConfig(body, userId);
   }
 
   /**
    * Get rate limit configuration
    */
   @Get('config/rate-limits')
-  async getRateLimitConfig() {
+  getRateLimitConfig(): ReturnType<SystemSettingService['getRateLimitConfig']> {
     return this.settingsService.getRateLimitConfig();
   }
 
@@ -270,21 +273,20 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @Put('config/rate-limits')
-  async updateRateLimitConfig(
+  updateRateLimitConfig(
     @Body() body: UpdateRateLimitConfigDto,
     @Req() req: Request,
-  ) {
+  ): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    await this.settingsService.updateRateLimitConfig(body, userId);
-    return this.settingsService.getRateLimitConfig();
+    return this.settingsService.updateRateLimitConfig(body, userId);
   }
 
   /**
    * Get maintenance status
    */
   @Get('config/maintenance')
-  async getMaintenanceStatus() {
+  getMaintenanceStatus(): ReturnType<SystemSettingService['getMaintenanceStatus']> {
     return this.settingsService.getMaintenanceStatus();
   }
 
@@ -294,26 +296,25 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @Put('config/maintenance')
-  async setMaintenanceMode(
+  setMaintenanceMode(
     @Body() dto: SetMaintenanceModeDto,
     @Req() req: Request,
-  ) {
+  ): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    await this.settingsService.setMaintenanceMode(
+    return this.settingsService.setMaintenanceMode(
       dto.enabled,
       dto.message,
       dto.allowedIps,
       userId,
     );
-    return this.settingsService.getMaintenanceStatus();
   }
 
   /**
    * Get billing configuration
    */
   @Get('config/billing')
-  async getBillingConfig() {
+  getBillingConfig(): ReturnType<SystemSettingService['getBillingConfig']> {
     return this.settingsService.getBillingConfig();
   }
 
@@ -323,14 +324,13 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @Put('config/billing')
-  async updateBillingConfig(
+  updateBillingConfig(
     @Body() dto: UpdateBillingConfigDto,
     @Req() req: Request,
-  ) {
+  ): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
-    await this.settingsService.updateBillingConfig(dto, userId);
-    return this.settingsService.getBillingConfig();
+    return this.settingsService.updateBillingConfig(dto, userId);
   }
 
   // ============================================================================
@@ -341,11 +341,11 @@ export class SettingsController {
    * Check if a feature is enabled
    */
   @Get('features/:featureKey')
-  async isFeatureEnabled(
+  isFeatureEnabled(
     @Param('featureKey') featureKey: string,
     @Query('default') defaultValue?: string,
-  ) {
-    const enabled = await this.settingsService.isFeatureEnabled(
+  ): { featureKey: string; enabled: boolean } {
+    const enabled = this.settingsService.isFeatureEnabled(
       featureKey,
       defaultValue === 'true',
     );
@@ -360,7 +360,7 @@ export class SettingsController {
    * Export all settings
    */
   @Get('export')
-  async exportSettings() {
+  exportSettings(): ReturnType<SystemSettingService['exportSettings']> {
     return this.settingsService.exportSettings();
   }
 
@@ -370,10 +370,10 @@ export class SettingsController {
    */
   @ThrottleSensitive()
   @Post('import')
-  async importSettings(
+  importSettings(
     @Body() dto: ImportSettingsDto,
     @Req() req: Request,
-  ) {
+  ): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('User not authenticated');
     return this.settingsService.importSettings(dto.data, userId);
@@ -387,10 +387,15 @@ export class SettingsController {
    * Get system information
    */
   @Get('system/info')
-  async getSystemInfo() {
-    const security = await this.settingsService.getSecurityConfig();
-    const rateLimits = await this.settingsService.getRateLimitConfig();
-    const maintenance = await this.settingsService.getMaintenanceStatus();
+  getSystemInfo(): {
+    platform: { name: string; version: string };
+    security: ReturnType<SystemSettingService['getSecurityConfig']>;
+    rateLimits: ReturnType<SystemSettingService['getRateLimitConfig']>;
+    maintenance: ReturnType<SystemSettingService['getMaintenanceStatus']>;
+  } {
+    const security = this.settingsService.getSecurityConfig();
+    const rateLimits = this.settingsService.getRateLimitConfig();
+    const maintenance = this.settingsService.getMaintenanceStatus();
 
     return {
       platform: {

@@ -4,12 +4,13 @@
  * Uses the canonical tenant transaction/audit/outbox contract so the
  * calibration set, audit row, and event row commit or roll back together.
  */
-import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { createBaseEvent, type FeederCalibrationsSavedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
+
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { SaveFeederCalibrationsCommand } from '../commands/save-feeder-calibrations.command';

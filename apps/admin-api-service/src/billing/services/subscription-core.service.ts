@@ -1,24 +1,18 @@
 import {
   ConflictException,
   Injectable,
-  InternalServerErrorException,
   Logger,
-  NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-import { BillingCycle, PlanTier } from '../entities/plan-definition.entity';
+import { BillingCycle } from '../entities/plan-definition.entity';
 
 import { DiscountCodeService } from './discount-code.service';
 import {
-  SubscriptionStatus,
   SubscriptionOverview,
   SubscriptionFilters,
-  ModuleQuantities,
   CreateSubscriptionDto,
-  CreateSubscriptionResult,
 } from './subscription-types';
 
 type DbNumeric = number | string | null | undefined;
@@ -35,25 +29,6 @@ type SubscriptionOverviewRow = Omit<
   trialEndDate: Date | null;
   cancelledAt: Date | null;
 };
-
-interface TenantExistsRow {
-  id: string;
-  name: string;
-}
-
-interface ExistingSubscriptionRow {
-  id: string;
-}
-
-interface InsertedSubscriptionRow {
-  id: string;
-}
-
-interface InsertedModuleItemRow {
-  id: string;
-  moduleId: string;
-  moduleCode: string;
-}
 
 function dbNumber(value: DbNumeric): number {
   if (value === null || value === undefined || value === '') {
@@ -221,12 +196,12 @@ export class SubscriptionCoreService {
   /**
    * Cancel subscription
    */
-  async cancelSubscription(
+  cancelSubscription(
     tenantId: string,
     reason: string,
     cancelledBy: string,
     cancelImmediately = false,
-  ): Promise<{ success: boolean; effectiveDate: Date; message: string }> {
+  ): never {
     void tenantId;
     void reason;
     void cancelledBy;
@@ -239,10 +214,10 @@ export class SubscriptionCoreService {
   /**
    * Reactivate a cancelled subscription
    */
-  async reactivateSubscription(
+  reactivateSubscription(
     tenantId: string,
     reactivatedBy: string,
-  ): Promise<{ success: boolean; message: string }> {
+  ): never {
     void tenantId;
     void reactivatedBy;
     throw new ConflictException(
@@ -253,11 +228,11 @@ export class SubscriptionCoreService {
   /**
    * Extend trial period
    */
-  async extendTrial(
+  extendTrial(
     tenantId: string,
     additionalDays: number,
     extendedBy: string,
-  ): Promise<{ success: boolean; newTrialEnd: Date }> {
+  ): never {
     void tenantId;
     void additionalDays;
     void extendedBy;
@@ -292,7 +267,7 @@ export class SubscriptionCoreService {
    * Create a new subscription for a tenant
    * This is called during tenant creation to set up billing
    */
-  async createSubscription(dto: CreateSubscriptionDto): Promise<CreateSubscriptionResult> {
+  createSubscription(dto: CreateSubscriptionDto): never {
     void dto;
     throw new ConflictException(
       'Subscription creation is billing-service-owned. Use the tenant provisioning billing command workflow.',

@@ -1,8 +1,8 @@
 /**
  * Create Equipment Command Handler
  */
-import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { EquipmentCreatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -18,6 +18,7 @@ import { EquipmentSystem } from '../entities/equipment-system.entity';
 import { EquipmentType } from '../entities/equipment-type.entity';
 import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
 import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.service';
+
 import { equipmentAuditSnapshot } from './equipment-audit.util';
 
 type ScopedReadRepository<T> = {

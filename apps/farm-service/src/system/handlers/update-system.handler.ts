@@ -1,20 +1,22 @@
 /**
  * Update System Command Handler
  */
-import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import {
   runInTenantTransaction,
   tenantManagerRepo,
   TenantScopedRepository,
 } from '@aquaculture/backend-common/database';
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import { SystemUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, Not } from 'typeorm';
-import { UpdateSystemCommand } from '../commands/update-system.command';
-import { System } from '../entities/system.entity';
+
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { UpdateSystemCommand } from '../commands/update-system.command';
+import { System } from '../entities/system.entity';
+
 import { systemAuditSnapshot } from './system-audit.util';
 
 @CommandHandler(UpdateSystemCommand)

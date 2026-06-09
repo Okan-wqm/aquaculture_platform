@@ -13,13 +13,8 @@
  * IMPORTANT: Requires docker-compose.dev.yml services running:
  *   docker compose -f docker-compose.dev.yml up -d postgres redis nats
  */
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { DataSource } from 'typeorm';
 import * as crypto from 'crypto';
-import supertest from 'supertest';
-import Redis from 'ioredis';
-import { AppModule } from '../src/app.module';
+
 import {
   applyTenantRlsToSchema,
   createMigrationRunnerService,
@@ -28,15 +23,22 @@ import {
 } from '@aquaculture/backend-common/database';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
 import { NatsEventBus } from '@platform/event-bus';
-import { REDIS_CLIENT } from '../src/shared/redis.provider';
+import Redis from 'ioredis';
+import supertest from 'supertest';
+import { DataSource } from 'typeorm';
+
+import { AppModule } from '../src/app.module';
 import { STORAGE_OBJECT_VERIFIER } from '../src/message/services/storage-object-verifier.port';
-import { PartitionManagerService } from '../src/partition/partition-manager.service';
 import { Baseline1800000000000 } from '../src/migrations/1800000000000-Baseline';
 import { CreateMessagingOutboxTable1800200000000 } from '../src/migrations/1800200000000-CreateMessagingOutboxTable';
 import { AddUserAiConsentTenantUserUnique1800300000000 } from '../src/migrations/1800300000000-AddUserAiConsentTenantUserUnique';
 import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from '../src/migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
 import { EnsureMessagingPartitionContract1800500000000 } from '../src/migrations/1800500000000-EnsureMessagingPartitionContract';
+import { PartitionManagerService } from '../src/partition/partition-manager.service';
+import { REDIS_CLIENT } from '../src/shared/redis.provider';
 
 // ── Test Constants ──────────────────────────────────────────────────────────
 

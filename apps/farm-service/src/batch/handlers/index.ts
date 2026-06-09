@@ -2,15 +2,15 @@
  * Batch Handlers Index
  * @module Batch/Handlers
  */
-import { CreateBatchHandler } from './create-batch.handler';
-import { UpdateBatchHandler } from './update-batch.handler';
-import { UpdateBatchStatusHandler } from './update-batch-status.handler';
-import { RecordMortalityHandler } from './record-mortality.handler';
-import { RecordCullHandler } from './record-cull.handler';
-import { CloseBatchHandler } from './close-batch.handler';
 import { AllocateToTankHandler } from './allocate-to-tank.handler';
-import { TransferBatchHandler } from './transfer-batch.handler';
+import { CloseBatchHandler } from './close-batch.handler';
+import { CreateBatchHandler } from './create-batch.handler';
 import { DeleteBatchHandler } from './delete-batch.handler';
+import { RecordCullHandler } from './record-cull.handler';
+import { RecordMortalityHandler } from './record-mortality.handler';
+import { TransferBatchHandler } from './transfer-batch.handler';
+import { UpdateBatchStatusHandler } from './update-batch-status.handler';
+import { UpdateBatchHandler } from './update-batch.handler';
 
 // Cleaner Fish Handlers
 import { CreateCleanerBatchHandler } from './create-cleaner-batch.handler';

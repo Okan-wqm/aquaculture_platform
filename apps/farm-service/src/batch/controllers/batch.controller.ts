@@ -7,6 +7,8 @@
  *
  * @module Batch
  */
+import type { Role } from '@aquaculture/backend-common/decorators';
+import type { TenantRequest } from '@aquaculture/backend-common/types';
 import {
   Controller,
   Get,
@@ -23,11 +25,11 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
-import type { TenantRequest } from '@aquaculture/backend-common/types';
-import type { Role } from '@aquaculture/backend-common/decorators';
 import { CommandBus, PaginatedQueryResult, QueryBus } from '@platform/cqrs';
 
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { CreateHarvestRecordCommand } from '../../harvest/commands/create-harvest-record.command';
+import { QualityGrade } from '../../harvest/entities/harvest-record.entity';
 import {
   AllocateToTankCommand,
   AllocationType,
@@ -42,10 +44,8 @@ import {
   UpdateBatchStatusCommand,
 } from '../commands';
 import { BatchInputType, BatchStatus } from '../entities/batch.entity';
-import { BatchService } from '../services/batch.service';
 import { GetBatchPerformanceQuery, GetBatchQuery, ListBatchesQuery } from '../queries';
-import { CreateHarvestRecordCommand } from '../../harvest/commands/create-harvest-record.command';
-import { QualityGrade } from '../../harvest/entities/harvest-record.entity';
+import { BatchService } from '../services/batch.service';
 
 /**
  * Interface for batch list filters

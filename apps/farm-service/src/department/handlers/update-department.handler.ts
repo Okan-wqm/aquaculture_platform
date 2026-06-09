@@ -1,16 +1,18 @@
 /**
  * Update Department Command Handler
  */
-import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import { DepartmentUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, Not } from 'typeorm';
-import { UpdateDepartmentCommand } from '../commands/update-department.command';
-import { Department } from '../entities/department.entity';
+
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { UpdateDepartmentCommand } from '../commands/update-department.command';
+import { Department } from '../entities/department.entity';
+
 import { departmentAuditSnapshot } from './department-audit.util';
 
 @CommandHandler(UpdateDepartmentCommand)

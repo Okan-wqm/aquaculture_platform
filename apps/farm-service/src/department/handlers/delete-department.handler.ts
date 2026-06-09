@@ -2,19 +2,21 @@
  * Delete Department Command Handler
  * Supports cascade soft delete of all related items
  */
-import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import { DepartmentDeletedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
-import { DeleteDepartmentCommand } from '../commands/delete-department.command';
-import { Department } from '../entities/department.entity';
-import { Equipment } from '../../equipment/entities/equipment.entity';
-import { Tank } from '../../tank/entities/tank.entity';
-import { System } from '../../system/entities/system.entity';
+
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { Equipment } from '../../equipment/entities/equipment.entity';
+import { System } from '../../system/entities/system.entity';
+import { Tank } from '../../tank/entities/tank.entity';
+import { DeleteDepartmentCommand } from '../commands/delete-department.command';
+import { Department } from '../entities/department.entity';
+
 import { departmentAuditSnapshot } from './department-audit.util';
 
 @CommandHandler(DeleteDepartmentCommand)

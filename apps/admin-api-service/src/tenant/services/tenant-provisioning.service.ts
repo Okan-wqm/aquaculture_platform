@@ -1,19 +1,20 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import * as crypto from 'crypto';
+
+import { LegalHoldService } from '@aquaculture/backend-common/compliance';
 import { createCleanupDropProof } from '@aquaculture/backend-common/database';
 import type { CleanupDropProof } from '@aquaculture/backend-common/database';
-import { LegalHoldService } from '@aquaculture/backend-common/compliance';
-import * as crypto from 'crypto';
-import { Repository, DataSource } from 'typeorm';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import {
   TenantSchema,
-  SchemaStatus,
   SchemaBackup,
 } from '../../database-management/entities/database-management.entity';
 import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
 import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
+
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
 import { ProvisioningSagaService, SagaResult } from './provisioning-saga.service';
 
@@ -74,6 +75,35 @@ interface AuthProvisioningCommandContext {
   requestPayloadHash: string;
 }
 
+interface TenantRoleRow {
+  id?: unknown;
+  code?: unknown;
+  name?: unknown;
+  description?: unknown;
+  permissions?: unknown;
+  is_default?: unknown;
+  is_editable?: unknown;
+  display_order?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+}
+
+interface CountRow {
+  count?: unknown;
+}
+
+interface TenantSchemaCleanupRow {
+  schemaName?: unknown;
+}
+
+interface NamespaceRow {
+  nspname?: unknown;
+}
+
+interface IdRow {
+  id?: unknown;
+}
+
 @Injectable()
 export class TenantProvisioningService {
   private readonly logger = new Logger(TenantProvisioningService.name);
@@ -107,6 +137,73 @@ export class TenantProvisioningService {
     @Optional()
     private readonly legalHoldService?: LegalHoldService,
   ) {}
+
+  private rowsFromQuery<T extends object>(value: unknown): T[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter(
+      (row): row is T =>
+        typeof row === 'object' && row !== null && !Array.isArray(row),
+    );
+  }
+
+  private readString(value: unknown): string {
+    if (value == null) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return value.toString();
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    return '';
+  }
+
+  private readBoolean(value: unknown): boolean {
+    return value === true || value === 'true' || value === 1 || value === '1';
+  }
+
+  private readNumber(value: unknown): number {
+    return Number(value ?? 0);
+  }
+
+  private readDate(value: unknown): Date {
+    if (value instanceof Date) {
+      return value;
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+      return new Date(value);
+    }
+    return new Date(0);
+  }
+
+  private parseRolePermissions(value: unknown): string[] {
+    if (Array.isArray(value)) {
+      return value.filter((permission): permission is string => typeof permission === 'string');
+    }
+    if (typeof value !== 'string') {
+      return [];
+    }
+
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((permission): permission is string => typeof permission === 'string')
+      : [];
+  }
+
+  private toTenantStatus(status: string): TenantStatus | undefined {
+    return Object.values(TenantStatus).find((candidate) => String(candidate) === status);
+  }
 
   /**
    * Provision a new tenant with all required resources.
@@ -176,11 +273,6 @@ export class TenantProvisioningService {
       };
     }
 
-    // The outer tenant provisioning workflow owns worker leasing. This service
-    // validates the auth-owned tenant row but does not mutate tenant status;
-    // lifecycle transitions are delegated to auth-service commands.
-    tenant.status = tenant.status as TenantStatus;
-
     // Build the saga with steps + compensating actions
     const saga = new ProvisioningSagaService();
     let adminUser: ProvisioningResult['adminUser'] | undefined;
@@ -211,8 +303,8 @@ export class TenantProvisioningService {
     if (!skipSchemaCreation) {
       saga.addStep(
         'create_schema',
-        async () => {
-          await this.createTenantSchema(tenant);
+        () => {
+          this.createTenantSchema(tenant);
         },
         async () => {
           const proof = createCleanupDropProof({
@@ -236,7 +328,7 @@ export class TenantProvisioningService {
           });
           const schemaRecord = await this.tenantSchemaRepository.findOne({ where: { tenantId: tenant.id } });
           if (schemaRecord) {
-            schemaRecord.status = 'pending_deletion' as SchemaStatus;
+            schemaRecord.status = 'pending_deletion';
             schemaRecord.metadata = {
               ...(schemaRecord.metadata ?? {}),
               cleanupOperationId: proof.operationId,
@@ -255,7 +347,7 @@ export class TenantProvisioningService {
     } else {
       saga.addStep(
         'create_schema',
-        async () => {
+        () => {
           this.logger.log(`Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`);
         },
       );
@@ -282,10 +374,10 @@ export class TenantProvisioningService {
     // Step: Create default configuration
     saga.addStep(
       'create_default_config',
-      async () => {
-        await this.createDefaultConfiguration(tenant);
+      () => {
+        this.createDefaultConfiguration(tenant);
       },
-      async () => {
+      () => {
         // Compensate: configuration cleanup is handled by TenantConfigurationService
         this.logger.warn(`Compensating: removing configuration for tenant ${tenant.id}`);
         // Best effort — config may not have been created
@@ -335,7 +427,7 @@ export class TenantProvisioningService {
           }
 
           adminUser = {
-            userId: adminResult.userId!,
+            userId: adminResult.userId,
             email: adminEmail,
           };
         },
@@ -369,7 +461,7 @@ export class TenantProvisioningService {
             ),
           });
         },
-        async () => {
+        () => {
           this.logger.warn(`Compensating: tenant ${tenant.id} activation is auth-owned; leaving status transition evidence intact`);
         },
       );
@@ -484,7 +576,7 @@ export class TenantProvisioningService {
 
       // Validate tenant can be deprovisioned
       await updateStep(0, 'in_progress');
-      if (tenant.status === TenantStatus.ACTIVE) {
+      if (this.toTenantStatus(tenant.status) === TenantStatus.ACTIVE) {
         await updateStep(0, 'failed', 'Cannot deprovision an active tenant');
         await this.finishCleanupRun(cleanupRunId, 'FAILED', {
           error: 'Cannot deprovision an active tenant',
@@ -563,7 +655,7 @@ export class TenantProvisioningService {
       return { status: 'not_found' };
     }
 
-    switch (tenant.status) {
+    switch (this.toTenantStatus(tenant.status)) {
       case TenantStatus.PENDING:
         return { status: 'pending', tenant };
       case TenantStatus.PROVISIONING:
@@ -583,7 +675,7 @@ export class TenantProvisioningService {
     }
   }
 
-  private async createTenantSchema(tenant: Tenant): Promise<void> {
+  private createTenantSchema(tenant: Tenant): never {
     this.logger.warn(
       `Rejecting runtime schema creation for tenant ${tenant.id}; tenant schema provisioning is db-migrate owned`,
     );
@@ -625,7 +717,7 @@ export class TenantProvisioningService {
   async getTenantRoles(
     tenantId: string,
   ): Promise<Array<DefaultTenantRole & { id: string; createdAt: Date; updatedAt: Date }>> {
-    const roles = await this.dataSource.query(
+    const roles = this.rowsFromQuery<TenantRoleRow>(await this.dataSource.query(
       `
       SELECT id, "tenantId", code, name, description, permissions,
              is_default, is_editable, display_order, created_at, updated_at
@@ -634,36 +726,20 @@ export class TenantProvisioningService {
       ORDER BY display_order ASC
     `,
       [tenantId],
-    );
+    ));
 
-    return roles.map(
-      (row: {
-        id: string;
-        code: string;
-        name: string;
-        description: string;
-        permissions: string;
-        is_default: boolean;
-        is_editable: boolean;
-        display_order: number;
-        created_at: Date;
-        updated_at: Date;
-      }) => ({
-        id: row.id,
-        code: row.code,
-        name: row.name,
-        description: row.description,
-        permissions:
-          typeof row.permissions === 'string'
-            ? JSON.parse(row.permissions)
-            : row.permissions,
-        isDefault: row.is_default,
-        isEditable: row.is_editable,
-        displayOrder: row.display_order,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }),
-    );
+    return roles.map((row) => ({
+      id: this.readString(row.id),
+      code: this.readString(row.code),
+      name: this.readString(row.name),
+      description: this.readString(row.description),
+      permissions: this.parseRolePermissions(row.permissions),
+      isDefault: this.readBoolean(row.is_default),
+      isEditable: this.readBoolean(row.is_editable),
+      displayOrder: this.readNumber(row.display_order),
+      createdAt: this.readDate(row.created_at),
+      updatedAt: this.readDate(row.updated_at),
+    }));
   }
 
   /**
@@ -673,7 +749,7 @@ export class TenantProvisioningService {
     tenantId: string,
     roleCode: string,
   ): Promise<(DefaultTenantRole & { id: string }) | null> {
-    const roles = await this.dataSource.query(
+    const roles = this.rowsFromQuery<TenantRoleRow>(await this.dataSource.query(
       `
       SELECT id, code, name, description, permissions,
              is_default, is_editable, display_order
@@ -681,25 +757,26 @@ export class TenantProvisioningService {
       WHERE "tenantId" = $1 AND code = $2
     `,
       [tenantId, roleCode],
-    );
+    ));
 
-    if (!roles || roles.length === 0) {
+    if (roles.length === 0) {
       return null;
     }
 
     const row = roles[0];
+    if (!row) {
+      return null;
+    }
+
     return {
-      id: row.id,
-      code: row.code,
-      name: row.name,
-      description: row.description,
-      permissions:
-        typeof row.permissions === 'string'
-          ? JSON.parse(row.permissions)
-          : row.permissions,
-      isDefault: row.is_default,
-      isEditable: row.is_editable,
-      displayOrder: row.display_order,
+      id: this.readString(row.id),
+      code: this.readString(row.code),
+      name: this.readString(row.name),
+      description: this.readString(row.description),
+      permissions: this.parseRolePermissions(row.permissions),
+      isDefault: this.readBoolean(row.is_default),
+      isEditable: this.readBoolean(row.is_editable),
+      displayOrder: this.readNumber(row.display_order),
     };
   }
 
@@ -707,11 +784,11 @@ export class TenantProvisioningService {
    * Create default configuration for a newly provisioned tenant
    * Uses the TenantConfigurationService to create the configuration record
    */
-  private async createDefaultConfiguration(tenant: Tenant): Promise<void> {
+  private createDefaultConfiguration(tenant: Tenant): void {
     this.logger.log(`Creating default configuration for tenant ${tenant.id}`);
 
     try {
-      const request = await this.tenantConfigurationService.requestDefaultConfigurationProvisioning({
+      const request = this.tenantConfigurationService.requestDefaultConfigurationProvisioning({
         tenantId: tenant.id,
         brandingConfig: {
           companyName: tenant.name,
@@ -745,29 +822,29 @@ export class TenantProvisioningService {
 
   private async collectTenantCleanupCounts(tenantId: string): Promise<Record<string, unknown>> {
     const queryCount = async (sql: string, params: unknown[] = [tenantId]): Promise<number> => {
-      const rows = await this.dataSource.query(sql, params);
-      const raw = Array.isArray(rows) ? rows[0]?.count : 0;
+      const rows = this.rowsFromQuery<CountRow>(await this.dataSource.query(sql, params));
+      const raw = rows[0]?.count ?? 0;
       return Number(raw ?? 0);
     };
 
-    const schemaRows = await this.dataSource.query(
+    const schemaRows = this.rowsFromQuery<TenantSchemaCleanupRow>(await this.dataSource.query(
       `SELECT "schemaName", status
          FROM admin.tenant_schemas
         WHERE "tenantId" = $1
         ORDER BY "updatedAt" DESC`,
       [tenantId],
-    );
-    const schemaNames = Array.isArray(schemaRows)
-      ? schemaRows.map((row) => String(row.schemaName ?? '')).filter((name) => name.length > 0)
-      : [];
+    ));
+    const schemaNames = schemaRows
+      .map((row) => this.readString(row.schemaName))
+      .filter((name) => name.length > 0);
     const schemaExistsRows = schemaNames.length > 0
-      ? await this.dataSource.query(
+      ? this.rowsFromQuery<NamespaceRow>(await this.dataSource.query(
           `SELECT nspname
              FROM pg_namespace
             WHERE nspname = ANY($1::text[])
             ORDER BY nspname`,
           [schemaNames],
-        )
+        ))
       : [];
 
     return {
@@ -776,11 +853,9 @@ export class TenantProvisioningService {
       invitations: await queryCount(`SELECT COUNT(*) AS count FROM auth.invitations WHERE "tenantId" = $1`),
       tenantModules: await queryCount(`SELECT COUNT(*) AS count FROM auth.tenant_modules WHERE "tenantId" = $1`),
       tenantRoles: await queryCount(`SELECT COUNT(*) AS count FROM auth.tenant_roles WHERE "tenantId" = $1`),
-      schemaRecords: Array.isArray(schemaRows) ? schemaRows.length : 0,
+      schemaRecords: schemaRows.length,
       schemaNames,
-      existingSchemas: Array.isArray(schemaExistsRows)
-        ? schemaExistsRows.map((row) => String(row.nspname))
-        : [],
+      existingSchemas: schemaExistsRows.map((row) => this.readString(row.nspname)),
     };
   }
 
@@ -788,7 +863,7 @@ export class TenantProvisioningService {
     tenantId: string,
     preCounts: Record<string, unknown>,
   ): Promise<string> {
-    const rows = await this.dataSource.query(
+    const rows = this.rowsFromQuery<IdRow>(await this.dataSource.query(
       `INSERT INTO admin.cleanup_runs (
           "tenantId", scope, "actorUserId", status, "preCounts", "createdAt", "updatedAt"
         ) VALUES (
@@ -796,8 +871,8 @@ export class TenantProvisioningService {
         )
         RETURNING id`,
       [tenantId, JSON.stringify(preCounts)],
-    );
-    const id = Array.isArray(rows) ? rows[0]?.id : undefined;
+    ));
+    const id = this.readString(rows[0]?.id);
     if (!id) {
       throw new Error('Failed to create tenant cleanup ledger run');
     }
@@ -1049,7 +1124,7 @@ export class TenantProvisioningService {
       ],
     );
 
-    schemaRecord.status = 'pending_deletion' as SchemaStatus;
+    schemaRecord.status = 'pending_deletion';
     schemaRecord.metadata = {
       ...(schemaRecord.metadata ?? {}),
       cleanupRunId,

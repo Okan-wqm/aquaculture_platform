@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { GoneException, Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual, MoreThanOrEqual, Between } from 'typeorm';
+import { LessThanOrEqual, Repository } from 'typeorm';
 
 import {
   FeatureToggle,
@@ -81,7 +81,7 @@ export class GlobalSettingsService implements OnModuleInit {
     private readonly systemVersionRepo: Repository<SystemVersion>,
   ) {}
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     await this.refreshCaches();
   }
 
@@ -320,17 +320,38 @@ export class GlobalSettingsService implements OnModuleInit {
         case 'not_equals':
           return contextValue !== condition.value;
         case 'contains':
-          return String(contextValue).includes(String(condition.value));
+          return this.conditionValueToString(contextValue).includes(
+            this.conditionValueToString(condition.value),
+          );
         case 'in':
           return Array.isArray(condition.value) && (condition.value as unknown[]).includes(contextValue);
         case 'not_in':
           return Array.isArray(condition.value) && !(condition.value as unknown[]).includes(contextValue);
         case 'regex':
-          return new RegExp(String(condition.value)).test(String(contextValue));
+          return new RegExp(this.conditionValueToString(condition.value)).test(
+            this.conditionValueToString(contextValue),
+          );
         default:
           return false;
       }
     });
+  }
+
+  private conditionValueToString(value: unknown): string {
+    if (value == null) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return value.toString();
+    }
+    return '';
   }
 
   private getContextValue(type: string, context: Record<string, unknown>): unknown {
@@ -703,7 +724,7 @@ export class GlobalSettingsService implements OnModuleInit {
   // Global Configuration Management
   // ============================================================================
 
-  async createConfig(data: {
+  createConfig(data: {
     key: string;
     name: string;
     description?: string;
@@ -725,17 +746,17 @@ export class GlobalSettingsService implements OnModuleInit {
     requiresRestart?: boolean;
     helpText?: string;
     createdBy?: string;
-  }): Promise<GlobalConfig> {
+  }): never {
     void data;
     this.throwGlobalConfigGone();
   }
 
-  async updateConfig(
+  updateConfig(
     id: string,
     value: unknown,
     updatedBy: string,
     reason?: string,
-  ): Promise<GlobalConfig> {
+  ): never {
     void id;
     void value;
     void updatedBy;
@@ -743,30 +764,30 @@ export class GlobalSettingsService implements OnModuleInit {
     this.throwGlobalConfigGone();
   }
 
-  async getConfig(key: string): Promise<unknown> {
+  getConfig(key: string): unknown {
     return this.provisioningDefault(key);
   }
 
-  async getConfigEntity(id: string): Promise<GlobalConfig> {
+  getConfigEntity(id: string): never {
     void id;
     this.throwGlobalConfigGone();
   }
 
-  async queryConfigs(params: {
+  queryConfigs(params: {
     category?: ConfigCategory;
     isSecret?: boolean;
     search?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ items: GlobalConfig[]; total: number }> {
+  }): { items: GlobalConfig[]; total: number } {
     void params;
     return { items: [], total: 0 };
   }
 
-  async bulkUpdateConfigs(
+  bulkUpdateConfigs(
     updates: Array<{ key: string; value: unknown }>,
     updatedBy: string,
-  ): Promise<GlobalConfig[]> {
+  ): never {
     void updates;
     void updatedBy;
     this.throwGlobalConfigGone();
@@ -857,14 +878,14 @@ export class GlobalSettingsService implements OnModuleInit {
    * Get provisioning configuration for edge device installer scripts.
    * Called by sensor-service to generate dynamic installer scripts.
    */
-  async getProvisioningConfig(): Promise<{
+  getProvisioningConfig(): {
     provisioningApiUrl: string;
     mqttBrokerHost: string;
     mqttBrokerPort: number;
     githubReleaseUrl: string;
     agentDefaultVersion: string;
     githubRepo: string;
-  }> {
+  } {
     return {
       provisioningApiUrl: this.provisioningDefault('provisioning.api_url'),
       mqttBrokerHost: this.provisioningDefault('provisioning.mqtt_broker_host'),
@@ -878,10 +899,10 @@ export class GlobalSettingsService implements OnModuleInit {
   /**
    * Update provisioning configuration
    */
-  async updateProvisioningConfig(
+  updateProvisioningConfig(
     updates: Record<string, string>,
     updatedBy: string,
-  ): Promise<void> {
+  ): never {
     void updates;
     void updatedBy;
     this.throwGlobalConfigGone();

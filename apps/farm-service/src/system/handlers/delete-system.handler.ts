@@ -2,22 +2,24 @@
  * Delete System Command Handler
  * Supports cascade soft delete of all related items
  */
-import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import {
   runInTenantTransaction,
   tenantManagerRepo,
   TenantScopedRepository,
 } from '@aquaculture/backend-common/database';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import { SystemDeletedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, In } from 'typeorm';
-import { DeleteSystemCommand } from '../commands/delete-system.command';
-import { System } from '../entities/system.entity';
-import { Equipment } from '../../equipment/entities/equipment.entity';
-import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
+
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
+import { Equipment } from '../../equipment/entities/equipment.entity';
+import { DeleteSystemCommand } from '../commands/delete-system.command';
+import { System } from '../entities/system.entity';
+
 import { systemAuditSnapshot } from './system-audit.util';
 
 @CommandHandler(DeleteSystemCommand)

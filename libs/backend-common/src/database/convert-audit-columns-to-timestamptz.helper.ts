@@ -1,5 +1,6 @@
-import { QueryRunner } from 'typeorm';
 import { Logger } from '@nestjs/common';
+import { QueryRunner } from 'typeorm';
+
 import { hasDbMigrateDdlAuthority, isSchemaDdlOwnedByDbMigrate } from './db-migrate-authority.util';
 
 /**

@@ -1,8 +1,8 @@
 /**
  * Delete Equipment Command Handler
  */
-import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import {
   EquipmentDeletedEvent,
@@ -19,6 +19,7 @@ import { DeleteEquipmentCommand } from '../commands/delete-equipment.command';
 import { Equipment } from '../entities/equipment.entity';
 import { SubEquipment } from '../entities/sub-equipment.entity';
 import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.service';
+
 import { equipmentAuditSnapshot, subEquipmentAuditSnapshot } from './equipment-audit.util';
 
 type ScopedWriteRepository<T> = {

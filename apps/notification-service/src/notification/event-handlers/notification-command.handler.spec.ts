@@ -1,11 +1,12 @@
-import { ConfigService } from '@nestjs/config';
 import { signedFetch } from '@aquaculture/backend-common/http';
+import { ConfigService } from '@nestjs/config';
 import type {
   NotificationSendEmailCommand,
   NotificationSendPushCommand,
 } from '@platform/event-contracts';
 
 import { NotificationChannel } from '../entities/notification-log.entity';
+
 import { NotificationCommandHandler } from './notification-command.handler';
 
 jest.mock('@aquaculture/backend-common/http', () => ({

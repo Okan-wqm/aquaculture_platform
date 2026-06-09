@@ -8,7 +8,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, LessThan } from 'typeorm';
+import { DataSource, LessThan, QueryRunner, Repository } from 'typeorm';
 
 import {
   TenantSchema,
@@ -29,8 +29,40 @@ import {
 const SLOW_QUERY_THRESHOLD_MS = 1000; // 1 second
 const CONNECTION_WARNING_THRESHOLD = 0.7; // 70%
 const CONNECTION_CRITICAL_THRESHOLD = 0.9; // 90%
-const STORAGE_WARNING_THRESHOLD = 0.8; // 80%
-const STORAGE_CRITICAL_THRESHOLD = 0.95; // 95%
+
+type DbScalar = boolean | number | string | null | undefined;
+
+interface ConnectionStatsRow {
+  total?: DbScalar;
+  active?: DbScalar;
+  idle?: DbScalar;
+  waiting?: DbScalar;
+}
+
+interface MaxConnectionsRow {
+  max_connections?: DbScalar;
+}
+
+function parseDbInt(value: DbScalar, fallback = 0): number {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function ignoreRollbackError(_error: unknown): void {
+  void _error;
+}
+
+async function queryRows<T extends object>(
+  queryRunner: QueryRunner,
+  query: string,
+  parameters?: unknown[],
+): Promise<T[]> {
+  const result: unknown = await queryRunner.query(query, parameters);
+  return Array.isArray(result) ? (result as T[]) : [];
+}
 
 // ============================================================================
 // Service
@@ -70,7 +102,7 @@ export class DatabaseMonitoringService {
     await queryRunner.connect();
 
     try {
-      const stats = await queryRunner.query(`
+      const stats = await queryRows<ConnectionStatsRow>(queryRunner, `
         SELECT
           count(*) as total,
           count(*) FILTER (WHERE state = 'active') as active,
@@ -80,15 +112,18 @@ export class DatabaseMonitoringService {
         WHERE datname = current_database()
       `);
 
-      const maxConnResult = await queryRunner.query(`SHOW max_connections`);
-      const maxConnections = parseInt(maxConnResult[0]?.max_connections || '100', 10);
-      const total = parseInt(stats[0]?.total || '0', 10);
+      const maxConnResult = await queryRows<MaxConnectionsRow>(
+        queryRunner,
+        `SHOW max_connections`,
+      );
+      const maxConnections = parseDbInt(maxConnResult[0]?.max_connections, 100);
+      const total = parseDbInt(stats[0]?.total);
 
       return {
         total,
-        active: parseInt(stats[0]?.active || '0', 10),
-        idle: parseInt(stats[0]?.idle || '0', 10),
-        waiting: parseInt(stats[0]?.waiting || '0', 10),
+        active: parseDbInt(stats[0]?.active),
+        idle: parseDbInt(stats[0]?.idle),
+        waiting: parseDbInt(stats[0]?.waiting),
         maxConnections,
         utilizationPercent: (total / maxConnections) * 100,
       };
@@ -679,7 +714,7 @@ export class DatabaseMonitoringService {
       return result[0]?.['QUERY PLAN'] || {};
     } catch (error) {
       // Rollback on any error to release the transaction
-      await queryRunner.query('ROLLBACK').catch(() => {});
+      await queryRunner.query('ROLLBACK').catch(ignoreRollbackError);
       throw error;
     } finally {
       await queryRunner.release();

@@ -1,20 +1,20 @@
+import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Patch,
-  Delete,
+  BadRequestException,
   Body,
-  Param,
-  Query,
-  Req,
-  ParseUUIDPipe,
+  Controller,
+  Delete,
+  Get,
   HttpCode,
   HttpStatus,
-  BadRequestException,
-  NotFoundException,
   Logger,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -34,8 +34,7 @@ import {
   Matches,
 } from 'class-validator';
 
-import { AllowTenantAdmin, Roles } from '../decorators/roles.decorator';
-import { ThrottleSensitive } from '@aquaculture/backend-common/security';
+import { AllowTenantAdmin } from '../decorators/roles.decorator';
 
 import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';

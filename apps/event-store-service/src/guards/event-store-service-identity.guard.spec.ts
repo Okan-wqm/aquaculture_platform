@@ -1,8 +1,9 @@
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import {
   generateServiceIdentityHeaders,
   generateServiceIdentityHeadersV2,
 } from '@aquaculture/backend-common/utils';
+import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+
 import { EventStoreServiceIdentityGuard } from './event-store-service-identity.guard';
 
 const tenantId = '123e4567-e89b-42d3-a456-426614174000';

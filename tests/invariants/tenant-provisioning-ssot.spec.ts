@@ -313,7 +313,10 @@ describe('INVARIANT: notification commands have real consumers and ACL parity', 
       'apps/notification-service/src/database/migrations',
     ).find((path) => path.endsWith('-CreateNotificationCommandReceipts.ts'));
     expect(receiptMigrationPath).toBeDefined();
-    const receiptMigration = readRepoFile(receiptMigrationPath!);
+    if (!receiptMigrationPath) {
+      throw new Error('Notification command receipt migration is missing');
+    }
+    const receiptMigration = readRepoFile(receiptMigrationPath);
     const natsConf = readRepoFile('infrastructure/docker/nats/nats.conf');
     const serviceAcl = readRepoFile('infrastructure/nats/services.yaml');
 
@@ -655,7 +658,7 @@ describe('INVARIANT: destructive tenant schema cleanup requires workflow proof',
     expect(provisioning).toContain('backup: {');
     expect(provisioning).toContain('isEncrypted: true');
     expect(provisioning).toContain("'PENDING_DB_MIGRATE'");
-    expect(provisioning).toContain("schemaRecord.status = 'pending_deletion' as SchemaStatus");
+    expect(provisioning).toContain("schemaRecord.status = 'pending_deletion';");
     expect(provisioning).toContain('platform.request_tenant_schema_deletion');
     expect(provisioning).toContain('serializeCleanupDropProof');
     expect(provisionerSql).toContain('Tenant schema deletion requires cleanupProof evidence');

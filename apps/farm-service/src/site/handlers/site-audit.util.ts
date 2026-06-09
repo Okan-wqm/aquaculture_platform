@@ -1,5 +1,5 @@
-import { Site } from '../entities/site.entity';
 import { SiteContact } from '../entities/site-contact.entity';
+import { Site } from '../entities/site.entity';
 
 export function siteAuditSnapshot(site: Site): Record<string, unknown> {
   return {

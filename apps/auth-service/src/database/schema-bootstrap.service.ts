@@ -1,6 +1,11 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
+interface MissingColumnRow {
+  table_name?: unknown;
+  column_name?: unknown;
+}
+
 /**
  * AuthSchemaBootstrapService verifies migration-owned auth schema state before
  * the service accepts traffic. It deliberately performs no DDL; missing columns
@@ -11,6 +16,20 @@ export class AuthSchemaBootstrapService implements OnModuleInit {
   private readonly logger = new Logger(AuthSchemaBootstrapService.name);
 
   constructor(private readonly dataSource: DataSource) {}
+
+  private rowsFromQuery<T extends object>(value: unknown): T[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter(
+      (row): row is T =>
+        typeof row === 'object' && row !== null && !Array.isArray(row),
+    );
+  }
+
+  private readIdentifier(value: unknown): string {
+    return typeof value === 'string' ? value : '';
+  }
 
   async onModuleInit(): Promise<void> {
     try {
@@ -25,7 +44,7 @@ export class AuthSchemaBootstrapService implements OnModuleInit {
    * Ensures all required migration outputs exist in the auth schema.
    */
   private async ensureSchemaColumns(): Promise<void> {
-    const missingColumns = await this.dataSource.query(
+    const missingColumns = this.rowsFromQuery<MissingColumnRow>(await this.dataSource.query(
       `
       SELECT expected.table_name, expected.column_name
       FROM (
@@ -42,15 +61,15 @@ export class AuthSchemaBootstrapService implements OnModuleInit {
       )
       ORDER BY expected.table_name, expected.column_name
       `,
-    );
+    ));
     if (missingColumns.length > 0) {
       const rendered = missingColumns
-        .map((row: { table_name: string; column_name: string }) => `auth.${row.table_name}.${row.column_name}`)
+        .map((row) => `auth.${this.readIdentifier(row.table_name)}.${this.readIdentifier(row.column_name)}`)
         .join(', ');
       throw new Error(`Auth schema is missing migration-owned column(s): ${rendered}`);
     }
 
-    const missingTables = await this.dataSource.query(
+    const missingTables = this.rowsFromQuery<Record<string, unknown>>(await this.dataSource.query(
       `
       SELECT expected.table_name
       FROM (VALUES ('migrations')) AS expected(table_name)
@@ -62,7 +81,7 @@ export class AuthSchemaBootstrapService implements OnModuleInit {
           AND t.table_type = 'BASE TABLE'
       )
       `,
-    );
+    ));
     if (missingTables.length > 0) {
       throw new Error('Auth schema migration ledger is missing; run db-migrate before auth-service');
     }

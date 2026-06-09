@@ -66,7 +66,7 @@ export class SchemaManagementService {
    * Delegates to backend-common SchemaManagerService for full module table creation
    * (sensor, farm, hr, hydroponics) so tenant schemas are production-ready.
    */
-  async createTenantSchema(tenantId: string): Promise<TenantSchema> {
+  createTenantSchema(tenantId: string): never {
     void tenantId;
     throw new ConflictException(
       'Runtime tenant schema creation is disabled. Tenant schema creation must be requested ' +
@@ -135,7 +135,7 @@ export class SchemaManagementService {
   /**
    * Update schema status
    */
-  async updateSchemaStatus(tenantId: string, status: SchemaStatus): Promise<TenantSchema> {
+  updateSchemaStatus(tenantId: string, status: SchemaStatus): never {
     void tenantId;
     void status;
     throw new ConflictException(
@@ -146,7 +146,7 @@ export class SchemaManagementService {
   /**
    * Suspend tenant schema
    */
-  async suspendSchema(tenantId: string): Promise<TenantSchema> {
+  suspendSchema(tenantId: string): never {
     this.logger.log(`Suspending schema for tenant: ${tenantId}`);
     return this.updateSchemaStatus(tenantId, 'suspended');
   }
@@ -154,7 +154,7 @@ export class SchemaManagementService {
   /**
    * Activate tenant schema
    */
-  async activateSchema(tenantId: string): Promise<TenantSchema> {
+  activateSchema(tenantId: string): never {
     this.logger.log(`Activating schema for tenant: ${tenantId}`);
     return this.updateSchemaStatus(tenantId, 'active');
   }
@@ -439,7 +439,7 @@ export class SchemaManagementService {
   /**
    * Update schema statistics
    */
-  async updateSchemaStats(tenantId: string): Promise<TenantSchema> {
+  updateSchemaStats(tenantId: string): never {
     void tenantId;
     throw new ConflictException(
       'Runtime admin.tenant_schemas statistics writes are disabled. ' +
@@ -482,7 +482,7 @@ export class SchemaManagementService {
       errors: string[];
     }> = [];
 
-    let totalCreated = 0;
+    const totalCreated = 0;
     let totalErrors = 0;
     const disabledMessage =
       'Runtime tenant schema repair is disabled for existing tenants. ' +
@@ -547,7 +547,7 @@ export class SchemaManagementService {
     errors: string[];
   }> {
     this.logger.log('Starting tenant_schemas report-only backfill scan...');
-    let created = 0;
+    const created = 0;
     let skipped = 0;
     const errors: string[] = [];
 

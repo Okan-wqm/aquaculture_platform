@@ -1,14 +1,14 @@
 /**
  * Get Equipment Query Handler
  */
-import { NotFoundException } from '@nestjs/common';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { NotFoundException } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
 
 import { Tank } from '../../tank/entities/tank.entity';
-import { GetEquipmentQuery } from '../queries/get-equipment.query';
 import { Equipment } from '../entities/equipment.entity';
+import { GetEquipmentQuery } from '../queries/get-equipment.query';
 import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.service';
 
 @QueryHandler(GetEquipmentQuery)

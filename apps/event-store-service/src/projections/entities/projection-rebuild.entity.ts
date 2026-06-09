@@ -6,6 +6,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
 import { BigIntStringTransformer } from '../../event-store/transformers/bigint.transformer';
 
 export enum ProjectionRebuildStatus {

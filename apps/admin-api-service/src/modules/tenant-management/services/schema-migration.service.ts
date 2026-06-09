@@ -47,7 +47,7 @@ export class SchemaMigrationService {
    *
    * @param schemaName - Tenant schema name (validated)
    */
-  async createSchema(schemaName: string): Promise<void> {
+  createSchema(schemaName: string): never {
     // SECURITY: Validate BEFORE any SQL interpolation
     validateSchemaName(schemaName);
     throw new ConflictException(
@@ -60,7 +60,7 @@ export class SchemaMigrationService {
    *
    * @param schemaName - Tenant schema name (validated)
    */
-  async dropSchema(schemaName: string): Promise<void> {
+  dropSchema(schemaName: string): never {
     // SECURITY: Validate BEFORE any SQL interpolation
     validateSchemaName(schemaName);
     throw new ConflictException(

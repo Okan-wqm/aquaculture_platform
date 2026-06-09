@@ -1,8 +1,8 @@
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { Module } from '@nestjs/common';
+import { CqrsModule } from '@nestjs/cqrs';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@nestjs/cqrs';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 
 // Entities
 import { SchedulingSettings } from './entities/scheduling-settings.entity';

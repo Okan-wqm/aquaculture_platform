@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 import {
   Injectable,
   NotFoundException,
@@ -5,10 +7,8 @@ import {
   Logger,
   Inject,
 } from '@nestjs/common';
-import * as crypto from 'crypto';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, QueryRunner } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
 import {
   TenantSuspendedEvent,
@@ -17,6 +17,7 @@ import {
   TenantStatusChangedEvent,
   createBaseEvent,
 } from '@platform/event-contracts';
+import { DataSource, QueryRunner, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {

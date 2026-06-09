@@ -10,14 +10,15 @@
  *
  * @module Batch/Handlers
  */
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
-import type { BatchStatusChangedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
+import type { BatchStatusChangedEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
+
 import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { BatchLifecyclePolicyService } from '../services/batch-lifecycle-policy.service';

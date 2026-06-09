@@ -1,11 +1,11 @@
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import type { BatchStatusChangedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
+import type { BatchStatusChangedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
 
 import { DeleteBatchCommand } from '../commands/delete-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';

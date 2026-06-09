@@ -1,7 +1,8 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
-import { Repository, DataSource } from 'typeorm';
+
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import {
   TenantDetailDto,
@@ -13,7 +14,6 @@ import {
 } from '../dto/tenant-detail.dto';
 import {
   TenantActivity,
-  TenantNote,
   TenantBillingInfo,
 } from '../entities/tenant-activity.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
@@ -88,7 +88,7 @@ export class TenantDetailService {
 
       // Settings & Limits
       settings: tenant.settings as TenantDetailDto['settings'],
-      limits: tenant.limits as TenantDetailDto['limits'],
+      limits: tenant.limits,
       userCount: tenant.userCount,
       farmCount: tenant.farmCount,
       sensorCount: tenant.sensorCount,
@@ -118,7 +118,8 @@ export class TenantDetailService {
   }
 
   private getAvailableActions(tenant: Tenant): TenantAvailableAction[] {
-    switch (tenant.status) {
+    const status = this.toTenantStatus(tenant.status);
+    switch (status) {
       case TenantStatus.ACTIVE:
         return ['suspend', 'deactivate'];
       case TenantStatus.SUSPENDED:
@@ -130,6 +131,10 @@ export class TenantDetailService {
       default:
         return [];
     }
+  }
+
+  private toTenantStatus(status: string): TenantStatus | undefined {
+    return Object.values(TenantStatus).find((candidate) => String(candidate) === status);
   }
 
   /**

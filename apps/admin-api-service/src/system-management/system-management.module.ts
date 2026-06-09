@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
 import {
   GlobalSettingsController,
   PerformanceController,
@@ -22,16 +21,12 @@ import {
   JobExecutionLog,
   JobQueue,
 } from './entities';
-
-// Services
 import {
   GlobalSettingsService,
   PerformanceMonitoringService,
   ErrorTrackingService,
   JobQueueService,
 } from './services';
-
-// Controllers
 
 @Module({
   imports: [

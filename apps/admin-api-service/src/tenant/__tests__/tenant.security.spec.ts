@@ -16,12 +16,11 @@ import { CqrsModule, CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
-import { Tenant, TenantStatus, TenantTier } from '../entities/tenant.entity';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { TenantActivityService } from '../services/tenant-activity.service';
 import { TenantDetailService } from '../services/tenant-detail.service';
-import { TenantProvisioningService } from '../services/tenant-provisioning.service';
 import { TenantProvisioningWorkflowService } from '../services/tenant-provisioning-workflow.service';
+import { TenantProvisioningService } from '../services/tenant-provisioning.service';
 import { TenantAdminController, TenantPublicController } from '../tenant.controller';
 
 // Mock services

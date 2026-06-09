@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
@@ -115,10 +115,6 @@ interface InvoicePaymentTimeRow {
 interface InvoiceThisMonthRow {
   paid: DbNumeric;
   pending: DbNumeric;
-}
-
-interface UpdatedInvoiceRow {
-  id: string;
 }
 
 function dbNumber(value: DbNumeric): number {
@@ -420,11 +416,11 @@ export class InvoiceManagementService {
   /**
    * Mark invoice as paid (admin action)
    */
-  async markAsPaid(
+  markAsPaid(
     invoiceId: string,
     paidAmount: number,
     markedBy: string,
-  ): Promise<{ success: boolean; invoice: InvoiceOverview }> {
+  ): never {
     void invoiceId;
     void paidAmount;
     void markedBy;
@@ -436,11 +432,11 @@ export class InvoiceManagementService {
   /**
    * Void invoice (admin action)
    */
-  async voidInvoice(
+  voidInvoice(
     invoiceId: string,
     reason: string,
     voidedBy: string,
-  ): Promise<{ success: boolean }> {
+  ): never {
     void invoiceId;
     void reason;
     void voidedBy;
@@ -460,7 +456,7 @@ export class InvoiceManagementService {
   /**
    * Update overdue status for invoices past due date
    */
-  async updateOverdueStatus(): Promise<{ updated: number }> {
+  updateOverdueStatus(): never {
     throw new ConflictException(
       'Invoice overdue reconciliation is billing-service-owned and cannot run through admin-api direct writers.',
     );

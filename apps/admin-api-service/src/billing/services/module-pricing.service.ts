@@ -4,7 +4,6 @@ import { Repository, LessThanOrEqual, MoreThanOrEqual, IsNull, Or } from 'typeor
 
 import {
   DEFAULT_MODULE_PRICING,
-  DefaultModulePricingData,
 } from '../data/default-module-pricing';
 import {
   ModulePricing,
@@ -238,7 +237,9 @@ export class ModulePricingService {
     });
 
     const saved = await this.pricingRepo.save(pricing);
-    this.logger.log(`Created pricing for module ${dto.moduleCode}, effective from ${effectiveFrom}`);
+    this.logger.log(
+      `Created pricing for module ${dto.moduleCode}, effective from ${effectiveFrom.toISOString()}`,
+    );
 
     return saved;
   }

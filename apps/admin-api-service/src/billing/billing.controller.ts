@@ -732,7 +732,7 @@ export class BillingController {
   @ThrottleSensitive()
   @Post('invoices/update-overdue')
   @HttpCode(HttpStatus.OK)
-  async updateOverdueStatus(): Promise<unknown> {
+  updateOverdueStatus(): never {
     throw new ConflictException(
       'Invoice overdue reconciliation is billing-service-owned and cannot be run through admin-api direct writers.',
     );

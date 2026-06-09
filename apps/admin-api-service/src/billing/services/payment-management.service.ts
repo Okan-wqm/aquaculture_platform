@@ -1,12 +1,8 @@
-import { randomUUID } from 'node:crypto';
-
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';

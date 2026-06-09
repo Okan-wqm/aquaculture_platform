@@ -19,9 +19,23 @@ import { PasswordResetController } from '../password-reset.controller';
 describe('PasswordResetController Security', () => {
   let app: INestApplication;
 
+  type TestApp = Parameters<typeof request>[0];
+  type PasswordResetResponseBody = {
+    success?: boolean;
+    message?: string;
+  };
+
   const mockAuthNatsClient = {
     send: jest.fn(),
   };
+
+  function httpServer(): TestApp {
+    return app.getHttpServer() as TestApp;
+  }
+
+  function responseBody(res: request.Response): PasswordResetResponseBody {
+    return res.body as PasswordResetResponseBody;
+  }
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -56,16 +70,16 @@ describe('PasswordResetController Security', () => {
   // ========================================================================
   describe('POST /auth/forgot-password - Validation', () => {
     it('should accept valid email', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/forgot-password')
         .send({ email: 'user@example.com' });
 
       expect(res.status).toBe(HttpStatus.OK);
-      expect(res.body.success).toBe(true);
+      expect(responseBody(res).success).toBe(true);
     });
 
     it('should reject missing email', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/forgot-password')
         .send({});
 
@@ -73,7 +87,7 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should reject invalid email format', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/forgot-password')
         .send({ email: 'not-an-email' });
 
@@ -81,7 +95,7 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should reject extra fields (forbidNonWhitelisted)', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/forgot-password')
         .send({ email: 'user@example.com', maliciousField: 'hacked' });
 
@@ -94,34 +108,34 @@ describe('PasswordResetController Security', () => {
   // ========================================================================
   describe('Email enumeration prevention', () => {
     it('should return success even for non-existent email', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/forgot-password')
         .send({ email: 'nonexistent@example.com' });
 
       expect(res.status).toBe(HttpStatus.OK);
-      expect(res.body.success).toBe(true);
-      expect(res.body.message).toContain('If an account');
+      expect(responseBody(res).success).toBe(true);
+      expect(responseBody(res).message).toContain('If an account');
     });
 
     it('should return same response shape for existing email', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/forgot-password')
         .send({ email: 'exists@example.com' });
 
       expect(res.status).toBe(HttpStatus.OK);
-      expect(res.body.success).toBe(true);
-      expect(res.body.message).toContain('If an account');
+      expect(responseBody(res).success).toBe(true);
+      expect(responseBody(res).message).toContain('If an account');
     });
 
     it('should return success even on internal error', async () => {
       mockAuthNatsClient.send.mockReturnValueOnce(throwError(() => new Error('NATS connection failed')));
 
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/forgot-password')
         .send({ email: 'user@example.com' });
 
       expect(res.status).toBe(HttpStatus.OK);
-      expect(res.body.success).toBe(true);
+      expect(responseBody(res).success).toBe(true);
     });
   });
 
@@ -130,7 +144,7 @@ describe('PasswordResetController Security', () => {
   // ========================================================================
   describe('Token security', () => {
     it('should delegate forgot password to auth-service without local token storage', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/auth/forgot-password')
         .send({ email: 'Test@Test.COM' });
 
@@ -141,7 +155,7 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should not send raw reset URL material from admin-api', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/auth/forgot-password')
         .send({ email: 'test@test.com' });
 
@@ -158,7 +172,7 @@ describe('PasswordResetController Security', () => {
   // ========================================================================
   describe('POST /auth/reset-password - Validation', () => {
     it('should reject missing token', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/reset-password')
         .send({ newPassword: 'ValidPass123!' });
 
@@ -166,7 +180,7 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should reject missing password', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/reset-password')
         .send({ token: 'some-token' });
 
@@ -174,7 +188,7 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should reject password shorter than 8 characters', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/reset-password')
         .send({ token: 'some-token', newPassword: 'short' });
 
@@ -183,7 +197,7 @@ describe('PasswordResetController Security', () => {
 
     it('should reject password longer than 128 characters', async () => {
       const longPassword = 'a'.repeat(129);
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/reset-password')
         .send({ token: 'some-token', newPassword: longPassword });
 
@@ -191,16 +205,16 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should accept valid token and password', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/reset-password')
         .send({ token: 'valid-token-string', newPassword: 'ValidPass123!' });
 
       expect(res.status).toBe(HttpStatus.OK);
-      expect(res.body.success).toBe(true);
+      expect(responseBody(res).success).toBe(true);
     });
 
     it('should reject extra fields', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/reset-password')
         .send({ token: 'tok', newPassword: 'ValidPass123!', role: 'SUPER_ADMIN' });
 
@@ -218,16 +232,16 @@ describe('PasswordResetController Security', () => {
         errorCode: 'INVALID_OR_EXPIRED_TOKEN',
       }));
 
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/auth/reset-password')
         .send({ token: 'invalid-token', newPassword: 'NewPass123!' });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
-      expect(res.body.message).toContain('Invalid or expired');
+      expect(responseBody(res).message).toContain('Invalid or expired');
     });
 
     it('should delegate the new password to auth-service for hashing and persistence', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/auth/reset-password')
         .send({ token: 'valid-token', newPassword: 'NewSecurePass123!' });
 
@@ -241,7 +255,7 @@ describe('PasswordResetController Security', () => {
     });
 
     it('should not issue local auth table update statements', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/auth/reset-password')
         .send({ token: 'valid-token', newPassword: 'NewSecurePass123!' });
 
@@ -254,7 +268,7 @@ describe('PasswordResetController Security', () => {
   // ========================================================================
   describe('SQL injection prevention', () => {
     it('should reject invalid email before auth-service delegation', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/auth/forgot-password')
         .send({ email: "test@test.com'; DROP TABLE users;--" });
 

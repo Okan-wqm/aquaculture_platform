@@ -72,7 +72,11 @@ if (changedTypeScriptFiles.length === 0) {
 }
 
 function isTestFile(file) {
-  return /(?:^|\/)__tests__\//.test(file) || /\.(?:spec|test)\.tsx?$/.test(file);
+  return (
+    /(?:^|\/)__tests__\//.test(file) ||
+    /(?:^|\/)test\//.test(file) ||
+    /\.(?:spec|test)\.tsx?$/.test(file)
+  );
 }
 
 function firstExisting(candidates) {

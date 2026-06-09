@@ -74,9 +74,11 @@ export class Message {
   forwardedFrom: string | null;
 
   /**
-   * Idempotency key for deduplication. UNIQUE constraint prevents duplicate
-   * messages from concurrent or retried sends.
-   * @see MSG-HIGH-015 (no idempotency constraint on message processing)
+   * Idempotency key retained for lookup/audit. Deduplication is enforced by
+   * the command idempotency ledger/Redis path, because PostgreSQL cannot
+   * provide a global unique key on partitioned messages without the partition
+   * column.
+   * @see ADR-012 / MSG-HIGH-015
    */
   @Index('idx_messages_idempotency', ['tenantId', 'idempotencyKey'])
   @Column({ type: 'uuid' })

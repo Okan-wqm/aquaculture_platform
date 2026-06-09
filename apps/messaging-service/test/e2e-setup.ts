@@ -36,6 +36,7 @@ import { Baseline1800000000000 } from '../src/migrations/1800000000000-Baseline'
 import { CreateMessagingOutboxTable1800200000000 } from '../src/migrations/1800200000000-CreateMessagingOutboxTable';
 import { AddUserAiConsentTenantUserUnique1800300000000 } from '../src/migrations/1800300000000-AddUserAiConsentTenantUserUnique';
 import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from '../src/migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
+import { EnsureMessagingPartitionContract1800500000000 } from '../src/migrations/1800500000000-EnsureMessagingPartitionContract';
 
 // ── Test Constants ──────────────────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
         CreateMessagingOutboxTable1800200000000,
         AddUserAiConsentTenantUserUnique1800300000000,
         EnforceSourceOnlyMessagingOutboxContract1800400000000,
+        EnsureMessagingPartitionContract1800500000000,
       ],
     });
 

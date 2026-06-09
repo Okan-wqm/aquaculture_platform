@@ -18,19 +18,19 @@
  *                        dead weight.
  *
  * Schema-level checks:
- *   - `type` must be `secret` or `config`.
- *   - `purpose` must be a non-empty string.
- *   - Secrets must declare a `rotation_cadence` and
- *     `rotation_runbook` (operational discipline per CLAUDE.md:
- *     secrets without a rotation story are forbidden).
+ *   - generated manifest version must be 1.
+ *   - each entry declares name / owner / class / purpose /
+ *     rotation_intent / provisioning_mode / required_by.
+ *   - secrets live under `secrets` with class `secret`.
+ *   - runtime env vars live under `runtime_required_env` with class
+ *     `runtime-env`.
  *
  * Exit codes:
  *   0  manifest ↔ compose in sync, schema valid
  *   1  drift or schema error
- *   2  invocation error (file missing, YAML malformed)
+ *   2  invocation error (file missing, manifest malformed)
  */
 import { existsSync, readFileSync } from 'node:fs';
-import yaml from 'js-yaml';
 
 const MANIFEST_PATH = process.env['MANIFEST'] ?? 'infrastructure/deploy/required-secrets.yaml';
 
@@ -51,6 +51,154 @@ interface Manifest {
   compose_files?: string[];
   secrets?: RequiredEnvEntry[];
   runtime_required_env?: RequiredEnvEntry[];
+}
+
+type ManifestListSection = 'compose_files' | 'secrets' | 'runtime_required_env';
+
+const ENTRY_KEYS = new Set<keyof RequiredEnvEntry>([
+  'name',
+  'owner',
+  'class',
+  'purpose',
+  'rotation_intent',
+  'provisioning_mode',
+  'required_by',
+]);
+
+function parseStringScalar(path: string, lineNo: number, raw: string): string {
+  const value = raw.trim();
+  if (!value) {
+    failInvocation(`manifest ${path}:${lineNo} has an empty scalar`);
+  }
+  if (value.startsWith('"')) {
+    if (!value.endsWith('"')) {
+      failInvocation(`manifest ${path}:${lineNo} has an unterminated quoted string`);
+    }
+    try {
+      return JSON.parse(value) as string;
+    } catch {
+      failInvocation(`manifest ${path}:${lineNo} has an invalid quoted string`);
+    }
+  }
+  if (value.startsWith("'")) {
+    if (!value.endsWith("'")) {
+      failInvocation(`manifest ${path}:${lineNo} has an unterminated quoted string`);
+    }
+    return value.slice(1, -1).replace(/''/g, "'");
+  }
+  return value;
+}
+
+function parseInlineList(path: string, lineNo: number, raw: string): string[] {
+  const value = raw.trim();
+  if (!value.startsWith('[') || !value.endsWith(']')) {
+    failInvocation(`manifest ${path}:${lineNo} expected an inline string list`);
+  }
+  const body = value.slice(1, -1).trim();
+  if (!body) return [];
+  return body.split(',').map((part) => parseStringScalar(path, lineNo, part));
+}
+
+function setEntryValue(
+  path: string,
+  lineNo: number,
+  entry: Partial<RequiredEnvEntry>,
+  key: string,
+  rawValue: string,
+): void {
+  if (!ENTRY_KEYS.has(key as keyof RequiredEnvEntry)) {
+    failInvocation(`manifest ${path}:${lineNo} has unsupported entry key \`${key}\``);
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, key)) {
+    failInvocation(`manifest ${path}:${lineNo} repeats entry key \`${key}\``);
+  }
+  if (key === 'required_by') {
+    entry.required_by = parseInlineList(path, lineNo, rawValue);
+    return;
+  }
+  const value = parseStringScalar(path, lineNo, rawValue);
+  (entry as Record<string, string>)[key] = value;
+}
+
+function parseRequiredSecretsManifest(path: string, text: string): Manifest {
+  const manifest: Manifest = {};
+  let section: ManifestListSection | null = null;
+  let currentEntry: Partial<RequiredEnvEntry> | null = null;
+
+  const ensureSection = <K extends ManifestListSection>(key: K): NonNullable<Manifest[K]> => {
+    const value = manifest[key];
+    if (Array.isArray(value)) {
+      return value as NonNullable<Manifest[K]>;
+    }
+    const next: NonNullable<Manifest[K]> = [] as unknown as NonNullable<Manifest[K]>;
+    manifest[key] = next;
+    return next;
+  };
+
+  const lines = text.split(/\r?\n/);
+  for (const [index, originalLine] of lines.entries()) {
+    const lineNo = index + 1;
+    const line = originalLine.replace(/\s+$/, '');
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+
+    const topLevel = line.match(/^([a-z_]+):(?:\s*(.*))?$/);
+    if (topLevel) {
+      const [, key, rawValue = ''] = topLevel;
+      currentEntry = null;
+      if (key === 'version') {
+        const version = Number.parseInt(rawValue.trim(), 10);
+        if (!Number.isSafeInteger(version) || String(version) !== rawValue.trim()) {
+          failInvocation(`manifest ${path}:${lineNo} version must be an integer`);
+        }
+        manifest.version = version;
+        section = null;
+        continue;
+      }
+      if (key === 'compose_files' || key === 'secrets' || key === 'runtime_required_env') {
+        if (rawValue.trim()) {
+          failInvocation(`manifest ${path}:${lineNo} section \`${key}\` must be a list`);
+        }
+        section = key;
+        ensureSection(section);
+        continue;
+      }
+      failInvocation(`manifest ${path}:${lineNo} has unsupported top-level key \`${key}\``);
+    }
+
+    if (!section) {
+      failInvocation(`manifest ${path}:${lineNo} has indented content outside a list section`);
+    }
+
+    if (section === 'compose_files') {
+      const item = line.match(/^  -\s+(.+)$/);
+      if (!item) {
+        failInvocation(`manifest ${path}:${lineNo} expected a compose_files list item`);
+      }
+      ensureSection('compose_files').push(parseStringScalar(path, lineNo, item[1]));
+      continue;
+    }
+
+    const entryStart = line.match(/^  -\s+([a-z_]+):\s*(.+)$/);
+    if (entryStart) {
+      currentEntry = {};
+      ensureSection(section).push(currentEntry as RequiredEnvEntry);
+      setEntryValue(path, lineNo, currentEntry, entryStart[1], entryStart[2]);
+      continue;
+    }
+
+    const entryField = line.match(/^    ([a-z_]+):\s*(.+)$/);
+    if (entryField && currentEntry) {
+      setEntryValue(path, lineNo, currentEntry, entryField[1], entryField[2]);
+      continue;
+    }
+
+    failInvocation(`manifest ${path}:${lineNo} has unsupported indentation or list shape`);
+  }
+
+  return manifest;
 }
 
 function extractRequiredVars(composePath: string): Set<string> {
@@ -78,9 +226,9 @@ function loadManifest(path: string): Manifest {
   if (!existsSync(path)) {
     failInvocation(`manifest not found at ${path}`);
   }
-  const data = yaml.load(readFileSync(path, 'utf8')) as Manifest | null;
+  const data = parseRequiredSecretsManifest(path, readFileSync(path, 'utf8'));
   if (!data || typeof data !== 'object') {
-    failInvocation(`manifest ${path} is not a YAML mapping`);
+    failInvocation(`manifest ${path} is not a mapping`);
   }
   if (data.version !== 1) {
     failInvocation(`manifest ${path} version mismatch; expected 1`);

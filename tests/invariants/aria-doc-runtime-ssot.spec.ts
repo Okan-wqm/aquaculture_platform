@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -79,6 +80,41 @@ const ARCHITECTURE_SECTIONS = [
   'Known Limits / Bilinen Sınırlar',
 ];
 
+const ARIA_AUTHORITY_HASH_SENTINEL =
+  'Last verified ARIA authority hash: `ARIA_AUTHORITY_HASH_SENTINEL`';
+
+function ariaAuthorityFiles(): string[] {
+  const tracked = git(['ls-files', 'docs/aria', 'aria-kernel', 'tools/aria-poc'])
+    .split(/\r?\n/)
+    .filter(Boolean);
+  const workflowFiles = git(['ls-files', '.github/workflows'])
+    .split(/\r?\n/)
+    .filter((rel) => /^\.github\/workflows\/aria-[^/]+\.ya?ml$/.test(rel));
+  return [...new Set([...tracked, ...workflowFiles])].sort();
+}
+
+function normalizedAriaAuthorityContent(rel: string): string {
+  const body = read(rel);
+  if (rel !== 'docs/aria/CURRENT_STATE.md') {
+    return body;
+  }
+  return body.replace(
+    /Last verified ARIA authority hash: `(?:[a-f0-9]{64}|ARIA_AUTHORITY_HASH_SENTINEL)`/,
+    ARIA_AUTHORITY_HASH_SENTINEL,
+  );
+}
+
+function ariaAuthorityHash(): string {
+  const hash = createHash('sha256');
+  for (const rel of ariaAuthorityFiles()) {
+    hash.update(rel);
+    hash.update('\0');
+    hash.update(normalizedAriaAuthorityContent(rel));
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
 function markdownSection(body: string, heading: string): string {
   const marker = `## ${heading}`;
   const start = body.indexOf(marker);
@@ -120,10 +156,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(current).toContain('Date: 2026-06-06');
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];
     expect(target).toBe('aria/context-proof-20260605');
-    const verifiedCommit = current.match(/Last verified commit: `([a-f0-9]{40})`/)?.[1];
-    expect(verifiedCommit).toBeTruthy();
-    expect(gitSucceeds(['cat-file', '-e', `${verifiedCommit}^{commit}`])).toBe(true);
-    expect(gitSucceeds(['merge-base', '--is-ancestor', verifiedCommit!, 'HEAD'])).toBe(true);
+    const verifiedHash = current.match(
+      /Last verified ARIA authority hash: `([a-f0-9]{64})`/,
+    )?.[1];
+    expect(verifiedHash).toBeTruthy();
+    expect(verifiedHash).toBe(ariaAuthorityHash());
+    expect(current).not.toContain('Last verified commit');
     expect(current).toContain('## Authority Chain');
     expect(current).toContain('Executable code and machine-checked contracts are normative');
     expect(current).toContain('Codex CLI');

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -43,11 +43,18 @@ def plan_downstream_impact(
         "confidence": 0.9 if graph["graph_source"] == "nx_graph_json" and not unknown_files else 0.65,
         "validation_scope": _validation_scope(changed_projects, downstream, unknown_files),
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "impact" / "impact-graphs.jsonl", row)
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "impact" / "impact-graphs.jsonl",
+        row,
+        expected_surface="impact_graphs",
+    )
 
 
 def list_impact_graphs(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(ensure_tools_dir(base_dir) / "impact" / "impact-graphs.jsonl")
+    return load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "impact" / "impact-graphs.jsonl",
+        expected_surface="impact_graphs",
+    )
 
 
 def _project_graph(*, root: Path, nx_graph_file: Path | None) -> dict[str, Any]:

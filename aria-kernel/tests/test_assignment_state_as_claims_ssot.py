@@ -23,12 +23,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import append_jsonl as _append_jsonl, load_jsonl
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.worker_dispatch import (
     _latest_assignment_states,
     recover_orphan_governance,
 )
+
+
+def append_jsonl(path: Path, record: dict[str, object]) -> dict[str, object]:
+    return _append_jsonl(path, record, test_fixture=True)
 
 
 class RecordedAtFieldTests(unittest.TestCase):

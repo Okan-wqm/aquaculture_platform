@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .impact_graph import plan_downstream_impact
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -49,11 +49,18 @@ def plan_impact(
         "downstream_projects": graph.get("downstream_projects", []) if graph else [],
         "graph_confidence": graph.get("confidence") if graph else None,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "impact" / "impact-plans.jsonl", row)
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "impact" / "impact-plans.jsonl",
+        row,
+        expected_surface="impact_plans",
+    )
 
 
 def list_impact_plans(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(ensure_tools_dir(base_dir) / "impact" / "impact-plans.jsonl")
+    return load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "impact" / "impact-plans.jsonl",
+        expected_surface="impact_plans",
+    )
 
 
 def _risk_class(paths: list[str], action_class: str) -> str:

@@ -38,6 +38,8 @@ from aria_kernel.agent_eval import (
     list_fixtures,
     run_agent_eval,
 )
+from aria_kernel.agent_invocations import record_transcript
+from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.plan_016_metrics import compute_plan_016_metrics
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
@@ -63,6 +65,50 @@ def _sample_fixture(fid: str = "F999_TEST", verdict: str = "ACCEPTED",
         "max_rounds": 3,
         "max_tokens": 8000,
     }
+
+
+def _bind_real_invocation(
+    tools: Path,
+    *,
+    invocation_id: str = "claim-real-1",
+    request_id: str = "AIR-real-1",
+    transcript_hash: str = "sha256:" + "a" * 64,
+    target_agent: str = "aria-evidence-judge",
+    fixture_id: str = "F999_TEST",
+) -> tuple[str, str]:
+    append_declared_jsonl(
+        tools / "agent-invocations" / "claims.jsonl",
+        {
+            "schema_version": 1,
+            "event": "claimed",
+            "claim_id": invocation_id,
+            "invocation_id": invocation_id,
+            "request_id": request_id,
+        },
+        expected_surface="agent_invocation_claims",
+    )
+    append_declared_jsonl(
+        tools / "agent-invocations" / "results.jsonl",
+        {
+            "schema_version": 1,
+            "claim_id": invocation_id,
+            "invocation_id": invocation_id,
+            "request_id": request_id,
+            "status": "accepted",
+            "transcript_hash": transcript_hash,
+        },
+        expected_surface="agent_invocation_results",
+    )
+    record_transcript(
+        invocation_id=invocation_id,
+        claim_id=invocation_id,
+        request_id=request_id,
+        target_agent=target_agent,
+        transcript_hash=transcript_hash,
+        fixture_run_id=fixture_id,
+        base_dir=tools,
+    )
+    return invocation_id, transcript_hash
 
 
 class FixtureValidationTests(unittest.TestCase):
@@ -178,31 +224,79 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
         self.assertIn("real_response_envelope", str(cm.exception))
 
     def test_real_mode_with_matching_envelope_passes(self) -> None:
+        invocation_id, transcript_hash = _bind_real_invocation(self.tools)
         envelope = {
             "verdict_class": "ACCEPTED",
             "evidence_refs": ["docs/x.md:1"],
             "rounds_used": 2, "tokens_used": 1500,
         }
         run = run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
+            fixture_id="F999_TEST",
+            base_dir=self.tools,
+            mock_mode=False,
             real_response_envelope=envelope,
+            invocation_id=invocation_id,
+            transcript_hash=transcript_hash,
         )
         self.assertTrue(run["passed"])
         self.assertFalse(run["mock_mode"])
 
     def test_real_mode_emits_real_governance_event(self) -> None:
+        invocation_id, transcript_hash = _bind_real_invocation(self.tools)
         envelope = {
             "verdict_class": "ACCEPTED",
             "evidence_refs": ["docs/x.md:1"],
             "rounds_used": 1, "tokens_used": 500,
         }
         run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
+            fixture_id="F999_TEST",
+            base_dir=self.tools,
+            mock_mode=False,
             real_response_envelope=envelope,
+            invocation_id=invocation_id,
+            transcript_hash=transcript_hash,
         )
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
         kinds = [json.loads(line)["kind"] for line in gov if line.strip()]
         self.assertIn("agent_eval_run_real", kinds)
+
+    def test_real_mode_rejects_unbound_provenance(self) -> None:
+        envelope = {
+            "verdict_class": "ACCEPTED",
+            "evidence_refs": ["docs/x.md:1"],
+            "rounds_used": 1,
+            "tokens_used": 500,
+        }
+        with self.assertRaisesRegex(GovernanceError, "real_eval_provenance_unbound"):
+            run_agent_eval(
+                fixture_id="F999_TEST",
+                base_dir=self.tools,
+                mock_mode=False,
+                real_response_envelope=envelope,
+                invocation_id="claim-real-1",
+                transcript_hash="sha256:" + "a" * 64,
+            )
+
+    def test_real_mode_accepts_claim_result_transcript_binding(self) -> None:
+        transcript_hash = "sha256:" + "a" * 64
+        invocation_id, transcript_hash = _bind_real_invocation(
+            self.tools,
+            transcript_hash=transcript_hash,
+        )
+        run = run_agent_eval(
+            fixture_id="F999_TEST",
+            base_dir=self.tools,
+            mock_mode=False,
+            real_response_envelope={
+                "verdict_class": "ACCEPTED",
+                "evidence_refs": ["docs/x.md:1"],
+                "rounds_used": 1,
+                "tokens_used": 500,
+            },
+            invocation_id=invocation_id,
+            transcript_hash=transcript_hash,
+        )
+        self.assertEqual(run["provenance_mode"], "real_invocation")
 
 
 class PassCriteriaTests(unittest.TestCase):
@@ -214,27 +308,37 @@ class PassCriteriaTests(unittest.TestCase):
         shutil.rmtree(self.tools.parent, ignore_errors=True)
 
     def test_verdict_mismatch_fails(self) -> None:
+        invocation_id, transcript_hash = _bind_real_invocation(self.tools)
         envelope = {
             "verdict_class": "REJECTED",  # fixture expects ACCEPTED
             "evidence_refs": ["a.md:1", "b.md:2"],
             "rounds_used": 1, "tokens_used": 100,
         }
         run = run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
+            fixture_id="F999_TEST",
+            base_dir=self.tools,
+            mock_mode=False,
             real_response_envelope=envelope,
+            invocation_id=invocation_id,
+            transcript_hash=transcript_hash,
         )
         self.assertFalse(run["passed"])
         self.assertFalse(run["verdict_match"])
 
     def test_evidence_subset_required(self) -> None:
+        invocation_id, transcript_hash = _bind_real_invocation(self.tools)
         envelope = {
             "verdict_class": "ACCEPTED",
             "evidence_refs": ["a.md:1"],  # missing b.md:2
             "rounds_used": 1, "tokens_used": 100,
         }
         run = run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
+            fixture_id="F999_TEST",
+            base_dir=self.tools,
+            mock_mode=False,
             real_response_envelope=envelope,
+            invocation_id=invocation_id,
+            transcript_hash=transcript_hash,
         )
         self.assertFalse(run["passed"])
         self.assertFalse(run["evidence_match"])
@@ -284,6 +388,10 @@ class ModeSegregationTests(unittest.TestCase):
     def test_count_runs_by_mode(self) -> None:
         for _ in range(2):
             run_agent_eval(fixture_id="F1", base_dir=self.tools, mock_mode=True)
+        invocation_id, transcript_hash = _bind_real_invocation(
+            self.tools,
+            fixture_id="F1",
+        )
         envelope = {
             "verdict_class": "ACCEPTED",
             "evidence_refs": ["docs/x.md:1"],
@@ -292,8 +400,8 @@ class ModeSegregationTests(unittest.TestCase):
         run_agent_eval(
             fixture_id="F1", base_dir=self.tools, mock_mode=False,
             real_response_envelope=envelope,
-            allow_legacy_envelope_feed=True,
-            operator_approval_ref="test:plan-023-a8-legacy",
+            invocation_id=invocation_id,
+            transcript_hash=transcript_hash,
         )
         counts = count_eval_runs_by_mode(base_dir=self.tools)
         self.assertEqual(counts["aria_agent_eval_mock_only_total"], 2)

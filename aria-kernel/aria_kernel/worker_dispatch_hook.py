@@ -106,7 +106,6 @@ def dispatch_one_pending_worker_assignment(
     triage tiers OR when ``pr_for_assignment`` returns None — that
     branch is governance discipline, not adapter absence.
     """
-    from .auto_merge import merge_if_green
     from .tool_registry import (
         GovernanceError,
         append_tools_governance,
@@ -334,10 +333,12 @@ def dispatch_one_pending_worker_assignment(
             triage_tier == "auto_fix_safe"
             and pr_number is not None
         ):
-            merge_result = merge_if_green(
-                adapter=github_adapter, pr_number=pr_number,
-                base_dir=root, dry_run=False,
-            )
+            merge_result = {
+                "decision": "blocked",
+                "eligible": False,
+                "reasons": ["enterprise_readiness_claim_id_required"],
+                "pr_number": pr_number,
+            }
             governance_count += 1
             merged = merge_result.get("decision") == "merged"
             append_tools_governance(

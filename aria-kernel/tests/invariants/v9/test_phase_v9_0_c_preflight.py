@@ -177,15 +177,18 @@ class TestV9PreflightContract(unittest.TestCase):
             self.assertEqual(reasons, ("gh_token_absent",))
 
     def test_i_v9_preflight_public_api_pinned(self):
-        """__all__ exports MUST contain the 4 canonical symbols.
+        """__all__ exports MUST contain the 6 canonical symbols.
         Adding/removing exports = explicit invariant amendment."""
         self.assertEqual(
             set(preflight.__all__),
             {
                 "PreflightVerdict",
+                "WorkflowPreflightVerdict",
                 "REQUIRED_BRANCH_PROTECTION_FIELDS",
                 "verify_branch_protection",
                 "verify_preflight",
+                "verify_workflow_contract",
+                "verify_workflow_preflight",
             },
             "preflight.__all__ drifted",
         )

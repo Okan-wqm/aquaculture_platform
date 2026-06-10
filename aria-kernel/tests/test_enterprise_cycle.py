@@ -30,10 +30,10 @@ from aria_kernel import (
 from aria_kernel.constants import OUTPUT_CONTRACT_COMPAT_FINDING_ID
 from aria_kernel.cli import main
 from aria_kernel.feedback_store import record_operator_feedback
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import append_declared_jsonl, load_jsonl
 from aria_kernel.memory import list_memory, validate_repo_evidence
 from aria_kernel.pressure import explain_pressure, run_pressure
-from aria_kernel.tool_registry import GovernanceError, transition_tool, get_tool
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, transition_tool, get_tool
 
 
 def register_active_for_test(tool, base_dir):
@@ -172,7 +172,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         (self.root / "src/app.ts").write_text("export const app = true;\n", encoding="utf-8")
         (self.root / "package.json").write_text('{"name":"fixture"}\n', encoding="utf-8")
         (self.root / "nx.json").write_text('{"affected":{}}\n', encoding="utf-8")
-        self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        self.tools_dir = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -343,7 +343,7 @@ class EnterpriseCycleTests(unittest.TestCase):
             self.assertIn(heading, report)
 
     def test_integrity_flags_started_cycle_without_terminal_event(self):
-        append_jsonl(
+        append_declared_jsonl(
             self.tools_dir / "cycles.jsonl",
             {
                 "schema_version": 1,
@@ -351,13 +351,14 @@ class EnterpriseCycleTests(unittest.TestCase):
                 "cycle_id": "stale-cycle",
                 "event": "started",
             },
+            expected_surface="cycles",
         )
         result = verify_integrity(base_dir=self.tools_dir)
         self.assertFalse(result["valid"])
         self.assertEqual(result["cycle_lifecycle"]["incomplete_cycles"][0]["cycle_id"], "stale-cycle")
 
     def test_integrity_accepts_old_and_new_cycle_terminal_shapes(self):
-        append_jsonl(
+        append_declared_jsonl(
             self.tools_dir / "cycles.jsonl",
             {
                 "schema_version": 1,
@@ -365,8 +366,9 @@ class EnterpriseCycleTests(unittest.TestCase):
                 "cycle_id": "old-shape",
                 "event": "started",
             },
+            expected_surface="cycles",
         )
-        append_jsonl(
+        append_declared_jsonl(
             self.tools_dir / "cycles.jsonl",
             {
                 "schema_version": 1,
@@ -375,8 +377,9 @@ class EnterpriseCycleTests(unittest.TestCase):
                 "event": "completed",
                 "tool_decision_count": 1,
             },
+            expected_surface="cycles",
         )
-        append_jsonl(
+        append_declared_jsonl(
             self.tools_dir / "cycles.jsonl",
             {
                 "schema_version": 1,
@@ -384,8 +387,9 @@ class EnterpriseCycleTests(unittest.TestCase):
                 "cycle_id": "new-shape",
                 "event": "started",
             },
+            expected_surface="cycles",
         )
-        append_jsonl(
+        append_declared_jsonl(
             self.tools_dir / "cycles.jsonl",
             {
                 "schema_version": 1,
@@ -395,6 +399,7 @@ class EnterpriseCycleTests(unittest.TestCase):
                 "tool_governance_decision_count": 1,
                 "tool_decision_count": 1,
             },
+            expected_surface="cycles",
         )
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
 
@@ -455,7 +460,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
 
     def test_cycle_honors_stop_file_before_start(self):
-        self.tools_dir.mkdir(parents=True)
+        self.tools_dir.mkdir(parents=True, exist_ok=True)
         (self.tools_dir / "ARIA_STOP").write_text("stop\n", encoding="utf-8")
         result = run_cycle(workspace_root=self.root, cycle_id="cycle-stop", base_dir=self.tools_dir)
         self.assertEqual(result["event"], "stopped")
@@ -542,7 +547,7 @@ class EnterpriseCycleTests(unittest.TestCase):
 
     def test_glob_evidence_zero_match_moves_to_revalidation(self):
         run_cycle(workspace_root=self.root, cycle_id="cycle-glob-1", base_dir=self.tools_dir)
-        append_jsonl(
+        append_declared_jsonl(
             self.tools_dir / "memory/beliefs.jsonl",
             {
                 "schema_version": 1,
@@ -560,6 +565,7 @@ class EnterpriseCycleTests(unittest.TestCase):
                 "needs_revalidation_cycles": 0,
                 "source_tool_ids": [],
             },
+            expected_surface="memory_beliefs",
         )
         run_cycle(workspace_root=self.root, cycle_id="cycle-glob-2", base_dir=self.tools_dir)
         beliefs = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
@@ -576,7 +582,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(beliefs[0]["support_count"], 2)
 
     def test_memory_normalizes_v0_belief_rows(self):
-        append_jsonl(
+        append_declared_jsonl(
             self.tools_dir / "memory/beliefs.jsonl",
             {
                 "schema_version": 1,
@@ -587,6 +593,7 @@ class EnterpriseCycleTests(unittest.TestCase):
                 "confidence": 0.7,
                 "evidence": ["nx.json"],
             },
+            expected_surface="memory_beliefs",
         )
         belief = list_memory(kind="beliefs", base_dir=self.tools_dir)[0]
         self.assertEqual(belief["evidence_refs"], ["nx.json"])
@@ -638,7 +645,7 @@ class EnterpriseCycleTests(unittest.TestCase):
             ("adapter:withdrawn", "withdrawn", 0),
             ("adapter:stale", "stale", 3),
         ):
-            append_jsonl(
+            append_declared_jsonl(
                 self.tools_dir / "memory/beliefs.jsonl",
                 {
                     "schema_version": 1,
@@ -656,8 +663,9 @@ class EnterpriseCycleTests(unittest.TestCase):
                     "needs_revalidation_cycles": revalidation_cycles,
                     "source_tool_ids": ["candidate-tool"],
                 },
+                expected_surface="memory_beliefs",
             )
-        append_jsonl(
+        append_declared_jsonl(
             self.tools_dir / "runs.jsonl",
             {
                 "schema_version": 1,
@@ -676,6 +684,7 @@ class EnterpriseCycleTests(unittest.TestCase):
                     },
                 ],
             },
+            expected_surface="runs",
         )
         update_memory(cycle_id="cycle-quarantine-1", base_dir=self.tools_dir, include_discovery_beliefs=False)
         beliefs = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
@@ -897,7 +906,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         starts of the same cycle id would have been flagged as
         unmatched).
         """
-        self.tools_dir.mkdir(parents=True)
+        self.tools_dir.mkdir(parents=True, exist_ok=True)
         (self.tools_dir / "ARIA_STOP").write_text("stop\n", encoding="utf-8")
         result = run_cycle(
             workspace_root=self.root,

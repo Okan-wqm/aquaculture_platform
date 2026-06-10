@@ -4,7 +4,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .evidence_trust import EvidencePolicy, classify_evidence_ref
 from .tool_health import SELF_OUTPUT_MARKERS, find_scope_violations, normalize_path
+from .tool_registry import GovernanceError
 from .snapshot import snapshot_allowed_set
 
 
@@ -52,6 +54,7 @@ def validate_tool_output_evidence(
     root = Path(workspace_root).resolve()
     errors: list[dict[str, Any]] = []
     checked_sources: list[str] = []
+    evidence_envelopes: list[dict[str, Any]] = []
     allowed_paths = snapshot_allowed_set(repo_snapshot)
 
     # Plan 023 v3 §C-2 — distinguish "read_paths not in envelope" (None
@@ -94,7 +97,9 @@ def validate_tool_output_evidence(
                 )
                 continue
             for ref in evidence:
-                validate_evidence_ref(tool, root, ref, errors, checked_sources, allowed_paths=allowed_paths)
+                envelope = validate_evidence_ref(tool, root, ref, errors, checked_sources, allowed_paths=allowed_paths)
+                if envelope is not None:
+                    evidence_envelopes.append(envelope)
                 # Plan 022 §M-2 — additionally enforce evidence path is
                 # within the tool's declared read_paths. read_paths is
                 # the load-bearing self-report for what the adapter
@@ -120,7 +125,9 @@ def validate_tool_output_evidence(
     sources = output.get("evidence_sources", [])
     if isinstance(sources, list):
         for source in sources:
-            validate_evidence_path(tool, root, source, None, errors, checked_sources, allowed_paths=allowed_paths)
+            envelope = validate_evidence_path(tool, root, source, None, errors, checked_sources, allowed_paths=allowed_paths)
+            if envelope is not None:
+                evidence_envelopes.append(envelope)
             # Plan 023 v3 §C-2 — shape check on read_paths_present so
             # evidence_sources outside an empty-list declaration is also
             # rejected (not bypassed by the empty-set falsy gate).
@@ -143,6 +150,7 @@ def validate_tool_output_evidence(
         "errors": errors,
         "checked_sources": sorted(set(checked_sources)),
         "self_output_evidence": self_output,
+        "evidence_envelopes": evidence_envelopes,
     }
 
 
@@ -153,12 +161,12 @@ def validate_evidence_ref(
     errors: list[dict[str, Any]],
     checked_sources: list[str],
     allowed_paths: set[str] | None = None,
-) -> None:
+) -> dict[str, Any] | None:
     if not isinstance(ref, dict) or not isinstance(ref.get("path"), str):
         errors.append({"code": "invalid_evidence_ref"})
-        return
+        return None
     line = ref.get("line")
-    validate_evidence_path(tool, root, ref["path"], line, errors, checked_sources, allowed_paths=allowed_paths)
+    return validate_evidence_path(tool, root, ref["path"], line, errors, checked_sources, allowed_paths=allowed_paths)
 
 
 def validate_evidence_path(
@@ -169,7 +177,7 @@ def validate_evidence_path(
     errors: list[dict[str, Any]],
     checked_sources: list[str],
     allowed_paths: set[str] | None = None,
-) -> None:
+) -> dict[str, Any] | None:
     # Plan 024 v3 §H-5 — canonical-resolve BEFORE the SELF_OUTPUT
     # prefix check, mirroring _check_agent_ref. Pre-fix this code
     # path applied normalize_path (lexical) and prefix-matched on
@@ -180,10 +188,16 @@ def validate_evidence_path(
     from .tool_registry import GovernanceError as _GE
     raw_path_str = normalize_path(raw_path)  # keep checked_sources entry consistent with legacy callers
     checked_sources.append(raw_path_str)
+    envelope = classify_evidence_ref(
+        raw_path_str if line is None else f"{raw_path_str}:{line}",
+        workspace_root=root,
+        source_hint="tool_output",
+        context=str(tool.get("id") or tool.get("name") or "tool"),
+    ).to_dict()
 
     if allowed_paths and raw_path_str not in allowed_paths:
         errors.append({"code": "evidence_outside_snapshot", "path": raw_path_str})
-        return
+        return envelope
     try:
         rel_str, absolute = _canonical_evidence_path(raw_path_str, root)
     except _GE as exc:
@@ -193,26 +207,27 @@ def validate_evidence_path(
         else:
             errors.append({"code": "evidence_path_unresolvable", "path": raw_path_str,
                            "error": msg})
-        return
+        return envelope
     if any(rel_str.startswith(marker) for marker in SELF_OUTPUT_MARKERS):
         errors.append({"code": "self_output_evidence", "path": rel_str})
-        return
+        return envelope
     scope_violations = find_scope_violations(tool, [rel_str])
     if scope_violations:
         errors.append({"code": "evidence_scope_violation", "path": rel_str})
-        return
+        return envelope
     if not absolute.exists() or not absolute.is_file():
         errors.append({"code": "evidence_path_missing", "path": raw_path_str})
-        return
+        return envelope
     path = rel_str  # remainder of function expects local `path` variable
     if line is None:
-        return
+        return envelope
     if not isinstance(line, int) or line <= 0:
         errors.append({"code": "evidence_line_invalid", "path": path, "line": line})
-        return
+        return envelope
     line_count = len(absolute.read_text(encoding="utf-8", errors="replace").splitlines())
     if line > line_count:
         errors.append({"code": "evidence_line_missing", "path": path, "line": line})
+    return envelope
 
 
 def _parse_agent_ref(ref: str) -> tuple[str, int | None] | None:
@@ -308,6 +323,7 @@ def validate_agent_response_evidence(
     root = Path(workspace_root).resolve()
     errors: list[dict[str, Any]] = []
     checked: list[str] = []
+    evidence_envelopes: list[dict[str, Any]] = []
 
     response_refs = response.get("evidence_refs") or []
     if not isinstance(response_refs, list):
@@ -318,6 +334,17 @@ def validate_agent_response_evidence(
             errors.append({"code": "agent_evidence_ref_not_string"})
             continue
         _check_agent_ref(ref, root=root, errors=errors, checked=checked)
+        envelope = classify_evidence_ref(
+            ref,
+            workspace_root=root,
+            source_hint="agent_output",
+            target_sha=_request_target_sha(request),
+        )
+        evidence_envelopes.append(envelope.to_dict())
+        try:
+            EvidencePolicy.require_repo_verified(envelope)
+        except GovernanceError as exc:
+            errors.append({"code": "agent_evidence_not_repo_verified", "ref": ref, "reason": str(exc)})
 
     # Plan 024 §B-2 — satisfaction_matrix non-empty enforcement.
     # Pre-fix an agent response with `satisfaction_matrix: []` passed
@@ -346,6 +373,17 @@ def validate_agent_response_evidence(
                     )
                     continue
                 _check_agent_ref(ref, root=root, errors=errors, checked=checked)
+                envelope = classify_evidence_ref(
+                    ref,
+                    workspace_root=root,
+                    source_hint="agent_output",
+                    target_sha=_request_target_sha(request),
+                )
+                evidence_envelopes.append(envelope.to_dict())
+                try:
+                    EvidencePolicy.require_repo_verified(envelope)
+                except GovernanceError as exc:
+                    errors.append({"code": "agent_evidence_not_repo_verified", "ref": ref, "reason": str(exc)})
 
     # Cross-check: when a request is provided, every ref the agent
     # claims must either live inside `allowed_scope` OR be one of the
@@ -386,7 +424,15 @@ def validate_agent_response_evidence(
         "valid": not errors,
         "errors": errors,
         "checked_refs": sorted(set(checked)),
+        "evidence_envelopes": evidence_envelopes,
     }
+
+
+def _request_target_sha(request: dict[str, Any] | None) -> str | None:
+    if not request:
+        return None
+    value = request.get("target_sha") or request.get("base_commit_sha") or request.get("pinned_commit_sha")
+    return str(value).strip() if isinstance(value, str) and value.strip() else None
 
 
 def _path_matches_any_glob(path: str, globs: list[str]) -> bool:

@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .proposal import get_proposal
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import evaluate_validation_gate, list_validation_gates
@@ -44,7 +44,11 @@ def plan_apply_worktree(
     if not dry_run:
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
         _git(root, ["worktree", "add", "-b", row["branch"], worktree_path.as_posix(), base_sha])
-    return append_jsonl(ensure_tools_dir(base_dir) / "apply" / "actions.jsonl", row)
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "apply" / "actions.jsonl",
+        row,
+        expected_surface="apply_actions",
+    )
 
 
 def gate_apply_action(
@@ -137,7 +141,11 @@ def gate_apply_action(
             "blocked_by": blocked_by,
         },
     )
-    return append_jsonl(ensure_tools_dir(base_dir) / "apply" / "actions.jsonl", row)
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "apply" / "actions.jsonl",
+        row,
+        expected_surface="apply_actions",
+    )
 
 
 def _read_diff_from_action(action: dict[str, Any]) -> str | None:
@@ -231,7 +239,10 @@ def _read_diff_from_action(action: dict[str, Any]) -> str | None:
 
 
 def list_apply_actions(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(ensure_tools_dir(base_dir) / "apply" / "actions.jsonl")
+    return load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "apply" / "actions.jsonl",
+        expected_surface="apply_actions",
+    )
 
 
 def latest_ready_apply_action(*, proposal_id: str, base_dir: str | Path | None = None) -> dict[str, Any] | None:

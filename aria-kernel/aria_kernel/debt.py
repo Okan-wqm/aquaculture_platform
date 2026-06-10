@@ -25,11 +25,13 @@ from pathlib import Path
 from typing import Any
 
 from .agent_genesis import BANNED_PHRASES
+from .evidence_trust import classify_evidence_ref
 from .finding import (
     SEVERITIES,
     _check_banned_phrases,
     show_finding,
 )
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding
 
 
@@ -66,22 +68,25 @@ def _index_path(repo_root: Path) -> Path:
     return _debts_dir(repo_root) / "_index.json"
 
 
+def _events_path(repo_root: Path) -> Path:
+    return _debts_dir(repo_root) / "debt-events.jsonl"
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _allocate_debt_id(repo_root: Path, *, when: datetime) -> str:
-    """Allocate a date-stamped sequential ID: DEBT-YYYY-MM-DD-NNN."""
-    debts_dir = _debts_dir(repo_root)
+    """Allocate a date-stamped sequential ID from the event ledger."""
     date_prefix = when.strftime("DEBT-%Y-%m-%d-")
-    if not debts_dir.exists():
-        return f"{date_prefix}001"
-    existing = [
-        p.stem for p in debts_dir.glob(f"{date_prefix}*.json") if DEBT_ID_RE.match(p.stem)
-    ]
+    existing: list[str] = []
+    for event in load_declared_jsonl(_events_path(repo_root), expected_surface="repo_debt_events"):
+        debt_id = str(event.get("debt_id") or "")
+        if event.get("event") == "debt_emitted" and debt_id.startswith(date_prefix) and DEBT_ID_RE.match(debt_id):
+            existing.append(debt_id)
     if not existing:
         return f"{date_prefix}001"
-    last_num = max(int(stem.rsplit("-", 1)[1]) for stem in existing)
+    last_num = max(int(debt_id.rsplit("-", 1)[1]) for debt_id in existing)
     return f"{date_prefix}{last_num + 1:03d}"
 
 
@@ -113,7 +118,11 @@ def _validate_due_date(severity: str, due_date_iso: str, *, now: datetime) -> da
     return due
 
 
-def _validate_short_term_action(action: dict[str, Any]) -> None:
+def _validate_short_term_action(
+    action: dict[str, Any],
+    *,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
     kind = action.get("kind")
     if kind not in SHORT_TERM_ACTION_KINDS:
         raise GovernanceError(f"unknown short_term_action kind: {kind!r}")
@@ -125,6 +134,23 @@ def _validate_short_term_action(action: dict[str, Any]) -> None:
         ref = action.get("ref", "")
         if not isinstance(ref, str) or not ref.strip():
             raise GovernanceError(f"short_term_action kind={kind!r} requires non-empty ref")
+        if repo_root is not None:
+            envelope = classify_evidence_ref(
+                ref,
+                workspace_root=repo_root,
+                source_hint="repo_source",
+                context="debt_short_term_action",
+            )
+            if envelope.trust_grade != "repo_verified":
+                raise GovernanceError(
+                    "short_term_action.ref must be repo_verified: "
+                    f"ref={ref!r} grade={envelope.trust_grade!r} "
+                    f"errors={envelope.validation_errors!r}"
+                )
+            stamped = dict(action)
+            stamped["ref_evidence_envelope"] = envelope.to_dict()
+            return stamped
+    return dict(action)
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -135,21 +161,19 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _refresh_index(repo_root: Path) -> dict[str, Any]:
-    debts_dir = _debts_dir(repo_root)
+    event_rows = load_declared_jsonl(_events_path(repo_root), expected_surface="repo_debt_events")
+    source_tip = event_rows[-1].get("ledger_hash") if event_rows else None
     index: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": _utc_now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source_ledger": _events_path(repo_root).relative_to(repo_root).as_posix(),
+        "source_ledger_tip_hash": source_tip,
         "debts": [],
     }
-    if not debts_dir.exists():
-        _atomic_write_json(_index_path(repo_root), index)
-        return index
     rows: list[dict[str, Any]] = []
-    for path in sorted(debts_dir.glob("DEBT-*.json")):
-        try:
-            doc = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
+    replayed = _replay_debts(repo_root)
+    for debt_id in sorted(replayed):
+        doc = replayed[debt_id]
         rows.append(
             {
                 "debt_id": doc.get("debt_id"),
@@ -158,7 +182,9 @@ def _refresh_index(repo_root: Path) -> dict[str, Any]:
                 "current_status": doc.get("current_status"),
                 "due_date": doc.get("due_date"),
                 "permanent_fix_owner": doc.get("permanent_fix_owner"),
-                "path": path.name,
+                "path": f"{debt_id}.json",
+                "source_event_id": doc.get("source_event_id"),
+                "source_ledger_hash": doc.get("source_ledger_hash"),
             }
         )
     index["debts"] = rows
@@ -209,43 +235,65 @@ def emit_debt(
         raise GovernanceError("permanent_fix_required is required")
     _check_banned_phrases(permanent_fix_required, field="permanent_fix_required")
 
-    _validate_owner(permanent_fix_owner)
-    _validate_short_term_action(short_term_action)
     now = _utc_now()
     due = _validate_due_date(severity, due_date, now=now)
+    _validate_owner(permanent_fix_owner)
+    short_term_action = _validate_short_term_action(short_term_action, repo_root=repo_path)
 
-    debt_id = _allocate_debt_id(repo_path, when=now)
-    record = {
-        "$schema": "aria/architectural-debt/v1",
-        "debt_id": debt_id,
-        "originating_finding_id": originating_finding_id,
-        "originating_finding_evidence_chain_id": finding.get("evidence_chain_id"),
-        "verification_status": "VERIFIED",
-        "root_cause_summary": root_cause_summary,
-        "short_term_action_taken": short_term_action,
-        "permanent_fix_required": permanent_fix_required,
-        "permanent_fix_owner": permanent_fix_owner,
-        "due_date": due.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "severity": severity,
-        "current_status": "OPEN",
-        "status_history": [
+    debts_dir = _debts_dir(repo_path)
+    debts_dir.mkdir(parents=True, exist_ok=True)
+    from .file_lock import with_exclusive_lock
+    with with_exclusive_lock(debts_dir / ".alloc.lock", timeout_seconds=5.0):
+        debt_id = _allocate_debt_id(repo_path, when=now)
+        record = {
+            "$schema": "aria/architectural-debt/v1",
+            "debt_id": debt_id,
+            "originating_finding_id": originating_finding_id,
+            "originating_finding_evidence_chain_id": finding.get("evidence_chain_id"),
+            "originating_finding_evidence_envelope_hashes": [
+                ev.get("evidence_envelope", {}).get("envelope_hash")
+                for ev in finding.get("evidences", [])
+                if isinstance(ev, dict)
+            ],
+            "verification_status": "VERIFIED",
+            "root_cause_summary": root_cause_summary,
+            "short_term_action_taken": short_term_action,
+            "permanent_fix_required": permanent_fix_required,
+            "permanent_fix_owner": permanent_fix_owner,
+            "due_date": due.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "severity": severity,
+            "current_status": "OPEN",
+            "status_history": [
+                {
+                    "status": "OPEN",
+                    "at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "by": "manual:operator",
+                }
+            ],
+            "escalation_history": [],
+            "auto_close_forbidden": True,
+            "withdrawn_reason": None,
+            "schema_version": SCHEMA_VERSION,
+        }
+        event = append_declared_jsonl(
+            _events_path(repo_path),
             {
-                "status": "OPEN",
-                "at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "by": "manual:operator",
-            }
-        ],
-        "escalation_history": [],
-        "auto_close_forbidden": True,
-        "withdrawn_reason": None,
-        "schema_version": SCHEMA_VERSION,
-    }
-
-    output_path = _debts_dir(repo_path) / f"{debt_id}.json"
-    if output_path.exists():
-        raise GovernanceError(f"debt {debt_id} already exists at {output_path}")
-    _atomic_write_json(output_path, record)
-    _refresh_index(repo_path)
+                "schema_version": 1,
+                "event": "debt_emitted",
+                "event_id": f"debt:{debt_id}:emitted",
+                "debt_id": debt_id,
+                "originating_finding_id": originating_finding_id,
+                "record": record,
+            },
+            expected_surface="repo_debt_events",
+        )
+        record["source_event_id"] = event.get("event_id")
+        record["source_ledger_hash"] = event.get("ledger_hash")
+        output_path = _debts_dir(repo_path) / f"{debt_id}.json"
+        if output_path.exists():
+            raise GovernanceError(f"debt {debt_id} already exists at {output_path}")
+        _atomic_write_json(output_path, record)
+        _refresh_index(repo_path)
 
     append_tools_governance(
         tools_root,
@@ -269,7 +317,31 @@ def list_debts(repo_root: str | Path) -> list[dict[str, Any]]:
 
 def show_debt(repo_root: str | Path, debt_id: str) -> dict[str, Any]:
     repo_path = Path(repo_root).resolve()
-    path = _debts_dir(repo_path) / f"{debt_id}.json"
-    if not path.exists():
+    if not DEBT_ID_RE.match(debt_id):
+        raise GovernanceError(f"debt_id format invalid: {debt_id!r}")
+    record = _replay_debts(repo_path).get(debt_id)
+    if record is None:
         raise GovernanceError(f"debt {debt_id} not found")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return record
+
+
+def _replay_debts(repo_root: Path) -> dict[str, dict[str, Any]]:
+    rows = load_declared_jsonl(_events_path(repo_root), expected_surface="repo_debt_events")
+    debts: dict[str, dict[str, Any]] = {}
+    for event in rows:
+        if event.get("event") != "debt_emitted":
+            continue
+        debt_id = str(event.get("debt_id") or "")
+        if not DEBT_ID_RE.match(debt_id):
+            raise GovernanceError(f"debt event has invalid debt_id: {debt_id!r}")
+        record = event.get("record")
+        if not isinstance(record, dict):
+            raise GovernanceError(f"debt event {event.get('event_id')!r} missing record")
+        source_ledger_hash = event.get("ledger_hash")
+        if not isinstance(source_ledger_hash, str) or not source_ledger_hash:
+            raise GovernanceError(f"debt event {event.get('event_id')!r} missing ledger_hash")
+        doc = dict(record)
+        doc["source_event_id"] = event.get("event_id")
+        doc["source_ledger_hash"] = source_ledger_hash
+        debts[debt_id] = doc
+    return debts

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import derive_request_state
-from .ledger import load_jsonl
+from .ledger import load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -71,13 +71,16 @@ PLAN_016_METRIC_NAMES = (
 
 
 def _governance_kinds(tools_root: Path) -> list[str]:
-    rows = load_jsonl(tools_root / "governance.jsonl")
+    rows = load_declared_jsonl(tools_root / "governance.jsonl", expected_surface="tools_governance")
     return [str(r.get("kind", "")) for r in rows]
 
 
 def _claim_active_count(tools_root: Path) -> int:
     """Count requests whose derived state is CLAIMED or RUNNING right now."""
-    requests = load_jsonl(tools_root / "agent-invocations" / "requests.jsonl")
+    requests = load_declared_jsonl(
+        tools_root / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+    )
     active = 0
     for req in requests:
         rid = req.get("request_id")
@@ -160,9 +163,18 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
     from .agent_eval import count_eval_runs_by_mode
 
     tools_root = ensure_tools_dir(base_dir)
-    requests = load_jsonl(tools_root / "agent-invocations" / "requests.jsonl")
-    results = load_jsonl(tools_root / "agent-invocations" / "results.jsonl")
-    claims = load_jsonl(tools_root / "agent-invocations" / "claims.jsonl")
+    requests = load_declared_jsonl(
+        tools_root / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+    )
+    results = load_declared_jsonl(
+        tools_root / "agent-invocations" / "results.jsonl",
+        expected_surface="agent_invocation_results",
+    )
+    claims = load_declared_jsonl(
+        tools_root / "agent-invocations" / "claims.jsonl",
+        expected_surface="agent_invocation_claims",
+    )
     kinds = _governance_kinds(tools_root)
     from .cost_telemetry import count_dispatch_rationales
     eval_counts = count_eval_runs_by_mode(base_dir=tools_root)
@@ -210,10 +222,14 @@ def _change_chain_validation_pct(tools_root: Path) -> int:
     validated_path = tools_root / "change-ledger" / "validated.jsonl"
     if not committed_path.exists():
         return 0
-    committed = load_jsonl(committed_path)
+    committed = load_declared_jsonl(committed_path, expected_surface="change_committed")
     if not committed:
         return 0
-    validated = load_jsonl(validated_path) if validated_path.exists() else []
+    validated = (
+        load_declared_jsonl(validated_path, expected_surface="change_validated")
+        if validated_path.exists()
+        else []
+    )
     enforced_change_ids = {
         row.get("change_id") for row in validated
         if row.get("validation_mode") == "enforced"

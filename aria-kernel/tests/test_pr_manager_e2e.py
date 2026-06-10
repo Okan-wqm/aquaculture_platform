@@ -25,7 +25,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.apply_engine import gate_apply_action
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.pr_manager import (
     build_pr_body,
     open_pr_for_action,
@@ -34,6 +33,7 @@ from aria_kernel.pr_manager import (
 from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._gh_mock import (
     gh_create_failure,
     gh_create_success,
@@ -116,7 +116,11 @@ def _seed_apply_action(
         "status": status,
         "blocked_by": [],
     }
-    append_jsonl(tools / "apply" / "actions.jsonl", row)
+    append_declared_fixture(
+        tools / "apply" / "actions.jsonl",
+        row,
+        expected_surface="apply_actions",
+    )
     return row
 
 
@@ -287,7 +291,11 @@ class PushBaseBranchProtectionTests(unittest.TestCase):
             "action": "commit",
             "status": "committed",
         }
-        append_jsonl(self.tools / "pr-actions.jsonl", commit_row)
+        append_declared_fixture(
+            self.tools / "pr-actions.jsonl",
+            commit_row,
+            expected_surface="pr_actions",
+        )
         with self.assertRaisesRegex(GovernanceError, "base branch push is forbidden|aria/\\.\\.\\. branches"):
             push_prepared_branch(
                 proposal_id="PROP-Z",
@@ -304,7 +312,11 @@ class PushBaseBranchProtectionTests(unittest.TestCase):
             "action": "commit",
             "status": "committed",
         }
-        append_jsonl(self.tools / "pr-actions.jsonl", commit_row)
+        append_declared_fixture(
+            self.tools / "pr-actions.jsonl",
+            commit_row,
+            expected_surface="pr_actions",
+        )
         with self.assertRaisesRegex(GovernanceError, "base branch push is forbidden|aria/\\.\\.\\. branches"):
             push_prepared_branch(
                 proposal_id="PROP-Z",
@@ -335,7 +347,11 @@ class ApplyGateSuppressionScanTests(unittest.TestCase):
             "ledger_hash": "sha256:gate-ledger-hash",
             "previous_ledger_hash": None,
         }
-        append_jsonl(self.tools / "validation" / "gates.jsonl", gate_row)
+        append_declared_fixture(
+            self.tools / "validation" / "validation-gates.jsonl",
+            gate_row,
+            expected_surface="validation_gates",
+        )
         return comparison_ref
 
     def _seed_proposal_and_action(self) -> str:

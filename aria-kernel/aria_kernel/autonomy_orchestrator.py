@@ -584,13 +584,10 @@ def run_autonomy_orchestrator(
             # Plan 026R §F.1 + §A.4 — under frozen profile,
             # `append_tools_governance` is itself blocked (it routes
             # through `enforce_profile_for_write('tool_governance')`).
-            # The orchestrator's own canonical state surface
-            # (`autonomy_state.jsonl` via `AutonomyStateReducer`) is
-            # NOT gated by profile, so a frozen-profile invocation
-            # still records the `profile_frozen` transition + exits
-            # clean. Emitting the orchestrator-started governance
-            # announce only under a permitting profile keeps the
-            # frozen-bypass invariant intact.
+            # Emitting the orchestrator-started governance announce
+            # only under a permitting profile keeps the frozen-bypass
+            # invariant intact; frozen exits return `profile_frozen`
+            # without appending governed state.
             profile_announce_allowed = profile_snapshot not in {
                 "frozen", "observe",
             }
@@ -718,17 +715,6 @@ def run_autonomy_orchestrator(
                         _ORCHESTRATOR_ACTION_KIND, base_dir=root,
                     )
                 except GovernanceError:
-                    AutonomyStateReducer.transition(
-                        root,
-                        cycle_id=None,
-                        phase="profile_frozen",
-                        status="ok",
-                        profile=profile_snapshot,
-                        details={
-                            "cycle_index": cycle_n,
-                            "daemon_id": daemon_id,
-                        },
-                    )
                     exit_reason = "profile_frozen"
                     break
 

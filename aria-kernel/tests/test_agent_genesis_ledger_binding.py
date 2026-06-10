@@ -45,8 +45,8 @@ from pathlib import Path
 
 from aria_kernel.agent_genesis import evaluate_genesis_sandbox
 from aria_kernel.fixture_runner import fixture_runs_path
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 def _seed_draft(base_dir: Path, *, draft_id: str = "DRAFT-A1-01") -> str:
@@ -74,7 +74,11 @@ def _seed_draft(base_dir: Path, *, draft_id: str = "DRAFT-A1-01") -> str:
         },
         "target_path": ".claude/agents/test-agent.md",
     }
-    append_jsonl(base_dir / "agent-genesis" / "drafts.jsonl", draft)
+    append_declared_fixture(
+        base_dir / "agent-genesis" / "drafts.jsonl",
+        draft,
+        expected_surface="agent_genesis_drafts",
+    )
     return draft_id
 
 
@@ -112,7 +116,11 @@ def _seed_fixture_run(
         "error_code": None,
         "evidence_hash": evidence_hash,
     }
-    append_jsonl(fixture_runs_path(base_dir), row)
+    append_declared_fixture(
+        fixture_runs_path(base_dir),
+        row,
+        expected_surface="agent_eval_fixture_runs",
+    )
 
 
 class GenesisLedgerBindingTests(unittest.TestCase):

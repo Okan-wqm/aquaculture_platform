@@ -15,7 +15,13 @@ from .draft_intent import (
     AgentDraftIntent,
 )
 from .draft_pii_filter import mask_pii_in_intent
-from .ledger import append_jsonl, load_jsonl
+from .ledger import (
+    append_declared_jsonl,
+    append_jsonl as _append_jsonl,
+    load_declared_jsonl,
+    load_jsonl as _load_jsonl,
+    rewrite_declared_json,
+)
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -28,6 +34,41 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 BANNED_PHRASES = BANNED_PHRASES_DEFAULT
 
 REQUIRED_DRAFT_FIELDS = ("name", "purpose", "scope_globs", "forbidden_globs", "evidence_contract", "output_schema", "validation_fixtures")
+
+
+_DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
+    "agent-genesis/requests.jsonl": "agent_genesis_requests",
+    "agent-genesis/drafts.jsonl": "agent_genesis_drafts",
+    "agent-genesis/pr-lanes.jsonl": "agent_genesis_pr_lanes",
+    "agent-genesis/materializations.jsonl": "agent_genesis_materializations",
+    "agent-genesis/extension-decisions.jsonl": "agent_genesis_extension_decisions",
+    "genesis-sandbox/runs.jsonl": "genesis_sandbox_runs",
+    "skill-genesis/requests.jsonl": "skill_genesis_requests",
+    "dispatch/requests.jsonl": "dispatch_requests",
+}
+
+
+def _declared_surface_name(path: str | Path) -> str | None:
+    concrete = Path(path)
+    if len(concrete.parts) >= 2:
+        suffix = "/".join(concrete.parts[-2:])
+        if suffix in _DECLARED_SURFACE_BY_JSONL_SUFFIX:
+            return _DECLARED_SURFACE_BY_JSONL_SUFFIX[suffix]
+    return _DECLARED_SURFACE_BY_JSONL_SUFFIX.get(concrete.name)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return append_declared_jsonl(path, record, expected_surface=surface)
+    return _append_jsonl(path, record)
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return load_declared_jsonl(path, expected_surface=surface)
+    return _load_jsonl(path)
 
 
 def draft_agent_from_gap(
@@ -60,8 +101,11 @@ def draft_agent_from_gap(
     intent = _render_agent_intent(draft)
     root = ensure_tools_dir(base_dir)
     draft_path = root / "agent-genesis" / "drafts" / f"{name}.intent.json"
-    draft_path.parent.mkdir(parents=True, exist_ok=True)
-    draft_path.write_text(intent.to_intent_file(), encoding="utf-8")
+    rewrite_declared_json(
+        draft_path,
+        intent.to_dict(),
+        expected_surface="agent_genesis_draft_intents",
+    )
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),

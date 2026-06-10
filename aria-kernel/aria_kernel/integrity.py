@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .ledger import file_hash, load_jsonl, load_index, verify_jsonl
+from .ledger import LedgerIntegrityError, file_hash, load_jsonl, load_index, verify_jsonl
 from .runtime_artifacts import verify_runtime_artifacts
 from .tool_registry import covered_tool_ledgers, ensure_tools_dir, tools_contract_version, tools_dir
 from .workspace import ensure_workspace, workspace_contract_version, workspace_paths, repo_hash
@@ -58,7 +58,16 @@ def _verify_cycle_lifecycle(root: Path) -> dict[str, Any]:
     terminal_events = {"completed", "failed", "stopped", "aborted"}
     open_cycles: dict[str, dict[str, Any]] = {}
     terminals: dict[str, dict[str, Any]] = {}
-    for row in load_jsonl(root / "cycles.jsonl"):
+    try:
+        cycle_rows = load_jsonl(root / "cycles.jsonl")
+    except LedgerIntegrityError as exc:
+        return {
+            "valid": False,
+            "incomplete_count": 0,
+            "incomplete_cycles": [],
+            "ledger_integrity_error": str(exc),
+        }
+    for row in cycle_rows:
         cycle_id = str(row.get("cycle_id") or "")
         event = str(row.get("event") or "")
         if not cycle_id:

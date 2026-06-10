@@ -31,13 +31,13 @@ from aria_kernel.agent_eval import (
     SHADOW_SAMPLE_THRESHOLD_24H,
     sample_shadow_raw_findings,
 )
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import (
     ensure_tools_dir,
     register_tool,
     utc_now,
 )
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 def _seed_tools(name: str = "aria-h5-") -> Path:
@@ -68,7 +68,7 @@ def _manifest(*, tool_id: str, status: str = "SHADOW") -> dict:
 
 def _seed_run(tools: Path, *, tool_id: str, raw_count: int, ts: datetime | None = None) -> None:
     when = (ts or datetime.now(timezone.utc)).isoformat()
-    append_jsonl(
+    append_declared_fixture(
         runs_path(tools),
         {
             "schema_version": 1,
@@ -79,6 +79,7 @@ def _seed_run(tools: Path, *, tool_id: str, raw_count: int, ts: datetime | None 
             "recorded_at": when,
             "runner": {"raw_findings_count": raw_count, "raw_observations_count": 0},
         },
+        expected_surface="runs",
     )
 
 

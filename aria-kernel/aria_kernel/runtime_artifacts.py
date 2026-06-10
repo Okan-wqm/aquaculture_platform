@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_safety import scrub_json
-from .ledger import LedgerIntegrityError, append_jsonl, file_hash, load_jsonl, verify_jsonl
+from .ledger import LedgerIntegrityError, append_declared_jsonl, file_hash, load_declared_jsonl, load_jsonl, verify_jsonl
 from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, tools_dir, utc_now
 
 
@@ -151,9 +151,9 @@ def write_run_artifact(
         "run_status": run_status,
         "artifact_status": status,
     }
-    append_jsonl(artifact_index_path(base_dir), index_row)
-    append_jsonl(artifact_manifest_path(base_dir), {"event": "artifact_created", **index_row})
-    append_jsonl(artifact_inventory_path(base_dir), {
+    append_declared_jsonl(artifact_index_path(base_dir), index_row, expected_surface="runtime_artifact_index")
+    append_declared_jsonl(artifact_manifest_path(base_dir), {"event": "artifact_created", **index_row}, expected_surface="runtime_artifact_manifest")
+    append_declared_jsonl(artifact_inventory_path(base_dir), {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_uid,
@@ -165,7 +165,7 @@ def write_run_artifact(
         "sha256": digest,
         "storage_tier": "hot",
         "retention_action": None,
-    })
+    }, expected_surface="runtime_artifact_inventory")
     return {
         "artifact_id": artifact_id,
         "artifact_ref": ref,
@@ -194,7 +194,7 @@ def append_run_by_cycle(
         "artifact_status": run_row.get("artifact_status", "legacy_inline_or_sample_only"),
         "runner": _runner_summary(run_row.get("runner")),
     }
-    append_jsonl(by_cycle_runs_path(base_dir, cycle_uid), summary)
+    append_declared_jsonl(by_cycle_runs_path(base_dir, cycle_uid), summary, expected_surface="runs_by_cycle")
 
 
 def read_runs_for_cycle(
@@ -262,7 +262,7 @@ def resolve_finding_from_artifact(
 def verify_artifacts(*, base_dir: str | Path | None = None) -> dict[str, Any]:
     root = Path(base_dir) if base_dir is not None else ensure_tools_dir(None)
     issues: list[dict[str, Any]] = []
-    rows = load_jsonl(root / "run-artifacts" / "artifact-index.jsonl")
+    rows = load_declared_jsonl(root / "run-artifacts" / "artifact-index.jsonl", expected_surface="runtime_artifact_index")
     verified = 0
     for row in rows:
         artifact_id = str(row.get("artifact_id") or "")
@@ -306,9 +306,9 @@ def classify_cycle_evidence(
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
     verification = verify_runtime_artifacts(base_dir=root, cycle_id=cycle_id)
-    cycle_rows = [row for row in load_jsonl(root / "cycles.jsonl") if row.get("cycle_id") == cycle_id]
+    cycle_rows = [row for row in load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles") if row.get("cycle_id") == cycle_id]
     has_terminal = any(row.get("event") in {"completed", "failed", "stopped", "aborted"} or row.get("status") in {"completed", "failed", "stopped", "aborted"} for row in cycle_rows)
-    run_rows = [row for row in load_jsonl(root / "runs.jsonl") if row.get("cycle_id") == cycle_id]
+    run_rows = [row for row in load_declared_jsonl(root / "runs.jsonl", expected_surface="runs") if row.get("cycle_id") == cycle_id]
     registry_issues: list[dict[str, Any]] = []
     runnable_tools = [
         tool for tool in _load_registry_tools(root, issues=registry_issues)
@@ -353,11 +353,11 @@ def verify_runtime_artifacts(
     issues.extend(_ledger_issues(root / "run-artifacts" / "manifest.jsonl", "runtime_artifact_manifest"))
     issues.extend(_ledger_issues(root / "observability" / "artifact-inventory.jsonl", "runtime_artifact_inventory"))
     _load_registry_tools(root, issues=issues)
-    runs = _safe_load_jsonl(root / "runs.jsonl", issues, "runs")
+    runs = _safe_load_jsonl(root / "runs.jsonl", issues, "runs", expected_surface="runs")
     by_cycle = root / "runs" / "by-cycle" / f"{_safe_segment(cycle_id)}.jsonl" if cycle_id is not None else None
     if by_cycle is not None and by_cycle.exists():
-        runs.extend(_safe_load_jsonl(by_cycle, issues, "runs_by_cycle"))
-    raw_findings = _safe_load_jsonl(root / "raw-findings.jsonl", issues, "raw_findings")
+        runs.extend(_safe_load_jsonl(by_cycle, issues, "runs_by_cycle", expected_surface="runs_by_cycle"))
+    raw_findings = _safe_load_jsonl(root / "raw-findings.jsonl", issues, "raw_findings", expected_surface="raw_findings")
     if cycle_id is not None:
         runs = [row for row in runs if row.get("cycle_id") == cycle_id or row.get("cycle_uid") == cycle_id]
         raw_findings = [row for row in raw_findings if row.get("cycle_id") == cycle_id]
@@ -452,7 +452,11 @@ def approve_runtime_v2_promotion(
             "issue_count": len(verification["issues"]),
         },
     }
-    return append_jsonl(root / "runtime" / "v2-promotions.jsonl", row)
+    return append_declared_jsonl(
+        root / "runtime" / "v2-promotions.jsonl",
+        row,
+        expected_surface="runtime_v2_promotions",
+    )
 
 
 def require_runtime_v2_promotion(
@@ -465,7 +469,7 @@ def require_runtime_v2_promotion(
         if workspace_root is not None
         else ensure_tools_dir(base_dir)
     )
-    rows = load_jsonl(root / "runtime" / "v2-promotions.jsonl")
+    rows = load_declared_jsonl(root / "runtime" / "v2-promotions.jsonl", expected_surface="runtime_v2_promotions")
     approved = [row for row in rows if row.get("status") == "approved"]
     if not approved:
         raise GovernanceError("ARIA_RUN_LEDGER_FORMAT=v2 requires approved runtime v2 promotion record")
@@ -501,7 +505,7 @@ def retention_dry_run(
     base_dir: str | Path | None = None,
     retain_hot_cycles: int = 20,
 ) -> dict[str, Any]:
-    rows = load_jsonl(artifact_index_path(base_dir))
+    rows = load_declared_jsonl(artifact_index_path(base_dir), expected_surface="runtime_artifact_index")
     candidates = _retention_candidates(rows, retain_hot_cycles=retain_hot_cycles)
     return {
         "schema_version": 1,
@@ -532,7 +536,7 @@ def retention_apply(
         if workspace_root is not None
         else ensure_tools_dir(base_dir)
     )
-    candidates = _retention_candidates(load_jsonl(artifact_index_path(root)), retain_hot_cycles=retain_hot_cycles)
+    candidates = _retention_candidates(load_declared_jsonl(artifact_index_path(root), expected_surface="runtime_artifact_index"), retain_hot_cycles=retain_hot_cycles)
     archived: list[dict[str, Any]] = []
     for candidate in candidates:
         if candidate.get("review_required"):
@@ -563,7 +567,11 @@ def retention_apply(
             "reviewed": True,
             "recorded_at": utc_now(),
         }
-        append_jsonl(retention_events_path(root), event)
+        append_declared_jsonl(
+            retention_events_path(root),
+            event,
+            expected_surface="retention_events",
+        )
         archived.append(event)
     return {
         "schema_version": 1,
@@ -589,7 +597,7 @@ def restore_artifact(
         if workspace_root is not None
         else ensure_tools_dir(base_dir)
     )
-    rows = load_jsonl(root / "run-artifacts" / "artifact-index.jsonl")
+    rows = load_declared_jsonl(root / "run-artifacts" / "artifact-index.jsonl", expected_surface="runtime_artifact_index")
     row = next((item for item in rows if item.get("artifact_id") == artifact_ref or item.get("current_uri") == artifact_ref), None)
     if row is None:
         raise GovernanceError(f"artifact_not_found:{artifact_ref}")
@@ -609,7 +617,7 @@ def restore_artifact(
     actual = _sha256_bytes(path.read_bytes())
     if actual != row.get("sha256"):
         raise GovernanceError(f"artifact_hash_mismatch:{artifact_ref}")
-    event = append_jsonl(retention_events_path(root), {
+    event = append_declared_jsonl(retention_events_path(root), {
         "schema_version": 1,
         "event": "artifact_restored",
         "artifact_id": row.get("artifact_id"),
@@ -619,7 +627,7 @@ def restore_artifact(
         "reason": reason.strip(),
         "operator_approval_ref": operator_approval_ref.strip(),
         "recorded_at": utc_now(),
-    })
+    }, expected_surface="retention_events")
     return {
         "schema_version": 1,
         "status": "restored",
@@ -646,7 +654,7 @@ def rollback_retention(
         if workspace_root is not None
         else ensure_tools_dir(base_dir)
     )
-    events = load_jsonl(retention_events_path(root))
+    events = load_declared_jsonl(retention_events_path(root), expected_surface="retention_events")
     matches = [row for row in events if row.get("manifest_id") == manifest_id]
     restored: list[dict[str, Any]] = []
     for row in matches:
@@ -660,7 +668,7 @@ def rollback_retention(
         if actual != row.get("sha256"):
             raise GovernanceError(f"artifact_hash_mismatch:{manifest_id}")
         restored.append({"artifact_id": row.get("artifact_id"), "path": row.get("original_path")})
-    event = append_jsonl(retention_events_path(root), {
+    event = append_declared_jsonl(retention_events_path(root), {
         "schema_version": 1,
         "event": "retention_rollback",
         "manifest_id": manifest_id,
@@ -668,7 +676,7 @@ def rollback_retention(
         "reason": reason.strip(),
         "operator_approval_ref": operator_approval_ref.strip(),
         "recorded_at": utc_now(),
-    })
+    }, expected_surface="retention_events")
     return {
         "schema_version": 1,
         "status": "rolled_back",
@@ -776,9 +784,17 @@ def _ledger_issues(path: Path, name: str) -> list[dict[str, Any]]:
     return [{"code": "ledger_integrity_failed", "ledger": name, "details": result}]
 
 
-def _safe_load_jsonl(path: Path, issues: list[dict[str, Any]], name: str) -> list[dict[str, Any]]:
+def _safe_load_jsonl(
+    path: Path,
+    issues: list[dict[str, Any]],
+    name: str,
+    *,
+    expected_surface: str | None = None,
+) -> list[dict[str, Any]]:
     try:
-        return load_jsonl(path)
+        if expected_surface is not None:
+            return load_declared_jsonl(path, expected_surface=expected_surface)
+        return load_jsonl(path, verify=True)
     except LedgerIntegrityError as exc:
         issues.append({"code": "ledger_load_failed", "ledger": name, "error": str(exc)})
         return []
@@ -913,7 +929,17 @@ def _verify_artifact_indexes(*, root: Path, artifact_refs_seen: list[Any], issue
         return
     for path in existing:
         if path.suffix == ".jsonl":
-            rows = _safe_load_jsonl(path, issues, "artifact_index")
+            expected_surface = (
+                "runtime_artifact_index"
+                if path == root / "run-artifacts" / "artifact-index.jsonl"
+                else None
+            )
+            rows = _safe_load_jsonl(
+                path,
+                issues,
+                "artifact_index",
+                expected_surface=expected_surface,
+            )
             if artifact_refs_seen and not rows:
                 issues.append({"code": "artifact_index_empty_with_run_refs", "path": path.as_posix()})
             _verify_index_rows_cover_refs(rows, artifact_refs_seen, issues=issues, path=path)
@@ -1020,8 +1046,8 @@ def _verify_global_manifest_inventory(*, root: Path, artifact_refs_seen: list[An
         return
     manifest_path = root / "run-artifacts" / "manifest.jsonl"
     inventory_path = root / "observability" / "artifact-inventory.jsonl"
-    manifest_rows = _safe_load_jsonl(manifest_path, issues, "runtime_artifact_manifest")
-    inventory_rows = _safe_load_jsonl(inventory_path, issues, "runtime_artifact_inventory")
+    manifest_rows = _safe_load_jsonl(manifest_path, issues, "runtime_artifact_manifest", expected_surface="runtime_artifact_manifest")
+    inventory_rows = _safe_load_jsonl(inventory_path, issues, "runtime_artifact_inventory", expected_surface="runtime_artifact_inventory")
     if not manifest_rows:
         issues.append({"code": "artifact_manifest_empty_with_run_refs", "path": manifest_path.as_posix()})
     if not inventory_rows:
@@ -1067,30 +1093,29 @@ def _verify_summary_row_against_ref(
 
 
 def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> None:
-    candidates = [root / "retention" / "events.jsonl", root / "retention-events.jsonl", root / "archive" / "retention-events.jsonl"]
-    for path in candidates:
-        for row in _safe_load_jsonl(path, issues, "retention_events"):
-            kind = str(row.get("kind") or row.get("event") or row.get("event_type") or "")
-            source = row.get("source_path") or row.get("artifact_path") or row.get("original_path")
-            archive = row.get("archive_path") or row.get("new_path")
-            if kind in {"retention_apply", "cycle_artifact_archived", "artifact_archived"} and source:
+    path = root / "retention" / "events.jsonl"
+    for row in _safe_load_jsonl(path, issues, "retention_events", expected_surface="retention_events"):
+        kind = str(row.get("kind") or row.get("event") or row.get("event_type") or "")
+        source = row.get("source_path") or row.get("artifact_path") or row.get("original_path")
+        archive = row.get("archive_path") or row.get("new_path")
+        if kind in {"retention_apply", "cycle_artifact_archived", "artifact_archived"} and source:
+            try:
+                source_path = _resolve_artifact_path(str(source), root=root, workspace_root=None)
+            except GovernanceError:
+                issues.append({"code": "archive_mismatch", "source_path": str(source), "archive_path": str(archive)})
+                continue
+            if source_path.exists() and archive:
                 try:
-                    source_path = _resolve_artifact_path(str(source), root=root, workspace_root=None)
+                    archive_path = _resolve_artifact_path(str(archive), root=root, workspace_root=None)
                 except GovernanceError:
                     issues.append({"code": "archive_mismatch", "source_path": str(source), "archive_path": str(archive)})
                     continue
-                if source_path.exists() and archive:
-                    try:
-                        archive_path = _resolve_artifact_path(str(archive), root=root, workspace_root=None)
-                    except GovernanceError:
-                        issues.append({"code": "archive_mismatch", "source_path": str(source), "archive_path": str(archive)})
-                        continue
-                    if not archive_path.exists():
-                        issues.append({"code": "archive_mismatch", "source_path": str(source), "archive_path": str(archive)})
-            if kind in {"retention_missing_source", "restore_failed"}:
-                issues.append({"code": str(kind), "details": row})
-            if kind == "rollback" and not row.get("manifest_id") and not row.get("manifest_path"):
-                issues.append({"code": "unknown_manifest_rollback", "details": row})
+                if not archive_path.exists():
+                    issues.append({"code": "archive_mismatch", "source_path": str(source), "archive_path": str(archive)})
+        if kind in {"retention_missing_source", "restore_failed"}:
+            issues.append({"code": str(kind), "details": row})
+        if kind == "rollback" and not row.get("manifest_id") and not row.get("manifest_path"):
+            issues.append({"code": "unknown_manifest_rollback", "details": row})
 
 
 def _load_registry_tools(root: Path, *, issues: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -1130,7 +1155,7 @@ def _runtime_tool_evidence_present(root: Path) -> bool:
             return True
     runs_path = root / "runs.jsonl"
     if runs_path.exists():
-        for row in load_jsonl(runs_path):
+        for row in load_declared_jsonl(runs_path, expected_surface="runs"):
             if _artifact_refs_from_run(row):
                 return True
     return False
@@ -1174,7 +1199,7 @@ def _retention_candidates(rows: list[dict[str, Any]], *, retain_hot_cycles: int)
 
 def _latest_archive_event(root: Path, artifact_id: str) -> dict[str, Any] | None:
     latest = None
-    for row in load_jsonl(retention_events_path(root)):
+    for row in load_declared_jsonl(retention_events_path(root), expected_surface="retention_events"):
         if row.get("artifact_id") == artifact_id and row.get("event") == "artifact_archived":
             latest = row
     return latest

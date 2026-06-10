@@ -200,7 +200,7 @@ class LegacyRowsViaUpcasterTests(unittest.TestCase):
             },
         ]
         for row in legacy_rows:
-            append_jsonl(self.cycles_path, row)
+            append_jsonl(self.cycles_path, row, test_fixture=True)
 
         rows_on_disk = load_jsonl(self.cycles_path)
         self.assertEqual(len(rows_on_disk), 4)
@@ -253,7 +253,7 @@ class LegacyRowsViaUpcasterTests(unittest.TestCase):
                 "event": "stopped",
             },
         ]:
-            append_jsonl(self.cycles_path, row)
+            append_jsonl(self.cycles_path, row, test_fixture=True)
 
         sha_before = hashlib.sha256(self.cycles_path.read_bytes()).hexdigest()
 

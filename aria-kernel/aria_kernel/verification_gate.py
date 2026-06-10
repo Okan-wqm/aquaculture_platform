@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_safety import write_sanitized_json
-from .ledger import append_jsonl, load_jsonl
+from .ledger import (
+    append_declared_jsonl,
+    append_jsonl as _append_jsonl,
+    load_declared_jsonl,
+    load_jsonl as _load_jsonl,
+)
 from .file_lock import with_exclusive_lock
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, update_tools_index, utc_now
@@ -104,6 +109,37 @@ ALLOWED_PREFIXES = (
     "python -m pytest ",
     "python -m unittest ",
 )
+
+
+_DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
+    "dispatch/claims.jsonl": "dispatch_claims",
+    "dispatch/requests.jsonl": "dispatch_requests",
+    "dispatch/worker-results.jsonl": "dispatch_worker_results",
+    "dispatch/verification-results.jsonl": "dispatch_verification_results",
+}
+
+
+def _declared_surface_name(path: str | Path) -> str | None:
+    concrete = Path(path)
+    if len(concrete.parts) >= 2:
+        suffix = "/".join(concrete.parts[-2:])
+        if suffix in _DECLARED_SURFACE_BY_JSONL_SUFFIX:
+            return _DECLARED_SURFACE_BY_JSONL_SUFFIX[suffix]
+    return _DECLARED_SURFACE_BY_JSONL_SUFFIX.get(concrete.name)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return append_declared_jsonl(path, record, expected_surface=surface)
+    return _append_jsonl(path, record)
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return load_declared_jsonl(path, expected_surface=surface)
+    return _load_jsonl(path)
 
 
 def submit_worker_result(

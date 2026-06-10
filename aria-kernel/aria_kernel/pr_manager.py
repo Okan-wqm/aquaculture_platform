@@ -8,7 +8,7 @@ from typing import Any
 
 from .apply_engine import list_apply_actions
 from .auto_merge import record_pr_lifecycle
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .proposal import get_proposal
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
@@ -111,7 +111,7 @@ def open_pr_for_action(
     # Plan 020 Phase 1.B — runtime profile dispatch gate.
     # Why: PR open is the strict-pipeline tail; standard profile must commit
     # but not auto-PR, observe must not PR at all, frozen must not PR at all.
-    enforce_profile_for_action("pr_open", base_dir=base_dir)
+    enforce_profile_for_action("pr_create", base_dir=base_dir)
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if not action:
@@ -281,7 +281,11 @@ def prepare_branch(
             _git(root, ["checkout", branch])
         else:
             _git(root, ["checkout", "-b", branch, base_sha])
-    return append_jsonl(ensure_tools_dir(base_dir) / "pr-actions.jsonl", {**row, "action": "prepare_branch"})
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "pr-actions.jsonl",
+        {**row, "action": "prepare_branch"},
+        expected_surface="pr_actions",
+    )
 
 
 def commit_prepared_branch(
@@ -323,7 +327,11 @@ def commit_prepared_branch(
         _git(root, ["add", *changed_files])
         _git(root, ["commit", "-m", commit_message])
         row["commit_sha"] = _git(root, ["rev-parse", "HEAD"])
-    return append_jsonl(ensure_tools_dir(base_dir) / "pr-actions.jsonl", {**row, "action": "commit"})
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "pr-actions.jsonl",
+        {**row, "action": "commit"},
+        expected_surface="pr_actions",
+    )
 
 
 def push_prepared_branch(
@@ -353,7 +361,11 @@ def push_prepared_branch(
     }
     if not dry_run:
         _git(root, ["push", "-u", remote, branch])
-    return append_jsonl(ensure_tools_dir(base_dir) / "pr-actions.jsonl", {**row, "action": "push"})
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "pr-actions.jsonl",
+        {**row, "action": "push"},
+        expected_surface="pr_actions",
+    )
 
 
 def plan_pr_lifecycle(
@@ -400,7 +412,11 @@ def plan_pr_lifecycle(
         "actions": actions,
         "status": "recommendation_only",
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle-plans.jsonl", row)
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "pr-lifecycle-plans.jsonl",
+        row,
+        expected_surface="pr_lifecycle_plans",
+    )
 
 
 def plan_pr_split(
@@ -443,7 +459,11 @@ def plan_pr_split(
         "prs": prs,
         "status": "planned",
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "pr-split-plans.jsonl", row)
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "pr-split-plans.jsonl",
+        row,
+        expected_surface="pr_split_plans",
+    )
 
 
 def list_pr_lifecycle_plans(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

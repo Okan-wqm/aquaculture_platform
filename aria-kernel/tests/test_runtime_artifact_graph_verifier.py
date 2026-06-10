@@ -4,7 +4,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.runtime_artifacts import (
     ARTIFACT_BEARING,
     INTEGRITY_FAILED,
@@ -14,6 +13,7 @@ from aria_kernel.runtime_artifacts import (
     write_run_artifact,
 )
 from aria_kernel.runtime_profile import set_profile
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
@@ -29,8 +29,8 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_completed_no_tool_artifacts_is_lifecycle_only(self) -> None:
-        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-a", "event": "started", "status": "started"})
-        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-a", "event": "completed", "status": "completed"})
+        append_declared_fixture(self.base / "cycles.jsonl", {"cycle_id": "cyc-a", "event": "started", "status": "started"}, expected_surface="cycles")
+        append_declared_fixture(self.base / "cycles.jsonl", {"cycle_id": "cyc-a", "event": "completed", "status": "completed"}, expected_surface="cycles")
 
         result = classify_cycle_evidence(base_dir=self.base, cycle_id="cyc-a")
 
@@ -51,9 +51,9 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
             payload={"raw_findings": []},
             run_status="ok",
         )
-        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-b", "event": "started", "status": "started"})
-        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-b", "event": "completed", "status": "completed"})
-        append_jsonl(
+        append_declared_fixture(self.base / "cycles.jsonl", {"cycle_id": "cyc-b", "event": "started", "status": "started"}, expected_surface="cycles")
+        append_declared_fixture(self.base / "cycles.jsonl", {"cycle_id": "cyc-b", "event": "completed", "status": "completed"}, expected_surface="cycles")
+        append_declared_fixture(
             self.base / "runs.jsonl",
             {
                 "schema_version": 2,
@@ -67,6 +67,7 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
                 "artifact_status": artifact["artifact_status"],
                 "runner": {"raw_findings_count": 0},
             },
+            expected_surface="runs",
         )
 
         result = classify_cycle_evidence(base_dir=self.base, cycle_id="cyc-b")
@@ -77,9 +78,9 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
     def test_hashless_legacy_artifact_ref_fails_integrity(self) -> None:
         artifact = self.base / "legacy.json"
         artifact.write_text("{}", encoding="utf-8")
-        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-legacy", "event": "started", "status": "started"})
-        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-legacy", "event": "completed", "status": "completed"})
-        append_jsonl(
+        append_declared_fixture(self.base / "cycles.jsonl", {"cycle_id": "cyc-legacy", "event": "started", "status": "started"}, expected_surface="cycles")
+        append_declared_fixture(self.base / "cycles.jsonl", {"cycle_id": "cyc-legacy", "event": "completed", "status": "completed"}, expected_surface="cycles")
+        append_declared_fixture(
             self.base / "runs.jsonl",
             {
                 "schema_version": 1,
@@ -90,6 +91,7 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
                 "artifact_refs": ["legacy.json"],
                 "runner": {"raw_findings_count": 0},
             },
+            expected_surface="runs",
         )
 
         verify = verify_runtime_artifacts(base_dir=self.base, cycle_id="cyc-legacy")
@@ -97,9 +99,9 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
         self.assertIn("artifact_ref_hashless_legacy", {issue["code"] for issue in verify["issues"]})
 
     def test_missing_artifact_ref_fails_integrity(self) -> None:
-        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-c", "event": "started", "status": "started"})
-        append_jsonl(self.base / "cycles.jsonl", {"cycle_id": "cyc-c", "event": "completed", "status": "completed"})
-        append_jsonl(
+        append_declared_fixture(self.base / "cycles.jsonl", {"cycle_id": "cyc-c", "event": "started", "status": "started"}, expected_surface="cycles")
+        append_declared_fixture(self.base / "cycles.jsonl", {"cycle_id": "cyc-c", "event": "completed", "status": "completed"}, expected_surface="cycles")
+        append_declared_fixture(
             self.base / "runs.jsonl",
             {
                 "schema_version": 1,
@@ -116,6 +118,7 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
                 ],
                 "runner": {"raw_findings_count": 0},
             },
+            expected_surface="runs",
         )
 
         result = classify_cycle_evidence(base_dir=self.base, cycle_id="cyc-c")

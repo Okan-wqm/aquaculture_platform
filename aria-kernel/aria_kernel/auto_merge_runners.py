@@ -145,12 +145,20 @@ class RealAutoMergeRunner:
         merges_completed = 0
         decisions: list[dict[str, Any]] = []
         for pr_number in candidate_prs:
-            decision = merge_if_green(
-                adapter=adapter,
-                pr_number=pr_number,
-                base_dir=base_dir,
-                dry_run=dry_run,
-            )
+            if dry_run:
+                decision = merge_if_green(
+                    adapter=adapter,
+                    pr_number=pr_number,
+                    base_dir=base_dir,
+                    dry_run=True,
+                )
+            else:
+                decision = {
+                    "decision": "blocked",
+                    "eligible": False,
+                    "pr_number": pr_number,
+                    "reasons": ["enterprise_readiness_claim_id_required"],
+                }
             decisions.append(decision)
             if decision.get("decision") == "merged":
                 merges_completed += 1

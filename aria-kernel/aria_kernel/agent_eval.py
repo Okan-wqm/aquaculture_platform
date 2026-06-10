@@ -48,7 +48,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -218,12 +218,10 @@ def run_agent_eval(
     repo_root: str | Path | None = None,
     mock_mode: bool = True,
     real_response_envelope: dict[str, Any] | None = None,
-    # Plan 023 v3 §A-8 — real-mode provenance binding. Real-mode runs
-    # require an invocation_id (UUIDv7 from upstream lease ledger) and
-    # transcript_hash (sha256 of captured transcript) so the eval row
-    # joins back to the actual agent invocation. Legacy callers that
-    # only file-feed the envelope MUST opt in via
-    # allow_legacy_envelope_feed=True + operator_approval_ref.
+    # Real-mode provenance binding. Real-mode runs require invocation_id
+    # and transcript_hash so the eval row joins back to declared claim,
+    # result and transcript ledgers. The legacy file-feed parameter is
+    # retained only as a hard-fail compatibility guard.
     invocation_id: str | None = None,
     transcript_hash: str | None = None,
     allow_legacy_envelope_feed: bool = False,
@@ -249,6 +247,7 @@ def run_agent_eval(
     """
     enforce_profile_for_write("agent_evals", base_dir=base_dir)
     fixture = _read_fixture(fixture_id=fixture_id, base_dir=base_dir)
+    root = ensure_tools_dir(base_dir)
 
     if mock_mode:
         envelope = _mock_response_envelope(fixture)
@@ -260,28 +259,26 @@ def run_agent_eval(
                 "supervised CI executor; until DEBT-2026-05-08-001 closure, "
                 "real-mode runs are operator-only."
             )
-        # Plan 023 v3 §A-8 — provenance binding for real-mode evals.
-        # Pre-Plan-023 mock_mode=False accepted any caller-provided
-        # envelope dict without proof that an actual agent invocation
-        # produced it. Post-fix: invocation_id (lease ledger UUID) and
-        # transcript_hash are required UNLESS the caller opts into the
-        # documented legacy feed path with an operator approval ref.
-        if not invocation_id:
-            if not allow_legacy_envelope_feed:
-                raise GovernanceError(
-                    "real_eval_missing_provenance_fields: mock_mode=False "
-                    "requires invocation_id (UUIDv7 from the upstream lease "
-                    "ledger) AND transcript_hash. Pass them, OR opt in via "
-                    "allow_legacy_envelope_feed=True + operator_approval_ref "
-                    "(deprecated path; tracked via the "
-                    "agent_eval_legacy_envelope_feed governance event)."
-                )
-            if not (operator_approval_ref or "").strip():
-                raise GovernanceError(
-                    "legacy_envelope_feed_requires_operator_approval_ref: "
-                    "allow_legacy_envelope_feed=True without an explicit "
-                    "operator_approval_ref bypasses the audit trail. Refusing."
-                )
+        if allow_legacy_envelope_feed:
+            raise GovernanceError(
+                "real_eval_legacy_envelope_feed_removed: use a ledger-bound "
+                "invocation_id + transcript_hash recorded by submit_claim_result/"
+                "record_transcript"
+            )
+        if not invocation_id or not transcript_hash:
+            raise GovernanceError(
+                "real_eval_missing_provenance_fields: mock_mode=False requires "
+                "invocation_id and transcript_hash"
+            )
+        if not _is_sha256_digest(str(transcript_hash)):
+            raise GovernanceError("real_eval_transcript_hash_must_be_sha256")
+        _validate_real_eval_provenance(
+            root,
+            invocation_id=str(invocation_id),
+            transcript_hash=str(transcript_hash),
+            fixture_id=fixture_id,
+            target_agent=str(fixture["target_agent"]),
+        )
         envelope = dict(real_response_envelope)
         kind = "agent_eval_run_real"
 
@@ -316,14 +313,17 @@ def run_agent_eval(
         "transcript_hash": transcript_hash,
         "provenance_mode": (
             "mock" if mock_mode
-            else ("legacy_envelope_feed" if allow_legacy_envelope_feed else "real_invocation")
+            else "real_invocation"
         ),
-        "operator_approval_ref": operator_approval_ref if allow_legacy_envelope_feed else None,
+        "operator_approval_ref": operator_approval_ref,
     }
 
-    root = ensure_tools_dir(base_dir)
     _runs_path(root).parent.mkdir(parents=True, exist_ok=True)
-    append_jsonl(_runs_path(root), run_row)
+    append_declared_jsonl(
+        _runs_path(root),
+        run_row,
+        expected_surface="agent_evals",
+    )
     append_tools_governance(
         root,
         kind,
@@ -337,6 +337,69 @@ def run_agent_eval(
         },
     )
     return run_row
+
+
+def _validate_real_eval_provenance(
+    root: Path,
+    *,
+    invocation_id: str,
+    transcript_hash: str,
+    fixture_id: str,
+    target_agent: str,
+) -> None:
+    claims = load_declared_jsonl(
+        root / "agent-invocations" / "claims.jsonl",
+        expected_surface="agent_invocation_claims",
+    )
+    results = load_declared_jsonl(
+        root / "agent-invocations" / "results.jsonl",
+        expected_surface="agent_invocation_results",
+    )
+    transcripts = load_declared_jsonl(
+        root / "agent-invocations" / "transcripts.jsonl",
+        expected_surface="agent_invocation_transcripts",
+    )
+    claim_bound = any(
+        str(row.get("invocation_id") or row.get("claim_id") or "") == invocation_id
+        for row in claims
+    )
+    result_bound = any(
+        str(row.get("invocation_id") or row.get("claim_id") or "") == invocation_id
+        and row.get("status") == "accepted"
+        for row in results
+    )
+    transcript_bound = any(
+        str(row.get("transcript_hash") or row.get("output_transcript_hash") or "") == transcript_hash
+        and str(row.get("invocation_id") or row.get("claim_id") or "") == invocation_id
+        for row in results
+    )
+    transcript_ledger_bound = any(
+        str(row.get("transcript_hash") or row.get("output_transcript_hash") or "") == transcript_hash
+        and str(row.get("invocation_id") or row.get("claim_id") or "") == invocation_id
+        and str(row.get("target_agent") or "") == target_agent
+        and (not row.get("fixture_run_id") or str(row.get("fixture_run_id")) == fixture_id)
+        and isinstance(row.get("ledger_hash"), str)
+        for row in transcripts
+    )
+    missing = []
+    if not claim_bound:
+        missing.append("claim_ledger_invocation")
+    if not result_bound:
+        missing.append("result_ledger_invocation")
+    if not transcript_bound:
+        missing.append("result_ledger_transcript_hash")
+    if not transcript_ledger_bound:
+        missing.append("transcript_ledger_invocation")
+    if missing:
+        raise GovernanceError("real_eval_provenance_unbound:" + ",".join(missing))
+
+
+def _is_sha256_digest(value: str) -> bool:
+    return (
+        value.startswith("sha256:")
+        and len(value) == len("sha256:") + 64
+        and all(ch in "0123456789abcdef" for ch in value[len("sha256:"):])
+    )
 
 
 def list_eval_runs(

@@ -9,8 +9,9 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from aria_kernel.cli import main as cli_main
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import load_jsonl
 from aria_kernel.runtime_profile import set_profile
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 CLI_SOURCE = Path(__file__).resolve().parents[1] / "aria_kernel" / "cli.py"
@@ -55,8 +56,16 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
             self.assertIn(required, source)
 
     def test_runtime_verify_requires_artifact_bearing_cycle(self) -> None:
-        append_jsonl(self.tools / "cycles.jsonl", {"cycle_id": "cyc-cli", "event": "started", "status": "started"})
-        append_jsonl(self.tools / "cycles.jsonl", {"cycle_id": "cyc-cli", "event": "completed", "status": "completed"})
+        append_declared_fixture(
+            self.tools / "cycles.jsonl",
+            {"cycle_id": "cyc-cli", "event": "started", "status": "started"},
+            expected_surface="cycles",
+        )
+        append_declared_fixture(
+            self.tools / "cycles.jsonl",
+            {"cycle_id": "cyc-cli", "event": "completed", "status": "completed"},
+            expected_surface="cycles",
+        )
 
         with redirect_stdout(io.StringIO()) as buf:
             rc = cli_main([

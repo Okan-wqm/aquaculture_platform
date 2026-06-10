@@ -60,7 +60,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import (
     GovernanceError,
@@ -109,14 +109,14 @@ def _allocate_change_id(*, plan_id: str, finding_id: str, intended_files: list[s
 
 
 def _find_planned(tools_root: Path, change_id: str) -> dict[str, Any] | None:
-    for row in load_jsonl(_planned_path(tools_root)):
+    for row in load_declared_jsonl(_planned_path(tools_root), expected_surface="change_planned"):
         if row.get("change_id") == change_id:
             return row
     return None
 
 
 def _find_committed(tools_root: Path, change_id: str) -> dict[str, Any] | None:
-    for row in load_jsonl(_committed_path(tools_root)):
+    for row in load_declared_jsonl(_committed_path(tools_root), expected_surface="change_committed"):
         if row.get("change_id") == change_id:
             return row
     return None
@@ -144,8 +144,8 @@ def detect_stale_change_chains(
     """
     from datetime import datetime, timedelta, timezone
     tools_root = ensure_tools_dir(base_dir)
-    committed = load_jsonl(_committed_path(tools_root))
-    validated = load_jsonl(_validated_path(tools_root))
+    committed = load_declared_jsonl(_committed_path(tools_root), expected_surface="change_committed")
+    validated = load_declared_jsonl(_validated_path(tools_root), expected_surface="change_validated")
     validated_ids = {row.get("change_id") for row in validated if row.get("change_id")}
     cutoff = datetime.now(timezone.utc) - timedelta(days=stale_days)
     stale: list[dict[str, Any]] = []
@@ -238,7 +238,11 @@ def emit_change_planned(
         "architectural_tier": architectural_tier,
         "recorded_at": utc_now(),
     }
-    persisted = append_jsonl(_planned_path(tools_root), row)
+    persisted = append_declared_jsonl(
+        _planned_path(tools_root),
+        row,
+        expected_surface="change_planned",
+    )
     append_tools_governance(
         tools_root,
         "change_planned",
@@ -334,7 +338,11 @@ def emit_change_committed(
         "claim_id": claim_id,
         "recorded_at": utc_now(),
     }
-    persisted = append_jsonl(_committed_path(tools_root), row)
+    persisted = append_declared_jsonl(
+        _committed_path(tools_root),
+        row,
+        expected_surface="change_committed",
+    )
     append_tools_governance(
         tools_root,
         "change_committed",
@@ -351,7 +359,7 @@ def emit_change_committed(
 def _find_validated_for_change(tools_root: Path, change_id: str) -> dict[str, Any] | None:
     """Plan 023 v3 §D-3 (M-G) — find existing validated row for a
     change_id (latest, since latest is the binding state)."""
-    rows = load_jsonl(_validated_path(tools_root))
+    rows = load_declared_jsonl(_validated_path(tools_root), expected_surface="change_validated")
     matches = [r for r in rows if r.get("change_id") == change_id]
     if not matches:
         return None
@@ -481,7 +489,11 @@ def emit_change_validated(
     if matrix_result is not None:
         row["validation_matrix_passed"] = matrix_result.get("passed", False)
         row["validation_matrix_risk_types"] = matrix_result.get("risk_types", [])
-    persisted = append_jsonl(_validated_path(tools_root), row)
+    persisted = append_declared_jsonl(
+        _validated_path(tools_root),
+        row,
+        expected_surface="change_validated",
+    )
     # Plan v3.3 §"existing payload immutability": the change_validated
     # governance event detail payload locked at Plan 019 stays unchanged.
     # validation_mode lives ONLY on the validated.jsonl row + the new
@@ -525,7 +537,7 @@ def list_committed_change_ids_in_window(
     """
     tools_root = ensure_tools_dir(base_dir)
     out: list[str] = []
-    for row in load_jsonl(_committed_path(tools_root)):
+    for row in load_declared_jsonl(_committed_path(tools_root), expected_surface="change_committed"):
         cid = row.get("change_id")
         recorded = row.get("recorded_at")
         if not cid or not isinstance(recorded, str):
@@ -554,7 +566,7 @@ def get_change_chain(
         "planned": _find_planned(tools_root, change_id),
         "committed": _find_committed(tools_root, change_id),
         "validated": next(
-            (row for row in load_jsonl(_validated_path(tools_root))
+            (row for row in load_declared_jsonl(_validated_path(tools_root), expected_surface="change_validated")
              if row.get("change_id") == change_id),
             None,
         ),
@@ -574,7 +586,7 @@ def list_change_chains(
     """
     tools_root = ensure_tools_dir(base_dir)
     chains: list[dict[str, Any]] = []
-    for planned in load_jsonl(_planned_path(tools_root)):
+    for planned in load_declared_jsonl(_planned_path(tools_root), expected_surface="change_planned"):
         if plan_id is not None and planned.get("plan_id") != plan_id:
             continue
         if finding_id is not None and planned.get("finding_id") != finding_id:
@@ -595,10 +607,10 @@ def find_changes_by_file(
     """Return every change chain that touched (intended OR actual) file_path."""
     tools_root = ensure_tools_dir(base_dir)
     matched_ids: set[str] = set()
-    for planned in load_jsonl(_planned_path(tools_root)):
+    for planned in load_declared_jsonl(_planned_path(tools_root), expected_surface="change_planned"):
         if file_path in (planned.get("intended_affected_files") or []):
             matched_ids.add(planned.get("change_id", ""))
-    for committed in load_jsonl(_committed_path(tools_root)):
+    for committed in load_declared_jsonl(_committed_path(tools_root), expected_surface="change_committed"):
         if file_path in (committed.get("actual_affected_files") or []):
             matched_ids.add(committed.get("change_id", ""))
     return [

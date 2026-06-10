@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .evidence_validator import validate_tool_output_evidence
-from .ledger import append_jsonl as append_chained_jsonl
+from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, utc_now
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
 
@@ -107,7 +107,11 @@ def run_fixture_suite(
     # concern, not content).
     summary = dict(base_summary)
     summary["evidence_hash"] = _compute_suite_evidence_hash(base_summary)
-    append_jsonl(fixture_runs_path(base_dir), summary)
+    append_declared_jsonl(
+        fixture_runs_path(base_dir),
+        summary,
+        expected_surface="agent_eval_fixture_runs",
+    )
     return summary
 
 

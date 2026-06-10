@@ -9,7 +9,7 @@ from .ci import list_ci_failures, produce_ci_review
 from .cycle import run_cycle
 from .feedback_store import generate_ai_consensus, generate_judgment_sample
 from .fixture_runner import refresh_fixture_suite
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 
 
@@ -40,12 +40,16 @@ def heartbeat_tick(
             "actions": actions,
             "status": "completed",
         }
-        return append_jsonl(root / "heartbeat" / "ticks.jsonl", row)
+        return append_declared_jsonl(
+            root / "heartbeat" / "ticks.jsonl",
+            row,
+            expected_surface="heartbeat_ticks",
+        )
 
 
 def heartbeat_status(*, base_dir: str | Path | None = None) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
-    rows = load_jsonl(root / "heartbeat" / "ticks.jsonl")
+    rows = load_declared_jsonl(root / "heartbeat" / "ticks.jsonl", expected_surface="heartbeat_ticks")
     return {
         "schema_version": 1,
         "locked": (root / "heartbeat" / "heartbeat.lock").exists(),
@@ -89,7 +93,11 @@ def cycle_run_batch(
             "run_cycle_ids": [run.get("cycle_id") for run in runs],
             "status": "completed",
         }
-        return append_jsonl(root / "heartbeat" / "cycle-batches.jsonl", row)
+        return append_declared_jsonl(
+            root / "heartbeat" / "cycle-batches.jsonl",
+            row,
+            expected_surface="heartbeat_cycle_batches",
+        )
 
 
 def _refresh_fixtures(*, workspace_root: str | Path, cycle_id: str, base_dir: Path) -> list[dict[str, Any]]:
@@ -136,7 +144,13 @@ def _produce_judgment_work(*, cycle_id: str, base_dir: Path) -> list[dict[str, A
 
 
 def _produce_ci_review_tasks(*, cycle_id: str, base_dir: Path) -> list[dict[str, Any]]:
-    existing = {row.get("ci_failure_id") for row in load_jsonl(base_dir / "ci" / "agent-review-tasks.jsonl")}
+    existing = {
+        row.get("ci_failure_id")
+        for row in load_declared_jsonl(
+            base_dir / "ci" / "agent-review-tasks.jsonl",
+            expected_surface="ci_agent_review_tasks",
+        )
+    }
     actions = []
     for failure in list_ci_failures(base_dir=base_dir):
         failure_id = str(failure.get("ci_failure_id") or "")

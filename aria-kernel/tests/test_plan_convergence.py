@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from aria_kernel.agent_priors import reviewer_names
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import LedgerIntegrityError, load_jsonl
 from aria_kernel.plan_convergence import (
     abandon_plan,
     content_hash,
@@ -26,6 +26,7 @@ from aria_kernel.plan_convergence import (
     submit_challenger_plan,
 )
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class PlanConvergenceTests(unittest.TestCase):
@@ -199,13 +200,14 @@ class PlanConvergenceTests(unittest.TestCase):
         self.start()
         self.submit_challenger()
         self.request_cross_round(1)
-        append_jsonl(
+        append_declared_fixture(
             self.tools_dir / "agent-invocations" / "results.jsonl",
             {
                 "schema_version": 1,
                 "request_id": "AIR-1",
                 "content_hash": content_hash({"actual": "review"}),
             },
+            expected_surface="agent_invocation_results",
         )
         state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
         task = next(task for task in state["cross_reviews"][1]["tasks"].values() if task["task_id"] == "task-p2c-1")
@@ -313,7 +315,7 @@ class PlanConvergenceTests(unittest.TestCase):
         first = json.loads(rows[0])
         first["payload"]["initial_revision_id"] = "tampered"
         path.write_text(json.dumps(first, sort_keys=True) + "\n", encoding="utf-8")
-        with self.assertRaisesRegex(GovernanceError, "integrity failure"):
+        with self.assertRaisesRegex(LedgerIntegrityError, "strict verification failed"):
             self.request_round(1, "farm-expert")
 
     def test_replay_fold_is_deterministic(self):
@@ -355,7 +357,7 @@ class PlanConvergenceTests(unittest.TestCase):
             )
 
     def test_invalid_event_payload_schema_is_rejected_during_replay(self):
-        append_jsonl(
+        append_declared_fixture(
             events_path(self.tools_dir),
             {
                 "schema_version": 1,
@@ -366,6 +368,7 @@ class PlanConvergenceTests(unittest.TestCase):
                 "idempotency_key": content_hash({"idempotency": "invalid"}),
                 "payload": {"missing": "contract"},
             },
+            expected_surface="plan_convergence_events",
         )
         with self.assertRaisesRegex(GovernanceError, "plan content"):
             fold_plan_state(plan_id="invalid-plan", base_dir=self.tools_dir)

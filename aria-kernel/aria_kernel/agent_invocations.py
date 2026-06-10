@@ -14,7 +14,15 @@ from .agent_surface import (
 )
 from .bridge_exceptions import BridgeContractViolation
 from .file_lock import with_exclusive_lock
-from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl
+from .genesis_lifecycle import verify_shadow_eval_proof
+from .ledger import (
+    _append_jsonl_unlocked,
+    _assert_declared_surface,
+    append_declared_jsonl,
+    append_jsonl,
+    load_declared_jsonl,
+    state_transaction,
+)
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
@@ -34,6 +42,264 @@ LEASE_TOKEN_BYTES = 24
 # stays "pending" / "completed" / etc; this enumeration is the Plan 016
 # 10-state lifecycle as observed from the claims + results ledgers.
 DERIVED_STATES = DERIVED_REQUEST_STATES
+
+
+def _target_is_shadow(root: Path, target_agent: str) -> bool:
+    if not target_agent:
+        return False
+    state_by_target: dict[str, str] = {}
+    for row in load_declared_jsonl(
+        root / "genesis-lifecycle" / "events.jsonl",
+        expected_surface="genesis_lifecycle_events",
+    ):
+        target = str(row.get("entity_id") or "")
+        state = str(row.get("to_state") or "")
+        if target:
+            state_by_target[target] = state
+    return state_by_target.get(target_agent) == "SHADOW"
+
+
+def _is_sha256_digest(value: str) -> bool:
+    return (
+        value.startswith("sha256:")
+        and len(value) == len("sha256:") + 64
+        and all(ch in "0123456789abcdef" for ch in value[len("sha256:"):])
+    )
+
+
+def _sha256_text(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_payload(payload: dict[str, Any]) -> str:
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        default=str,
+    )
+    return _sha256_text(raw)
+
+
+def _contexts_path(root: Path) -> Path:
+    return root / "agent-invocations" / "contexts.jsonl"
+
+
+def _prompts_ledger_path(root: Path) -> Path:
+    return root / "agent-invocations" / "prompts.jsonl"
+
+
+def build_invocation_context(
+    *,
+    request_id: str,
+    target_agent: str,
+    role: str,
+    suggested_prompt: str,
+    must_satisfy: list[dict[str, Any]] | None = None,
+    allowed_scope: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    budget_audit_hash: str | None = None,
+    context_repo_root: str | Path | None = None,
+    context_window_tokens: int | None = None,
+    target_sha: str | None = None,
+    rendered_prompt: str | None = None,
+) -> dict[str, Any]:
+    """Build the canonical model-visible context envelope for a request."""
+    repo_context_sha = target_sha
+    prompt_text = rendered_prompt if rendered_prompt is not None else suggested_prompt
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "request_id": request_id,
+        "target_agent": target_agent,
+        "role": role,
+        "prompt_hash": _sha256_text(prompt_text),
+        "included_refs": [
+            {"ref": ref, "source": "evidence_refs"}
+            for ref in list(evidence_refs or [])
+        ],
+        "excluded_refs": [],
+        "must_satisfy_hash": _sha256_payload({"must_satisfy": list(must_satisfy or [])}),
+        "allowed_scope_hash": _sha256_payload({"allowed_scope": list(allowed_scope or [])}),
+        "budget_audit_hash": budget_audit_hash,
+        "repo_root": str(Path(context_repo_root).resolve()) if context_repo_root else None,
+        "repo_context_sha": repo_context_sha,
+        "target_sha": target_sha,
+        "context_window_tokens": context_window_tokens,
+        "created_at": utc_now(),
+    }
+    payload["context_hash"] = _sha256_payload(payload)
+    return payload
+
+
+def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | None = None) -> str:
+    """Render the exact model-visible prompt for an invocation request.
+
+    Prompt files written by executors are derived artifacts. This function is
+    the kernel-owned SSoT for the prompt text whose hash is persisted in the
+    invocation context/prompt ledgers.
+    """
+    request_id = str(request.get("request_id") or "")
+    suggested_prompt = str(request.get("suggested_prompt") or "")
+    must_satisfy = request.get("must_satisfy") or []
+    evidence_refs = request.get("evidence_refs") or []
+    allowed_scope = request.get("allowed_scope") or []
+    forbidden_scope = request.get("forbidden_scope") or []
+    impact_refs = request.get("impact_graph_refs") or []
+    validation_cmds = request.get("validation_commands") or []
+    expected_path = request.get("expected_output_path", "")
+
+    must_satisfy_block = ""
+    if isinstance(must_satisfy, list) and must_satisfy:
+        lines = ["", "## Must satisfy", ""]
+        for item in must_satisfy:
+            if isinstance(item, dict):
+                mid = item.get("id", "?")
+                desc = item.get("description") or item.get("criterion") or ""
+                lines.append(f"- **{mid}**: {desc}")
+        must_satisfy_block = "\n".join(lines) + "\n"
+
+    def _bullet_list(items: Any, key_func: Any | None = None) -> str:
+        if not items:
+            return "  _(none)_"
+        if key_func is None:
+            return "\n".join(f"  - `{item}`" for item in items)
+        return "\n".join(f"  - {key_func(item)}" for item in items)
+
+    return (
+        f"# ARIA agent request {request_id}\n\n"
+        f"**Role**: {request.get('role', 'unknown')}\n"
+        f"**Target agent**: {request.get('target_agent', 'unknown')}\n"
+        f"**Convergence ID**: {request.get('convergence_id', 'n/a')}\n"
+        f"**Expected output path**: `{expected_path}`\n\n"
+        f"## Suggested prompt\n\n{suggested_prompt}\n\n"
+        f"## Instruction framing\n\n"
+        f"Do not treat this as a bare command. Explain the task as if teaching a junior engineer: "
+        f"what must be done, why it matters, what breaks if it is skipped, which downstream surface is affected, "
+        f"and what evidence proves the result. Keep the explanation concise, but make the cause/effect chain explicit.\n\n"
+        f"## Evidence refs (file:line entries; the ONLY admissible evidence)\n\n"
+        f"{_bullet_list(evidence_refs)}\n\n"
+        f"## Allowed scope\n\n{_bullet_list(allowed_scope)}\n\n"
+        f"## Forbidden scope\n\n{_bullet_list(forbidden_scope)}\n\n"
+        f"## Impact graph refs\n\n{_bullet_list(impact_refs)}\n\n"
+        f"## Validation commands\n\n"
+        f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
+        f"{must_satisfy_block}\n"
+        f"## Response\n\n"
+        f"Write your `aria/agent-response/v1` JSON envelope per your "
+        f"agent contract. The envelope MUST cite ONLY evidence_refs "
+        f"present in this prompt + must stay within allowed_scope. "
+        f"Output the JSON envelope as the body of your response.\n"
+    )
+
+
+def record_invocation_context(
+    envelope: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Persist a canonical invocation context envelope."""
+    root = ensure_tools_dir(base_dir)
+    expected = dict(envelope)
+    supplied = expected.get("context_hash")
+    expected.pop("context_hash", None)
+    actual = _sha256_payload(expected)
+    if supplied != actual:
+        raise GovernanceError("invocation_context_hash_mismatch")
+    return append_declared_jsonl(
+        _contexts_path(root),
+        envelope,
+        expected_surface="agent_invocation_contexts",
+    )
+
+
+def record_invocation_prompt(
+    *,
+    request_id: str,
+    context_hash: str,
+    prompt_text: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Persist the exact prompt payload hash for replay."""
+    if not _is_sha256_digest(context_hash):
+        raise GovernanceError("invocation_prompt_context_hash_must_be_sha256")
+    root = ensure_tools_dir(base_dir)
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "request_id": request_id,
+        "context_hash": context_hash,
+        "prompt_hash": _sha256_text(prompt_text),
+        "prompt_text": prompt_text,
+    }
+    return append_declared_jsonl(
+        _prompts_ledger_path(root),
+        row,
+        expected_surface="agent_invocation_prompts",
+    )
+
+
+def load_invocation_context(
+    *,
+    request_id: str,
+    base_dir: str | Path | None = None,
+    verify: bool = True,
+) -> dict[str, Any] | None:
+    root = ensure_tools_dir(base_dir)
+    for row in reversed(load_declared_jsonl(
+        _contexts_path(root),
+        expected_surface="agent_invocation_contexts",
+        verify=verify,
+    )):
+        if row.get("request_id") == request_id:
+            return row
+    return None
+
+
+def verify_invocation_context_binding(
+    *,
+    request_id: str,
+    context_hash: str,
+    prompt_hash: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    root = ensure_tools_dir(base_dir)
+    context = load_invocation_context(request_id=request_id, base_dir=root)
+    if context is None:
+        raise GovernanceError(f"invocation_context_not_found:{request_id}")
+    if context.get("context_hash") != context_hash:
+        raise GovernanceError("invocation_context_hash_binding_mismatch")
+    prompts = load_declared_jsonl(
+        _prompts_ledger_path(root),
+        expected_surface="agent_invocation_prompts",
+    )
+    prompt = next(
+        (
+            row for row in reversed(prompts)
+            if row.get("request_id") == request_id
+            and row.get("context_hash") == context_hash
+        ),
+        None,
+    )
+    if prompt is None:
+        raise GovernanceError(f"invocation_prompt_not_found:{request_id}")
+    if prompt.get("prompt_hash") != prompt_hash:
+        raise GovernanceError("invocation_prompt_hash_binding_mismatch")
+    return {"context": context, "prompt": prompt}
+
+
+def _append_declared_jsonl_unlocked(
+    path: Path,
+    record: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> dict[str, Any]:
+    _assert_declared_surface(
+        path,
+        expected_surface=expected_surface,
+        enforce_write_profile=True,
+    )
+    return _append_jsonl_unlocked(path.resolve(), record)
 
 
 def create_agent_invocation_request(
@@ -68,6 +334,12 @@ def create_agent_invocation_request(
     # cost-attribution + V10.3-B endurance audit.
     cycle_id: str | None = None,
     pressure_source_type: str | None = None,
+    shadow_eval: bool = False,
+    eval_harness_id: str | None = None,
+    fixture_run_id: str | None = None,
+    transcript_hash: str | None = None,
+    operator_provenance_ref: str | None = None,
+    target_sha: str | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -83,6 +355,25 @@ def create_agent_invocation_request(
         raise GovernanceError(f"unknown invocation role: {role}")
     if not target_agent.strip():
         raise GovernanceError("target_agent is required")
+    root = ensure_tools_dir(base_dir)
+    if not shadow_eval and _target_is_shadow(root, target_agent):
+        raise GovernanceError(
+            f"shadow_agent_invocation_blocked: {target_agent!r} is not an ACTIVE production target"
+        )
+    shadow_eval_proof: dict[str, Any] | None = None
+    if shadow_eval:
+        if not _target_is_shadow(root, target_agent):
+            raise GovernanceError(
+                f"shadow_eval_requires_canonical_shadow_lifecycle: {target_agent!r}"
+            )
+        shadow_eval_proof = verify_shadow_eval_proof(
+            target_agent=target_agent,
+            eval_harness_id=str(eval_harness_id or ""),
+            fixture_run_id=str(fixture_run_id or ""),
+            transcript_hash=str(transcript_hash or ""),
+            operator_provenance_ref=str(operator_provenance_ref or ""),
+            base_dir=root,
+        )
     allowed_targets = allowed_targets_for_role(role)
     if allowed_targets is not None and target_agent not in allowed_targets:
         raise GovernanceError(
@@ -122,24 +413,23 @@ def create_agent_invocation_request(
                 raise GovernanceError(
                     "create_agent_invocation_request_evidence_refs_must_be_list_of_strings"
                 )
-    # Plan 020 Phase 2.B — opt-in context budget gate.
-    # Default off (backward-compat for every existing caller). When True,
-    # the gate audits request + agent .md + knowledge bookmark tokens
-    # against the role-class cap (judges 0.35 / planners 0.55 / executors
-    # 0.45 / emergency 0.65 / default 0.40) and raises GovernanceError on
-    # cap aimed. Audit row goes to aria-tools/context-audits.jsonl
-    # regardless of enforcement (read-only audit + write-ledger=True path).
+    # Context SSoT hardening: every request gets a budget audit row. The
+    # historical cap-enforcement behaviour remains controlled by the explicit
+    # kwarg so legacy tests/calibration can still create oversized packets,
+    # but the replay record is no longer optional.
+    budget_request = {
+        "suggested_prompt": suggested_prompt,
+        "must_satisfy": list(must_satisfy or []),
+        "allowed_scope": list(allowed_scope or []),
+        "evidence_refs": list(evidence_refs or []),
+    }
+    from .context_budget_gate import (
+        audit_dispatch_context as _audit_ctx,
+        enforce_context_budget as _enforce_ctx,
+    )
     if enforce_context_budget:
-        # Local import keeps the module-level import graph free of a
-        # cycle: context_budget_gate imports runtime_profile which is fine,
-        # but importing context_budget_gate at module level here would
-        # bake in a hard dependency on the entire token-estimation path
-        # for every legacy caller (each create_agent_invocation_request
-        # call would pull tiktoken probing). Lazy import keeps the cost
-        # to opt-in callers.
-        from .context_budget_gate import enforce_context_budget as _enforce_ctx
-        _enforce_ctx(
-            request={"suggested_prompt": suggested_prompt, "must_satisfy": []},
+        budget_audit = _enforce_ctx(
+            request=budget_request,
             target_agent=target_agent,
             role=role,
             base_dir=base_dir,
@@ -147,7 +437,16 @@ def create_agent_invocation_request(
             context_window_tokens_override=context_window_tokens_override,
             role_cap_override=role_cap_override,
         )
-    root = ensure_tools_dir(base_dir)
+    else:
+        budget_audit = _audit_ctx(
+            request=budget_request,
+            target_agent=target_agent,
+            role=role,
+            base_dir=base_dir,
+            repo_root=context_repo_root,
+            context_window_tokens_override=context_window_tokens_override,
+            role_cap_override=role_cap_override,
+        )
     request_id = _request_id(
         target_agent,
         role,
@@ -164,7 +463,9 @@ def create_agent_invocation_request(
             "plan_revision_hash": plan_revision_hash,
             "pressure_event_id": pressure_event_id,
             "run_id": run_id,
+            "shadow_eval_proof": shadow_eval_proof or {},
             "tool_id": tool_id,
+            "target_sha": target_sha,
         },
     )
     existing_request = _find_request_by_id(root, request_id)
@@ -207,6 +508,9 @@ def create_agent_invocation_request(
         # Legacy rows return None on read — no upcaster needed.
         "cycle_id": cycle_id,
         "pressure_source_type": pressure_source_type,
+        "shadow_eval": bool(shadow_eval),
+        "shadow_eval_proof": shadow_eval_proof,
+        "target_sha": target_sha,
     }
     # Plan 024 §B-2 — when the caller opted out of strict enforcement,
     # emit a governance event capturing target_agent + role + missing
@@ -242,7 +546,127 @@ def create_agent_invocation_request(
         row["run_id"] = run_id
     if judgment_group_id is not None:
         row["judgment_group_id"] = judgment_group_id
-    return append_jsonl(root / "agent-invocations" / "requests.jsonl", row)
+    rendered_prompt = render_invocation_prompt(row)
+    context = build_invocation_context(
+        request_id=request_id,
+        target_agent=target_agent,
+        role=role,
+        suggested_prompt=suggested_prompt,
+        must_satisfy=must_satisfy,
+        allowed_scope=allowed_scope,
+        evidence_refs=evidence_refs,
+        budget_audit_hash=str(budget_audit.get("ledger_hash") or ""),
+        context_repo_root=context_repo_root,
+        context_window_tokens=int(budget_audit.get("context_window_tokens") or 0) or None,
+        target_sha=target_sha,
+        rendered_prompt=rendered_prompt,
+    )
+    prompt_row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "request_id": request_id,
+        "context_hash": context["context_hash"],
+        "prompt_hash": _sha256_text(rendered_prompt),
+        "prompt_text": rendered_prompt,
+    }
+    row["context_hash"] = context["context_hash"]
+    row["prompt_hash"] = prompt_row["prompt_hash"]
+    requests_path = root / "agent-invocations" / "requests.jsonl"
+    contexts_path = _contexts_path(root)
+    prompts_path = _prompts_ledger_path(root)
+    with state_transaction([contexts_path, prompts_path, requests_path]) as txn:
+        existing_locked = next(
+            (
+                item for item in reversed(txn.load_declared_jsonl(
+                    requests_path,
+                    expected_surface="agent_invocation_requests",
+                ))
+                if item.get("request_id") == request_id
+            ),
+            None,
+        )
+        if existing_locked is not None:
+            return existing_locked
+        stored_context = txn.append_declared_jsonl(
+            contexts_path,
+            context,
+            expected_surface="agent_invocation_contexts",
+        )
+        stored_prompt = txn.append_declared_jsonl(
+            prompts_path,
+            prompt_row,
+            expected_surface="agent_invocation_prompts",
+        )
+        row["context_ledger_hash"] = stored_context.get("ledger_hash")
+        row["prompt_ledger_hash"] = stored_prompt.get("ledger_hash")
+        row["budget_audit_hash"] = budget_audit.get("ledger_hash")
+        return txn.append_declared_jsonl(
+            requests_path,
+            row,
+            expected_surface="agent_invocation_requests",
+        )
+
+
+def record_transcript(
+    *,
+    invocation_id: str,
+    transcript_hash: str,
+    target_agent: str,
+    request_id: str | None = None,
+    claim_id: str | None = None,
+    fixture_run_id: str | None = None,
+    artifact_ref: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Persist a transcript anchor for ledger-bound real/shadow eval proof."""
+    if not invocation_id or not str(invocation_id).strip():
+        raise GovernanceError("transcript_invocation_id_required")
+    if not _is_sha256_digest(str(transcript_hash)):
+        raise GovernanceError("transcript_hash_must_be_sha256")
+    if not target_agent or not str(target_agent).strip():
+        raise GovernanceError("transcript_target_agent_required")
+    if artifact_ref:
+        _verify_transcript_artifact_ref(
+            artifact_ref=artifact_ref,
+            transcript_hash=str(transcript_hash),
+            workspace_root=None,
+        )
+    root = ensure_tools_dir(base_dir)
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "invocation_id": invocation_id,
+        "claim_id": claim_id,
+        "request_id": request_id,
+        "target_agent": target_agent,
+        "transcript_hash": transcript_hash,
+        "fixture_run_id": fixture_run_id,
+        "artifact_ref": artifact_ref,
+    }
+    return append_declared_jsonl(
+        root / "agent-invocations" / "transcripts.jsonl",
+        row,
+        expected_surface="agent_invocation_transcripts",
+    )
+
+
+def _verify_transcript_artifact_ref(
+    *,
+    artifact_ref: str | Path,
+    transcript_hash: str,
+    workspace_root: str | Path | None,
+) -> Path:
+    if not _is_sha256_digest(str(transcript_hash)):
+        raise GovernanceError("transcript_hash_must_be_sha256")
+    artifact = Path(artifact_ref)
+    if not artifact.is_absolute() and workspace_root is not None:
+        artifact = Path(workspace_root).resolve() / artifact
+    if not artifact.exists() or not artifact.is_file():
+        raise GovernanceError("transcript_artifact_ref_missing")
+    observed = "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
+    if observed != transcript_hash:
+        raise GovernanceError("transcript_artifact_hash_mismatch")
+    return artifact.resolve()
 
 
 def _submit_legacy_invocation_result_internal(
@@ -332,7 +756,13 @@ def _submit_legacy_invocation_result_internal(
         "rejection_reason": rejection_reason,
         "submitted_at": utc_now(),
     }
-    return append_jsonl(root / "agent-invocations" / "results.jsonl", row)
+    return append_jsonl(
+        root / "agent-invocations" / "results.jsonl",
+        row,
+        allow_legacy=True,
+        legacy_reason=f"operator-approved legacy invocation migration: {operator_migration_approval_ref}",
+        expires_at="2026-12-31T00:00:00Z",
+    )
 
 
 def is_legacy_decided_request(
@@ -349,7 +779,10 @@ def is_legacy_decided_request(
     False when no terminal result row exists for the request_id.
     """
     root = ensure_tools_dir(base_dir)
-    results = load_jsonl(root / "agent-invocations" / "results.jsonl")
+    results = load_declared_jsonl(
+        root / "agent-invocations" / "results.jsonl",
+        expected_surface="agent_invocation_results",
+    )
     request_results = _result_rows_for(results, request_id)
     if not request_results:
         return False
@@ -400,7 +833,10 @@ def list_agent_invocation_requests(
     normalised to uppercase for comparison so historical lowercase
     ``state="claimed"`` invocations keep working.
     """
-    rows = load_jsonl(ensure_tools_dir(base_dir) / "agent-invocations" / "requests.jsonl")
+    rows = load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+    )
     if state is not None:
         # Plan 026R §B.4 — per-call derived-state cache. A single list()
         # call may iterate many rows; only derive each request_id's
@@ -431,7 +867,10 @@ def list_agent_invocation_requests(
 
 
 def _find_request(root: Path, request_id: str) -> dict[str, Any]:
-    for row in reversed(load_jsonl(root / "agent-invocations" / "requests.jsonl")):
+    for row in reversed(load_declared_jsonl(
+        root / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+    )):
         if row.get("request_id") == request_id:
             return row
     raise GovernanceError(f"agent invocation request not found: {request_id}")
@@ -460,7 +899,10 @@ def _request_id(
 
 
 def _find_request_by_id(root: Path, request_id: str) -> dict[str, Any] | None:
-    for row in reversed(load_jsonl(root / "agent-invocations" / "requests.jsonl")):
+    for row in reversed(load_declared_jsonl(
+        root / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+    )):
         if row.get("request_id") == request_id:
             return row
     return None
@@ -584,14 +1026,23 @@ def derive_request_state(
     same state given the same files. Returns one of `DERIVED_STATES`.
     """
     root = ensure_tools_dir(base_dir)
-    requests = load_jsonl(root / "agent-invocations" / "requests.jsonl")
+    requests = load_declared_jsonl(
+        root / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+    )
     request = next((row for row in requests if row.get("request_id") == request_id), None)
     if request is None:
         raise GovernanceError(f"unknown request_id: {request_id}")
     if request.get("state") == "cancelled":
         return "CANCELLED"
-    results = load_jsonl(root / "agent-invocations" / "results.jsonl")
-    claims = load_jsonl(_claims_path(root))
+    results = load_declared_jsonl(
+        root / "agent-invocations" / "results.jsonl",
+        expected_surface="agent_invocation_results",
+    )
+    claims = load_declared_jsonl(
+        _claims_path(root),
+        expected_surface="agent_invocation_claims",
+    )
 
     # Results dominate (terminal states first). The status vocabulary is
     # the union of legacy aria/agent-invocation-result/v1 ("completed",
@@ -693,8 +1144,13 @@ def next_pending_request(
     fresh claim). HUMAN_REQUIRED, CANCELLED, and terminal states are skipped.
     """
     root = ensure_tools_dir(base_dir)
-    requests = load_jsonl(root / "agent-invocations" / "requests.jsonl")
+    requests = load_declared_jsonl(
+        root / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+    )
     for request in requests:
+        if _target_is_shadow(root, str(request.get("target_agent") or "")) and not request.get("shadow_eval"):
+            continue
         if role and request.get("role") != role:
             continue
         if target_agent and request.get("target_agent") != target_agent:
@@ -749,6 +1205,10 @@ def claim_request(
         # _strict_request_view defaulted both to []. Surfacing the gap here
         # forces operator backfill BEFORE work is leased.
         request_for_check = _find_request(root, request_id)
+        if _target_is_shadow(root, str(request_for_check.get("target_agent") or "")) and not request_for_check.get("shadow_eval"):
+            raise GovernanceError(
+                f"shadow_agent_invocation_blocked: {request_for_check.get('target_agent')!r} is not an ACTIVE production target"
+            )
         _strict_request_view(request_for_check)
         # Plan 024 §H-1 — defense-in-depth CAS recheck. After the lock
         # fires the state is re-derived; if it changed (e.g. another
@@ -779,7 +1239,11 @@ def claim_request(
         }
         # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
         # at line 604; use the unlocked helper to avoid POSIX flock re-acquisition.
-        persisted_claim_row = _append_jsonl_unlocked(claims_path, row)
+        persisted_claim_row = _append_declared_jsonl_unlocked(
+            claims_path,
+            row,
+            expected_surface="agent_invocation_claims",
+        )
         # Plan 026R §B.3 — fuse the request envelope into the return value
         # inside the same lock window. Pre-§B.3 the caller had to do a
         # separate ``agent-invocations list --request-id`` fetch after
@@ -792,8 +1256,9 @@ def claim_request(
         # The request row's own ledger_hash is the integrity anchor for
         # §B.5 metadata-tamper detection. Load the request row directly
         # so we return the on-disk hash, not a derived value.
-        request_rows = load_jsonl(
-            root / "agent-invocations" / "requests.jsonl"
+        request_rows = load_declared_jsonl(
+            root / "agent-invocations" / "requests.jsonl",
+            expected_surface="agent_invocation_requests",
         )
         envelope_row = next(
             (r for r in reversed(request_rows) if r.get("request_id") == request_id),
@@ -846,6 +1311,10 @@ def claim_request(
         "impact_graph_refs": envelope.get("impact_graph_refs", []),
         "validation_commands": envelope.get("validation_commands", []),
         "plan_revision_hash": envelope.get("plan_revision_hash"),
+        "context_hash": envelope.get("context_hash"),
+        "prompt_hash": envelope.get("prompt_hash"),
+        "context_ledger_hash": envelope.get("context_ledger_hash"),
+        "prompt_ledger_hash": envelope.get("prompt_ledger_hash"),
         # Ledger-hash anchors (2 fields per plan §B.3 + §B.5):
         "claim_ledger_hash": claim_ledger_hash_value,
         "request_ledger_hash": request_ledger_hash_value,
@@ -862,7 +1331,10 @@ def heartbeat_claim(
 ) -> dict[str, Any]:
     """Extend a lease by `extend_seconds`. Validates lease_token + agent_id."""
     root = ensure_tools_dir(base_dir)
-    claims = load_jsonl(_claims_path(root))
+    claims = load_declared_jsonl(
+        _claims_path(root),
+        expected_surface="agent_invocation_claims",
+    )
     claim_event = next(
         (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
         None,
@@ -914,7 +1386,7 @@ def heartbeat_claim(
         "heartbeat_at": _iso(now),
         "lease_expires_at": _iso(expires),
     }
-    append_jsonl(_claims_path(root), row)
+    append_declared_jsonl(_claims_path(root), row, expected_surface="agent_invocation_claims")
     return row
 
 
@@ -995,7 +1467,10 @@ def release_claim(
     if not lease_token or not lease_token.strip():
         raise GovernanceError("lease_token is required for release_claim")
     root = ensure_tools_dir(base_dir)
-    claims = load_jsonl(_claims_path(root))
+    claims = load_declared_jsonl(
+        _claims_path(root),
+        expected_surface="agent_invocation_claims",
+    )
     claim_event = next(
         (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
         None,
@@ -1023,10 +1498,10 @@ def release_claim(
         "reason": reason,
         "released_at": _iso(now),
     }
-    append_jsonl(_claims_path(root), row)
+    append_declared_jsonl(_claims_path(root), row, expected_surface="agent_invocation_claims")
     requeue_count = _request_event_count(claims, request_id, "requeued") + 1
     requeue_event_kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
-    append_jsonl(
+    append_declared_jsonl(
         _claims_path(root),
         {
             "schema_version": 1,
@@ -1037,6 +1512,7 @@ def release_claim(
             "requeue_count": requeue_count,
             "reason": reason,
         },
+        expected_surface="agent_invocation_claims",
     )
     append_tools_governance(
         root,
@@ -1055,6 +1531,10 @@ def submit_claim_result(
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
     lock_timeout_seconds: float | None = None,
+    context_hash: str | None = None,
+    prompt_hash: str | None = None,
+    transcript_hash: str | None = None,
+    transcript_artifact_ref: str | None = None,
 ) -> dict[str, Any]:
     """Validate and persist an agent's submitted result against its leased claim.
 
@@ -1072,12 +1552,21 @@ def submit_claim_result(
 
     if not lease_token or not lease_token.strip():
         raise GovernanceError("lease_token is required")
+    if context_hash is not None and not _is_sha256_digest(str(context_hash)):
+        raise GovernanceError("submit_claim_result_context_hash_must_be_sha256")
+    if prompt_hash is not None and not _is_sha256_digest(str(prompt_hash)):
+        raise GovernanceError("submit_claim_result_prompt_hash_must_be_sha256")
+    if transcript_hash is not None and not _is_sha256_digest(str(transcript_hash)):
+        raise GovernanceError("submit_claim_result_transcript_hash_must_be_sha256")
     output = Path(output_path)
     if not output.exists() or not output.is_file():
         raise GovernanceError(f"output_path does not exist: {output_path}")
 
     root = ensure_tools_dir(base_dir)
-    claims = load_jsonl(_claims_path(root))
+    claims = load_declared_jsonl(
+        _claims_path(root),
+        expected_surface="agent_invocation_claims",
+    )
     claim_event = next(
         (row for row in claims if row.get("claim_id") == claim_id and row.get("event") == "claimed"),
         None,
@@ -1160,7 +1649,10 @@ def submit_claim_result(
         lock_kwargs["timeout_seconds"] = lock_timeout_seconds
     with with_exclusive_lock(results_path, **lock_kwargs):
         results_for_claim = [
-            row for row in load_jsonl(results_path)
+            row for row in load_declared_jsonl(
+                results_path,
+                expected_surface="agent_invocation_results",
+            )
             if row.get("claim_id") == claim_id
         ]
         if results_for_claim:
@@ -1236,12 +1728,25 @@ def submit_claim_result(
         # _persist_rejection callsites and the final accepted append
         # stay inside the lock.
         if envelope_unreadable_error is not None:
-            return _persist_rejection(
-                root=root,
+            rejection_row = _build_rejection_row(
                 claim_id=claim_id,
                 request_id=request_id,
                 agent_id=agent_id,
                 output_path=output,
+                reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
+                envelope_evidence_hash=submitted_hash,
+            )
+            persisted_rejection = _append_declared_jsonl_unlocked(
+                results_path,
+                rejection_row,
+                expected_surface="agent_invocation_results",
+            )
+            return _rejection_response(
+                root=root,
+                persisted=persisted_rejection,
+                claim_id=claim_id,
+                request_id=request_id,
+                agent_id=agent_id,
                 reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
                 envelope_evidence_hash=submitted_hash,
             )
@@ -1276,12 +1781,25 @@ def submit_claim_result(
             reasons.extend(f"evidence: {error}" for error in revalidation["errors"])
 
         if reasons:
-            return _persist_rejection(
-                root=root,
+            rejection_row = _build_rejection_row(
                 claim_id=claim_id,
                 request_id=request_id,
                 agent_id=agent_id,
                 output_path=output,
+                reasons=reasons,
+                envelope_evidence_hash=submitted_hash,
+            )
+            persisted_rejection = _append_declared_jsonl_unlocked(
+                results_path,
+                rejection_row,
+                expected_surface="agent_invocation_results",
+            )
+            return _rejection_response(
+                root=root,
+                persisted=persisted_rejection,
+                claim_id=claim_id,
+                request_id=request_id,
+                agent_id=agent_id,
                 reasons=reasons,
                 envelope_evidence_hash=submitted_hash,
             )
@@ -1309,21 +1827,60 @@ def submit_claim_result(
             base_dir=base_dir,
         )
         if compliance.get("rejection"):
-            return _persist_rejection(
-                root=root,
+            rejection_reasons = [
+                f"compliance: {COMPLIANCE_REJECTION_REASON} "
+                f"(hard_fail={compliance.get('hard_fail_count', 0)}, "
+                f"soft_fail={compliance.get('soft_fail_count', 0)})"
+            ]
+            rejection_row = _build_rejection_row(
                 claim_id=claim_id,
                 request_id=request_id,
                 agent_id=agent_id,
                 output_path=output,
-                reasons=[
-                    f"compliance: {COMPLIANCE_REJECTION_REASON} "
-                    f"(hard_fail={compliance.get('hard_fail_count', 0)}, "
-                    f"soft_fail={compliance.get('soft_fail_count', 0)})"
-                ],
+                reasons=rejection_reasons,
+                envelope_evidence_hash=submitted_hash,
+            )
+            persisted_rejection = _append_declared_jsonl_unlocked(
+                results_path,
+                rejection_row,
+                expected_surface="agent_invocation_results",
+            )
+            return _rejection_response(
+                root=root,
+                persisted=persisted_rejection,
+                claim_id=claim_id,
+                request_id=request_id,
+                agent_id=agent_id,
+                reasons=rejection_reasons,
                 envelope_evidence_hash=submitted_hash,
             )
 
         # Accepted path.
+        request_context_hash = str(request.get("context_hash") or "")
+        request_prompt_hash = str(request.get("prompt_hash") or "")
+        if not request_context_hash or not request_prompt_hash:
+            raise GovernanceError("submit_claim_result_request_missing_context_prompt_binding")
+        if context_hash != request_context_hash:
+            raise GovernanceError("submit_claim_result_context_hash_binding_mismatch")
+        if prompt_hash != request_prompt_hash:
+            raise GovernanceError("submit_claim_result_prompt_hash_binding_mismatch")
+        if not transcript_hash:
+            raise GovernanceError("submit_claim_result_transcript_hash_required")
+        if not transcript_artifact_ref:
+            raise GovernanceError("submit_claim_result_transcript_artifact_ref_required")
+        verified_transcript_artifact = _verify_transcript_artifact_ref(
+            artifact_ref=transcript_artifact_ref,
+            transcript_hash=str(transcript_hash),
+            workspace_root=workspace_root,
+        )
+        if verified_transcript_artifact == output.resolve():
+            raise GovernanceError("transcript_artifact_must_not_be_output_envelope")
+        verify_invocation_context_binding(
+            request_id=request_id,
+            context_hash=str(context_hash),
+            prompt_hash=str(prompt_hash),
+            base_dir=root,
+        )
         output_hash = "sha256:" + hashlib.sha256(output.read_bytes()).hexdigest()
         # Plan 026R §C.2 — write BOTH ``output_hash`` (modern submit
         # path field name) AND ``content_hash`` (legacy
@@ -1349,13 +1906,22 @@ def submit_claim_result(
             "output_hash": output_hash,
             "content_hash": output_hash,  # §C.2 alias
             "envelope_evidence_hash": submitted_hash,
+            "invocation_id": claim_id,
+            "context_hash": context_hash,
+            "prompt_hash": prompt_hash,
+            "transcript_hash": transcript_hash,
+            "transcript_artifact_ref": verified_transcript_artifact.as_posix(),
             "bridge_status": bridge_status_for_role(envelope_role),  # §C.5
             "checked_evidence_count": len(revalidation["checked_refs"]),
             "submitted_at": utc_now(),
         }
         # Plan 026R §A.1 — caller already holds with_exclusive_lock(results_path)
         # at line 936; use the unlocked helper to avoid POSIX flock re-acquisition.
-        persisted = _append_jsonl_unlocked(results_path, row)
+        persisted = _append_declared_jsonl_unlocked(
+            results_path,
+            row,
+            expected_surface="agent_invocation_results",
+        )
         append_tools_governance(
             root,
             "agent_result_accepted",
@@ -1367,6 +1933,16 @@ def submit_claim_result(
                 "envelope_evidence_hash": submitted_hash,
             },
         )
+        if transcript_hash:
+            record_transcript(
+                invocation_id=claim_id,
+                claim_id=claim_id,
+                request_id=request_id,
+                target_agent=str(request.get("target_agent") or agent_id),
+                transcript_hash=str(transcript_hash),
+                artifact_ref=verified_transcript_artifact.as_posix(),
+                base_dir=root,
+            )
 
     # Plan 016 Faz C5/C6 bridge: route the accepted envelope to the
     # consensus engine (judge roles) or the supporting payload store
@@ -1485,15 +2061,15 @@ def submit_claim_result(
     return {"status": "accepted", "reasons": [], "row": persisted, "bridged": bridged}
 
 
-def _persist_rejection(
+def _build_rejection_row(
     *,
-    root: Path,
     claim_id: str,
     request_id: str,
     agent_id: str,
     output_path: Path,
     reasons: list[str],
     envelope_evidence_hash: str,
+    transcript_hash: str | None = None,
 ) -> dict[str, Any]:
     # Plan 025 §A.1 — envelope_evidence_hash is REQUIRED (no default).
     # Missing the field is a TypeError at the call site (tier-1
@@ -1528,13 +2104,23 @@ def _persist_rejection(
         "content_hash": rejection_output_hash,  # §C.2 alias
         "rejection_reasons": reasons,
         "envelope_evidence_hash": envelope_evidence_hash,
+        "invocation_id": claim_id,
+        "transcript_hash": transcript_hash,
         "submitted_at": utc_now(),
     }
-    # Plan 026R §A.1 — _persist_rejection is invoked from submit_claim_result
-    # while the caller holds with_exclusive_lock(results_path); use the
-    # unlocked helper to avoid POSIX flock re-acquisition (the call sites
-    # at lines 1014, 1054, 1087 are all inside the lock).
-    persisted = _append_jsonl_unlocked(root / "agent-invocations" / "results.jsonl", row)
+    return row
+
+
+def _rejection_response(
+    *,
+    root: Path,
+    persisted: dict[str, Any],
+    claim_id: str,
+    request_id: str,
+    agent_id: str,
+    reasons: list[str],
+    envelope_evidence_hash: str,
+) -> dict[str, Any]:
     append_tools_governance(
         root,
         "agent_result_rejected",
@@ -1602,7 +2188,10 @@ def reap_stale_claims(
     """
     root = ensure_tools_dir(base_dir)
     ts = now or _utc_now_dt()
-    claims = load_jsonl(_claims_path(root))
+    claims = load_declared_jsonl(
+        _claims_path(root),
+        expected_surface="agent_invocation_claims",
+    )
     # Identify claims still in flight (claimed/heartbeat without later released/stale/human_required).
     by_claim: dict[str, list[dict[str, Any]]] = {}
     for row in claims:
@@ -1629,10 +2218,13 @@ def reap_stale_claims(
             "stale_at": _iso(ts),
             "lease_expires_at": latest.get("lease_expires_at"),
         }
-        append_jsonl(_claims_path(root), stale_row)
+        append_declared_jsonl(_claims_path(root), stale_row, expected_surface="agent_invocation_claims")
         reaped["stale"].append(stale_row)
         # Reload once to keep _request_event_count accurate after each append.
-        claims_after = load_jsonl(_claims_path(root))
+        claims_after = load_declared_jsonl(
+            _claims_path(root),
+            expected_surface="agent_invocation_claims",
+        )
         requeue_count = _request_event_count(claims_after, request_id, "requeued") + 1
         kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
         followup = {
@@ -1644,7 +2236,7 @@ def reap_stale_claims(
             "requeue_count": requeue_count,
             "reason": "lease_expired",
         }
-        append_jsonl(_claims_path(root), followup)
+        append_declared_jsonl(_claims_path(root), followup, expected_surface="agent_invocation_claims")
         reaped[kind].append(followup)
         append_tools_governance(
             root,

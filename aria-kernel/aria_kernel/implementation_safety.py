@@ -101,7 +101,6 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^gh\s+pr\s+checks(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+view(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+diff(\s+\S+)*\s*$"),
-    re.compile(r"^gh\s+pr\s+merge\s+--squash(\s+\S+)*\s*$"),
     re.compile(r"^npm\s+test(\s+\S+)*\s*$"),
     re.compile(r"^nx\s+(affected|test|lint|build)(\s+\S+)*\s*$"),
     re.compile(r"^pytest(\s+\S+)*\s*$"),
@@ -130,6 +129,7 @@ DENIED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^gh\s+workflow\b"),                    # workflow mutation
     re.compile(r"^gh\s+secret\b"),                      # secret list/set
     re.compile(r"^gh\s+release\b"),                     # release create
+    re.compile(r"^gh\s+pr\s+merge\b"),                  # merge authority only
     re.compile(r"^(env|printenv|set)\s*$"),             # env exfil bare dump
     re.compile(r"\$GH_TOKEN\b"),                        # token reference
     re.compile(r"\$GITHUB_TOKEN\b"),

@@ -296,7 +296,7 @@ class RefreshGroupHeldLockAwareTests(unittest.TestCase):
     def test_governance_routing_disambiguation(self) -> None:
         # Tools-side governance.jsonl
         tools_gov = self.tools / "governance.jsonl"
-        append_jsonl(tools_gov, {"event": "tools-side"})
+        append_jsonl(tools_gov, {"event": "tools-side"}, test_fixture=True)
 
         # aria-memory-side governance.jsonl
         memory = self.tmp / "aria-memory"
@@ -308,7 +308,7 @@ class RefreshGroupHeldLockAwareTests(unittest.TestCase):
             encoding="utf-8",
         )
         memory_gov = memory / "governance.jsonl"
-        append_jsonl(memory_gov, {"event": "memory-side"})
+        append_jsonl(memory_gov, {"event": "memory-side"}, test_fixture=True)
 
         tools_idx = json.loads(
             (self.tools / "integrity_index.json").read_text(encoding="utf-8")

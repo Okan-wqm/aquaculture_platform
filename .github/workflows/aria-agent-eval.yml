@@ -31,9 +31,43 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: main
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
+
+      - name: Persist enterprise workflow preflight
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          allowed = [
+              "aria-tools/agent-evals/runs.jsonl",
+              "aria-tools/governance.jsonl",
+          ]
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-agent-eval",
+              profile="standard",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              network_policy=["none"],
+              network_enforcement_evidence="mock-mode eval uses local fixtures only",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="run mock-mode agent eval fixtures against local ledgers",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-eval-preflight.json",
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
 
       - name: Run all eval fixtures (mock mode)
         id: run
@@ -79,3 +113,11 @@ jobs:
               --tools-dir aria-tools | jq .
             echo "::endgroup::"
           done
+
+      - name: Upload ARIA eval workflow proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        with:
+          name: aria-agent-eval-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aria-agent-eval-preflight.json
+          if-no-files-found: error
+          retention-days: 7

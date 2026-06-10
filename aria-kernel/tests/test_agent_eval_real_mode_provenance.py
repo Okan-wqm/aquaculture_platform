@@ -37,7 +37,8 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.agent_eval import EVAL_FIXTURE_SCHEMA, run_agent_eval
-from aria_kernel.ledger import append_jsonl
+from aria_kernel.agent_invocations import record_transcript
+from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
@@ -100,18 +101,50 @@ class RealModeProvenanceTests(unittest.TestCase):
     def test_real_mode_with_invocation_id_accepted(self) -> None:
         """Plan 023 v3 §A-8: real-mode + invocation_id + transcript_hash
         → accepted with provenance_mode='real_invocation'."""
+        transcript_hash = "sha256:" + "b" * 64
+        append_declared_jsonl(
+            self.tools / "agent-invocations" / "claims.jsonl",
+            {
+                "schema_version": 1,
+                "event": "claimed",
+                "claim_id": "invocation-uuid-001",
+                "request_id": "AIR-real-1",
+            },
+            expected_surface="agent_invocation_claims",
+        )
+        append_declared_jsonl(
+            self.tools / "agent-invocations" / "results.jsonl",
+            {
+                "schema_version": 1,
+                "claim_id": "invocation-uuid-001",
+                "invocation_id": "invocation-uuid-001",
+                "request_id": "AIR-real-1",
+                "status": "accepted",
+                "transcript_hash": transcript_hash,
+            },
+            expected_surface="agent_invocation_results",
+        )
+        record_transcript(
+            invocation_id="invocation-uuid-001",
+            claim_id="invocation-uuid-001",
+            request_id="AIR-real-1",
+            target_agent="test-agent",
+            transcript_hash=transcript_hash,
+            fixture_run_id="F999_TEST",
+            base_dir=self.tools,
+        )
         result = run_agent_eval(
             fixture_id="F999_TEST",
             base_dir=self.tools,
             mock_mode=False,
             real_response_envelope=_envelope(),
             invocation_id="invocation-uuid-001",
-            transcript_hash="sha256:transcript-fake-001",
+            transcript_hash=transcript_hash,
         )
         self.assertEqual(result["mock_mode"], False)
         self.assertEqual(result["provenance_mode"], "real_invocation")
         self.assertEqual(result["invocation_id"], "invocation-uuid-001")
-        self.assertEqual(result["transcript_hash"], "sha256:transcript-fake-001")
+        self.assertEqual(result["transcript_hash"], transcript_hash)
 
     def test_real_mode_without_provenance_rejects(self) -> None:
         """Plan 023 v3 §A-8: real_eval_missing_provenance_fields when
@@ -136,19 +169,19 @@ class RealModeProvenanceTests(unittest.TestCase):
                 allow_legacy_envelope_feed=True,
                 # No operator_approval_ref.
             )
-        self.assertIn("legacy_envelope_feed_requires_operator_approval_ref", str(ctx.exception))
+        self.assertIn("real_eval_legacy_envelope_feed_removed", str(ctx.exception))
 
-    def test_legacy_feed_with_approval_accepted(self) -> None:
-        result = run_agent_eval(
-            fixture_id="F999_TEST",
-            base_dir=self.tools,
-            mock_mode=False,
-            real_response_envelope=_envelope(),
-            allow_legacy_envelope_feed=True,
-            operator_approval_ref="docs/operator/legacy/feed-001",
-        )
-        self.assertEqual(result["provenance_mode"], "legacy_envelope_feed")
-        self.assertEqual(result["operator_approval_ref"], "docs/operator/legacy/feed-001")
+    def test_legacy_feed_with_approval_rejects(self) -> None:
+        with self.assertRaises(GovernanceError) as ctx:
+            run_agent_eval(
+                fixture_id="F999_TEST",
+                base_dir=self.tools,
+                mock_mode=False,
+                real_response_envelope=_envelope(),
+                allow_legacy_envelope_feed=True,
+                operator_approval_ref="docs/operator/legacy/feed-001",
+            )
+        self.assertIn("real_eval_legacy_envelope_feed_removed", str(ctx.exception))
 
 
 if __name__ == "__main__":

@@ -133,7 +133,6 @@ class TestV9BashAllowlist(unittest.TestCase):
             ["git", "push", "origin", "aria-impl-abc123def456"],
             ["gh", "pr", "create", "--base", "main", "--head", "aria-impl-abc"],
             ["gh", "pr", "checks", "42"],
-            ["gh", "pr", "merge", "--squash", "42"],
             ["nx", "affected", "--target=test"],
             ["pytest", "tests/"],
             ["npm", "run", "type-check"],
@@ -142,6 +141,10 @@ class TestV9BashAllowlist(unittest.TestCase):
                 _is.verify_bash_command_allowed(argv)
             except (_is.BashAllowlistMiss, _is.BashDenylistHit) as exc:
                 self.fail(f"canonical argv {argv!r} unexpectedly rejected: {exc}")
+
+    def test_i_v9_bash_01_direct_gh_merge_denied(self):
+        with self.assertRaises(_is.BashDenylistHit):
+            _is.verify_bash_command_allowed(["gh", "pr", "merge", "--squash", "42"])
 
     def test_i_v9_bash_01_empty_argv_rejected(self):
         with self.assertRaises(_is.BashAllowlistMiss):

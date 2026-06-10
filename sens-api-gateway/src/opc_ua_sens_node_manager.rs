@@ -2341,6 +2341,7 @@ mod tests {
                 _user: &AuthenticatedUser,
                 _tag_name: &str,
                 _received_at: std::time::SystemTime,
+                _co_approver: Option<crate::authz::policy::CoApproverEvidence>,
             ) -> Result<AuthorizedContext, TypedAuthzError> {
                 Err(TypedAuthzError::EngineDenied(
                     AuthorizationDenyReason::PermissionNotGranted,

@@ -8,6 +8,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
+
 import {
   type AddedLine,
   collectRangeAddedLines,

@@ -50,26 +50,28 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-// ESM module with .js extension — ts-node in this CLI runs in ESM
-// mode (finding-registry.ts uses import.meta.url above), so the
-// specifier needs the explicit file extension. The Jest invariant
-// test uses the same module via ts-jest with different interop and
-// omits the extension there.
+import { resolve } from 'node:path';
+
+// The .js extension on the ajv specifier survives both module systems
+// (it is a real file in node_modules); ts-jest interop in the Jest
+// invariant test omits it.
 import Ajv2020Mod, { type ValidateFunction } from 'ajv/dist/2020.js';
+
 // PROC-HIGH-001 structural guard — close ceremony refuses branch-local
-// SHAs (see cmdClose). Same SSOT helper is import-safe for node:test.
-// Explicit .ts extension: this CLI executes under ts-node's ESM loader
-// (import.meta.url above forces ESM), whose resolver takes the literal
-// on-disk specifier — extensionless and .js forms both fail
-// ERR_MODULE_NOT_FOUND here, verified empirically. The CJS-mode specs
-// (git-reachability.spec.ts) import the same module extensionless;
-// both forms point at the single git-reachability.ts source.
-import { commitReachableFrom } from './git-reachability.ts';
+// SHAs (see cmdClose). The shared SSOT helper is import-safe for
+// node:test specs, which use the same extensionless CJS specifier.
+import { commitReachableFrom } from './git-reachability';
+
 const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+// __dirname (CommonJS, per tools/gates/tsconfig.json) — this file
+// previously derived REPO_ROOT from import.meta.url, which forced the
+// whole CLI through ts-node's ESM loader, made relative TS imports
+// unresolvable (ERR_MODULE_NOT_FOUND for both extensionless and .js
+// specifiers) and tripped TS1343/TS5097 in the changed-files
+// type-check. Every other gate in this directory is CJS; the odd one
+// out is now aligned (farm-service-enterprise-guardrails.ts precedent).
+const REPO_ROOT = resolve(__dirname, '..', '..');
 const REGISTRY_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 const SCHEMA_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl.schema.json');
 const ZERO_HASH = '0'.repeat(64);
@@ -331,7 +333,10 @@ function cmdClose(id: string, shortSha: string): number {
   // tier-1: runtime guard commitReachableFrom (git-reachability.ts) refuses branch-local closing SHAs at the only write path; CI invariant finding-registry-integrity.spec.ts enforces the stored chain
   const reachability = commitReachableFrom(REPO_ROOT, shortSha, 'origin/main');
   if (!reachability.ok) {
-    console.error(`close refused: ${reachability.reason}`);
+    // process.stderr.write (not console.error): no-console is an
+    // error-level lint rule; the file's legacy console.* calls are
+    // baseline-grandfathered but new lines must use the stream API.
+    process.stderr.write(`close refused: ${reachability.reason}\n`);
     return 1;
   }
 

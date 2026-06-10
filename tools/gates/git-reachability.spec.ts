@@ -71,35 +71,35 @@ git(['add', 'b.txt']);
 git(['commit', '--quiet', '--no-verify', '-m', 'c2 (branch-only)']);
 const c2 = git(['rev-parse', 'HEAD']);
 
-after(() => {
+void after(() => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-test('sha reachable from origin/main → ok', () => {
+void test('sha reachable from origin/main → ok', () => {
   const result = commitReachableFrom(repo, c1, 'origin/main');
   assert.equal(result.ok, true);
   assert.equal(result.reason, undefined);
 });
 
-test('short-sha form of a reachable commit → ok', () => {
+void test('short-sha form of a reachable commit → ok', () => {
   const result = commitReachableFrom(repo, c1.slice(0, 9), 'origin/main');
   assert.equal(result.ok, true);
 });
 
-test('branch-only sha → refused with post-merge ceremony instructions', () => {
+void test('branch-only sha → refused with post-merge ceremony instructions', () => {
   const result = commitReachableFrom(repo, c2, 'origin/main');
   assert.equal(result.ok, false);
   assert.match(result.reason ?? '', /NOT reachable from origin\/main/);
   assert.match(result.reason ?? '', /PROC-HIGH-001/);
 });
 
-test('unknown sha → refused as unknown commit', () => {
+void test('unknown sha → refused as unknown commit', () => {
   const result = commitReachableFrom(repo, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', 'origin/main');
   assert.equal(result.ok, false);
   assert.match(result.reason ?? '', /unknown to this repository/);
 });
 
-test('unresolvable ref → fail-closed with fetch instructions', () => {
+void test('unresolvable ref → fail-closed with fetch instructions', () => {
   const result = commitReachableFrom(repo, c1, 'origin/does-not-exist');
   assert.equal(result.ok, false);
   assert.match(result.reason ?? '', /does not resolve/);

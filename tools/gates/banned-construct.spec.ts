@@ -29,7 +29,7 @@ function line(path: string, text: string, lineNumber = 1): AddedLine {
   return { path, lineNumber, text };
 }
 
-test('each banned construct fires on an added code line', () => {
+void test('each banned construct fires on an added code line', () => {
   const samples: ReadonlyArray<readonly [string, string]> = [
     ['as any', 'const x = payload as any;'],
     ['as unknown as', 'const y = value as unknown as TenantContext;'],
@@ -49,7 +49,7 @@ test('each banned construct fires on an added code line', () => {
   }
 });
 
-test('spec files are NOT exempt — the eslint spec-relaxation bypass stays closed', () => {
+void test('spec files are NOT exempt — the eslint spec-relaxation bypass stays closed', () => {
   const hits = scanAddedLines([
     line('apps/farm-service/src/__tests__/batch.spec.ts', 'const mock = repo as any;'),
   ]);
@@ -57,14 +57,14 @@ test('spec files are NOT exempt — the eslint spec-relaxation bypass stays clos
   assert.equal(hits[0]?.label, 'as any');
 });
 
-test('getScopedRepository( does not trip the bare-getRepository rule', () => {
+void test('getScopedRepository( does not trip the bare-getRepository rule', () => {
   const hits = scanAddedLines([
     line('apps/farm-service/src/foo.ts', 'const repo = getScopedRepository(Batch, ctx);'),
   ]);
   assert.equal(hits.length, 0);
 });
 
-test('bare getRepository( is allowed inside the scoping SSOT (libs/backend-common)', () => {
+void test('bare getRepository( is allowed inside the scoping SSOT (libs/backend-common)', () => {
   const hits = scanAddedLines([
     line(
       'libs/backend-common/src/database/scoped-repository.factory.ts',
@@ -74,7 +74,7 @@ test('bare getRepository( is allowed inside the scoping SSOT (libs/backend-commo
   assert.equal(hits.length, 0);
 });
 
-test('non-code files never fire', () => {
+void test('non-code files never fire', () => {
   const hits = scanAddedLines([
     line('docs/reviews/audit.md', 'the diff added `as any` which is banned'),
     line('package.json', '"as any": "eslint-disable"'),
@@ -83,14 +83,14 @@ test('non-code files never fire', () => {
   assert.equal(hits.length, 0);
 });
 
-test('verification fixtures are globally exempt', () => {
+void test('verification fixtures are globally exempt', () => {
   const hits = scanAddedLines([
     line('tests/invariants/fixtures/round2/banned-construct-positive.ts', 'const x = y as any;'),
   ]);
   assert.equal(hits.length, 0);
 });
 
-test('clean production line produces no violations', () => {
+void test('clean production line produces no violations', () => {
   const hits = scanAddedLines([
     line(
       'apps/farm-service/src/batches/handlers/create-batch.handler.ts',

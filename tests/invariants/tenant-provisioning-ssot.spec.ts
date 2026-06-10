@@ -628,8 +628,12 @@ describe('INVARIANT: destructive tenant schema cleanup requires workflow proof',
     const dropMatches = [...schemaManager.matchAll(/DROP\s+SCHEMA\s+IF\s+EXISTS/gi)];
 
     expect(dropMatches).toHaveLength(0);
+    // async is optional in the pattern: the guard ALWAYS throws (fail-closed),
+    // so the lint-clean shape is a synchronous method — the invariant's
+    // load-bearing clauses are the proof assertion and db-migrate authority,
+    // not the method's asyncness.
     expect(schemaManager).toMatch(
-      /private\s+async\s+dropTenantSchema[\s\S]+assertCleanupDropProof\(proof,\s*tenantId\)[\s\S]+aqua-db-migrate/,
+      /private\s+(?:async\s+)?dropTenantSchema[\s\S]+assertCleanupDropProof\(proof,\s*tenantId\)[\s\S]+aqua-db-migrate/,
     );
     expect(schemaManager).toContain(
       'runtime services must write a cleanup request ledger entry instead',

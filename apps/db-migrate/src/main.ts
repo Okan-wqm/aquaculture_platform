@@ -973,18 +973,23 @@ async function main(): Promise<number> {
   ) {
     const rollbackSchema = parsedArgs.schema;
     const rollbackCount = parsedArgs.down;
-    const rollbackTenant = parsedArgs.tenantRollbackTenant;
-    if (parsedArgs.tenantRollbackTarget === 'tenant' && rollbackTenant === undefined) {
-      log({
-        level: 'error',
-        message: '--tenant is required when --tenant-rollback-target=tenant',
-      });
-      return 2;
+    // Branch-then-assign (not guard + ternary): the selector union demands
+    // tenant: string, and TS only narrows tenantRollbackTenant inside the
+    // branch where the target check and the undefined check are coupled.
+    let tenantSelector: { type: 'all' } | { type: 'tenant'; tenant: string };
+    if (parsedArgs.tenantRollbackTarget === 'tenant') {
+      const rollbackTenant = parsedArgs.tenantRollbackTenant;
+      if (rollbackTenant === undefined) {
+        log({
+          level: 'error',
+          message: '--tenant is required when --tenant-rollback-target=tenant',
+        });
+        return 2;
+      }
+      tenantSelector = { type: 'tenant', tenant: rollbackTenant };
+    } else {
+      tenantSelector = { type: 'all' };
     }
-    const tenantSelector =
-      parsedArgs.tenantRollbackTarget === 'tenant'
-        ? { type: 'tenant' as const, tenant: rollbackTenant }
-        : { type: 'all' as const };
     return await withReleaseMigrationLock(database, async () =>
       runRollback(
         database,

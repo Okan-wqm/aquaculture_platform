@@ -52,14 +52,16 @@ describe('RedisTokenBlacklistStore', () => {
       expect(actualTtl).toBe(1);
     });
 
-    it('should not throw when Redis fails (fail-open for add operation)', async () => {
+    it('should SURFACE Redis failures (fail-closed for revocation writes)', async () => {
+      // WHY inverted contract: a silently-dropped blacklist write means a
+      // revoked token KEEPS WORKING — token revocation must fail loudly so
+      // the caller (logout / reuse-detection) can escalate, not pretend.
       const jti = 'test-jti-fail';
       const exp = Math.floor(Date.now() / 1000) + 3600;
 
       mockRedisService.set.mockRejectedValue(new Error('Redis connection failed'));
 
-      // Should not throw
-      await expect(store.add(jti, exp)).resolves.not.toThrow();
+      await expect(store.add(jti, exp)).rejects.toThrow('Redis connection failed');
     });
   });
 

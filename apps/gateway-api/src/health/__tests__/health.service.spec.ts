@@ -152,7 +152,9 @@ describe('HealthService', () => {
         'http://auth:3001/health',
         expect.objectContaining({
           method: 'GET',
-          headers: { Accept: 'application/json' },
+          // WHY objectContaining: health probes are HMAC-signed (HIGH-003) —
+          // the X-Service-* identity headers ride alongside Accept.
+          headers: expect.objectContaining({ Accept: 'application/json' }),
         }),
       );
     });

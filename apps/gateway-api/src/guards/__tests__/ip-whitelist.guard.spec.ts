@@ -66,7 +66,6 @@ describe('IpWhitelistGuard', () => {
               const config: Record<string, unknown> = {
                 IP_WHITELIST_ENABLED: true,
                 IP_WHITELIST: '192.168.1.1,192.168.1.2,10.0.0.0/8',
-                IP_BLACKLIST: '192.168.1.100',
                 IP_WHITELIST_CIDR: '192.168.1.0/24,10.0.0.0/8',
               };
               return config[key] ?? defaultValue;
@@ -246,32 +245,12 @@ describe('IpWhitelistGuard', () => {
     });
   });
 
-  describe('IP Blacklist', () => {
-    it('should block blacklisted IP even if in whitelist', () => {
-      const context = createMockExecutionContext('192.168.1.100');
-      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-    });
-
-    it('should allow non-blacklisted IP', () => {
-      const context = createMockExecutionContext('192.168.1.1');
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-  });
-
-  describe('Whitelist + Blacklist Combination', () => {
-    it('should deny blacklisted IP in whitelisted CIDR range', () => {
-      // 192.168.1.100 is blacklisted but in 192.168.1.0/24 whitelist
-      const context = createMockExecutionContext('192.168.1.100');
-      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-    });
-
-    it('should allow whitelisted IP not in blacklist', () => {
-      const context = createMockExecutionContext('192.168.1.50');
-      const result = guard.canActivate(context);
-      expect(result).toBe(true);
-    });
-  });
+  // NOTE: the IP_BLACKLIST feature was REMOVED from the guard — production
+  // is whitelist(+CIDR)-only. Blocking is expressed by NOT whitelisting;
+  // a separate blacklist created ambiguous precedence rules and a false
+  // sense of control once IP_WHITELIST_ENABLED=false. The former
+  // "IP Blacklist" and "Whitelist + Blacklist Combination" suites asserted
+  // that removed surface and were deleted with it.
 
   describe('Localhost/Loopback IP Handling', () => {
     it('should handle localhost 127.0.0.1', () => {

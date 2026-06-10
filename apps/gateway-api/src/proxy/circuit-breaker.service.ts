@@ -229,6 +229,13 @@ class CircuitBreaker {
 
     if (duration > this.config.slowCallThreshold) {
       this.window.recordSlow();
+      // WHY: slow-call protection exists precisely for services that answer
+      // slowly-but-successfully — checkForTrip() was only invoked from
+      // recordFailure(), making slowCallRateThreshold dead code on the
+      // success path (a degraded-latency upstream could never trip).
+      if (this.state === CircuitState.CLOSED) {
+        this.checkForTrip();
+      }
     }
 
     if (this.state === CircuitState.HALF_OPEN) {
@@ -435,11 +442,12 @@ export class CircuitBreakerService extends EventEmitter {
    * Force open a circuit
    */
   forceOpen(serviceName: string): void {
-    const circuit = this.circuits.get(serviceName);
-    if (circuit) {
-      circuit.forceOpen();
-      this.logger.warn(`Circuit manually opened for service: ${serviceName}`);
-    }
+    // WHY create-or-get: forceOpen is the operational kill-switch — a
+    // silent no-op on a not-yet-registered service means "stop calling X"
+    // does nothing precisely when an operator reaches for it.
+    const circuit = this.getOrCreateCircuit(serviceName);
+    circuit.forceOpen();
+    this.logger.warn(`Circuit manually opened for service: ${serviceName}`);
   }
 
   /**
@@ -572,7 +580,7 @@ export function WithCircuitBreaker(
       return circuitBreaker.execute(
         serviceName,
         () => originalMethod.apply(this, args),
-        options as ExecuteOptions<unknown>,
+        options,
       );
     };
 

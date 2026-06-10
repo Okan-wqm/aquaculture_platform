@@ -339,6 +339,12 @@ export class ErrorMappingInterceptor implements NestInterceptor {
    * Infer HTTP status from error pattern
    */
   private inferStatusFromPattern(pattern: string): number {
+    // WHY 400: a NOT NULL violation surfacing from a write is missing
+    // client input ("A required field is missing") — classifying it 500
+    // pages on-call for a caller error and hides it from client telemetry.
+    if (pattern.includes('not null')) {
+      return HttpStatus.BAD_REQUEST;
+    }
     if (pattern.includes('duplicate') || pattern.includes('unique') || pattern.includes('constraint')) {
       return HttpStatus.CONFLICT;
     }

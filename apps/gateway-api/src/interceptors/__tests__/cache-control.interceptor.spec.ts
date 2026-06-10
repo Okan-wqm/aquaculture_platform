@@ -123,7 +123,9 @@ describe('CacheControlInterceptor', () => {
 
       interceptor.intercept(context, handler).subscribe({
         next: () => {
-          expect(response.setHeader).toHaveBeenCalledWith('ETag', expect.stringMatching(/^"[a-f0-9]{32}"$/));
+          // WHY 64 hex chars: ETag digest moved from md5 to sha256
+          // (FIPS-friendly, collision-resistant) — assert the current contract.
+          expect(response.setHeader).toHaveBeenCalledWith('ETag', expect.stringMatching(/^"[a-f0-9]{64}"$/));
           done();
         },
       });

@@ -219,20 +219,16 @@ describe('TenantContextInterceptor', () => {
       });
     });
 
-    it('should extract tenant ID from query parameter', (done) => {
+    it('should IGNORE the query parameter (removed tenant source)', () => {
+      // WHY inverted contract: ?tenantId= was removed as a resolution source
+      // (query strings leak via logs/referrers and are trivially spoofable).
+      // A request carrying ONLY a query tenant must fail tenant resolution.
       const context = createMockExecutionContext({
         query: { tenantId: 'query-tenant-111' },
       });
       const handler = createMockCallHandler();
 
-      interceptor.intercept(context, handler).subscribe({
-        next: () => {
-          const request = context.switchToHttp().getRequest();
-          expect(request.tenantId).toBe('query-tenant-111');
-          done();
-        },
-        error: done.fail,
-      });
+      expect(() => interceptor.intercept(context, handler)).toThrow(UnauthorizedException);
     });
 
     it('should extract tenant ID from path parameter', (done) => {
@@ -297,7 +293,10 @@ describe('TenantContextInterceptor', () => {
       });
     });
 
-    it('should prioritize header over other sources', (done) => {
+    it('should prioritize the JWT claim over header and query sources', (done) => {
+      // WHY: the JWT tenantId is the cryptographically-verified trust anchor —
+      // a spoofable x-tenant-id header must NEVER override it for
+      // authenticated requests (CLAUDE.md tenant-ID sourcing).
       const context = createMockExecutionContext({
         headers: { 'x-tenant-id': 'header-tenant' },
         user: { sub: 'user-1', tenantId: 'jwt-tenant' },
@@ -308,7 +307,7 @@ describe('TenantContextInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         next: () => {
           const request = context.switchToHttp().getRequest();
-          expect(request.tenantId).toBe('header-tenant');
+          expect(request.tenantId).toBe('jwt-tenant');
           done();
         },
         error: done.fail,
@@ -353,14 +352,12 @@ describe('TenantContextInterceptor', () => {
       });
       const handler = createMockCallHandler();
 
-      interceptor.intercept(context, handler).subscribe({
-        next: () => done.fail('Should have thrown'),
-        error: (error) => {
-          expect(error).toBeInstanceOf(UnauthorizedException);
-          expect(error.message).toBe('Tenant context is required');
-          done();
-        },
-      });
+      // WHY sync throw: the interceptor rejects BEFORE building the
+      // observable pipeline — missing tenant context never reaches the
+      // handler, so the contract is a synchronous UnauthorizedException.
+      expect(() => interceptor.intercept(context, handler)).toThrow(UnauthorizedException);
+      expect(() => interceptor.intercept(context, handler)).toThrow('Tenant context is required');
+      done();
     });
   });
 

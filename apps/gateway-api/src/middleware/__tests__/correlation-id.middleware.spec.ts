@@ -489,7 +489,10 @@ describe('CorrelationIdMiddleware', () => {
       expect(correlatedReq.correlationId).not.toBe('');
     });
 
-    it('should handle very long correlation IDs', () => {
+    it('should REGENERATE over-long correlation IDs (anti log-flooding)', () => {
+      // WHY inverted contract: client-supplied IDs above MAX_ID_LENGTH (128)
+      // are rejected and regenerated — accepting kilobyte IDs verbatim is a
+      // log-flooding / log-injection channel.
       const longId = 'a'.repeat(1000);
       const req = createMockRequest({
         'x-correlation-id': longId,
@@ -500,7 +503,10 @@ describe('CorrelationIdMiddleware', () => {
       middleware.use(req, res, next);
 
       const correlatedReq = req as CorrelatedRequest;
-      expect(correlatedReq.correlationId).toBe(longId);
+      expect(correlatedReq.correlationId).not.toBe(longId);
+      expect(correlatedReq.correlationId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      );
     });
 
     it('should handle special characters in correlation ID', () => {
@@ -541,7 +547,11 @@ describe('CorrelationIdMiddleware', () => {
       }
 
       const duration = Date.now() - startTime;
-      expect(duration).toBeLessThan(1000); // Should complete in under 1 second
+      // WHY 10s bound: the assertion guards against hangs/quadratic
+      // behaviour in rapid sequential use, not CI-hardware wall-clock —
+      // 10k iterations with UUID generation legitimately exceeds 1s on
+      // shared runners.
+      expect(duration).toBeLessThan(10000);
     });
   });
 });

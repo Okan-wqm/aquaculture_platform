@@ -330,7 +330,9 @@ describe('RequestLoggingInterceptor', () => {
     });
 
     it('should include [SLOW] prefix for slow requests', async () => {
-      process.env['SLOW_REQUEST_THRESHOLD_MS'] = '0'; // Any request is slow
+      // WHY -1: the slow check is strict (duration > threshold); a mocked
+      // pipeline legitimately completes in 0ms, so 0 would not trip it.
+      process.env['SLOW_REQUEST_THRESHOLD_MS'] = '-1'; // Any request is slow
 
       const module = await Test.createTestingModule({
         providers: [RequestLoggingInterceptor],
@@ -354,18 +356,28 @@ describe('RequestLoggingInterceptor', () => {
   });
 
   describe('Response Size Tracking', () => {
-    it('should include response size in log context', (done) => {
+    it('should include response size for string/Buffer bodies and skip objects', (done) => {
+      // WHY: size is estimated only for string/Buffer responses — object
+      // bodies are deliberately skipped because JSON.stringify would create
+      // a full heap copy of every response just to measure it.
       const logSpy = jest.spyOn(interceptor['logger'], 'log');
       const context = createMockHttpContext();
-      const response = { data: 'x'.repeat(1000) };
-      const handler = createMockCallHandler(response);
+      const handler = createMockCallHandler('x'.repeat(1000));
 
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext['responseSize']).toBeDefined();
-          expect(logContext['responseSize']).toBeGreaterThan(0);
-          done();
+          expect(logContext['responseSize']).toBe(1000);
+
+          const objContext = createMockHttpContext();
+          const objHandler = createMockCallHandler({ data: 'x'.repeat(1000) });
+          interceptor.intercept(objContext, objHandler).subscribe({
+            complete: () => {
+              const objLog = logSpy.mock.calls[1]?.[1] as Record<string, unknown>;
+              expect(objLog['responseSize']).toBeUndefined();
+              done();
+            },
+          });
         },
       });
     });
@@ -486,9 +498,13 @@ describe('RequestLoggingInterceptor', () => {
   });
 
   describe('IP Extraction', () => {
-    it('should extract IP from x-forwarded-for', (done) => {
+    it('should log the trust-proxy-resolved request.ip, IGNORING raw x-forwarded-for', (done) => {
+      // WHY inverted contract: reading x-forwarded-for directly lets any
+      // client spoof its logged IP. The interceptor trusts express's
+      // trust-proxy-resolved request.ip exclusively.
       const logSpy = jest.spyOn(interceptor['logger'], 'log');
       const context = createMockHttpContext({
+        ip: '203.0.113.7',
         headers: { 'x-forwarded-for': '10.0.0.1, 10.0.0.2' },
       });
       const handler = createMockCallHandler();
@@ -496,7 +512,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext['ip']).toBe('10.0.0.1');
+          expect(logContext['ip']).toBe('203.0.113.7');
           done();
         },
       });

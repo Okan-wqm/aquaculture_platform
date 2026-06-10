@@ -102,6 +102,44 @@ describe('ServiceProxyService', () => {
     service = module.get<ServiceProxyService>(ServiceProxyService);
     circuitBreaker = module.get(CircuitBreakerService);
     loadBalancer = module.get(LoadBalancerService);
+
+    // WHY: proxy() refuses unregistered service names (SSRF defense —
+    // "Unknown service" BadRequestException). Every fixture service name the
+    // suite proxies to must be registered exactly like production targets
+    // are at module init. Tests that need special config (stripPrefix,
+    // custom retries…) re-register the same name with their overrides.
+    const fixtureServiceNames = [
+      'test-service',
+      'json-service',
+      'text-service',
+      'binary-service',
+      'header-service',
+      'post-service',
+      'query-service',
+      'retry-service',
+      'no-retry-service',
+      'no-instance-service',
+      'timeout-service',
+      'timing-service',
+      'circuit-test-service',
+      'lb-test-service',
+      'lb-record-service',
+      'override-prefix-service',
+      'transform-request-service',
+      'transform-response-service',
+      'hop-header-service',
+      'error-service',
+      'timeout-error-service',
+    ];
+    for (const name of fixtureServiceNames) {
+      service.registerService({
+        name,
+        timeout: 30000,
+        retries: 3,
+        retryDelay: 10,
+        retryableStatuses: [502, 503, 504],
+      });
+    }
   });
 
   afterEach(() => {

@@ -45,10 +45,18 @@ describe('ResponseTransformInterceptor', () => {
       method: options.method || 'GET',
       path: options.path || '/api/v1/test',
       url: options.path || '/api/v1/test',
+      // WHY: the interceptor reads request.headers['x-request-id'] /
+      // ['x-correlation-id'] to stamp requestId onto the wrapped response —
+      // a mock request without headers crashes every transform.
+      headers: {},
     };
 
     const mockResponse = {
       statusCode: options.statusCode || 200,
+      // WHY: the interceptor probes response.getHeader('Deprecation') to
+      // surface deprecation warnings in meta — the mock must expose the
+      // express Response header reader.
+      getHeader: jest.fn().mockReturnValue(undefined),
     };
 
     return {

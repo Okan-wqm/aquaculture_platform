@@ -357,7 +357,10 @@ impl CommandHandler {
             eng_min: Self::json_f64(item, "engMin", "eng_min"),
             eng_max: Self::json_f64(item, "engMax", "eng_max"),
             eng_unit: Self::json_str(item, "engUnit", "eng_unit").map(|s| s.to_string()),
-            invert: item.get("invert").and_then(|v| v.as_bool()).unwrap_or(false),
+            invert: item
+                .get("invert")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             alarm_hh: Self::json_f64(item, "alarmHH", "alarm_hh"),
             alarm_h: Self::json_f64(item, "alarmH", "alarm_h"),
             alarm_l: Self::json_f64(item, "alarmL", "alarm_l"),

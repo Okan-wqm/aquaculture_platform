@@ -826,9 +826,18 @@ impl NodeManager for SensNodeManager {
                     continue;
                 }
             };
+            // Co-approver is `None`: the OPC UA write surface has
+            // no co-approval channel (a single client session
+            // carries one operator identity). OpcUaWrite is on the
+            // canonical two-person-integrity floor, so the engine
+            // denies these writes fail-closed (gate 5,
+            // TwoPersonIntegrityMissing) until a signed co-approval
+            // envelope ceremony lands on this surface. Passing
+            // `None` keeps the engine the sole decision point —
+            // this surface is NOT exempted from the floor.
             let authz_outcome = self
                 .authz
-                .authorize_write(&authn, &tag_node.tag_name, received_at)
+                .authorize_write(&authn, &tag_node.tag_name, received_at, None)
                 .await;
             let _ctx = match authz_outcome {
                 Ok(ctx) => ctx,
@@ -2136,6 +2145,7 @@ mod tests {
                 _user: &AuthenticatedUser,
                 _tag_name: &str,
                 _received_at: std::time::SystemTime,
+                _co_approver: Option<crate::authz::policy::CoApproverEvidence>,
             ) -> Result<AuthorizedContext, TypedAuthzError> {
                 // Mock returns a deny variant; the metadata
                 // helpers never reach this branch — the test
@@ -2331,6 +2341,7 @@ mod tests {
                 _user: &AuthenticatedUser,
                 _tag_name: &str,
                 _received_at: std::time::SystemTime,
+                _co_approver: Option<crate::authz::policy::CoApproverEvidence>,
             ) -> Result<AuthorizedContext, TypedAuthzError> {
                 Err(TypedAuthzError::EngineDenied(
                     AuthorizationDenyReason::PermissionNotGranted,

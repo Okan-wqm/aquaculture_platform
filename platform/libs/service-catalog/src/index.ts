@@ -1,0 +1,936 @@
+export type DeployTarget = 'droplet' | 'staging' | 'unsupported';
+export type DeploymentStatus = 'active' | 'inactive';
+export type ServiceClassification =
+  | 'infra'
+  | 'gateway'
+  | 'subgraph'
+  | 'internal-service'
+  | 'frontend'
+  | 'one-shot';
+export type CriticalityLevel = 'critical' | 'required' | 'warning' | 'ignored';
+export type PrivilegeMode = 'migration-authority' | 'dml-only' | 'tenant-provisioner' | 'none';
+export type MigrationHeadPolicy = 'non-empty-glob' | 'placeholder-ok' | 'not-applicable';
+export type ServiceVisibility = 'public' | 'internal' | 'infrastructure';
+export type GatewayParticipation = 'apollo-subgraph' | 'gateway' | 'none';
+export type DeployProfile = 'droplet' | 'staging' | 'rust-sidecar';
+export type BuildKind =
+  | 'node-service'
+  | 'frontend'
+  | 'rust-sidecar'
+  | 'docker-only'
+  | 'one-shot'
+  | 'infra';
+export type ReadinessContract = 'docker-healthcheck' | 'one-shot-success' | 'none';
+export type EventStoreTenantScopePolicy = 'tenant-bound' | 'all-tenants' | 'none';
+
+export interface GatewaySubgraphCatalogEntry {
+  name: string;
+  nxProject: string;
+  urlEnv: string;
+  localUrl: string;
+  routingUrl: string;
+  schemaArtifactPath: string;
+}
+
+export interface ServiceCatalogEntry {
+  serviceId: string;
+  composeServiceName: string;
+  nxProject?: string;
+  buildKind: BuildKind;
+  imageTarget?: string;
+  imageName?: string;
+  serviceVisibility: ServiceVisibility;
+  gatewayParticipation: GatewayParticipation;
+  deployProfiles: readonly DeployProfile[];
+  healthEndpoint?: string;
+  readinessContract: ReadinessContract;
+  schema?: string;
+  dbSchema?: string;
+  schemaOwnerRole?: string;
+  dbRoles?: {
+    owner?: string;
+    migrator?: string;
+    runtime?: string;
+    tenantProvisioner?: string;
+  };
+  privilegeMode: PrivilegeMode;
+  migration?: {
+    globs: readonly string[];
+    entityGlobs?: readonly string[];
+    postMigrationHardening?: boolean;
+    headPolicy: MigrationHeadPolicy;
+  };
+  migrationGlobs?: readonly string[];
+  entityGlobs?: readonly string[];
+  postMigrationHardening?: boolean;
+  deploymentStatus: DeploymentStatus;
+  deployTarget: DeployTarget;
+  criticality: CriticalityLevel;
+  classification: ServiceClassification;
+  requiredSignals: readonly string[];
+  requiredEnv: readonly string[];
+  requiredSecrets: readonly string[];
+  eventStoreTenantScopePolicy?: EventStoreTenantScopePolicy;
+  serviceIdentityAudience?: string;
+  gatewaySubgraph?: GatewaySubgraphCatalogEntry;
+}
+
+type CatalogEntryInput = Omit<
+  ServiceCatalogEntry,
+  | 'composeServiceName'
+  | 'buildKind'
+  | 'serviceVisibility'
+  | 'gatewayParticipation'
+  | 'deployProfiles'
+  | 'readinessContract'
+  | 'dbSchema'
+  | 'migrationGlobs'
+  | 'entityGlobs'
+  | 'postMigrationHardening'
+  | 'requiredSecrets'
+  | 'serviceIdentityAudience'
+> &
+  Partial<
+    Pick<
+      ServiceCatalogEntry,
+      | 'composeServiceName'
+      | 'buildKind'
+      | 'serviceVisibility'
+      | 'gatewayParticipation'
+      | 'deployProfiles'
+      | 'readinessContract'
+      | 'dbSchema'
+      | 'migrationGlobs'
+      | 'entityGlobs'
+      | 'postMigrationHardening'
+      | 'requiredSecrets'
+      | 'serviceIdentityAudience'
+    >
+  >;
+
+const SECRET_ENV_PATTERN = /(?:PASSWORD|PASS|SECRET|KEY|TOKEN|PEPPER|HASH|ENCRYPTION|CREDENTIAL)/;
+
+function buildEntry(input: CatalogEntryInput): ServiceCatalogEntry {
+  const migrationGlobs = input.migrationGlobs ?? input.migration?.globs;
+  const entityGlobs = input.entityGlobs ?? input.migration?.entityGlobs;
+  const postMigrationHardening =
+    input.postMigrationHardening ?? input.migration?.postMigrationHardening;
+  const requiredSecrets =
+    input.requiredSecrets ?? input.requiredEnv.filter((name) => SECRET_ENV_PATTERN.test(name));
+  const requiredEnv = input.requiredEnv.filter((name) => !requiredSecrets.includes(name));
+  const buildKind =
+    input.buildKind ??
+    (input.classification === 'frontend'
+      ? 'frontend'
+      : input.classification === 'infra'
+        ? 'infra'
+        : input.classification === 'one-shot'
+          ? 'one-shot'
+          : 'node-service');
+  const serviceVisibility =
+    input.serviceVisibility ??
+    (input.classification === 'gateway'
+      ? 'public'
+      : input.classification === 'infra'
+        ? 'infrastructure'
+        : 'internal');
+  const gatewayParticipation =
+    input.gatewayParticipation ??
+    (input.classification === 'gateway'
+      ? 'gateway'
+      : input.classification === 'subgraph'
+        ? 'apollo-subgraph'
+        : 'none');
+
+  return {
+    ...input,
+    composeServiceName: input.composeServiceName ?? input.serviceId,
+    buildKind,
+    imageName: input.imageName ?? input.imageTarget,
+    serviceVisibility,
+    gatewayParticipation,
+    deployProfiles:
+      input.deployProfiles ??
+      (input.deployTarget === 'droplet' && input.deploymentStatus === 'active'
+        ? (['droplet'] as const)
+        : ([] as const)),
+    readinessContract:
+      input.readinessContract ??
+      (input.classification === 'one-shot'
+        ? 'one-shot-success'
+        : input.deploymentStatus === 'active'
+          ? 'docker-healthcheck'
+          : 'none'),
+    dbSchema: input.dbSchema ?? input.schema,
+    migrationGlobs,
+    entityGlobs,
+    postMigrationHardening,
+    requiredEnv,
+    requiredSecrets,
+    eventStoreTenantScopePolicy: input.eventStoreTenantScopePolicy,
+    serviceIdentityAudience:
+      input.serviceIdentityAudience ?? input.gatewaySubgraph?.name ?? input.serviceId,
+  };
+}
+
+function subgraph(
+  name: string,
+  nxProject: string,
+  urlEnv: string,
+  localUrl: string,
+  routingServiceName = nxProject,
+): GatewaySubgraphCatalogEntry {
+  return {
+    name,
+    nxProject,
+    urlEnv,
+    localUrl,
+    routingUrl: `http://${routingServiceName}:3000/graphql`,
+    schemaArtifactPath: `dist/graphql/subgraphs/${name}.graphql`,
+  };
+}
+
+export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
+  buildEntry({
+    serviceId: 'postgres',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'infra',
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: ['POSTGRES_PASSWORD'],
+  }),
+  buildEntry({
+    serviceId: 'redis',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'infra',
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: ['REDIS_PASSWORD'],
+  }),
+  buildEntry({
+    serviceId: 'nats',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'infra',
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
+  buildEntry({
+    serviceId: 'db-migrate',
+    nxProject: 'db-migrate',
+    imageTarget: 'db-migrate',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'ignored',
+    classification: 'one-shot',
+    privilegeMode: 'migration-authority',
+    dbRoles: { migrator: 'db_migrate' },
+    eventStoreTenantScopePolicy: 'all-tenants',
+    requiredSignals: ['db_migrate_complete'],
+    requiredEnv: ['POSTGRES_PASSWORD'],
+  }),
+  buildEntry({
+    serviceId: 'tenant-schema-provisioner',
+    composeServiceName: 'tenant-schema-provisioner',
+    imageName: 'db-migrate',
+    buildKind: 'one-shot',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'required',
+    classification: 'internal-service',
+    readinessContract: 'none',
+    privilegeMode: 'tenant-provisioner',
+    dbRoles: { migrator: 'db_migrate' },
+    eventStoreTenantScopePolicy: 'all-tenants',
+    requiredSignals: [],
+    requiredEnv: ['POSTGRES_PASSWORD'],
+  }),
+  buildEntry({
+    serviceId: 'gateway-api',
+    nxProject: 'gateway-api',
+    imageTarget: 'gateway-api',
+    dbRoles: { runtime: 'gateway_service' },
+    privilegeMode: 'dml-only',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'gateway',
+    requiredSignals: [],
+    requiredEnv: [
+      'GATEWAY_SERVICE_DB_PASS',
+      'SERVICE_IDENTITY_KEYRING',
+      'SERVICE_IDENTITY_SIGNING_KID',
+    ],
+  }),
+  buildEntry({
+    serviceId: 'auth-service',
+    nxProject: 'auth-service',
+    imageTarget: 'auth-service',
+    schema: 'auth',
+    schemaOwnerRole: 'auth_schema_owner',
+    dbRoles: { owner: 'auth_schema_owner', migrator: 'db_migrate', runtime: 'auth_service' },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/auth-service/src/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'subgraph',
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    requiredEnv: [
+      'AUTH_SERVICE_DB_PASS',
+      'PASSWORD_PEPPER',
+      'MFA_ENCRYPTION_KEY',
+      'SUPER_ADMIN_PASSWORD',
+    ],
+    gatewaySubgraph: subgraph(
+      'auth',
+      'auth-service',
+      'AUTH_SERVICE_URL',
+      'http://localhost:3001/graphql',
+    ),
+  }),
+  buildEntry({
+    serviceId: 'farm-service',
+    nxProject: 'farm-service',
+    imageTarget: 'farm-service',
+    schema: 'farm',
+    schemaOwnerRole: 'farm_schema_owner',
+    dbRoles: {
+      owner: 'farm_schema_owner',
+      migrator: 'db_migrate',
+      runtime: 'farm_service',
+      tenantProvisioner: 'farm_tenant_provisioner',
+    },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/farm-service/src/database/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'subgraph',
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    requiredEnv: ['FARM_SERVICE_DB_PASS', 'ENCRYPTION_KEY'],
+    gatewaySubgraph: subgraph(
+      'farm',
+      'farm-service',
+      'FARM_SERVICE_URL',
+      'http://localhost:3002/graphql',
+    ),
+  }),
+  buildEntry({
+    serviceId: 'sensor-service',
+    nxProject: 'sensor-service',
+    imageTarget: 'sensor-service',
+    schema: 'sensor',
+    schemaOwnerRole: 'sensor_schema_owner',
+    dbRoles: {
+      owner: 'sensor_schema_owner',
+      migrator: 'db_migrate',
+      runtime: 'sensor_service',
+      tenantProvisioner: 'sensor_tenant_provisioner',
+    },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/sensor-service/src/database/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'subgraph',
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    requiredEnv: ['SENSOR_SERVICE_DB_PASS', 'CREDENTIAL_ENCRYPTION_KEY'],
+    gatewaySubgraph: subgraph(
+      'sensor',
+      'sensor-service',
+      'SENSOR_SERVICE_URL',
+      'http://localhost:3003/graphql',
+    ),
+  }),
+  buildEntry({
+    serviceId: 'sensor-ingestion',
+    nxProject: 'sensor-ingestion',
+    imageTarget: 'sensor-ingestion',
+    buildKind: 'rust-sidecar',
+    deploymentStatus: 'inactive',
+    deployTarget: 'unsupported',
+    deployProfiles: [],
+    criticality: 'ignored',
+    classification: 'internal-service',
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
+  buildEntry({
+    serviceId: 'hr-service',
+    nxProject: 'hr-service',
+    imageTarget: 'hr-service',
+    schema: 'hr',
+    schemaOwnerRole: 'hr_schema_owner',
+    dbRoles: {
+      owner: 'hr_schema_owner',
+      migrator: 'db_migrate',
+      runtime: 'hr_service',
+      tenantProvisioner: 'hr_tenant_provisioner',
+    },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/hr-service/src/database/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'warning',
+    classification: 'subgraph',
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    requiredEnv: ['HR_SERVICE_DB_PASS'],
+    gatewaySubgraph: subgraph(
+      'hr',
+      'hr-service',
+      'HR_SERVICE_URL',
+      'http://localhost:3005/graphql',
+    ),
+  }),
+  buildEntry({
+    serviceId: 'hydroponics-service',
+    nxProject: 'hydroponics-service',
+    imageTarget: 'hydroponics-service',
+    schema: 'hydroponics',
+    schemaOwnerRole: 'hydroponics_schema_owner',
+    dbRoles: {
+      owner: 'hydroponics_schema_owner',
+      migrator: 'db_migrate',
+      runtime: 'hydroponics_service',
+      tenantProvisioner: 'hydroponics_tenant_provisioner',
+    },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/hydroponics-service/src/database/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'placeholder-ok',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'warning',
+    classification: 'subgraph',
+    requiredSignals: ['schema_drift_clean'],
+    requiredEnv: ['HYDROPONICS_SERVICE_DB_PASS'],
+    gatewaySubgraph: subgraph(
+      'hydroponics',
+      'hydroponics-service',
+      'HYDROPONICS_SERVICE_URL',
+      'http://localhost:4007/graphql',
+    ),
+  }),
+  buildEntry({
+    serviceId: 'messaging-service',
+    nxProject: 'messaging-service',
+    imageTarget: 'messaging-service',
+    schema: 'messaging',
+    schemaOwnerRole: 'messaging_schema_owner',
+    dbRoles: {
+      owner: 'messaging_schema_owner',
+      migrator: 'db_migrate',
+      runtime: 'messaging_service',
+      tenantProvisioner: 'messaging_tenant_provisioner',
+    },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: [
+        'apps/messaging-service/src/migrations/[0-9]*{.ts,.js}',
+        'apps/messaging-service/src/database/migrations/[0-9]*{.ts,.js}',
+      ],
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'subgraph',
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    requiredEnv: ['MESSAGING_SERVICE_DB_PASS'],
+    gatewaySubgraph: subgraph(
+      'messaging',
+      'messaging-service',
+      'MESSAGING_SERVICE_URL',
+      'http://messaging-service:3000/graphql',
+    ),
+  }),
+  buildEntry({
+    serviceId: 'alert-engine',
+    nxProject: 'alert-engine',
+    imageTarget: 'alert-engine',
+    schema: 'alert',
+    schemaOwnerRole: 'alert_schema_owner',
+    dbRoles: {
+      owner: 'alert_schema_owner',
+      migrator: 'db_migrate',
+      runtime: 'alert_service',
+      tenantProvisioner: 'alert_tenant_provisioner',
+    },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/alert-engine/src/database/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'warning',
+    classification: 'subgraph',
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    requiredEnv: ['ALERT_SERVICE_DB_PASS'],
+    gatewaySubgraph: subgraph(
+      'alert',
+      'alert-engine',
+      'ALERT_SERVICE_URL',
+      'http://localhost:3004/graphql',
+      'alert-engine',
+    ),
+  }),
+  buildEntry({
+    serviceId: 'billing-service',
+    nxProject: 'billing-service',
+    imageTarget: 'billing-service',
+    schema: 'billing',
+    schemaOwnerRole: 'billing_schema_owner',
+    dbRoles: { owner: 'billing_schema_owner', migrator: 'db_migrate', runtime: 'billing_service' },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/billing-service/src/database/migrations/[0-9]*{.ts,.js}'],
+      postMigrationHardening: true,
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'subgraph',
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    requiredEnv: ['BILLING_SERVICE_DB_PASS'],
+    gatewaySubgraph: subgraph(
+      'billing',
+      'billing-service',
+      'BILLING_SERVICE_URL',
+      'http://localhost:3006/graphql',
+    ),
+  }),
+  buildEntry({
+    serviceId: 'notification-service',
+    nxProject: 'notification-service',
+    imageTarget: 'notification-service',
+    schema: 'notification',
+    schemaOwnerRole: 'notification_schema_owner',
+    dbRoles: {
+      owner: 'notification_schema_owner',
+      migrator: 'db_migrate',
+      runtime: 'notification_service',
+    },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/notification-service/src/database/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'subgraph',
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    requiredEnv: ['NOTIFICATION_SERVICE_DB_PASS', 'WEBHOOK_ENCRYPTION_KEY'],
+    gatewaySubgraph: subgraph(
+      'notification',
+      'notification-service',
+      'NOTIFICATION_SERVICE_URL',
+      'http://localhost:4008/graphql',
+    ),
+  }),
+  buildEntry({
+    serviceId: 'admin-api-service',
+    nxProject: 'admin-api-service',
+    imageTarget: 'admin-api-service',
+    schema: 'admin',
+    schemaOwnerRole: 'admin_schema_owner',
+    dbRoles: { owner: 'admin_schema_owner', migrator: 'db_migrate', runtime: 'admin_service' },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/admin-api-service/src/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'subgraph',
+    gatewayParticipation: 'none',
+    eventStoreTenantScopePolicy: 'all-tenants',
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    requiredEnv: ['ADMIN_SERVICE_DB_PASS', 'ENCRYPTION_KEY'],
+  }),
+  buildEntry({
+    serviceId: 'config-service',
+    nxProject: 'config-service',
+    imageTarget: 'config-service',
+    schema: 'config',
+    schemaOwnerRole: 'config_schema_owner',
+    dbRoles: { owner: 'config_schema_owner', migrator: 'db_migrate', runtime: 'config_service' },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/config-service/src/database/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'required',
+    classification: 'internal-service',
+    gatewayParticipation: 'apollo-subgraph',
+    requiredSignals: ['schema_drift_clean'],
+    requiredEnv: [
+      'CONFIG_SERVICE_DB_PASS',
+      'SERVICE_IDENTITY_KEYRING',
+      'SERVICE_IDENTITY_SIGNING_KID',
+      'CONFIG_ENCRYPTION_KEY',
+    ],
+    gatewaySubgraph: subgraph(
+      'config',
+      'config-service',
+      'CONFIG_SERVICE_URL',
+      'http://localhost:3007/graphql',
+    ),
+  }),
+  buildEntry({
+    serviceId: 'event-store-service',
+    nxProject: 'event-store-service',
+    imageTarget: 'event-store-service',
+    schema: 'event_store',
+    schemaOwnerRole: 'event_store_schema_owner',
+    dbRoles: {
+      owner: 'event_store_schema_owner',
+      migrator: 'db_migrate',
+      runtime: 'event_store_service',
+    },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/event-store-service/src/migrations/[0-9]*{.ts,.js}'],
+      postMigrationHardening: true,
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'critical',
+    classification: 'internal-service',
+    requiredSignals: ['schema_drift_clean'],
+    eventStoreTenantScopePolicy: 'none',
+    requiredEnv: ['EVENT_STORE_SERVICE_DB_PASS', 'SERVICE_IDENTITY_KEYRING'],
+  }),
+  buildEntry({
+    serviceId: 'observability-service',
+    nxProject: 'observability-service',
+    imageTarget: 'observability-service',
+    schema: 'observability',
+    schemaOwnerRole: 'observability_schema_owner',
+    dbRoles: {
+      owner: 'observability_schema_owner',
+      migrator: 'db_migrate',
+      runtime: 'observability_service',
+    },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/observability-service/src/database/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'placeholder-ok',
+    },
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'warning',
+    classification: 'internal-service',
+    requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
+    requiredEnv: ['OBSERVABILITY_INTERNAL_API_KEY', 'OBSERVABILITY_SERVICE_DB_PASS'],
+  }),
+  buildEntry({
+    serviceId: 'ai-service',
+    nxProject: 'ai-service',
+    imageTarget: 'ai-service',
+    schema: 'ai',
+    schemaOwnerRole: 'ai_schema_owner',
+    dbRoles: {
+      owner: 'ai_schema_owner',
+      migrator: 'db_migrate',
+      runtime: 'ai_service',
+      tenantProvisioner: 'ai_tenant_provisioner',
+    },
+    privilegeMode: 'dml-only',
+    migration: {
+      globs: ['apps/ai-service/src/database/migrations/[0-9]*{.ts,.js}'],
+      headPolicy: 'non-empty-glob',
+    },
+    deploymentStatus: 'inactive',
+    deployTarget: 'unsupported',
+    criticality: 'ignored',
+    classification: 'subgraph',
+    gatewayParticipation: 'none',
+    requiredSignals: [],
+    requiredEnv: ['AI_SERVICE_DB_PASS'],
+  }),
+  ...[
+    'nginx',
+    'shell',
+    'dashboard',
+    'farm-module',
+    'sensor-module',
+    'hr-module',
+    'hydroponics-module',
+    'admin-panel',
+    'tenant-admin',
+    'aquamobil',
+    'mosquitto',
+    'minio',
+  ].map(
+    (serviceId): ServiceCatalogEntry =>
+      buildEntry({
+        serviceId,
+        nxProject:
+          serviceId.includes('-module') ||
+          ['shell', 'dashboard', 'admin-panel', 'tenant-admin'].includes(serviceId)
+            ? serviceId
+            : undefined,
+        imageTarget:
+          serviceId === 'mosquitto' || !['nginx', 'minio'].includes(serviceId)
+            ? serviceId
+            : undefined,
+        buildKind: serviceId === 'mosquitto' ? 'docker-only' : undefined,
+        deploymentStatus: 'active',
+        deployTarget: 'droplet',
+        criticality:
+          serviceId === 'nginx'
+            ? 'critical'
+            : serviceId === 'mosquitto' || serviceId === 'minio'
+              ? 'ignored'
+              : 'warning',
+        classification:
+          serviceId === 'nginx' || serviceId === 'mosquitto' || serviceId === 'minio'
+            ? 'infra'
+            : 'frontend',
+        privilegeMode: 'none',
+        requiredSignals: [],
+        requiredEnv:
+          serviceId === 'minio'
+            ? ['MINIO_USER', 'MINIO_PASSWORD']
+            : serviceId === 'mosquitto'
+              ? ['MQTT_AUTH_SECRET', 'MQTT_SENSOR_SERVICE_HASH', 'MQTT_SENSOR_SERVICE_PASSWORD']
+              : [],
+      }),
+  ),
+] as const;
+
+export function getServiceCatalogEntry(serviceId: string): ServiceCatalogEntry | undefined {
+  return PLATFORM_SERVICE_CATALOG.find((entry) => entry.serviceId === serviceId);
+}
+
+export function serviceCatalogById(): Map<string, ServiceCatalogEntry> {
+  return new Map(PLATFORM_SERVICE_CATALOG.map((entry) => [entry.serviceId, entry]));
+}
+
+export function activeDropletServices(): readonly ServiceCatalogEntry[] {
+  return PLATFORM_SERVICE_CATALOG.filter(
+    (entry) => entry.deploymentStatus === 'active' && entry.deployProfiles.includes('droplet'),
+  );
+}
+
+export function activeDropletComposeServices(): readonly string[] {
+  return activeDropletServices().map((entry) => entry.composeServiceName);
+}
+
+export function imageBuildTargets(): readonly string[] {
+  return activeDropletServices()
+    .filter((entry) => entry.buildKind !== 'infra')
+    .map((entry) => entry.imageTarget)
+    .filter((target): target is string => typeof target === 'string');
+}
+
+export function backendImageBuildTargets(): readonly string[] {
+  return activeDropletServices()
+    .filter((entry) => ['node-service', 'one-shot'].includes(entry.buildKind))
+    .map((entry) => entry.imageTarget)
+    .filter((target): target is string => typeof target === 'string');
+}
+
+export function frontendImageBuildTargets(): readonly string[] {
+  return activeDropletServices()
+    .filter((entry) => entry.buildKind === 'frontend')
+    .map((entry) => entry.imageTarget)
+    .filter((target): target is string => typeof target === 'string');
+}
+
+export function infraImageBuildTargets(): readonly string[] {
+  return activeDropletServices()
+    .filter((entry) => entry.buildKind === 'docker-only')
+    .map((entry) => entry.imageTarget)
+    .filter((target): target is string => typeof target === 'string');
+}
+
+export function serviceDbRolePrefixes(): readonly string[] {
+  return activeDropletServices()
+    .map((entry) => entry.dbRoles?.runtime)
+    .filter((role): role is string => Boolean(role))
+    .map((role) => role.replace(/_service$/, '').toUpperCase())
+    .sort();
+}
+
+export function readinessServices(): readonly { serviceId: string; port: number }[] {
+  return activeDropletServices()
+    .filter(
+      (entry) =>
+        entry.readinessContract === 'docker-healthcheck' &&
+        ['gateway', 'subgraph', 'internal-service'].includes(entry.classification) &&
+        entry.buildKind === 'node-service',
+    )
+    .map((entry) => ({ serviceId: entry.composeServiceName, port: 3000 }));
+}
+
+export function packageBuildProjects(): readonly string[] {
+  return activeDropletServices()
+    .filter((entry) => ['node-service', 'frontend', 'one-shot'].includes(entry.buildKind))
+    .map((entry) => entry.nxProject)
+    .filter((project): project is string => typeof project === 'string');
+}
+
+export function gatewaySubgraphs(): readonly GatewaySubgraphCatalogEntry[] {
+  return PLATFORM_SERVICE_CATALOG.filter(
+    (entry) => entry.gatewayParticipation === 'apollo-subgraph',
+  ).map((entry) => {
+    if (!entry.gatewaySubgraph) {
+      throw new Error(
+        `Catalog entry ${entry.serviceId} participates in Apollo gateway without gatewaySubgraph metadata.`,
+      );
+    }
+    return entry.gatewaySubgraph;
+  });
+}
+
+export function requiredRuntimeEnv(): readonly string[] {
+  return [...new Set(PLATFORM_SERVICE_CATALOG.flatMap((entry) => entry.requiredEnv))].sort();
+}
+
+export function requiredRuntimeSecrets(): readonly string[] {
+  return [...new Set(PLATFORM_SERVICE_CATALOG.flatMap((entry) => entry.requiredSecrets))].sort();
+}
+
+export function schemaOwningServices(): readonly ServiceCatalogEntry[] {
+  return PLATFORM_SERVICE_CATALOG.filter((entry) => Boolean(entry.dbSchema));
+}
+
+export function eventStoreTenantScopePolicyForService(
+  serviceId: string,
+): EventStoreTenantScopePolicy | undefined {
+  return getServiceCatalogEntry(serviceId)?.eventStoreTenantScopePolicy ?? 'tenant-bound';
+}
+
+export function serviceIdentityAudienceForService(serviceId: string): string | undefined {
+  return getServiceCatalogEntry(serviceId)?.serviceIdentityAudience;
+}
+
+export function serviceIdentityAudiencesForService(serviceId: string): readonly string[] {
+  const entry = getServiceCatalogEntry(serviceId);
+  if (!entry) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      [entry.serviceIdentityAudience, entry.gatewaySubgraph?.name, entry.serviceId].filter(
+        (audience): audience is string => Boolean(audience),
+      ),
+    ),
+  ];
+}
+
+export interface CatalogValidationError {
+  serviceId: string;
+  message: string;
+}
+
+export function validateServiceCatalog(
+  catalog: readonly ServiceCatalogEntry[] = PLATFORM_SERVICE_CATALOG,
+): readonly CatalogValidationError[] {
+  const errors: CatalogValidationError[] = [];
+  const seenServiceIds = new Set<string>();
+  const seenComposeNames = new Set<string>();
+
+  for (const entry of catalog) {
+    if (seenServiceIds.has(entry.serviceId)) {
+      errors.push({ serviceId: entry.serviceId, message: 'duplicate serviceId' });
+    }
+    seenServiceIds.add(entry.serviceId);
+
+    if (seenComposeNames.has(entry.composeServiceName)) {
+      errors.push({ serviceId: entry.serviceId, message: 'duplicate composeServiceName' });
+    }
+    seenComposeNames.add(entry.composeServiceName);
+
+    if (entry.dbSchema && entry.dbSchema !== entry.schema) {
+      errors.push({ serviceId: entry.serviceId, message: 'schema and dbSchema must match' });
+    }
+    if (entry.migrationGlobs && entry.migration && entry.migrationGlobs !== entry.migration.globs) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'migrationGlobs must be derived from migration.globs',
+      });
+    }
+    if (entry.privilegeMode === 'dml-only' && !entry.dbRoles?.runtime) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'dml-only service must declare dbRoles.runtime',
+      });
+    }
+    if (entry.dbSchema && !entry.dbRoles?.owner) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'schema-owning service must declare dbRoles.owner',
+      });
+    }
+    if (entry.dbSchema && !entry.dbRoles?.migrator) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'schema-owning service must declare dbRoles.migrator',
+      });
+    }
+    if (entry.gatewayParticipation === 'apollo-subgraph' && !entry.gatewaySubgraph) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'apollo-subgraph entry must declare gatewaySubgraph',
+      });
+    }
+    if (entry.serviceId === 'event-store-service' && entry.gatewayParticipation !== 'none') {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'event-store-service must not participate in the gateway',
+      });
+    }
+    if (
+      entry.eventStoreTenantScopePolicy === 'all-tenants' &&
+      entry.serviceVisibility === 'public'
+    ) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'all-tenants event-store access is not allowed for public services',
+      });
+    }
+    if (
+      ['gateway', 'subgraph', 'internal-service'].includes(entry.classification) &&
+      entry.buildKind === 'node-service' &&
+      !entry.serviceIdentityAudience
+    ) {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'node service must declare a service identity audience',
+      });
+    }
+  }
+
+  return errors;
+}

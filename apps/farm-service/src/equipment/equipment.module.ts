@@ -39,6 +39,7 @@ import { UpdateEquipmentHandler } from './handlers/update-equipment.handler';
 import { UpdateSubEquipmentHandler } from './handlers/update-sub-equipment.handler';
 import { EquipmentTypeCatalogCheckerService } from './services/equipment-type-catalog-checker.service';
 import { EquipmentTypeLookupService } from './services/equipment-type-lookup.service';
+import { TankEquipmentAdapterService } from './services/tank-equipment-adapter.service';
 import { SubEquipmentResolver } from './sub-equipment.resolver';
 
 const CommandHandlers = [
@@ -86,6 +87,7 @@ const QueryHandlers = [
   providers: [
     EquipmentResolver,
     SubEquipmentResolver,
+    TankEquipmentAdapterService,
     EquipmentTypeLookupService,
     EquipmentTypeCatalogCheckerService,
     ...CommandHandlers,
@@ -93,6 +95,7 @@ const QueryHandlers = [
   ],
   exports: [
     TypeOrmModule,
+    TankEquipmentAdapterService,
     EquipmentTypeLookupService,
     EquipmentTypeCatalogCheckerService,
   ],

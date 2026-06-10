@@ -5,7 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { GraphQLError } from 'graphql';
+import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
@@ -19,6 +19,7 @@ import {
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
+  isSchemaDdlOwnedByDbMigrate,
   RlsModule,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
@@ -62,6 +63,7 @@ const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
  * aqua-db-migrate.
  */
 const AiMigrationRunnerService = createSchemaVersionGate('ai');
+const aiSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { EventBusModule } from '@platform/event-bus';
 import { HealthModule } from './health/health.module';
 import { ToolRegistryModule } from './tools/tool-registry.module';
@@ -81,6 +83,16 @@ import { ToolExecutionAudit } from './audit/tool-execution-audit.entity';
 // Per-process cache for GraphQL complexity results keyed by document hash.
 // This avoids recomputing complexity for identical operations on every request.
 const complexityCache = new Map<string, number>();
+
+type QueryComplexityOperationContext = {
+  request: {
+    query?: string;
+    operationName?: string;
+    variables?: Record<string, unknown>;
+  };
+  document: DocumentNode;
+  schema: GraphQLSchema;
+};
 
 @Module({
   imports: [
@@ -150,7 +162,11 @@ const complexityCache = new Map<string, number>();
           plugins: [
             {
               requestDidStart: async () => ({
-                async didResolveOperation({ request, document, schema }) {
+                async didResolveOperation({
+                  request,
+                  document,
+                  schema,
+                }: QueryComplexityOperationContext) {
                   // Cache complexity by document hash to avoid re-computation for
                   // identical operations. The hash key incorporates the operation name
                   // so distinct named operations in the same document are treated separately.
@@ -246,7 +262,7 @@ const complexityCache = new Map<string, number>();
      */
     RlsModule.forPoolService({
       serviceName: 'ai',
-      syncTenantSchemas: true,
+      syncTenantSchemas: !aiSchemaDdlOwnedByDbMigrate,
       excludeTables: ['ai_outbox'],
     }),
     /**
@@ -258,7 +274,7 @@ const complexityCache = new Map<string, number>();
      * tenant-sync services. The audit-column bootstrap follows the same
      * lifecycle and is idempotent.
      */
-    AuditColumnsModule.forRoot({ serviceName: 'ai' }),
+    ...(aiSchemaDdlOwnedByDbMigrate ? [] : [AuditColumnsModule.forRoot({ serviceName: 'ai' })]),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'ai' }),
   ],

@@ -140,6 +140,18 @@ TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
     "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
 })
 
+GENESIS_LIFECYCLE_STATES: tuple[str, ...] = (
+    "PRESSURE",
+    "CANDIDATE_PROPOSED",
+    "HUMAN_REQUIRED",
+    "REQUEST",
+    "DRAFT",
+    "REAL_SANDBOX",
+    "SHADOW",
+    "EVAL_WINDOW",
+    "ACTIVE",
+)
+
 
 def role_requires_bridge(role: str | None) -> bool:
     return role in BRIDGE_REQUIRED_ROLES
@@ -155,6 +167,7 @@ __all__ = [
     "DERIVED_REQUEST_STATES",
     "DISPATCHABLE_ROLES",
     "DRAFTER_ROLES",
+    "GENESIS_LIFECYCLE_STATES",
     "INVOCATION_ROLES",
     "JUDGE_ROLES",
     "PLANNER_BRIDGE_ROLES",

@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+
+import { SchemaManagerService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
 import {
   Injectable,
   Logger,
@@ -8,21 +12,42 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import * as crypto from 'crypto';
-import { Repository, DataSource } from 'typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
 import { IEventBus } from '@platform/event-bus';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
+import { Repository, DataSource } from 'typeorm';
 
-import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { AuditLogService } from '../../../audit/audit-log.service';
 // WHY: Import AccessType so createTenantUser and updateTenantUser can accept and
 // persist the platform access level chosen by the tenant admin.
 import { User, AccessType } from '../../authentication/entities/user.entity';
-import { Tenant } from '../entities/tenant.entity';
 import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
+import { Tenant } from '../entities/tenant.entity';
+
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
+import { UserLifecycleService } from './user-lifecycle.service';
+
+/**
+ * Raw-SQL trust boundary: dataSource.query returns untyped rows. Each
+ * call site declares the row shape its SELECT/RETURNING projects, so
+ * the any never propagates past the query line.
+ */
+function rowsAs<T extends object>(result: unknown): readonly T[] {
+  return Array.isArray(result) ? (result as readonly T[]) : [];
+}
+
+/** Row shape of the user_role_assignments join used by role lookups. */
+interface UserRoleAssignmentRow extends Record<string, unknown> {
+  id: string;
+  role_id: string;
+  role_name: string;
+  role_color: string | null;
+  role_icon: string | null;
+  role_level: number | null;
+  permission_overrides: unknown;
+  panel_permissions: unknown;
+  resource_permissions: string[] | null;
+}
 
 /**
  * Created tenant user result
@@ -98,10 +123,21 @@ export class TenantUserManagementService {
     private readonly tenantRoleService: TenantRoleService,
     @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
+    // WHY: UserLifecycleService is the single owner of the user-creation
+    // pipeline (tenant validation, email uniqueness, invitation-token
+    // hashing, mobile-settings provisioning, role assignment, invitation
+    // delivery). This service previously carried a line-for-line duplicate
+    // of that pipeline, which drifted — createTenantUser is a delegation
+    // facade so exactly one creation path exists (SSoT).
+    private readonly userLifecycleService: UserLifecycleService,
   ) {}
 
   /**
-   * Create a new user within a tenant schema and assign initial role
+   * Create a new user within a tenant schema and assign initial role.
+   *
+   * WHAT: thin facade over UserLifecycleService.createUser — see constructor
+   * note. Tenant existence is validated up front so callers of this facade
+   * get the same guard regardless of lifecycle-internal ordering.
    */
   async createTenantUser(
     tenantId: string,
@@ -120,113 +156,15 @@ export class TenantUserManagementService {
       };
     },
     createdBy: string,
-    sendInvitation: boolean = true,
+    sendInvitation = true,
   ): Promise<CreatedTenantUser> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
-    // Validate tenant exists and is active
+    // Validate tenant exists before delegating
     const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
     if (!tenant) {
       throw new NotFoundException(`Tenant with ID "${tenantId}" not found`);
     }
 
-    // Check for existing user with same email (globally unique)
-    const existingUser = await this.userRepository.findOne({
-      where: { email: input.email.toLowerCase() },
-    });
-    if (existingUser) {
-      throw new ConflictException(`User with email "${input.email}" already exists`);
-    }
-
-    // Validate role exists in tenant
-    const role = await this.tenantRoleService.getRoleById(tenantId, input.roleId);
-    if (!role) {
-      throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
-    }
-
-    // Generate invitation token if not providing password
-    // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
-    const plainInvitationToken = sendInvitation && !input.password
-      ? crypto.randomBytes(32).toString('hex')
-      : null;
-    // SECURITY: Hash invitation token with SHA-256 before storage (SEC-005)
-    // Plain token is sent to user via email, hash is stored in DB for verification
-    const invitationTokenHash = plainInvitationToken
-      ? crypto.createHash('sha256').update(plainInvitationToken).digest('hex')
-      : null;
-    const invitationExpiry = plainInvitationToken
-      ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
-      : null;
-
-    // WHY: Resolve accessType with BOTH as default for backward compatibility.
-    // Tenant admin can override to PANEL_ONLY or MOBILE_ONLY per user.
-    const userAccessType = input.accessType ?? AccessType.BOTH;
-
-    // Create user in auth.users table
-    const newUser = this.userRepository.create({
-      email: input.email.toLowerCase(),
-      firstName: input.firstName,
-      lastName: input.lastName,
-      password: input.password || undefined,
-      role: Role.MODULE_USER, // Default global role; tenant role is separate
-      accessType: userAccessType,
-      tenantId,
-      isActive: true,
-      isEmailVerified: false,
-      invitationToken: invitationTokenHash, // Store hash, not plain token
-      invitationExpiresAt: invitationExpiry,
-      invitedBy: createdBy,
-    });
-
-    const savedUser = await this.userRepository.save(newUser);
-    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Created user userId=${savedUser.id} for tenant ${tenantId}`);
-
-    // WHY: Auto-provision mobile_user_settings when user has mobile access.
-    // Without this, mobile app would show "no settings" for new mobile users.
-    if (userAccessType === AccessType.MOBILE_ONLY || userAccessType === AccessType.BOTH) {
-      try {
-        const mobileSettings = this.mobileSettingsRepository.create({
-          userId: savedUser.id,
-          tenantId,
-          allowedFeatures: { ...DEFAULT_MOBILE_FEATURES },
-          isMobileEnabled: true,
-        });
-        await this.mobileSettingsRepository.save(mobileSettings);
-        this.logger.debug(`Auto-provisioned mobile settings for user ${savedUser.id}`);
-      } catch (mobileErr) {
-        // Non-fatal: mobile settings can be created on-demand when user first opens the app
-        this.logger.warn(`Failed to auto-provision mobile settings for ${savedUser.id}: ${(mobileErr as Error).message}`);
-      }
-    }
-
-    // Create role assignment in tenant schema
-    const roleAssignment = await this.createRoleAssignment(
-      schemaName,
-      savedUser.id,
-      input.roleId,
-      role,
-      input.permissionOverrides || { grants: [], revokes: [] },
-      createdBy,
-    );
-
-    // Send invitation email if requested — use plain token (not hash) for user link
-    let invitationSent = false;
-    if (sendInvitation && plainInvitationToken) {
-      try {
-        await this.sendInvitationEmail(tenant, savedUser, plainInvitationToken);
-        invitationSent = true;
-      } catch (error) {
-        // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
-        this.logger.error(`Failed to send invitation email for userId=${savedUser.id}: ${(error as Error).message}`);
-      }
-    }
-
-    return {
-      user: savedUser,
-      roleAssignment,
-      invitationSent,
-    };
+    return this.userLifecycleService.createUser(tenantId, input, createdBy, sendInvitation);
   }
 
   /**
@@ -330,13 +268,15 @@ export class TenantUserManagementService {
       }
 
       // Check if user has an existing active role assignment
-      const existingResult = await this.dataSource.query(
-        `SELECT id, role_id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
-        [userId],
+      const existingResult = rowsAs<{ id: string; role_id: string }>(
+        await this.dataSource.query(
+          `SELECT id, role_id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
+          [userId],
+        ),
       );
+      const existing = existingResult[0];
 
-      if (existingResult.length > 0) {
-        const existing = existingResult[0];
+      if (existing) {
         // Only update if role actually changed
         if (existing.role_id !== input.roleId) {
           await this.dataSource.query(
@@ -381,7 +321,10 @@ export class TenantUserManagementService {
 
     // Return updated user
     const updatedUser = await this.userRepository.findOne({ where: { id: userId } });
-    return updatedUser!;
+    if (!updatedUser) {
+      throw new NotFoundException(`User with ID "${userId}" disappeared during update`);
+    }
+    return updatedUser;
   }
 
   /**
@@ -491,9 +434,11 @@ export class TenantUserManagementService {
     }
 
     // Check if user already has an active role assignment
-    const existingAssignment = await this.dataSource.query(
-      `SELECT id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
-      [userId],
+    const existingAssignment = rowsAs<{ id: string }>(
+      await this.dataSource.query(
+        `SELECT id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
+        [userId],
+      ),
     );
 
     if (existingAssignment.length > 0) {
@@ -546,16 +491,18 @@ export class TenantUserManagementService {
     }
 
     // Get existing assignment
-    const existingResult = await this.dataSource.query(
-      `SELECT * FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
-      [userId],
+    const existingResult = rowsAs<{ id: string; role_id: string } & Record<string, unknown>>(
+      await this.dataSource.query(
+        `SELECT * FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
+        [userId],
+      ),
     );
 
-    if (existingResult.length === 0) {
+    const existing = existingResult[0];
+    if (!existing) {
       throw new NotFoundException(`No active role assignment found for user ${userId}`);
     }
 
-    const existing = existingResult[0];
     const assignmentId = existing.id;
 
     // If changing role, validate new role exists
@@ -642,7 +589,7 @@ export class TenantUserManagementService {
   async revokeUserRole(
     tenantId: string,
     userId: string,
-    hardDelete: boolean = false,
+    hardDelete = false,
     revokedBy: string,
   ): Promise<boolean> {
     const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
@@ -656,9 +603,11 @@ export class TenantUserManagementService {
     }
 
     // Get existing active assignment
-    const existingResult = await this.dataSource.query(
-      `SELECT id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
-      [userId],
+    const existingResult = rowsAs<{ id: string }>(
+      await this.dataSource.query(
+        `SELECT id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
+        [userId],
+      ),
     );
 
     if (existingResult.length === 0) {
@@ -704,8 +653,9 @@ export class TenantUserManagementService {
     }
 
     // Get user's role assignment with role details
-    const assignmentResult = await this.dataSource.query(
-      `
+    const assignmentResult = rowsAs<UserRoleAssignmentRow>(
+      await this.dataSource.query(
+        `
       SELECT
         ura.*,
         r.name as role_name,
@@ -719,17 +669,18 @@ export class TenantUserManagementService {
       LEFT JOIN "${schemaName}"."tenant_role_permissions" rp ON r.id = rp.role_id
       WHERE ura.user_id = $1 AND ura.is_active = true
       `,
-      [userId],
+        [userId],
+      ),
     );
 
-    if (assignmentResult.length === 0) {
+    const assignment = assignmentResult[0];
+    if (!assignment) {
       throw new NotFoundException(`No active role assignment found for user ${userId}`);
     }
 
-    const assignment = assignmentResult[0];
     const overrides = this.parsePermissionOverrides(assignment.permission_overrides);
     const panelPermissions = this.parsePanelPermissions(assignment.panel_permissions);
-    const resourcePermissions: string[] = assignment.resource_permissions || [];
+    const resourcePermissions: string[] = assignment.resource_permissions ?? [];
 
     return {
       roleId: assignment.role_id,
@@ -791,8 +742,9 @@ export class TenantUserManagementService {
     schemaName: string,
     userId: string,
   ): Promise<UserRoleAssignmentResult> {
-    const result = await this.dataSource.query(
-      `
+    const result = rowsAs<UserRoleAssignmentRow>(
+      await this.dataSource.query(
+        `
       SELECT
         ura.*,
         r.name as role_name,
@@ -806,14 +758,16 @@ export class TenantUserManagementService {
       LEFT JOIN "${schemaName}"."tenant_role_permissions" rp ON r.id = rp.role_id
       WHERE ura.user_id = $1 AND ura.is_active = true
       `,
-      [userId],
+        [userId],
+      ),
     );
 
-    if (result.length === 0) {
+    const row = result[0];
+    if (!row) {
       throw new NotFoundException(`No active role assignment found for user ${userId}`);
     }
 
-    return this.mapRowToUserRoleAssignment(result[0]);
+    return this.mapRowToUserRoleAssignment(row);
   }
 
   /**
@@ -829,17 +783,23 @@ export class TenantUserManagementService {
     expiresAt?: Date,
   ): Promise<UserRoleAssignmentResult> {
     // Insert role assignment
-    const insertResult = await this.dataSource.query(
-      `
+    const insertResult = rowsAs<{ id: string }>(
+      await this.dataSource.query(
+        `
       INSERT INTO "${schemaName}"."user_role_assignments" (
         user_id, role_id, permission_overrides, is_active, expires_at, assigned_by, created_at, updated_at
       ) VALUES ($1, $2, $3, true, $4, $5, NOW(), NOW())
       RETURNING id
       `,
-      [userId, roleId, JSON.stringify(permissionOverrides), expiresAt || null, assignedBy],
+        [userId, roleId, JSON.stringify(permissionOverrides), expiresAt || null, assignedBy],
+      ),
     );
 
-    const assignmentId = insertResult[0].id;
+    const insertedRow = insertResult[0];
+    if (!insertedRow) {
+      throw new Error('user_role_assignments INSERT returned no id');
+    }
+    const assignmentId = insertedRow.id;
 
     // Build response
     const effectivePermissions = this.calculateEffectivePermissions(
@@ -881,10 +841,7 @@ export class TenantUserManagementService {
   ): Promise<void> {
     // SECURITY: Hash the invitation token for the opaque actionTokenId reference.
     // The raw token is NEVER placed on the event bus.
-    const actionTokenHash = require('crypto')
-      .createHash('sha256')
-      .update(invitationToken)
-      .digest('hex');
+    const actionTokenHash = createHash('sha256').update(invitationToken).digest('hex');
 
     const event: UserInvitedEvent = {
       ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, { aggregateId: user.id, aggregateType: 'User' }),
@@ -936,11 +893,15 @@ export class TenantUserManagementService {
 
     if (typeof raw === 'string') {
       try {
-        const parsed = JSON.parse(raw);
-        return {
-          grants: Array.isArray(parsed.grants) ? parsed.grants : [],
-          revokes: Array.isArray(parsed.revokes) ? parsed.revokes : [],
-        };
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed === 'object' && parsed !== null) {
+          const candidate = parsed as { grants?: unknown; revokes?: unknown };
+          return {
+            grants: Array.isArray(candidate.grants) ? (candidate.grants as string[]) : [],
+            revokes: Array.isArray(candidate.revokes) ? (candidate.revokes as string[]) : [],
+          };
+        }
+        return { grants: [], revokes: [] };
       } catch {
         return { grants: [], revokes: [] };
       }
@@ -969,7 +930,10 @@ export class TenantUserManagementService {
 
     if (typeof raw === 'string') {
       try {
-        return JSON.parse(raw);
+        const parsed: unknown = JSON.parse(raw);
+        return typeof parsed === 'object' && parsed !== null
+          ? (parsed as Record<string, Record<string, Record<string, boolean>>>)
+          : {};
       } catch {
         return {};
       }

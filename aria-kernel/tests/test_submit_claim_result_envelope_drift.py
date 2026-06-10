@@ -31,6 +31,7 @@ canonical-JSON stability.
 from __future__ import annotations
 
 import json
+import hashlib
 import multiprocessing
 import shutil
 import subprocess
@@ -46,14 +47,20 @@ from aria_kernel.agent_invocations import (
     submit_claim_result,
 )
 from aria_kernel.file_lock import with_exclusive_lock
-from aria_kernel.ledger import append_jsonl, load_jsonl, rewrite_jsonl
+from aria_kernel.ledger import load_jsonl, rewrite_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture, sha256_file
 
 
 def _seed_repo() -> Path:
     """Create a tempdir that looks like a repo root."""
     repo = Path(tempfile.mkdtemp(prefix="aria-plan-025-a1-"))
     (repo / "src.txt").write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "aria-test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "ARIA Test"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "src.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "fixture: evidence"], cwd=repo, check=True)
     return repo
 
 
@@ -73,6 +80,11 @@ class _SubmitFixture(unittest.TestCase):
         self.repo = _seed_repo()
         self.tools = self.repo / "aria-tools"
         ensure_tools_dir(self.tools)
+        self.target_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            text=True,
+        ).strip()
         self.request = create_agent_invocation_request(
             target_agent="aria-evidence-judge",
             role="evidence_judgment",
@@ -82,6 +94,7 @@ class _SubmitFixture(unittest.TestCase):
             ],
             allowed_scope=["**"],
             convergence_id="conv-plan-025-a1",
+            target_sha=self.target_sha,
             base_dir=self.tools,
         )
         self.claim = claim_request(
@@ -125,6 +138,12 @@ class _SubmitFixture(unittest.TestCase):
         return out_path
 
     def _submit(self, out_path: Path, *, lock_timeout_seconds: float | None = None) -> dict:
+        transcript = out_path.with_suffix(".transcript.txt")
+        if not transcript.exists():
+            transcript.write_text(
+                f"fixture transcript for {self.claim['claim_id']}\n",
+                encoding="utf-8",
+            )
         return submit_claim_result(
             claim_id=self.claim["claim_id"],
             agent_id=self.claim["agent_id"],
@@ -133,6 +152,10 @@ class _SubmitFixture(unittest.TestCase):
             workspace_root=self.repo,
             base_dir=self.tools,
             lock_timeout_seconds=lock_timeout_seconds,
+            context_hash=str(self.request["context_hash"]),
+            prompt_hash=str(self.request["prompt_hash"]),
+            transcript_hash=sha256_file(transcript),
+            transcript_artifact_ref=transcript.resolve().as_posix(),
         )
 
     def _results_rows_for_claim(self) -> list[dict]:
@@ -207,6 +230,9 @@ def _concurrent_submit_worker(
     agent_id: str,
     lease_token: str,
     envelope_path: str,
+    transcript_path: str,
+    context_hash: str,
+    prompt_hash: str,
     result_queue: multiprocessing.Queue,  # type: ignore[type-arg]
 ) -> None:
     # Plan ARIA-V2 ORPHAN-MEDIUM-075 — outer try wraps the inner import
@@ -242,6 +268,10 @@ def _concurrent_submit_worker(
             output_path=Path(envelope_path),
             workspace_root=Path(repo_root),
             base_dir=Path(tools_dir),
+            context_hash=context_hash,
+            prompt_hash=prompt_hash,
+            transcript_hash="sha256:" + hashlib.sha256(Path(transcript_path).read_bytes()).hexdigest(),
+            transcript_artifact_ref=Path(transcript_path).resolve().as_posix(),
         )
         result_queue.put(("ok", outcome["status"], outcome.get("idempotent", False)))
     except _GovError as exc:
@@ -287,6 +317,11 @@ class ConcurrentSubmitRaceTests(_SubmitFixture):
         """
         envelope = self._envelope()
         out = self._write_envelope(envelope)
+        transcript = out.with_suffix(".transcript.txt")
+        transcript.write_text(
+            f"fixture transcript for {self.claim['claim_id']}\n",
+            encoding="utf-8",
+        )
 
         # spawn-mode keeps the test deterministic across POSIX +
         # Windows — fork copies module state so the children never
@@ -304,6 +339,9 @@ class ConcurrentSubmitRaceTests(_SubmitFixture):
                     "agent_id": self.claim["agent_id"],
                     "lease_token": self.claim["lease_token"],
                     "envelope_path": str(out),
+                    "transcript_path": str(transcript),
+                    "context_hash": str(self.request["context_hash"]),
+                    "prompt_hash": str(self.request["prompt_hash"]),
                     "result_queue": result_queue,
                 },
             )
@@ -453,7 +491,11 @@ class LegacyRowDriftUndecidableTests(_SubmitFixture):
         # Use append_jsonl so the hash chain stays valid for any
         # downstream loader; the row itself still lacks
         # envelope_evidence_hash because we don't include it.
-        append_jsonl(results_path, legacy_row)
+        append_declared_fixture(
+            results_path,
+            legacy_row,
+            expected_surface="agent_invocation_results",
+        )
 
         envelope = self._envelope()
         out = self._write_envelope(envelope)

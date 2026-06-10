@@ -28,9 +28,9 @@ from aria_kernel.change_ledger import (
     emit_change_validated,
     emit_stale_chain_warnings,
 )
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.plan_016_metrics import compute_plan_016_metrics
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 def _seed() -> tuple[Path, Path]:
@@ -143,14 +143,18 @@ class StaleDetectionTests(unittest.TestCase):
         # Need a planned row first for emit_change_validated to reference,
         # but for stale-detection alone we only read committed.jsonl, so
         # just append directly.
-        append_jsonl(committed_path, {
-            "schema_version": 1, "event": "change_committed",
-            "change_id": "chg_stale_old", "commit_sha": "deadbeef",
-            "plan_id": "plan-stale", "finding_id": "F-001",
-            "actual_affected_files": ["docs/old.md"],
-            "affected_files_hash": "sha256:fake",
-            "recorded_at": old,
-        })
+        append_declared_fixture(
+            committed_path,
+            {
+                "schema_version": 1, "event": "change_committed",
+                "change_id": "chg_stale_old", "commit_sha": "deadbeef",
+                "plan_id": "plan-stale", "finding_id": "F-001",
+                "actual_affected_files": ["docs/old.md"],
+                "affected_files_hash": "sha256:fake",
+                "recorded_at": old,
+            },
+            expected_surface="change_committed",
+        )
         stale = detect_stale_change_chains(base_dir=self.tools, stale_days=7)
         self.assertEqual(len(stale), 1)
         self.assertEqual(stale[0]["change_id"], "chg_stale_old")
@@ -160,14 +164,18 @@ class StaleDetectionTests(unittest.TestCase):
         committed_path = self.tools / "change-ledger" / "committed.jsonl"
         committed_path.parent.mkdir(parents=True, exist_ok=True)
         old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
-        append_jsonl(committed_path, {
-            "schema_version": 1, "event": "change_committed",
-            "change_id": "chg_stale_warn", "commit_sha": "1234",
-            "plan_id": "plan-stale", "finding_id": "F-001",
-            "actual_affected_files": ["docs/old.md"],
-            "affected_files_hash": "sha256:fake",
-            "recorded_at": old,
-        })
+        append_declared_fixture(
+            committed_path,
+            {
+                "schema_version": 1, "event": "change_committed",
+                "change_id": "chg_stale_warn", "commit_sha": "1234",
+                "plan_id": "plan-stale", "finding_id": "F-001",
+                "actual_affected_files": ["docs/old.md"],
+                "affected_files_hash": "sha256:fake",
+                "recorded_at": old,
+            },
+            expected_surface="change_committed",
+        )
         emitted = emit_stale_chain_warnings(base_dir=self.tools)
         self.assertEqual(len(emitted), 1)
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()

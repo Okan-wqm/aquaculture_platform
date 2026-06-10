@@ -44,6 +44,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .workflow_contracts import verify_workflow_contract
+
 
 @dataclass(frozen=True)
 class PreflightVerdict:
@@ -62,6 +64,28 @@ class PreflightVerdict:
     immutable_paths_count: int
     bash_allowlist_count: int
     failure_classes: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class WorkflowPreflightVerdict:
+    workflow_id: str
+    profile: str
+    kill_switch_active: bool
+    network_policy: tuple[str, ...]
+    allowed_write_roots: tuple[str, ...]
+    path_allowlist: tuple[str, ...]
+    external_root_allowlist: tuple[str, ...]
+    token_provenance: str | None
+    dlp_mode: str
+    audit_reason: str | None
+    valid: bool
+    workflow_hash: str | None = None
+    network_enforcement_evidence: str | None = None
+    audit_artifact_path: str | None = None
+    worktree_clean: bool | None = None
+    dlp_scan_clean: bool | None = None
+    failure_classes: tuple[str, ...] = field(default_factory=tuple)
+    reasons: tuple[str, ...] = field(default_factory=tuple)
 
 
 # Plan ARIA-V9.0-C + V10.3-B prereq — the 3 required branch-protection
@@ -308,9 +332,199 @@ def verify_preflight(
     )
 
 
+def verify_workflow_preflight(
+    *,
+    workflow_id: str,
+    profile: str,
+    workspace_root: str | Path,
+    allowed_write_roots: tuple[str, ...] | list[str],
+    path_allowlist: tuple[str, ...] | list[str],
+    network_policy: tuple[str, ...] | list[str] = (),
+    token_provenance: str | None = None,
+    dlp_mode: str = "fail_closed",
+    dlp_scan_clean: bool = True,
+    workflow_hash: str | None = None,
+    audit_reason: str | None = None,
+    network_enforcement_evidence: str | None = None,
+    audit_artifact_path: str | Path | None = None,
+    require_github_app: bool = True,
+    external_root_allowlist: tuple[str, ...] | list[str] = (),
+) -> WorkflowPreflightVerdict:
+    """Enterprise workflow preflight for governed ARIA write paths.
+
+    This verdict is intentionally separate from ``verify_preflight``:
+    branch/profile checks are repo capability checks, while workflows also
+    need kill-switch precedence, explicit write roots, DLP mode, network
+    capability declaration, and token provenance. The verdict is frozen so
+    a workflow can persist it as audit evidence without mutation risk.
+    """
+    reasons: list[str] = []
+    failure_classes: list[str] = []
+    workspace = Path(workspace_root).resolve()
+    kill_switch = (
+        _env_truthy("ARIA_GLOBAL_KILL_SWITCH")
+        or _env_truthy("ARIA_STOP")
+        or (workspace / ".aria-kill-switch").exists()
+        or (workspace / "aria-tools" / "KILL_SWITCH").exists()
+    )
+
+    roots = tuple(str(root).strip() for root in allowed_write_roots if str(root).strip())
+    allowlist = tuple(str(item).strip() for item in path_allowlist if str(item).strip())
+    external_roots = tuple(
+        str(item).strip()
+        for item in external_root_allowlist
+        if str(item).strip()
+    )
+    network = tuple(str(item).strip() for item in network_policy if str(item).strip())
+
+    if kill_switch:
+        reasons.append("global_kill_switch_active")
+        failure_classes.append("global_kill_switch")
+    if not workflow_id.strip():
+        reasons.append("workflow_id_missing")
+        failure_classes.append("workflow_preflight_contract")
+    if profile == "frozen" and roots:
+        reasons.append("frozen_profile_blocks_mutating_workflow")
+        failure_classes.append("frozen_profile_write_block")
+    if not roots:
+        reasons.append("allowed_write_roots_missing")
+        failure_classes.append("workflow_preflight_contract")
+    if not allowlist:
+        reasons.append("path_allowlist_missing")
+        failure_classes.append("workflow_preflight_contract")
+    if dlp_mode != "fail_closed":
+        reasons.append("dlp_mode_must_be_fail_closed")
+        failure_classes.append("dlp_fail_closed_required")
+    if dlp_scan_clean is not True:
+        reasons.append("dlp_scan_not_clean")
+        failure_classes.append("dlp_fail_closed_required")
+    if workflow_hash and not re.fullmatch(r"sha256:[0-9a-f]{64}", str(workflow_hash)):
+        reasons.append("workflow_hash_invalid")
+        failure_classes.append("workflow_preflight_contract")
+    if not audit_reason or not audit_reason.strip():
+        reasons.append("audit_reason_missing")
+        failure_classes.append("workflow_preflight_contract")
+    if require_github_app and not token_provenance:
+        reasons.append("token_provenance_missing")
+        failure_classes.append("token_provenance_required")
+    allowed_token_provenance = {
+        "github_app:installation",
+        "github_app:installation_token",
+        "github_app:verified",
+    }
+    if require_github_app and token_provenance and token_provenance not in allowed_token_provenance:
+        reasons.append("github_app_token_required")
+        failure_classes.append("token_provenance_required")
+    if not network:
+        reasons.append("network_policy_missing")
+        failure_classes.append("network_policy_required")
+    if network and not (network_enforcement_evidence or "").strip():
+        reasons.append("network_enforcement_evidence_missing")
+        failure_classes.append("network_policy_required")
+    for item in allowlist:
+        if any(ch in item for ch in "*?[]"):
+            reasons.append(f"path_allowlist_must_be_exact:{item}")
+            failure_classes.append("path_allowlist_violation")
+
+    worktree_clean = _git_worktree_clean(workspace)
+    if worktree_clean is False:
+        reasons.append("workspace_worktree_not_clean")
+        failure_classes.append("workflow_preflight_contract")
+
+    for root in roots:
+        root_path = Path(root)
+        if root_path.is_absolute():
+            resolved = root_path.resolve()
+            try:
+                rel = resolved.relative_to(workspace)
+            except ValueError:
+                if not _is_under_any_external_root(resolved, external_roots):
+                    reasons.append(f"external_write_root_not_allowlisted:{resolved.as_posix()}")
+                    failure_classes.append("path_allowlist_violation")
+                continue
+        else:
+            rel = root_path
+            resolved = (workspace / root_path).resolve()
+        rel_text = rel.as_posix().strip("/")
+        if not rel_text or rel_text == "." or resolved == workspace:
+            reasons.append(f"allowed_write_root_is_workspace_root:{root}")
+            failure_classes.append("path_allowlist_violation")
+        elif rel_text not in allowlist:
+            reasons.append(f"allowed_write_root_not_exactly_allowlisted:{rel_text}")
+            failure_classes.append("path_allowlist_violation")
+
+    verdict = WorkflowPreflightVerdict(
+        workflow_id=workflow_id,
+        profile=profile,
+        kill_switch_active=kill_switch,
+        network_policy=network,
+        allowed_write_roots=roots,
+        path_allowlist=allowlist,
+        external_root_allowlist=external_roots,
+        token_provenance=token_provenance,
+        dlp_mode=dlp_mode,
+        audit_reason=audit_reason,
+        workflow_hash=workflow_hash,
+        network_enforcement_evidence=network_enforcement_evidence,
+        audit_artifact_path=str(audit_artifact_path) if audit_artifact_path is not None else None,
+        worktree_clean=worktree_clean,
+        dlp_scan_clean=dlp_scan_clean,
+        valid=not failure_classes,
+        failure_classes=tuple(failure_classes),
+        reasons=tuple(reasons),
+    )
+    if audit_artifact_path is not None:
+        _write_workflow_preflight_audit(Path(audit_artifact_path), verdict)
+    return verdict
+
+
+def _is_under_any_external_root(path: Path, roots: tuple[str, ...]) -> bool:
+    for root in roots:
+        root_path = Path(root)
+        if not root_path.is_absolute():
+            continue
+        try:
+            path.relative_to(root_path.resolve())
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _git_worktree_clean(workspace: Path) -> bool | None:
+    if not (workspace / ".git").exists():
+        return None
+    completed = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=workspace,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return False
+    return not completed.stdout.strip()
+
+
+def _write_workflow_preflight_audit(path: Path, verdict: WorkflowPreflightVerdict) -> None:
+    from dataclasses import asdict
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(asdict(verdict), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
 __all__ = (
     "PreflightVerdict",
+    "WorkflowPreflightVerdict",
     "REQUIRED_BRANCH_PROTECTION_FIELDS",
     "verify_branch_protection",
     "verify_preflight",
+    "verify_workflow_preflight",
+    "verify_workflow_contract",
 )

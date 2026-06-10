@@ -1,20 +1,20 @@
+import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Patch,
-  Delete,
+  BadRequestException,
   Body,
-  Param,
-  Query,
-  Req,
-  ParseUUIDPipe,
+  Controller,
+  Delete,
+  Get,
   HttpCode,
   HttpStatus,
-  BadRequestException,
-  NotFoundException,
   Logger,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
@@ -34,8 +34,7 @@ import {
   Matches,
 } from 'class-validator';
 
-import { AllowTenantAdmin, Roles } from '../decorators/roles.decorator';
-import { EmailSenderService, InvitationEmailData } from '../settings/services/email-sender.service';
+import { AllowTenantAdmin } from '../decorators/roles.decorator';
 
 import { InviteUserDto, UpdateUserPermissionsDto, UserWithPermissionsDto } from './dto/invite-user.dto';
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
@@ -214,7 +213,6 @@ export class UsersController {
     private readonly userProvisioningService: UserProvisioningService,
     private readonly roleTemplateService: RoleTemplateService,
     private readonly userPermissionsService: UserPermissionsService,
-    private readonly emailSenderService: EmailSenderService,
   ) {}
 
   /**
@@ -384,6 +382,7 @@ export class UsersController {
    * Invite a new user to a tenant
    * Validation is handled by class-validator decorators on InviteUserRequestDto
    */
+  @ThrottleSensitive()
   @Post('invite')
   @HttpCode(HttpStatus.CREATED)
   async inviteUser(
@@ -410,8 +409,8 @@ export class UsersController {
       success: true,
       userId: result.userId,
       invitationId: result.invitationId,
-      invitationToken: result.invitationToken,
-      message: 'Invitation created successfully',
+      deliveryStatus: result.deliveryStatus ?? 'queued',
+      message: 'Invitation created successfully. Notification delivery queued.',
     };
   }
 
@@ -487,13 +486,14 @@ export class UsersController {
    * Invite a new user with specific permissions (TENANT_ADMIN)
    * This endpoint is for tenant admins to invite users with checkbox permissions
    */
+  @ThrottleSensitive()
   @Post('tenant/invite')
   @AllowTenantAdmin()
   @HttpCode(HttpStatus.CREATED)
   async inviteUserWithPermissions(
     @Body() dto: InviteUserDto,
     @Req() req: { user: { id: string; tenantId?: string } },
-  ): Promise<{ success: boolean; userId?: string; emailSent?: boolean; message: string }> {
+  ): Promise<{ success: boolean; userId?: string; deliveryStatus: 'queued' | 'not_requested'; message: string }> {
     const tenantId = req.user.tenantId;
     if (!tenantId) {
       throw new BadRequestException('Tenant context required for this operation');
@@ -515,6 +515,7 @@ export class UsersController {
       lastName: dto.lastName,
       role: 'MODULE_USER', // Default role for invited users
       invitedBy: req.user.id,
+      sendInvitation: dto.sendInvitationEmail !== false,
     };
 
     const result = await this.userProvisioningService.inviteUser(provisioningDto);
@@ -555,47 +556,16 @@ export class UsersController {
       );
     }
 
-    // Send invitation email if requested
-    let emailSent = false;
-    if (dto.sendInvitationEmail !== false && result.invitationToken) {
-      try {
-        // Get tenant name for the email
-        const tenantResult = await this.usersService.getTenantName(tenantId);
-        const tenantName = tenantResult || 'Your Organization';
-
-        const emailData: InvitationEmailData = {
-          email: dto.email,
-          firstName: dto.firstName || 'User',
-          lastName: dto.lastName || '',
-          tenantName,
-          invitationToken: result.invitationToken,
-          role: 'MODULE_USER',
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-        };
-
-        const emailResult = await this.emailSenderService.sendInvitationEmail(emailData);
-        emailSent = emailResult.success;
-
-        if (!emailResult.success) {
-          this.logger.warn(`Invitation email failed for ${dto.email}: ${emailResult.error}`);
-        }
-      } catch (emailError) {
-        this.logger.error(
-          `Failed to send invitation email to ${dto.email}`,
-          emailError instanceof Error ? emailError.stack : emailError,
-        );
-      }
-    }
+    const deliveryStatus =
+      dto.sendInvitationEmail === false ? 'not_requested' : result.deliveryStatus ?? 'queued';
 
     return {
       success: true,
       userId: result.userId,
-      emailSent,
-      message: emailSent
-        ? 'User invited successfully. Invitation email sent.'
-        : dto.sendInvitationEmail !== false
-          ? 'User invited successfully. Email could not be sent.'
-          : 'User invited successfully.',
+      deliveryStatus,
+      message: deliveryStatus === 'queued'
+        ? 'User invited successfully. Notification delivery queued.'
+        : 'User invited successfully. Notification delivery was not requested.',
     };
   }
 

@@ -25,7 +25,7 @@ export const MORTALITY_REASONS = [
   'UNKNOWN',
   'OTHER',
 ] as const;
-export type MortalityReasonCode = typeof MORTALITY_REASONS[number];
+export type MortalityReasonCode = (typeof MORTALITY_REASONS)[number];
 
 /**
  * Cull reason codes.
@@ -42,7 +42,7 @@ export const CULL_REASONS = [
   'QUALITY',
   'OTHER',
 ] as const;
-export type CullReasonCode = typeof CULL_REASONS[number];
+export type CullReasonCode = (typeof CULL_REASONS)[number];
 
 /**
  * Farm Created Event
@@ -359,11 +359,7 @@ export interface CleanerFishDeployedEvent extends BaseEvent {
  * choices. Adding a new enum value is a backwards-compatible change
  * (consumers with narrowing on the existing values keep working).
  */
-export type CleanerFishRemovalReasonCode =
-  | 'end_of_cycle'
-  | 'harvest'
-  | 'relocation'
-  | 'other';
+export type CleanerFishRemovalReasonCode = 'end_of_cycle' | 'harvest' | 'relocation' | 'other';
 
 export interface CleanerFishRemovedEvent extends BaseEvent {
   eventType: 'CleanerFishRemoved';
@@ -613,6 +609,51 @@ export interface SystemDeletedEvent extends BaseEvent {
   deletedAt: Date;
 }
 
+// ==================== Tank Events ====================
+
+export interface TankCreatedEvent extends BaseEvent {
+  eventType: 'TankCreated';
+  tankId: string;
+  departmentId: string;
+  systemId?: string;
+  name: string;
+  code: string;
+  tankType: string;
+  status: string;
+  volume: number;
+  maxBiomass: number;
+}
+
+export interface TankUpdatedEvent extends BaseEvent {
+  eventType: 'TankUpdated';
+  tankId: string;
+  departmentId: string;
+  systemId?: string;
+  name?: string;
+  tankType?: string;
+  status?: string;
+  volume?: number;
+  maxBiomass?: number;
+}
+
+export interface TankStatusChangedEvent extends BaseEvent {
+  eventType: 'TankStatusChanged';
+  tankId: string;
+  previousStatus: string;
+  newStatus: string;
+  reason?: string;
+  changedAt: Date;
+}
+
+export interface TankDeletedEvent extends BaseEvent {
+  eventType: 'TankDeleted';
+  tankId: string;
+  departmentId: string;
+  name: string;
+  code: string;
+  deletedAt: Date;
+}
+
 // ==================== Equipment Events ====================
 
 /**
@@ -621,7 +662,7 @@ export interface SystemDeletedEvent extends BaseEvent {
 export interface EquipmentCreatedEvent extends BaseEvent {
   eventType: 'EquipmentCreated';
   equipmentId: string;
-  siteId: string;
+  siteId?: string;
   systemId?: string;
   departmentId?: string;
   name: string;
@@ -652,6 +693,49 @@ export interface EquipmentDeletedEvent extends BaseEvent {
   name: string;
   code: string;
   deletedAt: Date;
+}
+
+export interface SubEquipmentCreatedEvent extends BaseEvent {
+  eventType: 'SubEquipmentCreated';
+  subEquipmentId: string;
+  parentEquipmentId: string;
+  name: string;
+  code: string;
+  status: string;
+}
+
+export interface SubEquipmentUpdatedEvent extends BaseEvent {
+  eventType: 'SubEquipmentUpdated';
+  subEquipmentId: string;
+  parentEquipmentId: string;
+  name?: string;
+  status?: string;
+}
+
+export interface SubEquipmentDeletedEvent extends BaseEvent {
+  eventType: 'SubEquipmentDeleted';
+  subEquipmentId: string;
+  parentEquipmentId: string;
+  name: string;
+  code: string;
+  deletedAt: Date;
+}
+
+/**
+ * Feeder Calibrations Saved Event
+ *
+ * Emitted when the complete calibration set for one feeder-capable
+ * equipment row is replaced. The event is intentionally aggregate-level:
+ * consumers that need row details can reload by equipmentId, while replay
+ * and invalidation only need to know which equipment's calibration set
+ * changed and how many rows are now authoritative.
+ */
+export interface FeederCalibrationsSavedEvent extends BaseEvent {
+  eventType: 'FeederCalibrationsSaved';
+  equipmentId: string;
+  calibrationCount: number;
+  feedSizeMm: number[];
+  changedBy: string;
 }
 
 // ==================== Feed Inventory Events ====================
@@ -960,27 +1044,17 @@ export interface SupplierApprovedSitesChangedEvent extends BaseEvent {
  * so downstream consumers (audit log, notification preferences,
  * tenant erasure workflows) get a self-contained record.
  *
- * Contacts are PII, so the event ships only `name`, `role`, `email`,
- * `phone`, and `isPrimary` — no free-text notes (none on this
- * entity) and no derived metadata.
+ * Contacts are PII, so the event intentionally does not ship names,
+ * email addresses, phone numbers, or role labels. The authoritative
+ * details remain in `site_contacts` plus the fail-closed audit log;
+ * realtime consumers only need invalidation-safe aggregate metadata.
  */
 export interface SiteContactsChangedEvent extends BaseEvent {
   eventType: 'SiteContactsChanged';
   siteId: string;
-  previousContacts: ReadonlyArray<{
-    name: string;
-    role: string | null;
-    email: string | null;
-    phone: string | null;
-    isPrimary: boolean;
-  }>;
-  newContacts: ReadonlyArray<{
-    name: string;
-    role: string | null;
-    email: string | null;
-    phone: string | null;
-    isPrimary: boolean;
-  }>;
+  previousContactCount: number;
+  newContactCount: number;
+  primaryContactChanged: boolean;
   /** Operator who triggered the change (resolver `user.sub`). */
   changedBy: string;
 }
@@ -1042,7 +1116,15 @@ export type FarmEvent =
   | SystemCreatedEvent
   | SystemUpdatedEvent
   | SystemDeletedEvent
+  | TankCreatedEvent
+  | TankUpdatedEvent
+  | TankStatusChangedEvent
+  | TankDeletedEvent
   | EquipmentCreatedEvent
   | EquipmentUpdatedEvent
   | EquipmentDeletedEvent
+  | SubEquipmentCreatedEvent
+  | SubEquipmentUpdatedEvent
+  | SubEquipmentDeletedEvent
+  | FeederCalibrationsSavedEvent
   | FeedInventoryLowEvent;

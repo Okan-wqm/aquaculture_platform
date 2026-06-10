@@ -17,6 +17,7 @@ import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../../authentication/entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../../authentication/entities/invitation.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
@@ -599,9 +600,8 @@ export class UserLifecycleService {
    *     when the role is MODULE_MANAGER and primaryModuleId is provided).
    *   - Increments tenant.userCount atomically.
    *
-   * Returns the RAW (unhashed) invitation token so the caller can
-   * deliver it via email. The hash is what's persisted; the raw value
-   * never appears in audit logs.
+   * Publishes UserInvited with an opaque actionTokenId after commit. The
+   * raw token never leaves auth-service.
    */
   async adminInviteUser(input: {
     tenantId: string;
@@ -613,10 +613,12 @@ export class UserLifecycleService {
     primaryModuleId?: string;
     invitedBy: string;
     message?: string;
+    sendInvitation?: boolean;
   }): Promise<{
     userId: string;
     invitationId: string;
-    invitationToken: string;
+    actionTokenId: string;
+    deliveryStatus?: 'queued';
   }> {
     // 1. Tenant existence + user-limit check (uses authoritative user
     //    count from auth.users, not the denormalized `tenant.userCount`
@@ -668,8 +670,8 @@ export class UserLifecycleService {
       throw new ConflictException(`User with email "${input.email}" already exists`);
     }
 
-    // 5. Invitation token: raw token returned to caller (for email
-    //    delivery), SHA-256 hash stored in the DB (MED-004 pattern).
+    // 5. Invitation token: SHA-256 hash stored in the DB (MED-004 pattern).
+    //    The raw token never crosses the service boundary.
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -678,15 +680,18 @@ export class UserLifecycleService {
     //    EntityManager guarantees that a User without an Invitation row
     //    (or vice versa) cannot exist if any single insert fails.
     const result = await this.dataSource.transaction(async (manager) => {
-      const userRepo = tenantManagerRepo(manager, User, input.tenantId);
-      const invitationRepo = tenantManagerRepo(manager, Invitation, input.tenantId);
+      // WHY manager.create/save for User + Invitation (not tenantManagerRepo):
+      // auth.users and auth.invitations are cross-tenant tables by design —
+      // tenantId is NULLABLE there (SUPER_ADMIN rows carry NULL), so the
+      // entities do not satisfy the TenantEntity { tenantId: string }
+      // constraint and the scoped-repository generic collapses to `any`.
+      // tenantId is bound explicitly in each DTO below, which is the same
+      // guarantee the scoped repository would have injected.
+      // UserModuleAssignment HAS a non-nullable tenantId, so it keeps the
+      // scoped repository.
       const umaRepo = tenantManagerRepo(manager, UserModuleAssignment, input.tenantId);
-      // Tenant IS the tenant identity — the row's id is the tenant id;
-      // there is no tenantId column to scope on. Cross-tenant by design.
-      // eslint-disable-next-line no-restricted-syntax -- Tenant-entity is the tenant itself
-      const tenantRepo = manager.getRepository(Tenant);
 
-      const newUser = userRepo.create({
+      const newUser = manager.create(User, {
         email: normalisedEmail,
         firstName: input.firstName ?? null,
         lastName: input.lastName ?? null,
@@ -698,9 +703,9 @@ export class UserLifecycleService {
         invitationExpiresAt: expiresAt,
         invitedBy: input.invitedBy,
       });
-      const savedUser = await userRepo.save(newUser);
+      const savedUser = await manager.save(User, newUser);
 
-      const newInvitation = invitationRepo.create({
+      const newInvitation = manager.create(Invitation, {
         token: tokenHash,
         email: normalisedEmail,
         firstName: input.firstName ?? null,
@@ -719,7 +724,20 @@ export class UserLifecycleService {
         sendCount: 1,
         lastSentAt: new Date(),
       });
-      const savedInvitation = await invitationRepo.save(newInvitation);
+      const savedInvitation = await manager.save(Invitation, newInvitation);
+      const actionToken = manager.create(ActionToken, {
+        purpose: ActionTokenPurpose.INVITATION,
+        tenantId: input.tenantId,
+        userId: savedUser.id,
+        tokenHash,
+        status: ActionTokenStatus.ACTIVE,
+        expiresAt,
+        auditMetadata: {
+          source: 'tenant-admin-invite',
+          invitedBy: input.invitedBy,
+        },
+      });
+      const savedActionToken = await manager.save(ActionToken, actionToken);
 
       // Module assignments — only meaningful for module-scoped roles.
       // TENANT_ADMIN inherits access from TenantModule rows and gets
@@ -747,19 +765,46 @@ export class UserLifecycleService {
       // Atomic counter increment via SQL expression, not a read-modify-write
       // (avoids a concurrent-invite race that would have to be solved by
       // either advisory locks or a unique constraint).
-      await tenantRepo.increment({ id: input.tenantId }, 'userCount', 1);
+      await manager
+        .createQueryBuilder()
+        .update(Tenant)
+        .set({ userCount: () => '"userCount" + 1' })
+        .where('id = :tenantId', { tenantId: input.tenantId })
+        .execute();
 
-      return { userId: savedUser.id, invitationId: savedInvitation.id };
+      return {
+        userId: savedUser.id,
+        invitationId: savedInvitation.id,
+        actionTokenId: savedActionToken.id,
+      };
     });
 
     this.logger.log(
       `Admin invited userId=${result.userId} into tenant=${input.tenantId} role=${input.role}`,
     );
 
+    if (input.sendInvitation !== false) {
+      const event: UserInvitedEvent = {
+        ...createBaseEvent<UserInvitedEvent>('UserInvited', input.tenantId, {
+          aggregateId: result.userId,
+          aggregateType: 'User',
+        }),
+        userId: result.userId,
+        role: input.role,
+        invitedBy: input.invitedBy,
+        credentialType: 'reset_token',
+        actionTokenId: result.actionTokenId,
+        cryptoShredKeyId: result.userId,
+      };
+      await this.eventBus.publish(event);
+      this.logger.log(`Published UserInvitedEvent for userId=${result.userId}`);
+    }
+
     return {
       userId: result.userId,
       invitationId: result.invitationId,
-      invitationToken: rawToken,
+      actionTokenId: result.actionTokenId,
+      ...(input.sendInvitation !== false && { deliveryStatus: 'queued' as const }),
     };
   }
 

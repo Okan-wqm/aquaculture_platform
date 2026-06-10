@@ -7,8 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, file_hash, write_index
+from .ledger import append_declared_jsonl, append_jsonl, file_hash, rewrite_declared_json, write_index
 from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
+from .implementation_safety import verify_bash_command_allowed
 
 
 # Plan ARIA-V2 §3.2 — contract v3 introduces canonical-identity-bound
@@ -360,6 +361,19 @@ def covered_tool_ledgers(root: Path) -> dict[str, Path]:
         "worker_results": root / "dispatch" / "worker-results.jsonl",
         "verification_results": root / "dispatch" / "verification-results.jsonl",
         "agent_fitness": root / "fitness" / "agent-fitness.jsonl",
+        "goldset_proposals": root / "goldsets" / "proposals.jsonl",
+        "proposals": root / "proposals" / "proposals.jsonl",
+        "impact_graphs": root / "impact" / "impact-graphs.jsonl",
+        "impact_plans": root / "impact" / "impact-plans.jsonl",
+        "executor_registry": root / "executor" / "registry.jsonl",
+        "executor_packets": root / "executor" / "packets.jsonl",
+        "executor_diff_reviews": root / "executor" / "diff-reviews.jsonl",
+        "executor_prompts": root / "executor" / "prompts.jsonl",
+        "executor_applications": root / "executor" / "applications.jsonl",
+        "executor_locks": root / "executor" / "locks.jsonl",
+        "executor_retries": root / "executor" / "retries.jsonl",
+        "executor_operator_takeovers": root / "executor" / "operator-takeovers.jsonl",
+        "executor_flaky_fingerprints": root / "executor" / "flaky-fingerprints.jsonl",
         "plans_events": root / "plans" / "events.jsonl",
         "agent_invocations_requests": root / "agent-invocations" / "requests.jsonl",
         "agent_invocations_results": root / "agent-invocations" / "results.jsonl",
@@ -425,10 +439,12 @@ def append_tools_governance(
         # tool_registry for ensure_tools_dir + append_tools_governance.
         from .runtime_profile import enforce_profile_for_write
         enforce_profile_for_write("tool_governance", base_dir=base_dir)
-    root = Path(base_dir)
-    root.mkdir(parents=True, exist_ok=True)
-    return append_jsonl(
-        root / "governance.jsonl", governance_event(kind=kind, details=details)
+    root = ensure_tools_dir(base_dir)
+    return append_declared_jsonl(
+        root / "governance.jsonl",
+        governance_event(kind=kind, details=details),
+        expected_surface="tools_governance",
+        bypass_profile_gate=bypass_profile_gate,
     )
 
 
@@ -464,6 +480,9 @@ def _guard_tools_lock(root: Path) -> None:
         payload = {}
     age = (datetime.now(timezone.utc) - started.astimezone(timezone.utc)).total_seconds()
     pid = int(payload.get("pid") or 0)
+    operation = str(payload.get("operation") or "")
+    if pid == os.getpid() and operation in {"tools_migration", "tools_rollback"}:
+        return
     if age >= 120 and (pid <= 0 or not _pid_exists(pid)):
         try:
             lock_path.unlink()
@@ -505,9 +524,11 @@ def save_registry(
 ) -> None:
     ensure_tools_dir(base_dir)
     path = registry_path(base_dir)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(registry, handle, indent=2, sort_keys=True)
-        handle.write("\n")
+    rewrite_declared_json(
+        path,
+        registry,
+        expected_surface="tool_registry",
+    )
 
 
 def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
@@ -577,6 +598,10 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
     cwd_path = Path(cwd)
     if cwd_path.is_absolute() or ".." in cwd_path.parts:
         raise GovernanceError("runner.cwd must be relative to the workspace root and must not escape it")
+    try:
+        verify_bash_command_allowed(list(candidate["argv"]), cwd=cwd)
+    except Exception as exc:
+        raise GovernanceError(f"runner.argv_rejected_by_command_policy:{exc}") from exc
     timeout_ms = candidate.get("timeout_ms")
     if not isinstance(timeout_ms, int) or timeout_ms <= 0:
         raise GovernanceError("runner.timeout_ms must be a positive integer")
@@ -899,20 +924,17 @@ def update_tool(
     if "runner" in updates:
         new_argv = list((result.get("runner") or {}).get("argv", []))
         if pre_runner_argv != new_argv:
-            from .ledger import append_jsonl
             tools_root = ensure_tools_dir(base_dir)
-            append_jsonl(
-                tools_root / "governance.jsonl",
-                governance_event(
-                    kind="tool_runner_replaced",
-                    details={
-                        "tool_id": tool_id,
-                        "previous_argv": pre_runner_argv,
-                        "new_argv": new_argv,
-                        "reason": reason,
-                        "operator_approval_ref": operator_approval_ref,
-                    },
-                ),
+            append_tools_governance(
+                tools_root,
+                "tool_runner_replaced",
+                {
+                    "tool_id": tool_id,
+                    "previous_argv": pre_runner_argv,
+                    "new_argv": new_argv,
+                    "reason": reason,
+                    "operator_approval_ref": operator_approval_ref,
+                },
             )
 
     # Plan 023 v3 §C-4 — emit tool_health_thresholds_updated when the
@@ -920,20 +942,17 @@ def update_tool(
     # so demotion / quarantine / calibrate trigger rewrites are
     # readable from governance.jsonl alone.
     if "health_thresholds" in updates:
-        from .ledger import append_jsonl
         tools_root = ensure_tools_dir(base_dir)
-        append_jsonl(
-            tools_root / "governance.jsonl",
-            governance_event(
-                kind="tool_health_thresholds_updated",
-                details={
-                    "tool_id": tool_id,
-                    "previous_thresholds": pre.get("health_thresholds"),
-                    "new_thresholds": result.get("health_thresholds"),
-                    "reason": reason,
-                    "operator_approval_ref": operator_approval_ref,
-                },
-            ),
+        append_tools_governance(
+            tools_root,
+            "tool_health_thresholds_updated",
+            {
+                "tool_id": tool_id,
+                "previous_thresholds": pre.get("health_thresholds"),
+                "new_thresholds": result.get("health_thresholds"),
+                "reason": reason,
+                "operator_approval_ref": operator_approval_ref,
+            },
         )
 
     return result

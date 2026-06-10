@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .feedback_store import load_feedback
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -53,10 +53,15 @@ def propose_goldset(
         "known_false_positive_items": known_false_positives[:target_known_false_positives],
         "blocked_by": blockers,
     }
-    stored = append_jsonl(ensure_tools_dir(base_dir) / "goldsets" / "proposals.jsonl", row)
+    root = ensure_tools_dir(base_dir)
+    stored = append_declared_jsonl(
+        root / "goldsets" / "proposals.jsonl",
+        row,
+        expected_surface="goldset_proposals",
+    )
     if status == "ready":
-        append_jsonl(
-            ensure_tools_dir(base_dir) / "memory" / "learning-events.jsonl",
+        append_declared_jsonl(
+            root / "memory" / "learning-events.jsonl",
             {
                 "schema_version": 1,
                 "recorded_at": utc_now(),
@@ -72,12 +77,16 @@ def propose_goldset(
                     "known_false_positive_count": len(known_false_positives),
                 },
             },
+            expected_surface="memory_learning_events",
         )
     return stored
 
 
 def list_goldset_proposals(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(ensure_tools_dir(base_dir) / "goldsets" / "proposals.jsonl")
+    return load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "goldsets" / "proposals.jsonl",
+        expected_surface="goldset_proposals",
+    )
 
 
 def _gold_item(row: dict[str, Any]) -> dict[str, Any]:

@@ -162,7 +162,7 @@ export class EmailService {
     if (!this.transporter) {
       // SECURITY: Mask email in logs to prevent PII exposure (H-14)
       this.logger.warn(`Email not sent (disabled): ${subject} to ${maskEmail(to)}`);
-      return `mock-${Date.now()}`;
+      throw new Error('SMTP transporter is not configured');
     }
 
     try {

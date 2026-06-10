@@ -12,6 +12,7 @@ import {
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
+  isSchemaDdlOwnedByDbMigrate,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
   SourceSchemaWriteGuardService,
@@ -106,6 +107,7 @@ import { TrainingModule } from './training/training.module';
  * applied via SourceSchemaBootstrap synchronize.
  */
 const HrMigrationRunnerService = createSchemaVersionGate('hr');
+const hrSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hr');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hr');
 
@@ -183,7 +185,10 @@ interface ApolloGraphQLContext {
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/hr.graphql') },
+      autoSchemaFile: {
+        federation: 2,
+        path: join(process.cwd(), 'dist/graphql/subgraphs/hr.graphql'),
+      },
       /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
        *  The gateway already blocks batching, but subgraphs must also enforce this as
        *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -220,26 +225,32 @@ interface ApolloGraphQLContext {
       validationRules: [depthLimit(10)],
       plugins: [
         {
-          requestDidStart: () => Promise.resolve({
-            didResolveOperation(
-              { request, document, schema }: GraphQLRequestContextDidResolveOperation<ApolloGraphQLContext>,
-            ): Promise<void> {
-              const complexity = getComplexity({
+          requestDidStart: () =>
+            Promise.resolve({
+              didResolveOperation({
+                request,
+                document,
                 schema,
-                operationName: request.operationName,
-                query: document,
-                variables: request.variables,
-                estimators: [fieldExtensionsEstimator(), simpleEstimator({ defaultComplexity: 1 })],
-              });
-              const maxComplexity = 1000;
-              if (complexity > maxComplexity) {
-                throw new GraphQLError(
-                  `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
-                );
-              }
-              return Promise.resolve();
-            },
-          }),
+              }: GraphQLRequestContextDidResolveOperation<ApolloGraphQLContext>): Promise<void> {
+                const complexity = getComplexity({
+                  schema,
+                  operationName: request.operationName,
+                  query: document,
+                  variables: request.variables,
+                  estimators: [
+                    fieldExtensionsEstimator(),
+                    simpleEstimator({ defaultComplexity: 1 }),
+                  ],
+                });
+                const maxComplexity = 1000;
+                if (complexity > maxComplexity) {
+                  throw new GraphQLError(
+                    `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
+                  );
+                }
+                return Promise.resolve();
+              },
+            }),
         },
       ],
       formatError: (formattedError: GraphQLFormattedError) => {
@@ -305,7 +316,7 @@ interface ApolloGraphQLContext {
      *
      * No excludeTables — every hr-service table should use TIMESTAMPTZ.
      */
-    AuditColumnsModule.forRoot({ serviceName: 'hr' }),
+    ...(hrSchemaDdlOwnedByDbMigrate ? [] : [AuditColumnsModule.forRoot({ serviceName: 'hr' })]),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'hr' }),
   ],
@@ -318,7 +329,7 @@ interface ApolloGraphQLContext {
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'hr-service'),
       inject: [ConfigService],
     },
     // SECURITY: Tenant guard - ensures tenant isolation

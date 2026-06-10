@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
 import {
   GlobalSettingsController,
   PerformanceController,
@@ -13,7 +12,6 @@ import {
   FeatureToggle,
   MaintenanceMode,
   SystemVersion,
-  GlobalConfig,
   PerformanceMetric,
   PerformanceSnapshot,
   ErrorOccurrence,
@@ -23,16 +21,12 @@ import {
   JobExecutionLog,
   JobQueue,
 } from './entities';
-
-// Services
 import {
   GlobalSettingsService,
   PerformanceMonitoringService,
   ErrorTrackingService,
   JobQueueService,
 } from './services';
-
-// Controllers
 
 @Module({
   imports: [
@@ -42,7 +36,6 @@ import {
       FeatureToggle,
       MaintenanceMode,
       SystemVersion,
-      GlobalConfig,
       // Performance
       PerformanceMetric,
       PerformanceSnapshot,

@@ -5,10 +5,10 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.triage import FITNESS_STALENESS_DAYS, _is_fitness_stale, triage_policy_apply
 from aria_kernel.workspace import ensure_workspace, workspace_paths
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class FitnessStalenessHelperTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class FitnessStalenessTriageTests(unittest.TestCase):
         self.paths = workspace_paths(self.repo, Path(self.tmp.name) / "workspaces")
         ensure_workspace(self.paths)
         # Seed one auto_fix_safe-eligible pressure (low-risk path).
-        append_jsonl(
+        append_declared_fixture(
             self.paths.ledgers["pressure"],
             {
                 "$schema": "aria/pressure-event/v2",
@@ -59,6 +59,7 @@ class FitnessStalenessTriageTests(unittest.TestCase):
                 "feedback_event_ids": [],
                 "detected_at": "2026-05-06T00:00:00Z",
             },
+            expected_surface="workspace_memory_pressure",
         )
         # Routing table maps the pressure to "farm-expert".
         # Note: resolve_target_agent lowercases the primitive key for lookup.
@@ -70,7 +71,7 @@ class FitnessStalenessTriageTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _seed_fitness(self, recorded_at: str, tier: str = "ACTIVE") -> None:
-        append_jsonl(
+        append_declared_fixture(
             self.tools_dir / "fitness" / "agent-fitness.jsonl",
             {
                 "$schema": "aria/agent-fitness/v1",
@@ -81,6 +82,7 @@ class FitnessStalenessTriageTests(unittest.TestCase):
                 "score": 0.9,
                 "recorded_at": recorded_at,
             },
+            expected_surface="fitness_agent",
         )
 
     def test_fresh_fitness_keeps_auto_fix_safe(self):
@@ -100,7 +102,7 @@ class FitnessStalenessTriageTests(unittest.TestCase):
         self.assertIn("agent_fitness_stale", decision["reasons"])
 
     def test_missing_recorded_at_counts_as_stale_for_routing(self):
-        append_jsonl(
+        append_declared_fixture(
             self.tools_dir / "fitness" / "agent-fitness.jsonl",
             {
                 "$schema": "aria/agent-fitness/v1",
@@ -110,6 +112,7 @@ class FitnessStalenessTriageTests(unittest.TestCase):
                 "max_triage_tier": "auto_fix_safe",
                 "score": 0.9,
             },
+            expected_surface="fitness_agent",
         )
         result = triage_policy_apply(self.paths, cycle_id="cyc-missing", tools_root=self.tools_dir)
         decision = result["decisions"][0]

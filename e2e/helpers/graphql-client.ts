@@ -40,9 +40,25 @@ export interface GraphQLExecuteOptions extends GraphQLRequestOptions {
 export interface GraphQLRequestOptions {
   /** Additional HTTP headers */
   headers?: Record<string, string>;
+  /**
+   * Extra headers applied AFTER `headers` — used by security specs to
+   * override base headers (e.g. forged tenant/batching probes).
+   */
+  extraHeaders?: Record<string, string>;
+  /** Per-request bearer token override (falls back to the client's token). */
+  token?: string;
+  /** Per-request tenant override (falls back to the client's tenant). */
+  tenantId?: string;
   /** Request timeout in ms (default: 10000) */
   timeout?: number;
 }
+
+/**
+ * Default gateway origin for zero-arg / Playwright client modes and the
+ * standalone helpers. Mirrors forFarmService()'s env fallback chain.
+ */
+const DEFAULT_GATEWAY_URL =
+  process.env['GATEWAY_URL'] ?? process.env['BASE_URL'] ?? 'http://localhost:3000';
 
 /**
  * Error thrown when a GraphQL response contains errors.
@@ -70,32 +86,43 @@ export class GraphQLTestError extends Error {
 export class GraphQLTestClient {
   private readonly graphqlUrl: string;
 
+  /** Gateway origin (no /graphql suffix) — basis for withToken/withTenant clones. */
+  private readonly baseUrl: string;
+
+  /** Bearer token attached to requests unless overridden per-request. */
+  private currentToken: string;
+
+  /** Tenant context attached as x-tenant-id unless overridden per-request. */
+  private currentTenantId: string | undefined;
+
   /**
    * Playwright request fixture type (duck-typed to avoid @playwright/test dependency).
    */
   private playwrightRequest: PlaywrightAPIRequestContext | undefined;
 
-  constructor();
-  constructor(request: unknown);
+  constructor(request?: unknown);
   constructor(baseUrl: string, token: string, tenantId?: string);
   constructor(
-    baseUrlOrRequest?: string | unknown,
+    baseUrlOrRequest?: unknown,
     token?: string,
     tenantId?: string,
   ) {
     if (baseUrlOrRequest === undefined) {
       // Zero-arg: Jest/Vitest mode — use default gateway URL
+      this.baseUrl = DEFAULT_GATEWAY_URL;
       this.graphqlUrl = `${DEFAULT_GATEWAY_URL}/graphql`;
       this.currentToken = '';
       this.currentTenantId = undefined;
     } else if (typeof baseUrlOrRequest === 'string') {
       // Explicit baseUrl + token
+      this.baseUrl = baseUrlOrRequest;
       this.graphqlUrl = `${baseUrlOrRequest}/graphql`;
       this.currentToken = token ?? '';
       this.currentTenantId = tenantId;
     } else {
       // Playwright request context
       this.playwrightRequest = baseUrlOrRequest as PlaywrightAPIRequestContext;
+      this.baseUrl = DEFAULT_GATEWAY_URL;
       this.graphqlUrl = `${DEFAULT_GATEWAY_URL}/graphql`;
       this.currentToken = '';
       this.currentTenantId = undefined;
@@ -220,12 +247,14 @@ export class GraphQLTestClient {
   ): Promise<Response> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${this.token}`,
+      Authorization: `Bearer ${options?.token ?? this.currentToken}`,
       ...options?.headers,
+      ...options?.extraHeaders,
     };
 
-    if (this.tenantId) {
-      headers['x-tenant-id'] = this.tenantId;
+    const tenantId = options?.tenantId ?? this.currentTenantId;
+    if (tenantId) {
+      headers['x-tenant-id'] = tenantId;
     }
 
     const controller = new AbortController();
@@ -249,7 +278,7 @@ export class GraphQLTestClient {
    * Useful for testing as different users.
    */
   withToken(newToken: string): GraphQLTestClient {
-    return new GraphQLTestClient(this.baseUrl, newToken, this.tenantId);
+    return new GraphQLTestClient(this.baseUrl, newToken, this.currentTenantId);
   }
 
   /**
@@ -257,7 +286,7 @@ export class GraphQLTestClient {
    * Useful for testing tenant isolation.
    */
   withTenant(newTenantId: string): GraphQLTestClient {
-    return new GraphQLTestClient(this.baseUrl, this.token, newTenantId);
+    return new GraphQLTestClient(this.baseUrl, this.currentToken, newTenantId);
   }
 
   /**

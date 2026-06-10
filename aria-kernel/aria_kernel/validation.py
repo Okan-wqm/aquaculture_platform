@@ -8,7 +8,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import (
+    append_declared_jsonl,
+    load_declared_jsonl,
+)
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -19,6 +22,35 @@ ALLOWED_COMMANDS = (
     ("python3", "-m", "aria_kernel"),
     ("python3", "-m", "unittest"),
 )
+
+
+_VALIDATION_SURFACE_BY_FILENAME: dict[str, str] = {
+    "validation-plans.jsonl": "validation_plans",
+    "validation-runs.jsonl": "validation_runs",
+    "validation-comparisons.jsonl": "validation_comparisons",
+    "validation-gates.jsonl": "validation_gates",
+}
+
+
+def _validation_surface_name(path: str | Path) -> str | None:
+    concrete = Path(path)
+    if concrete.parent.name != "validation":
+        return None
+    return _VALIDATION_SURFACE_BY_FILENAME.get(concrete.name)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    surface = _validation_surface_name(path)
+    if surface is not None:
+        return append_declared_jsonl(path, record, expected_surface=surface)
+    raise GovernanceError(f"validation_append_unknown_surface:{path.as_posix()}")
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _validation_surface_name(path)
+    if surface is not None:
+        return load_declared_jsonl(path, expected_surface=surface)
+    raise GovernanceError(f"validation_load_unknown_surface:{path.as_posix()}")
 
 
 def run_validation_commands(

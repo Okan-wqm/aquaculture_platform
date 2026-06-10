@@ -1,7 +1,7 @@
 /**
  * EdgePolicyV2 — versioned RBAC/ABAC policy bundle for an edge device.
  *
- * Per ADR-025 — per-tenant under sensor schema. Supersedes ADR-022's
+ * Per ADR-034 — per-tenant under sensor schema. Supersedes ADR-022's
  * `edge.policies`. The monotonic `policyVersion` is enforced at write
  * time by sensor-service; replay protection lives in the Rust agent's
  * `manifest_version_store.rs` SQLCipher floor.

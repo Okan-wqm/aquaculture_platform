@@ -1,3 +1,5 @@
+<!-- ARIA-HISTORICAL: Historical plan document. Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
+
 # ARIA Plan 022 — Kernel Correctness Closure
 
 > **Status at sign-off:** v6 declared closure complete. **Status post-audit:** Plan 023 v3 corrective arc is closing 30+ architectural bypass routes that survived the v6 sign-off; this Plan 022 doc is the historical anchor.

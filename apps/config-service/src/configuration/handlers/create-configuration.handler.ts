@@ -8,7 +8,7 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { CreateConfigurationCommand } from '../commands/create-configuration.command';
-import { Configuration } from '../entities/configuration.entity';
+import { Configuration, ConfigValueType } from '../entities/configuration.entity';
 import { ConfigurationService } from '../services/configuration.service';
 import { ConfigurationValidationService } from '../services/configuration-validation.service';
 import { EncryptionService } from '../services/encryption.service';
@@ -59,10 +59,12 @@ export class CreateConfigurationHandler
         );
       }
 
+      const isSecret = input.valueType === ConfigValueType.SECRET || input.isSecret === true;
+
       // Encrypt secret values before saving
       // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
       let valueToStore = input.value;
-      if (input.isSecret && this.encryptionService.isAvailable()) {
+      if (isSecret && this.encryptionService.isAvailable()) {
         valueToStore = this.encryptionService.encrypt(input.value, tenantId, input.key);
       }
 
@@ -71,10 +73,10 @@ export class CreateConfigurationHandler
         service: input.service,
         key: input.key,
         value: valueToStore,
-        valueType: input.valueType,
+        valueType: isSecret ? ConfigValueType.SECRET : input.valueType,
         environment: input.environment,
         description: input.description,
-        isSecret: input.isSecret,
+        isSecret,
         defaultValue: input.defaultValue,
         validationRules: input.validationRules as Record<string, unknown>,
         category: input.category,

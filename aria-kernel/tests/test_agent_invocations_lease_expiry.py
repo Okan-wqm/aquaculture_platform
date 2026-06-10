@@ -32,8 +32,8 @@ from aria_kernel.agent_invocations import (
     heartbeat_claim,
     submit_claim_result,
 )
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 def _iso(dt: datetime) -> str:
@@ -58,7 +58,7 @@ class LeaseExpiryTests(unittest.TestCase):
         agent_id = "agent-test-001"
         lease_token = "secret-token-test-001"
         # Request row.
-        append_jsonl(
+        append_declared_fixture(
             self.base / "agent-invocations" / "requests.jsonl",
             {
                 "schema_version": 1,
@@ -69,9 +69,10 @@ class LeaseExpiryTests(unittest.TestCase):
                 "evidence_caps": {"max_response_tokens": 1000},
                 "expected_output_path": str(self.tmp / "out.json"),
             },
+            expected_surface="agent_invocation_requests",
         )
         # Claim row.
-        append_jsonl(
+        append_declared_fixture(
             self.base / "agent-invocations" / "claims.jsonl",
             {
                 "schema_version": 1,
@@ -83,6 +84,7 @@ class LeaseExpiryTests(unittest.TestCase):
                 "claimed_at": _iso(datetime.now(timezone.utc) - timedelta(hours=1)),
                 "lease_expires_at": _iso(lease_expires_at),
             },
+            expected_surface="agent_invocation_claims",
         )
         return request_id, claim_id, lease_token
 

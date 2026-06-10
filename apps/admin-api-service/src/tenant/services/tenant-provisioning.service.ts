@@ -1,21 +1,21 @@
 import * as crypto from 'crypto';
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { SchemaManagerService, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
 import { LegalHoldService } from '@aquaculture/backend-common/compliance';
-import { Repository, DataSource } from 'typeorm';
+import { createCleanupDropProof } from '@aquaculture/backend-common/database';
+import type { CleanupDropProof } from '@aquaculture/backend-common/database';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import {
   TenantSchema,
-  SchemaStatus,
+  SchemaBackup,
 } from '../../database-management/entities/database-management.entity';
 import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
-import { EmailSenderService } from '../../settings/services/email-sender.service';
 import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
-import { RoleTemplateService } from '../../users/services/role-template.service';
-import { UserPermissionsService } from '../../users/services/user-permissions.service';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
+
+import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
 import { ProvisioningSagaService, SagaResult } from './provisioning-saga.service';
 
 /**
@@ -41,7 +41,7 @@ export interface ProvisioningResult {
   adminUser?: {
     userId: string;
     email: string;
-    // NOTE: invitationToken intentionally omitted from result.
+    // NOTE: invite credential material is intentionally omitted from result.
     // The raw token must only travel via email to prevent leakage
     // through API responses, logs, or event payloads.
   };
@@ -61,19 +61,52 @@ export interface TenantProvisioningOptions {
   adminLastName?: string;
   assignModules?: string[];
   skipSchemaCreation?: boolean;
+  finalizeActivation?: boolean;
+  operationId?: string;
+  idempotencyKeyBase?: string;
+  payloadHash?: string;
+  actorId?: string;
+}
+
+interface AuthProvisioningCommandContext {
+  operationId: string;
+  idempotencyKeyBase: string;
+  actorId: string;
+  requestPayloadHash: string;
+}
+
+interface TenantRoleRow {
+  id?: unknown;
+  code?: unknown;
+  name?: unknown;
+  description?: unknown;
+  permissions?: unknown;
+  is_default?: unknown;
+  is_editable?: unknown;
+  display_order?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+}
+
+interface CountRow {
+  count?: unknown;
+}
+
+interface TenantSchemaCleanupRow {
+  schemaName?: unknown;
+}
+
+interface NamespaceRow {
+  nspname?: unknown;
+}
+
+interface IdRow {
+  id?: unknown;
 }
 
 @Injectable()
 export class TenantProvisioningService {
   private readonly logger = new Logger(TenantProvisioningService.name);
-  private readonly schemaManager: SchemaManagerService;
-
-  /**
-   * MEDIUM-008 fix: guard flag so the DDL in ensureTenantRolesTableExists()
-   * only executes once per service-instance lifetime instead of on every
-   * provisioning call.  The ideal long-term fix is a proper TypeORM migration.
-   */
-  private tenantRolesTableEnsured = false;
 
   /**
    * Default roles to be created for each tenant during provisioning.
@@ -99,22 +132,77 @@ export class TenantProvisioningService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly tenantConfigurationService: TenantConfigurationService,
-    private readonly roleTemplateService: RoleTemplateService,
-    private readonly userPermissionsService: UserPermissionsService,
     private readonly backupRestoreService: BackupRestoreService,
-    @Optional()
-    private readonly emailSenderService?: EmailSenderService,
-    // LEGAL-HIGH-006 cure: tenant deprovisioning issues DROP SCHEMA on
-    // the tenant's per-tenant schema — irreversible at the DB level.
-    // The canonical LegalHoldService is consulted as the FIRST step of
-    // deprovisionTenant so a tenant under litigation hold cannot have
-    // evidence destroyed. @Optional preserves local-dev paths where
-    // the LegalHoldModule may not be wired.
+    private readonly authProvisioningClient: AuthTenantProvisioningClientService,
     @Optional()
     private readonly legalHoldService?: LegalHoldService,
-  ) {
-    // Initialize schema manager with dataSource
-    this.schemaManager = new SchemaManagerService(this.dataSource);
+  ) {}
+
+  private rowsFromQuery<T extends object>(value: unknown): T[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.filter(
+      (row): row is T =>
+        typeof row === 'object' && row !== null && !Array.isArray(row),
+    );
+  }
+
+  private readString(value: unknown): string {
+    if (value == null) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return value.toString();
+    }
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    return '';
+  }
+
+  private readBoolean(value: unknown): boolean {
+    return value === true || value === 'true' || value === 1 || value === '1';
+  }
+
+  private readNumber(value: unknown): number {
+    return Number(value ?? 0);
+  }
+
+  private readDate(value: unknown): Date {
+    if (value instanceof Date) {
+      return value;
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+      return new Date(value);
+    }
+    return new Date(0);
+  }
+
+  private parseRolePermissions(value: unknown): string[] {
+    if (Array.isArray(value)) {
+      return value.filter((permission): permission is string => typeof permission === 'string');
+    }
+    if (typeof value !== 'string') {
+      return [];
+    }
+
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((permission): permission is string => typeof permission === 'string')
+      : [];
+  }
+
+  private toTenantStatus(status: string): TenantStatus | undefined {
+    return Object.values(TenantStatus).find((candidate) => String(candidate) === status);
   }
 
   /**
@@ -123,13 +211,11 @@ export class TenantProvisioningService {
    * Uses ProvisioningSagaService to orchestrate steps with compensating
    * transactions. On failure, completed steps are rolled back in reverse.
    *
-   * TODO(NATS-MIGRATION): The following steps currently write directly to
-   * auth.* tables. They should be replaced with NATS request-reply commands
-   * using the contracts in @platform/event-contracts/tenant-commands:
-   *   - setupDefaultRoles → SetupTenantRolesCommand
-   *   - createFirstAdminUser → CreateTenantAdminCommand
-   *   - assignModulesToTenant → AssignTenantModulesCommand
-   *   - On rollback → RollbackTenantProvisioningCommand
+   * Auth-owned identity writes are delegated to auth-service via NATS
+   * request-reply commands from @platform/event-contracts/tenant-commands.
+   * admin-api owns orchestration and tenant schemas; auth-service remains
+   * the single writer for auth.users, auth.invitations, auth.tenant_roles,
+   * and auth.tenant_modules.
    */
   async provisionTenant(
     tenantId: string,
@@ -141,8 +227,19 @@ export class TenantProvisioningService {
       adminFirstName,
       adminLastName,
       assignModules = [],
-      skipSchemaCreation = false,
+      skipSchemaCreation = true,
+      finalizeActivation = true,
+      operationId = crypto.randomUUID(),
+      idempotencyKeyBase = `manual-provision:${tenantId}:${operationId}`,
+      payloadHash = this.hashPayload({ tenantId, options }),
+      actorId,
     } = options;
+    const authCommandContext: AuthProvisioningCommandContext = {
+      operationId,
+      idempotencyKeyBase,
+      actorId: actorId ?? tenantId,
+      requestPayloadHash: payloadHash,
+    };
 
     // Pre-flight: validate tenant exists and is in PENDING state
     const tenant = await this.tenantRepository.findOne({
@@ -161,6 +258,7 @@ export class TenantProvisioningService {
     const retryableStatuses = new Set<string>([
       TenantStatus.PENDING,
       TenantStatus.PROVISIONING_FAILED,
+      ...(finalizeActivation === false ? [TenantStatus.PROVISIONING] : []),
     ]);
     if (!retryableStatuses.has(tenant.status)) {
       return {
@@ -175,113 +273,111 @@ export class TenantProvisioningService {
       };
     }
 
-    // SECURITY: Atomically claim the tenant for provisioning by setting status
-    // to PROVISIONING to prevent TOCTOU races. The tenant stays in a non-ACTIVE
-    // state until the full provisioning saga completes successfully.
-    // Previously, the tenant was set to ACTIVE here, before schema creation,
-    // role setup, and admin creation, allowing partially provisioned tenants
-    // to become visible as active.
-    const [, rowsAffected] = await this.dataSource.query(
-      `UPDATE auth.tenants
-          SET status = $2, "updatedAt" = NOW()
-        WHERE id = $1 AND status = ANY($3::text[])`,
-      [tenantId, TenantStatus.PROVISIONING, [TenantStatus.PENDING, TenantStatus.PROVISIONING_FAILED]],
-    );
-    if ((rowsAffected as number) === 0) {
-      return {
-        success: false,
-        tenantId,
-        steps: [{
-          name: 'validate_tenant',
-          status: 'failed',
-          error: 'Tenant provisioning already in progress or completed by a concurrent request',
-        }],
-        error: 'Tenant provisioning already in progress or completed by a concurrent request',
-      };
-    }
-    // Keep as PENDING internally — will be set to ACTIVE only after full saga success
-    tenant.status = TenantStatus.PENDING;
-
     // Build the saga with steps + compensating actions
     const saga = new ProvisioningSagaService();
     let adminUser: ProvisioningResult['adminUser'] | undefined;
     const warnings: string[] = [];
 
     // Step: Assign modules (optional, before schema creation)
-    // TODO(NATS-MIGRATION): Replace with NATS AssignTenantModulesCommand
     if (assignModules.length > 0) {
       saga.addStep(
         'assign_modules',
         async () => {
-          await this.assignModulesToTenant(tenant.id, assignModules);
+          await this.assignModulesToTenant(tenant.id, assignModules, authCommandContext);
         },
         async () => {
-          // Compensate: remove assigned modules
-          this.logger.warn(`Compensating: removing modules for tenant ${tenant.id}`);
-          await this.dataSource.query(
-            `DELETE FROM auth.tenant_modules WHERE "tenantId" = $1`,
-            [tenant.id],
-          ).catch((err: Error) => {
-            this.logger.error(`Failed to remove modules during compensation: ${err.message}`);
-          });
+          await this.rollbackAuthProvisioning(
+            tenant.id,
+            ['assign_modules'],
+            'module assignment compensation',
+            {
+              ...authCommandContext,
+              actorId: actorId ?? tenant.createdBy ?? authCommandContext.actorId,
+            },
+          );
         },
       );
     }
 
-    // Step: Create tenant schema
+    // Step: Verify tenant schema ownership boundary.
     if (!skipSchemaCreation) {
       saga.addStep(
         'create_schema',
-        async () => {
-          await this.createTenantSchema(tenant);
+        () => {
+          this.createTenantSchema(tenant);
         },
         async () => {
-          // Compensate: delete the schema
-          this.logger.warn(`Compensating: deleting schema for tenant ${tenant.id}`);
-          await this.schemaManager.deleteTenantSchema(tenant.id);
-          // Also clean up tracking record
+          const proof = createCleanupDropProof({
+            operationId: authCommandContext.operationId,
+            tenantId: tenant.id,
+            purpose: 'provisioning_rollback',
+            actorId: authCommandContext.actorId,
+            reason: 'tenant provisioning create_schema compensation',
+            legalHoldCheckedAt: new Date(),
+            backup: {
+              id: `provisioning-rollback-${tenant.id}`,
+              checksum: crypto
+                .createHash('sha256')
+                .update(`provisioning_rollback:${authCommandContext.operationId}:${tenant.id}`)
+                .digest('hex'),
+              sizeBytes: 1,
+              isEncrypted: true,
+              createdAt: new Date(),
+              retentionDays: 7,
+            },
+          });
           const schemaRecord = await this.tenantSchemaRepository.findOne({ where: { tenantId: tenant.id } });
           if (schemaRecord) {
-            schemaRecord.status = 'deleted' as SchemaStatus;
+            schemaRecord.status = 'pending_deletion';
+            schemaRecord.metadata = {
+              ...(schemaRecord.metadata ?? {}),
+              cleanupOperationId: proof.operationId,
+              cleanupRequestedAt: new Date().toISOString(),
+              cleanupProofPurpose: proof.purpose,
+              cleanupProofCreatedAt: proof.createdAt,
+              cleanupProofBackupId: proof.backup?.id,
+            };
             await this.tenantSchemaRepository.save(schemaRecord);
           }
+          this.logger.warn(
+            `Schema compensation for tenant ${tenant.id} is db-migrate owned; admin-api did not issue DDL`,
+          );
         },
       );
     } else {
       saga.addStep(
         'create_schema',
-        async () => {
+        () => {
           this.logger.log(`Skipping schema creation for tenant ${tenantId} (skipSchemaCreation=true)`);
         },
       );
     }
 
-    // Step: Setup default roles
-    // TODO(NATS-MIGRATION): Replace with NATS SetupTenantRolesCommand
     saga.addStep(
       'setup_default_roles',
       async () => {
-        await this.setupDefaultRoles(tenant);
+        await this.setupDefaultRoles(tenant, authCommandContext);
       },
       async () => {
-        // Compensate: delete roles created for this tenant
-        this.logger.warn(`Compensating: deleting roles for tenant ${tenant.id}`);
-        await this.dataSource.query(
-          `DELETE FROM auth.tenant_roles WHERE "tenantId" = $1`,
-          [tenant.id],
-        ).catch((err: Error) => {
-          this.logger.error(`Failed to delete roles during compensation: ${err.message}`);
-        });
+          await this.rollbackAuthProvisioning(
+            tenant.id,
+            ['setup_roles'],
+            'tenant role setup compensation',
+            {
+              ...authCommandContext,
+              actorId: actorId ?? tenant.createdBy ?? authCommandContext.actorId,
+            },
+          );
       },
     );
 
     // Step: Create default configuration
     saga.addStep(
       'create_default_config',
-      async () => {
-        await this.createDefaultConfiguration(tenant);
+      () => {
+        this.createDefaultConfiguration(tenant);
       },
-      async () => {
+      () => {
         // Compensate: configuration cleanup is handled by TenantConfigurationService
         this.logger.warn(`Compensating: removing configuration for tenant ${tenant.id}`);
         // Best effort — config may not have been created
@@ -309,8 +405,6 @@ export class TenantProvisioningService {
       );
     }
 
-    // Step (Optional): Create first admin user
-    // TODO(NATS-MIGRATION): Replace with NATS CreateTenantAdminCommand
     if (createFirstAdmin && adminEmail) {
       saga.addStep(
         'create_first_admin',
@@ -320,67 +414,58 @@ export class TenantProvisioningService {
             adminEmail,
             adminFirstName || 'Admin',
             adminLastName || 'User',
+            {
+              ...authCommandContext,
+              actorId: actorId ?? tenant.createdBy ?? authCommandContext.actorId,
+            },
           );
 
-          if (!adminResult.success) {
-            // Admin creation failure is non-fatal — log and continue
-            const warning = `Could not create first admin for tenant ${tenantId}: ${adminResult.error}`;
-            warnings.push(warning);
-            this.logger.warn(warning);
-            return;
+          if (!adminResult.success || !adminResult.userId) {
+            throw new Error(
+              `Could not create first admin for tenant ${tenantId}: ${adminResult.error ?? 'missing user id'}`,
+            );
           }
 
-          // Store admin user info (without invitationToken — it only travels via email)
           adminUser = {
-            userId: adminResult.userId!,
+            userId: adminResult.userId,
             email: adminEmail,
           };
-
-          // Send invitation email with the raw token
-          await this.sendAdminInvitationEmail(
-            adminEmail,
-            adminFirstName || 'Admin',
-            adminLastName || 'User',
-            tenant.name,
-            adminResult.invitationToken!,
-          );
         },
         async () => {
-          // Compensate: delete the admin user and invitation
-          this.logger.warn(`Compensating: deleting admin user for tenant ${tenant.id}`);
-          await this.dataSource.query(
-            `DELETE FROM auth.users WHERE "tenantId" = $1 AND role = 'TENANT_ADMIN'`,
-            [tenant.id],
-          ).catch((err: Error) => {
-            this.logger.error(`Failed to delete admin user during compensation: ${err.message}`);
-          });
-          await this.dataSource.query(
-            `DELETE FROM auth.invitations WHERE "tenantId" = $1`,
-            [tenant.id],
-          ).catch((err: Error) => {
-            this.logger.error(`Failed to delete invitations during compensation: ${err.message}`);
-          });
+          await this.rollbackAuthProvisioning(
+            tenant.id,
+            ['create_admin'],
+            'first admin compensation',
+            {
+              ...authCommandContext,
+              actorId: actorId ?? tenant.createdBy ?? authCommandContext.actorId,
+            },
+          );
         },
       );
     }
 
-    // Step: Activate tenant (persist the ACTIVE status set atomically above)
-    saga.addStep(
-      'activate_tenant',
-      async () => {
-        tenant.status = TenantStatus.ACTIVE;
-        tenant.lastActivityAt = new Date();
-        await this.tenantRepository.save(tenant);
-      },
-      async () => {
-        // Compensate: revert tenant to PENDING
-        this.logger.warn(`Compensating: reverting tenant ${tenant.id} to PENDING`);
-        await this.dataSource.query(
-          `UPDATE auth.tenants SET status = $1, "updatedAt" = NOW() WHERE id = $2`,
-          [TenantStatus.PENDING, tenant.id],
-        );
-      },
-    );
+    if (finalizeActivation) {
+      // Manual provisioning can still finalize inside this service. The async
+      // tenant-create workflow passes finalizeActivation=false and activates
+      // only after its outer RLS, billing, audit and event steps succeed.
+      saga.addStep(
+        'activate_tenant',
+        async () => {
+          await this.authProvisioningClient.activateTenant({
+            ...this.buildAuthCommandMetadata(
+              'ActivateTenant',
+              tenant.id,
+              authCommandContext,
+              { finalizeActivation: true },
+            ),
+          });
+        },
+        () => {
+          this.logger.warn(`Compensating: tenant ${tenant.id} activation is auth-owned; leaving status transition evidence intact`);
+        },
+      );
+    }
 
     // Execute the saga
     const sagaResult: SagaResult = await saga.run();
@@ -400,10 +485,18 @@ export class TenantProvisioningService {
     if (sagaResult.success) {
       this.logger.log(`Tenant ${tenantId} provisioned successfully`);
     } else {
-      await this.dataSource.query(
-        `UPDATE auth.tenants SET status = $1, "updatedAt" = NOW() WHERE id = $2 AND status = $3`,
-        [TenantStatus.PROVISIONING_FAILED, tenantId, TenantStatus.PROVISIONING],
-      );
+      await this.authProvisioningClient.failProvisioning({
+        ...this.buildAuthCommandMetadata(
+          'FailProvisioning',
+          tenantId,
+          authCommandContext,
+          {
+            failedStep: sagaResult.failedStep,
+            error: sagaResult.error,
+          },
+        ),
+        reason: sagaResult.error ?? 'Tenant provisioning failed',
+      });
       this.logger.error(
         `Tenant ${tenantId} provisioning failed at step [${sagaResult.failedStep}]: ${sagaResult.error}`,
       );
@@ -421,60 +514,9 @@ export class TenantProvisioningService {
   }
 
   /**
-   * Send invitation email to the new admin user.
-   * Extracted from provisionTenant for clarity and testability.
-   */
-  private async sendAdminInvitationEmail(
-    email: string,
-    firstName: string,
-    lastName: string,
-    tenantName: string,
-    rawInvitationToken: string,
-  ): Promise<void> {
-    if (!this.emailSenderService) {
-      this.logger.warn('EmailSenderService not available, invitation email not sent');
-      return;
-    }
-
-    try {
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
-
-      const emailResult = await this.emailSenderService.sendInvitationEmail({
-        email,
-        firstName,
-        lastName,
-        tenantName,
-        invitationToken: rawInvitationToken,
-        role: 'TENANT_ADMIN',
-        expiresAt,
-      });
-
-      if (emailResult.success) {
-        this.logger.log(`Invitation email sent to ${email}`);
-      } else {
-        this.logger.warn(`Failed to send invitation email to ${email}: ${emailResult.error}`);
-      }
-    } catch (emailError) {
-      this.logger.warn(`Error sending invitation email: ${(emailError as Error).message}`);
-    }
-  }
-
-  /**
    * Deprovision a tenant and clean up resources
    */
   async deprovisionTenant(tenantId: string): Promise<ProvisioningResult> {
-    // LEGAL-HIGH-006 cure: BEFORE any deprovisioning step (backup,
-    // resource removal, schema cleanup), assert no legal hold is
-    // active. The cleanupTenantSchema step issues DROP SCHEMA which
-    // is irreversible at the DB level — once the schema is gone,
-    // legal-hold preservation has nothing to restore. Throwing here
-    // (LegalHoldActiveError) bubbles up as a 4xx to the operator
-    // with a clear "release the hold first" signal.
-    if (this.legalHoldService) {
-      await this.legalHoldService.assertNoHold(tenantId, 'tenant');
-    }
-
     const steps: ProvisioningStep[] = [
       { name: 'validate_tenant', status: 'pending' },
       { name: 'backup_data', status: 'pending' },
@@ -482,24 +524,48 @@ export class TenantProvisioningService {
       { name: 'cleanup_schema', status: 'pending' },
     ];
 
-    const updateStep = (
+    const preCounts = await this.collectTenantCleanupCounts(tenantId);
+    const cleanupRunId = await this.createCleanupRun(tenantId, preCounts);
+    const cleanupAuthCommandContext: AuthProvisioningCommandContext = {
+      operationId: cleanupRunId,
+      idempotencyKeyBase: `tenant-cleanup:${tenantId}:${cleanupRunId}`,
+      actorId: 'tenant-deprovision-workflow',
+      requestPayloadHash: this.hashPayload({ tenantId, cleanupRunId, preCounts }),
+    };
+
+    const updateStep = async (
       index: number,
       status: ProvisioningStep['status'],
       error?: string,
-    ): void => {
+    ): Promise<void> => {
       const step = steps[index];
       if (step) {
         step.status = status;
         if (error !== undefined) step.error = error;
+        await this.recordCleanupStep(cleanupRunId, step.name, status, error);
       }
     };
 
     try {
+      // Legal hold is the first non-ledger gate before any backup, delete, or
+      // schema drop. It is not optional; if the canonical service cannot answer,
+      // destructive cleanup cannot run.
+      if (!this.legalHoldService) {
+        throw new Error('LegalHoldService is required before tenant cleanup can run');
+      }
+      await this.legalHoldService.assertNoHold(tenantId, 'tenant');
+      await this.markCleanupRunLegalHoldChecked(cleanupRunId);
+
       const tenant = await this.tenantRepository.findOne({
         where: { id: tenantId },
       });
 
       if (!tenant) {
+        await updateStep(0, 'failed', `Tenant ${tenantId} not found`);
+        await this.finishCleanupRun(cleanupRunId, 'FAILED', {
+          error: `Tenant ${tenantId} not found`,
+          postCounts: await this.collectTenantCleanupCounts(tenantId),
+        });
         return {
           success: false,
           tenantId,
@@ -509,37 +575,62 @@ export class TenantProvisioningService {
       }
 
       // Validate tenant can be deprovisioned
-      updateStep(0, 'in_progress');
-      if (tenant.status === TenantStatus.ACTIVE) {
-        updateStep(0, 'failed', 'Cannot deprovision an active tenant');
+      await updateStep(0, 'in_progress');
+      if (this.toTenantStatus(tenant.status) === TenantStatus.ACTIVE) {
+        await updateStep(0, 'failed', 'Cannot deprovision an active tenant');
+        await this.finishCleanupRun(cleanupRunId, 'FAILED', {
+          error: 'Cannot deprovision an active tenant',
+          postCounts: await this.collectTenantCleanupCounts(tenantId),
+        });
         return { success: false, tenantId, steps };
       }
-      updateStep(0, 'completed');
+      await updateStep(0, 'completed');
 
       // Backup data
-      updateStep(1, 'in_progress');
-      await this.backupTenantData(tenant);
-      updateStep(1, 'completed');
+      await updateStep(1, 'in_progress');
+      const backup = await this.backupTenantData(tenant);
+      await this.attachCleanupBackup(cleanupRunId, backup);
+      await updateStep(1, 'completed');
+      const dropProof = this.createDeprovisionDropProof({
+        tenant,
+        cleanupRunId,
+        backup,
+        preCounts,
+      });
 
       // Remove resources
-      updateStep(2, 'in_progress');
-      await this.removeTenantResources(tenant);
-      updateStep(2, 'completed');
+      await updateStep(2, 'in_progress');
+      await this.removeTenantResources(tenant, cleanupAuthCommandContext);
+      await updateStep(2, 'completed');
 
       // Cleanup schema
-      updateStep(3, 'in_progress');
-      await this.cleanupTenantSchema(tenant);
-      updateStep(3, 'completed');
+      await updateStep(3, 'in_progress');
+      await this.cleanupTenantSchema(tenant, dropProof, cleanupRunId);
+      await updateStep(3, 'completed');
 
-      this.logger.log(`Tenant ${tenantId} deprovisioned successfully`);
+      await this.finishCleanupRun(cleanupRunId, 'PENDING_DB_MIGRATE', {
+        postCounts: await this.collectTenantCleanupCounts(tenantId),
+      });
 
-      return { success: true, tenantId, steps };
+      this.logger.log(`Tenant ${tenantId} deprovisioning accepted for db-migrate schema cleanup`);
+
+      return {
+        success: true,
+        tenantId,
+        steps,
+        warnings: ['Tenant schema cleanup is queued for aqua-db-migrate'],
+      };
     } catch (error) {
       const currentStep = steps.find((s) => s.status === 'in_progress');
       if (currentStep) {
         currentStep.status = 'failed';
         currentStep.error = (error as Error).message;
+        await this.recordCleanupStep(cleanupRunId, currentStep.name, 'failed', currentStep.error);
       }
+      await this.finishCleanupRun(cleanupRunId, this.isLegalHoldError(error) ? 'DENIED' : 'FAILED', {
+        error: (error as Error).message,
+        postCounts: await this.collectTenantCleanupCounts(tenantId),
+      });
 
       return {
         success: false,
@@ -564,7 +655,7 @@ export class TenantProvisioningService {
       return { status: 'not_found' };
     }
 
-    switch (tenant.status) {
+    switch (this.toTenantStatus(tenant.status)) {
       case TenantStatus.PENDING:
         return { status: 'pending', tenant };
       case TenantStatus.PROVISIONING:
@@ -584,218 +675,40 @@ export class TenantProvisioningService {
     }
   }
 
-  private async createTenantSchema(tenant: Tenant): Promise<void> {
-    this.logger.log(`Creating schema for tenant ${tenant.id}`);
-
-    // Query assigned modules for this tenant from auth.tenant_modules → auth.modules
-    // Only create tables for modules the tenant has actually been assigned
-    let modulesToCreate: string[];
-    try {
-      const assignedModules: { code: string }[] = await this.dataSource.query(
-        `SELECT m.code FROM auth.tenant_modules tm
-         JOIN auth.modules m ON m.id = tm."moduleId"
-         WHERE tm."tenantId" = $1 AND tm."isEnabled" = true`,
-        [tenant.id],
-      );
-      modulesToCreate = assignedModules.length > 0
-        ? assignedModules.map((m) => m.code)
-        : DEFAULT_TENANT_MODULES;
-
-      if (assignedModules.length > 0) {
-        this.logger.log(
-          `Creating schema with assigned modules: ${modulesToCreate.join(', ')}`,
-        );
-      } else {
-        this.logger.log(
-          `No assigned modules found for tenant ${tenant.id}; using platform default modules: ${modulesToCreate.join(', ')}`,
-        );
-      }
-    } catch (error) {
-      throw new Error(
-        `Failed to resolve assigned modules for tenant ${tenant.id}: ${(error as Error).message}`,
-      );
-    }
-
-    // Create tenant schema with the determined module tables
-    const result = await this.schemaManager.createTenantSchema(tenant.id, modulesToCreate);
-
-    if (!result.success) {
-      throw new Error(`Schema creation failed: ${result.errors.join(', ')}`);
-    }
-
-    this.logger.log(
-      `Created tenant schema ${result.schemaName} with ${result.tablesCreated.length} tables in ${result.duration}ms`,
+  private createTenantSchema(tenant: Tenant): never {
+    this.logger.warn(
+      `Rejecting runtime schema creation for tenant ${tenant.id}; tenant schema provisioning is db-migrate owned`,
     );
-
-    // Track the schema in admin.tenant_schemas for visibility and management
-    await this.trackTenantSchema(
-      tenant.id,
-      result.schemaName,
-      result.tablesCreated.length,
-      result.alreadyExists,
+    throw new Error(
+      `Tenant schema creation for ${tenant.id} is owned by aqua-db-migrate; ` +
+        `admin-api must create a provisioning ledger request and wait for admin.tenant_schemas.`,
     );
-  }
-
-  /**
-   * Insert or update a tracking record in admin.tenant_schemas after schema creation.
-   * This is critical for admin dashboard visibility, migration tracking,
-   * and knowing which tenant schemas exist without querying information_schema.
-   */
-  private async trackTenantSchema(
-    tenantId: string,
-    schemaName: string,
-    tableCount: number,
-    alreadyExists?: boolean,
-  ): Promise<void> {
-    try {
-      // Check if a tracking record already exists (e.g., from a previous partial provisioning)
-      const existing = await this.tenantSchemaRepository.findOne({
-        where: { tenantId },
-      });
-
-      if (existing) {
-        // Update existing record to active
-        existing.status = 'active' as SchemaStatus;
-        existing.tableCount = tableCount || existing.tableCount;
-        await this.tenantSchemaRepository.save(existing);
-        this.logger.log(
-          `Updated tenant_schemas tracking record for tenant ${tenantId} (schema: ${schemaName})`,
-        );
-      } else {
-        // Insert new tracking record
-        const schemaRecord = this.tenantSchemaRepository.create({
-          tenantId,
-          schemaName,
-          status: 'active' as SchemaStatus,
-          currentVersion: '1.0.0',
-          tableCount: tableCount || 0,
-        });
-        await this.tenantSchemaRepository.save(schemaRecord);
-        this.logger.log(
-          `Created tenant_schemas tracking record for tenant ${tenantId} (schema: ${schemaName}, tables: ${tableCount})`,
-        );
-      }
-    } catch (error) {
-      // Log but don't fail provisioning — the actual schema was already created successfully.
-      // The tracking record can be backfilled later.
-      this.logger.warn(
-        `Failed to create tenant_schemas tracking record for tenant ${tenantId}: ${(error as Error).message}`,
-      );
-    }
   }
 
   /**
    * Setup default roles for a newly provisioned tenant.
    * Creates only the TENANT_ADMIN role - actual permissions are managed via user_permissions table.
    */
-  private async setupDefaultRoles(tenant: Tenant): Promise<void> {
+  private async setupDefaultRoles(
+    tenant: Tenant,
+    context: AuthProvisioningCommandContext,
+  ): Promise<void> {
     this.logger.log(`Setting up default roles for tenant ${tenant.id}`);
 
-    // Ensure the tenant_roles table exists
-    await this.ensureTenantRolesTableExists();
-
-    // Create each default role for the tenant
-    for (const role of this.defaultRoles) {
-      try {
-        // Check if role already exists for this tenant
-        const existingRole = await this.dataSource.query(
-          `SELECT id FROM auth.tenant_roles WHERE "tenantId" = $1 AND code = $2`,
-          [tenant.id, role.code],
-        );
-
-        if (existingRole && existingRole.length > 0) {
-          this.logger.debug(
-            `Role ${role.code} already exists for tenant ${tenant.id}, skipping`,
-          );
-          continue;
-        }
-
-        // Insert the role
-        await this.dataSource.query(
-          `
-          INSERT INTO auth.tenant_roles (
-            id, "tenantId", code, name, description, permissions,
-            is_default, is_editable, display_order, created_at, updated_at
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, $4, $5,
-            $6, $7, $8, NOW(), NOW()
-          )
-        `,
-          [
-            tenant.id,
-            role.code,
-            role.name,
-            role.description,
-            JSON.stringify(role.permissions),
-            role.isDefault,
-            role.isEditable,
-            role.displayOrder,
-          ],
-        );
-
-        this.logger.debug(`Created role ${role.code} for tenant ${tenant.id}`);
-      } catch (error) {
-        this.logger.error(
-          `Failed to create role ${role.code} for tenant ${tenant.id}: ${(error as Error).message}`,
-        );
-        throw error;
-      }
-    }
+    const result = await this.authProvisioningClient.setupTenantRoles({
+      ...this.buildAuthCommandMetadata(
+        'SetupRoles',
+        tenant.id,
+        context,
+        { roles: this.defaultRoles },
+      ),
+      roles: this.defaultRoles,
+      createdBy: tenant.createdBy,
+    });
 
     this.logger.log(
-      `Successfully created ${this.defaultRoles.length} default roles for tenant ${tenant.id}`,
+      `Successfully ensured tenant default roles for ${tenant.id}; created=${result.rolesCreated ?? 0}`,
     );
-  }
-
-  /**
-   * Ensure the tenant_roles table exists in the database.
-   * MEDIUM-008 fix: the DDL is skipped after the first successful call within
-   * this service instance to avoid issuing locking DDL on every provisioning.
-   * The authoritative fix is to move these statements into a TypeORM migration.
-   */
-  private async ensureTenantRolesTableExists(): Promise<void> {
-    if (this.tenantRolesTableEnsured) return;
-    try {
-      await this.dataSource.query(`
-        CREATE TABLE IF NOT EXISTS auth.tenant_roles (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          "tenantId" UUID NOT NULL,
-          code VARCHAR(50) NOT NULL,
-          name VARCHAR(100) NOT NULL,
-          description TEXT,
-          permissions JSONB NOT NULL DEFAULT '[]',
-          is_default BOOLEAN NOT NULL DEFAULT false,
-          is_editable BOOLEAN NOT NULL DEFAULT true,
-          display_order INTEGER NOT NULL DEFAULT 0,
-          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-          CONSTRAINT uk_tenant_roles_tenant_code UNIQUE ("tenantId", code),
-          CONSTRAINT fk_tenant_roles_tenant FOREIGN KEY ("tenantId")
-            REFERENCES auth.tenants(id) ON DELETE CASCADE
-        )
-      `);
-
-      // Create indexes for better query performance
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_tenant_roles_tenant_id
-        ON auth.tenant_roles("tenantId")
-      `);
-
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_tenant_roles_code
-        ON auth.tenant_roles(code)
-      `);
-
-      // Mark as done so subsequent provisioning calls skip these DDL statements
-      this.tenantRolesTableEnsured = true;
-    } catch (error) {
-      // Table might already exist or constraint might already be in place
-      this.logger.debug(
-        `tenant_roles table setup: ${(error as Error).message}`,
-      );
-      // Still mark as ensured if the table was already there (CREATE IF NOT EXISTS)
-      this.tenantRolesTableEnsured = true;
-    }
   }
 
   /**
@@ -804,7 +717,7 @@ export class TenantProvisioningService {
   async getTenantRoles(
     tenantId: string,
   ): Promise<Array<DefaultTenantRole & { id: string; createdAt: Date; updatedAt: Date }>> {
-    const roles = await this.dataSource.query(
+    const roles = this.rowsFromQuery<TenantRoleRow>(await this.dataSource.query(
       `
       SELECT id, "tenantId", code, name, description, permissions,
              is_default, is_editable, display_order, created_at, updated_at
@@ -813,36 +726,20 @@ export class TenantProvisioningService {
       ORDER BY display_order ASC
     `,
       [tenantId],
-    );
+    ));
 
-    return roles.map(
-      (row: {
-        id: string;
-        code: string;
-        name: string;
-        description: string;
-        permissions: string;
-        is_default: boolean;
-        is_editable: boolean;
-        display_order: number;
-        created_at: Date;
-        updated_at: Date;
-      }) => ({
-        id: row.id,
-        code: row.code,
-        name: row.name,
-        description: row.description,
-        permissions:
-          typeof row.permissions === 'string'
-            ? JSON.parse(row.permissions)
-            : row.permissions,
-        isDefault: row.is_default,
-        isEditable: row.is_editable,
-        displayOrder: row.display_order,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      }),
-    );
+    return roles.map((row) => ({
+      id: this.readString(row.id),
+      code: this.readString(row.code),
+      name: this.readString(row.name),
+      description: this.readString(row.description),
+      permissions: this.parseRolePermissions(row.permissions),
+      isDefault: this.readBoolean(row.is_default),
+      isEditable: this.readBoolean(row.is_editable),
+      displayOrder: this.readNumber(row.display_order),
+      createdAt: this.readDate(row.created_at),
+      updatedAt: this.readDate(row.updated_at),
+    }));
   }
 
   /**
@@ -852,7 +749,7 @@ export class TenantProvisioningService {
     tenantId: string,
     roleCode: string,
   ): Promise<(DefaultTenantRole & { id: string }) | null> {
-    const roles = await this.dataSource.query(
+    const roles = this.rowsFromQuery<TenantRoleRow>(await this.dataSource.query(
       `
       SELECT id, code, name, description, permissions,
              is_default, is_editable, display_order
@@ -860,25 +757,26 @@ export class TenantProvisioningService {
       WHERE "tenantId" = $1 AND code = $2
     `,
       [tenantId, roleCode],
-    );
+    ));
 
-    if (!roles || roles.length === 0) {
+    if (roles.length === 0) {
       return null;
     }
 
     const row = roles[0];
+    if (!row) {
+      return null;
+    }
+
     return {
-      id: row.id,
-      code: row.code,
-      name: row.name,
-      description: row.description,
-      permissions:
-        typeof row.permissions === 'string'
-          ? JSON.parse(row.permissions)
-          : row.permissions,
-      isDefault: row.is_default,
-      isEditable: row.is_editable,
-      displayOrder: row.display_order,
+      id: this.readString(row.id),
+      code: this.readString(row.code),
+      name: this.readString(row.name),
+      description: this.readString(row.description),
+      permissions: this.parseRolePermissions(row.permissions),
+      isDefault: this.readBoolean(row.is_default),
+      isEditable: this.readBoolean(row.is_editable),
+      displayOrder: this.readNumber(row.display_order),
     };
   }
 
@@ -886,19 +784,15 @@ export class TenantProvisioningService {
    * Create default configuration for a newly provisioned tenant
    * Uses the TenantConfigurationService to create the configuration record
    */
-  private async createDefaultConfiguration(tenant: Tenant): Promise<void> {
+  private createDefaultConfiguration(tenant: Tenant): void {
     this.logger.log(`Creating default configuration for tenant ${tenant.id}`);
 
     try {
-      // Use the TenantConfigurationService to create the configuration
-      // This will use the defaults from createDefaultTenantConfiguration
-      await this.tenantConfigurationService.createConfiguration({
+      const request = this.tenantConfigurationService.requestDefaultConfigurationProvisioning({
         tenantId: tenant.id,
-        // Override defaults with tenant-specific settings if available
         brandingConfig: {
           companyName: tenant.name,
         },
-        // Enable basic feature flags for new tenants
         featureFlags: {
           dataExport: true,
           auditLog: true,
@@ -908,7 +802,7 @@ export class TenantProvisioningService {
       });
 
       this.logger.log(
-        `Successfully created default configuration for tenant ${tenant.id}`,
+        `Config-service default configuration requested for tenant ${tenant.id}: ${request.requestId}`,
       );
     } catch (error) {
       // If configuration already exists, log and continue
@@ -926,12 +820,203 @@ export class TenantProvisioningService {
     }
   }
 
-  private async backupTenantData(tenant: Tenant): Promise<void> {
+  private async collectTenantCleanupCounts(tenantId: string): Promise<Record<string, unknown>> {
+    const queryCount = async (sql: string, params: unknown[] = [tenantId]): Promise<number> => {
+      const rows = this.rowsFromQuery<CountRow>(await this.dataSource.query(sql, params));
+      const raw = rows[0]?.count ?? 0;
+      return Number(raw ?? 0);
+    };
+
+    const schemaRows = this.rowsFromQuery<TenantSchemaCleanupRow>(await this.dataSource.query(
+      `SELECT "schemaName", status
+         FROM admin.tenant_schemas
+        WHERE "tenantId" = $1
+        ORDER BY "updatedAt" DESC`,
+      [tenantId],
+    ));
+    const schemaNames = schemaRows
+      .map((row) => this.readString(row.schemaName))
+      .filter((name) => name.length > 0);
+    const schemaExistsRows = schemaNames.length > 0
+      ? this.rowsFromQuery<NamespaceRow>(await this.dataSource.query(
+          `SELECT nspname
+             FROM pg_namespace
+            WHERE nspname = ANY($1::text[])
+            ORDER BY nspname`,
+          [schemaNames],
+        ))
+      : [];
+
+    return {
+      tenants: await queryCount(`SELECT COUNT(*) AS count FROM auth.tenants WHERE id = $1`),
+      users: await queryCount(`SELECT COUNT(*) AS count FROM auth.users WHERE "tenantId" = $1`),
+      invitations: await queryCount(`SELECT COUNT(*) AS count FROM auth.invitations WHERE "tenantId" = $1`),
+      tenantModules: await queryCount(`SELECT COUNT(*) AS count FROM auth.tenant_modules WHERE "tenantId" = $1`),
+      tenantRoles: await queryCount(`SELECT COUNT(*) AS count FROM auth.tenant_roles WHERE "tenantId" = $1`),
+      schemaRecords: schemaRows.length,
+      schemaNames,
+      existingSchemas: schemaExistsRows.map((row) => this.readString(row.nspname)),
+    };
+  }
+
+  private async createCleanupRun(
+    tenantId: string,
+    preCounts: Record<string, unknown>,
+  ): Promise<string> {
+    const rows = this.rowsFromQuery<IdRow>(await this.dataSource.query(
+      `INSERT INTO admin.cleanup_runs (
+          "tenantId", scope, "actorUserId", status, "preCounts", "createdAt", "updatedAt"
+        ) VALUES (
+          $1, 'tenant', 'system', 'RUNNING', $2::jsonb, NOW(), NOW()
+        )
+        RETURNING id`,
+      [tenantId, JSON.stringify(preCounts)],
+    ));
+    const id = this.readString(rows[0]?.id);
+    if (!id) {
+      throw new Error('Failed to create tenant cleanup ledger run');
+    }
+    await this.appendCleanupRunEvent(id, 'RUN_CREATED', { tenantId, preCounts });
+    await this.appendCleanupRunEvidence(id, 'PRE_COUNTS', preCounts);
+    return String(id);
+  }
+
+  private async markCleanupRunLegalHoldChecked(cleanupRunId: string): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE admin.cleanup_runs
+          SET "legalHoldCheckedAt" = NOW(), "updatedAt" = NOW()
+        WHERE id = $1`,
+      [cleanupRunId],
+    );
+    await this.appendCleanupRunEvent(cleanupRunId, 'LEGAL_HOLD_CHECKED', {});
+  }
+
+  private async recordCleanupStep(
+    cleanupRunId: string,
+    stepName: string,
+    status: ProvisioningStep['status'],
+    error?: string,
+  ): Promise<void> {
+    await this.dataSource.query(
+      `INSERT INTO admin.cleanup_run_steps (
+          "runId", "stepName", status, error, "startedAt", "completedAt", "updatedAt"
+        ) VALUES (
+          $1, $2, $3, $4,
+          CASE WHEN $3 = 'in_progress' THEN NOW() ELSE NULL END,
+          CASE WHEN $3 IN ('completed', 'failed') THEN NOW() ELSE NULL END,
+          NOW()
+        )
+        ON CONFLICT ("runId", "stepName") DO UPDATE
+          SET status = EXCLUDED.status,
+              error = EXCLUDED.error,
+              "startedAt" = COALESCE("cleanup_run_steps"."startedAt", EXCLUDED."startedAt"),
+              "completedAt" = CASE
+                WHEN EXCLUDED.status IN ('completed', 'failed') THEN NOW()
+                ELSE "cleanup_run_steps"."completedAt"
+              END,
+              "updatedAt" = NOW()`,
+      [cleanupRunId, stepName, status, error ?? null],
+    );
+    await this.appendCleanupRunEvent(cleanupRunId, 'STEP_RECORDED', { stepName, status, error: error ?? null });
+  }
+
+  private async attachCleanupBackup(
+    cleanupRunId: string,
+    backup: SchemaBackup,
+  ): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE admin.cleanup_runs
+          SET "backupId" = $2,
+              "backupChecksum" = $3,
+              "backupSizeBytes" = $4,
+              "backupEncrypted" = $5,
+              "updatedAt" = NOW()
+        WHERE id = $1`,
+      [
+        cleanupRunId,
+        backup.id,
+        backup.checksum,
+        backup.sizeBytes,
+        backup.isEncrypted === true,
+      ],
+    );
+    await this.appendCleanupRunEvidence(cleanupRunId, 'ENCRYPTED_BACKUP', {
+      backupId: backup.id,
+      checksum: backup.checksum,
+      sizeBytes: backup.sizeBytes,
+      encrypted: backup.isEncrypted === true,
+    });
+  }
+
+  private async finishCleanupRun(
+    cleanupRunId: string,
+    status: 'PENDING_DB_MIGRATE' | 'SUCCEEDED' | 'FAILED' | 'DENIED',
+    options: {
+      error?: string;
+      postCounts?: Record<string, unknown>;
+    } = {},
+  ): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE admin.cleanup_runs
+          SET status = $2,
+              error = $3,
+              "postCounts" = COALESCE($4::jsonb, "postCounts"),
+              "completedAt" = NOW(),
+              "updatedAt" = NOW()
+        WHERE id = $1`,
+      [
+        cleanupRunId,
+        status,
+        options.error ?? null,
+        options.postCounts ? JSON.stringify(options.postCounts) : null,
+      ],
+    );
+    await this.appendCleanupRunEvent(cleanupRunId, 'RUN_FINISHED', {
+      status,
+      error: options.error ?? null,
+    });
+    if (options.postCounts) {
+      await this.appendCleanupRunEvidence(cleanupRunId, 'POST_COUNTS', options.postCounts);
+    }
+  }
+
+  private async appendCleanupRunEvent(
+    cleanupRunId: string,
+    eventType: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    await this.dataSource.query(
+      `INSERT INTO admin.cleanup_run_events ("runId", "eventType", payload, "createdAt")
+       VALUES ($1, $2, $3::jsonb, NOW())`,
+      [cleanupRunId, eventType, JSON.stringify(payload)],
+    );
+  }
+
+  private async appendCleanupRunEvidence(
+    cleanupRunId: string,
+    evidenceType: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const evidenceHash = crypto.createHash('sha256').update(this.stableStringify(payload)).digest('hex');
+    await this.dataSource.query(
+      `INSERT INTO admin.cleanup_run_evidence ("runId", "evidenceType", "evidenceHash", payload, "createdAt")
+       VALUES ($1, $2, $3, $4::jsonb, NOW())`,
+      [cleanupRunId, evidenceType, evidenceHash, JSON.stringify(payload)],
+    );
+  }
+
+  private isLegalHoldError(error: unknown): boolean {
+    const err = error as { name?: string; message?: string };
+    return err.name === 'LegalHoldActiveError'
+      || (typeof err.message === 'string' && err.message.toLowerCase().includes('legal hold'));
+  }
+
+  private async backupTenantData(tenant: Tenant): Promise<SchemaBackup> {
     const backup = await this.backupRestoreService.createBackup({
       tenantId: tenant.id,
       backupType: 'full',
       compress: true,
-      encrypt: false,
+      encrypt: true,
       retentionDays: 365,
     });
 
@@ -940,55 +1025,130 @@ export class TenantProvisioningService {
         `Tenant backup did not complete before deprovisioning: ${backup.status}`,
       );
     }
-  }
-
-  private async removeTenantResources(tenant: Tenant): Promise<void> {
-    // Deprovisioning must remove auth/admin side resources only after a
-    // completed schema backup. Tenant business data is removed by dropping the
-    // tenant schema in cleanupTenantSchema().
-    await this.dataSource.query(
-      `DELETE FROM auth.invitations WHERE "tenantId" = $1`,
-      [tenant.id],
-    );
-    await this.dataSource.query(
-      `UPDATE auth.users SET "isActive" = false, "updatedAt" = NOW() WHERE "tenantId" = $1`,
-      [tenant.id],
-    );
-    await this.dataSource.query(
-      `DELETE FROM auth.tenant_modules WHERE "tenantId" = $1`,
-      [tenant.id],
-    );
-    await this.dataSource.query(
-      `DELETE FROM auth.tenant_roles WHERE "tenantId" = $1`,
-      [tenant.id],
-    );
-  }
-
-  private async cleanupTenantSchema(tenant: Tenant): Promise<void> {
-    this.logger.log(`Cleaning up schema for tenant ${tenant.id}`);
-
-    const result = await this.schemaManager.deleteTenantSchema(tenant.id);
-    if (!result.success) {
-      throw new Error(`Schema cleanup failed: ${result.error}`);
+    if (!backup.checksum || Number(backup.sizeBytes ?? 0) <= 0) {
+      throw new Error('Tenant backup proof is incomplete: checksum and size are required before cleanup');
+    }
+    if (backup.isEncrypted !== true) {
+      throw new Error('Tenant backup proof is incomplete: encrypted backup is required before cleanup');
     }
 
-    // Update the tracking record to reflect deletion
-    try {
-      const schemaRecord = await this.tenantSchemaRepository.findOne({
-        where: { tenantId: tenant.id },
-      });
-      if (schemaRecord) {
-        schemaRecord.status = 'deleted' as SchemaStatus;
-        await this.tenantSchemaRepository.save(schemaRecord);
-        this.logger.log(`Marked tenant_schemas tracking record as deleted for tenant ${tenant.id}`);
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Failed to update tenant_schemas tracking record during cleanup for tenant ${tenant.id}: ${(error as Error).message}`,
-      );
+    return backup;
+  }
+
+  private async removeTenantResources(
+    tenant: Tenant,
+    context: AuthProvisioningCommandContext,
+  ): Promise<void> {
+    await this.authProvisioningClient.rollbackTenantProvisioning({
+      ...this.buildAuthCommandMetadata(
+        'RollbackProvisioning',
+        tenant.id,
+        context,
+        {
+          completedSteps: ['create_admin', 'setup_roles', 'assign_modules'],
+          reason: 'tenant deprovision resource cleanup',
+        },
+      ),
+      completedSteps: ['create_admin', 'setup_roles', 'assign_modules'],
+      reason: 'tenant deprovision resource cleanup',
+    });
+  }
+
+  private createDeprovisionDropProof(input: {
+    tenant: Tenant;
+    cleanupRunId: string;
+    backup: SchemaBackup;
+    preCounts: Record<string, unknown>;
+  }): CleanupDropProof {
+    const algorithm = input.backup.metadata?.encryptionAlgorithm;
+    const keyId = input.backup.metadata?.encryptionKeyId;
+
+    return createCleanupDropProof({
+      operationId: input.cleanupRunId,
+      tenantId: input.tenant.id,
+      purpose: 'tenant_deprovision',
+      actorId: 'tenant-deprovision-workflow',
+      reason: 'tenant deprovision workflow schema cleanup',
+      legalHoldCheckedAt: new Date(),
+      backup: {
+        id: input.backup.id,
+        checksum: input.backup.checksum,
+        sizeBytes: Number(input.backup.sizeBytes),
+        isEncrypted: true,
+        uri: input.backup.filePath || input.backup.fileName || undefined,
+        createdAt: input.backup.createdAt,
+        retentionDays: input.backup.retentionDays,
+        algorithm,
+        keyId,
+      },
+      preCounts: input.preCounts,
+    });
+  }
+
+  private async cleanupTenantSchema(
+    tenant: Tenant,
+    proof: CleanupDropProof,
+    cleanupRunId: string,
+  ): Promise<void> {
+    this.logger.log(
+      `Recording db-migrate schema cleanup request ${cleanupRunId} for tenant ${tenant.id}`,
+    );
+    if (proof.tenantId !== tenant.id) {
+      throw new Error(`Cleanup proof tenant mismatch for ${tenant.id}`);
     }
 
-    this.logger.log(`Tenant schema deleted for ${tenant.id}`);
+    const schemaRecord = await this.tenantSchemaRepository.findOne({
+      where: { tenantId: tenant.id },
+    });
+    if (!schemaRecord?.schemaName) {
+      throw new Error(`Cannot queue schema deletion without tenant_schemas record for ${tenant.id}`);
+    }
+
+    const requestedAt = new Date().toISOString();
+    await this.dataSource.query(
+      `SELECT platform.request_tenant_schema_deletion($1::uuid, $2::uuid, $3::text, $4::jsonb)`,
+      [
+        cleanupRunId,
+        tenant.id,
+        schemaRecord.schemaName,
+        JSON.stringify({
+          cleanupProof: this.serializeCleanupDropProof(proof),
+          tombstone: {
+            cleanupRunId,
+            tenantId: tenant.id,
+            schemaName: schemaRecord.schemaName,
+            requestedAt,
+            requestedBy: 'tenant-deprovision-workflow',
+          },
+        }),
+      ],
+    );
+
+    schemaRecord.status = 'pending_deletion';
+    schemaRecord.metadata = {
+      ...(schemaRecord.metadata ?? {}),
+      cleanupRunId,
+      cleanupOperationId: proof.operationId,
+      cleanupRequestedAt: requestedAt,
+    };
+    await this.tenantSchemaRepository.save(schemaRecord);
+    this.logger.log(`Tenant schema cleanup for ${tenant.id} is queued for aqua-db-migrate`);
+  }
+
+  private serializeCleanupDropProof(proof: CleanupDropProof): Record<string, unknown> {
+    return {
+      operationId: proof.operationId,
+      tenantId: proof.tenantId,
+      purpose: proof.purpose,
+      actorId: proof.actorId,
+      approverId: proof.approverId,
+      reason: proof.reason,
+      legalHoldCheckedAt: proof.legalHoldCheckedAt,
+      backup: proof.backup,
+      preCounts: proof.preCounts,
+      postCounts: proof.postCounts,
+      createdAt: proof.createdAt,
+    };
   }
 
   /**
@@ -999,86 +1159,25 @@ export class TenantProvisioningService {
     email: string,
     firstName: string,
     lastName: string,
+    context: AuthProvisioningCommandContext,
   ): Promise<{
     success: boolean;
     userId?: string;
-    invitationToken?: string;
     error?: string;
   }> {
     try {
-      // Check if email already exists
-      const existingUser = await this.dataSource.query(
-        `SELECT id FROM auth.users WHERE LOWER(email) = LOWER($1)`,
-        [email],
-      );
-
-      if (existingUser && existingUser.length > 0) {
-        return {
-          success: false,
-          error: 'A user with this email already exists',
-        };
-      }
-
-      // Generate invitation token — raw token goes to email, SHA-256 hash goes to DB.
-      // This follows the auth-service pattern: if the DB is compromised, the attacker
-      // cannot use the hashed tokens to accept invitations.
-      const rawInvitationToken = crypto.randomBytes(32).toString('hex');
-      const hashedToken = crypto.createHash('sha256').update(rawInvitationToken).digest('hex');
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
-
-      // Create user in transaction
-      const result = await this.dataSource.transaction(async (manager) => {
-        // Create user with hashed invitation token
-        const userResult = await manager.query(
-          `
-          INSERT INTO auth.users (
-            id, email, "firstName", "lastName", role, "tenantId",
-            "isActive", "isEmailVerified", "invitationToken", "invitationExpiresAt",
-            "createdAt", "updatedAt"
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, 'TENANT_ADMIN', $4,
-            true, false, $5, $6,
-            NOW(), NOW()
-          )
-          RETURNING id
-        `,
-          [email, firstName, lastName, tenantId, hashedToken, expiresAt],
-        );
-
-        const userId = userResult[0].id;
-
-        // Create invitation record with hashed token
-        await manager.query(
-          `
-          INSERT INTO auth.invitations (
-            id, token, email, "firstName", "lastName", role, "tenantId",
-            status, "expiresAt", "invitedBy", "sendCount", "lastSentAt", "createdAt", "updatedAt"
-          ) VALUES (
-            gen_random_uuid(), $1, $2, $3, $4, 'TENANT_ADMIN', $5,
-            'PENDING', $6, $7, 1, NOW(), NOW(), NOW()
-          )
-        `,
-          [hashedToken, email, firstName, lastName, tenantId, expiresAt, userId],
-        );
-
-        // Update tenant user count
-        await manager.query(
-          `UPDATE auth.tenants SET user_count = 1 WHERE id = $1`,
-          [tenantId],
-        );
-
-        return { userId };
+      const result = await this.authProvisioningClient.createTenantAdmin({
+        ...this.buildAuthCommandMetadata(
+          'CreateFirstAdminInvite',
+          tenantId,
+          context,
+          { email, firstName, lastName },
+        ),
+        email,
+        firstName,
+        lastName,
+        invitedBy: context.actorId,
       });
-
-      // Create user permissions with TENANT_ADMIN_PERMISSIONS
-      // grantedBy is UUID type — use null for system-provisioned users
-      await this.userPermissionsService.createDefaultPermissions(
-        result.userId,
-        tenantId,
-        undefined, // grantedBy: omitted for system provisioning (column is nullable UUID)
-        true, // isAdmin - true to use TENANT_ADMIN_PERMISSIONS
-      );
 
       this.logger.log(
         `Created first admin user for tenant ${tenantId}: ${email} with TENANT_ADMIN permissions`,
@@ -1087,7 +1186,6 @@ export class TenantProvisioningService {
       return {
         success: true,
         userId: result.userId,
-        invitationToken: rawInvitationToken, // Raw token for email — DB stores only the hash
       };
     } catch (error) {
       this.logger.error(
@@ -1108,22 +1206,92 @@ export class TenantProvisioningService {
   private async assignModulesToTenant(
     tenantId: string,
     moduleIds: string[],
+    context: AuthProvisioningCommandContext,
   ): Promise<void> {
     if (moduleIds.length === 0) return;
 
     this.logger.log(`Assigning ${moduleIds.length} modules to tenant ${tenantId}`);
 
     try {
-      // Build a single query with unnest for safe parameterised bulk insert
-      await this.dataSource.query(
-        `INSERT INTO auth.tenant_modules (id, "tenantId", "moduleId", "isEnabled", "activatedAt", "createdAt", "updatedAt")
-         SELECT gen_random_uuid(), $1, unnest($2::uuid[]), true, NOW(), NOW(), NOW()
-         ON CONFLICT ("tenantId", "moduleId") DO NOTHING`,
-        [tenantId, moduleIds],
-      );
+      await this.authProvisioningClient.assignTenantModules({
+        ...this.buildAuthCommandMetadata(
+          'AssignModules',
+          tenantId,
+          context,
+          { moduleIds },
+        ),
+        moduleIds,
+        assignedBy: context.actorId,
+      });
     } catch (error) {
       throw new Error(`Could not assign modules to tenant ${tenantId}: ${(error as Error).message}`);
     }
+  }
+
+  private async rollbackAuthProvisioning(
+    tenantId: string,
+    completedSteps: Array<'create_admin' | 'setup_roles' | 'assign_modules' | 'activate_tenant'>,
+    reason: string,
+    context: AuthProvisioningCommandContext,
+  ): Promise<void> {
+    try {
+      await this.authProvisioningClient.rollbackTenantProvisioning({
+        ...this.buildAuthCommandMetadata(
+          'RollbackProvisioning',
+          tenantId,
+          context,
+          { completedSteps, reason },
+        ),
+        completedSteps,
+        reason,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Auth rollback failed for tenant ${tenantId}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  private buildAuthCommandMetadata(
+    commandType: string,
+    tenantId: string,
+    context: AuthProvisioningCommandContext,
+    _payload: unknown,
+  ): {
+    operationId: string;
+    tenantId: string;
+    actor: { id: string; type: 'user' };
+    requestReference: string;
+    auditMetadata: Record<string, unknown>;
+  } {
+    return {
+      operationId: context.operationId,
+      tenantId,
+      actor: { id: context.actorId, type: 'user' },
+      requestReference: `${context.idempotencyKeyBase}:${commandType}`,
+      auditMetadata: {
+        source: 'admin-api-service',
+        commandType,
+        requestPayloadHash: context.requestPayloadHash,
+      },
+    };
+  }
+
+  private hashPayload(payload: unknown): string {
+    return crypto.createHash('sha256').update(this.stableStringify(payload)).digest('hex');
+  }
+
+  private stableStringify(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
+    }
+
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`).join(',')}}`;
+    }
+
+    return JSON.stringify(value);
   }
 
   /**

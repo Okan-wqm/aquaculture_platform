@@ -12,7 +12,7 @@ from pathlib import Path
 from aria_kernel.cli import main
 from aria_kernel.feedback import add_feedback, build_feedback_event
 from aria_kernel.integrity import verify_integrity
-from aria_kernel.ledger import append_jsonl
+from aria_kernel.ledger import append_jsonl as _append_jsonl
 from aria_kernel.pressure import (
     append_pressure_state_event,
     curate_workspace_pressures,
@@ -20,6 +20,10 @@ from aria_kernel.pressure import (
     list_workspace_pressures,
 )
 from aria_kernel.workspace import ensure_workspace, workspace_paths
+
+
+def append_jsonl(path, record):
+    return _append_jsonl(path, record, test_fixture=True)
 
 
 class PressureLifecycleTests(unittest.TestCase):

@@ -5,10 +5,10 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/no-floating-promises */
+import { Role } from '@aquaculture/backend-common/decorators';
 import { NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Role } from '@aquaculture/backend-common/decorators';
 import { Repository } from 'typeorm';
 
 import { User } from '../../authentication/entities/user.entity';
@@ -97,26 +97,49 @@ const createMockMessage = (overrides: Partial<Message> = {}): Message => {
 // Mock Repository Factory
 // ============================================================================
 
-const createMockRepository = () => ({
-  find: jest.fn(),
-  findOne: jest.fn(),
-  findAndCount: jest.fn(),
-  save: jest.fn(),
-  create: jest.fn((data) => data),
-  update: jest.fn(),
-  delete: jest.fn(),
-  createQueryBuilder: jest.fn(() => ({
+const createMockRepository = () => {
+  // WHY: the service chains ONE QueryBuilder instance and the specs prime it
+  // via repository.createQueryBuilder().getMany — the factory must therefore
+  // return a single shared builder per repository. A fresh object per call
+  // means the spec primes one instance while the service reads another,
+  // silently yielding [] for every query.
+  const queryBuilder = {
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    addSelect: jest.fn().mockReturnThis(),
+    setParameter: jest.fn().mockReturnThis(),
+    setParameters: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
+    addOrderBy: jest.fn().mockReturnThis(),
     leftJoinAndSelect: jest.fn().mockReturnThis(),
-    getMany: jest.fn().mockResolvedValue([]),
-    getOne: jest.fn().mockResolvedValue(null),
+    skip: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
+    groupBy: jest.fn().mockReturnThis(),
     update: jest.fn().mockReturnThis(),
     set: jest.fn().mockReturnThis(),
     execute: jest.fn().mockResolvedValue({ affected: 1 }),
-  })),
-});
+    getMany: jest.fn().mockResolvedValue([]),
+    getOne: jest.fn().mockResolvedValue(null),
+    getCount: jest.fn().mockResolvedValue(0),
+    getRawOne: jest.fn().mockResolvedValue({}),
+    getRawMany: jest.fn().mockResolvedValue([]),
+    getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+  };
+  return {
+    find: jest.fn(),
+    findOne: jest.fn(),
+    findAndCount: jest.fn(),
+    save: jest.fn(),
+    create: jest.fn((data) => data),
+    update: jest.fn(),
+    delete: jest.fn(),
+    remove: jest.fn(),
+    count: jest.fn().mockResolvedValue(0),
+    increment: jest.fn().mockResolvedValue({ affected: 1 }),
+    createQueryBuilder: jest.fn(() => queryBuilder),
+  };
+};
 
 // ============================================================================
 // Tests
@@ -174,7 +197,11 @@ describe('MessagingService', () => {
       const result = await service.getThreads(tenantAdmin.id);
 
       expect(result).toHaveLength(2);
-      expect(result[0]!.tenantId).toBe('tenant-1');
+      const [firstThread] = result;
+      if (!firstThread) {
+        throw new Error('expected getThreads to return at least one thread');
+      }
+      expect(firstThread.tenantId).toBe('tenant-1');
     });
 
     it('should return all threads for SuperAdmin', async () => {
@@ -401,10 +428,13 @@ describe('MessagingService', () => {
 
       await service.sendMessage(tenantAdmin.id, { threadId: thread.id, content: 'Hello', isInternal: false });
 
-      expect(threadRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          unreadCountAdmin: 1, // Admin should see new message
-        }),
+      // WHY: unread counters moved to ATOMIC repository.increment (race-safe
+      // under concurrent sends) — assert the increment contract, not a
+      // read-modify-write save that production no longer performs.
+      expect(threadRepository.increment).toHaveBeenCalledWith(
+        { id: thread.id },
+        'unreadCountAdmin',
+        1,
       );
     });
   });
@@ -519,13 +549,17 @@ describe('MessagingService', () => {
   describe('getStats', () => {
     it('should return statistics for TenantAdmin', async () => {
       const tenantAdmin = createMockUser({ tenantId: 'tenant-1' });
-      const threads = [
-        createMockThread({ status: ThreadStatus.OPEN, unreadCountTenant: 2 }),
-        createMockThread({ status: ThreadStatus.CLOSED }),
-      ];
-
       userRepository.findOne.mockResolvedValue(tenantAdmin);
-      (threadRepository.createQueryBuilder().getMany as jest.Mock).mockResolvedValue(threads);
+      // WHY: getStats aggregates in SQL (COUNT FILTER / SUM) and reads ONE
+      // raw row via getRawOne — prime the aggregate row for 2 threads
+      // (1 OPEN with unreadCountTenant=2, 1 CLOSED).
+      (threadRepository.createQueryBuilder().getRawOne as jest.Mock).mockResolvedValue({
+        totalThreads: '2',
+        activeThreads: '1',
+        closedThreads: '1',
+        totalMessages: '0',
+        unreadMessages: '2',
+      });
 
       const stats = await service.getStats(tenantAdmin.id);
 
@@ -536,14 +570,18 @@ describe('MessagingService', () => {
 
     it('should return global statistics for SuperAdmin', async () => {
       const superAdmin = createMockUser({ role: Role.SUPER_ADMIN, tenantId: undefined });
-      const threads = [
-        createMockThread({ status: ThreadStatus.OPEN, unreadCountAdmin: 1, tenantId: 'tenant-1' }),
-        createMockThread({ status: ThreadStatus.OPEN, unreadCountAdmin: 2, tenantId: 'tenant-2' }),
-        createMockThread({ status: ThreadStatus.CLOSED, tenantId: 'tenant-3' }),
-      ];
 
       userRepository.findOne.mockResolvedValue(superAdmin);
-      (threadRepository.createQueryBuilder().getMany as jest.Mock).mockResolvedValue(threads);
+      // WHY: getStats aggregates in SQL — prime the getRawOne aggregate row
+      // for 3 threads across tenants (2 OPEN with unreadCountAdmin 1 and 2,
+      // 1 CLOSED → unread = 1 + 2).
+      (threadRepository.createQueryBuilder().getRawOne as jest.Mock).mockResolvedValue({
+        totalThreads: '3',
+        activeThreads: '2',
+        closedThreads: '1',
+        totalMessages: '0',
+        unreadMessages: '3',
+      });
 
       const stats = await service.getStats(superAdmin.id);
 
@@ -604,6 +642,14 @@ describe('SuperAdmin-TenantAdmin Communication Integration', () => {
         email: 'admin@tenant.com',
       });
       const tenant = createMockTenant({ id: 'tenant-1' });
+
+      // WHY: sendMessage resolves the caller twice (own guard + getThread
+      // access check). Per-step mockResolvedValueOnce chains desynchronise
+      // from the real lookup count — resolve by id as the base
+      // implementation; Once-primings below stack on top harmlessly.
+      userRepository.findOne.mockImplementation((opts: { where: { id: string } }) =>
+        Promise.resolve([superAdmin, tenantAdmin].find((u) => u.id === opts.where.id) ?? null),
+      );
 
       // Step 1: TenantAdmin creates a thread
       userRepository.findOne.mockResolvedValueOnce(tenantAdmin);
@@ -702,6 +748,13 @@ describe('SuperAdmin-TenantAdmin Communication Integration', () => {
       });
       const tenant = createMockTenant({ id: 'tenant-1' });
 
+      // WHY: sendMessage resolves the caller twice (own guard + getThread
+      // access check) — by-id base implementation keeps the lookup count
+      // honest; Once-primings stack on top.
+      userRepository.findOne.mockImplementation((opts: { where: { id: string } }) =>
+        Promise.resolve([superAdmin, tenantAdmin].find((u) => u.id === opts.where.id) ?? null),
+      );
+
       // TenantAdmin sends message - unreadCountAdmin should increment
       userRepository.findOne.mockResolvedValueOnce(tenantAdmin);
       tenantRepository.findOne.mockResolvedValueOnce(tenant);
@@ -736,10 +789,12 @@ describe('SuperAdmin-TenantAdmin Communication Integration', () => {
         isInternal: false,
       });
 
-      expect(threadRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          unreadCountTenant: 1,
-        }),
+      // WHY: unread counters use ATOMIC repository.increment in production —
+      // assert the increment contract, not a read-modify-write save.
+      expect(threadRepository.increment).toHaveBeenCalledWith(
+        { id: thread.id },
+        'unreadCountTenant',
+        1,
       );
     });
   });

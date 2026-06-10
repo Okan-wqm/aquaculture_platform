@@ -27,10 +27,7 @@ import {
   TileLoadingIndicator,
   ZoomLevelIndicator,
 } from '../components/map/SentinelTileLayer';
-import {
-  CMEMSTileLayer,
-  useCMEMSTiles,
-} from '../components/map/CMEMSTileLayer';
+import { CMEMSTileLayer, useCMEMSTiles } from '../components/map/CMEMSTileLayer';
 import {
   SatelliteLayerControl,
   BaseLayer,
@@ -128,10 +125,10 @@ const fetchSitesFromAPI = async (): Promise<Site[]> => {
 
 const createCustomIcon = (status: string, isSelected: boolean) => {
   const colorMap: Record<string, string> = {
-    active: '#22c55e',      // green-500
+    active: '#22c55e', // green-500
     maintenance: '#eab308', // yellow-500
-    inactive: '#6b7280',    // gray-500
-    closed: '#ef4444',      // red-500
+    inactive: '#6b7280', // gray-500
+    closed: '#ef4444', // red-500
   };
   const color = colorMap[status.toLowerCase()] || '#22c55e';
   const size = isSelected ? 40 : 32;
@@ -369,8 +366,11 @@ const MapViewPage: React.FC = () => {
           lat: site.location!.latitude,
           lng: site.location!.longitude,
         },
-        location: [site.address?.city, site.address?.country].filter(Boolean).join(', ')
-          || (site.location ? `${site.location.latitude.toFixed(4)}, ${site.location.longitude.toFixed(4)}` : 'Konum belirtilmemiş'),
+        location:
+          [site.address?.city, site.address?.country].filter(Boolean).join(', ') ||
+          (site.location
+            ? `${site.location.latitude.toFixed(4)}, ${site.location.longitude.toFixed(4)}`
+            : 'Konum belirtilmemiş'),
       }));
   }, [sites]);
 
@@ -398,8 +398,18 @@ const MapViewPage: React.FC = () => {
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
           <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              className="w-6 h-6 text-red-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
           </div>
           <p className="text-sm font-medium text-gray-900">Site verileri yüklenemedi</p>
@@ -421,9 +431,24 @@ const MapViewPage: React.FC = () => {
       {mapSites.length === 0 && !loading && (
         <Card className="p-8 text-center">
           <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            <svg
+              className="w-6 h-6 text-gray-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+              />
             </svg>
           </div>
           <h3 className="text-sm font-medium text-gray-900">Konum bilgisi olan site bulunamadı</h3>
@@ -431,7 +456,7 @@ const MapViewPage: React.FC = () => {
             Sitelere konum bilgisi eklemek için Setup sayfasını kullanın.
           </p>
           <Link
-            to="/sites/setup"
+            to="/sites/setup/sites"
             className="mt-4 inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700"
           >
             Setup'a Git
@@ -442,7 +467,10 @@ const MapViewPage: React.FC = () => {
       {mapSites.length > 0 && mapReady && (
         <>
           {/* Harita - Tam Genislik */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 relative overflow-hidden" style={{ height: '650px' }}>
+          <div
+            className="bg-white rounded-lg shadow-sm border border-gray-200 relative overflow-hidden"
+            style={{ height: '650px' }}
+          >
             {/* Satellite Layer Control */}
             <SatelliteLayerControl
               activeLayer={activeLayer}
@@ -469,34 +497,39 @@ const MapViewPage: React.FC = () => {
             {(isSentinelLayer && sentinel.isConfigured) || isCMEMSLayer ? (
               <DateRangePicker
                 selectedDate={selectedDate}
-                availableDates={[]} // TODO: Fetch available dates for viewport
+                availableDates={[]} // Pending: fetch available dates for viewport
                 onDateChange={setSelectedDate}
                 isLoading={isSentinelLayer ? sentinel.isLoading : cmems.isLoading}
               />
             ) : null}
 
             {/* Satellite Loading Overlay - Simple loading indicator for WMTS */}
-            {isSentinelLayer && sentinel.isConfigured && sentinel.hasWmtsSupport && sentinel.token && canShowSentinel && sentinel.isLoading && (
-              <div className="absolute bottom-4 left-4 z-[500] bg-white/90 rounded-lg shadow px-3 py-2 flex items-center gap-2 pointer-events-none">
-                <svg className="w-4 h-4 animate-spin text-primary-600" viewBox="0 0 24 24">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    fill="none"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-                <span className="text-xs text-gray-600">Uydu goruntusu yukleniyor...</span>
-              </div>
-            )}
+            {isSentinelLayer &&
+              sentinel.isConfigured &&
+              sentinel.hasWmtsSupport &&
+              sentinel.token &&
+              canShowSentinel &&
+              sentinel.isLoading && (
+                <div className="absolute bottom-4 left-4 z-[500] bg-white/90 rounded-lg shadow px-3 py-2 flex items-center gap-2 pointer-events-none">
+                  <svg className="w-4 h-4 animate-spin text-primary-600" viewBox="0 0 24 24">
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                  <span className="text-xs text-gray-600">Uydu goruntusu yukleniyor...</span>
+                </div>
+              )}
 
             {/* Zoom Level Indicator - Show when zoomed out too much for Sentinel */}
             {isSentinelLayer && sentinel.isConfigured && (
@@ -534,8 +567,8 @@ const MapViewPage: React.FC = () => {
               <div className="absolute bottom-4 left-4 z-[1000] max-w-sm">
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                   <p className="text-sm text-yellow-800 mb-2">
-                    Hizli uydu goruntuleri icin WMTS Instance ID gerekli.
-                    Sentinel Hub Dashboard'da Configuration Instance olusturun.
+                    Hizli uydu goruntuleri icin WMTS Instance ID gerekli. Sentinel Hub Dashboard'da
+                    Configuration Instance olusturun.
                   </p>
                   <Link
                     to="/sites/settings/sentinel-hub"
@@ -547,7 +580,6 @@ const MapViewPage: React.FC = () => {
               </div>
             )}
 
-
             <MapContainer
               center={turkeyCenter}
               zoom={defaultZoom}
@@ -558,19 +590,24 @@ const MapViewPage: React.FC = () => {
               <BaseLayer layer={activeLayer} />
 
               {/* Sentinel Hub Tile Layer - WMTS for fast loading */}
-              {isSentinelLayer && sentinel.isConfigured && sentinel.hasWmtsSupport && sentinel.instanceId && sentinel.token && canShowSentinel && (
-                <SentinelTileLayer
-                  instanceId={sentinel.instanceId}
-                  layer={sentinel.layer}
-                  date={sentinel.date}
-                  token={sentinel.token}
-                  opacity={sentinel.opacity}
-                  minZoom={SENTINEL_MIN_ZOOM}
-                  maxZoom={16}
-                  onLoadingChange={sentinel.onLoadingChange}
-                  onError={sentinel.onError}
-                />
-              )}
+              {isSentinelLayer &&
+                sentinel.isConfigured &&
+                sentinel.hasWmtsSupport &&
+                sentinel.instanceId &&
+                sentinel.token &&
+                canShowSentinel && (
+                  <SentinelTileLayer
+                    instanceId={sentinel.instanceId}
+                    layer={sentinel.layer}
+                    date={sentinel.date}
+                    token={sentinel.token}
+                    opacity={sentinel.opacity}
+                    minZoom={SENTINEL_MIN_ZOOM}
+                    maxZoom={16}
+                    onLoadingChange={sentinel.onLoadingChange}
+                    onError={sentinel.onError}
+                  />
+                )}
 
               {/* CMEMS Tile Layer - Oceanographic model data */}
               {isCMEMSLayer && (
@@ -587,17 +624,10 @@ const MapViewPage: React.FC = () => {
               )}
 
               {/* AOI Layer - Phase 2 */}
-              <AOILayer
-                aois={aoi.aois}
-                activeAOI={aoi.activeAOI}
-                onSelectAOI={aoi.selectAOI}
-              />
+              <AOILayer aois={aoi.aois} activeAOI={aoi.activeAOI} onSelectAOI={aoi.selectAOI} />
 
               {/* Geoman Controller - Phase 2 (inside MapContainer for Leaflet context) */}
-              <GeomanController
-                drawingMode={aoi.drawingMode}
-                onAOICreated={handleAOICreated}
-              />
+              <GeomanController drawingMode={aoi.drawingMode} onAOICreated={handleAOICreated} />
 
               <MapController
                 selectedSite={selectedSite}
@@ -637,8 +667,8 @@ const MapViewPage: React.FC = () => {
                             site.status === 'active'
                               ? 'bg-green-100 text-green-800'
                               : site.status === 'maintenance'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-gray-100 text-gray-800'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : 'bg-gray-100 text-gray-800'
                           }`}
                         >
                           {statusLabels[site.status] || site.status}
@@ -652,8 +682,18 @@ const MapViewPage: React.FC = () => {
                         className="inline-flex items-center text-sm text-primary-600 hover:text-primary-700"
                       >
                         Detayları Gör
-                        <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        <svg
+                          className="w-4 h-4 ml-1"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 5l7 7-7 7"
+                          />
                         </svg>
                       </Link>
                     </div>
@@ -692,11 +732,22 @@ const MapViewPage: React.FC = () => {
             {isPointQueryEnabled && !pointQuery.clickedPoint && !aoi.isDrawing && (
               <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-[400] bg-white/90 rounded-lg shadow px-4 py-2 pointer-events-none">
                 <p className="text-xs text-gray-600 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                  <svg
+                    className="w-4 h-4 text-primary-500"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                    />
                   </svg>
                   <span>
-                    Haritaya tıklayarak {currentDataSource === 'CMEMS' ? 'model' : 'uydu'} verisini sorgulayın
+                    Haritaya tıklayarak {currentDataSource === 'CMEMS' ? 'model' : 'uydu'} verisini
+                    sorgulayın
                   </span>
                 </p>
               </div>
@@ -734,7 +785,12 @@ const MapViewPage: React.FC = () => {
                   title="Kart Görünümü"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
+                    />
                   </svg>
                 </button>
                 <button
@@ -743,7 +799,12 @@ const MapViewPage: React.FC = () => {
                   title="Liste Görünümü"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 6h16M4 10h16M4 14h16M4 18h16"
+                    />
                   </svg>
                 </button>
               </div>
@@ -769,8 +830,11 @@ const MapViewPage: React.FC = () => {
                       </div>
                       <span
                         className={`ml-2 w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                          site.status === 'active' ? 'bg-green-500' :
-                          site.status === 'maintenance' ? 'bg-yellow-500' : 'bg-gray-500'
+                          site.status === 'active'
+                            ? 'bg-green-500'
+                            : site.status === 'maintenance'
+                              ? 'bg-yellow-500'
+                              : 'bg-gray-500'
                         }`}
                       />
                     </div>
@@ -796,11 +860,21 @@ const MapViewPage: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Konum</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Koordinat</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tip</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Site
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Konum
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Koordinat
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Durum
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Tip
+                      </th>
                       <th className="px-4 py-3"></th>
                     </tr>
                   </thead>
@@ -826,8 +900,11 @@ const MapViewPage: React.FC = () => {
                         <td className="px-4 py-3">
                           <Badge
                             variant={
-                              site.status === 'active' ? 'success' :
-                              site.status === 'maintenance' ? 'warning' : 'default'
+                              site.status === 'active'
+                                ? 'success'
+                                : site.status === 'maintenance'
+                                  ? 'warning'
+                                  : 'default'
                             }
                           >
                             {statusLabels[site.status] || site.status}
@@ -854,10 +931,7 @@ const MapViewPage: React.FC = () => {
           </div>
 
           {/* Weather Section */}
-          <SiteWeatherSection
-            siteId={selectedSiteId}
-            siteName={selectedSite?.name}
-          />
+          <SiteWeatherSection siteId={selectedSiteId} siteName={selectedSite?.name} />
         </>
       )}
     </div>

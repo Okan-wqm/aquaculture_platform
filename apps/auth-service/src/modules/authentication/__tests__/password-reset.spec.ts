@@ -1,29 +1,40 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-floating-promises */
 import * as crypto from 'crypto';
 
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
-import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, SelectQueryBuilder } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { Tenant } from '../../tenant/entities/tenant.entity';
+import { ActionToken } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
 import { AuthenticationService } from '../services/authentication.service';
+import { MfaService } from '../services/mfa.service';
+import { TokenService } from '../services/token.service';
 
+interface PasswordResetRequestedEvent {
+  eventType: string;
+  version: number;
+  userId: string;
+  actionTokenId: string;
+  cryptoShredKeyId: string;
+  email?: unknown;
+  resetToken?: unknown;
+}
+
+interface PasswordResetCompletedEvent {
+  eventType: string;
+  userId: string;
+}
 
 // ============================================================================
 // Mock Helpers
@@ -74,6 +85,15 @@ const mockInvitationRepository = {
   findOne: jest.fn(),
 };
 
+const mockActionTokenRepository = {
+  create: jest.fn((data: Record<string, unknown>) => ({ ...data })),
+  save: jest.fn((entity: Record<string, unknown>) => Promise.resolve({
+    id: 'action-token-id',
+    ...entity,
+  })),
+  findOne: jest.fn(),
+};
+
 const mockUserModuleAssignmentRepository = {
   find: jest.fn(),
 };
@@ -87,8 +107,8 @@ const mockJwtService = {
 };
 
 const mockConfigService = {
-  get: jest.fn((key: string, defaultValue?: any) => {
-    const config: Record<string, any> = {
+  get: jest.fn((key: string, defaultValue?: unknown): unknown => {
+    const config: Record<string, string | number | boolean> = {
       JWT_EXPIRES_IN: '15m',
       JWT_AUDIENCE: 'test-audience',
       MIN_LOGIN_DURATION_MS: 0, // Disable timing delays for tests
@@ -110,6 +130,26 @@ const mockAuditLogService = {
   log: jest.fn().mockResolvedValue(undefined),
 };
 
+// WHY: AuthenticationService now injects TokenService (token minting moved
+// there) and MfaService (login MFA branch). Password-reset paths don't mint
+// MFA challenges, but the constructor requires both collaborators.
+const mockTokenService = {
+  generateTokens: jest.fn().mockImplementation((user: User) => ({
+    accessToken: 'mock-access-token',
+    refreshToken: 'mock-refresh-token',
+    user,
+    expiresIn: 900,
+    tokenType: 'Bearer',
+    redirectUrl: '/dashboard',
+  })),
+  getUserModules: jest.fn().mockResolvedValue([]),
+};
+
+const mockMfaService = {
+  isMfaAvailable: jest.fn().mockReturnValue(false),
+  generateMfaChallenge: jest.fn(),
+};
+
 const mockDataSource = {
   transaction: jest.fn(),
   query: jest.fn(),
@@ -124,6 +164,17 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockActionTokenRepository.create.mockImplementation((data: Record<string, unknown>) => ({ ...data }));
+    mockActionTokenRepository.save.mockImplementation((entity: Record<string, unknown>) => Promise.resolve({
+      id: 'action-token-id',
+      ...entity,
+    }));
+    mockActionTokenRepository.findOne.mockResolvedValue(null);
+    mockTokenService.generateTokens.mockImplementation((user: User) => Promise.resolve({
+      accessToken: 'mock-access-token',
+      refreshToken: 'mock-refresh-token',
+      user,
+    }));
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -131,6 +182,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
         { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepository },
         { provide: getRepositoryToken(Invitation), useValue: mockInvitationRepository },
+        { provide: getRepositoryToken(ActionToken), useValue: mockActionTokenRepository },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepository },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepository },
         { provide: DataSource, useValue: mockDataSource },
@@ -138,9 +190,21 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: TokenService, useValue: mockTokenService },
+        { provide: MfaService, useValue: mockMfaService },
         { provide: TimingSafeService, useValue: mockTimingSafe },
         { provide: SESSION_MANAGER, useValue: null },
         { provide: TOKEN_BLACKLIST, useValue: null },
+        // WHY: the SUPER_ADMIN reset path persists refresh tokens through the
+        // audited RLS bypass; the mock forwards through withBypass so the
+        // spec exercises the same call chain without the audit WARN log.
+        {
+          provide: BypassRlsService,
+          useValue: {
+            withBypass: async <T>(_op: string, cb: () => Promise<T> | T): Promise<T> => cb(),
+            withBypassSync: <T>(_op: string, cb: () => T): T => cb(),
+          },
+        },
       ],
     }).compile();
 
@@ -160,11 +224,14 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       // Verify save was called with hashed token (SHA-256 hex = 64 chars)
       expect(mockUserRepository.save).toHaveBeenCalledTimes(1);
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.passwordResetToken).toBeDefined();
       expect(savedUser.passwordResetToken).toHaveLength(64); // SHA-256 hex digest
-      expect(savedUser.passwordResetExpires).toBeInstanceOf(Date);
-      expect(savedUser.passwordResetExpires!.getTime()).toBeGreaterThan(Date.now());
+      const resetExpires = savedUser.passwordResetExpires;
+      if (!(resetExpires instanceof Date)) {
+        throw new Error('passwordResetExpires was not persisted as a Date');
+      }
+      expect(resetExpires.getTime()).toBeGreaterThan(Date.now());
     });
 
     it('should set token expiry to 1 hour from now', async () => {
@@ -176,14 +243,19 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
       const after = Date.now();
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
-      const expiresAt = savedUser.passwordResetExpires!.getTime();
+      const saveCalls = mockUserRepository.save.mock.calls as readonly (readonly unknown[])[];
+      const savedUser = saveCalls[0]?.[0] as User;
+      const resetExpires = savedUser.passwordResetExpires;
+      if (!(resetExpires instanceof Date)) {
+        throw new Error('passwordResetExpires was not persisted as a Date');
+      }
+      const expiresAt = resetExpires.getTime();
       // Expiry should be approximately 1 hour from now (within 5 second tolerance)
-      expect(expiresAt).toBeGreaterThanOrEqual(before + 60 * 60 * 1000 - 5000);
-      expect(expiresAt).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
+      expect(expiresAt ?? 0).toBeGreaterThanOrEqual(before + 60 * 60 * 1000 - 5000);
+      expect(expiresAt ?? 0).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
     });
 
-    it('should publish PasswordResetRequested event with plain token', async () => {
+    it('should publish a PII-free PasswordResetRequested event (opaque references only)', async () => {
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockUserRepository.save.mockResolvedValue(user);
@@ -191,12 +263,24 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
 
       expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
-      const event = mockEventBus.publish.mock.calls[0][0];
+      const publishCalls = mockEventBus.publish.mock.calls as readonly (readonly unknown[])[];
+      const event = publishCalls[0]?.[0] as PasswordResetRequestedEvent;
       expect(event.eventType).toBe('PasswordResetRequested');
-      expect(event.email).toBe('test@example.com');
+      expect(event.version).toBe(2);
       expect(event.userId).toBe('user-uuid-123');
-      expect(event.resetToken).toBeDefined();
-      expect(event.resetToken).toHaveLength(64); // crypto.randomBytes(32).toString('hex')
+      // WHAT: actionTokenId is the persisted ActionToken row id (the
+      // command-receipt ledger design that landed with the enterprise
+      // train). Notification-service resolves the actual reset URL at
+      // delivery time via the authenticated internal
+      // /internal/action-tokens/{id}/url endpoint using this opaque
+      // reference; the raw token never crosses the bus.
+      expect(event.actionTokenId).toBe('action-token-id');
+      expect(event.cryptoShredKeyId).toBe('user-uuid-123');
+      // WHY: PII and secrets must never be placed on the immutable event bus
+      // (GDPR erasure + token-leak surface). Assert structural absence so a
+      // regression reintroducing them fails loudly.
+      expect(event.email).toBeUndefined();
+      expect(event.resetToken).toBeUndefined();
     });
 
     it('should silently return without error when user is not found (enumeration prevention)', async () => {
@@ -314,13 +398,14 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.resetPassword(plainToken, 'NewPass123!');
 
       // Verify createQueryBuilder was used with the hashed token
+      const dateMatcher: unknown = expect.any(Date);
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'user.passwordResetToken = :tokenHash',
-        { tokenHash },
+        'user.passwordResetExpires > :now',
+        expect.objectContaining({ now: dateMatcher }),
       );
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'user.passwordResetExpires > :now',
-        expect.objectContaining({ now: expect.any(Date) }),
+        'user.passwordResetToken = :tokenHash',
+        { tokenHash },
       );
     });
 
@@ -338,7 +423,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.passwordResetToken).toBeNull();
       expect(savedUser.passwordResetExpires).toBeNull();
     });
@@ -359,7 +444,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.failedLoginAttempts).toBe(0);
       expect(savedUser.lockedUntil).toBeNull();
     });
@@ -432,12 +517,20 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const publishCalls = mockEventBus.publish.mock.calls;
-      const resetCompletedEvent = publishCalls.find(
-        (call: any[]) => call[0].eventType === 'PasswordResetCompleted',
-      );
-      expect(resetCompletedEvent).toBeDefined();
-      expect(resetCompletedEvent![0].userId).toBe('user-uuid-123');
+      const publishCalls = mockEventBus.publish.mock.calls as readonly (readonly unknown[])[];
+      const resetCompletedEvent = publishCalls.find((call) => {
+        const payload = call[0];
+        return (
+          typeof payload === 'object' &&
+          payload !== null &&
+          (payload as { eventType?: unknown }).eventType === 'PasswordResetCompleted'
+        );
+      });
+      if (!resetCompletedEvent) {
+        throw new Error('PasswordResetCompleted event was not published');
+      }
+      const completedEvent = resetCompletedEvent[0] as PasswordResetCompletedEvent;
+      expect(completedEvent.userId).toBe('user-uuid-123');
     });
 
     it('should log PASSWORD_RESET_SUCCESS audit event', async () => {
@@ -477,7 +570,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.password).toBe('NewPass123!');
     });
   });

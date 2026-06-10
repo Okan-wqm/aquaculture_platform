@@ -1,19 +1,19 @@
 {
   "source": "infrastructure/apollo-router/subgraphs.json",
-  "registryHash": "311a283c315190c6013c885e861de4aa9b3ab34a66490125ccca6f8fe0c19dec",
+  "registryHash": "8966105ecaba734e0cff5416a1753d3160434d35c1198926c994bbfa6f97d2b2",
   "generatorVersion": "1",
   "supergraphPath": "dist/graphql/supergraph.graphql",
   "schemaArtifactPaths": [
     "dist/graphql/subgraphs/auth.graphql",
     "dist/graphql/subgraphs/farm.graphql",
     "dist/graphql/subgraphs/sensor.graphql",
-    "dist/graphql/subgraphs/alert.graphql",
     "dist/graphql/subgraphs/hr.graphql",
-    "dist/graphql/subgraphs/billing.graphql",
     "dist/graphql/subgraphs/hydroponics.graphql",
-    "dist/graphql/subgraphs/config.graphql",
+    "dist/graphql/subgraphs/messaging.graphql",
+    "dist/graphql/subgraphs/alert.graphql",
+    "dist/graphql/subgraphs/billing.graphql",
     "dist/graphql/subgraphs/notification.graphql",
-    "dist/graphql/subgraphs/messaging.graphql"
+    "dist/graphql/subgraphs/config.graphql"
   ],
   "documents": [
     "web/shell/src/graphql/**/*.ts",

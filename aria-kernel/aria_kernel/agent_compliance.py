@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_genesis import BANNED_PHRASES
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -346,7 +346,11 @@ def record_compliance_grade(
         **grade,
     }
     root = ensure_tools_dir(base_dir)
-    append_jsonl(_ledger_path(root), row)
+    append_declared_jsonl(
+        _ledger_path(root),
+        row,
+        expected_surface="agent_compliance",
+    )
 
     if grade["rejection"]:
         kind = "agent_compliance_violation"

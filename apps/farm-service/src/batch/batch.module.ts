@@ -50,8 +50,10 @@ import { BatchQueryHandlers } from './query-handlers';
 import { BatchResolvers } from './resolvers';
 import { BatchCostCalculatorService } from './services/batch-cost-calculator.service';
 import { BatchDomainService } from './services/batch-domain.service';
+import { BatchLifecyclePolicyService } from './services/batch-lifecycle-policy.service';
 import { BatchService } from './services/batch.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
+import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
 
 // Cross-cutting: backdate policy for mortality observations
@@ -98,6 +100,8 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
   providers: [
     BatchService,
     BatchDomainService,
+    BatchLifecyclePolicyService,
+    MortalityCullPolicyService,
     SGRCalculatorService,
     BiomassCalculatorService,
     BatchCostCalculatorService,

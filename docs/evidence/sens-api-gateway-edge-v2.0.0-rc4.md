@@ -12,7 +12,7 @@ Base: `origin/main`
 
 Release correction: `agent-v2.0.0-rc2` was pushed, but its workflow failed in `Release ref contract` before enterprise validation, build artifacts, signatures, or GitHub Release creation. `agent-v2.0.0-rc3` then passed the release ref and enterprise validation gates, but the release build failed before artifact packaging because the workflow assumed the wrong Cargo target directory. Neither tag is reused; `agent-v2.0.0-rc4` is the immutable release tag for this corrected release path.
 
-ADR-025 is authoritative for Edge schema ownership. ADR-022 is superseded.
+ADR-034 is authoritative for Edge schema ownership. ADR-022 is superseded.
 Therefore this PR is release-contract and documentation only; it does not adopt the admin-api-owned Edge schema files found as untracked local work.
 
 ## Included Files
@@ -84,7 +84,7 @@ Release feature tier: `scada-display`. Broader GPIO/I2C/SPI/PWM and debug/securi
 
 ## Follow-up PR B
 
-The implementation PR must align to ADR-025 and cover sensor-service/per-tenant ownership, signed command ingress, RBAC dispatcher enforcement, replay protection, PLC write safety, provisioning bundle fields, OTA verification, and systemd hardening evidence.
+The implementation PR must align to ADR-034 and cover sensor-service/per-tenant ownership, signed command ingress, RBAC dispatcher enforcement, replay protection, PLC write safety, provisioning bundle fields, OTA verification, and systemd hardening evidence.
 
 ## Rollback
 

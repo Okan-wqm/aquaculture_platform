@@ -1,20 +1,9 @@
-import {
-  Injectable,
-  Logger,
-  OnApplicationBootstrap,
-  Type,
-} from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
-import {
-  MIGRATION_LEDGER_TABLE,
-  tenantMigrationLedgerTable,
-} from './migration-ledger';
-import {
-  createMigrationRunnerService,
-  type MigrationRunnerOptions,
-} from './migration-runner';
+import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
+import { createMigrationRunnerService, type MigrationRunnerOptions } from './migration-runner';
 import { TENANT_AWARE_SCHEMAS } from './tenant-aware-schemas';
 
 /**
@@ -134,8 +123,7 @@ export function createSchemaVersionGate(
     );
   }
 
-  const tenantAware =
-    options?.tenantAware ?? TENANT_AWARE_SCHEMAS.has(sourceSchema);
+  const tenantAware = options?.tenantAware ?? TENANT_AWARE_SCHEMAS.has(sourceSchema);
   const forcedMode = options?.mode ?? 'auto';
 
   // The runner factory is invoked at module-init time so the resulting
@@ -145,9 +133,7 @@ export function createSchemaVersionGate(
 
   @Injectable()
   class SchemaVersionGate implements OnApplicationBootstrap {
-    private readonly logger = new Logger(
-      `SchemaVersionGate[${sourceSchema}]`,
-    );
+    private readonly logger = new Logger(`SchemaVersionGate[${sourceSchema}]`);
 
     constructor(
       private readonly dataSource: DataSource,
@@ -173,10 +159,7 @@ export function createSchemaVersionGate(
           `aqua-db-migrate is the authoritative writer; this service only verifies.`,
       );
 
-      const migrationsRun = this.configService.get<string>(
-        'DATABASE_MIGRATIONS_RUN',
-        'false',
-      );
+      const migrationsRun = this.configService.get<string>('DATABASE_MIGRATIONS_RUN', 'false');
       if (migrationsRun === 'true') {
         throw new Error(
           `SECURITY: DATABASE_MIGRATIONS_RUN=true is incompatible with ` +
@@ -203,17 +186,14 @@ export function createSchemaVersionGate(
       if (tenantAware) {
         const tenantSchemas = await this.listTenantSchemas();
         if (tenantSchemas.length === 0) {
-          this.logger.log(
-            `No tenant schemas present — source schema probe is sufficient`,
-          );
+          this.logger.log(`No tenant schemas present — source schema probe is sufficient`);
         } else {
-          this.logger.log(
-            `Probing ${tenantSchemas.length} tenant schema ledger(s)`,
-          );
+          this.logger.log(`Probing ${tenantSchemas.length} tenant schema ledger(s)`);
           for (const tenantSchema of tenantSchemas) {
             await this.probeSchema(
               tenantSchema,
               tenantMigrationLedgerTable(sourceSchema),
+              tenantSchema,
             );
           }
         }
@@ -236,18 +216,23 @@ export function createSchemaVersionGate(
       if (forcedMode === 'gate' || forcedMode === 'runner') {
         return forcedMode;
       }
-      const explicit = this.configService.get<string>(
-        'DB_MIGRATE_AUTHORITATIVE',
-      );
+      const explicit = this.configService.get<string>('DB_MIGRATE_AUTHORITATIVE');
       if (explicit === 'true') return 'gate';
-      if (explicit === 'false') return 'runner';
 
       const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
       const aquaEnv = this.configService.get<string>('AQUA_ENV', nodeEnv);
       const isProductionLike =
-        nodeEnv === 'production' ||
-        aquaEnv === 'production' ||
-        aquaEnv === 'staging';
+        nodeEnv === 'production' || aquaEnv === 'production' || aquaEnv === 'staging';
+      if (explicit === 'false') {
+        if (isProductionLike) {
+          throw new Error(
+            `DB_MIGRATE_AUTHORITATIVE=false is forbidden for schema "${sourceSchema}" ` +
+              `when NODE_ENV=${nodeEnv} AQUA_ENV=${aquaEnv}. ` +
+              'Production/staging services must run in read-only schema gate mode.',
+          );
+        }
+        return 'runner';
+      }
       return isProductionLike ? 'gate' : 'runner';
     }
 
@@ -339,6 +324,7 @@ export function createSchemaVersionGate(
     private async probeSchema(
       schema: string,
       ledgerTable: string,
+      tenantSchema?: string,
     ): Promise<void> {
       // Schema identifier already validated at factory level OR
       // produced from tenant-schema regex match below. Re-asserting
@@ -393,10 +379,14 @@ export function createSchemaVersionGate(
         );
       }
 
-      await this.probeReleaseLedgerExpectedHead(schema, {
-        timestamp: lastTs,
-        name: lastName,
-      });
+      await this.probeReleaseLedgerExpectedHead(
+        schema,
+        {
+          timestamp: lastTs,
+          name: lastName,
+        },
+        tenantSchema,
+      );
 
       this.logger.log(
         `Ledger probe on "${schema}"."${ledgerTable}": ${rowCount} migration(s) applied, last=${lastName}@${lastTs}`,
@@ -406,7 +396,57 @@ export function createSchemaVersionGate(
     private async probeReleaseLedgerExpectedHead(
       schema: string,
       actual: { timestamp: string; name: string },
+      tenantSchema?: string,
     ): Promise<void> {
+      if (tenantSchema !== undefined) {
+        const rows: Array<{
+          release_id: string;
+          expected_ts: string | null;
+          expected_name: string | null;
+          fanout_evidence: unknown;
+        }> = await this.dataSource.query(
+          `SELECT release_id,
+                  expected_heads #>> ARRAY['tenants', $1, $2, 'timestamp'] AS expected_ts,
+                  expected_heads #>> ARRAY['tenants', $1, $2, 'name'] AS expected_name,
+                  tenant_fanout #> ARRAY[$2, 'tenants', $1] AS fanout_evidence
+             FROM platform.release_ledger
+            WHERE status = ANY($3::text[])
+              AND expected_heads ? 'tenants'
+            ORDER BY updated_at DESC, started_at DESC
+            LIMIT 1`,
+          [tenantSchema, sourceSchema, RELEASE_LEDGER_DB_COMPLETE_STATUSES],
+        );
+        const row = rows[0];
+        if (!row) {
+          throw new Error(
+            `[SchemaVersionGate:${sourceSchema}] No release ledger row with tenant migration heads exists. ` +
+              `Service boot refused because platform.release_ledger is the deployment SSoT. ` +
+              `Run aqua-db-migrate tenant fan-out for this release before starting services.`,
+          );
+        }
+        if (!row.expected_ts || !row.expected_name) {
+          throw new Error(
+            `[SchemaVersionGate:${sourceSchema}] Release ${row.release_id} does not declare an expected ` +
+              `tenant head for "${tenantSchema}" source schema "${sourceSchema}". Service boot refused.`,
+          );
+        }
+        if (row.fanout_evidence === null || row.fanout_evidence === undefined) {
+          throw new Error(
+            `[SchemaVersionGate:${sourceSchema}] Release ${row.release_id} does not declare tenant fan-out ` +
+              `evidence for "${tenantSchema}" source schema "${sourceSchema}". Service boot refused.`,
+          );
+        }
+        if (row.expected_ts !== actual.timestamp || row.expected_name !== actual.name) {
+          throw new Error(
+            `[SchemaVersionGate:${sourceSchema}] Tenant ledger head mismatch on "${schema}". ` +
+              `release=${row.release_id} expected=${row.expected_name}@${row.expected_ts} ` +
+              `actual=${actual.name}@${actual.timestamp}. ` +
+              `aqua-db-migrate did not apply the expected release head to this tenant schema.`,
+          );
+        }
+        return;
+      }
+
       const rows: Array<{
         release_id: string;
         expected_ts: string | null;

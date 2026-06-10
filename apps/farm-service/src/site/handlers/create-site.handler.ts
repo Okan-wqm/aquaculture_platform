@@ -1,26 +1,28 @@
 /**
  * Create Site Command Handler
  */
-import { randomUUID } from 'crypto';
-
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { ConflictException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { ConflictException, Logger, Optional, Inject } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
-import { SiteCreatedEvent , createBaseEvent } from '@platform/event-contracts';
+import { SiteCreatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
+
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
 import { CreateSiteCommand } from '../commands/create-site.command';
 import { Site, SiteStatus, SiteLocation, SiteAddress, SiteSettings } from '../entities/site.entity';
+
+import { siteAuditSnapshot } from './site-audit.util';
 
 @CommandHandler(CreateSiteCommand)
 export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Site> {
   private readonly logger = new Logger(CreateSiteHandler.name);
 
   constructor(
-    @InjectRepository(Site)
-    private readonly siteRepository: Repository<Site>,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: CreateSiteCommand): Promise<Site> {
@@ -28,66 +30,75 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
 
     this.logger.log(`Creating site "${input.name}" for tenant ${tenantId}`);
 
-    // Check for duplicate name
-    const existingByName = await this.siteRepository.findOne({
-      where: { tenantId, name: input.name },
-    });
-    if (existingByName) {
-      throw new ConflictException(`Site with name "${input.name}" already exists`);
-    }
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const siteRepository = tenantManagerRepo(queryRunner.manager, Site, tenantId);
 
-    // Check for duplicate code
-    const existingByCode = await this.siteRepository.findOne({
-      where: { tenantId, code: input.code },
-    });
-    if (existingByCode) {
-      throw new ConflictException(`Site with code "${input.code}" already exists`);
-    }
-
-    // Create site entity
-    const site = this.siteRepository.create({
-      tenantId,
-      name: input.name,
-      code: input.code.toUpperCase(),
-      description: input.description,
-      location: input.location as SiteLocation | undefined,
-      address: input.address as SiteAddress | undefined,
-      country: input.country,
-      timezone: input.timezone || 'UTC',
-      status: input.status || SiteStatus.ACTIVE,
-      settings: input.settings as SiteSettings | undefined,
-      areaM2: input.totalArea,
-      contactEmail: input.contactEmail,
-      contactPhone: input.contactPhone,
-      isActive: true,
-      createdBy: userId,
-      updatedBy: userId,
-    });
-
-    const savedSite = await this.siteRepository.save(site);
-
-    this.logger.log(`Site "${savedSite.name}" created with ID ${savedSite.id}`);
-
-    // Publish domain event: SiteCreated
-    if (this.eventBus) {
-      try {
-        const event: SiteCreatedEvent = {
-          ...createBaseEvent<SiteCreatedEvent>('SiteCreated', tenantId),
-          siteId: savedSite.id,
-          name: savedSite.name,
-          code: savedSite.code,
-          country: savedSite.country || '',
-          region: input.region,
-          status: savedSite.status,
-          version: 1,
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published SiteCreatedEvent for site ${savedSite.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish SiteCreatedEvent: ${(eventError as Error).message}`);
+      const existingByName = await siteRepository.findOne({
+        where: { name: input.name, tenantId },
+      });
+      if (existingByName) {
+        throw new ConflictException(`Site with name "${input.name}" already exists`);
       }
-    }
 
-    return savedSite;
+      const code = input.code.toUpperCase();
+      const existingByCode = await siteRepository.findOne({
+        where: { code, tenantId },
+      });
+      if (existingByCode) {
+        throw new ConflictException(`Site with code "${input.code}" already exists`);
+      }
+
+      const site = siteRepository.create({
+        name: input.name,
+        code,
+        description: input.description,
+        location: input.location as SiteLocation | undefined,
+        address: input.address as SiteAddress | undefined,
+        country: input.country,
+        timezone: input.timezone || 'UTC',
+        status: input.status || SiteStatus.ACTIVE,
+        settings: input.settings as SiteSettings | undefined,
+        areaM2: input.totalArea,
+        contactEmail: input.contactEmail,
+        contactPhone: input.contactPhone,
+        isActive: true,
+        createdBy: userId,
+        updatedBy: userId,
+      });
+
+      const savedSite = await siteRepository.save(site);
+
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'Site',
+        entityId: savedSite.id,
+        action: AuditAction.CREATE,
+        userId,
+        changes: { after: siteAuditSnapshot(savedSite) },
+        metadata: { source: 'SITES_SETUP' },
+        entityVersion: savedSite.version,
+        summary: `Created site ${savedSite.code}`,
+      });
+
+      const event: SiteCreatedEvent = {
+        ...createBaseEvent<SiteCreatedEvent>('SiteCreated', tenantId, {
+          aggregateId: savedSite.id,
+          aggregateType: 'Site',
+          userId,
+        }),
+        siteId: savedSite.id,
+        name: savedSite.name,
+        code: savedSite.code,
+        country: savedSite.country || '',
+        region: input.region,
+        status: savedSite.status,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        aggregateId: savedSite.id,
+      });
+
+      this.logger.log(`Site "${savedSite.name}" created with ID ${savedSite.id}`);
+      return savedSite;
+    });
   }
 }

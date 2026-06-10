@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .plan_convergence import plan_status
 from .runtime_artifacts import ARTIFACT_BEARING, classify_cycle_evidence, verify_runtime_artifacts
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, utc_now
@@ -102,7 +102,11 @@ def promote_converged_plan_to_dispatch(
             "cycle_evidence_class": evidence_class.get("cycle_evidence_class"),
         },
     }
-    stored = append_jsonl(root / "dispatch" / "requests.jsonl", row)
+    stored = append_declared_jsonl(
+        root / "dispatch" / "requests.jsonl",
+        row,
+        expected_surface="dispatch_requests",
+    )
     append_tools_governance(
         root,
         "plan_promoted_to_dispatch",

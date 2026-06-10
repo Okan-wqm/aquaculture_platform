@@ -212,11 +212,7 @@ function positiveIntConfig(
       driver: ApolloGatewayDriver,
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // Capture INTERNAL_SERVICE_SECRET for HMAC signing in buildService closure
-        const internalServiceSecret = configService.get<string>('INTERNAL_SERVICE_SECRET');
-
-        return {
+      useFactory: (configService: ConfigService) => ({
         gateway: {
           /**
            * ARCH-GW-005: Federated subgraph registry.
@@ -254,8 +250,8 @@ function positiveIntConfig(
               3000,
             ),
           }),
-          buildService({ url }) {
-            return new AuthenticatedDataSource({ url, secret: internalServiceSecret });
+          buildService({ name, url }) {
+            return new AuthenticatedDataSource({ url, serviceAudience: name });
           },
         },
         server: {
@@ -355,8 +351,7 @@ function positiveIntConfig(
             return { req, res };
           },
         },
-      };
-      },
+      }),
     }),
 
     // MinIO Storage Module for file uploads

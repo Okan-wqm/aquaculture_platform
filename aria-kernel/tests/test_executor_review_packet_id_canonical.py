@@ -27,8 +27,8 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.executor import _canonical_packet_id, get_executor_packet
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class CanonicalPacketIdHelperTests(unittest.TestCase):
@@ -61,7 +61,11 @@ class GetExecutorPacketLookupTests(unittest.TestCase):
     def _seed_packet(self, **fields) -> None:
         packets_path = self.tools / "executor" / "packets.jsonl"
         packets_path.parent.mkdir(parents=True, exist_ok=True)
-        append_jsonl(packets_path, fields)
+        append_declared_fixture(
+            packets_path,
+            fields,
+            expected_surface="executor_packets",
+        )
 
     def test_canonical_lookup_finds_packet_by_packet_id(self) -> None:
         self._seed_packet(packet_id="pkt-100", payload="x")

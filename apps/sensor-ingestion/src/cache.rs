@@ -145,6 +145,15 @@ pub struct SensorMeta {
     /// event and the cache layer invalidates the entry. The vector is
     /// short (typically 1-8 entries) and immutable after construction.
     pub channel_ids: Vec<Uuid>,
+    /// Optional farm scope returned by sensor-service when the upstream
+    /// resolver has a warm tenant/sensor mapping. Older responders omit
+    /// this field; default keeps backward compatibility.
+    #[serde(default)]
+    pub farm_id: Option<Uuid>,
+    /// Optional pond scope. Mirrors `farm_id` semantics and is absent on
+    /// cold-cache or older responder paths.
+    #[serde(default)]
+    pub pond_id: Option<Uuid>,
     // Future fields the value is reserved to carry once the upstream
     // resolution surface stabilises:
     //   * calibration: linear/2-point/poly3 coefficient struct
@@ -445,11 +454,15 @@ pub fn self_smoke_check(cache: &TopicCache) {
         sensor_id: sensor_a,
         tenant_id: tenant,
         channel_ids: Vec::new(),
+        farm_id: None,
+        pond_id: None,
     });
     cache.insert(SensorMeta {
         sensor_id: sensor_b,
         tenant_id: tenant,
         channel_ids: Vec::new(),
+        farm_id: None,
+        pond_id: None,
     });
 
     // get → MUST hit (proves the storage round-trips).
@@ -501,6 +514,8 @@ mod tests {
             sensor_id: sensor,
             tenant_id: tenant,
             channel_ids: vec![Uuid::nil()],
+            farm_id: None,
+            pond_id: None,
         }
     }
 

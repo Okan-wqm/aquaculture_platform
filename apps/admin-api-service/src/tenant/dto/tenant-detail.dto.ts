@@ -5,6 +5,13 @@ import { Tenant } from '../entities/tenant.entity';
 
 import { TenantLimitsDto } from './tenant.dto';
 
+export type TenantAvailableAction =
+  | 'activate'
+  | 'suspend'
+  | 'deactivate'
+  | 'archive'
+  | 'retryProvisioning';
+
 // User Statistics by Role
 export interface UserStatsByRole {
   total: number;
@@ -85,9 +92,11 @@ export interface TenantDetailDto {
   // Status & Tier
   status: string;
   tier: string;
+  plan?: string;
   trialEndsAt?: Date;
   suspendedAt?: Date;
   suspendedReason?: string;
+  availableActions: TenantAvailableAction[];
 
   // Contact Info
   primaryContact?: {
@@ -124,6 +133,11 @@ export interface TenantDetailDto {
     features: string[];
   };
   limits?: TenantLimitsDto;
+  userCount: number;
+  farmCount: number;
+  sensorCount: number;
+  maxStorage: number;
+  isTrialActive: boolean;
 
   // Statistics
   userStats?: UserStatsByRole;

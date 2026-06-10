@@ -1,8 +1,8 @@
 /**
  * TenantOnboardingEventHandler
  *
- * Subscribes to `TenantCreated` events published by admin-api-
- * service / tenant-service and runs every registered
+ * Subscribes to `TenantOnboardingRequested` events published by admin-api-
+ * service and runs every registered
  * per-tenant seeder so a freshly-provisioned tenant has a
  * working default data set. Closes the phase-6.5 strict-mode
  * onboarding gap (new tenants failing the first water-quality
@@ -64,7 +64,11 @@ import {
   Optional,
 } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
-import type { TenantCreatedEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  type TenantOnboardingFailedEvent,
+  type TenantOnboardingRequestedEvent,
+} from '@platform/event-contracts';
 
 import { WaterQualityParameterConfigSeederService } from '../services/water-quality-parameter-config-seeder.service';
 import { SpeciesSeederService } from '../../species/services/species-seeder.service';
@@ -85,7 +89,7 @@ interface SeederSummary {
 
 @Injectable()
 export class TenantOnboardingEventHandler
-  implements IEventHandler<TenantCreatedEvent>, OnModuleInit
+  implements IEventHandler<TenantOnboardingRequestedEvent>, OnModuleInit
 {
   private readonly logger = new Logger(TenantOnboardingEventHandler.name);
 
@@ -96,34 +100,29 @@ export class TenantOnboardingEventHandler
     private readonly regulatorySettingsSeeder: RegulatorySettingsSeederService,
     private readonly equipmentTypeChecker: EquipmentTypeCatalogCheckerService,
     @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: IEventBus,
+    private readonly eventBus: IEventBus | undefined,
   ) {}
 
   async onModuleInit(): Promise<void> {
     if (!this.eventBus) {
-      this.logger.warn(
-        'EVENT_BUS not available — TenantCreated subscription skipped. ' +
-          'Newly-provisioned tenants will need to run the seeder mutations ' +
-          'manually from the admin UI.',
-      );
-      return;
+      throw new Error('EVENT_BUS is required for tenant onboarding ack/fail publication');
     }
-    await this.eventBus.subscribeWildcard('TenantCreated', this);
+    await this.eventBus.subscribeWildcard('TenantOnboardingRequested', this);
     this.logger.log(
-      'Subscribed to TenantCreated events for automatic tenant onboarding ' +
+      'Subscribed to TenantOnboardingRequested events for automatic tenant onboarding ' +
         '(water-quality configs + species catalogue + feeding protocols + ' +
         'regulatory settings + equipment-types catalogue check)',
     );
   }
 
   getEventType(): string {
-    return 'TenantCreated';
+    return 'TenantOnboardingRequested';
   }
 
-  async handle(event: TenantCreatedEvent): Promise<void> {
+  async handle(event: TenantOnboardingRequestedEvent): Promise<void> {
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
-        `TenantCreated event has invalid or missing tenantId ` +
+        `TenantOnboardingRequested event has invalid or missing tenantId ` +
           `(got '${event.tenantId}'). Skipping onboarding to prevent ` +
           'cross-tenant writes.',
       );
@@ -190,6 +189,34 @@ export class TenantOnboardingEventHandler
           ? ` — failed: ${failed.map((f) => f.name).join(', ')}`
           : ''),
     );
+
+    const eventBus = this.eventBus;
+    if (!eventBus) {
+      throw new Error('EVENT_BUS is required for tenant onboarding ack/fail publication');
+    }
+
+    if (failed.length > 0) {
+      await eventBus.publish({
+        ...createBaseEvent<TenantOnboardingFailedEvent>('TenantOnboardingFailed', event.tenantId, {
+          aggregateId: event.tenantId,
+          aggregateType: 'Tenant',
+        }),
+        operationId: event.operationId,
+        service: 'farm-service',
+        error: failed.map((f) => `${f.name}: ${f.error ?? 'failed'}`).join('; '),
+      });
+      return;
+    }
+
+    await eventBus.publish({
+      ...createBaseEvent('TenantOnboardingAck', event.tenantId, {
+        aggregateId: event.tenantId,
+        aggregateType: 'Tenant',
+      }),
+      operationId: event.operationId,
+      service: 'farm-service',
+      acknowledgedAt: new Date().toISOString(),
+    });
   }
 
   /**

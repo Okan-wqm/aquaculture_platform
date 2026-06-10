@@ -1,13 +1,15 @@
-import { ForbiddenException, Logger } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@aquaculture/backend-common/decorators';
+import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
 
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';
-import { CreateTenantInput, UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
+import { UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
-import { Tenant, TenantStatus } from '../entities/tenant.entity';
-import { AuditLogService } from '../../../audit/audit-log.service';
+import { Tenant } from '../entities/tenant.entity';
+import { TenantService } from '../services/tenant.service';
 
 /**
  * Minimal public tenant info exposed by the unauthenticated tenantBySlug query.
@@ -15,9 +17,11 @@ import { AuditLogService } from '../../../audit/audit-log.service';
  */
 @ObjectType()
 class TenantPublicInfo {
-  @Field(() => ID)
-  id!: string;
-
+  // SECURITY (MT-LOW-001): internal tenant `id` and `status` were REMOVED
+  // from this public type. The exposed UUID was the harvest leg that turned
+  // the register-mutation injection (SEC-CRITICAL-001) from "guess a UUID"
+  // into "look it up by slug"; status leaked lifecycle state to anonymous
+  // callers. The login/branding flow needs only name/slug/logo.
   @Field()
   name!: string;
 
@@ -26,11 +30,7 @@ class TenantPublicInfo {
 
   @Field(() => String, { nullable: true })
   logoUrl!: string | null;
-
-  @Field(() => TenantStatus)
-  status!: TenantStatus;
 }
-import { TenantService } from '../services/tenant.service';
 
 @Resolver(() => Tenant)
 export class TenantResolver {
@@ -40,15 +40,6 @@ export class TenantResolver {
     private readonly tenantService: TenantService,
     private readonly auditLogService: AuditLogService,
   ) {}
-
-  @SuperAdminOnly()
-  @Mutation(() => Tenant)
-  async createTenant(
-    @Args('input') input: CreateTenantInput,
-    @Context() ctx: { req: { user: { id: string } } },
-  ): Promise<Tenant> {
-    return this.tenantService.create(input, ctx.req.user.id);
-  }
 
   @SuperAdminOnly()
   @Query(() => [Tenant])
@@ -74,54 +65,68 @@ export class TenantResolver {
   @Query(() => TenantPublicInfo)
   async tenantBySlug(@Args('slug') slug: string): Promise<TenantPublicInfo> {
     const tenant = await this.tenantService.findBySlug(slug);
-    // SECURITY: Only expose minimal public info — no plan, maxUsers, settings, etc.
+    // SECURITY: Only expose minimal branding info — no id, status, plan,
+    // maxUsers, settings, contact details (MT-LOW-001).
     return {
-      id: tenant.id,
       name: tenant.name,
       slug: tenant.slug,
       logoUrl: tenant.logoUrl ?? null,
-      status: tenant.status,
     };
   }
 
   @TenantAdminOrHigher()
   @Mutation(() => Tenant)
-  async updateTenant(
+  updateTenant(
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateTenantInput,
     @CurrentUser('role') role: Role,
     @CurrentUser('tenantId') userTenantId: string | null,
-  ): Promise<Tenant> {
+  ): Tenant {
     // SECURITY: Tenant isolation - TENANT_ADMIN can only update their own tenant
     if (role !== Role.SUPER_ADMIN && userTenantId !== id) {
       throw new ForbiddenException('Access denied: You can only update your own tenant');
     }
-    // SECURITY: Role-based field filtering is handled inside TenantService.update()
-    return this.tenantService.update(id, input);
+    // Tenant mutation authority converged on the command-receipt/FSM
+    // path in the enterprise train; the resolver-level update is
+    // rejected outright (stronger than role-based field filtering —
+    // nothing mutates tenants outside the governed command path).
+    void input;
+    throw new BadRequestException(
+      'Tenant updates are command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  async suspendTenant(
+  suspendTenant(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<Tenant> {
-    return this.tenantService.suspend(id);
+  ): Tenant {
+    void id;
+    throw new BadRequestException(
+      'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  async activateTenant(
+  activateTenant(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<Tenant> {
-    return this.tenantService.activate(id);
+  ): Tenant {
+    void id;
+    throw new BadRequestException(
+      'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  async cancelTenant(
+  cancelTenant(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<Tenant> {
-    return this.tenantService.cancel(id);
+  ): Tenant {
+    void id;
+    throw new BadRequestException(
+      'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   // ============================================================================
@@ -305,7 +310,7 @@ export class TenantResolver {
       ipAddress: l.ipAddress ?? undefined,
       userAgent: l.userAgent ?? undefined,
       deviceType: undefined as string | undefined,
-      success: l.severity !== 'error',
+      success: l.severity !== AuditLogSeverity.ERROR,
     }));
 
     // Build user activity summaries
@@ -341,8 +346,9 @@ export class TenantResolver {
     const dayMap = new Map<string, Set<string>>();
     for (const log of logs) {
       const dateKey = log.createdAt.toISOString().slice(0, 10);
-      if (!dayMap.has(dateKey)) dayMap.set(dateKey, new Set());
-      dayMap.get(dateKey)!.add(log.performedBy);
+      const dayUsers = dayMap.get(dateKey) ?? new Set<string>();
+      dayUsers.add(log.performedBy);
+      dayMap.set(dateKey, dayUsers);
     }
 
     const dailyActiveUsers = Array.from(dayMap.entries())

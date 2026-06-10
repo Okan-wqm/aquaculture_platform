@@ -84,7 +84,7 @@ describe('TenantContextMiddleware', () => {
             get: jest.fn((key: string, defaultValue?: unknown) => {
               const config: Record<string, unknown> = {
                 TENANT_CACHE_TTL: 300000,
-                TENANT_PUBLIC_PATHS: '/health,/api/v1/auth/login,/api/v1/auth/register',
+                TENANT_PUBLIC_PATHS: '/health,/api/v1/auth/login',
               };
               return config[key] ?? defaultValue;
             }),
@@ -275,15 +275,8 @@ describe('TenantContextMiddleware', () => {
       expect(next).toHaveBeenCalled();
     });
 
-    it('should skip tenant resolution for register endpoint', async () => {
-      const req = createMockRequest({ path: '/api/v1/auth/register' });
-      const res = createMockResponse();
-      const next = jest.fn();
-
-      await middleware.use(req, res, next);
-
-      expect(next).toHaveBeenCalled();
-    });
+    // NOTE (SEC-CRITICAL-001): the register-endpoint case was removed —
+    // no registration endpoint exists; registration is invitation-only.
   });
 
   describe('Tenant Status Validation', () => {

@@ -1,11 +1,14 @@
+import { createHash } from 'crypto';
+
 import { RemoteGraphQLDataSource } from '@apollo/gateway';
+import type { GraphQLDataSourceProcessOptions } from '@apollo/gateway/dist/datasources/types';
+import type { ResponsePath } from '@apollo/query-planner';
 import {
   GatewayGraphQLRequestContext,
   GatewayGraphQLResponse,
 } from '@apollo/server-gateway-interface';
-import type { GraphQLDataSourceProcessOptions } from '@apollo/gateway/dist/datasources/types';
-import type { ResponsePath } from '@apollo/query-planner';
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+import { buildGatewayVerifiedUserAssertion, buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+
 import { JwtPayload } from '../guards/auth.guard';
 
 export interface RequestHeaders {
@@ -106,8 +109,9 @@ function bodyForServiceIdentitySigning(body: FetcherInit['body']): string | Buff
  */
 export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
   private readonly secret?: string;
+  private readonly serviceAudience?: string;
 
-  constructor(config: { url?: string; secret?: string; fetcher?: RemoteFetcher }) {
+  constructor(config: { url?: string; secret?: string; serviceAudience?: string; fetcher?: RemoteFetcher }) {
     const dataSourceConfig: Partial<RemoteGraphQLDataSource<GatewayContext>> = {
       url: config.url,
     };
@@ -117,6 +121,7 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
 
     super(dataSourceConfig);
     this.secret = config.secret;
+    this.serviceAudience = config.serviceAudience;
     this.fetcher = this.withServiceIdentitySigning(this.fetcher);
   }
 
@@ -131,24 +136,30 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
     // the fetch boundary so the HMAC binds the exact bytes sent on the wire.
     return async (url, init): ReturnType<RemoteFetcher> => {
       const requestInit = init ?? {};
-      if (this.secret) {
-        const headers = normalizeFetcherHeaders(requestInit.headers);
-        const tenantId = getHeader(headers, 'x-tenant-id') ?? '';
-        const signedTenantId = TENANT_UUID_RE.test(tenantId) ? tenantId : '';
-        const subgraphUrl = new URL(String(url), 'http://subgraph.local');
-        const identityHeaders = buildSignedInternalHeaders({
-          serviceName: 'gateway-api',
-          tenantId: signedTenantId,
-          method: requestInit.method ?? 'POST',
-          path: subgraphUrl.pathname,
-          body: bodyForServiceIdentitySigning(requestInit.body),
-          secret: this.secret,
-        });
-        for (const [key, value] of Object.entries(identityHeaders)) {
-          setHeader(headers, key, value);
-        }
-        requestInit.headers = headers;
+      const headers = normalizeFetcherHeaders(requestInit.headers);
+      const tenantId = getHeader(headers, 'x-tenant-id') ?? '';
+      const signedTenantId = TENANT_UUID_RE.test(tenantId) ? tenantId : '';
+      const subgraphUrl = new URL(String(url), 'http://subgraph.local');
+      const assertion = getHeader(headers, 'x-verified-user-assertion');
+      const contentType = getHeader(headers, 'content-type') ?? '';
+      const identityHeaders = buildSignedInternalHeaders({
+        serviceName: 'gateway-api',
+        tenantId: signedTenantId,
+        method: requestInit.method ?? 'POST',
+        path: subgraphUrl.pathname,
+        query: subgraphUrl.search,
+        contentType,
+        assertionHash: assertion
+          ? createHash('sha256').update(assertion).digest('hex')
+          : undefined,
+        audience: this.serviceAudience ?? subgraphUrl.hostname,
+        body: bodyForServiceIdentitySigning(requestInit.body),
+        secret: this.secret,
+      });
+      for (const [key, value] of Object.entries(identityHeaders)) {
+        setHeader(headers, key, value);
       }
+      requestInit.headers = headers;
       return upstream(url, requestInit);
     };
   }
@@ -178,20 +189,8 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
       httpRequest.headers.set('cookie', cookie);
     }
 
-    let resolvedTenantId = req.user?.tenantId;
-    if (!resolvedTenantId) {
-      const headerVal = req.headers['x-tenant-id'];
-      const candidate = Array.isArray(headerVal) ? headerVal[0] : headerVal;
-      if (typeof candidate === 'string') {
-        resolvedTenantId = candidate.trim();
-      }
-    }
-    if (
-      resolvedTenantId &&
-      typeof resolvedTenantId === 'string' &&
-      resolvedTenantId.length > 0 &&
-      TENANT_UUID_RE.test(resolvedTenantId)
-    ) {
+    const resolvedTenantId = req.user?.tenantId;
+    if (resolvedTenantId && TENANT_UUID_RE.test(resolvedTenantId)) {
       httpRequest.headers.set('x-tenant-id', resolvedTenantId);
     }
 
@@ -222,9 +221,17 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
 
     const user = req.user;
     if (user) {
-      httpRequest.headers.set('x-user-id', user.sub);
-      httpRequest.headers.set('x-user-roles', JSON.stringify(user.roles ?? []));
-      httpRequest.headers.set('x-user-payload', JSON.stringify(user));
+      httpRequest.headers.set(
+        'x-verified-user-assertion',
+        buildGatewayVerifiedUserAssertion({
+          subject: user.sub,
+          tenantId: user.tenantId,
+          effectiveTenantId: user.tenantId,
+          roles: user.roles ?? [],
+          email: user.email,
+          mfaVerified: (user as JwtPayload & { mfaVerified?: boolean }).mfaVerified,
+        }),
+      );
     }
   }
 

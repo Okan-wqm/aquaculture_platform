@@ -32,11 +32,8 @@ export const rateLimitConfig = registerAs('rateLimit', () => ({
       windowMs: parseInt(process.env['RATE_LIMIT_LOGIN_WINDOW_MS'] || '900000', 10), // 15 minutes
       max: parseInt(process.env['RATE_LIMIT_LOGIN_MAX'] || '5', 10), // 5 attempts
     },
-    // Registration (very strict - prevent mass account creation)
-    register: {
-      windowMs: parseInt(process.env['RATE_LIMIT_REGISTER_WINDOW_MS'] || '900000', 10), // 15 minutes
-      max: parseInt(process.env['RATE_LIMIT_REGISTER_MAX'] || '3', 10), // 3 attempts per 15 minutes
-    },
+    // NOTE (SEC-CRITICAL-001): the 'register' bucket was removed together
+    // with the public register mutation — no registration endpoint exists.
     // Password reset (very strict)
     passwordReset: {
       windowMs: parseInt(process.env['RATE_LIMIT_RESET_WINDOW_MS'] || '3600000', 10), // 1 hour

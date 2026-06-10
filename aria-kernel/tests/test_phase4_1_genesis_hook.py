@@ -8,9 +8,13 @@ from pathlib import Path
 from aria_kernel.capability_gap import detect_capability_gaps
 from aria_kernel.genesis_policy import OVERRIDE_RELPATH
 from aria_kernel.learning import _skill_or_agent_genesis
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import append_jsonl as _append_jsonl, load_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
+
+
+def append_jsonl(path, record):
+    return _append_jsonl(path, record, test_fixture=True)
 
 
 class GenesisHookTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 
-import { applyTenantRlsToSchema } from '@aquaculture/backend-common/database';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import {
   BadRequestException,
   ConflictException,
@@ -10,12 +10,21 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { createBaseEvent, TenantCreatedEvent, type BaseEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  type BaseEvent,
+  type BillingCycle as BillingCommandBillingCycle,
+  type PlanTier as BillingCommandPlanTier,
+} from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
-import { BillingCycle, PlanTier } from '../../billing/entities/plan-definition.entity';
+import {
+  BillingCycle as ModuleBillingCycle,
+  PlanTier as ModulePlanTier,
+} from '../../billing/entities/plan-definition.entity';
+import { BillingAdminCommandClientService } from '../../billing/services/billing-admin-command-client.service';
 import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
 import {
   CreateTenantAcceptedResponse,
@@ -25,6 +34,7 @@ import {
 } from '../dto/tenant.dto';
 import { Tenant, TenantPlan, TenantSettings, TenantStatus } from '../entities/tenant.entity';
 
+import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 
 interface TenantProvisioningRunRow {
@@ -38,6 +48,11 @@ interface TenantProvisioningRunRow {
   currentStep: string | null;
   lastError: string | null;
   attempts: number;
+  nextRetryAt?: Date | null;
+  leaseToken?: string | null;
+  leasedBy?: string | null;
+  heartbeatAt?: Date | null;
+  leaseExpiresAt?: Date | null;
   startedAt: Date | null;
   completedAt: Date | null;
   createdAt: Date;
@@ -47,6 +62,7 @@ interface TenantProvisioningRunRow {
 interface TenantProvisioningStepRow {
   stepName: string;
   state: TenantProvisioningState;
+  stepOrder?: number;
   attempts: number;
   lastError: string | null;
   startedAt: Date | null;
@@ -74,7 +90,30 @@ interface IdRow {
 }
 
 const MAX_OPERATION_ATTEMPTS = 3;
-const DEFAULT_IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
+const OPERATION_LEASE_MS = 30 * 60 * 1000;
+const DB_MIGRATE_PROVISIONER_RETRY_MS = 30 * 1000;
+
+class DbMigrateProvisioningPendingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DbMigrateProvisioningPendingError';
+  }
+}
+
+const PROVISIONING_STEPS = [
+  'reserve_auth_tenant',
+  'audit_create_requested',
+  'assign_modules',
+  'publish_provisioning_requested',
+  'wait_for_db_migrate_provisioner',
+  'provision_application_resources',
+  'create_subscription',
+  'activate_tenant',
+  'audit_provisioned',
+  'publish_onboarding_requested',
+  'wait_for_onboarding_ack',
+  'publish_tenant_provisioned',
+] as const;
 
 @Injectable()
 export class TenantProvisioningWorkflowService {
@@ -88,6 +127,8 @@ export class TenantProvisioningWorkflowService {
     private readonly auditLogService: AuditLogService,
     private readonly provisioningService: TenantProvisioningService,
     private readonly moduleAssignmentService: ModuleAssignmentService,
+    private readonly authProvisioningClient: AuthTenantProvisioningClientService,
+    private readonly billingCommandClient: BillingAdminCommandClientService,
   ) {}
 
   async createTenantOperation(
@@ -108,6 +149,7 @@ export class TenantProvisioningWorkflowService {
         queryRunner.manager,
         `SELECT id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                 "actorUserId", state, "currentStep", "lastError", attempts,
+                "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
                 "startedAt", "completedAt", "createdAt", "updatedAt"
            FROM admin.tenant_provisioning_runs
           WHERE "actorUserId" = $1 AND "idempotencyKey" = $2
@@ -126,14 +168,22 @@ export class TenantProvisioningWorkflowService {
         const existingTenant = await queryRunner.manager.findOne(Tenant, {
           where: { id: existingRun.tenantId },
         });
+        const existingPayload = this.parseCreatePayload(existingRun.requestPayload);
+        const responseTenant = existingTenant
+          ? this.hydrateCreatedTenant(existingTenant, existingPayload)
+          : this.createTenantDraft(existingRun.tenantId, existingPayload, existingRun.actorUserId);
         await queryRunner.commitTransaction();
-        return this.toAcceptedResponse(existingRun, existingTenant ?? undefined);
+        return this.toAcceptedResponse(existingRun, responseTenant);
       }
 
       await this.assertNoDuplicateTenant(queryRunner.manager, payload);
 
-      const tenant = queryRunner.manager.create(Tenant, this.toTenantEntity(payload, actorUserId));
-      const savedTenant = await queryRunner.manager.save(tenant);
+      const tenantId = crypto.randomUUID();
+      const operationId = crypto.randomUUID();
+      const tenantDraft = queryRunner.manager.create(Tenant, {
+        ...this.toTenantEntity(payload, actorUserId),
+        id: tenantId,
+      });
 
       const runRows = await this.managerRows<TenantProvisioningRunRow>(
         queryRunner.manager,
@@ -141,18 +191,20 @@ export class TenantProvisioningWorkflowService {
              id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
              "actorUserId", state, attempts, "createdAt", "updatedAt"
            ) VALUES (
-             uuid_generate_v4(), $1, $2, $3, $4::jsonb, $5, $6, 0, now(), now()
+             $7, $1, $2, $3, $4::jsonb, $5, $6, 0, now(), now()
            )
            RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                      "actorUserId", state, "currentStep", "lastError", attempts,
+                     "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
                      "startedAt", "completedAt", "createdAt", "updatedAt"`,
         [
-          savedTenant.id,
+          tenantId,
           normalizedKey,
           requestHash,
           JSON.stringify(payload),
           actorUserId,
           TenantProvisioningState.QUEUED,
+          operationId,
         ],
       );
 
@@ -161,8 +213,10 @@ export class TenantProvisioningWorkflowService {
         throw new Error('Tenant provisioning operation was not created');
       }
 
+      await this.seedProvisioningSteps(queryRunner.manager, run.id);
+
       await queryRunner.commitTransaction();
-      return this.toAcceptedResponse(run, this.hydrateCreatedTenant(savedTenant, payload));
+      return this.toAcceptedResponse(run, this.hydrateCreatedTenant(tenantDraft, payload));
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -186,6 +240,7 @@ export class TenantProvisioningWorkflowService {
     const rows = await this.queryRows<TenantProvisioningRunRow>(
       `SELECT id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
               "actorUserId", state, "currentStep", "lastError", attempts,
+              "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
               "startedAt", "completedAt", "createdAt", "updatedAt"
          FROM admin.tenant_provisioning_runs
         WHERE "tenantId" = $1
@@ -203,29 +258,84 @@ export class TenantProvisioningWorkflowService {
   }
 
   async retryOperation(operationId: string): Promise<CreateTenantAcceptedResponse> {
-    const rows = await this.queryRows<TenantProvisioningRunRow>(
-      `UPDATE admin.tenant_provisioning_runs
-          SET state = $2,
-              "currentStep" = NULL,
-              "lastError" = NULL,
-              "nextRetryAt" = NULL,
-              "completedAt" = NULL,
-              "updatedAt" = now()
-        WHERE id = $1 AND state = $3
-        RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
-                  "actorUserId", state, "currentStep", "lastError", attempts,
-                  "startedAt", "completedAt", "createdAt", "updatedAt"`,
-      [operationId, TenantProvisioningState.QUEUED, TenantProvisioningState.FAILED],
-    );
+    let shouldProcess = false;
+    await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+      const lockedRows = await this.managerRows<TenantProvisioningRunRow>(
+        manager,
+        `SELECT id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
+                "actorUserId", state, "currentStep", "lastError", attempts,
+                "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
+                "startedAt", "completedAt", "createdAt", "updatedAt"
+           FROM admin.tenant_provisioning_runs
+          WHERE id = $1
+          FOR UPDATE`,
+        [operationId],
+      );
+      const current = lockedRows[0];
+      if (!current) {
+        throw new NotFoundException(`Tenant provisioning operation '${operationId}' not found`);
+      }
 
-    const run = rows[0];
-    if (!run) {
-      throw new ConflictException('Only failed tenant provisioning operations can be retried');
-    }
+      if (
+        current.state === TenantProvisioningState.QUEUED ||
+        current.state === TenantProvisioningState.RESERVING ||
+        current.state === TenantProvisioningState.RUNNING
+      ) {
+        return current;
+      }
 
-    this.processOperation(operationId).catch((error: Error) => {
-      this.logger.error(`Retry processing failed for operation ${operationId}: ${error.message}`);
+      if (current.state === TenantProvisioningState.SUCCEEDED) {
+        throw new ConflictException('Succeeded tenant provisioning operations cannot be retried');
+      }
+
+      if (current.state !== TenantProvisioningState.FAILED) {
+        throw new ConflictException('Only failed tenant provisioning operations can be retried');
+      }
+
+      const rows = await this.managerRows<TenantProvisioningRunRow>(
+        manager,
+        `UPDATE admin.tenant_provisioning_runs
+            SET state = $2,
+                "currentStep" = NULL,
+                "lastError" = NULL,
+                attempts = 0,
+                "nextRetryAt" = NULL,
+                "leaseToken" = NULL,
+                "leasedBy" = NULL,
+                "heartbeatAt" = NULL,
+                "leaseExpiresAt" = NULL,
+                "completedAt" = NULL,
+                "updatedAt" = now()
+          WHERE id = $1
+          RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
+                    "actorUserId", state, "currentStep", "lastError", attempts,
+                    "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
+                    "startedAt", "completedAt", "createdAt", "updatedAt"`,
+        [operationId, TenantProvisioningState.QUEUED],
+      );
+
+      await this.managerRows(
+        manager,
+        `UPDATE admin.tenant_provisioning_steps
+            SET state = $2,
+                attempts = 0,
+                "lastError" = NULL,
+                "startedAt" = NULL,
+                "completedAt" = NULL,
+                "updatedAt" = now()
+          WHERE "runId" = $1 AND state <> $3`,
+        [operationId, TenantProvisioningState.QUEUED, TenantProvisioningState.SUCCEEDED],
+      );
+
+      shouldProcess = true;
+      return rows[0];
     });
+
+    if (shouldProcess) {
+      this.processOperation(operationId).catch((error: Error) => {
+        this.logger.error(`Retry processing failed for operation ${operationId}: ${error.message}`);
+      });
+    }
 
     return this.getOperation(operationId);
   }
@@ -236,13 +346,20 @@ export class TenantProvisioningWorkflowService {
 
     try {
       const payload = this.parseCreatePayload(run.requestPayload);
-      const tenant = await this.findTenantById(run.tenantId);
+      const leaseToken = run.leaseToken;
 
+      await this.runStep(run.id, leaseToken, 'reserve_auth_tenant', async () => {
+        await this.reserveAuthTenant(run, payload);
+      });
+
+      const tenant = await this.findTenantById(run.tenantId);
       if (!tenant) {
-        throw new NotFoundException(`Tenant '${run.tenantId}' not found for provisioning operation`);
+        throw new NotFoundException(
+          `Tenant '${run.tenantId}' not found after auth reservation`,
+        );
       }
 
-      await this.runStep(run.id, 'audit_create_requested', async () => {
+      await this.runStep(run.id, leaseToken, 'audit_create_requested', async () => {
         await this.auditLogService.log({
           action: 'TENANT_CREATE_REQUESTED',
           entityType: 'tenant',
@@ -257,29 +374,41 @@ export class TenantProvisioningWorkflowService {
         });
       });
 
-      await this.runStep(run.id, 'publish_tenant_created', async () => {
-        const event: TenantCreatedEvent = {
-          ...createBaseEvent<TenantCreatedEvent>('TenantCreated', tenant.id, {
+      await this.runStep(run.id, leaseToken, 'assign_modules', async () => {
+        await this.assignModulesWithPricing(tenant, payload, run.actorUserId);
+      });
+
+      await this.runStep(run.id, leaseToken, 'publish_provisioning_requested', async () => {
+        await this.requestDbMigrateTenantSchemaProvisioning(run, tenant, payload);
+        await this.enqueueEvent({
+          ...createBaseEvent('TenantProvisioningRequested', tenant.id, {
             aggregateId: tenant.id,
             aggregateType: 'Tenant',
           }),
           slug: tenant.slug,
           name: tenant.name,
-        };
-        await this.enqueueEvent(event, 'tenant-created:' + run.id);
+          operationId: run.id,
+          moduleIds: payload.moduleIds,
+        }, 'tenant-provisioning-requested:' + run.id);
       });
 
-      await this.runStep(run.id, 'assign_modules', async () => {
-        await this.assignModulesWithPricing(tenant, payload, run.actorUserId);
+      await this.runStep(run.id, leaseToken, 'wait_for_db_migrate_provisioner', async () => {
+        await this.assertDbMigrateProvisionedTenantSchema(run.id, tenant.id);
       });
 
-      await this.runStep(run.id, 'provision_resources', async () => {
-        const adminEmail = payload.primaryContact?.email ?? payload.contactEmail;
+      await this.runStep(run.id, leaseToken, 'provision_application_resources', async () => {
+        const adminEmail = tenant.primaryContact?.email ?? tenant.contactEmail;
         const result = await this.provisioningService.provisionTenant(tenant.id, {
           createFirstAdmin: adminEmail !== undefined,
           adminEmail,
-          adminFirstName: this.getFirstName(payload.primaryContact?.name),
-          adminLastName: this.getLastName(payload.primaryContact?.name),
+          adminFirstName: this.getFirstName(tenant.primaryContact?.name),
+          adminLastName: this.getLastName(tenant.primaryContact?.name),
+          skipSchemaCreation: true,
+          finalizeActivation: false,
+          operationId: run.id,
+          idempotencyKeyBase: run.idempotencyKey,
+          payloadHash: run.requestHash,
+          actorId: run.actorUserId,
         });
 
         if (!result.success) {
@@ -287,15 +416,15 @@ export class TenantProvisioningWorkflowService {
         }
       });
 
-      await this.runStep(run.id, 'apply_runtime_rls', async () => {
-        await this.applyTenantRls(tenant.id);
+      await this.runStep(run.id, leaseToken, 'create_subscription', async () => {
+        await this.createTenantSubscription(run, tenant, payload);
       });
 
-      await this.runStep(run.id, 'create_subscription', async () => {
-        await this.createTenantSubscription(tenant, payload, run.actorUserId);
+      await this.runStep(run.id, leaseToken, 'activate_tenant', async () => {
+        await this.activateTenantAfterVerification(run, tenant.id);
       });
 
-      await this.runStep(run.id, 'audit_provisioned', async () => {
+      await this.runStep(run.id, leaseToken, 'audit_provisioned', async () => {
         await this.auditLogService.log({
           action: 'TENANT_PROVISIONED',
           entityType: 'tenant',
@@ -304,15 +433,64 @@ export class TenantProvisioningWorkflowService {
           details: {
             operationId: run.id,
             moduleIds: payload.moduleIds,
+            tenantStatus: TenantStatus.ACTIVE,
           },
         });
       });
 
-      await this.markRunSucceeded(run.id);
+      await this.runStep(run.id, leaseToken, 'publish_onboarding_requested', async () => {
+        await this.enqueueEvent({
+          ...createBaseEvent('TenantOnboardingRequested', tenant.id, {
+            aggregateId: tenant.id,
+            aggregateType: 'Tenant',
+          }),
+          operationId: run.id,
+          slug: tenant.slug,
+          name: tenant.name,
+          moduleIds: payload.moduleIds,
+        }, 'tenant-onboarding-requested:' + run.id);
+      });
+
+      await this.runStep(run.id, leaseToken, 'wait_for_onboarding_ack', async () => {
+        await this.assertTenantOnboardingAcks(run.id);
+      });
+
+      await this.runStep(run.id, leaseToken, 'publish_tenant_provisioned', async () => {
+        await this.enqueueEvent({
+          ...createBaseEvent('TenantProvisioned', tenant.id, {
+            aggregateId: tenant.id,
+            aggregateType: 'Tenant',
+          }),
+          operationId: run.id,
+          slug: tenant.slug,
+          name: tenant.name,
+        }, 'tenant-provisioned:' + run.id);
+
+        await this.enqueueEvent({
+          ...createBaseEvent('TenantCreated', tenant.id, {
+            aggregateId: tenant.id,
+            aggregateType: 'Tenant',
+          }),
+          slug: tenant.slug,
+          name: tenant.name,
+        }, 'tenant-created-final:' + run.id);
+      });
+
+      await this.markRunSucceeded(run.id, leaseToken);
       this.logger.log(`Tenant provisioning operation ${run.id} completed for tenant ${tenant.id}`);
     } catch (error) {
-      await this.markRunFailed(run.id, error);
-      await this.publishFailure(run, error);
+      if (error instanceof DbMigrateProvisioningPendingError) {
+        await this.markRunWaitingForDbMigrate(run.id, error, run.leaseToken);
+        return;
+      }
+      const markedFailed = await this.markRunFailed(run.id, error, run.leaseToken);
+      if (markedFailed) {
+        await this.publishFailure((await this.getRun(run.id)) ?? run, error);
+      } else {
+        this.logger.warn(
+          `Skipping failure publish for operation ${run.id} because this worker no longer holds the lease`,
+        );
+      }
     }
   }
 
@@ -389,14 +567,70 @@ export class TenantProvisioningWorkflowService {
 
   private normalizeIdempotencyKey(idempotencyKey?: string): string {
     const trimmed = idempotencyKey?.trim();
-    if (trimmed && trimmed.length <= 128) return trimmed;
+    if (trimmed && trimmed.length >= 16 && trimmed.length <= 128) return trimmed;
 
-    const bucket = Math.floor(Date.now() / DEFAULT_IDEMPOTENCY_TTL_MS);
-    return crypto.createHash('sha256').update(`tenant-create:${bucket}:${crypto.randomUUID()}`).digest('hex');
+    throw new BadRequestException('Idempotency-Key is required for tenant creation and must be 16-128 characters');
   }
 
   private hashPayload(payload: CreateTenantDto): string {
     return crypto.createHash('sha256').update(this.stableStringify(payload)).digest('hex');
+  }
+
+  private async assertTenantOnboardingAcks(operationId: string): Promise<void> {
+    const requiredServices = this.requiredOnboardingServices();
+
+    const rows = await this.queryRows<{ service: string; status: 'ACK' | 'FAILED'; error: string | null }>(
+      `SELECT service, status, error
+         FROM admin.tenant_onboarding_acks
+        WHERE "operationId" = $1`,
+      [operationId],
+    );
+    const failed = rows.filter((row) => row.status === 'FAILED');
+    if (failed.length > 0) {
+      throw new Error(
+        `Tenant onboarding failed from owner services: ${failed.map((row) => `${row.service}${row.error ? ` (${row.error})` : ''}`).join(', ')}`,
+      );
+    }
+    const acked = new Set(rows.filter((row) => row.status === 'ACK').map((row) => row.service));
+    const missing = requiredServices.filter((service) => !acked.has(service));
+    if (missing.length > 0) {
+      throw new Error(`Tenant onboarding ack missing from owner services: ${missing.join(', ')}`);
+    }
+  }
+
+  private requiredOnboardingServices(): string[] {
+    return (process.env['TENANT_ONBOARDING_REQUIRED_SERVICES'] ?? 'farm-service')
+      .split(',')
+      .map((service) => service.trim())
+      .filter((service) => service.length > 0);
+  }
+
+  private buildAuthCommandMetadata(
+    commandType: string,
+    operationId: string,
+    tenantId: string,
+    idempotencyKeyBase: string,
+    requestHash: string,
+    actorUserId: string,
+    _payload: unknown,
+  ): {
+    operationId: string;
+    tenantId: string;
+    actor: { id: string; type: 'user' };
+    requestReference: string;
+    auditMetadata: Record<string, unknown>;
+  } {
+    return {
+      operationId,
+      tenantId,
+      actor: { id: actorUserId, type: 'user' },
+      requestReference: `${idempotencyKeyBase}:${commandType}`,
+      auditMetadata: {
+        source: 'admin-api-service',
+        commandType,
+        requestPayloadHash: requestHash,
+      },
+    };
   }
 
   private stableStringify(value: unknown): string {
@@ -467,6 +701,53 @@ export class TenantProvisioningWorkflowService {
     };
   }
 
+  private createTenantDraft(
+    tenantId: string,
+    payload: CreateTenantDto,
+    actorUserId: string,
+  ): Tenant {
+    const tenant = Object.assign(new Tenant(), {
+      ...this.toTenantEntity(payload, actorUserId),
+      id: tenantId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    tenant.hydrateCompatibilityFields();
+    return this.hydrateCreatedTenant(tenant, payload);
+  }
+
+  private async reserveAuthTenant(
+    run: TenantProvisioningRunRow,
+    payload: CreateTenantDto,
+  ): Promise<void> {
+    const tenantDraft = this.createTenantDraft(run.tenantId, payload, run.actorUserId);
+
+    await this.authProvisioningClient.reserveTenant({
+      ...this.buildAuthCommandMetadata(
+        'ReserveTenant',
+        run.id,
+        run.tenantId,
+        run.idempotencyKey,
+        run.requestHash,
+        run.actorUserId,
+        this.toSafeRequestPayload(payload),
+      ),
+      name: tenantDraft.name,
+      slug: tenantDraft.slug,
+      description: tenantDraft.description,
+      customDomain: tenantDraft.customDomain,
+      contactEmail: tenantDraft.contactEmail,
+      contactPhone: tenantDraft.contactPhone,
+      plan: tenantDraft.plan,
+      maxUsers: tenantDraft.maxUsers,
+      maxStorage: tenantDraft.maxStorage,
+      isTrialActive: tenantDraft.isTrialActive,
+      trialEndsAt: tenantDraft.trialEndsAt?.toISOString(),
+      settings: tenantDraft.settings as Record<string, unknown> | undefined,
+      createdBy: run.actorUserId,
+    });
+  }
+
   private buildTenantSettings(data: CreateTenantDto): TenantSettings {
     const notificationPreferences = data.settings?.notificationPreferences
       ? {
@@ -502,6 +783,39 @@ export class TenantProvisioningWorkflowService {
     };
   }
 
+  private toSafeRequestPayload(data: CreateTenantDto): Partial<CreateTenantDto> {
+    return {
+      name: data.name,
+      slug: data.slug,
+      description: data.description,
+      plan: data.plan,
+      tier: data.tier,
+      country: data.country,
+      region: data.region,
+      trialDays: data.trialDays,
+      maxUsers: data.maxUsers,
+      maxStorage: data.maxStorage,
+      limits: data.limits,
+      settings: data.settings
+        ? {
+            timezone: data.settings.timezone,
+            locale: data.settings.locale,
+            currency: data.settings.currency,
+            dateFormat: data.settings.dateFormat,
+            measurementSystem: data.settings.measurementSystem,
+            notificationPreferences: data.settings.notificationPreferences,
+            features: data.settings.features,
+          }
+        : undefined,
+      moduleIds: data.moduleIds ?? [],
+      moduleQuantities: data.moduleQuantities,
+      billingCycle: data.billingCycle,
+      catalogVersionId: data.catalogVersionId,
+      quoteId: data.quoteId,
+      customPlanId: data.customPlanId,
+    };
+  }
+
   private hydrateCreatedTenant(tenant: Tenant, payload: CreateTenantDto): Tenant {
     tenant.domain = tenant.customDomain;
     tenant.country = payload.country;
@@ -523,6 +837,47 @@ export class TenantProvisioningWorkflowService {
           role: payload.billingContact.role ?? 'Billing Contact',
         }
       : undefined;
+    return tenant;
+  }
+
+  private tenantFromSnapshot(
+    snapshot: {
+      id?: string;
+      name?: string;
+      slug?: string;
+      status?: string;
+      plan?: string;
+      customDomain?: string | null;
+      contactEmail?: string | null;
+      contactPhone?: string | null;
+      settings?: TenantSettings | null;
+      createdAt?: string;
+      updatedAt?: string;
+    } | undefined,
+    fallback: Tenant,
+  ): Tenant {
+    if (!snapshot) return fallback;
+    const tenant: Tenant = Object.assign(new Tenant(), {
+      id: snapshot.id ?? fallback.id,
+      name: snapshot.name ?? fallback.name,
+      slug: snapshot.slug ?? fallback.slug,
+      status: snapshot.status ?? fallback.status,
+      plan: snapshot.plan ?? fallback.plan,
+      customDomain: snapshot.customDomain ?? fallback.customDomain,
+      contactEmail: snapshot.contactEmail ?? fallback.contactEmail,
+      contactPhone: snapshot.contactPhone ?? fallback.contactPhone,
+      settings: snapshot.settings ?? fallback.settings,
+      createdBy: fallback.createdBy,
+      maxUsers: fallback.maxUsers,
+      maxStorage: fallback.maxStorage,
+      isTrialActive: fallback.isTrialActive,
+      userCount: 0,
+      farmCount: 0,
+      sensorCount: 0,
+      createdAt: snapshot.createdAt ? new Date(snapshot.createdAt) : new Date(),
+      updatedAt: snapshot.updatedAt ? new Date(snapshot.updatedAt) : new Date(),
+    });
+    tenant.hydrateCompatibilityFields();
     return tenant;
   }
 
@@ -604,8 +959,8 @@ export class TenantProvisioningWorkflowService {
       tenantId: tenant.id,
       modules,
       assignedBy,
-      tier: this.toPlanTier(tenant.tier),
-      billingCycle: this.toBillingCycle(data.billingCycle),
+      tier: this.toModulePlanTier(tenant.tier),
+      billingCycle: this.toModuleBillingCycle(data.billingCycle),
     });
 
     if (!result.success) {
@@ -616,24 +971,30 @@ export class TenantProvisioningWorkflowService {
   }
 
   private async createTenantSubscription(
+    run: TenantProvisioningRunRow,
     tenant: Tenant,
     data: CreateTenantDto,
-    createdBy: string,
   ): Promise<void> {
-    await this.enqueueEvent({
-      ...createBaseEvent('TenantSubscriptionRequested', tenant.id, {
-        aggregateId: tenant.id,
-        aggregateType: 'Tenant',
-      }),
+    const result = await this.billingCommandClient.provisionTenantSubscription({
+      operationId: run.id,
+      tenantId: tenant.id,
+      idempotencyKey: `${run.idempotencyKey}:ProvisionTenantSubscription:${run.requestHash}`,
+      requestPayloadHash: run.requestHash,
+      actorId: run.actorUserId,
       tenantName: tenant.name,
-      moduleIds: data.moduleIds,
+      tier: this.toBillingCommandPlanTier(tenant.tier),
+      billingCycle: this.toBillingCommandCycle(data.billingCycle),
+      moduleIds: data.moduleIds ?? [],
       moduleQuantities: data.moduleQuantities,
       trialDays: data.trialDays,
-      tier: this.toPlanTier(tenant.tier),
-      billingCycle: data.billingCycle ?? 'monthly',
-      billingEmail: data.billingEmail ?? data.primaryContact?.email,
-      createdBy,
-    }, 'tenant-subscription:' + tenant.id);
+      catalogVersionId: data.catalogVersionId,
+      quoteId: data.quoteId,
+      customPlanId: data.customPlanId,
+    });
+
+    if (!result.subscriptionId || !result.receiptId) {
+      throw new Error('Billing provisioning completed without subscription receipt evidence');
+    }
   }
 
   private async enqueueEvent<TEvent extends BaseEvent>(
@@ -652,29 +1013,52 @@ export class TenantProvisioningWorkflowService {
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
+      if ((error as { code?: string }).code === '23505') {
+        this.logger.warn(`Outbox idempotency key already exists; treating as completed: ${idempotencyKey}`);
+        return;
+      }
       throw error;
     } finally {
       await queryRunner.release();
     }
   }
 
-  private toPlanTier(value: string | undefined): PlanTier {
-    const tierMap: Record<string, PlanTier> = {
-      starter: PlanTier.STARTER,
-      professional: PlanTier.PROFESSIONAL,
-      enterprise: PlanTier.ENTERPRISE,
+  private toModulePlanTier(value: string | undefined): ModulePlanTier {
+    const tierMap: Record<string, ModulePlanTier> = {
+      starter: ModulePlanTier.STARTER,
+      professional: ModulePlanTier.PROFESSIONAL,
+      enterprise: ModulePlanTier.ENTERPRISE,
     };
-    return tierMap[value?.toLowerCase() ?? 'starter'] ?? PlanTier.STARTER;
+    return tierMap[value?.toLowerCase() ?? 'starter'] ?? ModulePlanTier.STARTER;
   }
 
-  private toBillingCycle(value: CreateTenantDto['billingCycle']): BillingCycle {
-    const cycleMap: Record<string, BillingCycle> = {
-      monthly: BillingCycle.MONTHLY,
-      quarterly: BillingCycle.QUARTERLY,
-      semi_annual: BillingCycle.SEMI_ANNUAL,
-      annual: BillingCycle.ANNUAL,
+  private toModuleBillingCycle(value: CreateTenantDto['billingCycle']): ModuleBillingCycle {
+    const cycleMap: Record<string, ModuleBillingCycle> = {
+      monthly: ModuleBillingCycle.MONTHLY,
+      quarterly: ModuleBillingCycle.QUARTERLY,
+      semi_annual: ModuleBillingCycle.SEMI_ANNUAL,
+      annual: ModuleBillingCycle.ANNUAL,
     };
-    return cycleMap[value ?? 'monthly'] ?? BillingCycle.MONTHLY;
+    return cycleMap[value ?? 'monthly'] ?? ModuleBillingCycle.MONTHLY;
+  }
+
+  private toBillingCommandPlanTier(value: string | undefined): BillingCommandPlanTier {
+    const tierMap: Record<string, BillingCommandPlanTier> = {
+      starter: 'starter',
+      professional: 'professional',
+      enterprise: 'enterprise',
+    };
+    return tierMap[value?.toLowerCase() ?? 'starter'] ?? 'starter';
+  }
+
+  private toBillingCommandCycle(value: CreateTenantDto['billingCycle']): BillingCommandBillingCycle {
+    const cycleMap: Record<string, BillingCommandBillingCycle> = {
+      monthly: 'monthly',
+      quarterly: 'quarterly',
+      semi_annual: 'semi_annual',
+      annual: 'annual',
+    };
+    return cycleMap[value ?? 'monthly'] ?? 'monthly';
   }
 
   private getFirstName(fullName?: string): string {
@@ -686,30 +1070,90 @@ export class TenantProvisioningWorkflowService {
     return parts.length > 0 ? parts.join(' ') : 'User';
   }
 
-  private async applyTenantRls(tenantId: string): Promise<void> {
-    const schemaRows = await this.queryRows<{ schemaName: string }>(
+  private async assertDbMigrateProvisionedTenantSchema(
+    operationId: string,
+    tenantId: string,
+  ): Promise<void> {
+    const schemaRows = await this.queryRows<{ schemaName: string; tableCount: number }>(
       `SELECT "schemaName"
+              , "tableCount"
          FROM admin.tenant_schemas
         WHERE "tenantId" = $1 AND status = 'active'
         ORDER BY "updatedAt" DESC
         LIMIT 1`,
       [tenantId],
     );
-    const schemaName = schemaRows[0]?.schemaName;
-    if (!schemaName) {
-      throw new Error(`Active tenant schema tracking record missing for tenant ${tenantId}`);
+    const schemaRow = schemaRows[0];
+    if (!schemaRow?.schemaName) {
+      throw new DbMigrateProvisioningPendingError(
+        `db-migrate tenant provisioner has not completed operation ${operationId} for tenant ${tenantId}`,
+      );
+    }
+    if (Number(schemaRow.tableCount ?? 0) <= 0) {
+      throw new Error(
+        `db-migrate tenant provisioner wrote empty schema ledger for operation ${operationId} tenant ${tenantId}`,
+      );
     }
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    try {
-      await applyTenantRlsToSchema(queryRunner, {
-        schemaOverride: schemaName,
-        logger: this.logger,
-      });
-    } finally {
-      await queryRunner.release();
+    this.logger.log(
+      `db-migrate tenant schema ledger confirmed for tenant ${tenantId}: ${schemaRow.schemaName}`,
+    );
+  }
+
+  private async requestDbMigrateTenantSchemaProvisioning(
+    run: TenantProvisioningRunRow,
+    tenant: Tenant,
+    payload: CreateTenantDto,
+  ): Promise<void> {
+    const schemaName = getTenantSchemaName(tenant.id);
+    const rows = await this.queryRows<{ job_id: string }>(
+      `SELECT platform.request_tenant_schema_provisioning(
+         $1::uuid,
+         $2::uuid,
+         $3::text,
+         $4::jsonb
+       ) AS job_id`,
+      [
+        run.id,
+        tenant.id,
+        schemaName,
+        JSON.stringify({
+          operationId: run.id,
+          tenantId: tenant.id,
+          slug: tenant.slug,
+          name: tenant.name,
+          moduleIds: payload.moduleIds,
+          requestHash: run.requestHash,
+          actorUserId: run.actorUserId,
+        }),
+      ],
+    );
+    const jobId = rows[0]?.job_id;
+    if (!jobId) {
+      throw new Error(
+        `db-migrate tenant schema provision request did not return a job id for operation ${run.id}`,
+      );
     }
+    this.logger.log(
+      `Queued db-migrate tenant schema job ${jobId} for operation ${run.id} tenant ${tenant.id}`,
+    );
+  }
+
+  private async activateTenantAfterVerification(
+    run: TenantProvisioningRunRow,
+    tenantId: string,
+  ): Promise<void> {
+    await this.authProvisioningClient.activateTenant({
+      ...this.buildAuthCommandMetadata(
+        'ActivateTenant',
+        run.id,
+        tenantId,
+        run.idempotencyKey,
+        run.requestHash,
+        run.actorUserId,
+        { step: 'activate_tenant' },
+      ),
+    });
   }
 
   private parseCreatePayload(value: unknown): CreateTenantDto {
@@ -730,10 +1174,16 @@ export class TenantProvisioningWorkflowService {
   }
 
   private async claimRun(operationId: string): Promise<TenantProvisioningRunRow | null> {
+    const leaseToken = crypto.randomUUID();
+    const workerId = this.getWorkerId();
     const rows = await this.queryRows<TenantProvisioningRunRow>(
       `UPDATE admin.tenant_provisioning_runs
           SET state = $2,
               attempts = attempts + 1,
+              "leaseToken" = $5,
+              "leasedBy" = $6,
+              "heartbeatAt" = now(),
+              "leaseExpiresAt" = now() + ($7::text)::interval,
               "startedAt" = COALESCE("startedAt", now()),
               "completedAt" = NULL,
               "updatedAt" = now()
@@ -743,24 +1193,83 @@ export class TenantProvisioningWorkflowService {
           AND ("nextRetryAt" IS NULL OR "nextRetryAt" <= now())
         RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                   "actorUserId", state, "currentStep", "lastError", attempts,
+                  "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
                   "startedAt", "completedAt", "createdAt", "updatedAt"`,
       [
         operationId,
         TenantProvisioningState.RUNNING,
         TenantProvisioningState.QUEUED,
         MAX_OPERATION_ATTEMPTS,
+        leaseToken,
+        workerId,
+        `${OPERATION_LEASE_MS} milliseconds`,
       ],
     );
     return rows[0] ?? null;
   }
 
+  private async seedProvisioningSteps(manager: EntityManager, runId: string): Promise<void> {
+    for (const [index, stepName] of PROVISIONING_STEPS.entries()) {
+      await manager.query(
+        `INSERT INTO admin.tenant_provisioning_steps (
+           id, "runId", "stepName", "stepOrder", state, attempts, "createdAt", "updatedAt"
+         ) VALUES (
+           uuid_generate_v4(), $1, $2, $3, $4, 0, now(), now()
+         )
+         ON CONFLICT ("runId", "stepName")
+         DO UPDATE SET
+           "stepOrder" = EXCLUDED."stepOrder",
+           "updatedAt" = now()`,
+        [runId, stepName, index + 1, TenantProvisioningState.QUEUED],
+      );
+    }
+  }
+
+  private stepOrder(stepName: string): number {
+    const index = PROVISIONING_STEPS.indexOf(stepName as (typeof PROVISIONING_STEPS)[number]);
+    return index === -1 ? 999 : index + 1;
+  }
+
+  private getWorkerId(): string {
+    return `${process.env.HOSTNAME ?? 'admin-api'}:${process.pid}`;
+  }
+
+  private async extendLease(
+    runId: string,
+    leaseToken: string | null | undefined,
+  ): Promise<void> {
+    if (!leaseToken) {
+      throw new Error('Provisioning run does not have a lease token');
+    }
+
+    const rows = await this.queryRows<TenantProvisioningRunRow>(
+      `UPDATE admin.tenant_provisioning_runs
+          SET "heartbeatAt" = now(),
+              "leaseExpiresAt" = now() + ($3::text)::interval,
+              "updatedAt" = now()
+        WHERE id = $1
+          AND "leaseToken" = $2
+          AND state = 'RUNNING'
+        RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
+                  "actorUserId", state, "currentStep", "lastError", attempts,
+                  "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
+                  "startedAt", "completedAt", "createdAt", "updatedAt"`,
+      [runId, leaseToken, `${OPERATION_LEASE_MS} milliseconds`],
+    );
+
+    if (rows.length === 0) {
+      throw new Error('Provisioning lease is no longer held by this worker');
+    }
+  }
+
   private async runStep(
     runId: string,
+    leaseToken: string | null | undefined,
     stepName: string,
     work: () => Promise<void>,
   ): Promise<void> {
     const existingRows = await this.queryRows<TenantProvisioningStepRow>(
-      `SELECT "stepName", state, attempts, "lastError", "startedAt", "completedAt"
+      `SELECT "stepName", state, "stepOrder", attempts, "lastError", "startedAt", "completedAt"
          FROM admin.tenant_provisioning_steps
         WHERE "runId" = $1 AND "stepName" = $2
         LIMIT 1`,
@@ -771,11 +1280,13 @@ export class TenantProvisioningWorkflowService {
       return;
     }
 
+    await this.extendLease(runId, leaseToken);
+
     await this.queryRows<TenantProvisioningStepRow>(
       `INSERT INTO admin.tenant_provisioning_steps (
-          id, "runId", "stepName", state, attempts, "startedAt", "createdAt", "updatedAt"
+          id, "runId", "stepName", "stepOrder", state, attempts, "startedAt", "createdAt", "updatedAt"
         ) VALUES (
-          uuid_generate_v4(), $1, $2, $3, 1, now(), now(), now()
+          uuid_generate_v4(), $1, $2, COALESCE($4, 999), $3, 1, now(), now(), now()
         )
         ON CONFLICT ("runId", "stepName")
         DO UPDATE SET
@@ -785,89 +1296,212 @@ export class TenantProvisioningWorkflowService {
           "completedAt" = NULL,
           "lastError" = NULL,
           "updatedAt" = now()
-        RETURNING "stepName", state, attempts, "lastError", "startedAt", "completedAt"`,
-      [runId, stepName, TenantProvisioningState.RUNNING],
+        RETURNING "stepName", state, "stepOrder", attempts, "lastError", "startedAt", "completedAt"`,
+      [runId, stepName, TenantProvisioningState.RUNNING, this.stepOrder(stepName)],
     );
 
-    await this.queryRows<TenantProvisioningRunRow>(
+    const updatedRuns = await this.queryRows<TenantProvisioningRunRow>(
       `UPDATE admin.tenant_provisioning_runs
           SET "currentStep" = $2,
+              "heartbeatAt" = now(),
+              "leaseExpiresAt" = now() + ($4::text)::interval,
               "updatedAt" = now()
         WHERE id = $1
+          AND "leaseToken" = $3
+          AND state = 'RUNNING'
         RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                   "actorUserId", state, "currentStep", "lastError", attempts,
+                  "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
                   "startedAt", "completedAt", "createdAt", "updatedAt"`,
-      [runId, stepName],
+      [runId, stepName, leaseToken, `${OPERATION_LEASE_MS} milliseconds`],
     );
+    if (updatedRuns.length === 0) {
+      throw new Error(`Provisioning lease lost before step ${stepName}`);
+    }
 
     try {
       await work();
-      await this.queryRows<TenantProvisioningStepRow>(
+      await this.extendLease(runId, leaseToken);
+      const rows = await this.queryRows<TenantProvisioningStepRow>(
         `UPDATE admin.tenant_provisioning_steps
             SET state = $3,
                 "completedAt" = now(),
                 "lastError" = NULL,
                 "updatedAt" = now()
           WHERE "runId" = $1 AND "stepName" = $2
-          RETURNING "stepName", state, attempts, "lastError", "startedAt", "completedAt"`,
-        [runId, stepName, TenantProvisioningState.SUCCEEDED],
+            AND EXISTS (
+              SELECT 1
+                FROM admin.tenant_provisioning_runs r
+               WHERE r.id = $1
+                 AND r."leaseToken" = $4
+                 AND r.state = 'RUNNING'
+            )
+          RETURNING "stepName", state, "stepOrder", attempts, "lastError", "startedAt", "completedAt"`,
+        [runId, stepName, TenantProvisioningState.SUCCEEDED, leaseToken],
       );
+      if (rows.length === 0) {
+        throw new Error(`Provisioning lease lost before completing step ${stepName}`);
+      }
     } catch (error) {
-      await this.queryRows<TenantProvisioningStepRow>(
-        `UPDATE admin.tenant_provisioning_steps
-            SET state = $3,
-                "completedAt" = now(),
-                "lastError" = $4,
-                "updatedAt" = now()
-          WHERE "runId" = $1 AND "stepName" = $2
-          RETURNING "stepName", state, attempts, "lastError", "startedAt", "completedAt"`,
-        [runId, stepName, TenantProvisioningState.FAILED, this.errorMessage(error)],
-      );
+      try {
+        await this.extendLease(runId, leaseToken);
+        await this.queryRows<TenantProvisioningStepRow>(
+          `UPDATE admin.tenant_provisioning_steps
+              SET state = $3,
+                  "completedAt" = now(),
+                  "lastError" = $4,
+                  "updatedAt" = now()
+            WHERE "runId" = $1 AND "stepName" = $2
+              AND EXISTS (
+                SELECT 1
+                  FROM admin.tenant_provisioning_runs r
+                 WHERE r.id = $1
+                   AND r."leaseToken" = $5
+                   AND r.state = 'RUNNING'
+              )
+            RETURNING "stepName", state, "stepOrder", attempts, "lastError", "startedAt", "completedAt"`,
+          [runId, stepName, TenantProvisioningState.FAILED, this.errorMessage(error), leaseToken],
+        );
+      } catch (leaseError) {
+        this.logger.warn(
+          `Skipping failed step write for ${stepName}; lease no longer held: ${(leaseError as Error).message}`,
+        );
+      }
       throw error;
     }
   }
 
-  private async markRunSucceeded(runId: string): Promise<void> {
-    await this.queryRows<TenantProvisioningRunRow>(
+  private async markRunSucceeded(
+    runId: string,
+    leaseToken: string | null | undefined,
+  ): Promise<void> {
+    const rows = await this.queryRows<TenantProvisioningRunRow>(
       `UPDATE admin.tenant_provisioning_runs
           SET state = $2,
               "currentStep" = NULL,
               "lastError" = NULL,
+              "leaseToken" = NULL,
+              "leasedBy" = NULL,
+              "heartbeatAt" = NULL,
+              "leaseExpiresAt" = NULL,
               "completedAt" = now(),
               "updatedAt" = now()
         WHERE id = $1
+          AND "leaseToken" = $3
+          AND state = 'RUNNING'
         RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                   "actorUserId", state, "currentStep", "lastError", attempts,
+                  "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
                   "startedAt", "completedAt", "createdAt", "updatedAt"`,
-      [runId, TenantProvisioningState.SUCCEEDED],
+      [runId, TenantProvisioningState.SUCCEEDED, leaseToken],
     );
+    if (rows.length === 0) {
+      throw new Error('Provisioning lease lost before marking run succeeded');
+    }
   }
 
-  private async markRunFailed(runId: string, error: unknown): Promise<void> {
-    const run = await this.getRun(runId);
-    if (run) {
-      await this.queryRows(
-        `UPDATE auth.tenants
-            SET status = $2,
-                "updatedAt" = now()
-          WHERE id = $1
-            AND status <> $3`,
-        [run.tenantId, TenantStatus.PROVISIONING_FAILED, TenantStatus.ACTIVE],
-      );
-    }
-
-    await this.queryRows<TenantProvisioningRunRow>(
+  private async markRunWaitingForDbMigrate(
+    runId: string,
+    error: DbMigrateProvisioningPendingError,
+    leaseToken?: string | null,
+  ): Promise<void> {
+    const rows = await this.queryRows<TenantProvisioningRunRow>(
       `UPDATE admin.tenant_provisioning_runs
           SET state = $2,
               "lastError" = $3,
+              attempts = GREATEST(attempts - 1, 0),
+              "nextRetryAt" = now() + ($5::text)::interval,
+              "leaseToken" = NULL,
+              "leasedBy" = NULL,
+              "heartbeatAt" = NULL,
+              "leaseExpiresAt" = NULL,
+              "updatedAt" = now()
+        WHERE id = $1
+          AND ($4::uuid IS NULL OR "leaseToken" = $4::uuid)
+        RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
+                  "actorUserId", state, "currentStep", "lastError", attempts,
+                  "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
+                  "startedAt", "completedAt", "createdAt", "updatedAt"`,
+      [
+        runId,
+        TenantProvisioningState.QUEUED,
+        error.message,
+        leaseToken ?? null,
+        `${DB_MIGRATE_PROVISIONER_RETRY_MS} milliseconds`,
+      ],
+    );
+
+    if (rows.length === 0) {
+      this.logger.warn(
+        `Skipping db-migrate wait requeue for operation ${runId} because this worker no longer holds the lease`,
+      );
+      return;
+    }
+
+    await this.queryRows(
+      `UPDATE admin.tenant_provisioning_steps
+          SET state = $3,
+              "lastError" = $4,
+              "completedAt" = NULL,
+              "updatedAt" = now()
+        WHERE "runId" = $1 AND "stepName" = $2`,
+      [
+        runId,
+        'wait_for_db_migrate_provisioner',
+        TenantProvisioningState.QUEUED,
+        error.message,
+      ],
+    );
+
+    this.logger.log(
+      `Tenant provisioning operation ${runId} is waiting for db-migrate tenant provisioner`,
+    );
+  }
+
+  private async markRunFailed(
+    runId: string,
+    error: unknown,
+    leaseToken?: string | null,
+  ): Promise<boolean> {
+    const run = await this.getRun(runId);
+    const rows = await this.queryRows<TenantProvisioningRunRow>(
+      `UPDATE admin.tenant_provisioning_runs
+          SET state = $2,
+              "lastError" = $3,
+              "leaseToken" = NULL,
+              "leasedBy" = NULL,
+              "heartbeatAt" = NULL,
+              "leaseExpiresAt" = NULL,
               "completedAt" = now(),
               "updatedAt" = now()
         WHERE id = $1
+          AND ($4::uuid IS NULL OR "leaseToken" = $4::uuid)
         RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                   "actorUserId", state, "currentStep", "lastError", attempts,
+                  "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
                   "startedAt", "completedAt", "createdAt", "updatedAt"`,
-      [runId, TenantProvisioningState.FAILED, this.errorMessage(error)],
+      [runId, TenantProvisioningState.FAILED, this.errorMessage(error), leaseToken ?? null],
     );
+    if (rows.length === 0) {
+      return false;
+    }
+
+    if (run) {
+      await this.authProvisioningClient.failProvisioning({
+        ...this.buildAuthCommandMetadata(
+          'FailProvisioning',
+          run.id,
+          run.tenantId,
+          run.idempotencyKey,
+          run.requestHash,
+          run.actorUserId,
+          { error: this.errorMessage(error) },
+        ),
+        reason: this.errorMessage(error),
+      });
+    }
+
+    return true;
   }
 
   private async publishFailure(run: TenantProvisioningRunRow, error: unknown): Promise<void> {
@@ -888,25 +1522,73 @@ export class TenantProvisioningWorkflowService {
   }
 
   private async requeueStaleRuns(): Promise<void> {
-    await this.queryRows<TenantProvisioningRunRow>(
+    const retryRows = await this.queryRows<TenantProvisioningRunRow>(
       `UPDATE admin.tenant_provisioning_runs
           SET state = $2,
               "lastError" = 'Operation recovered after worker interruption',
+              "leaseToken" = NULL,
+              "leasedBy" = NULL,
+              "heartbeatAt" = NULL,
+              "leaseExpiresAt" = NULL,
               "updatedAt" = now()
         WHERE state = $1
-          AND "updatedAt" < now() - interval '30 minutes'
+          AND "leaseExpiresAt" < now()
           AND attempts < $3
         RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
                   "actorUserId", state, "currentStep", "lastError", attempts,
+                  "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
                   "startedAt", "completedAt", "createdAt", "updatedAt"`,
       [TenantProvisioningState.RUNNING, TenantProvisioningState.QUEUED, MAX_OPERATION_ATTEMPTS],
     );
+
+    const failedRows = await this.queryRows<TenantProvisioningRunRow>(
+      `UPDATE admin.tenant_provisioning_runs
+          SET state = $2,
+              "lastError" = 'Operation exceeded max attempts after worker interruption',
+              "leaseToken" = NULL,
+              "leasedBy" = NULL,
+              "heartbeatAt" = NULL,
+              "leaseExpiresAt" = NULL,
+              "completedAt" = now(),
+              "updatedAt" = now()
+        WHERE state = $1
+          AND "leaseExpiresAt" < now()
+          AND attempts >= $3
+        RETURNING id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
+                  "actorUserId", state, "currentStep", "lastError", attempts,
+                  "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
+                  "startedAt", "completedAt", "createdAt", "updatedAt"`,
+      [TenantProvisioningState.RUNNING, TenantProvisioningState.FAILED, MAX_OPERATION_ATTEMPTS],
+    );
+
+    for (const run of failedRows) {
+      await this.authProvisioningClient.failProvisioning({
+        ...this.buildAuthCommandMetadata(
+          'FailProvisioning',
+          run.id,
+          run.tenantId,
+          run.idempotencyKey,
+          run.requestHash,
+          run.actorUserId,
+          { error: run.lastError ?? 'Operation exceeded max attempts after worker interruption' },
+        ),
+        reason: run.lastError ?? 'Operation exceeded max attempts after worker interruption',
+      });
+      await this.publishFailure(run, run.lastError ?? 'Operation exceeded max attempts after worker interruption');
+    }
+
+    if (retryRows.length > 0 || failedRows.length > 0) {
+      this.logger.warn(
+        `Recovered stale tenant provisioning runs: requeued=${retryRows.length}, failed=${failedRows.length}`,
+      );
+    }
   }
 
   private async getRun(operationId: string): Promise<TenantProvisioningRunRow | null> {
     const rows = await this.queryRows<TenantProvisioningRunRow>(
       `SELECT id, "tenantId", "idempotencyKey", "requestHash", "requestPayload",
               "actorUserId", state, "currentStep", "lastError", attempts,
+              "nextRetryAt", "leaseToken", "leasedBy", "heartbeatAt", "leaseExpiresAt",
               "startedAt", "completedAt", "createdAt", "updatedAt"
          FROM admin.tenant_provisioning_runs
         WHERE id = $1`,
@@ -917,10 +1599,10 @@ export class TenantProvisioningWorkflowService {
 
   private async getRunSteps(operationId: string): Promise<TenantProvisioningStepDto[]> {
     const rows = await this.queryRows<TenantProvisioningStepRow>(
-      `SELECT "stepName", state, attempts, "lastError", "startedAt", "completedAt"
+      `SELECT "stepName", state, "stepOrder", attempts, "lastError", "startedAt", "completedAt"
          FROM admin.tenant_provisioning_steps
         WHERE "runId" = $1
-        ORDER BY "createdAt" ASC`,
+        ORDER BY "stepOrder" ASC, "createdAt" ASC`,
       [operationId],
     );
 
@@ -937,23 +1619,33 @@ export class TenantProvisioningWorkflowService {
   private toAcceptedResponse(
     run: TenantProvisioningRunRow,
     tenant?: Tenant,
-    steps?: TenantProvisioningStepDto[],
+    _steps?: TenantProvisioningStepDto[],
   ): CreateTenantAcceptedResponse {
     return {
-      accepted: true,
-      id: tenant?.id ?? run.tenantId,
-      tenantId: run.tenantId,
-      operationId: run.id,
-      provisioningState: run.state,
-      statusUrl: `/api/v1/tenants/provisioning/${run.id}`,
-      status: tenant?.status ?? TenantStatus.PENDING,
-      name: tenant?.name ?? '',
-      slug: tenant?.slug ?? '',
-      tier: tenant?.tier ?? TenantPlan.STARTER,
-      currentStep: run.currentStep ?? undefined,
-      error: run.lastError ?? undefined,
-      steps,
+      status: run.state,
+      tenantStatus: (tenant?.status as TenantStatus | undefined) ?? TenantStatus.PENDING,
+      statusUrl: `/tenants/provisioning/${run.id}`,
+      retryAfterMs: this.retryAfterMs(run.state),
+      availableActions: this.availableActions(run.state),
     };
+  }
+
+  private retryAfterMs(state: TenantProvisioningState): number {
+    switch (state) {
+      case TenantProvisioningState.QUEUED:
+      case TenantProvisioningState.RESERVING:
+      case TenantProvisioningState.RUNNING:
+        return 2_000;
+      default:
+        return 0;
+    }
+  }
+
+  private availableActions(state: TenantProvisioningState): string[] {
+    if (state === TenantProvisioningState.FAILED) {
+      return ['retryProvisioning'];
+    }
+    return [];
   }
 
   private errorMessage(error: unknown): string {

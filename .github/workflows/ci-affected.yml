@@ -863,7 +863,7 @@ jobs:
 
       # ── Phase A4 — required-secret manifest lint ─────────────────────────
       # `infrastructure/deploy/required-secrets.yaml` is the SSoT for which
-      # env vars are mandatory at deploy time. `validate-required-secrets.py`
+      # env vars are mandatory at deploy time. `npm run validate:required-secrets`
       # asserts that the manifest's secret list and the `${VAR:?}` patterns
       # across every listed compose file are in lockstep, and that each
       # secret's `required_by:` matches the compose files actually using it.
@@ -879,7 +879,7 @@ jobs:
       # forgets to update the deploy pre-flight manifest" failure mode that
       # crashed the 2026-04-14 deploy cascade.
       - name: Phase A4 — required-secret manifest SSoT
-        run: python3 scripts/ci/validate-required-secrets.py
+        run: npm run validate:required-secrets
 
       - name: Phase A5 — deploy SSOT immutability gates
         run: bash scripts/ci/validate-deploy-ssot.sh
@@ -1222,6 +1222,15 @@ jobs:
     # bypass remains operator-initiated via workflow_dispatch.
     with:
       services: 'auto'
+
+  production-post-deploy-verify:
+    needs:
+      - deploy
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success'
+    uses: ./.github/workflows/production-post-deploy-verify.yml
+    secrets: inherit
+    with:
+      target_sha: ${{ github.sha }}
 
   merge-gate:
     needs:

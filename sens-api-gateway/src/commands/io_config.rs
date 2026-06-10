@@ -2,10 +2,11 @@
 //! split).
 //!
 //! WHY: Plan §5 Faz 1 Step 5 domain isolation. This module handles
-//! the `AgentIoConfig` schema (modbus[] / gpio[] / i2c[] arrays
-//! with alarm thresholds + engineering-unit scaling) + generic
-//! value-to-output dispatch across protocol boundaries. Extracting
-//! from mod.rs surfaces the tag-lifecycle dependency graph:
+//! the `AgentIoConfig` schema (v2 tags[] plus legacy modbus[] /
+//! gpio[] / i2c[] arrays with alarm thresholds + engineering-unit
+//! scaling) + generic value-to-output dispatch across protocol
+//! boundaries. Extracting from mod.rs surfaces the tag-lifecycle
+//! dependency graph:
 //! ProcessImage.set_configs + AlarmManager.register + YAML
 //! persistence + protocol-specific write fan-out.
 //!
@@ -21,9 +22,10 @@
 //!   (GPIO / Modbus / I2C); unsupported protocols return a
 //!   specific error.
 //! - `parse_io_config_to_tags` helper — converts the
-//!   AgentIoConfig JSON schema to `Vec<TagConfig>`. Accepts both
+//!   AgentIoConfig JSON schema to `Vec<TagConfig>`. Accepts flat
+//!   v2 `tags[]` payloads plus legacy grouped arrays. Both
 //!   camelCase (tagName, ioType) and snake_case (tag_name,
-//!   io_type) to support legacy + modern cloud payloads.
+//!   io_type) are supported.
 //! - `persist_io_config` helper — writes the raw params JSON to
 //!   /etc/suderra/io_config.yaml as YAML; creates the directory
 //!   if absent.
@@ -58,7 +60,7 @@ impl CommandHandler {
     ) -> (bool, Value, Option<String>) {
         info!("Executing update_io_config command");
 
-        let tag_configs = match self.parse_io_config_to_tags(params) {
+        let tag_configs = match Self::parse_io_config_to_tags(params) {
             Ok(configs) => configs,
             Err(e) => {
                 return (
@@ -243,12 +245,250 @@ impl CommandHandler {
         }
     }
 
-    /// Parse the AgentIoConfig format (modbus[], gpio[], i2c[])
-    /// into `Vec<TagConfig>`. Accepts BOTH camelCase (tagName,
-    /// ioType) and snake_case (tag_name, io_type) keys — legacy
-    /// cloud payloads use snake_case; modern GraphQL mutation
-    /// serializes to camelCase.
-    fn parse_io_config_to_tags(&self, params: &Value) -> anyhow::Result<Vec<TagConfig>> {
+    fn json_field<'a>(item: &'a Value, camel: &str, snake: &str) -> Option<&'a Value> {
+        item.get(camel).or_else(|| item.get(snake))
+    }
+
+    fn json_str<'a>(item: &'a Value, camel: &str, snake: &str) -> Option<&'a str> {
+        Self::json_field(item, camel, snake).and_then(|v| v.as_str())
+    }
+
+    fn json_u64(item: &Value, camel: &str, snake: &str) -> Option<u64> {
+        Self::json_field(item, camel, snake).and_then(|v| v.as_u64())
+    }
+
+    fn json_f64(item: &Value, camel: &str, snake: &str) -> Option<f64> {
+        Self::json_field(item, camel, snake).and_then(|v| v.as_f64())
+    }
+
+    fn required_json_u64(
+        item: &Value,
+        camel: &str,
+        snake: &str,
+        tag_name: &str,
+    ) -> anyhow::Result<u64> {
+        Self::json_u64(item, camel, snake)
+            .ok_or_else(|| anyhow::anyhow!("tag {tag_name} missing required {camel}"))
+    }
+
+    fn bounded_u8(value: u64, field: &str, tag_name: &str) -> anyhow::Result<u8> {
+        u8::try_from(value)
+            .map_err(|_| anyhow::anyhow!("tag {tag_name} has out-of-range {field}: {value}"))
+    }
+
+    fn bounded_u16(value: u64, field: &str, tag_name: &str) -> anyhow::Result<u16> {
+        u16::try_from(value)
+            .map_err(|_| anyhow::anyhow!("tag {tag_name} has out-of-range {field}: {value}"))
+    }
+
+    fn parse_io_type(value: Option<&str>) -> IoType {
+        match value.unwrap_or("AI").to_ascii_uppercase().as_str() {
+            "DI" => IoType::DI,
+            "DO" => IoType::DO,
+            "AO" => IoType::AO,
+            _ => IoType::AI,
+        }
+    }
+
+    fn direction_for_io_type(io_type: IoType) -> String {
+        match io_type {
+            IoType::DO | IoType::AO => "output".to_string(),
+            IoType::DI | IoType::AI => "input".to_string(),
+        }
+    }
+
+    fn parse_i2c_driver_type(item: &Value) -> I2cDriverType {
+        let driver_type = Self::json_str(item, "driverType", "driver_type")
+            .unwrap_or("generic_direct")
+            .to_ascii_lowercase();
+
+        match driver_type.as_str() {
+            "atlas_ezo" => {
+                let sensor = Self::json_str(item, "sensorType", "sensor_type")
+                    .unwrap_or("ph")
+                    .to_ascii_lowercase();
+                let sensor_type = match sensor.as_str() {
+                    "do" => AtlasEzoType::Do,
+                    "ec" => AtlasEzoType::Ec,
+                    "orp" => AtlasEzoType::Orp,
+                    "temp" | "rtd" => AtlasEzoType::Temp,
+                    _ => AtlasEzoType::Ph,
+                };
+                I2cDriverType::AtlasEzo { sensor_type }
+            }
+            "generic_register" => {
+                let read_register = Self::json_u64(item, "readRegister", "read_register")
+                    .unwrap_or(0)
+                    .min(u8::MAX as u64) as u8;
+                let read_length = Self::json_u64(item, "readLength", "read_length")
+                    .unwrap_or(2)
+                    .min(u8::MAX as u64) as u8;
+                I2cDriverType::GenericRegister {
+                    read_register,
+                    read_length,
+                }
+            }
+            _ => {
+                let read_length = Self::json_u64(item, "readLength", "read_length")
+                    .unwrap_or(4)
+                    .min(u8::MAX as u64) as u8;
+                I2cDriverType::GenericDirect { read_length }
+            }
+        }
+    }
+
+    fn flat_tag_config(
+        item: &Value,
+        tag_name: String,
+        io_type: IoType,
+        source: TagSource,
+        protocol_config: ProtocolConfig,
+    ) -> TagConfig {
+        TagConfig {
+            tag_name,
+            io_type,
+            data_type: Self::json_str(item, "dataType", "data_type")
+                .unwrap_or("FLOAT32")
+                .to_string(),
+            source,
+            poll_interval_ms: Self::json_u64(item, "pollIntervalMs", "poll_interval_ms"),
+            raw_min: Self::json_f64(item, "rawMin", "raw_min"),
+            raw_max: Self::json_f64(item, "rawMax", "raw_max"),
+            eng_min: Self::json_f64(item, "engMin", "eng_min"),
+            eng_max: Self::json_f64(item, "engMax", "eng_max"),
+            eng_unit: Self::json_str(item, "engUnit", "eng_unit").map(|s| s.to_string()),
+            invert: item
+                .get("invert")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            alarm_hh: Self::json_f64(item, "alarmHH", "alarm_hh"),
+            alarm_h: Self::json_f64(item, "alarmH", "alarm_h"),
+            alarm_l: Self::json_f64(item, "alarmL", "alarm_l"),
+            alarm_ll: Self::json_f64(item, "alarmLL", "alarm_ll"),
+            deadband: item.get("deadband").and_then(|v| v.as_f64()),
+            protocol_config,
+        }
+    }
+
+    fn parse_flat_io_config_tags(tag_array: &[Value]) -> anyhow::Result<Vec<TagConfig>> {
+        let mut tags = Vec::with_capacity(tag_array.len());
+
+        for item in tag_array {
+            let tag_name = Self::json_str(item, "tagName", "tag_name")
+                .ok_or_else(|| anyhow::anyhow!("flat AgentIoConfig tag missing tagName"))?
+                .to_string();
+            let protocol = Self::json_str(item, "protocol", "protocol")
+                .ok_or_else(|| anyhow::anyhow!("tag {tag_name} missing protocol"))?
+                .to_ascii_lowercase();
+            let io_type = Self::parse_io_type(Self::json_str(item, "ioType", "io_type"));
+
+            let tag = match protocol.as_str() {
+                "gpio" => {
+                    let pin = Self::bounded_u8(
+                        Self::required_json_u64(item, "pin", "pin", &tag_name)?,
+                        "pin",
+                        &tag_name,
+                    )?;
+                    let direction = Self::json_str(item, "direction", "direction")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| Self::direction_for_io_type(io_type));
+
+                    Self::flat_tag_config(
+                        item,
+                        tag_name,
+                        io_type,
+                        TagSource::Gpio,
+                        ProtocolConfig::Gpio { pin, direction },
+                    )
+                }
+                "modbus" => {
+                    let slave_id = Self::bounded_u8(
+                        Self::json_u64(item, "slaveId", "slave_id").unwrap_or(1),
+                        "slaveId",
+                        &tag_name,
+                    )?;
+                    let register = Self::bounded_u16(
+                        Self::required_json_u64(item, "register", "register", &tag_name)?,
+                        "register",
+                        &tag_name,
+                    )?;
+                    let function = Self::bounded_u8(
+                        item.get("function").and_then(|v| v.as_u64()).unwrap_or(3),
+                        "function",
+                        &tag_name,
+                    )?;
+                    let register_type = Self::json_str(item, "registerType", "register_type")
+                        .unwrap_or("holding")
+                        .to_string();
+
+                    Self::flat_tag_config(
+                        item,
+                        tag_name,
+                        io_type,
+                        TagSource::Modbus,
+                        ProtocolConfig::Modbus {
+                            slave_id,
+                            register,
+                            function,
+                            register_type,
+                        },
+                    )
+                }
+                "i2c" => {
+                    let bus = Self::bounded_u8(
+                        item.get("bus").and_then(|v| v.as_u64()).unwrap_or(1),
+                        "bus",
+                        &tag_name,
+                    )?;
+                    let address = Self::bounded_u8(
+                        Self::required_json_u64(item, "address", "address", &tag_name)?,
+                        "address",
+                        &tag_name,
+                    )?;
+                    let driver_type = Self::parse_i2c_driver_type(item);
+
+                    Self::flat_tag_config(
+                        item,
+                        tag_name,
+                        io_type,
+                        TagSource::I2c,
+                        ProtocolConfig::I2c {
+                            bus,
+                            address,
+                            driver_type,
+                        },
+                    )
+                }
+                other => {
+                    return Err(anyhow::anyhow!(
+                        "tag {tag_name} has unsupported protocol: {other}"
+                    ));
+                }
+            };
+
+            tags.push(tag);
+        }
+
+        Ok(tags)
+    }
+
+    /// Parse the AgentIoConfig format into `Vec<TagConfig>`.
+    /// Flat v2 tags[] payloads are authoritative when schemaVersion
+    /// is 2. Legacy grouped modbus[], gpio[], i2c[] payloads remain
+    /// accepted for already-deployed agents.
+    fn parse_io_config_to_tags(params: &Value) -> anyhow::Result<Vec<TagConfig>> {
+        if Self::json_u64(params, "schemaVersion", "schema_version") == Some(2) {
+            let tag_array = params
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| anyhow::anyhow!("AgentIoConfig v2 requires tags[]"))?;
+            return Self::parse_flat_io_config_tags(tag_array);
+        }
+
+        if let Some(tag_array) = params.get("tags").and_then(|v| v.as_array()) {
+            return Self::parse_flat_io_config_tags(tag_array);
+        }
+
         let mut tags = Vec::new();
 
         if let Some(gpio_array) = params.get("gpio").and_then(|v| v.as_array()) {
@@ -560,5 +800,114 @@ impl CommandHandler {
         fs::write(&config_path, yaml)?;
         info!("I/O config persisted to {}", config_path.display());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_flat_agent_io_config_v2_tags() {
+        let params = json!({
+            "schemaVersion": 2,
+            "tags": [
+                {
+                    "tagName": "pump_enabled",
+                    "protocol": "gpio",
+                    "ioType": "DO",
+                    "dataType": "bool",
+                    "pin": 17,
+                    "invert": true
+                },
+                {
+                    "tagName": "pond_temp",
+                    "protocol": "modbus",
+                    "ioType": "AI",
+                    "dataType": "float32",
+                    "slaveId": 3,
+                    "register": 40010,
+                    "function": 3,
+                    "registerType": "holding",
+                    "engUnit": "C",
+                    "alarmHH": 31.5
+                },
+                {
+                    "tagName": "pond_ph",
+                    "protocol": "i2c",
+                    "ioType": "AI",
+                    "dataType": "float32",
+                    "bus": 1,
+                    "address": 99,
+                    "driverType": "atlas_ezo",
+                    "sensorType": "ph"
+                }
+            ]
+        });
+
+        let tags = CommandHandler::parse_io_config_to_tags(&params).expect("parse v2 tags");
+
+        assert_eq!(tags.len(), 3);
+        assert_eq!(tags[0].tag_name, "pump_enabled");
+        assert_eq!(tags[0].source, TagSource::Gpio);
+        assert_eq!(tags[0].io_type, IoType::DO);
+        assert!(tags[0].invert);
+        match &tags[0].protocol_config {
+            ProtocolConfig::Gpio { pin, direction } => {
+                assert_eq!(*pin, 17);
+                assert_eq!(direction, "output");
+            }
+            other => panic!("expected gpio protocol, got {other:?}"),
+        }
+
+        assert_eq!(tags[1].source, TagSource::Modbus);
+        assert_eq!(tags[1].eng_unit.as_deref(), Some("C"));
+        assert_eq!(tags[1].alarm_hh, Some(31.5));
+        match &tags[1].protocol_config {
+            ProtocolConfig::Modbus {
+                slave_id,
+                register,
+                function,
+                register_type,
+            } => {
+                assert_eq!(*slave_id, 3);
+                assert_eq!(*register, 40010);
+                assert_eq!(*function, 3);
+                assert_eq!(register_type, "holding");
+            }
+            other => panic!("expected modbus protocol, got {other:?}"),
+        }
+
+        assert_eq!(tags[2].source, TagSource::I2c);
+        match &tags[2].protocol_config {
+            ProtocolConfig::I2c {
+                bus,
+                address,
+                driver_type,
+            } => {
+                assert_eq!(*bus, 1);
+                assert_eq!(*address, 99);
+                match driver_type {
+                    I2cDriverType::AtlasEzo { sensor_type } => {
+                        assert_eq!(*sensor_type, AtlasEzoType::Ph);
+                    }
+                    other => panic!("expected Atlas EZO driver, got {other:?}"),
+                }
+            }
+            other => panic!("expected i2c protocol, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_flat_agent_io_config_v2_without_tags() {
+        let params = json!({ "schemaVersion": 2 });
+
+        let err = CommandHandler::parse_io_config_to_tags(&params).expect_err("missing tags");
+
+        assert!(
+            err.to_string().contains("requires tags[]"),
+            "unexpected error: {err}"
+        );
     }
 }

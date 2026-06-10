@@ -33,6 +33,7 @@ from unittest.mock import patch
 
 from aria_kernel.pr_manager import open_pr_for_action
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class OpenPrHeadResolutionTests(unittest.TestCase):
@@ -74,7 +75,6 @@ class OpenPrHeadResolutionTests(unittest.TestCase):
     def _seed_proposal_and_action(self, *, branch: str | None) -> str:
         """Seed minimum proposal + apply-action ledger rows for the
         open_pr_for_action call to find. Returns proposal_id."""
-        from aria_kernel.ledger import append_jsonl
         proposal_id = "p-test"
         proposal = {
             "schema_version": 1,
@@ -86,7 +86,11 @@ class OpenPrHeadResolutionTests(unittest.TestCase):
             "evidence": [],
             "validation_scope": {"commands": ["nx test x"]},
         }
-        append_jsonl(self.base_dir / "proposals" / "proposals.jsonl", proposal)
+        append_declared_fixture(
+            self.base_dir / "proposals" / "proposals.jsonl",
+            proposal,
+            expected_surface="proposals",
+        )
         action = {
             "schema_version": 1,
             "proposal_id": proposal_id,
@@ -98,7 +102,11 @@ class OpenPrHeadResolutionTests(unittest.TestCase):
             "validation_gate_ref": "sha256:gate-ref",
             "changed_files": [],
         }
-        append_jsonl(self.base_dir / "apply" / "actions.jsonl", action)
+        append_declared_fixture(
+            self.base_dir / "apply" / "actions.jsonl",
+            action,
+            expected_surface="apply_actions",
+        )
         return proposal_id
 
     def test_missing_branch_raises_specific_error(self) -> None:

@@ -32,6 +32,7 @@ import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { Tank, TankStatus } from '../../tank/entities/tank.entity';
 import { TankCapacityService } from '../../tank/services/tank-capacity.service';
 import { AllocateToTankCommand, AllocationType } from '../commands/allocate-to-tank.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
@@ -135,14 +136,25 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         throw new NotFoundException(`Batch ${batchId} bulunamadı`);
       }
 
-      // Equipment (Tank/Pond/Cage) bul with pessimistic lock
-      const equipment = await queryRunner.manager.findOne(Equipment, {
+      // Equipment compatibility row or canonical Tank row bul with pessimistic lock
+      let equipment = await queryRunner.manager.findOne(Equipment, {
         where: { id: payload.tankId, tenantId, isActive: true, isDeleted: false },
         lock: { mode: 'pessimistic_write' },
       });
+      let canonicalTank: Tank | null = null;
 
       if (!equipment) {
-        throw new NotFoundException(`Equipment ${payload.tankId} bulunamadı`);
+        canonicalTank = await queryRunner.manager.findOne(Tank, {
+          where: { id: payload.tankId, tenantId, isActive: true },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (canonicalTank) {
+          equipment = this.tankToCapacityEquipment(canonicalTank);
+        }
+      }
+
+      if (!equipment) {
+        throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
       }
 
       // Existing biomass on the tank — pull the cleaner-fish component
@@ -311,13 +323,23 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         });
       }
 
-      // Equipment güncelle
-      equipment.currentBiomass = tankBatch.totalBiomassKg;
-      equipment.currentCount = tankBatch.totalQuantity;
-      if (equipment.status === EquipmentStatus.PREPARING || equipment.status === EquipmentStatus.FALLOW) {
-        equipment.status = EquipmentStatus.ACTIVE;
+      // Canonical container güncelle
+      if (canonicalTank) {
+        canonicalTank.currentBiomass = tankBatch.totalBiomassKg;
+        canonicalTank.currentCount = tankBatch.totalQuantity;
+        if (canonicalTank.status === TankStatus.PREPARING || canonicalTank.status === TankStatus.FALLOW) {
+          canonicalTank.status = TankStatus.ACTIVE;
+          canonicalTank.statusChangedAt = new Date();
+        }
+        await queryRunner.manager.save(canonicalTank);
+      } else {
+        equipment.currentBiomass = tankBatch.totalBiomassKg;
+        equipment.currentCount = tankBatch.totalQuantity;
+        if (equipment.status === EquipmentStatus.PREPARING || equipment.status === EquipmentStatus.FALLOW) {
+          equipment.status = EquipmentStatus.ACTIVE;
+        }
+        await queryRunner.manager.save(equipment);
       }
-      await queryRunner.manager.save(equipment);
 
       // Batch status güncelle (ilk stoklama ise)
       if (batch.status === BatchStatus.QUARANTINE && payload.allocationType === AllocationType.INITIAL_STOCKING) {
@@ -368,5 +390,54 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     } finally {
       await queryRunner.release();
     }
+  }
+
+  private tankToCapacityEquipment(tank: Tank): Equipment {
+    const equipment = new Equipment();
+    equipment.id = tank.id;
+    equipment.tenantId = tank.tenantId;
+    equipment.name = tank.name;
+    equipment.code = tank.code;
+    equipment.status = this.mapTankStatusToEquipmentStatus(tank.status);
+    equipment.isTank = true;
+    equipment.isActive = tank.isActive;
+    equipment.isDeleted = false;
+    equipment.volume = Number(tank.volume);
+    equipment.currentBiomass = Number(tank.currentBiomass);
+    equipment.currentCount = tank.currentCount;
+    equipment.specifications = {
+      tankType: tank.tankType,
+      material: tank.material,
+      waterType: tank.waterType,
+      dimensions: {
+        diameter: tank.diameter,
+        length: tank.length,
+        width: tank.width,
+        depth: tank.depth,
+        waterDepth: tank.waterDepth,
+        freeboard: tank.freeboard,
+      },
+      volume: Number(tank.volume),
+      waterVolume: tank.waterVolume ? Number(tank.waterVolume) : undefined,
+      maxBiomass: Number(tank.maxBiomass),
+      maxDensity: Number(tank.maxDensity),
+      waterFlow: tank.waterFlow,
+      aeration: tank.aeration,
+    };
+    return equipment;
+  }
+
+  private mapTankStatusToEquipmentStatus(status: TankStatus): EquipmentStatus {
+    const mapping: Record<TankStatus, EquipmentStatus> = {
+      [TankStatus.ACTIVE]: EquipmentStatus.ACTIVE,
+      [TankStatus.PREPARING]: EquipmentStatus.PREPARING,
+      [TankStatus.CLEANING]: EquipmentStatus.CLEANING,
+      [TankStatus.MAINTENANCE]: EquipmentStatus.MAINTENANCE,
+      [TankStatus.HARVESTING]: EquipmentStatus.HARVESTING,
+      [TankStatus.FALLOW]: EquipmentStatus.FALLOW,
+      [TankStatus.QUARANTINE]: EquipmentStatus.QUARANTINE,
+      [TankStatus.INACTIVE]: EquipmentStatus.OUT_OF_SERVICE,
+    };
+    return mapping[status] ?? EquipmentStatus.OPERATIONAL;
   }
 }

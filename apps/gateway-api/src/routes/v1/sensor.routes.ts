@@ -33,7 +33,7 @@ export class SensorRoutesController {
   constructor(private readonly configService: ConfigService) {
     this.sensorServiceUrl = this.configService.get<string>(
       'SENSOR_SERVICE_URL',
-      'http://localhost:3003'
+      'http://localhost:3003',
     );
   }
 
@@ -69,6 +69,7 @@ export class SensorRoutesController {
       const response = await signedFetch(`${this.sensorServiceUrl}/api/mqtt/status`, {
         serviceName: 'gateway-api',
         tenantId: resolveTenantId(req),
+        audience: 'sensor-service',
         headers: {
           Authorization: req.headers.authorization || '',
         },
@@ -90,10 +91,7 @@ export class SensorRoutesController {
    * Used for OTA firmware updates to sensors
    */
   @Post(':sensorId/firmware')
-  async uploadFirmware(
-    @Req() req: Request,
-    @Res() res: Response,
-  ): Promise<void> {
+  async uploadFirmware(@Req() req: Request, @Res() res: Response): Promise<void> {
     const sensorId = req.params.sensorId;
 
     try {
@@ -104,12 +102,13 @@ export class SensorRoutesController {
           method: 'POST',
           serviceName: 'gateway-api',
           tenantId: resolveTenantId(req),
+          audience: 'sensor-service',
           headers: {
             Authorization: req.headers.authorization || '',
             'Content-Type': req.headers['content-type'] || 'application/octet-stream',
           },
           body: req.body as BodyInit,
-        }
+        },
       );
 
       const data: unknown = await response.json();
@@ -128,10 +127,7 @@ export class SensorRoutesController {
    * Streams large data exports directly
    */
   @Get(':sensorId/export')
-  async exportData(
-    @Req() req: Request,
-    @Res() res: Response,
-  ): Promise<void> {
+  async exportData(@Req() req: Request, @Res() res: Response): Promise<void> {
     const sensorId = req.params.sensorId;
     const queryString = new URLSearchParams(req.query as Record<string, string>).toString();
 
@@ -142,20 +138,22 @@ export class SensorRoutesController {
         {
           serviceName: 'gateway-api',
           tenantId: resolveTenantId(req),
+          audience: 'sensor-service',
           headers: {
             Authorization: req.headers.authorization || '',
           },
-        }
+        },
       );
 
       // Forward headers for file download
       res.setHeader(
         'Content-Type',
-        response.headers.get('content-type') || 'application/octet-stream'
+        response.headers.get('content-type') || 'application/octet-stream',
       );
       res.setHeader(
         'Content-Disposition',
-        response.headers.get('content-disposition') || `attachment; filename="${sensorId}-export.csv"`
+        response.headers.get('content-disposition') ||
+          `attachment; filename="${sensorId}-export.csv"`,
       );
 
       // Stream the response

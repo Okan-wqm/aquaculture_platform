@@ -95,7 +95,10 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
         return {
-          autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/auth.graphql') },
+          autoSchemaFile: {
+            federation: 2,
+            path: join(process.cwd(), 'dist/graphql/subgraphs/auth.graphql'),
+          },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -344,7 +347,7 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'auth-service'),
       inject: [ConfigService],
     },
     // SECURITY: Global JWT auth guard

@@ -119,8 +119,12 @@ class PhaseV7_4SkillGenesisDrainer(unittest.TestCase):
                 "calibration_corpus_path": str(self.tmp / "no-such-corpus"),
             },
         }
-        from aria_kernel.ledger import append_jsonl
-        return append_jsonl(path, row)
+        from tests._helpers.declared_fixtures import append_declared_fixture
+        return append_declared_fixture(
+            path,
+            row,
+            expected_surface="skill_genesis_requests",
+        )
 
     # I-V7-01 — REQUIRED kwarg signature.
     def test_i_v7_01_skill_genesis_drainer_has_no_default(self) -> None:

@@ -22,7 +22,7 @@ from .pressure import run_pressure
 from .reflection import run_reflection
 from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
 from .tool_runner import run_tool
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 
 
 # Plan 024 v3 followup §E (ORPHAN-LOW-057) — typed cycles.jsonl row schema.
@@ -282,7 +282,7 @@ def run_enterprise_cycle(
         # "open forever" against integrity._verify_cycle_lifecycle.
         # We persist a typed `stopped` terminal row before returning
         # so cycle lifecycle integrity holds for stop-aborted cycles.
-        append_jsonl(root / "cycles.jsonl", _stopped_event(cycle_id))
+        append_declared_jsonl(root / "cycles.jsonl", _stopped_event(cycle_id), expected_surface="cycles")
         return {
             "schema_version": 2,
             "cycle_id": cycle_id,
@@ -291,7 +291,7 @@ def run_enterprise_cycle(
         }
     workspace = _ensure_enterprise_workspace(workspace_root, workspace_base, root)
     git_head_sha_at_cycle = _git_head_sha(Path(workspace_root))
-    append_jsonl(root / "cycles.jsonl", _started_cycle_row(cycle_id=cycle_id))
+    append_declared_jsonl(root / "cycles.jsonl", _started_cycle_row(cycle_id=cycle_id), expected_surface="cycles")
     learning_pre = run_learning_pre_cycle(workspace, cycle_id=cycle_id, tools_root=root)
     learning = {
         "schema_version": 2,
@@ -360,7 +360,7 @@ def run_enterprise_cycle(
                     git_head_sha_at_cycle=git_head_sha_at_cycle,
                     decision_count=0,
                 )
-                append_jsonl(root / "cycles.jsonl", event)
+                append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
                 return {
                     "schema_version": 2,
                     "cycle_id": cycle_id,
@@ -522,7 +522,7 @@ def run_enterprise_cycle(
             decision_count=len(decisions),
             git_head_sha_at_cycle=git_head_sha_at_cycle,
         )
-        append_jsonl(root / "cycles.jsonl", event)
+        append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
         update_tools_index(root)
         state_status: str = "failed"
     else:
@@ -801,7 +801,7 @@ def _complete_event(
         decision_count,
         git_head_sha_at_cycle=git_head_sha_at_cycle,
     )
-    append_jsonl(root / "cycles.jsonl", row)
+    append_declared_jsonl(root / "cycles.jsonl", row, expected_surface="cycles")
     return row
 
 

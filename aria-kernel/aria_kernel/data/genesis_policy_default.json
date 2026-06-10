@@ -34,5 +34,23 @@
     "max_authorings_per_cycle": 3,
     "max_tokens_per_cycle": 50000,
     "estimated_tokens_per_authoring": 30000
+  },
+  "genesis_lifecycle": {
+    "_doc": "Enterprise autonomy lifecycle gate. Skill/agent genesis cannot jump from pressure gap to request/draft/materialization without HUMAN_REQUIRED, real sandbox, SHADOW, EVAL_WINDOW and ACTIVE evidence.",
+    "pressure_min_score": 70,
+    "min_evidence_refs": 3,
+    "existing_capability_coverage_threshold": 0.8,
+    "request_requires_signed_operator_feedback": true,
+    "real_sandbox_min_fixture_results": 3,
+    "real_sandbox_required_lanes": ["real_repo_baseline", "semantic_regression", "scope_violation_guard"],
+    "shadow_min_days": 14,
+    "shadow_min_clean_cycles": 5,
+    "shadow_min_eval_runs": 10,
+    "min_precision": 0.95,
+    "min_recall": 0.9,
+    "max_critical_false_positives": 0,
+    "max_noncritical_false_positives_30d": 3,
+    "max_result_rejection_rate": 0.05,
+    "max_bridge_permanent_failures": 0
   }
 }

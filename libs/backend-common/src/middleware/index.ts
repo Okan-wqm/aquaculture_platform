@@ -24,3 +24,4 @@ export {
 
 export { createTenantSchemaMiddleware } from './tenant-schema.middleware';
 export { StripInternalHeadersMiddleware } from './strip-internal-headers.middleware';
+export { VerifiedUserAssertionMiddleware } from './verified-user-assertion.middleware';

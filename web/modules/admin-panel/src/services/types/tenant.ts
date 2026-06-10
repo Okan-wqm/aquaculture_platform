@@ -90,6 +90,7 @@ export interface Tenant {
   createdAt: string;
   updatedAt: string;
   version?: number;
+  availableActions?: Array<'activate' | 'suspend' | 'deactivate' | 'archive' | 'retryProvisioning'>;
 }
 
 export interface TenantStats {
@@ -212,10 +213,14 @@ export interface CreateTenantDto {
    * Billing cycle preference: monthly, quarterly, semi_annual, annual
    */
   billingCycle?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
+  catalogVersionId?: string;
+  quoteId?: string;
+  customPlanId?: string;
 }
 
 export enum TenantProvisioningState {
   QUEUED = 'QUEUED',
+  RESERVING = 'RESERVING',
   RUNNING = 'RUNNING',
   SUCCEEDED = 'SUCCEEDED',
   FAILED = 'FAILED',
@@ -231,19 +236,11 @@ export interface TenantProvisioningStep {
 }
 
 export interface CreateTenantAcceptedResponse {
-  accepted: boolean;
-  id: string;
-  tenantId: string;
-  operationId: string;
-  provisioningState: TenantProvisioningState;
+  status: TenantProvisioningState;
+  tenantStatus?: TenantStatus;
   statusUrl: string;
-  status: string;
-  name: string;
-  slug: string;
-  tier: string;
-  currentStep?: string;
-  error?: string;
-  steps?: TenantProvisioningStep[];
+  retryAfterMs: number;
+  availableActions: Array<'retryProvisioning'>;
 }
 
 export interface UpdateTenantDto {

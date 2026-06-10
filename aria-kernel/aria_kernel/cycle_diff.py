@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .snapshot import file_counts_from_payload
 from .tool_registry import ensure_tools_dir, utc_now
 
@@ -76,7 +76,7 @@ def run_cycle_diff(
     with output_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
         handle.write("\n")
-    append_jsonl(root / "cycle-diffs.jsonl", payload)
+    append_declared_jsonl(root / "cycle-diffs.jsonl", payload, expected_surface="cycle_diffs")
     return payload
 
 

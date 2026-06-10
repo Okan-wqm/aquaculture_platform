@@ -1,18 +1,21 @@
 /**
  * Get Equipment Query Handler
  */
-import { QueryHandler, IQueryHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { NotFoundException } from '@nestjs/common';
-import { GetEquipmentQuery } from '../queries/get-equipment.query';
+import { QueryHandler, IQueryHandler } from '@platform/cqrs';
+import { DataSource } from 'typeorm';
+
+import { Tank } from '../../tank/entities/tank.entity';
 import { Equipment } from '../entities/equipment.entity';
+import { GetEquipmentQuery } from '../queries/get-equipment.query';
+import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.service';
 
 @QueryHandler(GetEquipmentQuery)
 export class GetEquipmentHandler implements IQueryHandler<GetEquipmentQuery> {
   constructor(
-    @InjectRepository(Equipment)
-    private readonly equipmentRepository: Repository<Equipment>,
+    private readonly dataSource: DataSource,
+    private readonly tankEquipmentAdapter: TankEquipmentAdapterService,
   ) {}
 
   async execute(query: GetEquipmentQuery): Promise<Equipment> {
@@ -24,18 +27,26 @@ export class GetEquipmentHandler implements IQueryHandler<GetEquipmentQuery> {
       relations.push('equipmentType');
       relations.push('equipmentSystems');
       relations.push('equipmentSystems.system');
-      // relations.push('subEquipment');
     }
 
-    const equipment = await this.equipmentRepository.findOne({
+    const equipmentRepository = tenantManagerRepo(this.dataSource.manager, Equipment, tenantId);
+    const tankRepository = tenantManagerRepo(this.dataSource.manager, Tank, tenantId);
+
+    const equipment = await equipmentRepository.findOne({
       where: { id: equipmentId, tenantId },
       relations,
     });
+    if (equipment) return equipment;
 
-    if (!equipment) {
-      throw new NotFoundException(`Equipment with ID "${equipmentId}" not found`);
+    const tank = await tankRepository.findOne({
+      where: { id: equipmentId, tenantId },
+      relations: includeRelations ? ['department'] : [],
+    });
+    if (tank) {
+      const equipmentType = await this.tankEquipmentAdapter.resolveEquipmentTypeForTank(tank);
+      return this.tankEquipmentAdapter.toEquipmentResponse(tank, equipmentType);
     }
 
-    return equipment;
+    throw new NotFoundException(`Equipment with ID "${equipmentId}" not found`);
   }
 }

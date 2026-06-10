@@ -29,9 +29,9 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOWS = _REPO_ROOT / ".github" / "workflows"
 
-# Plan ARIA-V2 §3.7 — only aria-kernel* + aria-daily-report are under
-# the §3.7 invariant; the broader repo has many workflows owned by
-# other teams that this plan does not gate.
+# Plan ARIA-V2 §3.7 — kernel-owned ARIA workflows are under the §3.7
+# invariant; the broader repo has many workflows owned by other teams
+# that this plan does not gate.
 #
 # Plan ARIA-V3 §B1 INFRA-HIGH-007 — aria-agent-executor.yml added to
 # the governed set; it is kernel-owned (executes the CI-side
@@ -44,6 +44,10 @@ _GOVERNED_WORKFLOWS: frozenset[str] = frozenset({
     "aria-kernel-fast.yml",
     "aria-daily-report.yml",
     "aria-agent-executor.yml",
+    "aria-agent-eval.yml",
+    "aria-operational-proof.yml",
+    "finding-state-sweep.yml",
+    "rule-health-report.yml",
 })
 
 # Plan ARIA-V2 §3.7 + INFRA-HIGH-004 allowlist — the daily-report
@@ -51,6 +55,15 @@ _GOVERNED_WORKFLOWS: frozenset[str] = frozenset({
 # token + persist-credentials:true. This is the documented exception.
 _PERSIST_CREDENTIALS_TRUE_ALLOWLIST: frozenset[tuple[str, str]] = frozenset({
     ("aria-daily-report.yml", "commit-report"),
+})
+
+_MUTATING_ARIA_WORKFLOWS: frozenset[str] = frozenset({
+    "aria-agent-eval.yml",
+    "aria-agent-executor.yml",
+    "aria-daily-report.yml",
+    "aria-operational-proof.yml",
+    "finding-state-sweep.yml",
+    "rule-health-report.yml",
 })
 
 _SHA_PATTERN = re.compile(r"uses:\s*actions/[\w-]+@([0-9a-f]{40})\s*#\s*\S+")
@@ -177,6 +190,26 @@ class CIWorkflowInvariants(unittest.TestCase):
                 continue
             if "contents" not in perms:
                 violations.append(f"{name}: permissions.contents not declared")
+        self.assertEqual(violations, [], msg="\n".join(violations))
+
+    def test_mutating_aria_workflows_run_enterprise_preflight(self) -> None:
+        violations: list[str] = []
+        for name in sorted(_MUTATING_ARIA_WORKFLOWS):
+            text = (_WORKFLOWS / name).read_text(encoding="utf-8")
+            if "verify_workflow_preflight" not in text:
+                violations.append(f"{name}: missing verify_workflow_preflight")
+        self.assertEqual(violations, [], msg="\n".join(violations))
+
+    def test_automation_pr_workflows_use_app_token_source(self) -> None:
+        violations: list[str] = []
+        for name in sorted(_MUTATING_ARIA_WORKFLOWS):
+            text = (_WORKFLOWS / name).read_text(encoding="utf-8")
+            if "open-report-pr.sh" not in text:
+                continue
+            if "secrets.ARIA_GITHUB_APP_TOKEN" not in text:
+                violations.append(f"{name}: automation PR does not use ARIA_GITHUB_APP_TOKEN")
+            if "secrets.GITHUB_TOKEN" in text:
+                violations.append(f"{name}: automation PR still references default GITHUB_TOKEN")
         self.assertEqual(violations, [], msg="\n".join(violations))
 
 

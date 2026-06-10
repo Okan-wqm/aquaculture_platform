@@ -51,7 +51,7 @@ describe('migration glob contract', () => {
         if (!literal.includes('*')) continue;
 
         const migrationSegment = literal.slice(literal.indexOf('/migrations/'));
-        if (!/\/migrations\/\[0-9\]\*/.test(migrationSegment)) {
+        if (!/\/migrations\/(?:[a-z0-9_-]+\/)*\[0-9\]\*/.test(migrationSegment)) {
           violations.push(`${relPath}: ${literal}`);
         }
       }
@@ -61,7 +61,12 @@ describe('migration glob contract', () => {
   });
 
   it('tracked migration classes live in timestamp-prefixed files', () => {
-    const files = gitLsFiles(['apps/*/src/migrations/*.ts', 'apps/*/src/database/migrations/*.ts']);
+    const files = gitLsFiles([
+      'apps/*/src/migrations/*.ts',
+      'apps/*/src/migrations/**/*.ts',
+      'apps/*/src/database/migrations/*.ts',
+      'apps/*/src/database/migrations/**/*.ts',
+    ]);
     const violations: string[] = [];
 
     for (const relPath of files) {

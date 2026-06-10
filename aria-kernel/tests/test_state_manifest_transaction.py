@@ -9,12 +9,13 @@ from unittest.mock import patch
 from aria_kernel.ledger import load_jsonl, state_transaction
 from aria_kernel.next_cycle_queue import append_pending, read_pending
 from aria_kernel.state_manifest import surface_for_path, surface_by_name
+from aria_kernel.tool_registry import ensure_tools_dir
 
 
 class StateManifestTransactionTests(unittest.TestCase):
     def test_manifest_resolves_ack_and_queue_paths(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aria-state-manifest-") as tmp:
-            root = Path(tmp) / "aria-tools"
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
             ack = root / "acks" / "acks.jsonl"
             queue = root / "queues" / "next_cycle_queue.jsonl"
             self.assertEqual(surface_for_path(ack)[0].name, "ack_ledger")
@@ -26,10 +27,11 @@ class StateManifestTransactionTests(unittest.TestCase):
 
     def test_state_transaction_appends_hash_chained_rows(self) -> None:
         with tempfile.TemporaryDirectory(prefix="aria-state-txn-") as tmp:
-            target = Path(tmp) / "aria-tools" / "queues" / "next_cycle_queue.jsonl"
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            target = root / "queues" / "next_cycle_queue.jsonl"
             with state_transaction([target]) as txn:
-                txn.append_jsonl(target, {"event": "one"})
-                txn.append_jsonl(target, {"event": "two"})
+                txn.append_declared_jsonl(target, {"event": "one"}, expected_surface="next_cycle_queue")
+                txn.append_declared_jsonl(target, {"event": "two"}, expected_surface="next_cycle_queue")
             rows = load_jsonl(target, verify=True)
             self.assertEqual([row["event"] for row in rows], ["one", "two"])
             self.assertEqual(rows[1]["previous_ledger_hash"], rows[0]["ledger_hash"])

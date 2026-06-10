@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from aria_kernel.fitness import agent_fitness_score, latest_agent_fitness
-from aria_kernel.ledger import append_jsonl, read_jsonl
+from aria_kernel.ledger import append_declared_jsonl, read_jsonl
 from aria_kernel.report_ingestion import report_ingestion_scan
 from aria_kernel.semantic_dedup import semantic_dedup_compute
 from aria_kernel.telemetry import export_telemetry
@@ -79,8 +79,16 @@ class Phase3AutonomousLearningTests(unittest.TestCase):
             self._run_phase3_loop_body()
 
     def _run_phase3_loop_body(self):
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-docs-1", "docs/note.md:1", subtype="missing docs check"))
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-docs-2", "docs/note.md:2", subtype="missing docs check repeated"))
+        append_declared_jsonl(
+            self.paths.ledgers["pressure"],
+            self._pressure("PE-docs-1", "docs/note.md:1", subtype="missing docs check"),
+            expected_surface="workspace_memory_pressure",
+        )
+        append_declared_jsonl(
+            self.paths.ledgers["pressure"],
+            self._pressure("PE-docs-2", "docs/note.md:2", subtype="missing docs check repeated"),
+            expected_surface="workspace_memory_pressure",
+        )
 
         clusters = semantic_dedup_compute(self.paths, cycle_id="cyc-cluster", tools_root=self.tools_dir)
         self.assertEqual(clusters["merged_count"], 1)
@@ -145,7 +153,11 @@ class Phase3AutonomousLearningTests(unittest.TestCase):
         route = self.tools_dir / "triage" / "agent-routing.json"
         route.parent.mkdir(parents=True)
         route.write_text(json.dumps({"routes": {"docs": "docs-agent"}}), encoding="utf-8")
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-docs-3", "docs/note.md:1"))
+        append_declared_jsonl(
+            self.paths.ledgers["pressure"],
+            self._pressure("PE-docs-3", "docs/note.md:1"),
+            expected_surface="workspace_memory_pressure",
+        )
         # Plan 023 v3 §R-4 — patch the missing-fitness default cap so
         # this fixture (which has no pre-seeded fitness row for
         # docs-agent) still triages PE-docs-3 at auto_fix_safe and the

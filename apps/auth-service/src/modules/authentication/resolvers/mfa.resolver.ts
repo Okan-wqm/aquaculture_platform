@@ -1,8 +1,9 @@
+import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
+import { RateLimit } from '@aquaculture/backend-common/rate-limit';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Resolver, Mutation, Args, Context } from '@nestjs/graphql';
 import { Request, Response } from 'express';
-import { ConfigService } from '@nestjs/config';
-import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { AuthPayload } from '../dto/auth-response.dto';
@@ -162,6 +163,16 @@ export class MfaResolver {
    * Accepts either a 6-digit TOTP code or a recovery code.
    * On success, returns full auth tokens.
    */
+  // SECURITY (SEC-CRITICAL-002): a 6-digit TOTP space MUST be velocity
+  // limited at the service. Keying by the challenge token caps guesses per
+  // login session at 5 — rotating IPs buys an attacker nothing.
+  @RateLimit({
+    name: 'mfa-verify',
+    limit: 5,
+    windowMs: 15 * 60_000,
+    identifier: ({ args }) =>
+      (args?.['input'] as { mfaToken?: string } | undefined)?.mfaToken || undefined,
+  })
   @Public()
   @Mutation(() => AuthPayload, { description: 'Verify MFA during login (TOTP or recovery code)' })
   async verifyMfaLogin(

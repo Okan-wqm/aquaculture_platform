@@ -26,7 +26,13 @@ describe('production operations proof contract', () => {
     expect(workflow).toContain('deployed/production');
     expect(workflow).toContain('scripts/deploy/post-deploy-verify.sh');
     expect(workflow).toContain('production-post-deploy-evidence.json');
-    expect(workflow).toContain('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
+    // WHY pattern, not an exact SHA: the invariant's intent is "evidence
+    // upload uses actions/upload-artifact pinned by full commit SHA" —
+    // asserting one specific SHA made every legitimate dependabot bump
+    // fail this contract (it broke on the 4.6.0→7.0.1 bump). The 40-hex
+    // requirement still forbids tag/branch pins; the version comment is
+    // the human-audit surface and is required alongside.
+    expect(workflow).toMatch(/actions\/upload-artifact@[0-9a-f]{40} # v\d+\.\d+\.\d+/);
     expect(workflow).not.toMatch(/appleboy\/ssh-action/);
 
     expect(script).toContain('platform.release_ledger');

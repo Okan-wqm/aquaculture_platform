@@ -66,7 +66,7 @@ import {
 // isPreservationRef (rescue/ namespace prepush skip)
 // ---------------------------------------------------------
 
-test('isPreservationRef: rescue/ remote refs are preservation pushes', () => {
+void test('isPreservationRef: rescue/ remote refs are preservation pushes', () => {
   assert.strictEqual(
     isPreservationRef('refs/heads/rescue/stash-17-snapshot-20260610'),
     true,
@@ -77,7 +77,7 @@ test('isPreservationRef: rescue/ remote refs are preservation pushes', () => {
   );
 });
 
-test('isPreservationRef: integration-bound refs stay gated', () => {
+void test('isPreservationRef: integration-bound refs stay gated', () => {
   assert.strictEqual(isPreservationRef('refs/heads/main'), false);
   assert.strictEqual(isPreservationRef('refs/heads/feature/rescue-ui'), false);
   // The LOCAL side being a rescue checkout must not exempt a push

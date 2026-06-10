@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -124,9 +126,7 @@ export class DeadLetterQueueService {
   }
 
   private hashEvent(event: Record<string, unknown>): string {
-    const crypto = require('crypto');
-    return crypto
-      .createHash('sha256')
+    return createHash('sha256')
       .update(JSON.stringify(event, Object.keys(event).sort()))
       .digest('hex');
   }

@@ -680,13 +680,18 @@ export class UserLifecycleService {
     //    EntityManager guarantees that a User without an Invitation row
     //    (or vice versa) cannot exist if any single insert fails.
     const result = await this.dataSource.transaction(async (manager) => {
-      const userRepo = tenantManagerRepo(manager, User, input.tenantId);
-      const invitationRepo = tenantManagerRepo(manager, Invitation, input.tenantId);
+      // WHY manager.create/save for User + Invitation (not tenantManagerRepo):
+      // auth.users and auth.invitations are cross-tenant tables by design —
+      // tenantId is NULLABLE there (SUPER_ADMIN rows carry NULL), so the
+      // entities do not satisfy the TenantEntity { tenantId: string }
+      // constraint and the scoped-repository generic collapses to `any`.
+      // tenantId is bound explicitly in each DTO below, which is the same
+      // guarantee the scoped repository would have injected.
+      // UserModuleAssignment HAS a non-nullable tenantId, so it keeps the
+      // scoped repository.
       const umaRepo = tenantManagerRepo(manager, UserModuleAssignment, input.tenantId);
-      // Tenant IS the tenant identity — the row's id is the tenant id;
-      // there is no tenantId column to scope on. Cross-tenant by design.
 
-      const newUser = userRepo.create({
+      const newUser = manager.create(User, {
         email: normalisedEmail,
         firstName: input.firstName ?? null,
         lastName: input.lastName ?? null,
@@ -698,9 +703,9 @@ export class UserLifecycleService {
         invitationExpiresAt: expiresAt,
         invitedBy: input.invitedBy,
       });
-      const savedUser = await userRepo.save(newUser);
+      const savedUser = await manager.save(User, newUser);
 
-      const newInvitation = invitationRepo.create({
+      const newInvitation = manager.create(Invitation, {
         token: tokenHash,
         email: normalisedEmail,
         firstName: input.firstName ?? null,
@@ -719,7 +724,7 @@ export class UserLifecycleService {
         sendCount: 1,
         lastSentAt: new Date(),
       });
-      const savedInvitation = await invitationRepo.save(newInvitation);
+      const savedInvitation = await manager.save(Invitation, newInvitation);
       const actionToken = manager.create(ActionToken, {
         purpose: ActionTokenPurpose.INVITATION,
         tenantId: input.tenantId,

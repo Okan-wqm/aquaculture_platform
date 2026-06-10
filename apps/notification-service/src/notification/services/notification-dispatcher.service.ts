@@ -159,6 +159,40 @@ export interface AlertNotificationData {
  * Notification Dispatcher Service
  * Orchestrates sending notifications across multiple channels
  */
+/**
+ * Shape of a notification.command_receipts row as returned by the raw
+ * SELECT in claimCommandReceipt. Raw manager.query() is an `any` trust
+ * boundary — the row is validated into this type before any field is
+ * read so a schema drift fails loudly instead of propagating `any`.
+ */
+interface CommandReceiptRow {
+  readonly payloadHash: string;
+  readonly status: string;
+  readonly externalId: string | null;
+  readonly updatedAt: Date | string;
+}
+
+function firstRowOf(result: unknown): unknown {
+  return Array.isArray(result) ? (result as readonly unknown[])[0] : undefined;
+}
+
+function toCommandReceiptRow(row: unknown): CommandReceiptRow {
+  if (typeof row !== 'object' || row === null) {
+    throw new Error('notification.command_receipts returned a non-object row');
+  }
+  const candidate = row as Record<string, unknown>;
+  const { payloadHash, status, externalId, updatedAt } = candidate;
+  if (
+    typeof payloadHash !== 'string' ||
+    typeof status !== 'string' ||
+    (externalId !== null && typeof externalId !== 'string') ||
+    !(updatedAt instanceof Date || typeof updatedAt === 'string')
+  ) {
+    throw new Error('notification.command_receipts row failed shape validation');
+  }
+  return { payloadHash, status, externalId, updatedAt };
+}
+
 @Injectable()
 export class NotificationDispatcherService implements OnModuleInit {
   private readonly logger = new Logger(NotificationDispatcherService.name);
@@ -411,7 +445,7 @@ export class NotificationDispatcherService implements OnModuleInit {
     payloadHash: string,
   ): Promise<{ replayed: boolean; externalId?: string }> {
     return this.dataSource.transaction(async (manager) => {
-      const existingRows = await manager.query(
+      const existingRows: unknown = await manager.query(
         `SELECT "payloadHash", status, "externalId", "updatedAt"
            FROM notification.command_receipts
           WHERE "tenantId" = $1
@@ -420,7 +454,8 @@ export class NotificationDispatcherService implements OnModuleInit {
           FOR UPDATE`,
         [input.tenantId, input.channel, input.requestReference],
       );
-      const existing = Array.isArray(existingRows) ? existingRows[0] : undefined;
+      const firstRow = firstRowOf(existingRows);
+      const existing = firstRow === undefined ? undefined : toCommandReceiptRow(firstRow);
       if (existing) {
         if (existing.payloadHash !== payloadHash) {
           throw new BadRequestException(

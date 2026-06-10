@@ -80,8 +80,8 @@ describe('NotificationDispatcherService command receipts', () => {
         },
       ]),
     };
-    dataSource.transaction.mockImplementation(async (callback: (manager: MockManager) => unknown) =>
-      callback(manager),
+    dataSource.transaction.mockImplementation((callback: (manager: MockManager) => unknown) =>
+      Promise.resolve(callback(manager)),
     );
 
     await expect(service.dispatchCommandNotification(input)).rejects.toThrow(
@@ -110,8 +110,8 @@ describe('NotificationDispatcherService command receipts', () => {
         ])
         .mockResolvedValueOnce([]),
     };
-    dataSource.transaction.mockImplementation(async (callback: (manager: MockManager) => unknown) =>
-      callback(manager),
+    dataSource.transaction.mockImplementation((callback: (manager: MockManager) => unknown) =>
+      Promise.resolve(callback(manager)),
     );
 
     await expect(service.dispatchCommandNotification(input)).resolves.toEqual({
@@ -120,7 +120,11 @@ describe('NotificationDispatcherService command receipts', () => {
     });
 
     expect(manager.query).toHaveBeenCalledTimes(2);
-    expect(String(manager.query.mock.calls[1][0])).toContain("status = 'STARTED'");
+    expect(manager.query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("status = 'STARTED'"),
+      expect.anything(),
+    );
     expect(sendNotification).toHaveBeenCalledTimes(1);
     expect(dataSource.query).toHaveBeenCalledTimes(1);
   });
@@ -139,8 +143,8 @@ describe('NotificationDispatcherService command receipts', () => {
         },
       ]),
     };
-    dataSource.transaction.mockImplementation(async (callback: (manager: MockManager) => unknown) =>
-      callback(manager),
+    dataSource.transaction.mockImplementation((callback: (manager: MockManager) => unknown) =>
+      Promise.resolve(callback(manager)),
     );
 
     await expect(service.dispatchCommandNotification(input)).resolves.toEqual({

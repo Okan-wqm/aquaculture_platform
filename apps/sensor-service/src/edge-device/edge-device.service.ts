@@ -152,51 +152,11 @@ export interface PingResult {
 type AgentRegisterType = 'coil' | 'discrete_input' | 'holding' | 'input';
 
 /** Matches config.rs → ModbusRegisterConfig */
-interface AgentModbusRegisterConfig {
-  name: string;
-  address: number;
-  register_type: AgentRegisterType;
-  data_type: string;
-  scale: number;
-  unit: string;
-}
-
-/** Matches config.rs → ModbusDeviceConfig */
-interface AgentModbusDeviceConfig {
-  name: string;
-  connection_type: 'tcp' | 'rtu';
-  address: string;
-  slave_id: number;
-  registers: AgentModbusRegisterConfig[];
-}
-
-/** Matches config.rs → GpioConfig */
-interface AgentGpioConfig {
-  name: string;
-  pin: number;
-  direction: 'input' | 'output';
-  invert: boolean;
-}
-
-/** Matches config.rs → I2cDeviceConfig */
-interface AgentI2cDeviceConfig {
-  name: string;
-  bus: number;
-  address: number;
-  driver_type: Record<string, unknown>;
-  io_type: string;
-  data_type: string;
-  raw_min: number | null;
-  raw_max: number | null;
-  eng_min: number | null;
-  eng_max: number | null;
-  eng_unit: string | null;
-  alarm_hh: number | null;
-  alarm_h: number | null;
-  alarm_l: number | null;
-  alarm_ll: number | null;
-  deadband: number | null;
-}
+// The v1 device-level wire shapes (ModbusDeviceConfig / GpioConfig /
+// I2cDeviceConfig mirrors of config.rs) were retired with the
+// schemaVersion-2 flat-tag transform: v2 emits per-tag protocol fields
+// (slaveId/register/pin/bus...) and no device-level connection blocks.
+// tools/gates/fixtures/agent-io-config-v2.golden.json is the wire SSoT.
 
 // ============================================================================
 // LoRaWAN Agent Wire Format
@@ -1382,25 +1342,20 @@ export class EdgeDeviceService implements OnModuleDestroy {
   }
 
   /**
-   * Transform DeviceIoConfig rows into the agent's expected wire format.
+   * Transform DeviceIoConfig rows into the agent's schemaVersion-2 flat
+   * tag wire format (tools/gates/fixtures/agent-io-config-v2.golden.json
+   * is the wire SSoT).
    *
-   * The output structure mirrors the Rust agent's config.rs types:
-   *   - modbus[] → Vec<ModbusDeviceConfig>  (grouped by slave ID)
-   *   - gpio[]   → Vec<GpioConfig>
-   *
-   * Each Modbus slave becomes a separate ModbusDeviceConfig because the
-   * agent opens one TCP connection per slave device.  All registers that
-   * share the same slave ID are batched under a single connection.
+   * v2 carries per-tag protocol fields (slaveId/register/function for
+   * modbus, pin for gpio, bus/address for i2c). The v1 device-level
+   * ModbusDeviceConfig blocks — and with them the cloud-supplied Modbus
+   * TCP target IP — were retired: the agent resolves its own Modbus
+   * connection target from local provisioning, so the cloud no longer
+   * ships an IP it can only know stale (last heartbeat).
    *
    * @param ioConfigs  Active I/O config rows from the database
-   * @param deviceIpAddress  The edge device's last-known IP (from heartbeat).
-   *                         Used as the Modbus TCP target; falls back to
-   *                         localhost for development/simulation.
    */
-  transformIoConfigsToAgentFormat(
-    ioConfigs: DeviceIoConfig[],
-    deviceIpAddress?: string,
-  ): AgentIoConfig {
+  transformIoConfigsToAgentFormat(ioConfigs: DeviceIoConfig[]): AgentIoConfig {
     const tags: AgentIoTagConfig[] = [];
     const validationErrors: string[] = [];
 
@@ -1486,10 +1441,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     });
 
     try {
-      const agentConfig = this.transformIoConfigsToAgentFormat(
-        ioConfigs,
-        device.ipAddress ?? undefined,
-      );
+      const agentConfig = this.transformIoConfigsToAgentFormat(ioConfigs);
 
       // LoRaWAN config'i ayrı tablodan al ve merge et
       const loraConfig = await this.buildLoRaWanConfig(deviceId);

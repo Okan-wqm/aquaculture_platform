@@ -38,13 +38,13 @@ function makeService(overrides: {
   };
 
   return new EdgeDeviceService(
-    deviceRepository as any,
-    ioConfigRepository as any,
-    loraDeviceRepository as any,
-    {} as any,
-    (overrides.mqttClient === undefined ? null : overrides.mqttClient) as any,
-    {} as any,
-    { get: jest.fn() } as any,
+    deviceRepository as never,
+    ioConfigRepository as never,
+    loraDeviceRepository as never,
+    {} as never,
+    (overrides.mqttClient === undefined ? null : overrides.mqttClient) as never,
+    {} as never,
+    { get: jest.fn() } as never,
   );
 }
 
@@ -76,8 +76,8 @@ describe('AgentIoConfigV2 transform', () => {
     service = makeService();
   });
 
-  afterEach(async () => {
-    await service.onModuleDestroy();
+  afterEach(() => {
+    service.onModuleDestroy();
   });
 
   it('emits flat schemaVersion 2 tags for gpio, modbus and i2c configs', () => {
@@ -109,8 +109,8 @@ describe('AgentIoConfigV2 transform', () => {
         i2cAddress: 0x63,
       }),
     ]);
-    const normalized = JSON.parse(JSON.stringify(result));
-    const golden = JSON.parse(
+    const normalized: unknown = JSON.parse(JSON.stringify(result));
+    const golden: unknown = JSON.parse(
       readFileSync(
         join(process.cwd(), 'tools/gates/fixtures/agent-io-config-v2.golden.json'),
         'utf8',
@@ -122,7 +122,7 @@ describe('AgentIoConfigV2 transform', () => {
 
   it('refuses to push active configs that cannot be represented in AgentIoConfigV2', async () => {
     const mqttClient = makeMqttClient();
-    await service.onModuleDestroy();
+    service.onModuleDestroy();
     service = makeService({
       mqttClient,
       ioConfigs: [
@@ -144,7 +144,7 @@ describe('AgentIoConfigV2 transform', () => {
 
   it('refuses to push ambiguous configs instead of silently choosing a protocol', async () => {
     const mqttClient = makeMqttClient();
-    await service.onModuleDestroy();
+    service.onModuleDestroy();
     service = makeService({
       mqttClient,
       ioConfigs: [
@@ -168,16 +168,17 @@ describe('AgentIoConfigV2 transform', () => {
 
   it('ignores ping responses from a different device identifier', async () => {
     const mqttClient = makeMqttClient();
-    await service.onModuleDestroy();
+    service.onModuleDestroy();
     service = makeService({ mqttClient });
 
     const pingPromise = service.pingDevice(DEVICE_ID, TENANT_ID);
     await flushAsync();
 
-    const publishPayload = mqttClient.publish.mock.calls[0]?.[1] as Record<string, unknown>;
+    const publishCalls = mqttClient.publish.mock.calls as readonly (readonly unknown[])[];
+    const publishPayload = publishCalls[0]?.[1] as Record<string, unknown>;
     const commandId = publishPayload['commandId'] as string;
     let settled = false;
-    pingPromise.then(() => {
+    void pingPromise.then(() => {
       settled = true;
     });
 

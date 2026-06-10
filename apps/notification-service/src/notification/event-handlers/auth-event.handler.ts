@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import type { PasswordResetRequestedEvent, UserInvitedEvent } from '@platform/event-contracts';
 import { maskEmail } from '@aquaculture/backend-common/utils';
+import { signedFetch } from '@aquaculture/backend-common/http';
+import { createHash } from 'node:crypto';
 import { EmailService } from '../services/email.service';
 
 // UUID v4 regex for tenant ID validation
@@ -122,7 +124,6 @@ export class AuthEventHandler
       // v2 HMAC headers binding tenantId AND method+path+body. Manual
       // generateServiceIdentityHeaders + fetch is the v1 pattern that left
       // the canonical input cross-endpoint-replayable.
-      const { signedFetch } = require('@aquaculture/backend-common');
       const response = await signedFetch(
         `${this.authServiceUrl}/api/v1/internal/users/${userId}/pii`,
         {
@@ -154,7 +155,6 @@ export class AuthEventHandler
   private async resolveTenantInfo(tenantId: string): Promise<ResolvedTenantInfo | null> {
     try {
       // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
-      const { signedFetch } = require('@aquaculture/backend-common');
       const response = await signedFetch(
         `${this.authServiceUrl}/api/v1/internal/tenants/${tenantId}/info`,
         {
@@ -192,7 +192,6 @@ export class AuthEventHandler
   ): Promise<ResolvedActionInfo | null> {
     try {
       // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
-      const { signedFetch } = require('@aquaculture/backend-common');
       const response = await signedFetch(
         `${this.authServiceUrl}/api/v1/internal/action-tokens/${actionTokenId}/url`,
         {
@@ -219,8 +218,7 @@ export class AuthEventHandler
   }
 
   private hashTokenId(actionTokenId: string): string {
-    const crypto = require('crypto');
-    return crypto.createHash('sha256').update(actionTokenId).digest('hex').slice(0, 16);
+    return createHash('sha256').update(actionTokenId).digest('hex').slice(0, 16);
   }
 
   // ── Event handlers ──

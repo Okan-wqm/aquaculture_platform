@@ -122,10 +122,7 @@ async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
       await dataSource.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
       await dataSource.query('CREATE EXTENSION IF NOT EXISTS "vector"');
 
-      const runner = new MessagingE2eMigrationRunner(
-        dataSource,
-        e2eConfigService() as never,
-      );
+      const runner = new MessagingE2eMigrationRunner(dataSource, e2eConfigService());
       await runner.onApplicationBootstrap();
     } finally {
       await dataSource.destroy();

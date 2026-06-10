@@ -106,7 +106,7 @@ export class AlarmStorageService implements OnModuleInit {
    * Verify migration-owned storage tables exist before runtime writes alarms.
    */
   private async ensureTablesExist(): Promise<void> {
-    const rows = await this.dataSource.query(
+    const rows: unknown = await this.dataSource.query(
       `
       SELECT expected.table_name
       FROM (VALUES ('scada_alarms'), ('scada_alarm_chronicle')) AS expected(table_name)
@@ -120,8 +120,15 @@ export class AlarmStorageService implements OnModuleInit {
       ORDER BY expected.table_name
       `,
     );
-    if (Array.isArray(rows) && rows.length > 0) {
-      const missing = rows.map((row: { table_name: string }) => `sensor.${row.table_name}`);
+    const missingRows = Array.isArray(rows) ? (rows as readonly unknown[]) : [];
+    if (missingRows.length > 0) {
+      const missing = missingRows.map((row) => {
+        const tableName =
+          typeof row === 'object' && row !== null
+            ? (row as Record<string, unknown>).table_name
+            : undefined;
+        return `sensor.${typeof tableName === 'string' ? tableName : String(tableName)}`;
+      });
       throw new Error(`SCADA alarm storage table(s) missing: ${missing.join(', ')}`);
     }
   }

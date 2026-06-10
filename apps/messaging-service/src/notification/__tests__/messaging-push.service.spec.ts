@@ -154,7 +154,7 @@ describe('MessagingPushService', () => {
           senderName: 'Alice',
           type: 'CHAT_MESSAGE',
           notificationRef: getEmittedPushPayload(0).templateVariables.notificationRef,
-        }),
+        }) as Record<string, unknown>,
       }),
     );
     expect(getEmittedPushPayload(0).templateVariables.notificationRef).toHaveLength(36);
@@ -272,7 +272,8 @@ describe('MessagingPushService', () => {
 
     expect(mockNatsClient.send).toHaveBeenCalledTimes(2);
     expect(mockRedis.del).toHaveBeenCalledWith('msg:push:dedup:tenant-1:channel-1:user-a');
-    expect(mockRedis.del).toHaveBeenCalledWith(mockRedis.setex.mock.calls[0][0]);
+    const [setexKey] = mockRedis.setex.mock.calls[0] as readonly unknown[];
+    expect(mockRedis.del).toHaveBeenCalledWith(setexKey);
     expect(mockRedis.del).not.toHaveBeenCalledWith('msg:push:dedup:tenant-1:channel-1:user-b');
   });
 });

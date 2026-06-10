@@ -235,8 +235,10 @@ describe('SchemaManagerService', () => {
     it('should acquire advisory lock before creating schema', async () => {
       await service.createTenantSchema(tenantId);
 
-      const lockCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('pg_advisory_lock') && !call[0].includes('unlock')
+      const queryCalls = mockQuery.mock.calls as readonly (readonly unknown[])[];
+      const lockCalls = queryCalls.filter(
+        (call) =>
+          String(call[0]).includes('pg_advisory_lock') && !String(call[0]).includes('unlock'),
       );
       expect(lockCalls.length).toBeGreaterThan(0);
     });
@@ -244,8 +246,9 @@ describe('SchemaManagerService', () => {
     it('should release advisory lock after creation', async () => {
       await service.createTenantSchema(tenantId);
 
-      const unlockCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('pg_advisory_unlock')
+      const queryCalls = mockQuery.mock.calls as readonly (readonly unknown[])[];
+      const unlockCalls = queryCalls.filter((call) =>
+        String(call[0]).includes('pg_advisory_unlock'),
       );
       expect(unlockCalls.length).toBeGreaterThan(0);
     });

@@ -118,7 +118,7 @@ export class EnsureMessagingPartitionContract1800500000000
         ) AS idempotency_index_definition
     `);
 
-    const firstRow = Array.isArray(rows) ? rows[0] : undefined;
+    const firstRow: unknown = Array.isArray(rows) ? (rows as readonly unknown[])[0] : undefined;
     if (!isPartitionContractRow(firstRow)) {
       return false;
     }

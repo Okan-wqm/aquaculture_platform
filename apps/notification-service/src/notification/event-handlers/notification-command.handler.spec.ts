@@ -180,8 +180,8 @@ describe('NotificationCommandHandler', () => {
         badge: 3,
       }),
     );
-    expect(JSON.stringify(dispatcher.dispatchCommandNotification.mock.calls[0][0])).not.toMatch(
-      /channel-1|message-1/,
-    );
+    const [firstDispatchCall] = dispatcher.dispatchCommandNotification.mock
+      .calls as readonly (readonly unknown[])[];
+    expect(JSON.stringify(firstDispatchCall?.[0])).not.toMatch(/channel-1|message-1/);
   });
 });

@@ -53,6 +53,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
 import {
+  isPreservationRef,
   parseArgs,
   parseDiffHunkLines,
   parsePrePushStdin,
@@ -60,6 +61,31 @@ import {
   repoRelativeFromClippyPath,
   type PrePushRef,
 } from './clippy-affected';
+
+// ---------------------------------------------------------
+// isPreservationRef (rescue/ namespace prepush skip)
+// ---------------------------------------------------------
+
+test('isPreservationRef: rescue/ remote refs are preservation pushes', () => {
+  assert.strictEqual(
+    isPreservationRef('refs/heads/rescue/stash-17-snapshot-20260610'),
+    true,
+  );
+  assert.strictEqual(
+    isPreservationRef('refs/heads/rescue/aria-cycle-lab-r4-20260610'),
+    true,
+  );
+});
+
+test('isPreservationRef: integration-bound refs stay gated', () => {
+  assert.strictEqual(isPreservationRef('refs/heads/main'), false);
+  assert.strictEqual(isPreservationRef('refs/heads/feature/rescue-ui'), false);
+  // The LOCAL side being a rescue checkout must not exempt a push
+  // toward a normal remote branch — only the remote destination
+  // namespace decides, so a partial name match cannot leak through.
+  assert.strictEqual(isPreservationRef('refs/heads/rescued/x'), false);
+  assert.strictEqual(isPreservationRef('refs/tags/rescue/x'), false);
+});
 
 // ---------------------------------------------------------
 // parsePrePushStdin

@@ -645,6 +645,28 @@ function printDenyListReminder(): void {
   );
 }
 
+/**
+ * Preservation-namespace predicate (2026-06-10 repo consolidation).
+ *
+ * WHY: `refs/heads/rescue/**` is the quarantine namespace for
+ * state-capture snapshots (parked worktree WIP, stash exports,
+ * pre-rewrite lineage tips). These refs preserve OTHER sessions'
+ * historical working-tree states verbatim; their content is, by
+ * definition, not integration-bound — anything landing on main is
+ * regenerated on a fresh branch and passes the full gate suite there.
+ * Gating a rescue push on clippy would force mutating someone else's
+ * parked snapshot to satisfy a lint the snapshot never claimed to
+ * pass, which destroys the evidentiary value of the capture.
+ *
+ * WHAT: prepush mode skips (with an explicit notice) any ref whose
+ * REMOTE destination is under refs/heads/rescue/. The remote ref is
+ * the gated coordinate — pushing INTO rescue/ is preservation;
+ * pushing FROM a rescue checkout to a normal branch is still gated.
+ */
+function isPreservationRef(remoteRef: string): boolean {
+  return remoteRef.startsWith('refs/heads/rescue/');
+}
+
 function main(): void {
   const opts = parseArgs(process.argv.slice(2));
 
@@ -658,6 +680,12 @@ function main(): void {
     }
     let totalErrors = 0;
     for (const ref of refs) {
+      if (isPreservationRef(ref.remoteRef)) {
+        console.log(
+          `clippy-affected[prepush]: ref ${ref.localRef} → ${ref.remoteRef} skipped (rescue/ preservation namespace — snapshot pushes are not integration-bound; see gate header).`,
+        );
+        continue;
+      }
       const range = rangeForPrePushRef(ref);
       if (!range) {
         console.log(
@@ -707,6 +735,7 @@ if (require.main === module) {
 export {
   affectedFiles,
   affectedLineRanges,
+  isPreservationRef,
   parseDiffHunkLines,
   parsePrePushStdin,
   rangeForPrePushRef,

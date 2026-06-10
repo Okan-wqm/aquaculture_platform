@@ -6,17 +6,17 @@
  * violations while the existing farm-service migration continues under the
  * ADRs and runbooks in docs/architecture and docs/runbooks.
  */
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
-const REPO_ROOT = resolve(__dirname, '..', '..');
+import {
+  type AddedLine,
+  collectRangeAddedLines,
+  collectStagedAddedLines,
+  runGit,
+} from './git-diff-ranges';
 
-interface AddedLine {
-  path: string;
-  lineNumber: number;
-  text: string;
-}
+const REPO_ROOT = resolve(__dirname, '..', '..');
 
 interface Rule {
   id: string;
@@ -106,51 +106,15 @@ interface Violation {
   line: AddedLine;
 }
 
-function runGit(args: readonly string[]): string {
-  return execFileSync('git', ['-C', REPO_ROOT, ...args], {
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
-}
-
-function parseDiff(diff: string): readonly AddedLine[] {
-  const added: AddedLine[] = [];
-  let currentPath = '';
-  let newLineNumber = 0;
-
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('+++ ')) {
-      const rawPath = line.slice(4).trim();
-      currentPath = rawPath === '/dev/null' ? '' : rawPath.replace(/^b\//, '');
-      continue;
-    }
-
-    if (line.startsWith('@@')) {
-      const match = /\+(\d+)(?:,(\d+))?/.exec(line);
-      newLineNumber = match?.[1] ? Number(match[1]) : 0;
-      continue;
-    }
-
-    if (!currentPath || newLineNumber === 0) continue;
-    if (line.startsWith('+') && !line.startsWith('+++')) {
-      added.push({ path: currentPath, lineNumber: newLineNumber, text: line.slice(1) });
-      newLineNumber += 1;
-      continue;
-    }
-    if (!line.startsWith('-')) {
-      newLineNumber += 1;
-    }
-  }
-
-  return added;
-}
-
+// Round-2 cluster-0: runGit / the -U0 parser / range + staged collectors
+// moved to the shared git-diff-ranges module (SSOT with banned-phrase.ts
+// and banned-construct.ts — one parser, every gate).
 function collectRange(base: string, head: string): readonly AddedLine[] {
-  return parseDiff(runGit(['diff', '--unified=0', '--no-ext-diff', base, head, '--']));
+  return collectRangeAddedLines(REPO_ROOT, base, head);
 }
 
 function collectStaged(): readonly AddedLine[] {
-  return parseDiff(runGit(['diff', '--cached', '--unified=0', '--no-ext-diff', '--']));
+  return collectStagedAddedLines(REPO_ROOT);
 }
 
 function collectFile(path: string): readonly AddedLine[] {
@@ -164,7 +128,7 @@ function collectFile(path: string): readonly AddedLine[] {
 }
 
 function collectAllFarmCode(): readonly AddedLine[] {
-  const files = runGit(['ls-files', 'apps/farm-service'])
+  const files = runGit(REPO_ROOT, ['ls-files', 'apps/farm-service'])
     .split('\n')
     .filter((path) => FARM_CODE.test(path));
   return files.flatMap((path) => collectFile(path));

@@ -1,10 +1,11 @@
 # Codex CLI CI Invocation Contract — Proven Target
 
 > **Plan 2026-05-25** — supersedes the Claude/Anthropic executor contract.
-> `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, and
-> `.github/workflows/aria-agent-executor.yml` must use this Codex-first
-> contract. Claude argv, OAuth-token, and Anthropic API-key paths are legacy
-> and must not be live execution authorities.
+> `tools/aria-poc/ci_executor.py` and `.github/workflows/aria-agent-executor.yml`
+> must use this Codex-first contract. `tools/aria-poc/worker_executor.py` is
+> legacy/drafter/mock-only and must not be a live execution authority. Claude
+> argv, OAuth-token, and Anthropic API-key paths are legacy and must not be live
+> implementation authorities.
 
 ## Runtime Contract
 
@@ -17,25 +18,19 @@ ci_executor:
     - --json
     - -c
     - 'model_reasoning_effort="xhigh"'
-  stdin: "<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>"
-  persisted_output: "<sanitized aria/agent-response/v1 envelope at expected_output_path>"
+  stdin: '<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>'
+  persisted_output: '<sanitized aria/agent-response/v1 envelope at expected_output_path>'
   raw_jsonl_persisted: false
-  subprocess_timeout_seconds: "${MAX_TIMEOUT_SECONDS}"
+  subprocess_timeout_seconds: '${MAX_TIMEOUT_SECONDS}'
   env_transit:
     - ARIA_LEASE_TOKEN
     - CODEX_CLI_MOCK
     - CODEX_CLI_MOCK_SOURCE
 worker_executor:
-  binary: codex
-  argv:
-    - codex
-    - exec
-    - --json
-    - -c
-    - 'model_reasoning_effort="xhigh"'
-  stdin: "<contents of aria-tools/dispatch/prompts/${ASSIGNMENT_ID}.md>"
-  cwd: "<assigned worktree path>"
-  raw_jsonl_persisted: false
+  authority: legacy_drafter_mock_only
+  live_mode: disabled
+  implementation_role: forbidden
+  submit_authoritative_implementation: false
   env_transit:
     - ARIA_LEASE_TOKEN
     - CODEX_CLI_MOCK
@@ -43,25 +38,26 @@ worker_executor:
 
 ## Auth And Billing Policy
 
-* Default auth is ChatGPT-managed Codex CLI login on a trusted/private runner.
-* API-key mode is disallowed: `OPENAI_API_KEY` and `CODEX_API_KEY` must be absent unless a future ADR explicitly permits API billing.
-* `CODEX_OSS_DEBUG=1` is forbidden in real mode because it can expose raw prompts or model output.
-* Real mode must fail closed if `codex --version`, Codex auth/session preflight, JSONL event parsing, or usage extraction cannot be verified.
-* Budget enforcement in this mode tracks account/session/rate-limit headroom and token usage, not API-dollar spend.
+- Default auth is ChatGPT-managed Codex CLI login on a trusted/private runner.
+- API-key mode is disallowed: `OPENAI_API_KEY` and `CODEX_API_KEY` must be absent unless a future ADR explicitly permits API billing.
+- `CODEX_OSS_DEBUG=1` is forbidden in real mode because it can expose raw prompts or model output.
+- Real mode must fail closed if `codex --version`, Codex auth/session preflight, JSONL event parsing, or usage extraction cannot be verified.
+- Budget enforcement in this mode tracks account/session/rate-limit headroom and token usage, not API-dollar spend.
 
 ## Artifact Policy
 
-* Persist the sanitized `aria/agent-response/v1` envelope expected by the kernel, a sanitized transcript proof, and `aria-agent-executor-artifacts.json`.
-* The artifact manifest must bind request id, claim id, exact output path/hash, exact transcript path/hash, and `dlp_scan_clean=true`.
-* Do not upload raw Codex JSONL, raw prompts, raw responses, claims ledgers, runs ledgers, lease tokens, session tokens, or API keys.
-* GitHub Actions upload paths must come from the executor-emitted output/transcript step outputs plus the retained preflight and post-artifact manifests, with short retention and `if-no-files-found: error`.
+- Persist the sanitized `aria/agent-response/v1` envelope expected by the kernel, a sanitized transcript proof, and `aria-agent-executor-artifacts.json`.
+- The artifact manifest must bind request id, claim id, exact output path/hash, exact transcript path/hash, and `dlp_scan_clean=true`.
+- Do not upload raw Codex JSONL, raw prompts, raw responses, claims ledgers, runs ledgers, lease tokens, session tokens, or API keys.
+- GitHub Actions upload paths must come from the executor-emitted output/transcript step outputs plus the retained preflight and post-artifact manifests, with short retention and `if-no-files-found: error`.
 
 ## Workflow Policy
 
-* Scheduled workflows run from the repository default branch and checkout the `main` target ref.
-* The executor job runs on a trusted self-hosted runner labelled `codex`; GitHub-hosted runners must not carry persisted ChatGPT-managed Codex auth.
-* `CODEX_CLI_MOCK` kill switch remains available for dry-runs.
-* Claude/Anthropic workflow secrets are not part of the live executor contract.
+- Scheduled workflows run from the repository default branch and checkout the `main` target ref.
+- The executor job runs on a trusted self-hosted runner labelled `codex`; GitHub-hosted runners must not carry persisted ChatGPT-managed Codex auth.
+- `CODEX_CLI_MOCK` kill switch remains available for dry-runs.
+- Claude/Anthropic workflow secrets are not part of the live executor contract.
+- `worker_executor.py` may only run legacy/mock drafter assignments; live mode and `role=implementation` fail closed.
 
 ## Verification Fields
 

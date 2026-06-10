@@ -30,6 +30,7 @@ derive_request_state integration (3):
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,6 +43,7 @@ from aria_kernel.bridge_status_ledger import (
     bridge_status_for_role,
     derive_bridge_state,
     latest_bridge_status_for,
+    replay_pending_bridges,
 )
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl
 from aria_kernel.runtime_profile import set_profile
@@ -407,6 +409,19 @@ class DeriveRequestStateBridgeAwareTests(unittest.TestCase):
             },
             expected_surface="agent_result_bundles",
         )
+        output = {
+            "$schema": "aria/agent-response/v1",
+            "schema_version": 1,
+            "request_id": self.request_id,
+            "role": "evidence_judgment",
+            "status": "submitted",
+            "summary": "bridge replay fixture",
+        }
+        Path(self.output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.output_path).write_text(
+            json.dumps(output, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         import shutil
@@ -453,6 +468,47 @@ class DeriveRequestStateBridgeAwareTests(unittest.TestCase):
             derive_request_state(request_id=self.request_id, base_dir=self.base),
             "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
         )
+
+    def test_replay_pending_bridges_replays_to_ok(self) -> None:
+        result = replay_pending_bridges(
+            base_dir=self.base,
+            max_iterations=5,
+            bridge_runner=lambda result_row, request, response, root: [],
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["replayed"], 1)
+        self.assertEqual(result["ok"], 1)
+        latest = latest_bridge_status_for(
+            base_dir=self.base,
+            result_row_ledger_hash=str(self.persisted_result["ledger_hash"]),
+            envelope_evidence_hash=self.envelope_evidence_hash,
+        )
+        self.assertEqual(latest["transition"], "ok")
+        self.assertEqual(latest["attempt_number"], 1)
+
+    def test_replay_pending_bridges_bounds_to_permanent_fail(self) -> None:
+        append_bridge_status(
+            base_dir=self.base,
+            result_row_ledger_hash=str(self.persisted_result["ledger_hash"]),
+            envelope_evidence_hash=self.envelope_evidence_hash,
+            role="evidence_judgment",
+            transition="pending_retry",
+            attempt_number=2,
+        )
+        result = replay_pending_bridges(
+            base_dir=self.base,
+            max_iterations=5,
+            bridge_runner=lambda result_row, request, response, root: ["still failing"],
+        )
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["permanent_fail"], 1)
+        latest = latest_bridge_status_for(
+            base_dir=self.base,
+            result_row_ledger_hash=str(self.persisted_result["ledger_hash"]),
+            envelope_evidence_hash=self.envelope_evidence_hash,
+        )
+        self.assertEqual(latest["transition"], "permanent_fail")
+        self.assertEqual(latest["attempt_number"], 3)
 
 
 if __name__ == "__main__":

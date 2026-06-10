@@ -52,6 +52,7 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 | Path | Rubric row | Consumers (examples) |
 |---|---|---|
 | `libs/aquaculture-engines` | libs/<domain>/ | ai-service, farm-management-mcp, web/farm-module, web/hydroponics-module |
+| `libs/apollo-server-plugin-landing-page-graphql-playground` | libs/<domain>/ (compatibility shim) | `@nestjs/apollo` Apollo Server 5 dependency graph |
 | `libs/backend-common` | libs/backend-common/ | every backend service (apps/*) |
 | `libs/event-contracts` | libs/event-contracts/ | 30+ emitters + consumers across apps/, platform/libs/ |
 | `libs/farm-shared` | libs/<domain>/ | web/farm-module |
@@ -65,7 +66,9 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 | `libs/testing` | libs/backend-common/ (test factories + fixtures) | every backend service's spec files |
 | `platform/libs/cqrs` | platform/libs/<name>/ | every CQRS handler in apps/ |
 | `platform/libs/event-bus` | platform/libs/<name>/ | every event-emitting service in apps/ |
+| `platform/libs/graphql-apollo5` | platform/libs/<name>/ | Nest GraphQL services using the Apollo Server 5 runtime adapter |
 | `platform/libs/outbox` | platform/libs/<name>/ | services using the transactional outbox pattern |
+| `platform/libs/service-catalog` | platform/libs/<name>/ | deploy artifact generation, required-secret gates, build group SSoT |
 | `web/shared-ui` | web/shared-ui/ | every web module (admin-panel, farm-module, etc.) |
 
 **Pending additions (not yet on disk — will join the inventory above when the cold-audit remediation commits land):**

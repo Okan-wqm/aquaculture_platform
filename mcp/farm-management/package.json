@@ -15,13 +15,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "zod": "^3.22.0",
-    "@platform/aquaculture-engines": "file:../../libs/aquaculture-engines"
+    "@platform/aquaculture-engines": "file:../../libs/aquaculture-engines",
+    "zod": "^3.22.0"
   },
   "devDependencies": {
-    "typescript": "~5.4.0",
     "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
-    "vitest": "^3.2.4"
+    "typescript": "~5.4.0",
+    "vitest": "4.1.8"
   }
 }

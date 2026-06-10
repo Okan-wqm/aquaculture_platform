@@ -136,7 +136,7 @@ export class SchemaManagementService {
       schemaRecord.status = 'suspended';
       await this.schemaRepository.save(schemaRecord);
 
-      this.logger.error(`Failed to create schema: ${error.message}`);
+      this.logger.error(`Failed to provision schema record: ${error.message}`);
       throw error;
     }
   }
@@ -150,65 +150,21 @@ export class SchemaManagementService {
       throw new BadRequestException('Invalid schema name');
     }
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
-    } finally {
-      await queryRunner.release();
-    }
+    throw new BadRequestException(
+      `Tenant schema provisioning for ${schemaName} is owned by db-migrate tenant_schema_requests`,
+    );
   }
 
   /**
    * Create default tables for tenant schema
    */
   private async createDefaultTables(schemaName: string): Promise<void> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      // Base metadata table for tenant-specific settings
-      await queryRunner.query(`
-        CREATE TABLE IF NOT EXISTS "${schemaName}"."_metadata" (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          key VARCHAR(100) NOT NULL UNIQUE,
-          value JSONB,
-          created_at TIMESTAMP DEFAULT NOW(),
-          updated_at TIMESTAMP DEFAULT NOW()
-        )
-      `);
-
-      // Audit trail table
-      await queryRunner.query(`
-        CREATE TABLE IF NOT EXISTS "${schemaName}"."_audit_log" (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          entity_type VARCHAR(100),
-          entity_id VARCHAR(100),
-          action VARCHAR(50),
-          old_data JSONB,
-          new_data JSONB,
-          user_id VARCHAR(100),
-          ip_address VARCHAR(45),
-          created_at TIMESTAMP DEFAULT NOW()
-        )
-      `);
-
-      // Insert initial metadata — parameterized to prevent interpolation pattern drift.
-      // new Date().toISOString() is safe today, but this pattern invites future
-      // tenant-supplied data to be interpolated the same way.
-      await queryRunner.query(
-        `INSERT INTO "${schemaName}"."_metadata" (key, value)
-         VALUES
-           ('schema_version', $1),
-           ('created_at', $2),
-           ('last_migration', $3)
-         ON CONFLICT (key) DO NOTHING`,
-        ['"1.0.0"', `"${new Date().toISOString()}"`, 'null'],
-      );
-    } finally {
-      await queryRunner.release();
+    if (!this.isValidSchemaName(schemaName)) {
+      throw new BadRequestException('Invalid schema name');
     }
+    throw new BadRequestException(
+      `Tenant schema table bootstrap for ${schemaName} is owned by db-migrate tenant_schema_requests`,
+    );
   }
 
   // ============================================================================
@@ -328,12 +284,12 @@ export class SchemaManagementService {
         severity: AuditSeverity.CRITICAL,
         details: {
           schemaName: schema.schemaName,
-          operation: 'DROP SCHEMA CASCADE',
+          operation: 'schema_physical_delete_request',
           status: 'initiated',
         },
       });
 
-      // SECURITY: If the audit write failed, do NOT proceed with the drop.
+      // SECURITY: If the audit write failed, do NOT proceed with the request.
       // An irrecoverable destructive operation must have an immutable audit record.
       if (!auditEntry) {
         this.logger.error(
@@ -353,39 +309,9 @@ export class SchemaManagementService {
         auditEntryId: auditEntry.id,
       });
 
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-
-      try {
-        await queryRunner.query(`DROP SCHEMA IF EXISTS "${schema.schemaName}" CASCADE`);
-        await this.schemaRepository.delete({ id: schema.id });
-
-        // SECURITY: Record completion in audit trail
-        await this.auditLogService.log({
-          action: 'SCHEMA_HARD_DELETE_COMPLETED',
-          entityType: 'TenantSchema',
-          entityId: tenantId,
-          tenantId,
-          performedBy: actionContext.performedBy,
-          ipAddress: actionContext?.ipAddress,
-          userAgent: actionContext?.userAgent,
-          severity: AuditSeverity.CRITICAL,
-          details: {
-            schemaName: schema.schemaName,
-            operation: 'DROP SCHEMA CASCADE',
-            status: 'completed',
-            initiatingAuditEntryId: auditEntry.id,
-          },
-        });
-
-        this.logger.warn('Schema hard delete completed', {
-          action: 'SCHEMA_HARD_DELETE_COMPLETED',
-          tenantId,
-          schemaName: schema.schemaName,
-        });
-      } finally {
-        await queryRunner.release();
-      }
+      throw new BadRequestException(
+        'Physical tenant schema deletion is owned by db-migrate tenant_schema_requests',
+      );
     } else {
       // Soft delete - just mark as deleted
       schema.status = 'deleted';

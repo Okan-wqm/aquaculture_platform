@@ -48,8 +48,8 @@ def _good_response(*, request_id="req-2026-05-07-001", **overrides):
         "role": "primary_plan",
         "status": "submitted",
         "satisfaction_matrix": [
-            {"id": "MS-1", "verdict": "satisfied"},
-            {"id": "MS-2", "verdict": "satisfied"},
+            {"id": "MS-1", "verdict": "satisfied", "evidence_refs": ["aria-kernel/src.py:1"]},
+            {"id": "MS-2", "verdict": "satisfied", "evidence_refs": ["aria-kernel/src.py:1"]},
         ],
     }
     base.update(overrides)
@@ -116,7 +116,7 @@ class ResponseValidationTests(unittest.TestCase):
         request = _good_request()
         response = _good_response(
             satisfaction_matrix=[
-                {"id": "MS-1", "verdict": "satisfied"},
+                {"id": "MS-1", "verdict": "satisfied", "evidence_refs": ["aria-kernel/src.py:1"]},
             ]
         )
         with self.assertRaisesRegex(GovernanceError, "missing entries for must_satisfy ids"):
@@ -126,12 +126,23 @@ class ResponseValidationTests(unittest.TestCase):
         request = _good_request()
         response = _good_response(
             satisfaction_matrix=[
-                {"id": "MS-1", "verdict": "satisfied"},
-                {"id": "MS-2", "verdict": "satisfied"},
-                {"id": "MS-3", "verdict": "satisfied"},
+                {"id": "MS-1", "verdict": "satisfied", "evidence_refs": ["aria-kernel/src.py:1"]},
+                {"id": "MS-2", "verdict": "satisfied", "evidence_refs": ["aria-kernel/src.py:1"]},
+                {"id": "MS-3", "verdict": "satisfied", "evidence_refs": ["aria-kernel/src.py:1"]},
             ]
         )
         with self.assertRaisesRegex(GovernanceError, "ids not in must_satisfy"):
+            validate_response(response, request=request)
+
+    def test_satisfied_verdict_requires_evidence_refs(self) -> None:
+        request = _good_request()
+        response = _good_response(
+            satisfaction_matrix=[
+                {"id": "MS-1", "verdict": "satisfied", "evidence_refs": []},
+                {"id": "MS-2", "verdict": "satisfied", "evidence_refs": ["aria-kernel/src.py:1"]},
+            ]
+        )
+        with self.assertRaisesRegex(GovernanceError, "evidence_refs"):
             validate_response(response, request=request)
 
     def test_blocked_verdict_requires_note_and_evidence(self) -> None:
@@ -139,7 +150,7 @@ class ResponseValidationTests(unittest.TestCase):
         response = _good_response(
             satisfaction_matrix=[
                 {"id": "MS-1", "verdict": "blocked"},  # missing note + evidence
-                {"id": "MS-2", "verdict": "satisfied"},
+                {"id": "MS-2", "verdict": "satisfied", "evidence_refs": ["aria-kernel/src.py:1"]},
             ]
         )
         with self.assertRaisesRegex(GovernanceError, "note required when verdict='blocked'"):
@@ -155,7 +166,7 @@ class ResponseValidationTests(unittest.TestCase):
                     "note": "Adapter scope unknown without nx graph data",
                     "evidence_refs": ["aria-tools/agent-network/index.json"],
                 },
-                {"id": "MS-2", "verdict": "satisfied"},
+                {"id": "MS-2", "verdict": "satisfied", "evidence_refs": ["aria-kernel/src.py:1"]},
             ]
         )
         validate_response(response, request=request)

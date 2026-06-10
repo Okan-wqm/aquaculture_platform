@@ -72,10 +72,9 @@ jobs:
       - name: Run type check
         run: npm run type-check
 
-      - name: Run type-check-spec gate (baseline-aware)
+      - name: Run type-check-spec gate (ratchet-aware)
         # TYPE-CHECK-SPEC-RATCHET-001: blocks any PR that regresses spec
-        # error counts above the per-project baseline at
-        # tools/gates/type-check-spec-baseline.json. See PR #165 history.
+        # error counts above the recorded per-project limit. See PR #165 history.
         run: npm run gates:type-check-spec
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
@@ -270,6 +269,7 @@ jobs:
         with:
           name: remote-hash-pins-${{ github.run_number }}
           path: web/shell/src/generated/remoteHashes.json
+          if-no-files-found: error
           retention-days: 14
 
   security-scan:
@@ -305,6 +305,7 @@ jobs:
           path: |
             npm-audit-root.json
             npm-audit-source-map.md
+          if-no-files-found: error
           retention-days: 14
 
       # SEC-CI-009/SEC-CI-002: Snyk action pinned to SHA (was @master)

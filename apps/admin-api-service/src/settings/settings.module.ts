@@ -6,8 +6,6 @@ import { EmailTemplateController } from './controllers/email-template.controller
 import { IpAccessController } from './controllers/ip-access.controller';
 import { TenantConfigurationController } from './controllers/tenant-configuration.controller';
 import {
-  TenantConfiguration,
-  SystemSetting,
   EmailTemplate,
   IpAccessRule,
 } from './entities';
@@ -16,6 +14,7 @@ import {
 import {
   TenantConfigurationService,
   SystemSettingService,
+  ConfigServiceAdminProxy,
   EmailTemplateService,
   IpAccessService,
 } from './services';
@@ -27,8 +26,6 @@ import { SettingsController } from './settings.controller';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      TenantConfiguration,
-      SystemSetting,
       EmailTemplate,
       IpAccessRule,
     ]),
@@ -42,6 +39,7 @@ import { SettingsController } from './settings.controller';
   providers: [
     TenantConfigurationService,
     SystemSettingService,
+    ConfigServiceAdminProxy,
     EmailTemplateService,
     IpAccessService,
     EmailSenderService,
@@ -49,6 +47,7 @@ import { SettingsController } from './settings.controller';
   exports: [
     TenantConfigurationService,
     SystemSettingService,
+    ConfigServiceAdminProxy,
     EmailTemplateService,
     IpAccessService,
     EmailSenderService,

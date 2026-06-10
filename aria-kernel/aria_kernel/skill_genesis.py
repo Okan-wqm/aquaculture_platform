@@ -516,6 +516,8 @@ def sandbox_skill(
     checklist_results: list[dict[str, Any]] | None = None,
     markdown_path: str | Path | None = None,
     base_dir: str | Path | None = None,
+    synthetic_test_mode: bool = False,
+    operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
     """Validate a skill draft against fixture coverage.
 
@@ -540,6 +542,11 @@ def sandbox_skill(
         if not path.exists():
             raise GovernanceError(f"markdown_path not found: {markdown_path}")
         checklist_results = parse_fixture_blocks(path.read_text(encoding="utf-8"))
+    elif checklist_results is not None:
+        if not synthetic_test_mode:
+            raise GovernanceError("skill_sandbox_checklist_json_requires_synthetic_test_mode")
+        if not operator_approval_ref or not operator_approval_ref.strip():
+            raise GovernanceError("skill_sandbox_synthetic_mode_requires_operator_approval_ref")
     if checklist_results is None:
         raise GovernanceError("skill sandbox requires markdown_path or checklist_results")
     if len(checklist_results) < MIN_FIXTURES:
@@ -554,6 +561,8 @@ def sandbox_skill(
         "decision": "fail" if failed else "pass",
         "checklist_results": checklist_results,
         "source": "markdown" if markdown_path is not None else "checklist_json",
+        "synthetic_test_mode": bool(synthetic_test_mode),
+        "operator_approval_ref": operator_approval_ref if synthetic_test_mode else None,
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "sandbox.jsonl", row)
 
@@ -591,6 +600,11 @@ def materialize_skill(
         raise GovernanceError(
             f"skill_materialize_requires_passing_sandbox: "
             f"draft_id={draft_id!r} sandbox={sandbox}"
+        )
+    approval = _latest_approval(draft_id, base_dir)
+    if not approval or approval.get("status") != "approved_for_materialization":
+        raise GovernanceError(
+            f"skill_materialize_requires_approval: draft_id={draft_id!r}"
         )
     dispatch = _find_dispatch(assignment_id, base_dir)
     worktree = Path(str(dispatch.get("worktree_path") or ""))
@@ -673,11 +687,39 @@ def materialize_skill(
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "materializations.jsonl", row)
 
 
+def approve_skill_materialization(
+    *,
+    draft_id: str,
+    operator_approval_ref: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    if not operator_approval_ref.strip():
+        raise GovernanceError("operator approval ref is required")
+    draft = _find_draft(draft_id, base_dir)
+    if draft is None:
+        raise GovernanceError(f"skill draft not found: {draft_id}")
+    sandbox = _latest_sandbox(draft_id, base_dir)
+    if not sandbox or sandbox.get("decision") != "pass":
+        raise GovernanceError("skill draft must pass sandbox before approval")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "draft_id": draft_id,
+        "status": "approved_for_materialization",
+        "operator_approval_ref": operator_approval_ref.strip(),
+        "sandbox_ref": sandbox.get("ledger_hash"),
+        "target_path": draft.get("target_path"),
+        "blocked_by": [],
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "approvals.jsonl", row)
+
+
 def list_skill_genesis(*, base_dir: str | Path | None = None, kind: str = "drafts") -> list[dict[str, Any]]:
     filename = {
         "requests": "requests.jsonl",
         "drafts": "drafts.jsonl",
         "sandbox": "sandbox.jsonl",
+        "approvals": "approvals.jsonl",
         "materializations": "materializations.jsonl",
     }.get(kind, "drafts.jsonl")
     return load_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / filename)
@@ -761,6 +803,16 @@ def _latest_sandbox(
     """Plan 026R §E.3 — return the latest sandbox row for a draft_id."""
     latest: dict[str, Any] | None = None
     for row in list_skill_genesis(base_dir=base_dir, kind="sandbox"):
+        if row.get("draft_id") == draft_id:
+            latest = row
+    return latest
+
+
+def _latest_approval(
+    draft_id: str, base_dir: str | Path | None,
+) -> dict[str, Any] | None:
+    latest: dict[str, Any] | None = None
+    for row in list_skill_genesis(base_dir=base_dir, kind="approvals"):
         if row.get("draft_id") == draft_id:
             latest = row
     return latest

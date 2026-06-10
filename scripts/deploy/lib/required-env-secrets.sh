@@ -32,12 +32,27 @@
 #                             docs/runbooks/secret-rotation.md#password-pepper)
 #   MFA_ENCRYPTION_KEY      — AES-256-GCM root key for auth-service TOTP secrets
 #                             (production auth-service fails closed without it)
+#   *_ENCRYPTION_KEY        — AES-256/scrypt roots for production credential stores
+#   MQTT_*                  — Mosquitto HTTP/file auth shared secret and service account
+#   MINIO_PASSWORD          — MinIO root/SDK secret shared by object-storage clients
+#   OBSERVABILITY_*         — internal API key for production health/proof checks
+#   SUPER_ADMIN_PASSWORD    — first-run auth seed password; strong generated default
 REQUIRED_ENV_SECRETS=(
   "POSTGRES_PASSWORD:openssl rand -base64 32"
   "REDIS_PASSWORD:openssl rand -base64 32"
   "INTERNAL_SERVICE_SECRET:openssl rand -base64 32"
   "PASSWORD_PEPPER:openssl rand -base64 48"
   "MFA_ENCRYPTION_KEY:openssl rand -hex 32"
+  "CONFIG_ENCRYPTION_KEY:openssl rand -hex 32"
+  "CREDENTIAL_ENCRYPTION_KEY:openssl rand -hex 32"
+  "ENCRYPTION_KEY:openssl rand -hex 32"
+  "MINIO_PASSWORD:openssl rand -base64 32"
+  "MQTT_AUTH_SECRET:openssl rand -base64 32"
+  "MQTT_SENSOR_SERVICE_PASSWORD:openssl rand -base64 32"
+  'MQTT_SENSOR_SERVICE_HASH:node -e '"'"'const fs=require("fs"),crypto=require("crypto"); const file=process.env.ENV_FILE||"/var/aqua-saas/.env"; const env=fs.readFileSync(file,"utf8"); const match=env.match(/^MQTT_SENSOR_SERVICE_PASSWORD=(.*)$/m); if(!match) { process.exit(2); } const salt=crypto.randomBytes(16); const iterations=100000; const key=crypto.pbkdf2Sync(match[1],salt,iterations,24,"sha512"); console.log(`$7$${iterations}$${salt.toString("base64")}$${key.toString("base64")}`);'"'"
+  "OBSERVABILITY_INTERNAL_API_KEY:openssl rand -base64 32"
+  "SUPER_ADMIN_PASSWORD:printf 'Aa1!%s\n' \"$(openssl rand -base64 24)\""
+  "WEBHOOK_ENCRYPTION_KEY:openssl rand -base64 32"
 )
 
 # Convenience helper: extract just the names, for preflight checks.

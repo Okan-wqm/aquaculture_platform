@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .agent_priors import reviewer_names
+from .implementation_rejections import IMPLEMENTATION_REJECTION_CLASSES
 from .ledger import append_jsonl, load_declared_jsonl, load_jsonl, verify_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
@@ -1976,57 +1977,7 @@ def _validate_event(event: dict[str, Any]) -> None:
         # parsing.
         _require_hash(payload.get("idempotency_key_hash"), "idempotency_key_hash")
     elif event_type == "implementation_rejected":
-        # 6 valid rejection classes:
-        #   no_claim_timeout            (poll deadline in REQUESTED state)
-        #   in_flight_abandoned         (poll deadline in IN_FLIGHT state)
-        #   ci_check_timeout            (auto-merge poll deadline)
-        #   ci_check_red                (any required check NOT SUCCESS)
-        #   merge_policy_violation      (evaluate_auto_merge ineligible)
-        #   branch_tip_drift            (headRefOid != recorded branch_tip_sha)
-        #   content_hash_mismatch       (content_hash drift between mint + outcome)
-        #   secret_leak_detected        (verify_no_secret_in_diff fired)
-        #   kernel_self_modification_attempted (envelope-mint refusal)
-        #   bash_command_denylist_hit   (V9.0-D ALLOWED_BASH_COMMANDS miss)
-        #   path_escape_outside_workspace (V9.0-D verify_no_path_escape fired)
-        #   file_lock_conflict          (V9.5 check 11 — per_file_mutual_exclusion)
-        valid_rejection_classes = frozenset({
-            "no_claim_timeout",
-            "in_flight_abandoned",
-            "ci_check_timeout",
-            "ci_check_red",
-            "merge_policy_violation",
-            "branch_tip_drift",
-            "content_hash_mismatch",
-            "secret_leak_detected",
-            "kernel_self_modification_attempted",
-            "bash_command_denylist_hit",
-            "path_escape_outside_workspace",
-            "file_lock_conflict",
-            "validation_failed",
-            "forbidden_scope_violation",
-            "plan_evidence_stale",
-            "branch_collision",
-            "prompt_injection_detected",
-            "dependency_pinning_unsafe",
-            "implementer_turn_budget_exhausted",
-            "cycle_budget_exhausted",
-            "gh_api_scope_violation",
-            "autonomous_profile_preconditions_not_met",
-            # Plan ARIA-V3.1-B3 — orphan reaper rejection class.
-            # The orchestrator startup hook transitions a plan stuck
-            # in IMPLEMENTATION_REQUESTED or IMPLEMENTATION_IN_FLIGHT
-            # to IMPLEMENTATION_REJECTED with this class so the audit
-            # trail distinguishes crash-recovery reaping from real
-            # implementation failures (closes H-12).
-            "orchestrator_restart_reaped_orphan",
-            # Plan ARIA-V3.1-B-5 — commit signature verify mismatch
-            # raised by plan_convergence_bridge._dispatch_implementation
-            # BEFORE record_implementation_outcome would accept the row.
-            # The IMPL row never lands; if the agent's claim was
-            # IMPLEMENTATION_IN_FLIGHT, the orchestrator can reap
-            # with this canonical class.
-            "commit_signature_unverified",
-        })
+        valid_rejection_classes = IMPLEMENTATION_REJECTION_CLASSES
         if payload.get("rejection_class") not in valid_rejection_classes:
             raise GovernanceError(
                 f"implementation_rejected rejection_class must be one of "

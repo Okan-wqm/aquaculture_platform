@@ -806,6 +806,7 @@ jobs:
           path: |
             npm-audit-root.json
             npm-audit-source-map.md
+          if-no-files-found: error
           retention-days: 14
 
   docs-check:

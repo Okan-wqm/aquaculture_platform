@@ -15,7 +15,6 @@ import {
   GlobalConfig,
   ConfigCategory,
   ConfigValueType,
-  ConfigHistory,
 } from '../entities/global-config.entity';
 import {
   MaintenanceMode,
@@ -29,6 +28,12 @@ import {
   ReleaseStatus,
   ChangelogEntry,
 } from '../entities/system-version.entity';
+import {
+  ADMIN_API_CONFIG_SERVICE,
+  CONFIG_SERVICE_SYSTEM_TENANT_ID,
+  ConfigServiceAdminProxy,
+  ConfigServiceConfiguration,
+} from '../../settings/services/config-service-admin-proxy.service';
 
 // ============================================================================
 // Interfaces
@@ -81,8 +86,7 @@ export class GlobalSettingsService implements OnModuleInit {
     private readonly maintenanceModeRepo: Repository<MaintenanceMode>,
     @InjectRepository(SystemVersion)
     private readonly systemVersionRepo: Repository<SystemVersion>,
-    @InjectRepository(GlobalConfig)
-    private readonly globalConfigRepo: Repository<GlobalConfig>,
+    private readonly configServiceProxy: ConfigServiceAdminProxy,
   ) {}
 
   async onModuleInit() {
@@ -730,17 +734,16 @@ export class GlobalSettingsService implements OnModuleInit {
     helpText?: string;
     createdBy?: string;
   }): Promise<GlobalConfig> {
-    const existing = await this.globalConfigRepo.findOne({ where: { key: data.key } });
+    const existing = await this.getGlobalConfigByKey(data.key);
     if (existing) {
       throw new BadRequestException(`Configuration with key '${data.key}' already exists`);
     }
 
-    // Validate the value
     if (data.validation) {
       this.validateConfigValue(data.value, data.validation);
     }
 
-    const config = this.globalConfigRepo.create({
+    const config = this.buildGlobalConfig({
       ...data,
       category: data.category || ConfigCategory.SYSTEM,
       valueType: data.valueType || ConfigValueType.STRING,
@@ -751,7 +754,7 @@ export class GlobalSettingsService implements OnModuleInit {
       lastModifiedBy: data.createdBy,
     });
 
-    const saved = await this.globalConfigRepo.save(config);
+    const saved = await this.persistGlobalConfig(config, data.createdBy ?? 'create_global_config');
     this.configCache.set(saved.key, saved);
 
     this.logger.log(`Created config: ${saved.key}`);
@@ -764,7 +767,7 @@ export class GlobalSettingsService implements OnModuleInit {
     updatedBy: string,
     reason?: string,
   ): Promise<GlobalConfig> {
-    const config = await this.globalConfigRepo.findOne({ where: { id } });
+    const config = await this.getGlobalConfigById(id);
     if (!config) {
       throw new NotFoundException(`Configuration not found: ${id}`);
     }
@@ -777,8 +780,7 @@ export class GlobalSettingsService implements OnModuleInit {
       this.validateConfigValue(value, config.validation);
     }
 
-    // Add to history
-    const historyEntry: ConfigHistory = {
+    const historyEntry = {
       previousValue: config.value,
       newValue: value,
       changedAt: new Date(),
@@ -798,7 +800,7 @@ export class GlobalSettingsService implements OnModuleInit {
     config.history = history;
     config.lastModifiedBy = updatedBy;
 
-    const saved = await this.globalConfigRepo.save(config);
+    const saved = await this.persistGlobalConfig(config, updatedBy);
     this.configCache.set(saved.key, saved);
 
     this.logger.log(`Updated config: ${saved.key}`);
@@ -812,7 +814,7 @@ export class GlobalSettingsService implements OnModuleInit {
   }
 
   async getConfigEntity(id: string): Promise<GlobalConfig> {
-    const config = await this.globalConfigRepo.findOne({ where: { id } });
+    const config = await this.getGlobalConfigById(id);
     if (!config) {
       throw new NotFoundException(`Configuration not found: ${id}`);
     }
@@ -826,28 +828,34 @@ export class GlobalSettingsService implements OnModuleInit {
     page?: number;
     limit?: number;
   }): Promise<{ items: GlobalConfig[]; total: number }> {
-    const query = this.globalConfigRepo.createQueryBuilder('c');
-
+    let items = await this.loadGlobalConfigsFromConfigService();
     if (params.category) {
-      query.andWhere('c.category = :category', { category: params.category });
+      items = items.filter((config) => config.category === params.category);
     }
     if (params.isSecret !== undefined) {
-      query.andWhere('c.isSecret = :isSecret', { isSecret: params.isSecret });
+      items = items.filter((config) => config.isSecret === params.isSecret);
     }
     if (params.search) {
-      query.andWhere(
-        '(c.key ILIKE :search OR c.name ILIKE :search OR c.description ILIKE :search)',
-        { search: `%${params.search}%` },
+      const search = params.search.toLowerCase();
+      items = items.filter(
+        (config) =>
+          config.key.toLowerCase().includes(search) ||
+          config.name.toLowerCase().includes(search) ||
+          (config.description ?? '').toLowerCase().includes(search),
       );
     }
 
     const page = params.page || 1;
     const limit = params.limit || 50;
+    const total = items.length;
+    items = items
+      .sort((a, b) =>
+        a.category.localeCompare(b.category) ||
+        a.sortOrder - b.sortOrder ||
+        a.key.localeCompare(b.key),
+      )
+      .slice((page - 1) * limit, page * limit);
 
-    query.orderBy('c.category', 'ASC').addOrderBy('c.sortOrder', 'ASC').addOrderBy('c.key', 'ASC');
-    query.skip((page - 1) * limit).take(limit);
-
-    const [items, total] = await query.getManyAndCount();
     return { items: items.map((c) => this.maskSecretConfig(c)), total };
   }
 
@@ -858,7 +866,7 @@ export class GlobalSettingsService implements OnModuleInit {
     const results: GlobalConfig[] = [];
 
     for (const update of updates) {
-      const config = await this.globalConfigRepo.findOne({ where: { key: update.key } });
+      const config = await this.getGlobalConfigByKey(update.key);
       if (config && !config.isReadOnly) {
         const updated = await this.updateConfig(config.id, update.value, updatedBy);
         results.push(updated);
@@ -911,6 +919,84 @@ export class GlobalSettingsService implements OnModuleInit {
     return config;
   }
 
+  private async getGlobalConfigByKey(key: string): Promise<GlobalConfig | null> {
+    await this.ensureCacheFresh();
+    return this.configCache.get(key) ?? null;
+  }
+
+  private async getGlobalConfigById(id: string): Promise<GlobalConfig | null> {
+    const configs = await this.loadGlobalConfigsFromConfigService();
+    return configs.find((config) => config.id === id) ?? null;
+  }
+
+  private async persistGlobalConfig(config: GlobalConfig, reason: string): Promise<GlobalConfig> {
+    const normalized = {
+      ...config,
+      updatedAt: new Date(),
+    } as GlobalConfig;
+    const saved = await this.configServiceProxy.setConfiguration({
+      tenantId: CONFIG_SERVICE_SYSTEM_TENANT_ID,
+      service: ADMIN_API_CONFIG_SERVICE,
+      key: this.toConfigServiceGlobalKey(normalized.key),
+      value: JSON.stringify(normalized),
+      environment: 'all',
+      isSecret: false,
+      reason,
+    });
+    return this.fromConfigServiceGlobalConfig(saved) ?? normalized;
+  }
+
+  private async loadGlobalConfigsFromConfigService(): Promise<GlobalConfig[]> {
+    const configs = await this.configServiceProxy.listConfigurations(
+      CONFIG_SERVICE_SYSTEM_TENANT_ID,
+      ADMIN_API_CONFIG_SERVICE,
+    );
+    return configs
+      .filter((config) => config.key.startsWith('global.'))
+      .map((config) => this.fromConfigServiceGlobalConfig(config))
+      .filter((config): config is GlobalConfig => config !== null);
+  }
+
+  private fromConfigServiceGlobalConfig(config: ConfigServiceConfiguration): GlobalConfig | null {
+    try {
+      return this.buildGlobalConfig({
+        ...JSON.parse(config.value),
+        id: config.id,
+        updatedAt: config.updatedAt ? new Date(config.updatedAt) : new Date(),
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private buildGlobalConfig(input: Partial<GlobalConfig> & { key: string; value: unknown }): GlobalConfig {
+    return {
+      id: input.id ?? crypto.randomUUID(),
+      key: input.key,
+      name: input.name ?? input.key,
+      description: input.description,
+      category: input.category ?? ConfigCategory.SYSTEM,
+      valueType: input.valueType ?? ConfigValueType.STRING,
+      value: input.value,
+      defaultValue: input.defaultValue,
+      validation: input.validation,
+      isSecret: input.isSecret ?? false,
+      isReadOnly: input.isReadOnly ?? false,
+      requiresRestart: input.requiresRestart ?? false,
+      helpText: input.helpText,
+      sortOrder: input.sortOrder ?? 0,
+      history: input.history ?? [],
+      maxHistoryEntries: input.maxHistoryEntries ?? 50,
+      lastModifiedBy: input.lastModifiedBy,
+      createdAt: input.createdAt ?? new Date(),
+      updatedAt: input.updatedAt ?? new Date(),
+    } as GlobalConfig;
+  }
+
+  private toConfigServiceGlobalKey(key: string): string {
+    return `global.${key}`;
+  }
+
   // ============================================================================
   // Cache Management
   // ============================================================================
@@ -925,7 +1011,7 @@ export class GlobalSettingsService implements OnModuleInit {
   async refreshCaches(): Promise<void> {
     const [toggles, configs] = await Promise.all([
       this.featureToggleRepo.find(),
-      this.globalConfigRepo.find(),
+      this.loadGlobalConfigsFromConfigService(),
     ]);
 
     this.featureToggleCache.clear();
@@ -1020,10 +1106,9 @@ export class GlobalSettingsService implements OnModuleInit {
       'provisioning.github_repo': 'Okan-wqm/aquaculture_platform',
     };
 
-    // Fetch all provisioning configs from DB
-    const configs = await this.globalConfigRepo.find({
-      where: { category: ConfigCategory.PROVISIONING },
-    });
+    const configs = (await this.loadGlobalConfigsFromConfigService()).filter(
+      (config) => config.category === ConfigCategory.PROVISIONING,
+    );
 
     const getValue = (key: string): string => {
       const config = configs.find(c => c.key === key);
@@ -1083,7 +1168,7 @@ export class GlobalSettingsService implements OnModuleInit {
 
     // Now apply all valid updates
     for (const { fullKey, value } of validUpdates) {
-      const existing = await this.globalConfigRepo.findOne({ where: { key: fullKey } });
+      const existing = await this.getGlobalConfigByKey(fullKey);
 
       if (existing) {
         await this.updateConfig(existing.id, value, updatedBy);
@@ -1109,7 +1194,7 @@ export class GlobalSettingsService implements OnModuleInit {
       this.getCurrentVersion(),
       this.checkMaintenanceMode(),
       this.featureToggleRepo.count(),
-      this.globalConfigRepo.count(),
+      this.loadGlobalConfigsFromConfigService().then((configs) => configs.length),
     ]);
 
     return {

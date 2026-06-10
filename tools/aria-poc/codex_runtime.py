@@ -31,6 +31,32 @@ AUTH_PREFLIGHT_SKIP_ENV_VAR = "ARIA_CODEX_AUTH_PREFLIGHT_SKIP"
 
 API_KEY_ENV_VARS = ("OPENAI_API_KEY", "CODEX_API_KEY")
 UNSAFE_DEBUG_ENV_VARS = ("CODEX_OSS_DEBUG",)
+SENSITIVE_ENV_PREFIXES = ("ARIA_", "GITHUB_", "GH_")
+SENSITIVE_ENV_VARS = frozenset({
+    "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+    "ACTIONS_RUNTIME_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CODEX_API_KEY",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "OPENAI_API_KEY",
+    "RUNNER_TOKEN",
+})
+CODEX_ENV_ALLOWLIST = frozenset({
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "REQUESTS_CA_BUNDLE",
+    "SSL_CERT_FILE",
+    "TERM",
+    "TMPDIR",
+    "USER",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+})
 
 
 class CodexCliUnavailable(RuntimeError):
@@ -65,6 +91,20 @@ def is_mock_mode() -> bool:
 
 def codex_binary() -> str:
     return os.environ.get(CODEX_BINARY_ENV_VAR, "codex")
+
+
+def codex_subprocess_env() -> dict[str, str]:
+    """Build the explicit environment allowed to reach Codex subprocesses."""
+    env: dict[str, str] = {}
+    for name in sorted(CODEX_ENV_ALLOWLIST):
+        value = os.environ.get(name)
+        if value is None:
+            continue
+        if name in SENSITIVE_ENV_VARS or name.startswith(SENSITIVE_ENV_PREFIXES):
+            continue
+        env[name] = value
+    env.setdefault("PATH", os.defpath)
+    return env
 
 
 def assert_codex_policy_environment() -> None:
@@ -108,6 +148,7 @@ def preflight_codex_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
             text=True,
             timeout=timeout_seconds,
             check=False,
+            env=codex_subprocess_env(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise CodexCliUnavailable(f"codex_version_probe_failed: {exc}") from exc
@@ -138,6 +179,7 @@ def preflight_codex_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
                 text=True,
                 timeout=timeout_seconds,
                 check=False,
+                env=codex_subprocess_env(),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             last_error = str(exc)
@@ -196,6 +238,7 @@ def run_codex_exec(
         timeout=timeout_seconds + 30,
         check=False,
         cwd=str(cwd) if cwd is not None else None,
+        env=codex_subprocess_env(),
     )
     events = parse_codex_jsonl(proc.stdout)
     final_message = extract_final_message(events)

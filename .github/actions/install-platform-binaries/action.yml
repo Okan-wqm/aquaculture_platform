@@ -33,14 +33,16 @@ runs:
           local name=$1
           local ver=$2
           local dest=${3:-"node_modules/${name}"}
+          local temp_root="${RUNNER_TEMP:-/tmp}"
           local tmpfile
-          tmpfile=$(mktemp /tmp/npm-pkg-XXXXXX.tgz)
+          tmpfile=$(mktemp "${temp_root}/npm-pkg-XXXXXX.tgz")
+          trap 'rm -f "${tmpfile:-}"' RETURN
           echo "Installing ${name}@${ver} → ${dest}"
           mkdir -p "${dest}"
 
           # Download tarball to temp file (do not pipe directly into tar)
           curl -sfL --max-time 30 \
-            "https://registry.npmjs.org/${name}/-/$(basename ${name})-${ver}.tgz" \
+            "https://registry.npmjs.org/${name}/-/$(basename "${name}")-${ver}.tgz" \
             -o "${tmpfile}"
 
           # SEC-CI-007: Verify integrity hash from package-lock.json
@@ -53,23 +55,28 @@ runs:
             } catch(e) { '' }
           " 2>/dev/null || true)
 
-          # SEC-CI-007: Platform-specific packages (linux-x64 etc.) may have
-          # different hashes than what's in the lockfile (generated on Windows
-          # or macOS). Treat mismatch as a warning for platform binaries,
-          # hard error for everything else.
+          # SEC-CI-007: Platform binaries are executable supply-chain inputs.
+          # Missing or mismatched lockfile integrity is fatal; extracting a
+          # tarball whose digest is not committed would make CI non-reproducible.
           if [ -n "${LOCK_INTEGRITY}" ] && echo "${LOCK_INTEGRITY}" | grep -q '^sha512-'; then
             B64="${LOCK_INTEGRITY#sha512-}"
             EXPECTED_HEX=$(echo "${B64}" | base64 -d | xxd -p | tr -d '\n')
             ACTUAL_HEX=$(sha512sum "${tmpfile}" | cut -d ' ' -f 1)
             if [ "${EXPECTED_HEX}" != "${ACTUAL_HEX}" ]; then
-              echo "  ::warning::Integrity mismatch for ${name}@${ver} (cross-platform lockfile)"
+              echo "::error::Integrity mismatch for ${name}@${ver}"
+              exit 1
             else
               echo "  Integrity verified (sha512 matches package-lock.json)"
             fi
           else
-            echo "  ::warning::No lockfile integrity entry for ${name}@${ver} — skipping hash check"
+            echo "::error::No lockfile integrity entry for ${name}@${ver}"
+            exit 1
           fi
 
+          if tar tzf "${tmpfile}" | grep -E '(^/|(^|/)\.\.(/|$))' >/dev/null; then
+            echo "::error::Unsafe tar entry in ${name}@${ver}"
+            exit 1
+          fi
           tar xz -C "${dest}" --strip-components=1 < "${tmpfile}"
           rm -f "${tmpfile}"
           if [ -f "${dest}/package.json" ]; then

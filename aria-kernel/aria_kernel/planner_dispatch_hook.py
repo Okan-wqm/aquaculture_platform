@@ -223,7 +223,7 @@ def dispatch_one_pending_planner_request(
     §A.1 / §H-1 locks; the daemon's outer single-instance lock
     guards the loop, not this hook.
 
-    Does NOT set CLAUDE_CODE_MOCK. The operator controls mock vs
+    Does NOT set CODEX_CLI_MOCK. The operator controls mock vs
     live mode via the env var at daemon launch time; this hook
     inherits the parent process env unchanged.
     """

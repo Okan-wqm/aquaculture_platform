@@ -997,6 +997,8 @@ def _verify_fates_integrity(
     fates: dict[str, Any],
     *,
     snapshot: dict[str, Any] | None = None,
+    snapshot_mode: str | None = None,
+    base_commit_sha: str | None = None,
     workspace_root: str | Path | None = None,
     base_dir: str | Path | None = None,
 ) -> None:
@@ -1032,6 +1034,11 @@ def _verify_fates_integrity(
     if not isinstance(files, list):
         return
 
+    if snapshot is None and (snapshot_mode is not None or base_commit_sha is not None):
+        snapshot = {
+            "snapshot_mode": snapshot_mode,
+            "base_commit_sha": base_commit_sha,
+        }
     snapshot_mode = (snapshot or {}).get("snapshot_mode") if snapshot else None
     base_sha = (snapshot or {}).get("base_commit_sha") if snapshot else None
 

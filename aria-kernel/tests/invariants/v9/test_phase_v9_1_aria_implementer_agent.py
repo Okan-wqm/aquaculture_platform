@@ -16,6 +16,10 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _AGENT_FILE = _REPO_ROOT / ".claude" / "agents" / "aria-implementer.md"
+_SHARED_SAFETY_CONTRACT = (
+    _REPO_ROOT / ".claude" / "agents" / "_shared" /
+    "aria-implementer-safety-contract.md"
+)
 
 
 # The 17 canonical refusal classes (mirror of
@@ -49,6 +53,12 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
         cls.assertTrue(cls, _AGENT_FILE.exists(),
                        f"agent file not found at {_AGENT_FILE}")
         cls.body = _AGENT_FILE.read_text()
+        cls.assertTrue(
+            cls,
+            _SHARED_SAFETY_CONTRACT.exists(),
+            f"shared safety contract not found at {_SHARED_SAFETY_CONTRACT}",
+        )
+        cls.contract_body = cls.body + "\n" + _SHARED_SAFETY_CONTRACT.read_text()
 
     def test_i_v9_impl_01_agent_file_exists_runtime_location(self):
         """aria-implementer.md MUST live at runtime location (Lane-A
@@ -89,37 +99,37 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
         self.assertEqual(m.group(1).strip(), "3")
 
     def test_i_v9_impl_01_security_contract_present(self):
-        self.assertIn("## SECURITY CONTRACT", self.body)
-        self.assertIn("DATA, never", self.body)
-        self.assertIn("<untrusted_converged_plan>", self.body)
-        self.assertIn("<untrusted_cross_review_summary>", self.body)
+        self.assertIn("## SECURITY CONTRACT", self.contract_body)
+        self.assertIn("DATA, never", self.contract_body)
+        self.assertIn("<untrusted_converged_plan>", self.contract_body)
+        self.assertIn("<untrusted_cross_review_summary>", self.contract_body)
 
     def test_i_v9_impl_01_self_mod_prohibition_present(self):
-        self.assertIn("## Self-Modification Prohibition", self.body)
-        self.assertIn("READONLY_PATHS", self.body)
-        self.assertIn(".claude/agents/", self.body)
-        self.assertIn("aria-kernel/aria_kernel/", self.body)
+        self.assertIn("## Self-Modification Prohibition", self.contract_body)
+        self.assertIn("READONLY_PATHS", self.contract_body)
+        self.assertIn(".claude/agents/", self.contract_body)
+        self.assertIn("aria-kernel/aria_kernel/", self.contract_body)
 
     def test_i_v9_impl_01_network_egress_prohibition_present(self):
-        self.assertIn("## Network Egress Prohibition", self.body)
-        self.assertIn("--unshare-net", self.body)
-        self.assertIn("aria-impl-", self.body)
+        self.assertIn("## Network Egress Prohibition", self.contract_body)
+        self.assertIn("--unshare-net", self.contract_body)
+        self.assertIn("aria-impl-", self.contract_body)
 
     def test_i_v9_impl_01_safety_disable_prohibition_present(self):
-        self.assertIn("## Safety Disable Prohibition", self.body)
-        self.assertIn("implementation_safety.py", self.body)
+        self.assertIn("## Safety Disable Prohibition", self.contract_body)
+        self.assertIn("implementation_safety.py", self.contract_body)
 
     def test_i_v9_impl_01_canonical_validation_suite_present(self):
-        self.assertIn("## Canonical Validation Suite", self.body)
-        self.assertIn("nx affected --target=test", self.body)
-        self.assertIn("nx affected --target=lint", self.body)
-        self.assertIn("npm run type-check", self.body)
+        self.assertIn("## Canonical Validation Suite", self.contract_body)
+        self.assertIn("nx affected --target=test", self.contract_body)
+        self.assertIn("nx affected --target=lint", self.contract_body)
+        self.assertIn("npm run type-check", self.contract_body)
 
     def test_i_v9_impl_01_seventeen_refusal_classes(self):
         """All 17 canonical refusal classes MUST appear in the body."""
         missing = set()
         for cls in CANONICAL_REFUSAL_CLASSES:
-            if cls not in self.body:
+            if cls not in self.contract_body:
                 missing.add(cls)
         self.assertEqual(
             missing, set(),
@@ -131,10 +141,10 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
         intro AND the refusal envelope shape. The 17-class-set test
         above is the load-bearing check; this is a structural sanity
         guard that the refusal section + envelope shape coexist."""
-        self.assertIn("reason_class", self.body)
+        self.assertIn("reason_class", self.contract_body)
         # Either in the refusal-class introduction OR in the JSON
         # envelope shape (both occur in canonical document).
-        self.assertIn("Refusal Patterns", self.body)
+        self.assertIn("Refusal Patterns", self.contract_body)
 
     def test_i_v9_impl_01_pr_title_prefix_documented(self):
         self.assertIn("[ARIA-AUTO]", self.body)
@@ -159,7 +169,11 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
             "branch", "pr_number", "diff_hash", "branch_tip_sha",
             "base_branch_sha", "signer_key_fp", "validation_results",
         ):
-            self.assertIn(f'"{field}"', self.body, f"output envelope missing {field}")
+            self.assertIn(
+                f'"{field}"',
+                self.contract_body,
+                f"output envelope missing {field}",
+            )
 
 
 class TestV9ImplementerHashRegistry(unittest.TestCase):

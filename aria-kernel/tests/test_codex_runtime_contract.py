@@ -35,6 +35,30 @@ class CodexRuntimeContractTests(unittest.TestCase):
             with self.assertRaises(codex_runtime.CodexPolicyViolation):
                 codex_runtime.assert_codex_policy_environment()
 
+    def test_codex_subprocess_env_scrubs_runner_and_aria_secrets(self) -> None:
+        with patch.dict(os.environ, {
+            "PATH": "/usr/bin",
+            "HOME": "/home/aria",
+            "ARIA_LEASE_TOKEN": "lease-secret",
+            "ARIA_TOOLS_DIR": "/tmp/tools",
+            "GITHUB_TOKEN": "ghs_secret",
+            "GH_TOKEN": "ghp_secret",
+            "OPENAI_API_KEY": "sk-secret",
+            "ACTIONS_RUNTIME_TOKEN": "runner-secret",
+        }, clear=False):
+            env = codex_runtime.codex_subprocess_env()
+        self.assertEqual(env["PATH"], "/usr/bin")
+        self.assertEqual(env["HOME"], "/home/aria")
+        for forbidden in (
+            "ARIA_LEASE_TOKEN",
+            "ARIA_TOOLS_DIR",
+            "GITHUB_TOKEN",
+            "GH_TOKEN",
+            "OPENAI_API_KEY",
+            "ACTIONS_RUNTIME_TOKEN",
+        ):
+            self.assertNotIn(forbidden, env)
+
     def test_jsonl_final_message_and_usage_extracted(self) -> None:
         raw = "\n".join(
             [

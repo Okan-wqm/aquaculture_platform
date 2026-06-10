@@ -99,6 +99,34 @@ class InvokeCodexCliTests(unittest.TestCase):
         self.assertEqual(envelope["request_id"], "REQ-test-1")
         self.assertEqual(envelope["details"]["verdict"]["model"], "mock")
 
+    def test_mock_mode_never_satisfies_acceptance_matrix(self) -> None:
+        tools_dir = ensure_tools_binding(self.tmp / "aria-tools", workspace_root=self.tmp)
+        out_path = tools_dir / "agent-invocations" / "outputs" / "response.json"
+        prompt_path = tools_dir / "agent-invocations" / "prompts" / "prompt.md"
+        ci_executor._write_safe_text_artifact(
+            prompt_path,
+            "# Test prompt",
+            purpose="prompt",
+            tools_dir=tools_dir,
+        )
+        with patch.dict(os.environ, {ci_executor.MOCK_MODE_ENV_VAR: "1"}):
+            exit_code = ci_executor.invoke_codex_cli(
+                request_id="REQ-test-mock-matrix",
+                subagent_type="aria-evidence-judge",
+                prompt_file=prompt_path,
+                output_path=out_path,
+                timeout_seconds=300,
+                claim_id="claim_test_mock_matrix",
+                agent_id="ci-executor:gha-test",
+                role="evidence_judgment",
+                must_satisfy=[{"id": "MS-1"}],
+                tools_dir=tools_dir,
+            )
+        self.assertEqual(exit_code, 0)
+        envelope = json.loads(out_path.read_text(encoding="utf-8"))
+        self.assertEqual(envelope["satisfaction_matrix"][0]["id"], "MS-1")
+        self.assertEqual(envelope["satisfaction_matrix"][0]["verdict"], "blocked")
+
     def test_unavailable_when_no_binary_and_no_mock(self) -> None:
         out_path = self.tmp / "response.json"
         prompt_path = self.tmp / "prompt.md"
@@ -127,6 +155,153 @@ class InvokeCodexCliTests(unittest.TestCase):
         # spike-era "contract gap" language.
         self.assertIn("codex", str(ctx.exception))
         self.assertIn("ci_executor_contract_proven.md", str(ctx.exception))
+
+    def test_live_mode_passes_agent_response_output_schema(self) -> None:
+        tools_dir = ensure_tools_binding(self.tmp / "aria-tools", workspace_root=self.tmp)
+        out_path = tools_dir / "agent-invocations" / "outputs" / "response.json"
+        transcript_path = out_path.with_suffix(".transcript.jsonl")
+        prompt_path = tools_dir / "agent-invocations" / "prompts" / "prompt.md"
+        ci_executor._write_safe_text_artifact(
+            prompt_path,
+            "# Test prompt",
+            purpose="prompt",
+            tools_dir=tools_dir,
+        )
+        envelope = {
+            "$schema": "aria/agent-response/v1",
+            "request_id": "REQ-test-schema",
+            "claim_id": "claim_test_schema",
+            "agent_id": "ci-executor:gha-test",
+            "role": "evidence_judgment",
+            "status": "submitted",
+            "satisfaction_matrix": [],
+            "details": {"verdict": {"model": "codex"}},
+        }
+        raw_stdout = json.dumps({"type": "message", "text": json.dumps(envelope)}) + "\n"
+
+        def _fake_run_codex_exec(**kwargs):
+            schema_path = kwargs.get("output_schema")
+            self.assertIsInstance(schema_path, Path)
+            self.assertEqual(schema_path.name, "agent-response-v1.schema.json")
+            return type("CodexResult", (), {"stdout": raw_stdout, "returncode": 0})()
+
+        with patch.dict(os.environ, {ci_executor.MOCK_MODE_ENV_VAR: "0"}), \
+             patch.object(ci_executor, "run_codex_exec", side_effect=_fake_run_codex_exec):
+            exit_code = ci_executor.invoke_codex_cli(
+                request_id="REQ-test-schema",
+                subagent_type="aria-evidence-judge",
+                prompt_file=prompt_path,
+                output_path=out_path,
+                transcript_path=transcript_path,
+                timeout_seconds=300,
+                claim_id="claim_test_schema",
+                agent_id="ci-executor:gha-test",
+                role="evidence_judgment",
+                must_satisfy=[],
+                tools_dir=tools_dir,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(out_path.exists())
+        self.assertTrue(transcript_path.exists())
+
+    def test_live_mode_missing_matrix_does_not_synthesize_satisfied(self) -> None:
+        raw_stdout = json.dumps({
+            "type": "item.completed",
+            "item": {
+                "type": "agent_message",
+                "text": "I completed the work but omitted the envelope.",
+            },
+        }) + "\n"
+        envelope = ci_executor._build_envelope_from_codex_output(
+            raw_stdout=raw_stdout,
+            request_id="REQ-no-matrix",
+            claim_id="claim-no-matrix",
+            agent_id="ci-executor:test",
+            role="implementation",
+            subagent_type="aria-implementer",
+            must_satisfy=[{"id": "MS-1"}],
+        )
+        self.assertEqual(envelope["satisfaction_matrix"][0]["id"], "MS-1")
+        self.assertEqual(envelope["satisfaction_matrix"][0]["verdict"], "blocked")
+        self.assertNotEqual(envelope["satisfaction_matrix"][0]["verdict"], "satisfied")
+
+    def test_live_mode_evidence_free_satisfied_is_blocked(self) -> None:
+        extracted = {
+            "$schema": "aria/agent-response/v1",
+            "satisfaction_matrix": [{"id": "MS-1", "verdict": "satisfied"}],
+        }
+        raw_stdout = json.dumps({
+            "type": "item.completed",
+            "item": {
+                "type": "agent_message",
+                "text": json.dumps(extracted),
+            },
+        }) + "\n"
+        envelope = ci_executor._build_envelope_from_codex_output(
+            raw_stdout=raw_stdout,
+            request_id="REQ-no-evidence",
+            claim_id="claim-no-evidence",
+            agent_id="ci-executor:test",
+            role="implementation",
+            subagent_type="aria-implementer",
+            must_satisfy=[{"id": "MS-1"}],
+        )
+        self.assertEqual(envelope["satisfaction_matrix"][0]["verdict"], "blocked")
+
+    def test_live_mode_satisfied_with_only_evidence_text_is_blocked(self) -> None:
+        extracted = {
+            "$schema": "aria/agent-response/v1",
+            "satisfaction_matrix": [
+                {"id": "MS-1", "verdict": "satisfied", "evidence": "manual claim only"}
+            ],
+        }
+        raw_stdout = json.dumps({
+            "type": "item.completed",
+            "item": {
+                "type": "agent_message",
+                "text": json.dumps(extracted),
+            },
+        }) + "\n"
+        envelope = ci_executor._build_envelope_from_codex_output(
+            raw_stdout=raw_stdout,
+            request_id="REQ-text-evidence",
+            claim_id="claim-text-evidence",
+            agent_id="ci-executor:test",
+            role="implementation",
+            subagent_type="aria-implementer",
+            must_satisfy=[{"id": "MS-1"}],
+        )
+        self.assertEqual(envelope["satisfaction_matrix"][0]["verdict"], "blocked")
+
+    def test_live_mode_missing_satisfaction_id_is_not_positionally_satisfied(self) -> None:
+        extracted = {
+            "$schema": "aria/agent-response/v1",
+            "satisfaction_matrix": [
+                {
+                    "verdict": "satisfied",
+                    "evidence_refs": ["proof.txt:1"],
+                }
+            ],
+        }
+        raw_stdout = json.dumps({
+            "type": "item.completed",
+            "item": {
+                "type": "agent_message",
+                "text": json.dumps(extracted),
+            },
+        }) + "\n"
+        envelope = ci_executor._build_envelope_from_codex_output(
+            raw_stdout=raw_stdout,
+            request_id="REQ-missing-id",
+            claim_id="claim-missing-id",
+            agent_id="ci-executor:test",
+            role="implementation",
+            subagent_type="aria-implementer",
+            must_satisfy=[{"id": "MS-1"}],
+        )
+        self.assertEqual(envelope["satisfaction_matrix"][0]["id"], "blocked-missing-id-000")
+        self.assertEqual(envelope["satisfaction_matrix"][0]["verdict"], "blocked")
 
 
 if __name__ == "__main__":

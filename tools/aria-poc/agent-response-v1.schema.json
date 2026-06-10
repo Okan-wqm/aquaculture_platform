@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aria/agent-response/v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "$schema",
+    "request_id",
+    "claim_id",
+    "agent_id",
+    "role",
+    "status",
+    "satisfaction_matrix",
+    "details"
+  ],
+  "properties": {
+    "$schema": { "const": "aria/agent-response/v1" },
+    "request_id": { "type": "string", "minLength": 1 },
+    "claim_id": { "type": "string", "minLength": 1 },
+    "agent_id": { "type": "string", "minLength": 1 },
+    "role": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["submitted", "completed", "partial", "rejected"] },
+    "satisfaction_matrix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "verdict"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "verdict": { "type": "string", "minLength": 1 },
+          "evidence_refs": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "details": { "type": "object" }
+  }
+}

@@ -140,19 +140,12 @@ def _default_bridge_drainer(
     base_dir: Path,
     max_iterations: int,
 ) -> dict[str, Any]:
-    """Default bridge drainer — best-effort C.5 retry loop.
-
-    The bridge surface lives in ``bridge_status_ledger.py``; the
-    retry primitive may not exist in every kernel version. We
-    look up ``replay_pending_bridges`` if present, otherwise
-    return a no-op success row so the orchestrator can still
-    advance.
-    """
+    """Default bridge drainer — fail-closed C.5 retry loop."""
     try:
         from . import bridge_status_ledger
     except ImportError:
         return {
-            "status": "skipped",
+            "status": "failed",
             "reason": "bridge_status_ledger_unavailable",
             "iterations": 0,
         }
@@ -161,7 +154,7 @@ def _default_bridge_drainer(
     )
     if replay_fn is None:
         return {
-            "status": "skipped",
+            "status": "failed",
             "reason": "replay_pending_bridges_unavailable",
             "iterations": 0,
         }
@@ -325,6 +318,7 @@ def run_autonomy_orchestrator(
 
     * ``aria_stop`` — operator wrote the ARIA_STOP file
     * ``profile_frozen`` — runtime profile gate raised
+    * ``cycle_failed`` — cycle runner raised or returned failed status
     * ``max_cycles`` — reached the cycle cap
     * ``daemon_already_running`` — single-instance lock contended
     """
@@ -716,7 +710,12 @@ def run_autonomy_orchestrator(
                         defer_reflection=True,
                     )
                     cycle_summary["cycle"] = cycle_result
-                    cycle_status = "ok"
+                    result_status = str(cycle_result.get("status") or "").lower()
+                    cycle_status = (
+                        "failed"
+                        if result_status in {"failed", "blocked", "regression"}
+                        else "ok"
+                    )
                 except Exception as exc:
                     cycle_summary["cycle"] = {
                         "status": "failed",
@@ -735,10 +734,14 @@ def run_autonomy_orchestrator(
                 )
                 if cycle_status == "ok":
                     cycles_completed += 1
+                else:
+                    exit_reason = "cycle_failed"
+                    per_cycle_results.append(cycle_summary)
+                    break
 
                 # Plan ARIA-V10.4 Phase 1 instrumentation — cost-attribution
                 # sentinel. V10.3-B endurance showed cycle 1 challenger
-                # burned $0.39 + 99s + 3 turns on real Claude but
+                # burned $0.39 + 99s + 3 turns on real Codex but
                 # read_cost_attribution() returned 0 rows. The cost row
                 # write path is silently broken (suspect: bypassed when
                 # cycle convergence_blocks vs converges). Emit a sentinel
@@ -1699,6 +1702,7 @@ def run_autonomy_orchestrator(
                 )
 
             if profile_announce_allowed:
+                exits_clean = exit_reason != "cycle_failed"
                 append_tools_governance(
                     root, "autonomy_orchestrator_exit",
                     {
@@ -1708,8 +1712,11 @@ def run_autonomy_orchestrator(
                         "worker_assignments_dispatched": worker_total,
                         "auto_merges_completed": auto_merges_total,
                         "exit_reason": exit_reason,
+                        "exits_clean": exits_clean,
                     },
                 )
+            else:
+                exits_clean = exit_reason != "cycle_failed"
 
             return {
                 "cycles_completed": cycles_completed,
@@ -1717,7 +1724,7 @@ def run_autonomy_orchestrator(
                 "worker_assignments_dispatched": worker_total,
                 "auto_merges_completed": auto_merges_total,
                 "exit_reason": exit_reason,
-                "exits_clean": True,
+                "exits_clean": exits_clean,
                 "per_cycle": per_cycle_results,
                 "daemon_agent_id": daemon_agent_id,
             }

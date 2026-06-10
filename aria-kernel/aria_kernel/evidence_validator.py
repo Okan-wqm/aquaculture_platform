@@ -339,6 +339,9 @@ def validate_agent_response_evidence(
             if not isinstance(entry_refs, list):
                 errors.append({"code": "agent_matrix_evidence_refs_not_list", "id": entry.get("id")})
                 continue
+            if entry.get("verdict") == "satisfied" and not entry_refs:
+                errors.append({"code": "agent_matrix_satisfied_requires_evidence_refs", "id": entry.get("id")})
+                continue
             for ref in entry_refs:
                 if not isinstance(ref, str) or not ref.strip():
                     errors.append(

@@ -7,8 +7,6 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
 
 import {
   SystemSetting,
@@ -16,6 +14,12 @@ import {
   SettingValueType,
   DEFAULT_SYSTEM_SETTINGS,
 } from '../entities/system-setting.entity';
+import {
+  ADMIN_API_CONFIG_SERVICE,
+  CONFIG_SERVICE_SYSTEM_TENANT_ID,
+  ConfigServiceAdminProxy,
+  ConfigServiceConfiguration,
+} from './config-service-admin-proxy.service';
 
 // ============================================================================
 // DTOs
@@ -65,6 +69,190 @@ export interface SettingsByCategory {
   [category: string]: SystemSettingResponse[];
 }
 
+interface SystemSettingEnvelope {
+  key: string;
+  value: string;
+  valueType: SettingValueType;
+  category: SettingCategory;
+  description?: string;
+  displayName?: string;
+  isPublic: boolean;
+  isReadOnly: boolean;
+  requiresRestart: boolean;
+  defaultValue?: string;
+  validationRule?: string;
+  sortOrder: number;
+  updatedBy?: string;
+}
+
+class ConfigBackedSystemSettingStore {
+  constructor(private readonly proxy: ConfigServiceAdminProxy) {}
+
+  async find(options?: { where?: { key?: string[]; isReadOnly?: boolean } }): Promise<SystemSetting[]> {
+    const configs = await this.proxy.listConfigurations(
+      CONFIG_SERVICE_SYSTEM_TENANT_ID,
+      ADMIN_API_CONFIG_SERVICE,
+    );
+    let settings = configs
+      .map((config) => this.fromConfig(config))
+      .filter((setting): setting is SystemSetting => setting !== null);
+
+    const keys = options?.where?.key;
+    if (Array.isArray(keys)) {
+      settings = settings.filter((setting) => keys.includes(setting.key));
+    }
+    if (options?.where?.isReadOnly !== undefined) {
+      settings = settings.filter((setting) => setting.isReadOnly === options.where?.isReadOnly);
+    }
+
+    return this.sort(settings);
+  }
+
+  async findOne(options: { where: { key: string } }): Promise<SystemSetting | null> {
+    const config = await this.proxy.getConfiguration(
+      CONFIG_SERVICE_SYSTEM_TENANT_ID,
+      ADMIN_API_CONFIG_SERVICE,
+      options.where.key,
+    );
+    return config ? this.fromConfig(config) : null;
+  }
+
+  create(input: Partial<SystemSetting>): SystemSetting {
+    return {
+      id: input.id ?? input.key ?? crypto.randomUUID(),
+      key: input.key ?? '',
+      value: input.value ?? '',
+      valueType: input.valueType ?? SettingValueType.STRING,
+      category: input.category ?? SettingCategory.GENERAL,
+      description: input.description,
+      displayName: input.displayName,
+      isPublic: input.isPublic ?? false,
+      isReadOnly: input.isReadOnly ?? false,
+      requiresRestart: input.requiresRestart ?? false,
+      defaultValue: input.defaultValue,
+      validationRule: input.validationRule,
+      sortOrder: input.sortOrder ?? 0,
+      createdAt: input.createdAt ?? new Date(),
+      updatedAt: input.updatedAt ?? new Date(),
+      updatedBy: input.updatedBy,
+      version: input.version ?? 1,
+    } as SystemSetting;
+  }
+
+  async save(input: SystemSetting): Promise<SystemSetting>;
+  async save(input: SystemSetting[]): Promise<SystemSetting[]>;
+  async save(input: SystemSetting | SystemSetting[]): Promise<SystemSetting | SystemSetting[]> {
+    if (Array.isArray(input)) {
+      const saved: SystemSetting[] = [];
+      for (const setting of input) {
+        saved.push(await this.saveOne(setting));
+      }
+      return saved;
+    }
+    return this.saveOne(input);
+  }
+
+  async remove(setting: SystemSetting): Promise<void> {
+    await this.proxy.deleteConfigurationByKey(
+      CONFIG_SERVICE_SYSTEM_TENANT_ID,
+      ADMIN_API_CONFIG_SERVICE,
+      setting.key,
+    );
+  }
+
+  createQueryBuilder(_alias?: string): {
+    where: (expr: string, params: Record<string, unknown>) => ReturnType<ConfigBackedSystemSettingStore['createQueryBuilder']>;
+    andWhere: (expr: string, params: Record<string, unknown>) => ReturnType<ConfigBackedSystemSettingStore['createQueryBuilder']>;
+    orderBy: (..._args: unknown[]) => ReturnType<ConfigBackedSystemSettingStore['createQueryBuilder']>;
+    addOrderBy: (..._args: unknown[]) => ReturnType<ConfigBackedSystemSettingStore['createQueryBuilder']>;
+    getMany: () => Promise<SystemSetting[]>;
+  } {
+    const filters: { category?: SettingCategory; isPublic?: boolean } = {};
+    const builder = {
+      where: (_expr: string, params: Record<string, unknown>) => {
+        this.applyBuilderParams(filters, params);
+        return builder;
+      },
+      andWhere: (_expr: string, params: Record<string, unknown>) => {
+        this.applyBuilderParams(filters, params);
+        return builder;
+      },
+      orderBy: () => builder,
+      addOrderBy: () => builder,
+      getMany: async () => {
+        let settings = await this.find();
+        if (filters.category) {
+          settings = settings.filter((setting) => setting.category === filters.category);
+        }
+        if (filters.isPublic !== undefined) {
+          settings = settings.filter((setting) => setting.isPublic === filters.isPublic);
+        }
+        return this.sort(settings);
+      },
+    };
+    return builder;
+  }
+
+  private applyBuilderParams(
+    filters: { category?: SettingCategory; isPublic?: boolean },
+    params: Record<string, unknown>,
+  ): void {
+    if (params['category']) filters.category = params['category'] as SettingCategory;
+    if (params['isPublic'] !== undefined) filters.isPublic = params['isPublic'] as boolean;
+  }
+
+  private async saveOne(setting: SystemSetting): Promise<SystemSetting> {
+    setting.updatedAt = new Date();
+    await this.proxy.setConfiguration({
+      tenantId: CONFIG_SERVICE_SYSTEM_TENANT_ID,
+      service: ADMIN_API_CONFIG_SERVICE,
+      key: setting.key,
+      value: JSON.stringify(this.toEnvelope(setting)),
+      environment: 'all',
+      isSecret: false,
+      reason: setting.updatedBy ?? 'system_setting_update',
+    });
+    return setting;
+  }
+
+  private fromConfig(config: ConfigServiceConfiguration): SystemSetting | null {
+    try {
+      const parsed = JSON.parse(config.value) as SystemSettingEnvelope;
+      return this.create({
+        ...parsed,
+        id: config.id,
+        updatedAt: config.updatedAt ? new Date(config.updatedAt) : new Date(),
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private toEnvelope(setting: SystemSetting): SystemSettingEnvelope {
+    return {
+      key: setting.key,
+      value: setting.value,
+      valueType: setting.valueType,
+      category: setting.category,
+      description: setting.description,
+      displayName: setting.displayName,
+      isPublic: setting.isPublic,
+      isReadOnly: setting.isReadOnly,
+      requiresRestart: setting.requiresRestart,
+      defaultValue: setting.defaultValue,
+      validationRule: setting.validationRule,
+      sortOrder: setting.sortOrder,
+      updatedBy: setting.updatedBy,
+    };
+  }
+
+  private sort(settings: SystemSetting[]): SystemSetting[] {
+    return [...settings].sort((a, b) =>
+      a.category.localeCompare(b.category) || a.sortOrder - b.sortOrder || a.key.localeCompare(b.key),
+    );
+  }
+}
+
 // ============================================================================
 // Service
 // ============================================================================
@@ -72,6 +260,7 @@ export interface SettingsByCategory {
 @Injectable()
 export class SystemSettingService {
   private readonly logger = new Logger(SystemSettingService.name);
+  private readonly settingRepository: ConfigBackedSystemSettingStore;
   private readonly encryptionKey: string;
 
   /**
@@ -80,10 +269,8 @@ export class SystemSettingService {
    */
   private readonly derivedKey: Buffer;
 
-  constructor(
-    @InjectRepository(SystemSetting)
-    private readonly settingRepository: Repository<SystemSetting>,
-  ) {
+  constructor(configServiceProxy: ConfigServiceAdminProxy) {
+    this.settingRepository = new ConfigBackedSystemSettingStore(configServiceProxy);
     // SECURITY: Fail fast in production if encryption key is not configured
     const key = process.env['ENCRYPTION_KEY'];
     if (!key && process.env['NODE_ENV'] === 'production') {
@@ -236,7 +423,7 @@ export class SystemSettingService {
    */
   async getSettingsByKeys(keys: string[]): Promise<SystemSettingResponse[]> {
     const settings = await this.settingRepository.find({
-      where: { key: In(keys) },
+      where: { key: keys },
     });
     return settings.map(s => this.toResponse(s));
   }
@@ -495,7 +682,7 @@ export class SystemSettingService {
     ];
 
     const settings = await this.settingRepository.find({
-      where: { key: In(keys) },
+      where: { key: keys },
     });
 
     const getValue = (key: string, defaultValue: unknown) => {
@@ -537,7 +724,7 @@ export class SystemSettingService {
     ];
 
     const settings = await this.settingRepository.find({
-      where: { key: In(keys) },
+      where: { key: keys },
     });
 
     const getValue = (key: string, defaultValue: unknown) => {

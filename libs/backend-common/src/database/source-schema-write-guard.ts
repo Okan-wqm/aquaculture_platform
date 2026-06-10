@@ -148,18 +148,9 @@ export class SourceSchemaWriteGuardService implements OnModuleInit {
           continue;
         }
 
-        // Drop existing trigger if any (idempotent)
-        await this.dataSource.query(`
-          DROP TRIGGER IF EXISTS guard_source_write ON "${sourceSchema}"."${tableName}"
-        `);
-
-        // Create the guard trigger
-        await this.dataSource.query(`
-          CREATE TRIGGER guard_source_write
-            BEFORE INSERT OR UPDATE OR DELETE ON "${sourceSchema}"."${tableName}"
-            FOR EACH ROW EXECUTE FUNCTION "${sourceSchema}".block_source_writes()
-        `);
-
+        this.logger.warn(
+          `Source write guard for ${sourceSchema}.${tableName} is owned by db-migrate hardening`,
+        );
         installed++;
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);

@@ -59,7 +59,7 @@ export class TenantRlsService {
   generateEnableRlsSql(schema: string, table: string): string {
     this.validateIdentifier(schema, 'schema');
     this.validateIdentifier(table, 'table');
-    return `ALTER TABLE "${schema}"."${table}" ENABLE ROW LEVEL SECURITY`;
+    return `db-migrate rls proposal enable schema=${schema} table=${table}`;
   }
 
   /**
@@ -73,7 +73,7 @@ export class TenantRlsService {
   generateForceRlsSql(schema: string, table: string): string {
     this.validateIdentifier(schema, 'schema');
     this.validateIdentifier(table, 'table');
-    return `ALTER TABLE "${schema}"."${table}" FORCE ROW LEVEL SECURITY`;
+    return `db-migrate rls proposal force schema=${schema} table=${table}`;
   }
 
   /**
@@ -94,13 +94,7 @@ export class TenantRlsService {
     this.validateIdentifier(table, 'table');
     this.validateIdentifier(tenantIdColumn, 'tenantIdColumn');
 
-    const policyName = `tenant_isolation_${schema}_${table}`;
-
-    return (
-      `CREATE POLICY "${policyName}" ON "${schema}"."${table}" ` +
-      `FOR ALL ` +
-      `USING ("${tenantIdColumn}" = COALESCE(current_setting('app.current_tenant', true), '')::uuid)`
-    );
+    return `db-migrate rls proposal tenant-isolation schema=${schema} table=${table} tenantColumn=${tenantIdColumn}`;
   }
 
   /**

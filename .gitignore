@@ -67,6 +67,7 @@ coverage
 .env.test
 .env.production
 *.env
+!infrastructure/deploy/service-catalog.deploy.env
 
 # Logs
 logs

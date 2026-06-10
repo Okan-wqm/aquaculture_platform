@@ -25,7 +25,8 @@ Custody discipline (locked by I-V3-19c/d/e/f):
 Append-only invariant (locked by I-V3-18):
 
   * Every mint writes one row to ``aria-tools/acks/acks.jsonl``
-    using ``ledger.append_jsonl`` (hash-chained per V2 §A.1).
+    using the declared ``ack_ledger`` append primitive (hash-chained
+    per V2 §A.1).
   * Verification re-computes HMAC against the stored ``signature``
     using the row's ``signed_key_id`` resolved against the rolling
     key list.
@@ -53,7 +54,7 @@ from pathlib import Path
 from typing import Any
 
 from .ack_row import ACK_ACTOR_KINDS, AckLedgerRow
-from .ledger import append_jsonl, load_jsonl, rewrite_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl, state_transaction
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 _LEDGER_RELATIVE = ("acks", "acks.jsonl")
@@ -338,7 +339,11 @@ def mint_operator_ack(
     row_dict["signature"] = _hmac_sign(
         head_key["secret"], _canonical_row_bytes(row_dict),
     )
-    append_jsonl(_ledger_path(root), row_dict)
+    append_declared_jsonl(
+        _ledger_path(root),
+        row_dict,
+        expected_surface="ack_ledger",
+    )
     from .tool_registry import append_tools_governance
     append_tools_governance(
         root,
@@ -433,7 +438,11 @@ def mint_auto_ack(
     row_dict["signature"] = _hmac_sign(
         head_key["secret"], _canonical_row_bytes(row_dict),
     )
-    append_jsonl(_ledger_path(root), row_dict)
+    append_declared_jsonl(
+        _ledger_path(root),
+        row_dict,
+        expected_surface="ack_ledger",
+    )
     from .tool_registry import append_tools_governance
     append_tools_governance(
         root,
@@ -480,47 +489,60 @@ def consume_token(
     ack_id: str,
     materialize_event_id: str,
 ) -> dict[str, Any]:
-    """Plan ARIA-V3 §A5 + I-V3-19 — one-time consumption.
-
-    Rewrites the ledger with the consumed-at + consumed_by_event_id
-    fields populated for the matching row. Raises if the token was
-    already consumed (one-time-use invariant).
-    """
+    """Plan ARIA-V3 §A5 + I-V3-19 — one-time append-only consumption."""
     root = ensure_tools_dir(base_dir)
-    rows = load_jsonl(_ledger_path(root))
-    found_index: int | None = None
-    for idx, row in enumerate(rows):
-        if row.get("ack_id") == ack_id:
-            found_index = idx
-            break
-    if found_index is None:
-        raise GovernanceError(f"ack_token_not_found: ack_id={ack_id!r}")
-    target_row = dict(rows[found_index])
-    if target_row.get("consumed_at") is not None:
-        raise GovernanceError(
-            f"ack_token_already_consumed: ack_id={ack_id!r} "
-            f"consumed_at={target_row['consumed_at']} "
-            f"by={target_row.get('consumed_by_event_id')!r}"
+    path = _ledger_path(root)
+    with state_transaction([path]) as txn:
+        rows = txn.load_declared_jsonl(path, expected_surface="ack_ledger")
+        target_row: dict[str, Any] | None = None
+        consumed_event: dict[str, Any] | None = None
+        for row in rows:
+            if row.get("ack_id") != ack_id:
+                continue
+            if row.get("event") == "ack_token_consumed":
+                consumed_event = row
+            elif target_row is None:
+                target_row = dict(row)
+            if row.get("consumed_at") is not None:
+                consumed_event = row
+        if target_row is None:
+            raise GovernanceError(f"ack_token_not_found: ack_id={ack_id!r}")
+        if consumed_event is not None:
+            raise GovernanceError(
+                f"ack_token_already_consumed: ack_id={ack_id!r} "
+                f"consumed_at={consumed_event.get('consumed_at')} "
+                f"by={consumed_event.get('consumed_by_event_id') or consumed_event.get('materialize_event_id')!r}"
+            )
+        verification = verify_row(target_row, base_dir=root)
+        if not verification.get("valid"):
+            raise GovernanceError(
+                f"ack_token_signature_invalid: ack_id={ack_id!r} "
+                f"reason={verification.get('reason')}"
+            )
+        consumed_at = _utc_now()
+        consumed_row = {
+            "schema_version": 1,
+            "event": "ack_token_consumed",
+            "ack_id": ack_id,
+            "event_time": consumed_at,
+            "consumed_at": consumed_at,
+            "consumed_by_event_id": materialize_event_id,
+            "materialize_event_id": materialize_event_id,
+            "target_path": target_row.get("target_path"),
+            "draft_id": target_row.get("draft_id"),
+            "intent_id": target_row.get("intent_id"),
+            "kind": target_row.get("kind"),
+            "signed_key_id": target_row.get("signed_key_id"),
+        }
+        key = _resolve_key(root, key_id=str(target_row["signed_key_id"]))
+        consumed_row["signature"] = _hmac_sign(
+            key["secret"], _canonical_row_bytes(consumed_row),
         )
-    # Re-verify HMAC before consuming (defense-in-depth: a
-    # corrupted ledger row should not pass through the gate).
-    verification = verify_row(target_row, base_dir=root)
-    if not verification.get("valid"):
-        raise GovernanceError(
-            f"ack_token_signature_invalid: ack_id={ack_id!r} "
-            f"reason={verification.get('reason')}"
+        txn.append_declared_jsonl(
+            path,
+            consumed_row,
+            expected_surface="ack_ledger",
         )
-    consumed_row = dict(target_row)
-    consumed_row["consumed_at"] = _utc_now()
-    consumed_row["consumed_by_event_id"] = materialize_event_id
-    # Re-sign with the SAME key so verification still passes after
-    # consumption mutates the row.
-    head_key = _resolve_key(root, key_id=consumed_row["signed_key_id"])
-    consumed_row["signature"] = _hmac_sign(
-        head_key["secret"], _canonical_row_bytes(consumed_row),
-    )
-    rows[found_index] = consumed_row
-    rewrite_jsonl(_ledger_path(root), rows)
     from .tool_registry import append_tools_governance
     append_tools_governance(
         root,
@@ -535,7 +557,7 @@ def consume_token(
         "status": "ok",
         "ack_id": ack_id,
         "consumed_at": consumed_row["consumed_at"],
-        "row": consumed_row,
+        "row": {**target_row, **consumed_row},
     }
 
 
@@ -573,7 +595,7 @@ def verify_range(
     None means full ledger.
     """
     root = ensure_tools_dir(base_dir)
-    rows = load_jsonl(_ledger_path(root))
+    rows = load_declared_jsonl(_ledger_path(root), expected_surface="ack_ledger")
     if last_n is not None:
         rows = rows[-last_n:]
     results: list[dict[str, Any]] = []

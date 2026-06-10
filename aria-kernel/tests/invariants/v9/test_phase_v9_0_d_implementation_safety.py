@@ -131,7 +131,7 @@ class TestV9BashAllowlist(unittest.TestCase):
             ["git", "diff", "HEAD~1..HEAD"],
             ["git", "rev-parse", "HEAD"],
             ["git", "push", "origin", "aria-impl-abc123def456"],
-            ["gh", "pr", "create", "--base", "snowball", "--head", "aria-impl-abc"],
+            ["gh", "pr", "create", "--base", "main", "--head", "aria-impl-abc"],
             ["gh", "pr", "checks", "42"],
             ["gh", "pr", "merge", "--squash", "42"],
             ["nx", "affected", "--target=test"],

@@ -15,10 +15,11 @@ Reference: docs/recommendations/architectural-arbiter/2026-05-20-adr-0001-extern
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from .ledger import load_declared_jsonl, state_transaction
 
 # Per-request requeue delay (30 min per ADR-0001).
 EXTERNAL_OUTAGE_REQUEUE_DELAY_SECONDS: int = 1800
@@ -27,6 +28,7 @@ EXTERNAL_OUTAGE_REQUEUE_DELAY_SECONDS: int = 1800
 # Total ceiling = 4 requeues × 30min = 2 hours of sustained outage before
 # the operator MUST be in the loop.
 MAX_EXTERNAL_OUTAGE_REQUEUES: int = 4
+CLAIMS_SURFACE = "agent_invocation_claims"
 
 
 def _now_utc() -> datetime:
@@ -49,6 +51,7 @@ def find_external_outage_requests(
     claims_path: Path,
     now: datetime | None = None,
     requeue_delay_seconds: int = EXTERNAL_OUTAGE_REQUEUE_DELAY_SECONDS,
+    max_requeues: int = MAX_EXTERNAL_OUTAGE_REQUEUES,
 ) -> list[dict[str, Any]]:
     """Scan claims.jsonl for requests in EXTERNAL_OUTAGE state whose
     backoff window has elapsed.
@@ -61,26 +64,33 @@ def find_external_outage_requests(
     """
     if now is None:
         now = _now_utc()
-    if not claims_path.exists():
-        return []
+    rows = load_declared_jsonl(
+        claims_path,
+        expected_surface=CLAIMS_SURFACE,
+        verify=True,
+    )
+    return _find_external_outage_requests_from_rows(
+        rows=rows,
+        now=now,
+        requeue_delay_seconds=requeue_delay_seconds,
+        max_requeues=max_requeues,
+    )
 
-    # Build per-request event history from claims.jsonl.
+
+def _find_external_outage_requests_from_rows(
+    *,
+    rows: list[dict[str, Any]],
+    now: datetime,
+    requeue_delay_seconds: int,
+    max_requeues: int,
+) -> list[dict[str, Any]]:
+    # Build per-request event history from the declared claims ledger.
     history: dict[str, list[dict[str, Any]]] = {}
-    try:
-        with claims_path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                if not line.strip():
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                request_id = row.get("request_id")
-                if not isinstance(request_id, str):
-                    continue
-                history.setdefault(request_id, []).append(row)
-    except OSError:
-        return []
+    for row in rows:
+        request_id = row.get("request_id")
+        if not isinstance(request_id, str):
+            continue
+        history.setdefault(request_id, []).append(row)
 
     candidates: list[dict[str, Any]] = []
     deadline_window = timedelta(seconds=requeue_delay_seconds)
@@ -120,7 +130,7 @@ def find_external_outage_requests(
             "request_id": request_id,
             "latest_exhausted_at": latest.get("occurred_at") or latest.get("ts"),
             "requeue_count": requeue_count,
-            "should_escalate": requeue_count >= MAX_EXTERNAL_OUTAGE_REQUEUES,
+            "should_escalate": requeue_count >= max_requeues,
         })
 
     return candidates
@@ -151,57 +161,58 @@ def reap_external_outage_requests(
     """
     if now is None:
         now = _now_utc()
-    candidates = find_external_outage_requests(
-        claims_path=claims_path,
-        now=now,
-        requeue_delay_seconds=requeue_delay_seconds,
-    )
-
     requeued: list[str] = []
     escalated: list[str] = []
     now_iso = now.isoformat()
-
-    if not candidates:
-        return {
-            "requeued_count": 0,
-            "escalated_count": 0,
-            "request_ids_requeued": [],
-            "request_ids_escalated": [],
-        }
-
-    # Append all events atomically (single open + flush).
-    try:
-        with claims_path.open("a", encoding="utf-8") as fh:
-            for cand in candidates:
-                request_id = cand["request_id"]
-                if cand["should_escalate"]:
-                    event_row = {
-                        "request_id": request_id,
-                        "event": "human_required",
-                        "occurred_at": now_iso,
-                        "reason": "external_outage_max_requeues_exceeded",
-                        "prior_requeue_count": cand["requeue_count"],
-                    }
-                    fh.write(json.dumps(event_row, sort_keys=True) + "\n")
-                    escalated.append(request_id)
-                else:
-                    event_row = {
-                        "request_id": request_id,
-                        "event": "requeued",
-                        "occurred_at": now_iso,
-                        "reason": "external_outage_requeue",
-                        "prior_requeue_count": cand["requeue_count"],
-                    }
-                    fh.write(json.dumps(event_row, sort_keys=True) + "\n")
-                    requeued.append(request_id)
-    except OSError:
-        # Best-effort; on write failure return empty summary.
-        return {
-            "requeued_count": 0,
-            "escalated_count": 0,
-            "request_ids_requeued": [],
-            "request_ids_escalated": [],
-        }
+    with state_transaction([claims_path], verify_reads=True) as tx:
+        rows = tx.load_declared_jsonl(
+            claims_path,
+            expected_surface=CLAIMS_SURFACE,
+            verify=True,
+        )
+        candidates = _find_external_outage_requests_from_rows(
+            rows=rows,
+            now=now,
+            requeue_delay_seconds=requeue_delay_seconds,
+            max_requeues=max_requeues,
+        )
+        if not candidates:
+            return {
+                "requeued_count": 0,
+                "escalated_count": 0,
+                "request_ids_requeued": [],
+                "request_ids_escalated": [],
+            }
+        for cand in candidates:
+            request_id = cand["request_id"]
+            if cand["should_escalate"]:
+                event_row = {
+                    "request_id": request_id,
+                    "event": "human_required",
+                    "occurred_at": now_iso,
+                    "reason": "external_outage_max_requeues_exceeded",
+                    "prior_requeue_count": cand["requeue_count"],
+                }
+                tx.append_declared_jsonl(
+                    claims_path,
+                    event_row,
+                    expected_surface=CLAIMS_SURFACE,
+                )
+                escalated.append(request_id)
+            else:
+                event_row = {
+                    "request_id": request_id,
+                    "event": "requeued",
+                    "occurred_at": now_iso,
+                    "reason": "external_outage_requeue",
+                    "prior_requeue_count": cand["requeue_count"],
+                }
+                tx.append_declared_jsonl(
+                    claims_path,
+                    event_row,
+                    expected_surface=CLAIMS_SURFACE,
+                )
+                requeued.append(request_id)
 
     return {
         "requeued_count": len(requeued),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -24,6 +25,7 @@ from .workflow_contract_registry import (
 
 UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
 SUPPORTED_CLEAN_WORKTREE_POLICIES = frozenset({"preflight_only_foundation"})
+WORKFLOW_UPLOAD_INVENTORY_PATH = Path("aria-kernel/generated/workflow-upload-inventory.json")
 _GITHUB_EXPR = re.compile(r"\$\{\{\s*([^}]+?)\s*\}\}")
 
 
@@ -49,6 +51,14 @@ class WorkflowRegistryVerdict:
     reasons: tuple[str, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True)
+class WorkflowUploadInventoryVerdict:
+    valid: bool
+    inventory_path: str
+    failure_classes: tuple[str, ...] = field(default_factory=tuple)
+    reasons: tuple[str, ...] = field(default_factory=tuple)
+
+
 def discover_aria_workflows(workspace_root: str | Path) -> dict[str, Path]:
     workflows = Path(workspace_root) / ".github" / "workflows"
     found: dict[str, Path] = {}
@@ -62,6 +72,174 @@ def discover_aria_workflows(workspace_root: str | Path) -> dict[str, Path]:
             if path.exists():
                 found[name] = path
     return found
+
+
+def generate_workflow_upload_inventory(workspace_root: str | Path) -> dict[str, Any]:
+    root = Path(workspace_root).resolve()
+    workflows_dir = root / ".github" / "workflows"
+    uploads: list[dict[str, Any]] = []
+    if workflows_dir.is_dir():
+        for workflow_path in sorted([*workflows_dir.glob("*.yml"), *workflows_dir.glob("*.yaml")]):
+            workflow_id = workflow_path.stem
+            try:
+                workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
+            except yaml.YAMLError as exc:
+                uploads.append({
+                    "workflow_id": workflow_id,
+                    "workflow_file": workflow_path.relative_to(root).as_posix(),
+                    "yaml_error": str(exc),
+                })
+                continue
+            jobs = workflow.get("jobs") if isinstance(workflow, dict) else {}
+            if not isinstance(jobs, dict):
+                continue
+            contract = WORKFLOW_CONTRACTS.get(workflow_id)
+            contract_by_job: dict[str, list[WorkflowJobContract]] = {}
+            if contract:
+                for job_contract in contract.job_contracts:
+                    contract_by_job.setdefault(job_contract.job_id, []).append(job_contract)
+            for job_id in sorted(jobs):
+                job = jobs.get(job_id)
+                if not isinstance(job, dict):
+                    continue
+                steps = job.get("steps")
+                if not isinstance(steps, list):
+                    continue
+                for step_index, step in enumerate(steps):
+                    if not isinstance(step, dict):
+                        continue
+                    uses = str(step.get("uses") or "")
+                    if not uses.startswith("actions/upload-artifact@"):
+                        continue
+                    with_block = step.get("with") if isinstance(step.get("with"), dict) else {}
+                    paths = _normalize_artifact_paths(with_block.get("path"))
+                    job_contracts = contract_by_job.get(str(job_id), [])
+                    contract_match = False
+                    contract_hash = None
+                    for job_contract in job_contracts:
+                        candidate_match = (
+                            re.fullmatch(
+                                job_contract.upload_artifact_name_pattern,
+                                str(with_block.get("name") or ""),
+                            ) is not None
+                            and _paths_match_contract(
+                                paths,
+                                job_contract.upload_artifact_path_patterns,
+                            )
+                        )
+                        if candidate_match:
+                            contract_match = True
+                            contract_hash = workflow_job_contract_hash(
+                                workflow_id,
+                                str(job_id),
+                                job_contract=job_contract,
+                            )
+                            break
+                    uploads.append({
+                        "workflow_id": workflow_id,
+                        "workflow_file": workflow_path.relative_to(root).as_posix(),
+                        "workflow_hash": workflow_hash(workflow_path),
+                        "job_id": str(job_id),
+                        "step_index": step_index,
+                        "step_name": str(step.get("name") or ""),
+                        "if": str(step.get("if") or ""),
+                        "uses": uses,
+                        "uses_sha_pinned": re.fullmatch(
+                            r"actions/upload-artifact@[0-9a-f]{40}",
+                            uses,
+                        ) is not None,
+                        "artifact_name": str(with_block.get("name") or ""),
+                        "artifact_paths": list(paths),
+                        "if_no_files_found": str(with_block.get("if-no-files-found") or ""),
+                        "retention_days": str(with_block.get("retention-days") or ""),
+                        "contracted": contract_match,
+                        "contract_hash": contract_hash,
+                    })
+    uploads.sort(
+        key=lambda row: (
+            str(row.get("workflow_file") or ""),
+            str(row.get("job_id") or ""),
+            int(row.get("step_index") or 0),
+            str(row.get("artifact_name") or ""),
+        )
+    )
+    return {
+        "schema_version": "aria/workflow-upload-inventory/v1",
+        "generated_by": "aria_kernel.workflow_contracts.generate_workflow_upload_inventory",
+        "upload_count": len(uploads),
+        "uploads": uploads,
+    }
+
+
+def write_workflow_upload_inventory(
+    *,
+    workspace_root: str | Path,
+    inventory_path: str | Path | None = None,
+) -> dict[str, Any]:
+    root = Path(workspace_root).resolve()
+    path = root / (Path(inventory_path) if inventory_path is not None else WORKFLOW_UPLOAD_INVENTORY_PATH)
+    inventory = generate_workflow_upload_inventory(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(inventory, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return inventory
+
+
+def verify_workflow_upload_inventory(
+    *,
+    workspace_root: str | Path,
+    inventory_path: str | Path | None = None,
+) -> WorkflowUploadInventoryVerdict:
+    root = Path(workspace_root).resolve()
+    path = root / (Path(inventory_path) if inventory_path is not None else WORKFLOW_UPLOAD_INVENTORY_PATH)
+    reasons: list[str] = []
+    failure_classes: list[str] = []
+    expected = generate_workflow_upload_inventory(root)
+    if not path.exists():
+        return WorkflowUploadInventoryVerdict(
+            valid=False,
+            inventory_path=path.relative_to(root).as_posix(),
+            failure_classes=("workflow_upload_inventory_missing",),
+            reasons=(f"workflow_upload_inventory_missing:{path.relative_to(root).as_posix()}",),
+        )
+    try:
+        observed = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return WorkflowUploadInventoryVerdict(
+            valid=False,
+            inventory_path=path.relative_to(root).as_posix(),
+            failure_classes=("workflow_upload_inventory_invalid",),
+            reasons=(f"workflow_upload_inventory_invalid:{exc}",),
+        )
+    if observed != expected:
+        reasons.append("workflow_upload_inventory_drift")
+        failure_classes.append("workflow_upload_inventory_drift")
+        if observed.get("upload_count") != expected.get("upload_count"):
+            reasons.append(
+                f"workflow_upload_inventory_count_mismatch:"
+                f"{observed.get('upload_count')}!={expected.get('upload_count')}"
+            )
+    for upload in expected.get("uploads") or []:
+        if not upload.get("uses_sha_pinned"):
+            reasons.append(
+                "workflow_upload_inventory_unpinned:"
+                f"{upload.get('workflow_file')}:{upload.get('job_id')}:{upload.get('step_index')}"
+            )
+            failure_classes.append("workflow_upload_inventory_security")
+        if upload.get("if_no_files_found") != "error":
+            reasons.append(
+                "workflow_upload_inventory_if_no_files_not_error:"
+                f"{upload.get('workflow_file')}:{upload.get('job_id')}:{upload.get('step_index')}"
+            )
+            failure_classes.append("workflow_upload_inventory_security")
+    return WorkflowUploadInventoryVerdict(
+        valid=not failure_classes,
+        inventory_path=path.relative_to(root).as_posix(),
+        failure_classes=tuple(sorted(set(failure_classes))),
+        reasons=tuple(reasons),
+    )
 
 
 def verify_workflow_registry(
@@ -183,10 +361,16 @@ def verify_workflow_contract(
         job = jobs.get(job_contract.job_id)
         if not isinstance(job, dict):
             continue
+        sibling_contracts = tuple(
+            candidate
+            for candidate in contract.job_contracts
+            if candidate.job_id == job_contract.job_id
+        )
         _verify_job_contract(
             workflow_id=workflow_id,
             job=job,
             job_contract=job_contract,
+            sibling_contracts=sibling_contracts,
             top_permissions=top_permissions,
             reasons=reasons,
             failure_classes=failure_classes,
@@ -259,6 +443,7 @@ def _verify_job_contract(
     workflow_id: str,
     job: dict[str, Any],
     job_contract: WorkflowJobContract,
+    sibling_contracts: tuple[WorkflowJobContract, ...],
     top_permissions: dict[str, Any],
     reasons: list[str],
     failure_classes: list[str],
@@ -349,6 +534,7 @@ def _verify_job_contract(
         job_id=job_contract.job_id,
         steps=steps,
         job_contract=job_contract,
+        sibling_contracts=sibling_contracts,
         reasons=reasons,
         failure_classes=failure_classes,
     )
@@ -420,6 +606,7 @@ def _verify_upload_artifact_step(
     job_id: str,
     steps: list[Any],
     job_contract: WorkflowJobContract,
+    sibling_contracts: tuple[WorkflowJobContract, ...],
     reasons: list[str],
     failure_classes: list[str],
 ) -> None:
@@ -431,7 +618,7 @@ def _verify_upload_artifact_step(
         reasons.append(f"workflow_upload_artifact_step_missing:{job_id}")
         failure_classes.append("workflow_artifact_upload")
         return
-    matching_step = None
+    matching_steps: list[dict[str, Any]] = []
     for step in upload_steps:
         uses = str(step.get("uses") or "")
         if uses != UPLOAD_ARTIFACT_ACTION:
@@ -444,11 +631,32 @@ def _verify_upload_artifact_step(
             paths,
             job_contract.upload_artifact_path_patterns,
         ):
-            matching_step = step
-    if matching_step is None:
+            matching_steps.append(step)
+    if not matching_steps:
         reasons.append(f"workflow_upload_artifact_contract_mismatch:{job_id}")
         failure_classes.append("workflow_artifact_upload")
         return
+    if len(matching_steps) > 1:
+        reasons.append(f"workflow_upload_artifact_contract_duplicate:{job_id}:{len(matching_steps)}")
+        failure_classes.append("workflow_artifact_upload")
+    covered_steps: list[dict[str, Any]] = []
+    for step in upload_steps:
+        with_block = step.get("with") if isinstance(step.get("with"), dict) else {}
+        name = str(with_block.get("name") or "")
+        paths = _normalize_artifact_paths(with_block.get("path"))
+        if any(
+            re.fullmatch(candidate.upload_artifact_name_pattern, name)
+            and _paths_match_contract(paths, candidate.upload_artifact_path_patterns)
+            for candidate in sibling_contracts
+        ):
+            covered_steps.append(step)
+    if len(upload_steps) != len(covered_steps):
+        reasons.append(
+            f"workflow_upload_artifact_uncontracted_extra:{job_id}:"
+            f"{len(upload_steps) - len(covered_steps)}"
+        )
+        failure_classes.append("workflow_artifact_upload")
+    matching_step = matching_steps[0]
     with_block = matching_step.get("with") if isinstance(matching_step.get("with"), dict) else {}
     if str(with_block.get("if-no-files-found") or "") != "error":
         reasons.append(f"workflow_upload_artifact_if_no_files_not_error:{job_id}")
@@ -640,19 +848,62 @@ def generated_workflow_inventory(workspace_root: str | Path) -> str:
     return json.dumps(rows, indent=2, sort_keys=True) + "\n"
 
 
+def _main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Manage ARIA workflow upload inventory")
+    parser.add_argument("--workspace-root", default=".")
+    parser.add_argument("--inventory-path", default=str(WORKFLOW_UPLOAD_INVENTORY_PATH))
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--write", action="store_true")
+    mode.add_argument("--check", action="store_true")
+    args = parser.parse_args(argv)
+    if args.write:
+        inventory = write_workflow_upload_inventory(
+            workspace_root=args.workspace_root,
+            inventory_path=args.inventory_path,
+        )
+        print(json.dumps({
+            "inventory_path": args.inventory_path,
+            "status": "written",
+            "upload_count": inventory["upload_count"],
+        }, sort_keys=True))
+        return 0
+    verdict = verify_workflow_upload_inventory(
+        workspace_root=args.workspace_root,
+        inventory_path=args.inventory_path,
+    )
+    print(json.dumps({
+        "failure_classes": verdict.failure_classes,
+        "inventory_path": verdict.inventory_path,
+        "reasons": verdict.reasons,
+        "valid": verdict.valid,
+    }, sort_keys=True))
+    return 0 if verdict.valid else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main(sys.argv[1:]))
+
+
 __all__ = [
     "AUDITED_WORKFLOW_EXCLUSIONS",
     "UPLOAD_ARTIFACT_ACTION",
     "WORKFLOW_CONTRACTS",
+    "WORKFLOW_UPLOAD_INVENTORY_PATH",
     "AuditedWorkflowExclusion",
     "WorkflowContract",
     "WorkflowContractVerdict",
     "WorkflowJobContract",
+    "WorkflowUploadInventoryVerdict",
     "WorkflowRegistryVerdict",
     "discover_aria_workflows",
+    "generate_workflow_upload_inventory",
     "generated_workflow_inventory",
+    "verify_workflow_upload_inventory",
     "verify_workflow_contract",
     "verify_workflow_registry",
+    "write_workflow_upload_inventory",
     "workflow_contract_hash",
     "workflow_contract_registry",
     "workflow_hash",

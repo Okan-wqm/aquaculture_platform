@@ -14,7 +14,7 @@ from typing import Any
 SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
     re.compile(r"(OPENAI_API_KEY|CODEX_API_KEY|CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=\S+"),
-    re.compile(r"(ARIA_LEASE_TOKEN)=\S+"),
+    re.compile(r"(ARIA_LEASE_TOKEN|ACTIONS_RUNTIME_TOKEN|ACTIONS_ID_TOKEN_REQUEST_TOKEN|RUNNER_TOKEN)=\S+"),
     re.compile(r"(gh[psu]_[A-Za-z0-9_]{20,})"),
 )
 
@@ -35,6 +35,16 @@ class SafeArtifact:
     device: int
     inode: int
     size: int
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredArtifactRef:
+    """Declared write destination for a finalized runtime artifact."""
+
+    path: str | Path
+    root: Path
+    purpose: str
+    max_bytes: int = 5 * 1024 * 1024
 
 
 def _path_parts_under_root(
@@ -166,38 +176,81 @@ def write_safe_text(
     max_bytes: int = 5 * 1024 * 1024,
 ) -> SafeArtifact:
     raw = text.encode("utf-8")
-    if len(raw) > max_bytes:
-        raise ArtifactSafetyError(f"{purpose}_artifact_too_large")
-    root_resolved, parts = _path_parts_under_root(raw_path, root=root, purpose=purpose)
-    parent_fd = _open_parent_dir(root=root_resolved, parts=parts, purpose=purpose, create=True)
-    file_fd: int | None = None
+    return safe_finalize_artifact(
+        raw,
+        DeclaredArtifactRef(
+            path=raw_path,
+            root=root,
+            purpose=purpose,
+            max_bytes=max_bytes,
+        ),
+    )
+
+
+def safe_finalize_artifact(raw: bytes, ref: DeclaredArtifactRef) -> SafeArtifact:
+    """Atomically finalize bytes to a declared no-follow artifact path."""
+    if len(raw) > ref.max_bytes:
+        raise ArtifactSafetyError(f"{ref.purpose}_artifact_too_large")
+    root_resolved, parts = _path_parts_under_root(
+        ref.path, root=ref.root, purpose=ref.purpose,
+    )
+    parent_fd = _open_parent_dir(
+        root=root_resolved, parts=parts, purpose=ref.purpose, create=True,
+    )
+    tmp_name = f".{parts[-1]}.tmp.{os.getpid()}.{hashlib.sha256(raw).hexdigest()[:16]}"
+    tmp_fd: int | None = None
+    existing_fd: int | None = None
     try:
-        nofollow = _nofollow_flag(purpose=purpose)
+        nofollow = _nofollow_flag(purpose=ref.purpose)
         nonblock = getattr(os, "O_NONBLOCK", 0)
-        flags = os.O_RDWR | os.O_CREAT | nofollow | nonblock
         try:
-            file_fd = os.open(parts[-1], flags | os.O_EXCL, 0o644, dir_fd=parent_fd)
-        except FileExistsError:
-            file_fd = os.open(parts[-1], flags, 0o644, dir_fd=parent_fd)
-            st_existing = os.fstat(file_fd)
-            if not stat.S_ISREG(st_existing.st_mode):
-                raise ArtifactSafetyError(f"{purpose}_artifact_not_regular_file")
-            if st_existing.st_nlink > 1:
-                raise ArtifactSafetyError(f"{purpose}_artifact_hardlink_forbidden")
-            os.ftruncate(file_fd, 0)
+            existing_fd = os.open(
+                parts[-1],
+                os.O_RDONLY | nofollow | nonblock,
+                dir_fd=parent_fd,
+            )
+        except FileNotFoundError:
+            pass
         except OSError as exc:
-            raise ArtifactSafetyError(f"{purpose}_artifact_symlink_or_unopenable") from exc
-        os.write(file_fd, raw)
-        os.fsync(file_fd)
+            raise ArtifactSafetyError(
+                f"{ref.purpose}_artifact_symlink_or_unopenable"
+            ) from exc
+        if existing_fd is not None:
+            st_existing = os.fstat(existing_fd)
+            if not stat.S_ISREG(st_existing.st_mode):
+                raise ArtifactSafetyError(f"{ref.purpose}_artifact_not_regular_file")
+            if st_existing.st_nlink > 1:
+                raise ArtifactSafetyError(f"{ref.purpose}_artifact_hardlink_forbidden")
+        try:
+            tmp_fd = os.open(
+                tmp_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow | nonblock,
+                0o644,
+                dir_fd=parent_fd,
+            )
+        except OSError as exc:
+            raise ArtifactSafetyError(f"{ref.purpose}_artifact_temp_unopenable") from exc
+        os.write(tmp_fd, raw)
+        os.fsync(tmp_fd)
+        os.close(tmp_fd)
+        tmp_fd = None
+        os.replace(tmp_name, parts[-1], src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+        os.fsync(parent_fd)
     finally:
-        if file_fd is not None:
-            os.close(file_fd)
+        if tmp_fd is not None:
+            os.close(tmp_fd)
+        if existing_fd is not None:
+            os.close(existing_fd)
+        try:
+            os.unlink(tmp_name, dir_fd=parent_fd)
+        except FileNotFoundError:
+            pass
         os.close(parent_fd)
     return read_safe_artifact(
         root_resolved.joinpath(*parts),
         root=root_resolved,
-        purpose=purpose,
-        max_bytes=max_bytes,
+        purpose=ref.purpose,
+        max_bytes=ref.max_bytes,
     )
 
 
@@ -234,20 +287,27 @@ def assert_real_mode_env_safe(env: dict[str, str]) -> None:
 def write_sanitized_json(path: str | Path, payload: Any, *, max_bytes: int = 1_000_000) -> None:
     scrubbed = scrub_json(payload)
     raw = json.dumps(scrubbed, indent=2, sort_keys=True)
-    if len(raw.encode("utf-8")) > max_bytes:
-        raise ArtifactSafetyError(f"artifact exceeds max_bytes={max_bytes}: {path}")
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(f".{target.name}.tmp")
-    tmp.write_text(raw + "\n", encoding="utf-8")
-    tmp.replace(target)
+    root = target.parent if target.parent != Path("") else Path(".")
+    root.mkdir(parents=True, exist_ok=True)
+    safe_finalize_artifact(
+        (raw + "\n").encode("utf-8"),
+        DeclaredArtifactRef(
+            path=target.name,
+            root=root,
+            purpose="json",
+            max_bytes=max_bytes,
+        ),
+    )
 
 
 __all__ = [
     "ArtifactSafetyError",
+    "DeclaredArtifactRef",
     "SafeArtifact",
     "assert_real_mode_env_safe",
     "read_safe_artifact",
+    "safe_finalize_artifact",
     "scrub_json",
     "scrub_text",
     "write_safe_text",

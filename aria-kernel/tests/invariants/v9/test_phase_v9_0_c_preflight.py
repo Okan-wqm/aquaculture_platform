@@ -26,13 +26,12 @@ class TestV9PreflightContract(unittest.TestCase):
         branch-protection fields MUST be the canonical set.
 
         V10.3-B prereq amendment (operator-acknowledged via
-        aria-tools/preflight/snowball-branch-protection-v4.json,
+        aria-tools/preflight/main-branch-protection-v4.json,
         2026-05-19): the original V9.0-C 4-field tuple included
         `restrictions.users` non-empty. GitHub's classic Branch
         Protection UI does not consistently surface the
         "Restrict who can push" checkbox (Free-plan public repo
-        feature flag), and snowball is the ARIA experimental
-        branch (not production). The remaining 3 fields
+        feature flag), and main is the protected trunk branch. The remaining 3 fields
         (signatures + strict + enforce_admins) PLUS the
         required_pull_request_reviews check via verify_preflight
         deliver the equivalent Tier-1 trust floor.
@@ -59,7 +58,7 @@ class TestV9PreflightContract(unittest.TestCase):
         """PreflightVerdict MUST be frozen (immutable audit-trail
         guarantee)."""
         verdict = preflight.PreflightVerdict(
-            valid=True, profile="strict", reasons=(), branch="snowball",
+            valid=True, profile="strict", reasons=(), branch="main",
             repo=None, gh_token_present=True, gh_app_installation=False,
             signing_key_present=True, immutable_paths_count=9,
             bash_allowlist_count=15,
@@ -164,7 +163,7 @@ class TestV9PreflightContract(unittest.TestCase):
     def test_i_v9_preflight_verify_branch_protection_missing_gh_cli(self):
         """Returns (False, ('gh_cli_not_on_path',)) when gh CLI absent."""
         with mock.patch("aria_kernel.preflight._gh_available", return_value=False):
-            ok, reasons = preflight.verify_branch_protection(branch="snowball")
+            ok, reasons = preflight.verify_branch_protection(branch="main")
             self.assertFalse(ok)
             self.assertEqual(reasons, ("gh_cli_not_on_path",))
 
@@ -172,7 +171,7 @@ class TestV9PreflightContract(unittest.TestCase):
         """Returns (False, ('gh_token_absent',)) when GH_TOKEN absent."""
         with mock.patch("aria_kernel.preflight._gh_available", return_value=True), \
              mock.patch("aria_kernel.preflight._read_gh_token", return_value=None):
-            ok, reasons = preflight.verify_branch_protection(branch="snowball")
+            ok, reasons = preflight.verify_branch_protection(branch="main")
             self.assertFalse(ok)
             self.assertEqual(reasons, ("gh_token_absent",))
 

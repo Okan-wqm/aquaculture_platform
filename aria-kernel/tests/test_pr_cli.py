@@ -6,7 +6,7 @@ kernel main entry point with argv and asserts exit code + stdout JSON.
 
 Why CLI tests separate from pr_manager tests: the binding adds argv
 parsing + flag plumbing (e.g. --no-dry-run flips dry_run=False,
---base default snowball flows through to the explicit base guard).
+--base default main flows through to the explicit base guard).
 A pr_manager unit test cannot exercise that surface.
 """
 from __future__ import annotations

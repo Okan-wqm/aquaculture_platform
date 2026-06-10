@@ -26,7 +26,7 @@ import { GraphQLModule, Resolver, Query, ObjectType, Field, ID, Directive } from
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+} from '@platform/graphql-apollo5';
 import {
   GraphQLSchema,
   printSchema,
@@ -349,8 +349,7 @@ function createSubgraphTestModule(
       GraphQLModule.forRoot<ApolloFederationDriverConfig>({
         driver: ApolloFederationDriver,
         autoSchemaFile: { federation: 2 },
-        // Mirror production: playground and introspection disabled in production
-        playground: false,
+        // Mirror production: introspection disabled in production
         introspection: false,
       }),
     ],
@@ -1050,8 +1049,6 @@ describe('5. Playground and Introspection Configuration', () => {
               const isProduction = configService.get<string>('NODE_ENV') === 'production';
               return {
                 autoSchemaFile: { federation: 2 },
-                // Mirror production pattern used across all subgraphs
-                playground: !isProduction,
                 introspection: !isProduction,
               };
             },
@@ -1082,7 +1079,7 @@ describe('5. Playground and Introspection Configuration', () => {
        * The ApolloFederationDriver should apply ApolloServerPluginLandingPageDisabled.
        *
        * We verify this by checking that the ConfigService returns 'production',
-       * which means the factory produced playground: false.
+       * which means the factory disabled the landing page.
        */
       const configService = module.get(ConfigService);
       const nodeEnv = configService.get<string>('NODE_ENV');
@@ -1133,7 +1130,6 @@ describe('5. Playground and Introspection Configuration', () => {
               const isProduction = configService.get<string>('NODE_ENV') === 'production';
               return {
                 autoSchemaFile: { federation: 2 },
-                playground: !isProduction,
                 introspection: !isProduction,
               };
             },
@@ -1189,7 +1185,7 @@ describe('5. Playground and Introspection Configuration', () => {
     it('should always disable playground for billing (hardcoded false)', () => {
       /**
        * billing-service uses:
-       *   playground: false,
+       *   landing page disabled,
        *   introspection: false,
        *
        * Not dependent on NODE_ENV. This is intentional because billing

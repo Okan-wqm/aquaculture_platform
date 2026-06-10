@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .feedback import derive_pressure
-from .ledger import load_jsonl_verified, verify_index_hashes, write_index
+from .ledger import verify_index_hashes, write_index
 from .learning import run_learning_pass
 from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
 from .discovery import run_discovery
@@ -19,7 +19,7 @@ from .memory import update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .pressure import run_pressure
 from .reflection import run_reflection
-from .tool_health import load_jsonl, runs_path
+from .runtime_artifacts import read_runs_for_cycle
 from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now
 from .tool_runner import run_tool
 from .ledger import append_jsonl
@@ -171,6 +171,45 @@ def _failed_event(
         decision_count=decision_count,
         git_head_sha_at_cycle=git_head_sha_at_cycle,
     )
+
+
+def _artifact_refs_from_cycle_run(run: dict[str, Any]) -> list[Any]:
+    refs: list[Any] = []
+    singular = run.get("artifact_ref")
+    if isinstance(singular, (dict, str)):
+        refs.append(singular)
+    for key in ("artifact_refs", "artifacts"):
+        value = run.get(key)
+        if isinstance(value, list):
+            refs.extend(value)
+    runner = run.get("runner")
+    if isinstance(runner, dict):
+        value = runner.get("artifact_refs")
+        if isinstance(value, list):
+            refs.extend(value)
+    deduped: list[Any] = []
+    seen: set[str] = set()
+    for ref in refs:
+        try:
+            key = json.dumps(ref, sort_keys=True, separators=(",", ":"))
+        except TypeError:
+            key = repr(ref)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ref)
+    return deduped
+
+
+def _post_tool_failure_phase(exc: GovernanceError) -> str:
+    text = str(exc).lower()
+    if "memory" in text:
+        return "memory"
+    if "pressure" in text:
+        return "pressure"
+    if "reflection" in text:
+        return "reflection"
+    return "post_tool"
 
 
 def run_cycle(paths: WorkspacePaths | None = None, **kwargs: Any) -> dict[str, object]:
@@ -366,6 +405,7 @@ def run_enterprise_cycle(
 
     decisions = []
     run_summary = []
+    artifact_refs: list[Any] = []
     pressure_summary: dict[str, Any] = {}
     for tool in list_tools(base_dir=root):
         if shadow_only and tool.get("status") not in ("SHADOW", "ACTIVE", "CALIBRATE"):
@@ -386,9 +426,8 @@ def run_enterprise_cycle(
     # the loader accepted hashless / tampered rows silently; the strict
     # primitive raises `LedgerIntegrityError` so cycle summarisation
     # cannot proceed on a corrupt ledger.
-    for run in load_jsonl_verified(runs_path(root)):
-        if run.get("cycle_id") != cycle_id:
-            continue
+    for run in read_runs_for_cycle(base_dir=root, cycle_uid=cycle_id):
+        artifact_refs.extend(_artifact_refs_from_cycle_run(run))
         run_summary.append(
             {
                 "tool_id": run.get("tool_id"),
@@ -402,28 +441,63 @@ def run_enterprise_cycle(
     # Plan 026R §E.7 — pass workspace_root so update_memory's FATES
     # hash recompute check fires. Pre-§E.7 legacy callers omitted
     # workspace_root and the integrity check silently skipped.
-    memory = update_memory(
-        cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
-    )
-    pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
-    # Plan ARIA-V3.3 §2b — orchestrator-deferred reflection. When the
-    # autonomy orchestrator drives the cycle (``defer_reflection=True``)
-    # it owns reflection invocation post-drainer-drains so the daily
-    # report covers the full cycle. Direct CLI callers default to
-    # False and keep the inline reflection.
-    reflection = (
-        None
-        if defer_reflection
-        else run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
-    )
-    metrics = record_cycle_metrics(
-        cycle_id=cycle_id,
-        phase_durations_ms={"cycle": int((time.monotonic() - started) * 1000)},
-        artifact_count=len(run_summary) + 4,
-        status="ok",
-        base_dir=root,
-    )
-    dashboard = generate_observability_dashboard(cycle_id=cycle_id, base_dir=root)
+    try:
+        memory = update_memory(
+            cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
+        )
+        pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
+        # Plan ARIA-V3.3 §2b — orchestrator-deferred reflection. When the
+        # autonomy orchestrator drives the cycle (``defer_reflection=True``)
+        # it owns reflection invocation post-drainer-drains so the daily
+        # report covers the full cycle. Direct CLI callers default to
+        # False and keep the inline reflection.
+        reflection = (
+            None
+            if defer_reflection
+            else run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
+        )
+        metrics = record_cycle_metrics(
+            cycle_id=cycle_id,
+            phase_durations_ms={"cycle": int((time.monotonic() - started) * 1000)},
+            artifact_count=len(run_summary) + 4,
+            status="ok",
+            base_dir=root,
+        )
+        dashboard = generate_observability_dashboard(cycle_id=cycle_id, base_dir=root)
+    except GovernanceError as exc:
+        phase = _post_tool_failure_phase(exc)
+        event = _failed_event(
+            cycle_id,
+            decision_count=len(decisions),
+            git_head_sha_at_cycle=git_head_sha_at_cycle,
+        )
+        append_jsonl(root / "cycles.jsonl", event)
+        from .runtime_artifacts import verify_runtime_artifacts
+        artifact_integrity = verify_runtime_artifacts(
+            base_dir=root,
+            workspace_root=workspace_root,
+            cycle_id=cycle_id,
+        )
+        state = {
+            "schema_version": 2,
+            "cycle_id": cycle_id,
+            "git_head_sha_at_cycle": git_head_sha_at_cycle,
+            "status": "failed",
+            "runtime_status": "failed",
+            "failed_phases": [{"phase": phase, "error": str(exc)}],
+            "event": event,
+            "learning": learning,
+            "discovery": discovery,
+            "cycle_diff": diff,
+            "tool_decisions": decisions,
+            "tool_governance_decisions": decisions,
+            "tool_run_summary": run_summary,
+            "artifact_refs": artifact_refs,
+            "artifact_integrity": artifact_integrity,
+            "pre_phase_results": pre_phase_results,
+        }
+        _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
+        return state
 
     # Plan 022 §M-1 — extended-phase dispatch. Default behaviour
     # (run_phases=None) is unchanged; only when the operator opts into

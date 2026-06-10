@@ -14,7 +14,7 @@ Architecture:
     ``agent_invocations.create_agent_invocation_request``) for its
     declared role + waits for an external consumer to fulfill it.
   * The external consumer is ``tools/aria-poc/ci_executor.py``
-    (V7.3 extension) which spawns a Claude Code subprocess targeting
+    (V7.3 extension) which spawns the Codex CLI subprocess targeting
     the agent.
   * When no consumer fulfills the envelope within ``poll_timeout_
     seconds`` (default 600s), the factory returns a structured
@@ -44,6 +44,7 @@ from .agent_invocations import (
     create_agent_invocation_request,
     list_agent_invocation_requests,
 )
+from .agent_surface import DISPATCHABLE_ROLES
 from .tool_registry import ensure_tools_dir
 
 
@@ -61,16 +62,7 @@ __all__ = [
 # role requires updating both the kernel factory (this module) AND
 # the consumer (``tools/aria-poc/ci_executor.py``). The closed enum
 # prevents typo'd roles from silently flowing into the queue.
-SUPPORTED_ROLES: frozenset[str] = frozenset({
-    "specialist_domain_review",
-    "primary_authoring",
-    "challenger_authoring",
-    "evidence_judgment",
-    "adversarial_judgment",
-    "primary_plan",
-    "challenger_plan",
-    "cross_review",
-})
+SUPPORTED_ROLES: frozenset[str] = frozenset(DISPATCHABLE_ROLES)
 
 
 # Plan ARIA-V7 §2g v2 — fallback poll timeout when no consumer
@@ -102,8 +94,8 @@ def default_dispatcher_config() -> DispatcherConfig:
         "poll_interval_seconds": _DEFAULT_POLL_INTERVAL_SECONDS,
         "max_concurrent_subprocesses": 3,
         "subprocess_timeout_seconds": 600.0,
-        "anthropic_api_key_env": "ANTHROPIC_API_KEY",
-        "claude_code_binary": "claude",
+        "codex_cli_binary": "codex",
+        "codex_auth_mode": "chatgpt_managed",
     })
     for key, env_var, cast in (
         ("poll_timeout_seconds", "ARIA_DISPATCHER_POLL_TIMEOUT_SECONDS", float),

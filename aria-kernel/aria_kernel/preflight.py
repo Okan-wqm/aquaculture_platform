@@ -3,7 +3,7 @@
 Closes security-reviewer findings inline as Tier-1/Tier-3 anchors:
 
 * CRIT-002 — branch-bypass via `gh api`. ``verify_branch_protection``
-  asserts the snowball branch carries the 4 required GitHub
+  asserts the main branch carries the required GitHub
   branch-protection rules; autonomy refuses to start otherwise.
 * CRIT-004 — commit signature kernel verification. Preflight asserts
   ``required_signatures.enabled = true`` so every commit landing on
@@ -100,12 +100,12 @@ class WorkflowPreflightVerdict:
 
 
 # Plan ARIA-V9.0-C + V10.3-B prereq — the 3 required branch-protection
-# rules on the ARIA work branch (snowball). Adding a 4th rule = ADR +
+# rules on the protected trunk branch (main). Adding a 4th rule = ADR +
 # arbiter approval + invariant update. The list ordering MUST stay
 # stable (governance rows reference these keys).
 #
 # V10.3-B prereq amendment (2026-05-19, operator-acknowledged via
-# aria-tools/preflight/snowball-branch-protection-v4.json): the
+# aria-tools/preflight/main-branch-protection-v4.json): the
 # original V9.0-C 4-rule list included `restrictions.users` non-empty
 # (push-restriction list). GitHub's classic Branch Protection UI
 # exposes this checkbox conditionally — Free-plan public repos may
@@ -204,7 +204,7 @@ def _check_protection_field(payload: dict[str, Any], dotted: str, expected: str)
 
 def verify_branch_protection(
     *,
-    branch: str = "snowball",
+    branch: str = "main",
     repo: str | None = None,
     gh_cli: str = "gh",
 ) -> tuple[bool, tuple[str, ...]]:
@@ -266,7 +266,7 @@ def verify_preflight(
     *,
     profile: str,
     workspace_root: str | Path,
-    branch: str = "snowball",
+    branch: str = "main",
     repo: str | None = None,
     skip_remote: bool = False,
 ) -> PreflightVerdict:

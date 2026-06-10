@@ -261,6 +261,13 @@ def validate_response(
             raise GovernanceError(
                 f"satisfaction_matrix[{idx}].verdict {verdict!r} not in {SATISFACTION_VERDICTS}"
             )
+        if verdict == "satisfied":
+            evidence_refs = entry.get("evidence_refs", [])
+            _ensure_string_list(
+                evidence_refs,
+                field=f"satisfaction_matrix[{item_id}].evidence_refs",
+                allow_empty=False,
+            )
         if verdict in {"blocked", "contradicted"}:
             note = entry.get("note") or entry.get("rationale") or ""
             if not isinstance(note, str) or not note.strip():

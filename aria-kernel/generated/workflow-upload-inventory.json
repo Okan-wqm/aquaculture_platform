@@ -1,0 +1,479 @@
+{
+  "generated_by": "aria_kernel.workflow_contracts.generate_workflow_upload_inventory",
+  "schema_version": "aria/workflow-upload-inventory/v1",
+  "upload_count": 24,
+  "uploads": [
+    {
+      "artifact_name": "aria-agent-eval-proof-${{ github.run_id }}-${{ github.run_attempt }}",
+      "artifact_paths": [
+        "runner-temp/aria-agent-eval-preflight.json"
+      ],
+      "contract_hash": "sha256:8db579acda03c2e87ca688a140fb677516e90df86798daef7650e9bc03a17f87",
+      "contracted": true,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "eval",
+      "retention_days": "7",
+      "step_index": 5,
+      "step_name": "Upload ARIA eval workflow proof",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/aria-agent-eval.yml",
+      "workflow_hash": "sha256:09dee244637b5ac9eab7f0412a2f9ffe2e136021c74f5f86ee9ca8bbd26c914b",
+      "workflow_id": "aria-agent-eval"
+    },
+    {
+      "artifact_name": "aria-response-${{ steps.pending.outputs.request_id }}",
+      "artifact_paths": [
+        "runner-temp/aria-agent-executor-preflight.json",
+        "runner-temp/aria-agent-executor-artifacts.json",
+        "${{ steps.executor_run.outputs.output_path }}",
+        "${{ steps.executor_run.outputs.transcript_path }}"
+      ],
+      "contract_hash": "sha256:07c2784f1f82f1e950567f6bb3cfc1f9922652a5cd5e8677a28bbf15672c9c56",
+      "contracted": true,
+      "if": "always() && steps.pending.outputs.request_id != '' && steps.post_artifact_verifier.outputs.verified == 'true'",
+      "if_no_files_found": "error",
+      "job_id": "executor",
+      "retention_days": "7",
+      "step_index": 14,
+      "step_name": "Upload response envelope (artefact)",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/aria-agent-executor.yml",
+      "workflow_hash": "sha256:d885dd4369fcf537a6d982aedb40f4f5d52c39d11e92b9cf119c9fae216caa6e",
+      "workflow_id": "aria-agent-executor"
+    },
+    {
+      "artifact_name": "aria-response-failure-${{ steps.pending.outputs.request_id }}",
+      "artifact_paths": [
+        "runner-temp/aria-agent-executor-failure-proof.json"
+      ],
+      "contract_hash": "sha256:06545279818faab6ada7e6421c94a1ebbaf31e214d4f72fe540e36e5b6881e47",
+      "contracted": true,
+      "if": "always() && steps.pending.outputs.request_id != '' && steps.post_artifact_verifier.outputs.verified != 'true'",
+      "if_no_files_found": "error",
+      "job_id": "executor",
+      "retention_days": "7",
+      "step_index": 15,
+      "step_name": "Upload scrubbed executor failure proof",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/aria-agent-executor.yml",
+      "workflow_hash": "sha256:d885dd4369fcf537a6d982aedb40f4f5d52c39d11e92b9cf119c9fae216caa6e",
+      "workflow_id": "aria-agent-executor"
+    },
+    {
+      "artifact_name": "aria-daily-report-commit-preflight-${{ github.run_id }}-${{ github.run_attempt }}",
+      "artifact_paths": [
+        "runner-temp/aria-daily-report-preflight.json"
+      ],
+      "contract_hash": "sha256:b67457651a17930f18c8a361cb6606fce5ccda445e074797e7050103ba4af569",
+      "contracted": true,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "commit-report",
+      "retention_days": "365",
+      "step_index": 3,
+      "step_name": "Upload daily report commit workflow proof",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/aria-daily-report.yml",
+      "workflow_hash": "sha256:ff5ee5767c1c61e17e86592aeaa932ca39db9d9826a01f69a7a58dd1a018eb18",
+      "workflow_id": "aria-daily-report"
+    },
+    {
+      "artifact_name": "aria-daily-report-${{ steps.target.outputs.date }}",
+      "artifact_paths": [
+        "aria-tools/reports/daily/${{ steps.target.outputs.date }}.md",
+        "runner-temp/aria-daily-report-generate-preflight.json"
+      ],
+      "contract_hash": "sha256:f9469ccdb4675aba22748b3a5bd06dd1a033f15422380375f3dd518de42e44b9",
+      "contracted": true,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "generate-report",
+      "retention_days": "365",
+      "step_index": 6,
+      "step_name": "Upload report as artifact",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/aria-daily-report.yml",
+      "workflow_hash": "sha256:ff5ee5767c1c61e17e86592aeaa932ca39db9d9826a01f69a7a58dd1a018eb18",
+      "workflow_id": "aria-daily-report"
+    },
+    {
+      "artifact_name": "aria-operational-proof-${{ github.run_id }}-${{ github.run_attempt }}",
+      "artifact_paths": [
+        "runner-temp/aria-operational-proof/autonomy-burn-in-report.json",
+        "runner-temp/aria-operational-proof/evidence-bundle.json",
+        "runner-temp/aria-operational-proof/proof-manifest-v2.json"
+      ],
+      "contract_hash": "sha256:461aebc77aa4b529e0a3a1cba5f519d847b60fe9007b08a40f1d2cfcc9f9567b",
+      "contracted": true,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "proof",
+      "retention_days": "365",
+      "step_index": 11,
+      "step_name": "Upload ARIA operational proof",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/aria-operational-proof.yml",
+      "workflow_hash": "sha256:7c1f33c90125e111894ade030cd8d56bda7d759b83f00084f9ea742dafeaaa43",
+      "workflow_id": "aria-operational-proof"
+    },
+    {
+      "artifact_name": "npm-audit-source-map-${{ github.run_number }}",
+      "artifact_paths": [
+        "npm-audit-root.json",
+        "npm-audit-source-map.md"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "always()",
+      "if_no_files_found": "error",
+      "job_id": "security-audit",
+      "retention_days": "14",
+      "step_index": 6,
+      "step_name": "Upload npm audit source map",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/ci-affected.yml",
+      "workflow_hash": "sha256:b9d34bea90c8250e44c1ffb68ea82c7bde1ab7d26110425a928f60d30327546f",
+      "workflow_id": "ci-affected"
+    },
+    {
+      "artifact_name": "sens-enterprise-validation-${{ github.run_number }}",
+      "artifact_paths": [
+        "artifacts/sens-enterprise-validation/**"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "always()",
+      "if_no_files_found": "error",
+      "job_id": "sens-enterprise-validation",
+      "retention_days": "14",
+      "step_index": 5,
+      "step_name": "Upload Sens enterprise validation artifacts",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/ci-affected.yml",
+      "workflow_hash": "sha256:b9d34bea90c8250e44c1ffb68ea82c7bde1ab7d26110425a928f60d30327546f",
+      "workflow_id": "ci-affected"
+    },
+    {
+      "artifact_name": "remote-hash-pins-${{ github.run_number }}",
+      "artifact_paths": [
+        "web/shell/src/generated/remoteHashes.json"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "generate-sri-hashes",
+      "retention_days": "14",
+      "step_index": 6,
+      "step_name": "Upload hash map artifact",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/ci-full.yml",
+      "workflow_hash": "sha256:5ad427bb3d86c229ff368ff87f7cc48bc0cae69befd15f299adb7253def23aaa",
+      "workflow_id": "ci-full"
+    },
+    {
+      "artifact_name": "npm-audit-source-map-full-${{ github.run_number }}",
+      "artifact_paths": [
+        "npm-audit-root.json",
+        "npm-audit-source-map.md"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "always()",
+      "if_no_files_found": "error",
+      "job_id": "security-scan",
+      "retention_days": "14",
+      "step_index": 4,
+      "step_name": "Upload npm audit source map",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/ci-full.yml",
+      "workflow_hash": "sha256:5ad427bb3d86c229ff368ff87f7cc48bc0cae69befd15f299adb7253def23aaa",
+      "workflow_id": "ci-full"
+    },
+    {
+      "artifact_name": "backend-dist",
+      "artifact_paths": [
+        "dist"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "build-backend-artifacts",
+      "retention_days": "1",
+      "step_index": 6,
+      "step_name": "Upload backend artifacts",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/deploy-digitalocean.yml",
+      "workflow_hash": "sha256:9c5e8ac879fafa852c551ace48ef11f40f1928cd8398d78264a54ca44925f5e6",
+      "workflow_id": "deploy-digitalocean"
+    },
+    {
+      "artifact_name": "frontend-dist",
+      "artifact_paths": [
+        "web/shell/dist",
+        "web/modules/*/dist"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "build-frontend-artifacts",
+      "retention_days": "1",
+      "step_index": 6,
+      "step_name": "Upload frontend artifacts",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/deploy-digitalocean.yml",
+      "workflow_hash": "sha256:9c5e8ac879fafa852c551ace48ef11f40f1928cd8398d78264a54ca44925f5e6",
+      "workflow_id": "deploy-digitalocean"
+    },
+    {
+      "artifact_name": "backend-dist-staging",
+      "artifact_paths": [
+        "dist"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "build-backend",
+      "retention_days": "1",
+      "step_index": 6,
+      "step_name": "Upload backend artifacts",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/deploy-staging.yml",
+      "workflow_hash": "sha256:9dba157edaab964944b2f48beef91e513e255b4aec536ff9bca9d80f70a66eff",
+      "workflow_id": "deploy-staging"
+    },
+    {
+      "artifact_name": "frontend-dist-staging",
+      "artifact_paths": [
+        "web/shell/dist",
+        "web/modules/*/dist"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "build-frontend",
+      "retention_days": "1",
+      "step_index": 6,
+      "step_name": "Upload frontend artifacts",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/deploy-staging.yml",
+      "workflow_hash": "sha256:9dba157edaab964944b2f48beef91e513e255b4aec536ff9bca9d80f70a66eff",
+      "workflow_id": "deploy-staging"
+    },
+    {
+      "artifact_name": "e2e-messaging-results-${{ github.run_number }}",
+      "artifact_paths": [
+        "apps/messaging-service/test/**/*.xml",
+        "apps/messaging-service/test/**/*.json"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "always()",
+      "if_no_files_found": "error",
+      "job_id": "e2e-messaging",
+      "retention_days": "14",
+      "step_index": 6,
+      "step_name": "Upload test results",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/e2e-messaging.yml",
+      "workflow_hash": "sha256:1525c82684eecd2d8ea96798f3b7903b81e84d625502af084a7e5a1821a104c6",
+      "workflow_id": "e2e-messaging"
+    },
+    {
+      "artifact_name": "e2e-test-report-${{ github.run_number }}",
+      "artifact_paths": [
+        "e2e/playwright-report"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "always()",
+      "if_no_files_found": "error",
+      "job_id": "e2e",
+      "retention_days": "14",
+      "step_index": 2,
+      "step_name": "Upload test report",
+      "uses": "actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/e2e-tests.yml",
+      "workflow_hash": "sha256:b29811ea15dc962cc780c5ab7faacb512c0f8125f706d6b841a0f2e0d3069d61",
+      "workflow_id": "e2e-tests"
+    },
+    {
+      "artifact_name": "suderra-agent-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}",
+      "artifact_paths": [
+        "${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.tar.gz",
+        "${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.tar.gz.sha256",
+        "${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.cargo-metadata.sbom.json",
+        "${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.intoto.jsonl",
+        "${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.NOTICE.md"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "build",
+      "retention_days": "5",
+      "step_index": 10,
+      "step_name": "Upload artifact",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/edge-agent-release.yml",
+      "workflow_hash": "sha256:ee790be88b8cbb92323f6ce4768682b189d5671d94007aa2486ac6de40453c57",
+      "workflow_id": "edge-agent-release"
+    },
+    {
+      "artifact_name": "sens-enterprise-release-validation-${{ needs.release-ref-contract.outputs.tag }}-${{ github.run_number }}",
+      "artifact_paths": [
+        "artifacts/sens-enterprise-validation/**"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "always()",
+      "if_no_files_found": "error",
+      "job_id": "sens-enterprise-validation",
+      "retention_days": "30",
+      "step_index": 5,
+      "step_name": "Upload Sens enterprise validation artifacts",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/edge-agent-release.yml",
+      "workflow_hash": "sha256:ee790be88b8cbb92323f6ce4768682b189d5671d94007aa2486ac6de40453c57",
+      "workflow_id": "edge-agent-release"
+    },
+    {
+      "artifact_name": "finding-state-sweep-proof-${{ github.run_id }}-${{ github.run_attempt }}",
+      "artifact_paths": [
+        "runner-temp/finding-state-sweep-preflight.json"
+      ],
+      "contract_hash": "sha256:0e4644aa4ed0c537d63d278481a19623f48a6647ecc20e65176ed19f51d1e86c",
+      "contracted": true,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "sweep",
+      "retention_days": "365",
+      "step_index": 7,
+      "step_name": "Upload finding sweep workflow proof",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/finding-state-sweep.yml",
+      "workflow_hash": "sha256:564c29694bc958f286db0524afd9a55ccb899172c0c31306eac3fd9036bc4d1f",
+      "workflow_id": "finding-state-sweep"
+    },
+    {
+      "artifact_name": "fuzz-st-parser-output-${{ github.run_id }}",
+      "artifact_paths": [
+        "sens-api-gateway/fuzz-output.log"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "always()",
+      "if_no_files_found": "error",
+      "job_id": "fuzz",
+      "retention_days": "30",
+      "step_index": 5,
+      "step_name": "Upload fuzz output log (always)",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/fuzz-st-parser-nightly.yml",
+      "workflow_hash": "sha256:9d352b818376ac1ab27a4cb265f6deaba4110c670dd6a8431d6356ca9750e837",
+      "workflow_id": "fuzz-st-parser-nightly"
+    },
+    {
+      "artifact_name": "fuzz-st-parser-crashes-${{ github.run_id }}",
+      "artifact_paths": [
+        "sens-api-gateway/fuzz/artifacts/st_parser"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "steps.fuzz_run.outputs.crash_detected == 'true'",
+      "if_no_files_found": "error",
+      "job_id": "fuzz",
+      "retention_days": "90",
+      "step_index": 6,
+      "step_name": "Upload crash artifacts on failure",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/fuzz-st-parser-nightly.yml",
+      "workflow_hash": "sha256:9d352b818376ac1ab27a4cb265f6deaba4110c670dd6a8431d6356ca9750e837",
+      "workflow_id": "fuzz-st-parser-nightly"
+    },
+    {
+      "artifact_name": "k6-results",
+      "artifact_paths": [
+        "./k6-results/*"
+      ],
+      "contract_hash": null,
+      "contracted": false,
+      "if": "always()",
+      "if_no_files_found": "error",
+      "job_id": "k6-api",
+      "retention_days": "",
+      "step_index": 3,
+      "step_name": "Upload k6 results",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/performance-benchmark.yml",
+      "workflow_hash": "sha256:a9ac07ba863e3c131023d3d4b54d8771a9730aedff1ecaffc849f080bb9c26f3",
+      "workflow_id": "performance-benchmark"
+    },
+    {
+      "artifact_name": "production-post-deploy-evidence-${{ steps.target.outputs.target_sha }}",
+      "artifact_paths": [
+        "runner-temp/production-post-deploy/production-post-deploy-evidence.json",
+        "runner-temp/production-post-deploy/workflow-preflight.json"
+      ],
+      "contract_hash": "sha256:6f1121567c8cbb9c374c700e407c3ec83eb2670c31628951bcb6624f8fb6e1de",
+      "contracted": true,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "verify",
+      "retention_days": "30",
+      "step_index": 5,
+      "step_name": "Upload verification evidence",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/production-post-deploy-verify.yml",
+      "workflow_hash": "sha256:b7c4829e344483d28bbcc27ada93b75378bd69a8f6d3d2a2778eeeee09381dae",
+      "workflow_id": "production-post-deploy-verify"
+    },
+    {
+      "artifact_name": "rule-health-report-proof-${{ github.run_id }}-${{ github.run_attempt }}",
+      "artifact_paths": [
+        "runner-temp/rule-health-report-preflight.json"
+      ],
+      "contract_hash": "sha256:25f1e521aae590f7c4e6bf09399720f776261a2c72d9cada878973b5ccaa0c94",
+      "contracted": true,
+      "if": "",
+      "if_no_files_found": "error",
+      "job_id": "generate",
+      "retention_days": "365",
+      "step_index": 6,
+      "step_name": "Upload rule health workflow proof",
+      "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+      "uses_sha_pinned": true,
+      "workflow_file": ".github/workflows/rule-health-report.yml",
+      "workflow_hash": "sha256:2903f6b27967167a8b6c4f2dc75f31a10a9aa8b6647920c9ca7216b10838948b",
+      "workflow_id": "rule-health-report"
+    }
+  ]
+}

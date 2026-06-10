@@ -67,6 +67,12 @@ def _read_governance_rows(tools_dir: Path) -> list[dict]:
     ]
 
 
+def _bind_tools_root(tools_dir: Path) -> Path:
+    from aria_kernel.tool_registry import ensure_tools_binding
+
+    return ensure_tools_binding(tools_dir, workspace_root=_REPO_ROOT)
+
+
 class PhaseA4GateConsolidation(unittest.TestCase):
     def test_i_v3_14_gate_honours_policy_flag_and_profile(self) -> None:
         from aria_kernel.auto_action_gate import gate_from_test_fixture
@@ -125,6 +131,7 @@ class PhaseA4GateConsolidation(unittest.TestCase):
 
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-15-") as tmp:
             base = Path(tmp)
+            _bind_tools_root(base)
             init_ack_ledger(
                 base_dir=base,
                 reason="invariant 15 test setup",
@@ -191,6 +198,7 @@ class PhaseA4GateConsolidation(unittest.TestCase):
 
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-17a-") as tmp:
             base = Path(tmp) / "aria-tools"
+            _bind_tools_root(base)
             set_profile("standard", operator_approval_ref="t", base_dir=base)
             init_ack_ledger(
                 base_dir=base,

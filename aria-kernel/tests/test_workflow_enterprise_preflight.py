@@ -15,7 +15,9 @@ from aria_kernel.workflow_contracts import (
     WORKFLOW_CONTRACTS,
     AuditedWorkflowExclusion,
     discover_aria_workflows,
+    generate_workflow_upload_inventory,
     verify_workflow_contract,
+    verify_workflow_upload_inventory,
     verify_workflow_registry,
     workflow_hash,
     workflow_job_contract_hash,
@@ -130,6 +132,48 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
         self.assertEqual(verdict.failed_contracts, {})
         self.assertEqual(verdict.uncovered_workflows, ())
 
+    def test_workflow_upload_inventory_matches_generated_artifact(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        verdict = verify_workflow_upload_inventory(workspace_root=repo)
+        self.assertTrue(verdict.valid, verdict.reasons)
+
+    def test_workflow_upload_inventory_drift_rejects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "unit.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                """
+name: unit
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upload proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: proof
+          path: proof.json
+          if-no-files-found: error
+          retention-days: 7
+""",
+                encoding="utf-8",
+            )
+            inventory = generate_workflow_upload_inventory(root)
+            inventory["upload_count"] = 999
+            inventory_path = root / "inventory.json"
+            inventory_path.write_text(
+                json.dumps(inventory, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            verdict = verify_workflow_upload_inventory(
+                workspace_root=root,
+                inventory_path="inventory.json",
+            )
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_upload_inventory_drift", verdict.failure_classes)
+
     def test_agent_executor_upload_requires_always(self) -> None:
         repo = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as tmp:
@@ -145,6 +189,35 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
         self.assertFalse(verdict.valid)
         self.assertIn("workflow_artifact_upload", verdict.failure_classes)
         self.assertIn("workflow_upload_artifact_missing_always:executor", verdict.reasons)
+
+    def test_agent_executor_rejects_uncontracted_extra_upload(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "aria-agent-executor.yml"
+            workflow.parent.mkdir(parents=True)
+            source = (repo / ".github" / "workflows" / "aria-agent-executor.yml").read_text(encoding="utf-8")
+            needle = "          retention-days: 7\n\n      # Plan 020 Phase 3.C"
+            extra = """          retention-days: 7
+
+      - name: Upload uncontracted proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aria-response-extra
+          path: ${{ runner.temp }}/extra.json
+          if-no-files-found: error
+          retention-days: 7
+
+      # Plan 020 Phase 3.C"""
+            workflow.write_text(source.replace(needle, extra, 1), encoding="utf-8")
+            verdict = verify_workflow_contract(
+                workflow_id="aria-agent-executor",
+                workspace_root=root,
+            )
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_artifact_upload", verdict.failure_classes)
+        self.assertIn("workflow_upload_artifact_uncontracted_extra:executor:1", verdict.reasons)
 
     def test_agent_executor_requires_post_artifact_verifier_step(self) -> None:
         repo = Path(__file__).resolve().parents[2]

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - snowball
+      - main
     paths-ignore:
       - "docs/**"
       - "**.md"
@@ -43,13 +43,25 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
       # Plan ARIA-V2 §Phase 1 CRITICAL-020 — install kernel deps
       # (pyyaml etc.) from pyproject.toml SSoT.
-      - name: Install aria-kernel package
-        run: python3 -m pip install --upgrade pip && python3 -m pip install -e aria-kernel
+      - name: Install aria-kernel dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          with Path("aria-kernel/pyproject.toml").open("rb") as fh:
+              dependencies = tomllib.load(fh).get("project", {}).get("dependencies", [])
+          if dependencies:
+              subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
+          PY
       - name: Run aria-kernel unit + invariant tests
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
       # Plan ARIA-V2 §3.6 + CRITICAL-013 — tools/aria-poc + tools/shared

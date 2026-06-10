@@ -275,12 +275,14 @@ jobs:
             "${{ steps.pending.outputs.request_id }}"
 
       - name: Verify executor post-artifact proof
-        if: success() && steps.pending.outputs.request_id != ''
+        id: post_artifact_verifier
+        if: always() && steps.pending.outputs.request_id != ''
         env:
           REQUEST_ID: ${{ steps.pending.outputs.request_id }}
           OUTPUT_PATH: ${{ steps.executor_run.outputs.output_path }}
           TRANSCRIPT_PATH: ${{ steps.executor_run.outputs.transcript_path }}
         run: |
+          echo "verified=false" >> "$GITHUB_OUTPUT"
           python - <<'PY'
           import hashlib, json, os
           from pathlib import Path
@@ -305,9 +307,34 @@ jobs:
               if digest != payload.get(key):
                   raise SystemExit(f"executor_artifact_manifest_{key}_mismatch")
           PY
+          echo "verified=true" >> "$GITHUB_OUTPUT"
+
+      - name: Write scrubbed executor failure proof
+        if: always() && steps.pending.outputs.request_id != '' && steps.post_artifact_verifier.outputs.verified != 'true'
+        env:
+          REQUEST_ID: ${{ steps.pending.outputs.request_id }}
+          EXECUTOR_OUTCOME: ${{ steps.executor_run.outcome }}
+          VERIFIER_OUTCOME: ${{ steps.post_artifact_verifier.outcome }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          payload = {
+              "schema_version": 1,
+              "kind": "aria-agent-executor-failure-proof",
+              "request_id": os.environ.get("REQUEST_ID", ""),
+              "executor_outcome": os.environ.get("EXECUTOR_OUTCOME", ""),
+              "post_artifact_verifier_outcome": os.environ.get("VERIFIER_OUTCOME", ""),
+              "response_artifact_uploaded": False,
+              "reason": "post_artifact_verifier_not_verified",
+          }
+          path = Path(os.environ["RUNNER_TEMP"]) / "aria-agent-executor-failure-proof.json"
+          path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
 
       - name: Upload response envelope (artefact)
-        if: always() && steps.pending.outputs.request_id != ''
+        if: always() && steps.pending.outputs.request_id != '' && steps.post_artifact_verifier.outputs.verified == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           # Limited scope — response envelope, transcript, plus the workflow preflight proof. claims.jsonl +
@@ -322,12 +349,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload executor no-op workflow proof
-        if: steps.pending.outputs.request_id == ''
+      - name: Upload scrubbed executor failure proof
+        if: always() && steps.pending.outputs.request_id != '' && steps.post_artifact_verifier.outputs.verified != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: aria-response-noop-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/aria-agent-executor-preflight.json
+          name: aria-response-failure-${{ steps.pending.outputs.request_id }}
+          path: ${{ runner.temp }}/aria-agent-executor-failure-proof.json
           if-no-files-found: error
           retention-days: 7
 

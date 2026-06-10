@@ -87,14 +87,60 @@ function scanFile(path) {
   if (/\bpatch-package\b/.test(text) && !rel.startsWith('docs/')) {
     addViolation(path, 'patch-package is not an approved dependency remediation path');
   }
+  if (/\bplayground\s*:/.test(text) && !rel.startsWith('docs/')) {
+    addViolation(path, 'GraphQL Playground configuration is forbidden; use GraphqlRuntimePolicy');
+  }
 }
 
 function assertPackagePolicy() {
   const packageJsonPath = join(repoRoot, 'package.json');
   const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+  const packageLockPath = join(repoRoot, 'package-lock.json');
+  const lock = existsSync(packageLockPath)
+    ? JSON.parse(readFileSync(packageLockPath, 'utf8'))
+    : { packages: {} };
+  const allDeps = {
+    ...(pkg.dependencies ?? {}),
+    ...(pkg.devDependencies ?? {}),
+    ...(pkg.optionalDependencies ?? {}),
+  };
 
   if (pkg.dependencies?.['patch-package'] || pkg.devDependencies?.['patch-package']) {
     addViolation(packageJsonPath, 'patch-package dependency is forbidden for supply-chain fixes');
+  }
+
+  for (const packageName of [
+    '@nestjs/apollo',
+    '@apollo/server-plugin-landing-page-graphql-playground',
+  ]) {
+    if (allDeps[packageName]) {
+      addViolation(packageJsonPath, `${packageName} is forbidden; use @platform/graphql-apollo5`);
+    }
+    if (lock.packages?.[`node_modules/${packageName}`]) {
+      addViolation(packageLockPath, `${packageName} must not appear in package-lock.json`);
+    }
+  }
+
+  for (const [packageName, spec] of Object.entries(allDeps)) {
+    if (
+      packageName.startsWith('@apollo/') ||
+      packageName === '@nestjs/graphql' ||
+      packageName === '@as-integrations/express5'
+    ) {
+      if (typeof spec !== 'string' || /^[~^]/.test(spec)) {
+        addViolation(
+          packageJsonPath,
+          `${packageName} must be exact-pinned for reproducible GraphQL runtime installs`,
+        );
+      }
+    }
+    if (
+      (packageName === '@nestjs/apollo' || packageName.includes('apollo')) &&
+      typeof spec === 'string' &&
+      /^(file:|link:|workspace:)/.test(spec)
+    ) {
+      addViolation(packageJsonPath, `${packageName} must not use a local shadow package`);
+    }
   }
 
   const serializedOverrides = JSON.stringify(pkg.overrides ?? {});

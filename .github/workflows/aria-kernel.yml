@@ -1,7 +1,7 @@
 name: aria-kernel
 
 # Plan ARIA-V2 §3.7 (Phase 6) — workflow hygiene closures:
-#   * paths: filter removed from push block (snowball re-push must
+#   * paths: filter removed from push block (main re-push must
 #     re-evaluate the kernel regardless of which files changed; the
 #     paths gate caused the validation cycle to skip re-runs that
 #     were architecturally meaningful — closes ARIA-V-007)
@@ -25,7 +25,7 @@ on:
       - "tools/shared/**"
   push:
     branches:
-      - snowball
+      - main
 
 # Plan ARIA-V2 §3.7 — top-level default-deny token surface.
 permissions:
@@ -50,7 +50,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci --ignore-scripts --no-audit
       # Plan ARIA-V2 §Phase 1 CRITICAL-020 — aria-kernel declares
@@ -59,10 +59,26 @@ jobs:
       # Architectural shape: pyproject.toml is the dep SSoT; CI
       # installs from it editable so any future kernel-dep addition
       # propagates without CI surgery.
-      - name: Install aria-kernel package (pyyaml + future deps)
-        run: python3 -m pip install --upgrade pip && python3 -m pip install -e aria-kernel
+      - name: Install aria-kernel dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          with Path("aria-kernel/pyproject.toml").open("rb") as fh:
+              dependencies = tomllib.load(fh).get("project", {}).get("dependencies", [])
+          if dependencies:
+              subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
+          PY
       - name: Run aria-kernel unit + invariant tests
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
+      - name: Run ARIA docs/runtime SSoT invariant
+        run: npm run aria:docs:ssot
+      - name: Run ARIA runtime artifact smoke
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest aria-kernel/tests/test_runtime_artifacts.py
       # Plan ARIA-V2 §3.6 + CRITICAL-013 — tests under tools/aria-poc/invariants
       # and tools/shared/invariants are first-class invariants (I-19..I-22, I-39).
       # Discovery must run them on every kernel-touching PR/push, otherwise
@@ -94,3 +110,10 @@ jobs:
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity migrate-tools-bootstrap --tools-dir ./.aria-ci/tools --workspace-root . --acknowledge --reason "ci bootstrap (Plan ARIA-V2 §3.8 idempotent umbrella)"
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools --cycle-id ci-${{ github.run_id }} --snapshot-mode committed
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools
+      - name: Verify post-run clean worktree
+        run: |
+          status="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi

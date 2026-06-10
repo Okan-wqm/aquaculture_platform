@@ -116,8 +116,8 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
             self.assertNotEqual(envelope["claim_id"], "claim_mock")
             self.assertNotEqual(envelope["agent_id"], "ci-executor:mock")
 
-    def test_mock_envelope_satisfies_must_satisfy(self) -> None:
-        """Plan 024 §B-8 acceptance (3)."""
+    def test_mock_envelope_does_not_satisfy_must_satisfy(self) -> None:
+        """Mock mode is non-authoritative and cannot satisfy criteria."""
         from ci_executor import invoke_codex_cli  # type: ignore[import-not-found]
         with tempfile.TemporaryDirectory() as td:
             tools_dir, out, prompt = _bound_executor_paths(Path(td))
@@ -140,7 +140,7 @@ class CiExecutorMockRealLeaseTests(unittest.TestCase):
             ids = {e.get("id") for e in envelope["satisfaction_matrix"]}
             self.assertEqual(ids, {"c-1", "c-2"})
             for entry in envelope["satisfaction_matrix"]:
-                self.assertEqual(entry["verdict"], "satisfied")
+                self.assertEqual(entry["verdict"], "blocked")
 
     def test_source_does_not_carry_legacy_literals_as_envelope_values(self) -> None:
         """Plan 024 §B-8 acceptance (4): regression guard against the

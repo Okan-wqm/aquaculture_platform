@@ -101,60 +101,20 @@ export class AlarmStorageService implements OnModuleInit {
     }
   }
 
-  /**
-   * Idempotent DDL: create tables if they do not exist.
-   * Uses CREATE TABLE IF NOT EXISTS so it is safe to call on every startup.
-   */
   private async ensureTablesExist(): Promise<void> {
-    await this.dataSource.query(`
-      CREATE TABLE IF NOT EXISTS scada_alarms (
-        id            TEXT        PRIMARY KEY,
-        rule_id       TEXT        NOT NULL,
-        rule_name     TEXT        NOT NULL,
-        severity      TEXT        NOT NULL,
-        status        TEXT        NOT NULL,
-        message       TEXT        NOT NULL,
-        group_name    TEXT,
-        current_value DOUBLE PRECISION NOT NULL DEFAULT 0,
-        threshold     DOUBLE PRECISION NOT NULL DEFAULT 0,
-        on_time       BIGINT      NOT NULL,
-        off_time      BIGINT,
-        ack_time      BIGINT,
-        ack_user_id   TEXT,
-        colors_bg     TEXT,
-        colors_text   TEXT,
-        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
-
-    await this.dataSource.query(`
-      CREATE TABLE IF NOT EXISTS scada_alarm_chronicle (
-        id            TEXT        PRIMARY KEY,
-        rule_id       TEXT        NOT NULL,
-        rule_name     TEXT        NOT NULL,
-        severity      TEXT        NOT NULL,
-        status        TEXT        NOT NULL,
-        message       TEXT        NOT NULL,
-        group_name    TEXT,
-        current_value DOUBLE PRECISION NOT NULL DEFAULT 0,
-        threshold     DOUBLE PRECISION NOT NULL DEFAULT 0,
-        on_time       BIGINT      NOT NULL,
-        off_time      BIGINT,
-        ack_time      BIGINT,
-        ack_user_id   TEXT,
-        recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
-
-    // Index to speed up queries by severity / group / time range
-    await this.dataSource.query(`
-      CREATE INDEX IF NOT EXISTS idx_scada_alarm_chronicle_on_time
-        ON scada_alarm_chronicle (on_time DESC)
-    `);
-    await this.dataSource.query(`
-      CREATE INDEX IF NOT EXISTS idx_scada_alarm_chronicle_severity
-        ON scada_alarm_chronicle (severity)
-    `);
+    const rows = await this.dataSource.query(
+      `
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = current_schema()
+        AND table_name IN ('scada_alarms', 'scada_alarm_chronicle')
+    `,
+    );
+    const found = new Set(rows.map((row: { table_name: string }) => row.table_name));
+    const missing = ['scada_alarms', 'scada_alarm_chronicle'].filter((table) => !found.has(table));
+    if (missing.length > 0) {
+      throw new Error(`SCADA alarm schema is missing tables managed by db-migrate: ${missing.join(', ')}`);
+    }
   }
 
   /* ---------------------------------------------------------------- */

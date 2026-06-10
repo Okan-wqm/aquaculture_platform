@@ -71,7 +71,11 @@ def _make_envelope_pair(*, judge_name: str, role: str):
         "role": role,
         "status": "submitted",
         "satisfaction_matrix": [
-            {"id": "MS-1", "verdict": "satisfied"},
+            {
+                "id": "MS-1",
+                "verdict": "satisfied",
+                "evidence_refs": ["docs/aria/SPEC.md:53"],
+            },
         ],
         "output_path": request["expected_output_path"],
     }

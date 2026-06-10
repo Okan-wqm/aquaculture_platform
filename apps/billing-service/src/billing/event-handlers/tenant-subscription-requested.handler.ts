@@ -249,12 +249,12 @@ export class TenantSubscriptionRequestedHandler
       let pricing: typeof DEFAULT_PRICING[string];
       let resolvedPlanId: string | undefined;
 
-      // Plan is the cross-tenant platform catalog.
-      // eslint-disable-next-line no-restricted-syntax -- cross-tenant catalog
-      const planEntity = await this.dataSource.getRepository(Plan).findOne({
-        where: { tier: planTier, isActive: true },
-        order: { sortOrder: 'ASC' },
-      });
+      const planEntity = await this.dataSource
+        .createQueryBuilder(Plan, 'plan')
+        .where('plan.tier = :planTier', { planTier })
+        .andWhere('plan.isActive = :isActive', { isActive: true })
+        .orderBy('plan.sortOrder', 'ASC')
+        .getOne();
 
       if (planEntity) {
         resolvedPlanId = planEntity.id;
@@ -417,11 +417,6 @@ export class TenantSubscriptionRequestedHandler
       integrations?: number;
     }>,
   ): Promise<void> {
-    // SubscriptionModuleItem has no tenantId column — it is a child of
-    // Subscription (scoped by subscriptionId FK). See ORPHAN-DIC-001.
-    // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
-    const moduleItemRepo = this.dataSource.getRepository(SubscriptionModuleItem);
-
     try {
       // Batch-fetch all module info in one query instead of N sequential queries
       const moduleInfoRows: Array<{ id: string; code: string; name: string }> =
@@ -459,10 +454,27 @@ export class TenantSubscriptionRequestedHandler
         };
       });
 
-      // Single batch upsert for all module items
-      await moduleItemRepo.upsert(upsertPayloads, {
-        conflictPaths: ['subscriptionId', 'moduleId'],
-      });
+      // Single batch upsert for all child module items. The table is scoped
+      // by the parent subscriptionId FK rather than a direct tenantId column.
+      await this.dataSource
+        .createQueryBuilder()
+        .insert()
+        .into(SubscriptionModuleItem)
+        .values(upsertPayloads)
+        .orUpdate(
+          [
+            'moduleCode',
+            'moduleName',
+            'quantities',
+            'lineItems',
+            'subtotal',
+            'discountAmount',
+            'total',
+            'currency',
+          ],
+          ['subscriptionId', 'moduleId'],
+        )
+        .execute();
 
       this.logger.log(
         `Created ${moduleIds.length} subscription module items for subscription ${subscriptionId}`,
@@ -501,35 +513,22 @@ export class TenantSubscriptionRequestedHandler
 
   // ─── Retry Infrastructure ──────────────────────────────────────────
 
-  /**
-   * Ensure the retry table exists. Called once per service-instance lifetime.
-   */
   private async ensureRetryTable(): Promise<void> {
     if (this.retryTableEnsured) return;
-    try {
-      await this.dataSource.query(`
-        CREATE TABLE IF NOT EXISTS billing.subscription_provisioning_retries (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          tenant_id UUID NOT NULL,
-          event_payload JSONB NOT NULL,
-          error_message TEXT,
-          retry_count INT NOT NULL DEFAULT 0,
-          status VARCHAR(20) NOT NULL DEFAULT 'pending',
-          next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `);
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_spr_status_next_retry
-        ON billing.subscription_provisioning_retries (status, next_retry_at)
-        WHERE status = 'pending'
-      `);
-      this.retryTableEnsured = true;
-    } catch (err) {
-      this.logger.warn(`Retry table setup: ${(err as Error).message}`);
-      this.retryTableEnsured = true;
+
+    const rows = await this.dataSource.query(
+      `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'billing'
+        AND table_name = 'subscription_provisioning_retries'
+      LIMIT 1
+    `,
+    );
+    if (!rows[0]) {
+      throw new Error('billing.subscription_provisioning_retries schema is missing; run db-migrate before billing retry processing');
     }
+    this.retryTableEnsured = true;
   }
 
   /**

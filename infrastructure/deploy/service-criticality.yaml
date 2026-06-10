@@ -1,194 +1,101 @@
-# Service Criticality Manifest (WS6 / ADR-016 Phase C)
-#
-# Declares which docker-compose services gate a production deploy.
-# Consumed by scripts/deploy/check-service-health.sh at the
-# post-up verification step of deploy-digitalocean.yml.
-#
-# Before this manifest existed, the deploy workflow polled only
-# gateway-api's /health/live and reported success even when a
-# backend service silently failed to boot. The 2026-04-14 cascade
-# exposed that gap when multiple services crash-looped but the
-# deploy report came back green.
-#
-# This file is the SSoT for "which services must be healthy for
-# deploy to be considered a success." Adding a new service =
-# one manifest entry + a compose entry with a HEALTHCHECK.
-# Drop a critical dependency = CI catches it at PR review because
-# the manifest lints against docker-compose.droplet.yml services.
-#
-# Levels:
-#   critical  — deploy fails hard + rollback if not healthy in SLA
-#   required  — deploy fails but does NOT rollback (operator decides)
-#   warning   — deploy logs degraded state but proceeds
-#   ignored   — not polled (typically infra or build-only containers)
-#
-# SLA field is the readiness window in seconds. Inside this window
-# the service MUST reach `healthy` state in docker inspect; outside
-# it, the deploy fails per the criticality level above.
-
+# Generated from platform service catalog.
+# source: platform/libs/service-catalog/src/index.ts
+# generator: scripts/service-catalog/generate-artifacts.ts
+# generatorVersion: 1
+# catalogHash: 099540e84aeb58d6adc570770f1368ac72c27a3d152a82dc3a89b4571ba2709e
+# do not edit by hand
 schema_version: 1
 defaults:
-  readiness_sla_seconds: 300  # 5 minutes — enough for cold bcrypt,
-                              # migration runner, and tenant schema
-                              # sync on first-deploy cold start.
-
+  readiness_sla_seconds: 300
 services:
-  # ------------------------------------------------------------------
-  # Infrastructure — criticality is absolute; if these fail, NOTHING
-  # else has any chance of working. Deploy gates on them first.
-  # ------------------------------------------------------------------
   - name: postgres
     level: critical
-    reason: every stateful service depends on it
-
+    reason: "generated from postgres criticality in platform service catalog"
   - name: redis
     level: critical
-    reason: session store, rate-limit counters, outbox dedup
-
+    reason: "generated from redis criticality in platform service catalog"
   - name: nats
     level: critical
-    reason: cert-only auth — no NATS means no inter-service comms
-
-  # ------------------------------------------------------------------
-  # Edge gateways & auth — any user request lands here first.
-  # ------------------------------------------------------------------
+    reason: "generated from nats criticality in platform service catalog"
+  - name: db-migrate
+    level: ignored
+    reason: "generated from db-migrate criticality in platform service catalog"
   - name: gateway-api
     level: critical
-    reason: single ingress for every backend request
-
+    reason: "generated from gateway-api criticality in platform service catalog"
   - name: auth-service
     level: critical
-    reason: token issuance; gateway refuses unauthenticated traffic
-
-  - name: nginx
-    level: critical
-    reason: TLS termination + CSP; absent = browsers reject responses
-
-  # ------------------------------------------------------------------
-  # Feature services — user-facing but deploy survives a warning
-  # state for non-critical paths (billing, notification, messaging
-  # degrade gracefully behind retry / queue).
-  # ------------------------------------------------------------------
+    reason: "generated from auth-service criticality in platform service catalog"
   - name: farm-service
     level: critical
-    reason: primary domain — pond/batch/harvest writes block aquaculture ops
-
+    reason: "generated from farm-service criticality in platform service catalog"
   - name: sensor-service
     level: critical
-    reason: ingests live telemetry; missing a window loses production data
-
+    reason: "generated from sensor-service criticality in platform service catalog"
   - name: sensor-ingestion
     level: required
     profiles: [rust-sidecar]
-    reason: rollout-aware Rust sidecar; profile-gated but must be classified when present in compose
-
+    reason: "generated from sensor-ingestion criticality in platform service catalog"
   - name: hr-service
     level: warning
-    reason: scheduling/payroll tolerates short unavailability
-
+    reason: "generated from hr-service criticality in platform service catalog"
   - name: hydroponics-service
     level: warning
-    reason: secondary domain; not every tenant enables it
-
+    reason: "generated from hydroponics-service criticality in platform service catalog"
   - name: messaging-service
     level: critical
-    reason: release-critical messaging path; degraded readiness blocks promotion
-
+    reason: "generated from messaging-service criticality in platform service catalog"
   - name: alert-engine
     level: warning
-    reason: event-driven consumer; backfill safe
-
+    reason: "generated from alert-engine criticality in platform service catalog"
   - name: billing-service
-    level: warning
-    reason: Stripe webhooks + subscription state; retries are safe
-
+    level: critical
+    reason: "generated from billing-service criticality in platform service catalog"
   - name: notification-service
-    level: warning
-    reason: outbound email/push; outbox persistence covers gaps
-
+    level: critical
+    reason: "generated from notification-service criticality in platform service catalog"
   - name: admin-api-service
-    level: warning
-    reason: SUPER_ADMIN only; not user-facing
-
+    level: critical
+    reason: "generated from admin-api-service criticality in platform service catalog"
+  - name: config-service
+    level: required
+    reason: "generated from config-service criticality in platform service catalog"
   - name: observability-service
     level: warning
-    reason: metrics pipeline; users unaffected
-
-  - name: config-service
-    level: warning
-    reason: dynamic config; services default to static values on miss
-
-  # ------------------------------------------------------------------
-  # Frontend microfrontends — served by nginx, not docker health-
-  # gated. Warning tier so a Module Federation bundling error fails
-  # deploy but doesn't rollback everything.
-  # ------------------------------------------------------------------
+    reason: "generated from observability-service criticality in platform service catalog"
+  - name: nginx
+    level: critical
+    reason: "generated from nginx criticality in platform service catalog"
   - name: shell
     level: warning
-    reason: Module Federation host; required for web app
-
+    reason: "generated from shell criticality in platform service catalog"
   - name: dashboard
     level: warning
-    reason: primary landing view
-
+    reason: "generated from dashboard criticality in platform service catalog"
   - name: farm-module
     level: warning
-    reason: web-only; backend still reachable without it
-
+    reason: "generated from farm-module criticality in platform service catalog"
   - name: sensor-module
     level: warning
-    reason: web-only
-
+    reason: "generated from sensor-module criticality in platform service catalog"
   - name: hr-module
     level: warning
-    reason: web-only
-
+    reason: "generated from hr-module criticality in platform service catalog"
   - name: hydroponics-module
     level: warning
-    reason: web-only, optional per tenant
-
+    reason: "generated from hydroponics-module criticality in platform service catalog"
   - name: admin-panel
     level: warning
-    reason: SUPER_ADMIN UI; operators can use the CLI in a pinch
-
+    reason: "generated from admin-panel criticality in platform service catalog"
   - name: tenant-admin
     level: warning
-    reason: TENANT_ADMIN UI; REST API usable as fallback
-
+    reason: "generated from tenant-admin criticality in platform service catalog"
   - name: aquamobil
     level: warning
-    reason: mobile PWA; separate rollout window
-
-  # ------------------------------------------------------------------
-  # Ignored — these containers either exit by design after their job
-  # or have no meaningful readiness check beyond "port open".
-  # ------------------------------------------------------------------
-  # db-init: REMOVED 2026-05-18 by ADR-031 (Platform Bootstrap Atom).
-  # The role-create + password-sync + per-service GRANT responsibilities
-  # this one-shot container previously owned are now atomic Phase 0 of
-  # aqua-db-migrate. Compose service definition removed; manifest entry
-  # removed in the same change so validate-criticality-manifest.ts does
-  # not flag a missing-from-compose service.
-
-  - name: db-migrate
-    level: ignored
-    reason: >-
-      WS10 / ADR-016 Phase E Phase 1 — one-shot schema migration runner.
-      Compose service `db-migrate` (container_name `aqua-db-migrate`).
-      Exits 0 after applying pending migrations; deploy workflow gates on
-      the container's exit code directly (service_completed_successfully
-      in backend services' depends_on). After ADR-031, db-migrate also
-      owns the platform-bootstrap atom (Phase 0 — extensions, roles,
-      schemas, grants, functions, shared-schema tables) so its scope
-      grew but the operator-facing contract (one-shot, exit-code-gated)
-      is unchanged. There is no runtime healthcheck to poll — the
-      SUCCESS signal is the exit code.
-
+    reason: "generated from aquamobil criticality in platform service catalog"
   - name: mosquitto
     level: ignored
-    reason: MQTT broker; sensor-service probes it as a ready-check
-            signal, deploy doesn't need to re-check
-
+    reason: "generated from mosquitto criticality in platform service catalog"
   - name: minio
     level: ignored
-    reason: object storage; its own healthcheck is sufficient
+    reason: "generated from minio criticality in platform service catalog"

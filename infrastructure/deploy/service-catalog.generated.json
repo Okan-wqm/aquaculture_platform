@@ -1,0 +1,542 @@
+{
+  "metadata": {
+    "generatedFrom": "platform/libs/service-catalog/src/index.ts",
+    "generator": "scripts/service-catalog/generate-artifacts.ts",
+    "generatorVersion": 1,
+    "catalogHash": "099540e84aeb58d6adc570770f1368ac72c27a3d152a82dc3a89b4571ba2709e",
+    "note": "do not edit by hand"
+  },
+  "activeDropletComposeServices": [
+    "postgres",
+    "redis",
+    "nats",
+    "db-migrate",
+    "gateway-api",
+    "auth-service",
+    "farm-service",
+    "sensor-service",
+    "sensor-ingestion",
+    "hr-service",
+    "hydroponics-service",
+    "messaging-service",
+    "alert-engine",
+    "billing-service",
+    "notification-service",
+    "admin-api-service",
+    "config-service",
+    "observability-service",
+    "nginx",
+    "shell",
+    "dashboard",
+    "farm-module",
+    "sensor-module",
+    "hr-module",
+    "hydroponics-module",
+    "admin-panel",
+    "tenant-admin",
+    "aquamobil",
+    "mosquitto",
+    "minio"
+  ],
+  "imageBuildTargets": [
+    "db-migrate",
+    "gateway-api",
+    "auth-service",
+    "farm-service",
+    "sensor-service",
+    "sensor-ingestion",
+    "hr-service",
+    "hydroponics-service",
+    "messaging-service",
+    "alert-engine",
+    "billing-service",
+    "notification-service",
+    "admin-api-service",
+    "config-service",
+    "observability-service",
+    "shell",
+    "dashboard",
+    "farm-module",
+    "sensor-module",
+    "hr-module",
+    "hydroponics-module",
+    "admin-panel",
+    "tenant-admin",
+    "aquamobil",
+    "mosquitto"
+  ],
+  "deploy": {
+    "backendImageTargets": [
+      "db-migrate",
+      "gateway-api",
+      "auth-service",
+      "farm-service",
+      "sensor-service",
+      "hr-service",
+      "hydroponics-service",
+      "messaging-service",
+      "alert-engine",
+      "billing-service",
+      "notification-service",
+      "admin-api-service",
+      "config-service",
+      "observability-service"
+    ],
+    "frontendImageTargets": [
+      "shell",
+      "dashboard",
+      "farm-module",
+      "sensor-module",
+      "hr-module",
+      "hydroponics-module",
+      "admin-panel",
+      "tenant-admin",
+      "aquamobil"
+    ],
+    "infraImageTargets": [
+      "mosquitto"
+    ],
+    "applicationImageServices": [
+      "db-migrate",
+      "gateway-api",
+      "auth-service",
+      "farm-service",
+      "sensor-service",
+      "sensor-ingestion",
+      "hr-service",
+      "hydroponics-service",
+      "messaging-service",
+      "alert-engine",
+      "billing-service",
+      "notification-service",
+      "admin-api-service",
+      "config-service",
+      "observability-service",
+      "shell",
+      "dashboard",
+      "farm-module",
+      "sensor-module",
+      "hr-module",
+      "hydroponics-module",
+      "admin-panel",
+      "tenant-admin",
+      "aquamobil",
+      "mosquitto"
+    ],
+    "serviceDbRolePrefixes": [
+      "ADMIN",
+      "ALERT",
+      "AUTH",
+      "BILLING",
+      "CONFIG",
+      "FARM",
+      "GATEWAY",
+      "HR",
+      "HYDROPONICS",
+      "MESSAGING",
+      "NOTIFICATION",
+      "OBSERVABILITY",
+      "SENSOR"
+    ],
+    "nxFrontendProjects": [
+      "admin-panel",
+      "dashboard",
+      "farm-module",
+      "hr-module",
+      "hydroponics-module",
+      "sensor-module",
+      "shell",
+      "tenant-admin"
+    ],
+    "nonNxFrontendProjects": [
+      "aquamobil"
+    ],
+    "readinessServices": [
+      {
+        "serviceId": "gateway-api",
+        "port": 3000
+      },
+      {
+        "serviceId": "auth-service",
+        "port": 3000
+      },
+      {
+        "serviceId": "farm-service",
+        "port": 3000
+      },
+      {
+        "serviceId": "sensor-service",
+        "port": 3000
+      },
+      {
+        "serviceId": "hr-service",
+        "port": 3000
+      },
+      {
+        "serviceId": "hydroponics-service",
+        "port": 3000
+      },
+      {
+        "serviceId": "messaging-service",
+        "port": 3000
+      },
+      {
+        "serviceId": "alert-engine",
+        "port": 3000
+      },
+      {
+        "serviceId": "billing-service",
+        "port": 3000
+      },
+      {
+        "serviceId": "notification-service",
+        "port": 3000
+      },
+      {
+        "serviceId": "admin-api-service",
+        "port": 3000
+      },
+      {
+        "serviceId": "config-service",
+        "port": 3000
+      },
+      {
+        "serviceId": "observability-service",
+        "port": 3000
+      }
+    ],
+    "frontendImageMatrix": [
+      {
+        "module": "shell",
+        "dockerfile": "infrastructure/docker/Dockerfile.shell",
+        "module_path": "web/shell"
+      },
+      {
+        "module": "dashboard",
+        "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
+        "module_path": "web/modules/dashboard"
+      },
+      {
+        "module": "farm-module",
+        "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
+        "module_path": "web/modules/farm-module"
+      },
+      {
+        "module": "sensor-module",
+        "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
+        "module_path": "web/modules/sensor-module"
+      },
+      {
+        "module": "hr-module",
+        "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
+        "module_path": "web/modules/hr-module"
+      },
+      {
+        "module": "hydroponics-module",
+        "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
+        "module_path": "web/modules/hydroponics-module"
+      },
+      {
+        "module": "admin-panel",
+        "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
+        "module_path": "web/modules/admin-panel"
+      },
+      {
+        "module": "tenant-admin",
+        "dockerfile": "infrastructure/docker/Dockerfile.microfrontend.simple",
+        "module_path": "web/modules/tenant-admin"
+      },
+      {
+        "module": "aquamobil",
+        "dockerfile": "infrastructure/docker/Dockerfile.aquamobil",
+        "module_path": "web/apps/aquamobil"
+      }
+    ],
+    "infraImageMatrix": [
+      {
+        "image": "mosquitto",
+        "dockerfile": "infrastructure/mosquitto/Dockerfile",
+        "context": "infrastructure/mosquitto"
+      }
+    ]
+  },
+  "packageBuildProjects": [
+    "db-migrate",
+    "gateway-api",
+    "auth-service",
+    "farm-service",
+    "sensor-service",
+    "hr-service",
+    "hydroponics-service",
+    "messaging-service",
+    "alert-engine",
+    "billing-service",
+    "notification-service",
+    "admin-api-service",
+    "config-service",
+    "observability-service",
+    "shell",
+    "dashboard",
+    "farm-module",
+    "sensor-module",
+    "hr-module",
+    "hydroponics-module",
+    "admin-panel",
+    "tenant-admin"
+  ],
+  "requiredRuntimeEnv": [
+    "MINIO_USER",
+    "SERVICE_IDENTITY_SIGNING_KID"
+  ],
+  "requiredRuntimeSecrets": [
+    "ADMIN_SERVICE_DB_PASS",
+    "ALERT_SERVICE_DB_PASS",
+    "AUTH_SERVICE_DB_PASS",
+    "BILLING_SERVICE_DB_PASS",
+    "CONFIG_ENCRYPTION_KEY",
+    "CONFIG_SERVICE_DB_PASS",
+    "CREDENTIAL_ENCRYPTION_KEY",
+    "ENCRYPTION_KEY",
+    "FARM_SERVICE_DB_PASS",
+    "GATEWAY_SERVICE_DB_PASS",
+    "HR_SERVICE_DB_PASS",
+    "HYDROPONICS_SERVICE_DB_PASS",
+    "INTERNAL_SERVICE_SECRET",
+    "MESSAGING_SERVICE_DB_PASS",
+    "MFA_ENCRYPTION_KEY",
+    "MINIO_PASSWORD",
+    "MQTT_AUTH_SECRET",
+    "MQTT_SENSOR_SERVICE_HASH",
+    "MQTT_SENSOR_SERVICE_PASSWORD",
+    "NOTIFICATION_SERVICE_DB_PASS",
+    "OBSERVABILITY_INTERNAL_API_KEY",
+    "OBSERVABILITY_SERVICE_DB_PASS",
+    "PASSWORD_PEPPER",
+    "POSTGRES_PASSWORD",
+    "REDIS_PASSWORD",
+    "SENSOR_SERVICE_DB_PASS",
+    "SERVICE_IDENTITY_KEYRING",
+    "SUPER_ADMIN_PASSWORD",
+    "WEBHOOK_ENCRYPTION_KEY"
+  ],
+  "dbSchemas": [
+    {
+      "serviceId": "auth-service",
+      "schema": "auth",
+      "migrationGlobs": [
+        "apps/auth-service/src/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "auth_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "auth_service"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "farm-service",
+      "schema": "farm",
+      "migrationGlobs": [
+        "apps/farm-service/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "farm_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "farm_service",
+        "tenantProvisioner": "farm_tenant_provisioner"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "sensor-service",
+      "schema": "sensor",
+      "migrationGlobs": [
+        "apps/sensor-service/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "sensor_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "sensor_service",
+        "tenantProvisioner": "sensor_tenant_provisioner"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "hr-service",
+      "schema": "hr",
+      "migrationGlobs": [
+        "apps/hr-service/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "hr_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "hr_service",
+        "tenantProvisioner": "hr_tenant_provisioner"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "hydroponics-service",
+      "schema": "hydroponics",
+      "migrationGlobs": [
+        "apps/hydroponics-service/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "hydroponics_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "hydroponics_service",
+        "tenantProvisioner": "hydroponics_tenant_provisioner"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "messaging-service",
+      "schema": "messaging",
+      "migrationGlobs": [
+        "apps/messaging-service/src/migrations/[0-9]*{.ts,.js}",
+        "apps/messaging-service/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "messaging_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "messaging_service",
+        "tenantProvisioner": "messaging_tenant_provisioner"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "alert-engine",
+      "schema": "alert",
+      "migrationGlobs": [
+        "apps/alert-engine/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "alert_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "alert_service",
+        "tenantProvisioner": "alert_tenant_provisioner"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "billing-service",
+      "schema": "billing",
+      "migrationGlobs": [
+        "apps/billing-service/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": true,
+      "dbRoles": {
+        "owner": "billing_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "billing_service"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "notification-service",
+      "schema": "notification",
+      "migrationGlobs": [
+        "apps/notification-service/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "notification_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "notification_service"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "admin-api-service",
+      "schema": "admin",
+      "migrationGlobs": [
+        "apps/admin-api-service/src/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "admin_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "admin_service"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "config-service",
+      "schema": "config",
+      "migrationGlobs": [
+        "apps/config-service/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "config_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "config_service"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "event-store-service",
+      "schema": "event_store",
+      "migrationGlobs": [
+        "apps/event-store-service/src/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": true,
+      "dbRoles": {
+        "owner": "event_store_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "event_store_service"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "observability-service",
+      "schema": "observability",
+      "migrationGlobs": [
+        "apps/observability-service/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "observability_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "observability_service"
+      },
+      "privilegeMode": "dml-only"
+    },
+    {
+      "serviceId": "ai-service",
+      "schema": "ai",
+      "migrationGlobs": [
+        "apps/ai-service/src/database/migrations/[0-9]*{.ts,.js}"
+      ],
+      "entityGlobs": [],
+      "postMigrationHardening": false,
+      "dbRoles": {
+        "owner": "ai_schema_owner",
+        "migrator": "db_migrate",
+        "runtime": "ai_service",
+        "tenantProvisioner": "ai_tenant_provisioner"
+      },
+      "privilegeMode": "dml-only"
+    }
+  ]
+}

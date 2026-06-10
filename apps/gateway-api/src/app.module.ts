@@ -11,7 +11,7 @@ import {
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
-import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
+import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@platform/graphql-apollo5';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';

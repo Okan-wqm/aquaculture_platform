@@ -31,6 +31,9 @@ if str(_KERNEL_ROOT) not in sys.path:
 
 def _seed_init(tools_dir: Path) -> None:
     from aria_kernel.ack_ledger import init_ack_ledger
+    from aria_kernel.tool_registry import ensure_tools_binding
+
+    ensure_tools_binding(tools_dir, workspace_root=_REPO_ROOT)
     init_ack_ledger(
         base_dir=tools_dir,
         reason="unit test seed initialisation",

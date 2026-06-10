@@ -26,11 +26,13 @@ from aria_kernel.agent_invocations import (
     submit_claim_result,
 )
 from aria_kernel.agent_genesis import (
+    approve_agent_pr,
     draft_agent_from_gap,
     evaluate_genesis_sandbox,
     list_agent_drafts,
     list_agent_materializations,
     materialize_agent_draft,
+    prepare_agent_pr_lane,
 )
 from aria_kernel.agent_network import agent_network_index
 from aria_kernel.capability_gap import detect_capability_gaps
@@ -67,6 +69,7 @@ from aria_kernel.report_ingestion import (
 )
 from aria_kernel.registry_compiler import compile_registry
 from aria_kernel.skill_genesis import (
+    approve_skill_materialization,
     draft_skill,
     list_skill_genesis,
     materialize_skill,
@@ -602,6 +605,37 @@ def _main(argv: list[str] | None = None) -> int:
     profile_get = add_subparser(profile_sub, "get")
     profile_history = add_subparser(profile_sub, "history")
 
+    runtime_parser = add_subparser(sub, "runtime")
+    runtime_sub = runtime_parser.add_subparsers(dest="runtime_command", required=True)
+    runtime_verify = add_subparser(runtime_sub, "verify-artifacts")
+    runtime_verify.add_argument("--cycle-id", default=None)
+    runtime_verify.add_argument("--workspace-root", default=None)
+    runtime_verify.add_argument("--require-artifact-bearing", action="store_true")
+    runtime_promotion = add_subparser(runtime_sub, "promotion")
+    runtime_promotion_sub = runtime_promotion.add_subparsers(dest="runtime_promotion_command", required=True)
+    runtime_approve_v2 = add_subparser(runtime_promotion_sub, "approve-v2")
+    runtime_approve_v2.add_argument("--evidence-bundle", required=True)
+    runtime_approve_v2.add_argument("--workspace-root", required=True)
+    runtime_approve_v2.add_argument("--operator-approval-ref", required=True)
+    runtime_retention = add_subparser(runtime_sub, "retention")
+    runtime_retention_sub = runtime_retention.add_subparsers(dest="runtime_retention_command", required=True)
+    runtime_retention_apply = add_subparser(runtime_retention_sub, "apply")
+    runtime_retention_apply.add_argument("--reason", required=True, type=_validate_reason)
+    runtime_retention_apply.add_argument("--operator-approval-ref", required=True)
+    runtime_retention_apply.add_argument("--workspace-root", default=None)
+    runtime_retention_apply.add_argument("--retain-hot-cycles", type=int, default=20)
+    runtime_retention_apply.add_argument("--acknowledge", action="store_true")
+    runtime_restore = add_subparser(runtime_sub, "restore")
+    runtime_restore.add_argument("--artifact-ref", required=True)
+    runtime_restore.add_argument("--reason", required=True, type=_validate_reason)
+    runtime_restore.add_argument("--operator-approval-ref", required=True)
+    runtime_restore.add_argument("--workspace-root", default=None)
+    runtime_rollback = add_subparser(runtime_sub, "rollback")
+    runtime_rollback.add_argument("--manifest-id", required=True)
+    runtime_rollback.add_argument("--reason", required=True, type=_validate_reason)
+    runtime_rollback.add_argument("--operator-approval-ref", required=True)
+    runtime_rollback.add_argument("--workspace-root", required=True)
+
     memory_parser = add_subparser(sub, "memory")
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
     memory_withdraw = add_subparser(memory_sub, "withdraw")
@@ -763,8 +797,8 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(worktree_preflight_parser)
     worktree_preflight_parser.add_argument(
         "--expected-branch",
-        default="snowball",
-        help="Branch the worktree must be checked out to (default: snowball).",
+        default="main",
+        help="Branch the worktree must be checked out to (default: main).",
     )
     worktree_preflight_parser.add_argument(
         "--no-fetch",
@@ -863,9 +897,17 @@ def _main(argv: list[str] | None = None) -> int:
     plan_advance.add_argument("--plan-id", required=True)
     plan_advance.add_argument("--round-number", type=int, required=True)
     plan_advance.add_argument("--max-rounds", type=int, default=5)
+    plan_advance_rounds = add_subparser(plan_sub, "advance-rounds")
+    plan_advance_rounds.add_argument("--plan-id", required=True)
+    plan_advance_rounds.add_argument("--round-number", type=int, required=True)
+    plan_advance_rounds.add_argument("--max-rounds", type=int, default=5)
     plan_promote = add_subparser(plan_sub, "promote-to-dispatch")
     add_workspace_args(plan_promote)
     plan_promote.add_argument("--plan-id", required=True)
+    plan_promote.add_argument("--cycle-id", required=True)
+    plan_promote.add_argument("--base-sha", default=None)
+    plan_promote.add_argument("--impact-ref", required=True)
+    plan_promote.add_argument("--validation-ref", required=True)
     plan_promote.add_argument("--pressure-event-id", required=True)
     plan_promote.add_argument("--target-agent", default=None)
     plan_promote.add_argument("--prepare-worktree", action="store_true")
@@ -1203,8 +1245,8 @@ def _main(argv: list[str] | None = None) -> int:
             "validation_runs verified) can fire."
         ),
     )
-    pr_create.add_argument("--base", default="snowball",
-                           help="ARIA invariant: base MUST be snowball; any other value rejected at function entry (Plan 018 Phase 6.2).")
+    pr_create.add_argument("--base", default="main",
+                           help="ARIA invariant: base MUST be main; any other value rejected at function entry (Plan 018 Phase 6.2 amended by enterprise integration).")
     pr_create.add_argument("--no-dry-run", action="store_true")
     pr_status = add_subparser(pr_sub, "list-actions", help="List recorded pr lifecycle actions (prepare/commit/push).")
     pr_lifecycle = add_subparser(pr_sub, "lifecycle-plan",
@@ -1386,11 +1428,25 @@ def _main(argv: list[str] | None = None) -> int:
              "CONVERGED→PR-merge polling window. Closes HIGH-13 "
              "poll-budget conflation.",
     )
+    autonomy_burn_in = add_subparser(autonomy_sub, "burn-in")
+    autonomy_burn_in_sub = autonomy_burn_in.add_subparsers(
+        dest="autonomy_burn_in_command", required=True,
+    )
+    autonomy_burn_in_observe = add_subparser(autonomy_burn_in_sub, "observe")
+    autonomy_burn_in_observe.add_argument("--workspace-root", required=True)
+    autonomy_burn_in_observe.add_argument("--workspace-base", required=True)
+    autonomy_burn_in_observe.add_argument("--target-ref", required=True)
+    autonomy_burn_in_observe.add_argument("--cycles", type=int, default=30)
+    autonomy_burn_in_observe.add_argument("--min-valid-cycles", type=int, default=20)
+    autonomy_burn_in_observe.add_argument("--output-dir", required=True)
     auto_status = add_subparser(
         autonomy_sub, "status",
         help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
     )
     # No additional args — reducer reads from the bound tools dir.
+    autonomy_project_queue = add_subparser(autonomy_sub, "project-queue")
+    autonomy_project_queue.add_argument("--limit", type=int, default=20)
+    autonomy_project_queue.add_argument("--output", choices=["summary", "full"], default="summary")
 
     # Plan 020 Phase 4.C — fresh adapter orchestrator manual invocation.
     sp_refresh = add_subparser(spine_sub, "refresh",
@@ -1578,6 +1634,14 @@ def _main(argv: list[str] | None = None) -> int:
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
     ag_draft = add_subparser(agent_genesis_sub, "draft")
     ag_draft.add_argument("--gap-id", required=True)
+    ag_approve = add_subparser(agent_genesis_sub, "approve")
+    ag_approve.add_argument("--draft-id", required=True)
+    ag_approve.add_argument("--operator-approval-ref", required=True)
+    ag_approve.add_argument("--operator-synthetic-override", action="store_true")
+    ag_prepare_pr_lane = add_subparser(agent_genesis_sub, "prepare-pr-lane")
+    ag_prepare_pr_lane.add_argument("--draft-id", required=True)
+    ag_prepare_pr_lane.add_argument("--workspace-root", required=True)
+    ag_prepare_pr_lane.add_argument("--cycle-id", default=None)
     ag_sandbox = add_subparser(agent_genesis_sub, "sandbox")
     ag_sandbox.add_argument("--draft-id", required=True)
     ag_sandbox.add_argument("--fixture-results-file", required=True)
@@ -1649,6 +1713,9 @@ def _main(argv: list[str] | None = None) -> int:
     sg_draft.add_argument("--description", required=True)
     sg_draft.add_argument("--owner", action="append", required=True)
     sg_draft.add_argument("--handoff-agent", action="append", required=True)
+    sg_approve = add_subparser(skill_genesis_sub, "approve")
+    sg_approve.add_argument("--draft-id", required=True)
+    sg_approve.add_argument("--operator-approval-ref", required=True)
     sg_sandbox = add_subparser(skill_genesis_sub, "sandbox")
     sg_sandbox.add_argument("--draft-id", required=True)
     sg_sandbox_input = sg_sandbox.add_mutually_exclusive_group(required=True)
@@ -1656,6 +1723,8 @@ def _main(argv: list[str] | None = None) -> int:
                                   help="Skill markdown source — parsed for ## Fixture: <id> blocks (preferred).")
     sg_sandbox_input.add_argument("--checklist-results-file", default=None,
                                   help="Explicit JSON checklist results array (deprecated; use --markdown-file).")
+    sg_sandbox.add_argument("--synthetic-test-mode", action="store_true")
+    sg_sandbox.add_argument("--operator-approval-ref", default=None)
     sg_materialize = add_subparser(skill_genesis_sub, "materialize")
     add_workspace_args(sg_materialize)
     sg_materialize.add_argument("--draft-id", required=True)
@@ -1667,7 +1736,11 @@ def _main(argv: list[str] | None = None) -> int:
     )
     sg_materialize.add_argument("--run-invariants", action="store_true")
     sg_list = add_subparser(skill_genesis_sub, "list")
-    sg_list.add_argument("--kind", choices=["requests", "drafts", "sandbox", "materializations"], default="drafts")
+    sg_list.add_argument(
+        "--kind",
+        choices=["requests", "drafts", "sandbox", "approvals", "materializations"],
+        default="drafts",
+    )
 
     worker_result = add_subparser(sub, "worker-result")
     worker_result_sub = worker_result.add_subparsers(dest="worker_result_command", required=True)
@@ -1675,9 +1748,10 @@ def _main(argv: list[str] | None = None) -> int:
     worker_result_submit.add_argument("--assignment-id", default=None)
     worker_result_submit.add_argument("--from-worktree", required=True)
     worker_result_submit.add_argument("--validation-command", action="append", default=[])
+    worker_result_submit.add_argument("--lease-token", default=None)
     worker_result_submit.add_argument(
         "--lease-token-from-env",
-        required=True,
+        required=False,
         metavar="ENV_VAR_NAME",
         help="Name of an environment variable that holds the worker lease_token.",
     )
@@ -2108,6 +2182,106 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "runtime" and args.runtime_command == "verify-artifacts":
+        from aria_kernel.runtime_artifacts import (
+            ARTIFACT_BEARING,
+            classify_cycle_evidence,
+            verify_runtime_artifacts,
+        )
+
+        verification = verify_runtime_artifacts(
+            base_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            cycle_id=args.cycle_id,
+        )
+        payload: dict[str, Any] = {
+            "schema_version": 1,
+            "status": verification["status"],
+            "artifact_verifier_version": "runtime-artifact-graph-v2",
+            "verification": verification,
+            "issues": list(verification.get("issues") or []),
+        }
+        if args.cycle_id:
+            cycle_evidence = classify_cycle_evidence(
+                base_dir=args.tools_dir,
+                cycle_id=args.cycle_id,
+            )
+            payload["cycle_evidence"] = cycle_evidence
+            if (
+                args.require_artifact_bearing
+                and cycle_evidence.get("cycle_evidence_class") != ARTIFACT_BEARING
+            ):
+                payload["status"] = "failed"
+                payload["issues"].append(
+                    {
+                        "code": "cycle_not_artifact_bearing",
+                        "cycle_id": args.cycle_id,
+                        "cycle_evidence_class": cycle_evidence.get("cycle_evidence_class"),
+                    }
+                )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if payload["status"] == "ok" else 4
+
+    if (
+        args.command == "runtime"
+        and args.runtime_command == "promotion"
+        and args.runtime_promotion_command == "approve-v2"
+    ):
+        from aria_kernel.runtime_artifacts import approve_runtime_v2_promotion
+
+        result = approve_runtime_v2_promotion(
+            evidence_bundle=args.evidence_bundle,
+            base_dir=args.tools_dir,
+            operator_approval_ref=args.operator_approval_ref,
+            workspace_root=args.workspace_root,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if (
+        args.command == "runtime"
+        and args.runtime_command == "retention"
+        and args.runtime_retention_command == "apply"
+    ):
+        from aria_kernel.runtime_artifacts import retention_apply
+
+        result = retention_apply(
+            base_dir=args.tools_dir,
+            acknowledge=args.acknowledge,
+            retain_hot_cycles=args.retain_hot_cycles,
+            workspace_root=args.workspace_root,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "runtime" and args.runtime_command == "restore":
+        from aria_kernel.runtime_artifacts import restore_artifact
+
+        result = restore_artifact(
+            base_dir=args.tools_dir,
+            artifact_ref=args.artifact_ref,
+            workspace_root=args.workspace_root,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "runtime" and args.runtime_command == "rollback":
+        from aria_kernel.runtime_artifacts import rollback_retention
+
+        result = rollback_retention(
+            base_dir=args.tools_dir,
+            manifest_id=args.manifest_id,
+            workspace_root=args.workspace_root,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "memory" and args.memory_command == "withdraw":
         print(json.dumps(withdraw_belief(belief_id=args.belief_id, reason=args.reason, base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
@@ -2480,7 +2654,7 @@ def _main(argv: list[str] | None = None) -> int:
             )
         elif args.plan_command == "record-revision":
             result = record_revision(plan_id=args.plan_id, revision=json.loads(Path(args.revision_file).read_text(encoding="utf-8")), base_dir=args.tools_dir)
-        elif args.plan_command == "advance":
+        elif args.plan_command in {"advance", "advance-rounds"}:
             result = evaluate_plan(plan_id=args.plan_id, round_number=args.round_number, max_rounds=args.max_rounds, base_dir=args.tools_dir)
         elif args.plan_command == "promote-to-dispatch":
             state = plan_status(plan_id=args.plan_id, base_dir=args.tools_dir)
@@ -2957,7 +3131,7 @@ def _main(argv: list[str] | None = None) -> int:
         if args.pr_command == "create":
             # Plan 018 Phase 6.2 — explicit base guard fires inside
             # open_pr_for_action; we forward the operator's --base value
-            # verbatim so the kernel can fail-closed on base != snowball.
+            # verbatim so the kernel can fail-closed on base != main.
             row = open_pr_for_action(
                 proposal_id=args.proposal_id,
                 workspace_root=args.workspace_root,
@@ -3305,6 +3479,20 @@ def _main(argv: list[str] | None = None) -> int:
                 fixture_results=json.loads(Path(args.fixture_results_file).read_text(encoding="utf-8")),
                 base_dir=args.tools_dir,
             )
+        elif args.agent_genesis_command == "approve":
+            result = approve_agent_pr(
+                draft_id=args.draft_id,
+                operator_approval_ref=args.operator_approval_ref,
+                base_dir=args.tools_dir,
+                operator_synthetic_override=args.operator_synthetic_override,
+            )
+        elif args.agent_genesis_command == "prepare-pr-lane":
+            result = prepare_agent_pr_lane(
+                draft_id=args.draft_id,
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                cycle_id=args.cycle_id,
+            )
         elif args.agent_genesis_command == "materialize":
             # Plan ARIA-V3 §A4 — construct AutoActionGate from the
             # current runtime profile + lane + classifier; consume
@@ -3437,6 +3625,12 @@ def _main(argv: list[str] | None = None) -> int:
                 handoff_agents=args.handoff_agent,
                 base_dir=args.tools_dir,
             )
+        elif args.skill_genesis_command == "approve":
+            result = approve_skill_materialization(
+                draft_id=args.draft_id,
+                operator_approval_ref=args.operator_approval_ref,
+                base_dir=args.tools_dir,
+            )
         elif args.skill_genesis_command == "sandbox":
             if args.markdown_file is not None:
                 result = sandbox_skill(
@@ -3449,6 +3643,8 @@ def _main(argv: list[str] | None = None) -> int:
                     draft_id=args.draft_id,
                     checklist_results=json.loads(Path(args.checklist_results_file).read_text(encoding="utf-8")),
                     base_dir=args.tools_dir,
+                    synthetic_test_mode=args.synthetic_test_mode,
+                    operator_approval_ref=args.operator_approval_ref,
                 )
         elif args.skill_genesis_command == "materialize":
             # Plan ARIA-V3 §A4 — gate-driven materialize. Same factory
@@ -3484,10 +3680,15 @@ def _main(argv: list[str] | None = None) -> int:
         return 0 if not isinstance(result, dict) or result.get("status") != "rejected" else 1
 
     if args.command == "worker-result" and args.worker_result_command == "submit":
-        lease_token = os.environ.get(args.lease_token_from_env)
+        if args.lease_token and args.lease_token_from_env:
+            print("--lease-token and --lease-token-from-env are mutually exclusive", file=sys.stderr)
+            return 2
+        lease_token = args.lease_token
+        if not lease_token and args.lease_token_from_env:
+            lease_token = os.environ.get(args.lease_token_from_env)
         if not lease_token:
             print(
-                f"lease-token-from-env: env var {args.lease_token_from_env!r} is not set",
+                "worker-result submit requires --lease-token or --lease-token-from-env",
                 file=sys.stderr,
             )
             return 2
@@ -3663,17 +3864,58 @@ def _main(argv: list[str] | None = None) -> int:
             v9_implementation_runner=select_v9_implementation_runner(profile=profile),
         )
         print(json.dumps(result, indent=2, sort_keys=True))
-        # Exit non-zero only when the orchestrator could not start
-        # (lock contention) — every other exit_reason (max_cycles,
-        # aria_stop, profile_frozen) is a clean halt the operator
-        # asked for and returns 0.
+        # Lock contention has a stable caller-facing exit code; other
+        # non-clean exits (for example cycle_failed) remain generic
+        # execution failures.
+        if result.get("exit_reason") == "daemon_already_running":
+            return 3
         return 0 if result.get("exits_clean") else 1
+
+    if (
+        args.command == "autonomy"
+        and args.autonomy_command == "burn-in"
+        and args.autonomy_burn_in_command == "observe"
+    ):
+        from .burn_in import run_observe_burn_in
+        result = run_observe_burn_in(
+            tools_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
+            workspace_base=args.workspace_base,
+            target_ref=args.target_ref,
+            cycles=args.cycles,
+            min_valid_cycles=args.min_valid_cycles,
+            output_dir=args.output_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("acceptance_verdict") == "pass" else 1
 
     if args.command == "autonomy" and args.autonomy_command == "status":
         # Plan 026R §F.3 — canonical state via the reducer.
         from .autonomy_state import AutonomyStateReducer
         state = AutonomyStateReducer.derive_current(args.tools_dir)
         print(json.dumps(state.to_dict(), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "autonomy" and args.autonomy_command == "project-queue":
+        requests_path = Path(args.tools_dir) / "agent-invocations" / "requests.jsonl"
+        if requests_path.exists():
+            rows = list_agent_invocation_requests(base_dir=args.tools_dir, state="PENDING")
+        else:
+            rows = []
+        rows = rows[: max(0, int(args.limit))]
+        if args.output == "summary":
+            payload = [
+                {
+                    "request_id": row.get("request_id"),
+                    "target_agent": row.get("target_agent"),
+                    "role": row.get("role"),
+                    "state": row.get("state"),
+                }
+                for row in rows
+            ]
+        else:
+            payload = rows
+        print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
 
     if args.command == "integrity" and args.integrity_command == "rollback-tools-v2-to-v1":

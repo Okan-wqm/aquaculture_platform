@@ -43,6 +43,18 @@ class CapabilityGapIntrospectionTests(unittest.TestCase):
             "sha256:index",
         )
 
+    def test_manifest_scan_requires_bound_repo_root(self) -> None:
+        self._manifest("unbound-adapter")
+        self._registry([])
+        gaps = _gaps_from_adapter_registry(
+            "cycle-1",
+            None,
+            self.tools,
+            "sha256:index",
+        )
+        keys = {gap["capability_gap_key"] for gap in gaps}
+        self.assertNotIn("registry:orphan:unbound-adapter", keys)
+
     def test_stub_runner_detected(self) -> None:
         self._manifest("stub-adapter")
         self._registry([

@@ -87,10 +87,7 @@
       "rationale": "Consensus-gate math (Plan ARIA-V2). Aggregation arithmetic over independent judge verdicts is parameterized by literal threshold constants (mean confidence \u2265 0.80, \u22652 unique judge_ids). Adding narrative would degrade grep-stability + signal-to-noise of the arithmetic gates."
     },
     "aria-drafter": {
-      "consequence_leak_protections": [
-        "kernel-self-modification",
-        "secret-exfiltration"
-      ],
+      "consequence_leak_protections": ["kernel-self-modification", "secret-exfiltration"],
       "pedagogy_tier": 2,
       "rationale": "Maintenance-bound genesis drafter. Hybrid form REQUIRED because the agent runs under autonomous profile + writes to disk. Tier-1 safety rules (kernel-immutability, secret-exfiltration, recursive Agent() spawn) MUST stay imperative-only with consequence-leak protections; architectural rules (DraftIntent shape, banned-phrase compliance, evidence-ref allowlist) get narrative bodies."
     },
@@ -108,6 +105,11 @@
       "consequence_leak_protections": [],
       "pedagogy_tier": 3,
       "rationale": "Plan ARIA-V9.1 — first WRITER agent (Edit+Write+Bash). High-prohibition density: SECURITY CONTRACT + Self-Modification + Network Egress + Safety Disable + Canonical Validation + Tool Discipline. Tier-3 narrative form lets each prohibition carry an Example block so the LLM sees the canonical refusal pattern in-context. Safety rules pinned by V9.0-D HARD_FAIL_CHECKS registry + V9.0-D READONLY_PATHS frozenset; the agent's narrative complements the kernel-side Tier-1 anchors."
+    },
+    "aria-implementer-safety-contract": {
+      "consequence_leak_protections": ["kernel-self-modification", "secret-exfiltration"],
+      "pedagogy_tier": 1,
+      "rationale": "Shared implementer safety contract. Keep the machine-parsed self-modification, secret, network, workflow, and validation constraints imperative-only so included safety text cannot drift into narrative consequence leakage."
     },
     "aria-goldset-curator": {
       "consequence_leak_protections": [],

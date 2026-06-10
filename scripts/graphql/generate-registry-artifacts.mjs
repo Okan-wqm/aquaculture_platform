@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 const repoRoot = resolve(new URL('../..', import.meta.url).pathname);
@@ -9,6 +9,8 @@ const registryText = readFileSync(registryPath, 'utf8');
 const registry = JSON.parse(registryText);
 const registryHash = createHash('sha256').update(registryText).digest('hex');
 const generatorVersion = '1';
+const checkMode = process.argv.includes('--check');
+const failures = [];
 
 function tsString(value) {
   return `'${String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`;
@@ -16,8 +18,20 @@ function tsString(value) {
 
 function write(path, content) {
   const outputPath = resolve(repoRoot, path);
+  const next = `${content.trimEnd()}\n`;
+  if (checkMode) {
+    if (!existsSync(outputPath)) {
+      failures.push(`${path} missing`);
+      return;
+    }
+    const current = readFileSync(outputPath, 'utf8');
+    if (current !== next) {
+      failures.push(`${path} is not up to date`);
+    }
+    return;
+  }
   mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, `${content.trimEnd()}\n`);
+  writeFileSync(outputPath, next);
   console.log(`Generated ${path}`);
 }
 
@@ -84,3 +98,13 @@ write(
     2,
   ),
 );
+
+if (failures.length > 0) {
+  console.error('GraphQL registry generated artifacts are stale:');
+  for (const failure of failures) console.error(`  - ${failure}`);
+  process.exit(1);
+}
+
+if (checkMode) {
+  console.log('GraphQL registry generated artifacts are up to date.');
+}

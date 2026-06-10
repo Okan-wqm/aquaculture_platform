@@ -349,24 +349,12 @@ def _canonicalize_satisfaction_matrix(
     envelope: dict[str, Any],
     must_satisfy: list[dict[str, Any]] | None = None,
 ) -> bool:
-    """Plan ARIA-V8.8 + V8.15 — auto-fill missing satisfaction_matrix
-    verdicts AND missing `id` fields from request's must_satisfy.
+    """Normalize weak satisfaction rows without creating acceptance.
 
-    Kernel response-schema validator rejects entries that are missing
-    `id` or `verdict`. Agent non-determinism: Opus sometimes provides
-    only the substantive verdict text and omits the id, OR provides
-    the id but leaves verdict null. Both modes are recoverable.
-
-    V8.15 extension: when an entry has no `id`, attempt three
-    fallback strategies in order:
-      1. Position-match against the request's must_satisfy[] (the
-         agent's matrix entries are usually in must_satisfy order)
-      2. Single must_satisfy entry — copy its id unconditionally
-      3. Auto-synthesize `id=auto-sm-NNN` so the entry remains
-         operator-visible without fabricating a real must_satisfy
-         linkage
-
-    Returns True when the envelope was mutated.
+    Missing ids, missing verdicts, or ``satisfied`` rows without
+    evidence refs are downgraded to ``blocked``.  The executor must not
+    synthesize a must_satisfy linkage or evidence that the agent did not
+    actually provide.
     """
     matrix = envelope.get("satisfaction_matrix")
     if not isinstance(matrix, list):
@@ -380,18 +368,19 @@ def _canonicalize_satisfaction_matrix(
     for idx, entry in enumerate(matrix):
         if not isinstance(entry, dict):
             continue
-        # V8.15 — id auto-fill from position match
         if not entry.get("id"):
-            if idx < len(ms_ids):
-                entry["id"] = ms_ids[idx]
-            elif len(ms_ids) == 1:
-                entry["id"] = ms_ids[0]
-            else:
-                entry["id"] = f"auto-sm-{idx:03d}"
+            entry["id"] = f"blocked-missing-id-{idx:03d}"
+            entry["verdict"] = "blocked"
+            entry.setdefault("evidence", "missing raw satisfaction criterion id")
             mutated = True
         verdict = entry.get("verdict")
         if verdict in (None, "", "null"):
-            entry["verdict"] = "satisfied"
+            entry["verdict"] = "blocked"
+            entry.setdefault("evidence", "missing raw satisfaction verdict")
+            mutated = True
+        if entry.get("verdict") == "satisfied" and not entry.get("evidence_refs"):
+            entry["verdict"] = "blocked"
+            entry.setdefault("evidence", "missing raw satisfaction evidence refs")
             mutated = True
     return mutated
 
@@ -931,9 +920,9 @@ def invoke_codex_cli(
                 "agent_id are required (Plan 024 §B-8); the legacy "
                 "claim_mock / ci-executor:mock literals were removed."
             )
-        # Synthesize a satisfaction_matrix that satisfies must_satisfy
-        # so Plan 024 §B-2 evidence_validator (non-empty matrix
-        # enforcement) does not reject the mock envelope.
+        # Mock mode is non-authoritative. It keeps the envelope shape
+        # valid for workflow plumbing tests, but must never satisfy a
+        # real acceptance criterion.
         matrix: list[dict[str, Any]] = []
         if must_satisfy:
             for criterion in must_satisfy:
@@ -941,8 +930,9 @@ def invoke_codex_cli(
                 if cid:
                     matrix.append({
                         "id": cid,
-                        "verdict": "satisfied",
+                        "verdict": "blocked",
                         "evidence_refs": [],
+                        "evidence": "mock mode cannot satisfy acceptance criteria",
                     })
         # Plan 025 §B latent-bug-2 closure — no string-mangle fallback.
         # Pre-fix ``role or subagent_type.replace("aria-", "").replace
@@ -1019,6 +1009,7 @@ def invoke_codex_cli(
         completed = run_codex_exec(
             prompt_text=prompt_text,
             timeout_seconds=timeout_seconds,
+            output_schema=Path(__file__).resolve().parent / "agent-response-v1.schema.json",
         )
     except (CodexAuthUnavailable, CodexCliUnavailable, CodexPolicyViolation, CodexUsageUnavailable) as exc:
         contract = "tools/aria-poc/ci_executor_contract_proven.md"
@@ -1080,7 +1071,7 @@ def invoke_codex_cli(
             and request_envelope is not None
             and tools_dir is not None
         ):
-            _record_codex_cli_usage(
+            _record_codex_cli_cost(
                 raw_stdout=completed.stdout,
                 request_envelope=request_envelope,
                 tools_dir=tools_dir,
@@ -1090,7 +1081,7 @@ def invoke_codex_cli(
     return completed.returncode
 
 
-def _record_codex_cli_usage(
+def _record_codex_cli_cost(
     *,
     raw_stdout: str,
     request_envelope: dict[str, Any],
@@ -1244,13 +1235,12 @@ def _build_envelope_from_codex_output(
     matrix_in = extracted.get("satisfaction_matrix")
     if isinstance(matrix_in, list) and matrix_in:
         envelope["satisfaction_matrix"] = matrix_in
+        _canonicalize_satisfaction_matrix(envelope, must_satisfy=must_satisfy)
     else:
-        # Synthesize from must_satisfy so the kernel's non-empty-matrix
-        # check passes; verdict=satisfied with the agent text excerpt
-        # as evidence is honest because we INVOKED the agent and got a
-        # textual reply — the satisfaction signal is real even when the
-        # agent did not format it.
-        synthesized: list[dict[str, Any]] = []
+        # Missing raw matrix is fail-closed. Keep a schema-valid matrix
+        # so downstream evidence handling can record the refusal, but
+        # never synthesize `satisfied`.
+        blocked: list[dict[str, Any]] = []
         excerpt = (agent_text or "<agent produced no text>").strip()
         excerpt_short = excerpt[:240] + ("..." if len(excerpt) > 240 else "")
         if must_satisfy:
@@ -1260,23 +1250,20 @@ def _build_envelope_from_codex_output(
                 cid = item.get("id")
                 if not cid:
                     continue
-                synthesized.append({
+                blocked.append({
                     "id": cid,
-                    "verdict": "satisfied",
+                    "verdict": "blocked",
                     "evidence_refs": [],
-                    "evidence": excerpt_short,
+                    "evidence": f"missing raw satisfaction matrix: {excerpt_short}",
                 })
-        if not synthesized:
-            # Last-resort single-row matrix; agent_text is the only
-            # truthful evidence. Without this, the kernel rejects with
-            # evidence_satisfaction_matrix_must_be_non_empty.
-            synthesized.append({
+        if not blocked:
+            blocked.append({
                 "id": f"agent-text-{request_id[-8:]}",
-                "verdict": "satisfied",
+                "verdict": "blocked",
                 "evidence_refs": [],
-                "evidence": excerpt_short,
+                "evidence": f"missing raw satisfaction matrix: {excerpt_short}",
             })
-        envelope["satisfaction_matrix"] = synthesized
+        envelope["satisfaction_matrix"] = blocked
 
     # Carry through any agent-supplied evidence_refs / details / notes.
     for passthrough in ("evidence_refs", "details", "notes", "plan_content"):

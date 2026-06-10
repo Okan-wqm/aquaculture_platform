@@ -366,7 +366,7 @@ impl PostgresSink {
             "BinaryCopyInWriter row count mismatch",
         );
 
-        // Upsert from stage to hypertable, then truncate the stage.
+        // Upsert from stage to hypertable, then clear the stage with bounded DML.
         // batch_execute runs both in one round-trip.
         let upsert_sql = build_upsert_sql(&schema);
         let truncate_sql = build_truncate_stage_sql(&schema);
@@ -428,10 +428,10 @@ pub fn build_upsert_sql(schema: &SchemaName) -> String {
     )
 }
 
-/// Truncate the staging table after a successful upsert.
+/// Clear the staging table after a successful upsert.
 #[must_use]
 pub fn build_truncate_stage_sql(schema: &SchemaName) -> String {
-    format!("TRUNCATE TABLE {schema}.sensor_metrics_stage")
+    format!("DELETE FROM {schema}.sensor_metrics_stage")
 }
 
 #[cfg(test)]

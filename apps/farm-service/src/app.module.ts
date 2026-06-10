@@ -2,7 +2,7 @@ import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
-import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@platform/graphql-apollo5';
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import { Request } from 'express';
@@ -240,7 +240,6 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
             }),
           },
         ],
-        playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: GraphQLContextRequest }) => {

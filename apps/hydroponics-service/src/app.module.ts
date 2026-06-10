@@ -8,7 +8,7 @@ import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+} from '@platform/graphql-apollo5';
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';

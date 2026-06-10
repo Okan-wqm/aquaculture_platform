@@ -1,12 +1,11 @@
 """ARIA worker executor (Plan 025 §E).
 
-Per-assignment counterpart to tools/aria-poc/ci_executor.py
-(planner). Receives ``assignment_id`` + ``target_agent`` on argv;
-lease token via ``ARIA_LEASE_TOKEN`` env var (NEVER argv). Mock
-mode (CLAUDE_CODE_MOCK=1) makes a deterministic no-op modification
-+ commit in the worktree + submits the worker result via the kernel
-``worker-result submit`` CLI. Live mode shells out to the Claude
-Code CLI with the worker prompt.
+Legacy per-assignment counterpart to tools/aria-poc/ci_executor.py.
+Receives ``assignment_id`` + ``target_agent`` on argv; lease token via
+``ARIA_LEASE_TOKEN`` env var (NEVER argv). Mock mode
+(``CODEX_CLI_MOCK=1``) makes a deterministic no-op modification +
+commit in the worktree + submits the worker result via the kernel
+``worker-result submit`` CLI.
 
 Pre-fix the kernel had verification_gate primitives but no
 executor that knew how to read a dispatch assignment, run the work
@@ -20,19 +19,16 @@ Lease-token redaction discipline (mirrors ci_executor.py):
 * argv NEVER carries the raw token.
 * Stderr redacted at every subprocess return surface.
 
-Live-mode contract: the live ``claude`` CLI invocation shape is
-locked under the proven-contract doc that the planner CLI also
-references (``tools/aria-poc/ci_executor_contract_proven.md``).
-Plan ARIA-V3 §B1 promoted the spike to load-bearing status; the
-argv tuple below is verified against the doc's ``proven_argv``
-YAML block by invariant I-V3-21.
+Enterprise implementation authority is intentionally not here. Live
+Codex implementation runs through ci_executor.py and the
+agent-invocation proof chain. This script is legacy/drafter/mock-only
+and fails closed for implementation assignments or live mode.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -40,12 +36,11 @@ from typing import Any
 
 
 LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
-MOCK_MODE_ENV_VAR = "CLAUDE_CODE_MOCK"
+MOCK_MODE_ENV_VAR = "CODEX_CLI_MOCK"
 
 
-class ClaudeCodeUnavailable(Exception):
-    """The `claude` binary is not on $PATH (CI env not provisioned)
-    AND mock mode is OFF."""
+class WorkerExecutorLiveModeDisabled(Exception):
+    """worker_executor is not an authoritative live implementation path."""
 
 
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
@@ -202,6 +197,15 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(c, str)
     ]
     expected_trailer = str(assignment.get("expected_trailer") or "")
+    assignment_role = str(
+        assignment.get("role")
+        or assignment.get("assignment_role")
+        or assignment.get("kind")
+        or ""
+    )
+    if assignment_role == "implementation" or parsed.target_agent == "aria-implementer":
+        sys.stderr.write("worker_executor_authoritative_implementation_forbidden\n")
+        return 1
 
     if _is_mock_mode():
         ok = _make_mock_worker_change(
@@ -220,48 +224,8 @@ def main(argv: list[str] | None = None) -> int:
             lease_token=lease_token,
         )
 
-    if shutil.which("claude") is None:
-        raise ClaudeCodeUnavailable(
-            "`claude` binary not on $PATH; the proven-contract doc at "
-            "tools/aria-poc/ci_executor_contract_proven.md is the SSoT "
-            "for argv shape. Set CLAUDE_CODE_MOCK=1 to run the "
-            "worker against a deterministic mock."
-        )
-
-    # Live path — Plan ARIA-V3 §B1 PROVEN argv contract; locked
-    # against the proven_argv worker_executor block in
-    # tools/aria-poc/ci_executor_contract_proven.md by invariant
-    # I-V3-21 (byte-for-byte match).
-    prompt_file = (
-        tools_dir / "dispatch" / "prompts" / f"{assignment_id}.md"
-    )
-    # Plan ARIA-V7 §2g v2 — MODERN CLAUDE CLI 2.1.140 argv shape.
-    # Legacy `claude code agent --subagent-type X --prompt-file Y
-    # --working-directory Z` replaced by `claude --print --agent X
-    # --add-dir Z` with prompt piped via stdin. See
-    # ci_executor_contract_proven.md V7 modernization note.
-    cli_argv = [
-        "claude", "--print",
-        "--agent", parsed.target_agent,
-        "--add-dir", str(worktree_path),
-    ]
-    _prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
-    completed = subprocess.run(
-        cli_argv, input=_prompt_text, capture_output=True, text=True,
-    )
-    if completed.returncode != 0:
-        sys.stderr.write(
-            _redact_lease_in_message(completed.stderr, lease_token) + "\n"
-        )
-        return completed.returncode
-    return _submit_worker_result(
-        assignment_id=assignment_id,
-        worktree_path=worktree_path,
-        tools_dir=tools_dir,
-        repo=repo,
-        required_tests=required_tests,
-        lease_token=lease_token,
-    )
+    sys.stderr.write("worker_executor_live_mode_disabled_use_ci_executor\n")
+    return 1
 
 
 if __name__ == "__main__":

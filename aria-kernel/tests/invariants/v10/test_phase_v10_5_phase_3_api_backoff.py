@@ -43,6 +43,24 @@ from api_backoff import (  # noqa: E402
 
 from aria_kernel import agent_invocations  # noqa: E402
 from aria_kernel import external_outage_reaper  # noqa: E402
+from aria_kernel.ledger import LedgerIntegrityError, append_declared_jsonl  # noqa: E402
+from aria_kernel.tool_registry import ensure_tools_binding  # noqa: E402
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
+def _seed_claims_ledger(tmpdir: str, rows: list[dict]) -> Path:
+    tools = Path(tmpdir) / "aria-tools"
+    ensure_tools_binding(tools, workspace_root=_REPO_ROOT)
+    claims_path = tools / "agent-invocations" / "claims.jsonl"
+    for row in rows:
+        append_declared_jsonl(
+            claims_path,
+            row,
+            expected_surface=external_outage_reaper.CLAIMS_SURFACE,
+        )
+    return claims_path
 
 
 def _make_completed(returncode: int, stdout: bytes = b"", stderr: bytes = b""):
@@ -282,7 +300,6 @@ class ExternalOutageReaperInvariants(unittest.TestCase):
     def test_i_v10_5_phase3_10_reaper_requeues_after_window(self):
         """Reaper appends 'requeued' event when window elapsed."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            claims_path = Path(tmpdir) / "claims.jsonl"
             past = datetime.now(timezone.utc) - timedelta(seconds=2000)
             rows = [
                 {"request_id": "AIR-test-reap-1", "event": "claimed",
@@ -290,9 +307,7 @@ class ExternalOutageReaperInvariants(unittest.TestCase):
                 {"request_id": "AIR-test-reap-1", "event": "api_backoff_exhausted",
                  "occurred_at": past.isoformat()},
             ]
-            with claims_path.open("w") as fh:
-                for row in rows:
-                    fh.write(json.dumps(row) + "\n")
+            claims_path = _seed_claims_ledger(tmpdir, rows)
             summary = external_outage_reaper.reap_external_outage_requests(
                 claims_path=claims_path,
             )
@@ -302,7 +317,6 @@ class ExternalOutageReaperInvariants(unittest.TestCase):
     def test_i_v10_5_phase3_10b_reaper_escalates_after_4_requeues(self):
         """Reaper escalates to human_required after MAX_EXTERNAL_OUTAGE_REQUEUES."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            claims_path = Path(tmpdir) / "claims.jsonl"
             past = datetime.now(timezone.utc) - timedelta(seconds=2000)
             rows = [{"request_id": "AIR-test-escalate", "event": "claimed",
                      "occurred_at": "2026-05-20T08:00:00Z"}]
@@ -320,14 +334,34 @@ class ExternalOutageReaperInvariants(unittest.TestCase):
                 "event": "api_backoff_exhausted",
                 "occurred_at": past.isoformat(),
             })
-            with claims_path.open("w") as fh:
-                for row in rows:
-                    fh.write(json.dumps(row) + "\n")
+            claims_path = _seed_claims_ledger(tmpdir, rows)
             summary = external_outage_reaper.reap_external_outage_requests(
                 claims_path=claims_path,
             )
             self.assertEqual(summary["escalated_count"], 1)
             self.assertIn("AIR-test-escalate", summary["request_ids_escalated"])
+
+    def test_i_v10_5_phase3_10c_reaper_rejects_raw_claims_path(self):
+        """Reaper must use the declared agent-invocation claims surface."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            claims_path = Path(tmpdir) / "claims.jsonl"
+            claims_path.write_text(
+                json.dumps({
+                    "request_id": "AIR-test-raw",
+                    "event": "api_backoff_exhausted",
+                    "occurred_at": (
+                        datetime.now(timezone.utc) - timedelta(seconds=2000)
+                    ).isoformat(),
+                }) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                LedgerIntegrityError,
+                "declared_surface_unresolved",
+            ):
+                external_outage_reaper.reap_external_outage_requests(
+                    claims_path=claims_path,
+                )
 
 
 class DerivedStatesEnumInvariants(unittest.TestCase):

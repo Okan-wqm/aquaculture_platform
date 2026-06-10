@@ -78,15 +78,6 @@ export class AuthSchemaBootstrapService implements OnModuleInit {
         END $$;
       `);
 
-      // TypeORM migrations tracking table — ensure it exists for migrationsRun
-      await queryRunner.query(`
-        CREATE TABLE IF NOT EXISTS auth.migrations (
-          id SERIAL PRIMARY KEY,
-          "timestamp" bigint NOT NULL,
-          name varchar(255) NOT NULL
-        );
-      `);
-
       this.logger.log('Auth schema bootstrap completed successfully');
     } finally {
       await queryRunner.release();

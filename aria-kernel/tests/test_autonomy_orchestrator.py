@@ -9,7 +9,7 @@
 * Single-instance daemon lock contention returns
   exits_clean=False + reason=daemon_already_running.
 * Cycle runner failure → cycle_completed status=failed transition
-  + orchestrator still advances to next cycle.
+  + orchestrator exits fail-closed before drainers run.
 * Idempotent re-run: per-cycle results are additive.
 * Reducer state after run reflects every transition counter.
 """

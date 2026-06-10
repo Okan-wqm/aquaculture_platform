@@ -50,9 +50,10 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
             'add_subparser(agent_genesis_sub, "prepare-pr-lane")',
             'add_subparser(skill_genesis_sub, "approve")',
             'worker_result_submit.add_argument("--lease-token"',
-            'worker_result_submit.add_argument("--allow-legacy-no-token"',
+            'add_subparser(autonomy_burn_in_sub, "observe")',
         ):
             self.assertIn(required, source)
+        self.assertNotIn("--allow-legacy-no-token", source)
 
     def test_runtime_verify_requires_artifact_bearing_cycle(self) -> None:
         append_jsonl(self.tools / "cycles.jsonl", {"cycle_id": "cyc-cli", "event": "started", "status": "started"})

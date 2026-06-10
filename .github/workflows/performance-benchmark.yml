@@ -169,6 +169,7 @@ jobs:
         with:
           name: k6-results
           path: ./k6-results/*
+          if-no-files-found: error
 
   summary:
     needs: [lighthouse, k6-api]

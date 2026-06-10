@@ -29,6 +29,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from .implementation_rejections import V9_MERGE_PATH_DISABLED
+
 # Plan ARIA-V3 §A1 — supported profiles for auto-merge runner
 # selection. ``autonomous`` is Phase B2; the factory currently maps
 # it to ``RealAutoMergeRunner`` so B2 only needs to add the profile
@@ -486,6 +488,9 @@ def evaluate_v9_implementation_merge(
             merge_sha=None,
             check_summary=check_summary,
         )
+
+    if adapter is None and policy is None and sleep_fn is None:
+        return _reject(V9_MERGE_PATH_DISABLED)
 
     # Gate 1: profile precondition
     if profile != "autonomous":

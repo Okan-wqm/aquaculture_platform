@@ -4,23 +4,20 @@ Closes INFRA-CRITICAL-002, INFRA-CRITICAL-003, INFRA-HIGH-007,
 INFRA-MEDIUM-011, AUDITTRAIL-HIGH-009 and the legacy
 DEBT-2026-05-08-001 finding. Locked invariants (8 cases):
 
-  * I-V3-21 — kernel argv (ci_executor + worker_executor) matches the
-    proven_argv YAML block in
-    tools/aria-poc/ci_executor_contract_proven.md byte-for-byte.
+  * I-V3-21 — ci_executor live argv matches the Codex proven contract;
+    worker_executor is legacy/mock-only and cannot submit authoritative
+    implementations.
   * I-V3-22 — workflow_dispatch input mock default flipped to ``'false'``.
   * I-V3-22a — vars.ARIA_MOCK_KILL_SWITCH read AHEAD of the workflow
     default (kill switch precedence).
-  * I-V3-22b — preflight step refuses to start when effective_mock=false
-    AND CLAUDE_CODE_OAUTH_TOKEN is unset (INFRA-CRITICAL-002).
-  * I-V3-22c — pinned ``@anthropic-ai/claude-code`` install step
-    present BEFORE the executor step (INFRA-CRITICAL-003).
+  * I-V3-22b — preflight step refuses API-key Codex mode and verifies
+    ChatGPT-managed Codex auth when effective_mock=false.
+  * I-V3-22c — Codex auth preflight runs BEFORE the executor step.
   * I-V3-22d — aria-agent-executor.yml in V2 I-25 _GOVERNED_WORKFLOWS
     (INFRA-HIGH-007).
   * I-V3-23 — proven-contract doc carries verified_at_commit +
-    claude_cli_version_minimum + finding_closed fields (structure
-    locked even when fields hold PENDING-OPERATOR-LIVE-INVOCATION
-    placeholder until operator OOB shake-out).
-  * I-V3-23a — ci_executor.py records mock_mode_default_flipped
+    codex_cli_version_minimum + finding_closed fields.
+  * I-V3-23a — ci_executor.py records codex_mock_mode_resolved
     governance row on every invocation (AUDITTRAIL-HIGH-009).
 """
 
@@ -77,19 +74,11 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
         ci_src = (
             _REPO_ROOT / "tools" / "aria-poc" / "ci_executor.py"
         ).read_text(encoding="utf-8")
-        # Plan ARIA-V7 §2g v2 — MODERN CLAUDE CLI 2.1.140 argv shape.
-        # Legacy `claude code agent --subagent-type X --prompt-file Y
-        # --output-path Z` removed; replaced by `claude --print
-        # --agent X --max-budget-usd N --output-format json` with
-        # stdin/stdout. See ci_executor_contract_proven.md V7
-        # modernization note for migration rationale.
+        # Codex-first live argv shape.
         for token in (
-            '"claude"',
-            '"--print"',
-            '"--agent"',
-            '"--max-budget-usd"',
-            '"--output-format"',
-            '"json"',
+            "run_codex_exec(",
+            "output_schema=",
+            "agent-response-v1.schema.json",
         ):
             self.assertIn(
                 token, ci_src,
@@ -97,46 +86,40 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
             )
         # Confirm the doc's argv block carries the matching flag set.
         flag_set_doc = {
-            entry for entry in argv if isinstance(entry, str) and entry.startswith("--")
+            entry
+            for entry in argv
+            if isinstance(entry, str) and (entry.startswith("--") or entry == "-c")
         }
         self.assertEqual(
             flag_set_doc,
             {
-                "--print",
-                "--agent",
-                "--max-budget-usd",
-                "--output-format",
+                "--json",
+                "-c",
             },
         )
 
-    def test_i_v3_21_worker_executor_argv_matches_proven_doc(self) -> None:
+    def test_i_v3_21_worker_executor_is_demoted_from_live_authority(self) -> None:
         import yaml  # type: ignore[import-untyped]
 
         proven_block = _extract_yaml_block(self.proven_text, "worker_executor:")
         data = yaml.safe_load(proven_block)
         self.assertIn("worker_executor", data)
-        argv = data["worker_executor"]["argv"]
+        contract = data["worker_executor"]
+        self.assertEqual(contract["authority"], "legacy_drafter_mock_only")
+        self.assertEqual(contract["live_mode"], "disabled")
+        self.assertIs(contract["submit_authoritative_implementation"], False)
         worker_src = (
             _REPO_ROOT / "tools" / "aria-poc" / "worker_executor.py"
         ).read_text(encoding="utf-8")
-        # Plan ARIA-V7 §2g v2 — modernized claude CLI argv shape.
         for token in (
-            '"claude"',
-            '"--print"',
-            '"--agent"',
-            '"--add-dir"',
+            "worker_executor_live_mode_disabled_use_ci_executor",
+            "worker_executor_authoritative_implementation_forbidden",
+            'MOCK_MODE_ENV_VAR = "CODEX_CLI_MOCK"',
         ):
             self.assertIn(
                 token, worker_src,
-                msg=f"worker_executor.py missing argv token {token!r}",
+                msg=f"worker_executor.py missing demotion token {token!r}",
             )
-        flag_set_doc = {
-            entry for entry in argv if isinstance(entry, str) and entry.startswith("--")
-        }
-        self.assertEqual(
-            flag_set_doc,
-            {"--print", "--agent", "--add-dir", "--max-budget-usd"},
-        )
 
     # I-V3-22 — workflow_dispatch input mock default flipped to false.
     def test_i_v3_22_mock_dispatch_input_default_false(self) -> None:
@@ -154,7 +137,7 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
         # branch in the shell logic.
         self.assertIn("vars.ARIA_MOCK_KILL_SWITCH", self.workflow_text)
         kill_switch_idx = self.workflow_text.index('MOCK_SOURCE="kill_switch"')
-        default_idx = self.workflow_text.index('MOCK_SOURCE="workflow_default_post_b1"')
+        default_idx = self.workflow_text.index('MOCK_SOURCE="workflow_default_codex"')
         self.assertLess(
             kill_switch_idx,
             default_idx,
@@ -164,44 +147,32 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
             ),
         )
 
-    # I-V3-22b — OAuth preflight guard.
-    def test_i_v3_22b_claude_oauth_token_preflight_guard_present(self) -> None:
+    # I-V3-22b — Codex auth/API-key preflight guard.
+    def test_i_v3_22b_codex_auth_preflight_guard_present(self) -> None:
         self.assertIn(
-            "CLAUDE_CODE_OAUTH_TOKEN is unset",
+            "API-key Codex mode is disallowed",
             self.workflow_text,
-            msg="preflight OAuth guard message missing",
+            msg="preflight API-key mode guard message missing",
         )
-        # The guard MUST fire when effective_mock=false AND
-        # OAUTH_TOKEN is empty.
+        self.assertIn("codex login status --json", self.workflow_text)
+        self.assertIn("codex doctor --json", self.workflow_text)
         guard_clause_re = re.compile(
-            r'if\s*\[\s*"\$\{EFFECTIVE_MOCK\}"\s*=\s*"false"\s*\]\s*'
-            r'&&\s*\[\s*-z\s*"\$\{OAUTH_TOKEN:-\}"\s*\]'
+            r'if\s*\[\s*"\$\{EFFECTIVE_MOCK\}"\s*=\s*"false"\s*\]'
         )
         self.assertRegex(
             self.workflow_text,
             guard_clause_re,
-            msg="OAuth preflight guard does not test the exact two-clause condition",
+            msg="Codex preflight guard does not test effective_mock=false",
         )
 
-    # I-V3-22c — claude binary install step.
-    def test_i_v3_22c_claude_binary_install_step_present(self) -> None:
-        self.assertIn(
-            "@anthropic-ai/claude-code",
-            self.workflow_text,
-            msg="claude binary install step missing (@anthropic-ai/claude-code)",
-        )
-        self.assertIn(
-            "--ignore-scripts",
-            self.workflow_text,
-            msg="claude install step missing --ignore-scripts (V2 I-25 clause 4)",
-        )
-        # The install step must precede the executor step.
-        install_idx = self.workflow_text.index("Install claude binary")
+    # I-V3-22c — Codex auth preflight before executor.
+    def test_i_v3_22c_codex_auth_preflight_precedes_executor(self) -> None:
+        preflight_idx = self.workflow_text.index("Pre-flight - Codex auth")
         executor_idx = self.workflow_text.index("Run CI executor")
         self.assertLess(
-            install_idx,
+            preflight_idx,
             executor_idx,
-            msg="claude install step must precede executor step",
+            msg="Codex auth preflight must precede executor step",
         )
 
     # I-V3-22d — V2 I-25 governed list extension.
@@ -225,10 +196,10 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
     ) -> None:
         for field in (
             "verified_at_commit:",
-            "claude_cli_version_minimum:",
+            "codex_cli_version_minimum:",
             "verified_by_operator_handle:",
             "verified_at_iso8601:",
-            "finding_closed: DEBT-2026-05-08-001",
+            "finding_closed: DEBT-2026-05-25-CODEX-MIGRATION",
         ):
             self.assertIn(
                 field,
@@ -244,7 +215,7 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
     # I-V3-23a — every executor invocation records mock flag.
     def test_i_v3_23a_every_executor_invocation_records_mock_flag(self) -> None:
         """Run ci_executor.main with invalid argv (no request_id) so it
-        returns 2 EARLY, but the mock_mode_default_flipped audit row
+        returns 2 EARLY, but the codex_mock_mode_resolved audit row
         is already written at the top of main(). This proves the
         emission happens unconditionally per invocation.
 
@@ -267,13 +238,13 @@ class PhaseB1ArgvProvenWorkflowHygiene(unittest.TestCase):
             ]
             kinds = [row.get("kind") for row in rows]
             self.assertIn(
-                "mock_mode_default_flipped",
+                "codex_mock_mode_resolved",
                 kinds,
-                msg="mock_mode_default_flipped audit row not emitted",
+                msg="codex_mock_mode_resolved audit row not emitted",
             )
             # The row carries effective_mock + mock_source + run id.
             row = next(
-                r for r in rows if r.get("kind") == "mock_mode_default_flipped"
+                r for r in rows if r.get("kind") == "codex_mock_mode_resolved"
             )
             details = row.get("details", {})
             for key in (

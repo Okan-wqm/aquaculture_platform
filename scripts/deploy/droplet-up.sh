@@ -32,7 +32,14 @@ IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
 TAG="${TAG:-${DEPLOY_SHA:-}}"
 export TAG
 GATEWAY_IMAGE_REF="${IMAGE_PREFIX}/gateway-api:latest"
-APPLICATION_IMAGE_SERVICES="db-migrate mosquitto gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil"
+CATALOG_DEPLOY_ENV="${CATALOG_DEPLOY_ENV:-/var/aqua-saas/infrastructure/deploy/service-catalog.deploy.env}"
+if [ ! -r "${CATALOG_DEPLOY_ENV}" ]; then
+  echo "::error::Missing generated service catalog deploy env: ${CATALOG_DEPLOY_ENV}"
+  exit 1
+fi
+# shellcheck disable=SC1090
+. "${CATALOG_DEPLOY_ENV}"
+APPLICATION_IMAGE_SERVICES="${CATALOG_APPLICATION_IMAGE_SERVICES:?generated application image service list missing}"
 DEPLOY_RELEASE_ID="${DEPLOY_RELEASE_ID:-${DEPLOY_SHA:-unknown}-$(date -u +%Y%m%dT%H%M%SZ)}"
 export DEPLOY_RELEASE_ID
 DEPLOY_STATE_ROOT="${DEPLOY_STATE_ROOT:-/var/lib/aqua/deploy/releases}"
@@ -78,27 +85,12 @@ esac
 # ──────────────────────────────────────────────────────────────────────────
 # ADR-031 — Service DB-role password SSoT
 #
-# The platform-bootstrap atom
-# (apps/db-migrate/src/platform-bootstrap.service.ts) fails loud at Phase 0
-# if any *_SERVICE_DB_PASS env var is missing or empty. THIS script's
-# generate_credential loop is the source-of-truth that provisions those
-# passwords; the list below MUST stay aligned with the atom's
-# SERVICE_ROLES constant.
-#
-# Adding a new service-role: append here AND in
-# apps/db-migrate/src/platform-bootstrap.service.ts SERVICE_ROLES.
-#
-# 2026-05-19: AI, OBSERVABILITY, EVENT_STORE, CONFIG appended after the
-# 2026-05-18 cutover deploy 26082203809 aborted at:
-#   [platform-bootstrap] Phase 0 abort: 4/15 service-role password env
-#   vars are missing or empty: AI_SERVICE_DB_PASS, OBSERVABILITY_SERVICE_DB_PASS,
-#   EVENT_STORE_SERVICE_DB_PASS, CONFIG_SERVICE_DB_PASS.
-#
-# Two duplicate for-loops in the full-deploy and selective-deploy paths
-# consume this constant — a single SSoT prevents the kind of drift that
-# produced the 11-vs-15 mismatch above.
+# The platform service catalog generates service-catalog.deploy.env. That
+# generated artifact is the only deploy-side source for service image lists
+# and runtime DB role password prefixes; platform-bootstrap remains the only
+# authority that mutates database roles and grants.
 # ──────────────────────────────────────────────────────────────────────────
-SERVICE_DB_ROLES="AUTH FARM SENSOR BILLING HR ALERT ADMIN GATEWAY NOTIFICATION HYDROPONICS MESSAGING AI OBSERVABILITY EVENT_STORE CONFIG"
+SERVICE_DB_ROLES="${CATALOG_SERVICE_DB_ROLE_PREFIXES:?generated service DB role prefix list missing}"
 
 read_env_file_value() {
   local name="$1"
@@ -644,15 +636,21 @@ check_ready_endpoint() {
 run_readiness_sweep() {
   echo "=== /health/ready sweep for critical services ==="
   local failures=0
+  local readiness_services="${CATALOG_READINESS_SERVICES:-}"
 
-  for spec in \
-    "gateway-api:3000" \
-    "auth-service:3000" \
-    "farm-service:3000" \
-    "sensor-service:3000" \
-    "messaging-service:3000"; do
+  if [ -z "${readiness_services}" ]; then
+    echo "::error::CATALOG_READINESS_SERVICES is required for promotion readiness."
+    return 1
+  fi
+
+  for spec in ${readiness_services}; do
     local svc="${spec%%:*}"
     local port="${spec##*:}"
+    if [ -z "${svc}" ] || [ -z "${port}" ] || [ "${svc}" = "${port}" ]; then
+      echo "::error::Invalid readiness catalog entry: ${spec}"
+      failures=$((failures + 1))
+      continue
+    fi
     if check_ready_endpoint "${svc}" "${port}"; then
       echo "  ${svc}: ready"
     else
@@ -787,32 +785,7 @@ fi
 # in <1s without touching containers. Failing fast here is
 # always cheaper than failing during boot.
 #
-# Phase A2 — docker-compose interpolation valid
-echo "=== Pre-flight: compose interpolation ==="
-if ! docker compose -f docker-compose.droplet.yml config --quiet; then
-  echo "::error::docker-compose.droplet.yml interpolation failed."
-  echo "  Likely cause: missing :? required env var in /var/aqua-saas/.env"
-  echo "  Aborting BEFORE any container actions — no production state changed."
-  exit 1
-fi
-echo "  OK: compose interpolates cleanly"
-
-# Phase A3 — NATS SSoT not drifted from generated nats.conf
-echo "=== Pre-flight: NATS SSoT drift check ==="
-if [ -f scripts/nats/generate-nats-conf.py ]; then
-  python3 scripts/nats/generate-nats-conf.py
-  if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
-    echo "::error::nats.conf drifted from infrastructure/nats/services.yaml"
-    echo "  Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
-    git diff infrastructure/docker/nats/nats.conf | head -50
-    exit 1
-  fi
-  echo "  OK: nats.conf matches services.yaml"
-else
-  echo "  SKIP: generator script not present (commit predates ADR-015)"
-fi
-
-# Phase A4 — ensure required secrets exist in .env.
+# Phase A2 — ensure required secrets exist in .env before compose interpolation.
 # The REQUIRED set lives in scripts/deploy/lib/required-env-secrets.sh and
 # is shared with droplet-bootstrap-env.sh so the preflight check and the
 # bootstrap generator cannot drift (Tier-1 SSoT architectural fix).
@@ -845,6 +818,31 @@ if [ ${#MISSING[@]} -gt 0 ]; then
   exit 1
 fi
 echo "  OK: ${#REQUIRED_ENV_SECRETS[@]} required secrets present"
+
+# Phase A3 — docker-compose interpolation valid
+echo "=== Pre-flight: compose interpolation ==="
+if ! docker compose -f docker-compose.droplet.yml config --quiet; then
+  echo "::error::docker-compose.droplet.yml interpolation failed."
+  echo "  Likely cause: missing :? required env var in /var/aqua-saas/.env"
+  echo "  Aborting BEFORE any container actions — no production state changed."
+  exit 1
+fi
+echo "  OK: compose interpolates cleanly"
+
+# Phase A4 — NATS SSoT not drifted from generated nats.conf
+echo "=== Pre-flight: NATS SSoT drift check ==="
+if [ -f scripts/nats/generate-nats-conf.py ]; then
+  python3 scripts/nats/generate-nats-conf.py
+  if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
+    echo "::error::nats.conf drifted from infrastructure/nats/services.yaml"
+    echo "  Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
+    git diff infrastructure/docker/nats/nats.conf | head -50
+    exit 1
+  fi
+  echo "  OK: nats.conf matches services.yaml"
+else
+  echo "  SKIP: generator script not present (commit predates ADR-015)"
+fi
 
 # End of pre-flight ──────────────────────────────────────────
 
@@ -1049,20 +1047,21 @@ if [ "$FULL_DEPLOY" = "true" ]; then
       psql -h 127.0.0.1 -U "${POSTGRES_EFFECTIVE_USER}" -c "SELECT 1" >/dev/null 2>&1; then
       echo "  PostgreSQL superuser password matches .env"
     else
-      echo "  WARNING: PostgreSQL superuser password mismatch — resetting via local auth"
-      docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" \
-        -v postgres_password="${POSTGRES_EFFECTIVE_PASSWORD}" \
-        -c "ALTER USER \"${POSTGRES_EFFECTIVE_USER}\" WITH PASSWORD :'postgres_password'"
-      echo "  PostgreSQL superuser password reset to match .env"
+      echo "::error::PostgreSQL superuser password mismatch."
+      echo "  Refusing deploy-time credential mutation. Reconcile credentials through platform bootstrap or incident runbook."
+      exit 1
     fi
   else
     echo "::error::Cannot connect to PostgreSQL via local auth — aborting before migrations."
     exit 1
   fi
 
-  # Create observability database if it doesn't exist (postgres init scripts only run on first start)
-  docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1 || \
-    docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" -c "CREATE DATABASE aquaculture_observability" 2>&1
+  # Database creation is owned by platform bootstrap/init, not deploy.
+  if ! docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1; then
+    echo "::error::aquaculture_observability database is missing."
+    echo "  Refusing deploy-time database provisioning. Run the platform bootstrap authority before deploy."
+    exit 1
+  fi
 
   # ─────────────────────────────────────────────────────────────
   # ADR-033 — one-shot authoritative schema migration container.

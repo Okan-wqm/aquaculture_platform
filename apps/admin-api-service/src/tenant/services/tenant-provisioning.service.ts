@@ -123,8 +123,8 @@ export class TenantProvisioningService {
    * Uses ProvisioningSagaService to orchestrate steps with compensating
    * transactions. On failure, completed steps are rolled back in reverse.
    *
-   * TODO(NATS-MIGRATION): The following steps currently write directly to
-   * auth.* tables. They should be replaced with NATS request-reply commands
+   * NATS-MIGRATION contract: the following steps currently write directly to
+   * auth.* tables. They are tracked as request-reply command migrations
    * using the contracts in @platform/event-contracts/tenant-commands:
    *   - setupDefaultRoles → SetupTenantRolesCommand
    *   - createFirstAdminUser → CreateTenantAdminCommand
@@ -208,7 +208,7 @@ export class TenantProvisioningService {
     const warnings: string[] = [];
 
     // Step: Assign modules (optional, before schema creation)
-    // TODO(NATS-MIGRATION): Replace with NATS AssignTenantModulesCommand
+    // NATS-MIGRATION contract: AssignTenantModulesCommand
     if (assignModules.length > 0) {
       saga.addStep(
         'assign_modules',
@@ -257,7 +257,7 @@ export class TenantProvisioningService {
     }
 
     // Step: Setup default roles
-    // TODO(NATS-MIGRATION): Replace with NATS SetupTenantRolesCommand
+    // NATS-MIGRATION contract: SetupTenantRolesCommand
     saga.addStep(
       'setup_default_roles',
       async () => {
@@ -310,7 +310,7 @@ export class TenantProvisioningService {
     }
 
     // Step (Optional): Create first admin user
-    // TODO(NATS-MIGRATION): Replace with NATS CreateTenantAdminCommand
+    // NATS-MIGRATION contract: CreateTenantAdminCommand
     if (createFirstAdmin && adminEmail) {
       saga.addStep(
         'create_first_admin',
@@ -747,55 +747,21 @@ export class TenantProvisioningService {
     );
   }
 
-  /**
-   * Ensure the tenant_roles table exists in the database.
-   * MEDIUM-008 fix: the DDL is skipped after the first successful call within
-   * this service instance to avoid issuing locking DDL on every provisioning.
-   * The authoritative fix is to move these statements into a TypeORM migration.
-   */
   private async ensureTenantRolesTableExists(): Promise<void> {
     if (this.tenantRolesTableEnsured) return;
-    try {
-      await this.dataSource.query(`
-        CREATE TABLE IF NOT EXISTS auth.tenant_roles (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          "tenantId" UUID NOT NULL,
-          code VARCHAR(50) NOT NULL,
-          name VARCHAR(100) NOT NULL,
-          description TEXT,
-          permissions JSONB NOT NULL DEFAULT '[]',
-          is_default BOOLEAN NOT NULL DEFAULT false,
-          is_editable BOOLEAN NOT NULL DEFAULT true,
-          display_order INTEGER NOT NULL DEFAULT 0,
-          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-          CONSTRAINT uk_tenant_roles_tenant_code UNIQUE ("tenantId", code),
-          CONSTRAINT fk_tenant_roles_tenant FOREIGN KEY ("tenantId")
-            REFERENCES auth.tenants(id) ON DELETE CASCADE
-        )
-      `);
 
-      // Create indexes for better query performance
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_tenant_roles_tenant_id
-        ON auth.tenant_roles("tenantId")
-      `);
-
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_tenant_roles_code
-        ON auth.tenant_roles(code)
-      `);
-
-      // Mark as done so subsequent provisioning calls skip these DDL statements
-      this.tenantRolesTableEnsured = true;
-    } catch (error) {
-      // Table might already exist or constraint might already be in place
-      this.logger.debug(
-        `tenant_roles table setup: ${(error as Error).message}`,
-      );
-      // Still mark as ensured if the table was already there (CREATE IF NOT EXISTS)
-      this.tenantRolesTableEnsured = true;
+    const rows = await this.dataSource.query(
+      `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'auth' AND table_name = 'tenant_roles'
+      LIMIT 1
+    `,
+    );
+    if (!rows[0]) {
+      throw new Error('auth.tenant_roles schema is missing; run db-migrate platform bootstrap before tenant provisioning');
     }
+    this.tenantRolesTableEnsured = true;
   }
 
   /**
@@ -892,7 +858,7 @@ export class TenantProvisioningService {
     try {
       // Use the TenantConfigurationService to create the configuration
       // This will use the defaults from createDefaultTenantConfiguration
-      await this.tenantConfigurationService.createConfiguration({
+      await this.tenantConfigurationService.requestTenantConfigurationProvisioning({
         tenantId: tenant.id,
         // Override defaults with tenant-specific settings if available
         brandingConfig: {

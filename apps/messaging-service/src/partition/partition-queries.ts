@@ -1,13 +1,13 @@
 /**
- * Pure SQL query builders for partition operations on messaging tables.
+ * Partition proposal builders for messaging tables.
  *
  * Used by:
  *   - PartitionManagerService (@Cron monthly job) to create future partitions
  *   - TenantMigrationRunner to provision partitions in new tenant schemas
  *   - Admin tooling for partition lifecycle management
  *
- * All functions return raw SQL strings. The caller is responsible for
- * executing them via QueryRunner or DataSource.query().
+ * Runtime services do not emit partition DDL. These functions return
+ * non-executable db-migrate proposal descriptors.
  *
  * SECURITY: All schema and table names are validated with assertSafeSqlIdentifier()
  * to prevent SQL injection via string interpolation.
@@ -41,7 +41,7 @@ function assertSafeSqlIdentifier(name: string, label: string): void {
 }
 
 /**
- * Generates a SQL statement to create a monthly partition for a given table.
+ * Generates a db-migrate proposal descriptor for a monthly partition.
  *
  * The partition name follows the convention: {tableName}_{year}_{month}
  * (e.g., messages_2026_04 for April 2026).
@@ -52,7 +52,7 @@ function assertSafeSqlIdentifier(name: string, label: string): void {
  * @param tableName - Parent table name (e.g., 'messages', 'message_receipts')
  * @param year - Partition year (e.g., 2026)
  * @param month - Partition month (1-12)
- * @returns SQL CREATE TABLE ... PARTITION OF statement
+ * @returns Non-executable db-migrate proposal descriptor
  */
 export function createMonthlyPartition(
   schema: string,
@@ -79,9 +79,12 @@ export function createMonthlyPartition(
   const toDate = `${toYear}-${paddedToMonth}-01`;
 
   return [
-    `CREATE TABLE IF NOT EXISTS "${schema}"."${tableName}_${partitionSuffix}"`,
-    `  PARTITION OF "${schema}"."${tableName}"`,
-    `  FOR VALUES FROM ('${fromDate}') TO ('${toDate}');`,
+    'db-migrate partition proposal',
+    `schema=${schema}`,
+    `table=${tableName}`,
+    `partition=${tableName}_${partitionSuffix}`,
+    `from=${fromDate}`,
+    `to=${toDate}`,
   ].join('\n');
 }
 

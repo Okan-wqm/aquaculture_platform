@@ -1,5 +1,5 @@
-// TODO: SchemaManagerService is ~1,400 lines and should be split into smaller focused services.
-// Recommended decomposition:
+// SchemaManagerService is large because it still hosts multiple historical database
+// responsibilities. The target decomposition is:
 //   - SchemaProvisioningService  (createTenantSchema, dropTenantSchema, schemaExists)
 //   - SchemaSearchPathService    (setTenantSearchPath, setTenantSearchPathInTransaction, resetSearchPath)
 //   - SchemaMigrationService     (migrateDataToTenantSchema, copyReferenceDataTable)
@@ -889,183 +889,22 @@ export class SchemaManagerService {
         };
       }
 
-      this.logger.log(`Creating tenant schema: ${schemaName} for tenant ${tenantId}`);
+      this.logger.log(`Requesting tenant schema provisioning: ${schemaName} for tenant ${tenantId}`);
 
-      // 1. Create the schema (with SQL injection protection)
+      // 1. Validate the schema name. Physical provisioning is owned by db-migrate.
       const safeSchemaName = validateSqlIdentifier(schemaName, 'schema');
-      await this.dataSource.query(`CREATE SCHEMA "${safeSchemaName}"`);
-      this.logger.debug(`Schema ${safeSchemaName} created`);
-
-      // 2. Create tables for requested modules (uses the modules parameter)
-      for (const moduleName of modules) {
-        const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
-        if (!moduleSchema) {
-          this.logger.warn(`Module ${moduleName} not found in schema definitions`);
-          continue;
-        }
-
-        for (const tableName of moduleSchema.tables) {
-          try {
-            // Check if source table exists
-            const sourceTableExists = await this.tableExists(
-              moduleSchema.sourceSchema,
-              tableName,
-            );
-
-            if (sourceTableExists) {
-              // Create table structure from source (including indexes and constraints)
-              // SECURITY: Validate all identifiers before using in SQL
-              const safeTargetSchema = validateSqlIdentifier(schemaName, 'schema');
-              const safeTableName = validateSqlIdentifier(tableName, 'table');
-              const safeSourceSchema = validateSqlIdentifier(moduleSchema.sourceSchema, 'schema');
-
-              await this.dataSource.query(`
-                CREATE TABLE "${safeTargetSchema}"."${safeTableName}"
-                (LIKE "${safeSourceSchema}"."${safeTableName}" INCLUDING ALL)
-              `);
-              tablesCreated.push(`${safeTargetSchema}.${safeTableName}`);
-              this.logger.debug(`Table ${schemaName}.${tableName} created`);
-
-              // Convert time-series tables to TimescaleDB hypertable
-              if (tableName === 'sensor_readings') {
-                await this.createHypertable(schemaName, tableName);
-              }
-
-              // Convert sensor_metrics to hypertable with new narrow table format
-              if (tableName === 'sensor_metrics') {
-                await this.createSensorMetricsHypertable(schemaName);
-              }
-            } else {
-              errors.push(`Source table ${moduleSchema.sourceSchema}.${tableName} does not exist`);
-            }
-          } catch (tableError) {
-            const errorMsg = `Failed to create table ${tableName}: ${(tableError as Error).message}`;
-            errors.push(errorMsg);
-            this.logger.error(errorMsg);
-          }
-        }
-      }
-
-      if (errors.length > 0) {
-        throw new Error(errors.join('; '));
-      }
-
-      // 3. Copy reference data for requested modules
-      for (const moduleName of modules) {
-        const refTables = REFERENCE_DATA_TABLES[moduleName];
-        if (!refTables) continue;
-
-        const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
-        if (!moduleSchema) continue;
-
-        for (const tableName of refTables) {
-          try {
-            const rows = await this.copyReferenceDataTable(
-              schemaName,
-              moduleSchema.sourceSchema,
-              tableName,
-            );
-            if (rows > 0) {
-              referenceDataCopied.push({ table: tableName, rows });
-            }
-          } catch (copyError) {
-            const errorMsg = `Failed to copy reference data ${tableName}: ${(copyError as Error).message}`;
-            errors.push(errorMsg);
-            this.logger.warn(errorMsg);
-          }
-        }
-      }
-
-      // 4. Grant permissions to the application role (or current user as fallback)
-      // Using parameterized role name to ensure the runtime user has access
-      // even when the migration user differs from the application user
-      const appRole = await this.getApplicationRole();
-      await this.dataSource.query(`
-        GRANT USAGE ON SCHEMA "${schemaName}" TO ${appRole}
-      `);
-
-      await this.dataSource.query(`
-        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA "${schemaName}" TO ${appRole}
-      `);
-
-      await this.dataSource.query(`
-        GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "${schemaName}" TO ${appRole}
-      `);
-
-      // 5. Seed migration-ledger history from each module's source schema.
-      //
-      // Without this, a schema-per-tenant service's MigrationRunnerService on
-      // its next boot (see libs/backend-common migration-runner tenant fan-out)
-      // would see tenant_<uuid>.migrations as empty and try to re-apply
-      // every migration against the new tenant schema. Those migrations would
-      // then collide with the tables just cloned via `CREATE TABLE LIKE
-      // INCLUDING ALL` above — "relation already exists" errors block boot.
-      //
-      // Seeding the migration-history rows (timestamp, name) from source puts
-      // the tenant in the "every existing migration already applied" state, so
-      // only FUTURE migrations (ones added after the tenant was provisioned)
-      // run against it on subsequent boots. That's exactly the semantic the
-      // runner needs.
-      const seenSourceSchemas = new Set<string>();
-      for (const moduleName of modules) {
-        const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
-        if (!moduleSchema) continue;
-        if (seenSourceSchemas.has(moduleSchema.sourceSchema)) continue;
-        seenSourceSchemas.add(moduleSchema.sourceSchema);
-        try {
-          await this.seedMigrationsHistory(schemaName, moduleSchema.sourceSchema);
-        } catch (historyErr) {
-          const msg = `Failed to seed migrations history from "${moduleSchema.sourceSchema}" into "${schemaName}": ${(historyErr as Error).message}`;
-          this.logger.warn(msg);
-          errors.push(msg);
-        }
-      }
-
       errors.push(
-        ...(await this.validateTenantSchemaComplete(schemaName, modules)),
+        `Tenant schema ${safeSchemaName} is not present; db-migrate tenant_schema_requests owns provisioning`,
       );
-      if (errors.length === 0) {
-        try {
-          await this.applyTenantRlsPolicies(schemaName);
-        } catch (rlsError) {
-          errors.push(`Failed to apply tenant RLS policies: ${(rlsError as Error).message}`);
-        }
-      }
-      if (errors.length > 0) {
-        throw new Error(errors.join('; '));
-      }
-
-      // Update cache only after table, ledger, reference-data, and RLS
-      // invariants are all complete. Partial tenant schemas must not be cached.
-      this.schemaCache.set(schemaName, true);
-
-      const totalRefRows = referenceDataCopied.reduce((sum, r) => sum + r.rows, 0);
-      this.logger.log(
-        `Tenant schema ${schemaName} created: ${tablesCreated.length} tables, ${totalRefRows} reference rows in ${Date.now() - startTime}ms`,
-      );
-
-      return {
-        success: true,
-        status: ProvisioningStatus.COMPLETE,
-        schemaName,
-        tablesCreated,
-        referenceDataCopied,
-        errors: [],
-        duration: Date.now() - startTime,
-      };
+      throw new Error(errors.join('; '));
     } catch (error) {
-      const errorMsg = `Failed to create tenant schema: ${(error as Error).message}`;
+      const errorMsg = `Failed to provision tenant schema: ${(error as Error).message}`;
       this.logger.error(errorMsg, (error as Error).stack);
       errors.push(errorMsg);
 
-      // CLEANUP: Drop partial schema on failure
-      this.logger.warn(`Cleaning up partial schema ${schemaName} after failure`);
-      try {
-        await this.dataSource.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
-        this.logger.log(`Cleaned up partial schema ${schemaName}`);
-      } catch (cleanupError) {
-        this.logger.error(`Cleanup failed for ${schemaName}: ${(cleanupError as Error).message}`);
-      }
+      this.logger.warn(
+        `Skipping runtime cleanup for ${schemaName}; db-migrate tenant_schema_requests owns physical cleanup`,
+      );
 
       return {
         success: false,
@@ -1120,18 +959,18 @@ export class SchemaManagerService {
       return;
     }
 
-    // Create the tenant's history table with TypeORM's exact shape. We
-    // don't use `CREATE TABLE LIKE source.migrations INCLUDING ALL`
-    // because LIKE pulls in the source's PRIMARY KEY constraint name and
-    // `id` sequence — both are global objects that would collide if the
-    // constraint is dropped/recreated later.
-    await this.dataSource.query(`
-      CREATE TABLE IF NOT EXISTS "${safeTarget}"."${tenantLedger}" (
-        "id" SERIAL PRIMARY KEY,
-        "timestamp" bigint NOT NULL,
-        "name" varchar NOT NULL
-      )
-    `);
+    const ledgerExists = await this.dataSource.query(
+      `SELECT 1
+       FROM information_schema.tables
+       WHERE table_schema = $1 AND table_name = $2
+       LIMIT 1`,
+      [safeTarget, tenantLedger],
+    );
+    if (!ledgerExists[0]) {
+      throw new Error(
+        `Tenant migration ledger ${safeTarget}.${tenantLedger} is missing; db-migrate owns ledger creation`,
+      );
+    }
 
     // Skip the copy if the tenant already has rows (idempotent re-invocation).
     const existing: Array<{ count: string }> = await this.dataSource.query(
@@ -1315,10 +1154,10 @@ export class SchemaManagerService {
     await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
 
     try {
-      this.logger.log(`Deleting tenant schema: ${schemaName}`);
-
-      // CASCADE drops all objects in the schema
-      await this.dataSource.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+      this.logger.log(`Requesting tenant schema deletion: ${schemaName}`);
+      throw new Error(
+        `Tenant schema deletion for ${schemaName} is owned by db-migrate tenant_schema_requests`,
+      );
 
       // Invalidate cache entry for deleted schema
       this.schemaCache.invalidate(schemaName);
@@ -1989,18 +1828,14 @@ export class SchemaManagerService {
             continue;
           }
 
-          // Create table from source
+          // Table fan-out is owned by db-migrate.
           const safeTargetSchema = validateSqlIdentifier(schemaName, 'schema');
           const safeTableName = validateSqlIdentifier(tableName, 'table');
           const safeSourceSchema = validateSqlIdentifier(moduleSchema.sourceSchema, 'schema');
 
-          await this.dataSource.query(`
-            CREATE TABLE "${safeTargetSchema}"."${safeTableName}"
-            (LIKE "${safeSourceSchema}"."${safeTableName}" INCLUDING ALL)
-          `);
-
-          created.push(tableName);
-          this.logger.debug(`Created missing table ${schemaName}.${tableName}`);
+          throw new Error(
+            `Tenant table ${safeTargetSchema}.${safeTableName} is owned by db-migrate fan-out from ${safeSourceSchema}.${safeTableName}`,
+          );
 
           // Handle hypertables
           if (tableName === 'sensor_readings') {
@@ -2034,18 +1869,14 @@ export class SchemaManagerService {
       }
     }
 
-    // Grant permissions on any newly created tables
     if (created.length > 0) {
       try {
         const appRole = await this.getApplicationRole();
-        await this.dataSource.query(
-          `GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA "${schemaName}" TO ${appRole}`,
-        );
-        await this.dataSource.query(
-          `GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "${schemaName}" TO ${appRole}`,
+        this.logger.warn(
+          `Skipping runtime privilege grant for ${schemaName} to ${appRole}; db-migrate owns service-role grants`,
         );
       } catch (grantError) {
-        errors.push(`Failed to grant permissions: ${(grantError as Error).message}`);
+        errors.push(`Failed to resolve application role: ${(grantError as Error).message}`);
       }
     }
 

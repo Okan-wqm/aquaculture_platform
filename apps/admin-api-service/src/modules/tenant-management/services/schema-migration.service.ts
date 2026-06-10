@@ -51,18 +51,9 @@ export class SchemaMigrationService {
     // SECURITY: Validate BEFORE any SQL interpolation
     validateSchemaName(schemaName);
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      // WHY: DDL (CREATE SCHEMA) cannot use parameterized queries in PostgreSQL.
-      // The validation above ensures schemaName is safe for interpolation.
-      await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
-
-      this.logger.log(`Schema created: ${schemaName}`);
-    } finally {
-      await queryRunner.release();
-    }
+    throw new BadRequestException(
+      `Tenant schema provisioning for ${schemaName} is owned by db-migrate tenant_schema_requests`,
+    );
   }
 
   /**
@@ -74,16 +65,9 @@ export class SchemaMigrationService {
     // SECURITY: Validate BEFORE any SQL interpolation
     validateSchemaName(schemaName);
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      await queryRunner.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
-
-      this.logger.log(`Schema dropped: ${schemaName}`);
-    } finally {
-      await queryRunner.release();
-    }
+    throw new BadRequestException(
+      `Tenant schema deletion for ${schemaName} is owned by db-migrate tenant_schema_requests`,
+    );
   }
 
   /**

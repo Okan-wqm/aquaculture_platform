@@ -715,13 +715,18 @@ export function createMigrationRunnerService(
       migrationsTableName: string,
       migration: Migration,
     ): Promise<void> {
-      await queryRunner.query(
-        `CREATE TABLE IF NOT EXISTS "${schema}"."${migrationsTableName}" (
-           "id" SERIAL NOT NULL PRIMARY KEY,
-           "timestamp" bigint NOT NULL,
-           "name" varchar NOT NULL
-         )`,
+      const existing = await queryRunner.query(
+        `SELECT 1
+         FROM information_schema.tables
+         WHERE table_schema = $1 AND table_name = $2
+         LIMIT 1`,
+        [schema, migrationsTableName],
       );
+      if (!existing[0]) {
+        throw new Error(
+          `Migration ledger ${schema}.${migrationsTableName} is missing; db-migrate bootstrap owns ledger creation`,
+        );
+      }
       await queryRunner.query(
         `INSERT INTO "${schema}"."${migrationsTableName}" ("timestamp", "name")
          SELECT $1::bigint, $2::varchar

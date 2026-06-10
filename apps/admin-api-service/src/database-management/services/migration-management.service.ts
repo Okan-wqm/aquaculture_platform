@@ -170,30 +170,8 @@ const MIGRATION_REGISTRY: MigrationDefinition[] = [
     version: '1.0.0',
     name: 'initial_schema',
     description: 'Initial schema setup with metadata and audit tables',
-    upScript: `
-      CREATE TABLE IF NOT EXISTS "_metadata" (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        key VARCHAR(100) NOT NULL UNIQUE,
-        value JSONB,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW()
-      );
-      CREATE TABLE IF NOT EXISTS "_audit_log" (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        entity_type VARCHAR(100),
-        entity_id VARCHAR(100),
-        action VARCHAR(50),
-        old_data JSONB,
-        new_data JSONB,
-        user_id VARCHAR(100),
-        ip_address VARCHAR(45),
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-    `,
-    downScript: `
-      DROP TABLE IF EXISTS "_audit_log";
-      DROP TABLE IF EXISTS "_metadata";
-    `,
+    upScript: "",
+    downScript: "",
     affectedTables: ['_metadata', '_audit_log'],
     isDestructive: false,
     requiresDowntime: false,
@@ -202,23 +180,8 @@ const MIGRATION_REGISTRY: MigrationDefinition[] = [
     version: '1.1.0',
     name: 'add_tenant_settings',
     description: 'Add tenant-specific settings table',
-    upScript: `
-      CREATE TABLE IF NOT EXISTS "tenant_settings" (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        category VARCHAR(100) NOT NULL,
-        key VARCHAR(100) NOT NULL,
-        value JSONB,
-        is_encrypted BOOLEAN DEFAULT false,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW(),
-        UNIQUE(category, key)
-      );
-      CREATE INDEX idx_tenant_settings_category ON "tenant_settings"(category);
-    `,
-    downScript: `
-      DROP INDEX IF EXISTS idx_tenant_settings_category;
-      DROP TABLE IF EXISTS "tenant_settings";
-    `,
+    upScript: "",
+    downScript: "",
     affectedTables: ['tenant_settings'],
     isDestructive: false,
     requiresDowntime: false,
@@ -227,28 +190,8 @@ const MIGRATION_REGISTRY: MigrationDefinition[] = [
     version: '1.2.0',
     name: 'add_data_export_logs',
     description: 'Add data export tracking table',
-    upScript: `
-      CREATE TABLE IF NOT EXISTS "data_exports" (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        export_type VARCHAR(50) NOT NULL,
-        format VARCHAR(20) NOT NULL,
-        status VARCHAR(20) DEFAULT 'pending',
-        file_path VARCHAR(500),
-        file_size BIGINT,
-        row_count INT,
-        requested_by VARCHAR(100),
-        started_at TIMESTAMP,
-        completed_at TIMESTAMP,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-      CREATE INDEX idx_data_exports_status ON "data_exports"(status);
-      CREATE INDEX idx_data_exports_created ON "data_exports"(created_at DESC);
-    `,
-    downScript: `
-      DROP INDEX IF EXISTS idx_data_exports_created;
-      DROP INDEX IF EXISTS idx_data_exports_status;
-      DROP TABLE IF EXISTS "data_exports";
-    `,
+    upScript: "",
+    downScript: "",
     affectedTables: ['data_exports'],
     isDestructive: false,
     requiresDowntime: false,
@@ -257,28 +200,8 @@ const MIGRATION_REGISTRY: MigrationDefinition[] = [
     version: '1.3.0',
     name: 'add_activity_tracking',
     description: 'Add user activity tracking table',
-    upScript: `
-      CREATE TABLE IF NOT EXISTS "user_activities" (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id VARCHAR(100) NOT NULL,
-        activity_type VARCHAR(50) NOT NULL,
-        entity_type VARCHAR(100),
-        entity_id VARCHAR(100),
-        metadata JSONB,
-        ip_address VARCHAR(45),
-        user_agent TEXT,
-        created_at TIMESTAMP DEFAULT NOW()
-      );
-      CREATE INDEX idx_user_activities_user ON "user_activities"(user_id);
-      CREATE INDEX idx_user_activities_type ON "user_activities"(activity_type);
-      CREATE INDEX idx_user_activities_created ON "user_activities"(created_at DESC);
-    `,
-    downScript: `
-      DROP INDEX IF EXISTS idx_user_activities_created;
-      DROP INDEX IF EXISTS idx_user_activities_type;
-      DROP INDEX IF EXISTS idx_user_activities_user;
-      DROP TABLE IF EXISTS "user_activities";
-    `,
+    upScript: "",
+    downScript: "",
     affectedTables: ['user_activities'],
     isDestructive: false,
     requiresDowntime: false,

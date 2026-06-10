@@ -109,25 +109,19 @@ export class PartitionManagerService implements OnApplicationBootstrap {
       return;
     }
 
-    const sql = `
-      CREATE TABLE IF NOT EXISTS "${schema}"."${partitionName}"
-        PARTITION OF "${schema}"."${table}"
-        FOR VALUES FROM ('${startDate}') TO ('${endDate}')
-    `;
-
-    try {
-      await this.dataSource.query(sql);
-      this.logger.log(`Partition ensured: ${schema}.${partitionName}`);
-    } catch (err) {
-      const message = (err as Error).message;
-      // PostgreSQL raises an error if the partition already overlaps — safe to ignore
-      if (message.includes('already exists') || message.includes('overlaps')) {
-        this.logger.debug(`Partition already exists: ${schema}.${partitionName}`);
-      } else {
-        this.logger.error(
-          `Failed to create partition ${schema}.${partitionName}: ${message}`,
-        );
-      }
+    const existing = await this.dataSource.query(
+      `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = $1 AND table_name = $2
+      LIMIT 1
+    `,
+      [schema, partitionName],
+    );
+    if (!existing[0]) {
+      this.logger.warn(
+        `Partition ${schema}.${partitionName} is missing for ${startDate}..${endDate}; db-migrate partition maintainer owns provisioning`,
+      );
     }
   }
 

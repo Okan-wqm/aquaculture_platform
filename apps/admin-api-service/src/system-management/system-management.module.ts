@@ -13,7 +13,6 @@ import {
   FeatureToggle,
   MaintenanceMode,
   SystemVersion,
-  GlobalConfig,
   PerformanceMetric,
   PerformanceSnapshot,
   ErrorOccurrence,
@@ -31,6 +30,7 @@ import {
   ErrorTrackingService,
   JobQueueService,
 } from './services';
+import { ConfigServiceAdminProxy } from '../settings/services/config-service-admin-proxy.service';
 
 // Controllers
 
@@ -42,7 +42,6 @@ import {
       FeatureToggle,
       MaintenanceMode,
       SystemVersion,
-      GlobalConfig,
       // Performance
       PerformanceMetric,
       PerformanceSnapshot,
@@ -64,6 +63,7 @@ import {
   ],
   providers: [
     GlobalSettingsService,
+    ConfigServiceAdminProxy,
     PerformanceMonitoringService,
     ErrorTrackingService,
     JobQueueService,

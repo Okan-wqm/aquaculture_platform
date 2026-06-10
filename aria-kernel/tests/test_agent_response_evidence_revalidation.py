@@ -24,7 +24,7 @@ class AgentResponseEvidenceTests(unittest.TestCase):
         response = {
             "evidence_refs": ["src.txt:2", "deep/nested.ts:5"],
             "satisfaction_matrix": [
-                {"id": "MS-1", "verdict": "satisfied"},
+                {"id": "MS-1", "verdict": "satisfied", "evidence_refs": ["src.txt:2"]},
             ],
         }
         result = validate_agent_response_evidence(
@@ -34,6 +34,20 @@ class AgentResponseEvidenceTests(unittest.TestCase):
         self.assertEqual(
             result["checked_refs"], ["deep/nested.ts", "src.txt"]
         )
+
+    def test_satisfied_matrix_requires_evidence_refs(self) -> None:
+        response = {
+            "evidence_refs": ["src.txt:2"],
+            "satisfaction_matrix": [
+                {"id": "MS-1", "verdict": "satisfied", "evidence_refs": []},
+            ],
+        }
+        result = validate_agent_response_evidence(
+            response=response, workspace_root=self.repo
+        )
+        self.assertFalse(result["valid"])
+        codes = {e["code"] for e in result["errors"]}
+        self.assertIn("agent_matrix_satisfied_requires_evidence_refs", codes)
 
     def test_missing_path_rejected(self) -> None:
         response = {"evidence_refs": ["does/not/exist.ts:1"], "satisfaction_matrix": []}

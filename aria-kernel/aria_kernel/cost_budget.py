@@ -1,7 +1,7 @@
 """Plan ARIA-V3 §B0 + INFRA-CRITICAL-001 — cost circuit breaker.
 
-GAP: after B1 flips ``CLAUDE_CODE_MOCK=false``, every daily
-``aria-agent-executor.yml`` cron run hits the real Claude API. The
+GAP: after B1 flips ``CODEX_CLI_MOCK=false``, every daily
+``aria-agent-executor.yml`` cron run hits live Codex. The
 existing failure breaker (``circuit_breaker.py``, Phase B2) trips
 on validator rejections / sandbox-red / CI-red etc. — but NOT on
 $cost. A pricing surprise or runaway request could exhaust an
@@ -13,8 +13,8 @@ V3 §B0 lands a co-equal **cost** circuit breaker:
     ``aria-tools/budget/daily.json`` + ``aria-tools/budget/monthly.json``
     (gitignored per Phase A2 + A5 .gitignore sweep).
   * Per-run cap enforced AT THE EXECUTOR BOUNDARY
-    (``tools/aria-poc/{ci,worker}_executor.py``) before spawning
-    ``claude``. The kernel-side ``assert_within_budget`` raises
+    (``tools/aria-poc/ci_executor.py``) before spawning
+    ``codex``. The kernel-side ``assert_within_budget`` raises
     ``GovernanceError`` when any cap is exceeded.
   * Tripped state ⇒ runtime profile auto-downgrades to ``strict``
     (no more autonomous loops) and emits

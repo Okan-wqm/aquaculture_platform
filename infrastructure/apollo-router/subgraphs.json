@@ -1,4 +1,11 @@
 {
+  "metadata": {
+    "generatedFrom": "platform/libs/service-catalog/src/index.ts",
+    "generator": "scripts/service-catalog/generate-artifacts.ts",
+    "generatorVersion": 1,
+    "catalogHash": "099540e84aeb58d6adc570770f1368ac72c27a3d152a82dc3a89b4571ba2709e",
+    "note": "do not edit by hand"
+  },
   "federationVersion": "=2.10.0",
   "runtimeMode": "self-hosted-static-supergraph",
   "subgraphs": [
@@ -8,8 +15,8 @@
       "urlEnv": "AUTH_SERVICE_URL",
       "localUrl": "http://localhost:3001/graphql",
       "routingUrl": "http://auth-service:3000/graphql",
-      "schemaUrl": "http://auth-service:3000/graphql",
-      "schemaArtifactPath": "dist/graphql/subgraphs/auth.graphql"
+      "schemaArtifactPath": "dist/graphql/subgraphs/auth.graphql",
+      "schemaUrl": "http://auth-service:3000/graphql"
     },
     {
       "name": "farm",
@@ -17,8 +24,8 @@
       "urlEnv": "FARM_SERVICE_URL",
       "localUrl": "http://localhost:3002/graphql",
       "routingUrl": "http://farm-service:3000/graphql",
-      "schemaUrl": "http://farm-service:3000/graphql",
-      "schemaArtifactPath": "dist/graphql/subgraphs/farm.graphql"
+      "schemaArtifactPath": "dist/graphql/subgraphs/farm.graphql",
+      "schemaUrl": "http://farm-service:3000/graphql"
     },
     {
       "name": "sensor",
@@ -26,17 +33,8 @@
       "urlEnv": "SENSOR_SERVICE_URL",
       "localUrl": "http://localhost:3003/graphql",
       "routingUrl": "http://sensor-service:3000/graphql",
-      "schemaUrl": "http://sensor-service:3000/graphql",
-      "schemaArtifactPath": "dist/graphql/subgraphs/sensor.graphql"
-    },
-    {
-      "name": "alert",
-      "nxProject": "alert-engine",
-      "urlEnv": "ALERT_SERVICE_URL",
-      "localUrl": "http://localhost:3004/graphql",
-      "routingUrl": "http://alert-engine:3000/graphql",
-      "schemaUrl": "http://alert-engine:3000/graphql",
-      "schemaArtifactPath": "dist/graphql/subgraphs/alert.graphql"
+      "schemaArtifactPath": "dist/graphql/subgraphs/sensor.graphql",
+      "schemaUrl": "http://sensor-service:3000/graphql"
     },
     {
       "name": "hr",
@@ -44,17 +42,8 @@
       "urlEnv": "HR_SERVICE_URL",
       "localUrl": "http://localhost:3005/graphql",
       "routingUrl": "http://hr-service:3000/graphql",
-      "schemaUrl": "http://hr-service:3000/graphql",
-      "schemaArtifactPath": "dist/graphql/subgraphs/hr.graphql"
-    },
-    {
-      "name": "billing",
-      "nxProject": "billing-service",
-      "urlEnv": "BILLING_SERVICE_URL",
-      "localUrl": "http://localhost:3006/graphql",
-      "routingUrl": "http://billing-service:3000/graphql",
-      "schemaUrl": "http://billing-service:3000/graphql",
-      "schemaArtifactPath": "dist/graphql/subgraphs/billing.graphql"
+      "schemaArtifactPath": "dist/graphql/subgraphs/hr.graphql",
+      "schemaUrl": "http://hr-service:3000/graphql"
     },
     {
       "name": "hydroponics",
@@ -62,26 +51,8 @@
       "urlEnv": "HYDROPONICS_SERVICE_URL",
       "localUrl": "http://localhost:4007/graphql",
       "routingUrl": "http://hydroponics-service:3000/graphql",
-      "schemaUrl": "http://hydroponics-service:3000/graphql",
-      "schemaArtifactPath": "dist/graphql/subgraphs/hydroponics.graphql"
-    },
-    {
-      "name": "config",
-      "nxProject": "config-service",
-      "urlEnv": "CONFIG_SERVICE_URL",
-      "localUrl": "http://localhost:3007/graphql",
-      "routingUrl": "http://config-service:3000/graphql",
-      "schemaUrl": "http://config-service:3000/graphql",
-      "schemaArtifactPath": "dist/graphql/subgraphs/config.graphql"
-    },
-    {
-      "name": "notification",
-      "nxProject": "notification-service",
-      "urlEnv": "NOTIFICATION_SERVICE_URL",
-      "localUrl": "http://localhost:4008/graphql",
-      "routingUrl": "http://notification-service:3000/graphql",
-      "schemaUrl": "http://notification-service:3000/graphql",
-      "schemaArtifactPath": "dist/graphql/subgraphs/notification.graphql"
+      "schemaArtifactPath": "dist/graphql/subgraphs/hydroponics.graphql",
+      "schemaUrl": "http://hydroponics-service:3000/graphql"
     },
     {
       "name": "messaging",
@@ -89,16 +60,58 @@
       "urlEnv": "MESSAGING_SERVICE_URL",
       "localUrl": "http://messaging-service:3000/graphql",
       "routingUrl": "http://messaging-service:3000/graphql",
-      "schemaUrl": "http://messaging-service:3000/graphql",
-      "schemaArtifactPath": "dist/graphql/subgraphs/messaging.graphql"
+      "schemaArtifactPath": "dist/graphql/subgraphs/messaging.graphql",
+      "schemaUrl": "http://messaging-service:3000/graphql"
+    },
+    {
+      "name": "alert",
+      "nxProject": "alert-engine",
+      "urlEnv": "ALERT_SERVICE_URL",
+      "localUrl": "http://localhost:3004/graphql",
+      "routingUrl": "http://alert-engine:3000/graphql",
+      "schemaArtifactPath": "dist/graphql/subgraphs/alert.graphql",
+      "schemaUrl": "http://alert-engine:3000/graphql"
+    },
+    {
+      "name": "billing",
+      "nxProject": "billing-service",
+      "urlEnv": "BILLING_SERVICE_URL",
+      "localUrl": "http://localhost:3006/graphql",
+      "routingUrl": "http://billing-service:3000/graphql",
+      "schemaArtifactPath": "dist/graphql/subgraphs/billing.graphql",
+      "schemaUrl": "http://billing-service:3000/graphql"
+    },
+    {
+      "name": "notification",
+      "nxProject": "notification-service",
+      "urlEnv": "NOTIFICATION_SERVICE_URL",
+      "localUrl": "http://localhost:4008/graphql",
+      "routingUrl": "http://notification-service:3000/graphql",
+      "schemaArtifactPath": "dist/graphql/subgraphs/notification.graphql",
+      "schemaUrl": "http://notification-service:3000/graphql"
+    },
+    {
+      "name": "config",
+      "nxProject": "config-service",
+      "urlEnv": "CONFIG_SERVICE_URL",
+      "localUrl": "http://localhost:3007/graphql",
+      "routingUrl": "http://config-service:3000/graphql",
+      "schemaArtifactPath": "dist/graphql/subgraphs/config.graphql",
+      "schemaUrl": "http://config-service:3000/graphql"
     }
   ],
   "excludedFederatedServices": [
     {
+      "name": "admin-api-service",
+      "owner": "platform-service-catalog",
+      "removeAfterRelease": "2026.09",
+      "reason": "admin-api-service is not registered in gatewaySubgraphs(); promotion requires catalog gatewayParticipation change"
+    },
+    {
       "name": "ai-service",
-      "owner": "platform-architecture",
-      "removeAfterRelease": "router-canary-promotion",
-      "reason": "ai-service exposes ApolloFederationDriver but is not registered in the current production gateway; it must be promoted explicitly with composition, health, and tenant propagation tests."
+      "owner": "platform-service-catalog",
+      "removeAfterRelease": "2026.09",
+      "reason": "ai-service exposes a dormant federation driver but is not deployed or routed by the gateway"
     }
   ]
 }

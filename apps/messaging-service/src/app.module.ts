@@ -20,7 +20,7 @@ import { APP_GUARD, Reflector } from '@nestjs/core';
 import {
   ApolloFederationDriver,
   ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
+} from '@platform/graphql-apollo5';
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import {

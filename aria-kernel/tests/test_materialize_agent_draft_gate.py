@@ -17,13 +17,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.agent_genesis import materialize_agent_draft
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class MaterializeAgentDraftGateTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-e6-"))
         self.base = self.tmp / "aria-tools"
+        ensure_tools_binding(self.base, workspace_root=_REPO_ROOT)
         from aria_kernel.runtime_profile import set_profile
         set_profile("standard", operator_approval_ref="t", base_dir=self.base)
         # Plan ARIA-V3 §A4 + §A5 — gate.acquire_or_consume calls

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -39,6 +41,7 @@ DEFAULT_HEARTBEAT_EXTEND_SECONDS = 1800
 DEFAULT_MAX_REQUEUES = 2
 LEASE_TOKEN_BYTES = 24
 MAX_AGENT_ARTIFACT_BYTES = 5 * 1024 * 1024
+DEFAULT_BASE_BRANCH = "main"
 
 # Derived states for a request when the queue layer is queried via
 # derive_request_state(). The legacy `state` field on requests.jsonl rows
@@ -75,6 +78,193 @@ def _sha256_payload(payload: dict[str, Any]) -> str:
         default=str,
     )
     return _sha256_text(raw)
+
+
+@dataclass(frozen=True, slots=True)
+class RepoContextPackV1:
+    schema_version: int
+    target_ref: str
+    target_sha: str
+    git_head_sha_at_context: str
+    base_branch: str
+    validation_matrix_hash: str
+    discovery_hash: str
+    service_map_hash: str
+    belief_hash: str
+    capability_gap_hash: str
+    agent_network_hash: str
+    semantic_hash: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "target_ref": self.target_ref,
+            "target_sha": self.target_sha,
+            "git_head_sha_at_context": self.git_head_sha_at_context,
+            "base_branch": self.base_branch,
+            "validation_matrix_hash": self.validation_matrix_hash,
+            "discovery_hash": self.discovery_hash,
+            "service_map_hash": self.service_map_hash,
+            "belief_hash": self.belief_hash,
+            "capability_gap_hash": self.capability_gap_hash,
+            "agent_network_hash": self.agent_network_hash,
+            "semantic_hash": self.semantic_hash,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ImplementationRequestTransaction:
+    schema_version: int
+    plan_id: str
+    target_sha: str
+    repo_context_pack_hash: str
+    validation_matrix_hash: str
+    implementation_event: dict[str, Any]
+    invocation_request: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "plan_id": self.plan_id,
+            "target_sha": self.target_sha,
+            "repo_context_pack_hash": self.repo_context_pack_hash,
+            "validation_matrix_hash": self.validation_matrix_hash,
+            "implementation_event": self.implementation_event,
+            "invocation_request": self.invocation_request,
+        }
+
+
+def _require_sha256_digest(value: str | None, field: str) -> str:
+    if not _is_sha256_digest(value):
+        raise GovernanceError(f"{field}_must_be_sha256")
+    return str(value)
+
+
+def _git_commit_sha(workspace_root: str | Path, ref: str = "HEAD") -> str:
+    root = Path(workspace_root).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise GovernanceError("workspace_root_must_be_existing_directory")
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except OSError as exc:
+        raise GovernanceError("git_rev_parse_unavailable") from exc
+    if proc.returncode != 0:
+        raise GovernanceError(
+            f"git_ref_unresolvable: ref={ref!r} stderr={proc.stderr.strip()!r}"
+        )
+    sha = proc.stdout.strip()
+    if not sha:
+        raise GovernanceError("git_ref_unresolvable_empty_sha")
+    return sha
+
+
+def _sha256_or_hash_payload(value: Any, field: str) -> str:
+    if isinstance(value, str) and _is_sha256_digest(value):
+        return value
+    if value is None:
+        raise GovernanceError(f"{field}_required")
+    return _sha256_payload({field: value})
+
+
+def _load_bound_workspace_root(root: Path) -> Path | None:
+    identity_path = root / "repo_identity.json"
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    raw = identity.get("bound_repo_root")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    return Path(raw).expanduser().resolve()
+
+
+def _require_request_target_sha_current(
+    *,
+    request: dict[str, Any],
+    workspace_root: str | Path | None,
+    root: Path,
+    boundary: str,
+) -> None:
+    target_sha = request.get("target_sha")
+    if not target_sha:
+        return
+    if not isinstance(target_sha, str):
+        raise GovernanceError(f"{boundary}_target_sha_invalid")
+    repo_root = Path(workspace_root).expanduser().resolve() if workspace_root else _load_bound_workspace_root(root)
+    if repo_root is None:
+        raise GovernanceError(f"{boundary}_target_sha_requires_bound_workspace")
+    head = _git_commit_sha(repo_root, "HEAD")
+    if head != target_sha:
+        raise GovernanceError(
+            f"{boundary}_target_sha_mismatch: expected={target_sha} actual={head}"
+        )
+
+
+def build_repo_context_pack_v1(
+    *,
+    workspace_root: str | Path,
+    target_ref: str = "HEAD",
+    base_branch: str = DEFAULT_BASE_BRANCH,
+    validation_matrix: list[dict[str, Any]] | dict[str, Any],
+    discovery_hash: str,
+    service_map_hash: str,
+    belief_hash: str,
+    capability_gap_hash: str,
+    agent_network_hash: str,
+) -> RepoContextPackV1:
+    if not str(target_ref or "").strip():
+        raise GovernanceError("repo_context_pack_target_ref_required")
+    if not str(base_branch or "").strip():
+        raise GovernanceError("repo_context_pack_base_branch_required")
+    validation_matrix_hash = _sha256_or_hash_payload(
+        validation_matrix,
+        "validation_matrix",
+    )
+    component_hashes = {
+        "discovery_hash": discovery_hash,
+        "service_map_hash": service_map_hash,
+        "belief_hash": belief_hash,
+        "capability_gap_hash": capability_gap_hash,
+        "agent_network_hash": agent_network_hash,
+    }
+    for field, value in component_hashes.items():
+        _require_sha256_digest(value, field)
+    target_sha = _git_commit_sha(workspace_root, target_ref)
+    head_sha = _git_commit_sha(workspace_root, "HEAD")
+    if head_sha != target_sha:
+        raise GovernanceError(
+            f"repo_context_pack_target_sha_mismatch: expected={target_sha} actual={head_sha}"
+        )
+    payload = {
+        "schema_version": 1,
+        "target_ref": target_ref,
+        "target_sha": target_sha,
+        "git_head_sha_at_context": head_sha,
+        "base_branch": base_branch,
+        "validation_matrix_hash": validation_matrix_hash,
+        **component_hashes,
+    }
+    return RepoContextPackV1(
+        schema_version=1,
+        target_ref=target_ref,
+        target_sha=target_sha,
+        git_head_sha_at_context=head_sha,
+        base_branch=base_branch,
+        validation_matrix_hash=validation_matrix_hash,
+        discovery_hash=discovery_hash,
+        service_map_hash=service_map_hash,
+        belief_hash=belief_hash,
+        capability_gap_hash=capability_gap_hash,
+        agent_network_hash=agent_network_hash,
+        semantic_hash=_sha256_payload(payload),
+    )
 
 
 def _contexts_path(root: Path) -> Path:
@@ -393,6 +583,11 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
     impact_refs = request.get("impact_graph_refs") or []
     validation_cmds = request.get("validation_commands") or []
     expected_path = request.get("expected_output_path", "")
+    target_ref = request.get("target_ref") or ""
+    target_sha = request.get("target_sha") or ""
+    base_branch = request.get("base_branch") or ""
+    repo_context_pack_hash = request.get("repo_context_pack_hash") or ""
+    validation_matrix_hash = request.get("validation_matrix_hash") or ""
 
     must_satisfy_block = ""
     if isinstance(must_satisfy, list) and must_satisfy:
@@ -416,6 +611,11 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"**Role**: {request.get('role', 'unknown')}\n"
         f"**Target agent**: {request.get('target_agent', 'unknown')}\n"
         f"**Convergence ID**: {request.get('convergence_id', 'n/a')}\n"
+        f"**Target ref**: `{target_ref or 'n/a'}`\n"
+        f"**Target SHA**: `{target_sha or 'n/a'}`\n"
+        f"**Base branch**: `{base_branch or 'n/a'}`\n"
+        f"**Repo context pack hash**: `{repo_context_pack_hash or 'n/a'}`\n"
+        f"**Validation matrix hash**: `{validation_matrix_hash or 'n/a'}`\n"
         f"**Expected output path**: `{expected_path}`\n\n"
         f"## Suggested prompt\n\n{suggested_prompt}\n\n"
         f"## Instruction framing\n\n"
@@ -450,6 +650,12 @@ def build_invocation_context(
     budget_audit_hash: str | None = None,
     context_repo_root: str | Path | None = None,
     context_window_tokens: int | None = None,
+    target_ref: str | None = None,
+    target_sha: str | None = None,
+    git_head_sha_at_context: str | None = None,
+    base_branch: str | None = None,
+    repo_context_pack_hash: str | None = None,
+    validation_matrix_hash: str | None = None,
 ) -> dict[str, Any]:
     prompt_semantic_hash = _sha256_text(rendered_prompt)
     payload: dict[str, Any] = {
@@ -466,6 +672,12 @@ def build_invocation_context(
         "budget_audit_hash": budget_audit_hash,
         "repo_root": str(Path(context_repo_root).resolve()) if context_repo_root else None,
         "context_window_tokens": context_window_tokens,
+        "target_ref": target_ref,
+        "target_sha": target_sha,
+        "git_head_sha_at_context": git_head_sha_at_context,
+        "base_branch": base_branch,
+        "repo_context_pack_hash": repo_context_pack_hash,
+        "validation_matrix_hash": validation_matrix_hash,
         "created_at": utc_now(),
     }
     payload["context_semantic_hash"] = _context_semantic_hash(payload)
@@ -646,6 +858,12 @@ def create_agent_invocation_request(
     context_window_tokens_override: int | None = None,
     role_cap_override: dict[str, float] | None = None,
     plan_revision_hash: str | None = None,
+    target_ref: str | None = None,
+    target_sha: str | None = None,
+    base_branch: str | None = None,
+    repo_context_pack: dict[str, Any] | None = None,
+    repo_context_pack_hash: str | None = None,
+    validation_matrix_hash: str | None = None,
     # Plan ARIA-V3.1-B2 — V9 cycle + plan-source provenance threading.
     # Additive optional fields (no schema_version bump needed; legacy
     # readers ignore unknown keys, new readers see None for old rows).
@@ -709,6 +927,48 @@ def create_agent_invocation_request(
                 raise GovernanceError(
                     "create_agent_invocation_request_evidence_refs_must_be_list_of_strings"
                 )
+    if any(
+        value is not None
+        for value in (
+            target_ref,
+            target_sha,
+            base_branch,
+            repo_context_pack,
+            repo_context_pack_hash,
+            validation_matrix_hash,
+        )
+    ):
+        if context_repo_root is None:
+            raise GovernanceError("enterprise_invocation_binding_requires_context_repo_root")
+        if not target_ref or not str(target_ref).strip():
+            raise GovernanceError("enterprise_invocation_target_ref_required")
+        _require_sha256_digest(repo_context_pack_hash, "repo_context_pack_hash")
+        _require_sha256_digest(validation_matrix_hash, "validation_matrix_hash")
+        if not isinstance(repo_context_pack, dict):
+            raise GovernanceError("repo_context_pack_required")
+        pack_target_sha = repo_context_pack.get("target_sha")
+        if target_sha is None:
+            target_sha = str(pack_target_sha or "")
+        if pack_target_sha != target_sha:
+            raise GovernanceError("repo_context_pack_target_sha_mismatch")
+        if repo_context_pack.get("semantic_hash") != repo_context_pack_hash:
+            raise GovernanceError("repo_context_pack_hash_mismatch")
+        if repo_context_pack.get("validation_matrix_hash") != validation_matrix_hash:
+            raise GovernanceError("repo_context_pack_validation_matrix_hash_mismatch")
+        resolved_target_sha = _git_commit_sha(context_repo_root, str(target_ref))
+        if resolved_target_sha != target_sha:
+            raise GovernanceError(
+                f"enterprise_invocation_target_ref_sha_mismatch: "
+                f"target_ref={target_ref!r} expected={target_sha} actual={resolved_target_sha}"
+            )
+        current_head = _git_commit_sha(context_repo_root, "HEAD")
+        if current_head != target_sha:
+            raise GovernanceError(
+                f"enterprise_invocation_head_target_sha_mismatch: "
+                f"expected={target_sha} actual={current_head}"
+            )
+        if not base_branch or not str(base_branch).strip():
+            raise GovernanceError("enterprise_invocation_base_branch_required")
     root = _ensure_bound_tools_root(base_dir, workspace_root=context_repo_root)
     request_id = _request_id(
         target_agent,
@@ -725,6 +985,11 @@ def create_agent_invocation_request(
             "must_satisfy": list(must_satisfy or []),
             "plan_revision_hash": plan_revision_hash,
             "pressure_event_id": pressure_event_id,
+            "target_ref": target_ref,
+            "target_sha": target_sha,
+            "base_branch": base_branch,
+            "repo_context_pack_hash": repo_context_pack_hash,
+            "validation_matrix_hash": validation_matrix_hash,
             "run_id": run_id,
             "tool_id": tool_id,
         },
@@ -826,6 +1091,21 @@ def create_agent_invocation_request(
         "cycle_id": cycle_id,
         "pressure_source_type": pressure_source_type,
     }
+    if target_ref is not None:
+        row["target_ref"] = str(target_ref)
+    if target_sha is not None:
+        row["target_sha"] = str(target_sha)
+    if base_branch is not None:
+        row["base_branch"] = str(base_branch)
+    if repo_context_pack_hash is not None:
+        row["repo_context_pack_hash"] = str(repo_context_pack_hash)
+    if validation_matrix_hash is not None:
+        row["validation_matrix_hash"] = str(validation_matrix_hash)
+    if repo_context_pack is not None:
+        row["repo_context_pack"] = repo_context_pack
+        row["git_head_sha_at_context"] = str(
+            repo_context_pack.get("git_head_sha_at_context") or ""
+        )
     # Plan 024 §B-2 — when the caller opted out of strict enforcement,
     # emit a governance event capturing target_agent + role + missing
     # fields so the operator audit trail records every legacy creation.
@@ -898,6 +1178,12 @@ def create_agent_invocation_request(
             budget_audit_hash=str(persisted_audit.get("ledger_hash") or ""),
             context_repo_root=context_repo_root,
             context_window_tokens=int(budget_audit.get("context_window_tokens") or 0) or None,
+            target_ref=str(target_ref) if target_ref is not None else None,
+            target_sha=str(target_sha) if target_sha is not None else None,
+            git_head_sha_at_context=str(row.get("git_head_sha_at_context") or "") or None,
+            base_branch=str(base_branch) if base_branch is not None else None,
+            repo_context_pack_hash=str(repo_context_pack_hash) if repo_context_pack_hash is not None else None,
+            validation_matrix_hash=str(validation_matrix_hash) if validation_matrix_hash is not None else None,
         )
         prompt_row = {
             "schema_version": 1,
@@ -968,6 +1254,83 @@ def create_agent_invocation_request(
         },
     )
     return persisted_request
+
+
+def mint_implementation_request_transaction(
+    *,
+    plan_id: str,
+    implementer_agent: str,
+    suggested_prompt: str,
+    converged_plan_revision_id: str,
+    converged_plan_content_hash: str,
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    target_ref: str = "HEAD",
+    base_branch: str = DEFAULT_BASE_BRANCH,
+    validation_matrix: list[dict[str, Any]] | dict[str, Any],
+    must_satisfy: list[dict[str, Any]],
+    allowed_scope: list[str],
+    evidence_refs: list[str] | None = None,
+    discovery_hash: str,
+    service_map_hash: str,
+    belief_hash: str,
+    capability_gap_hash: str,
+    agent_network_hash: str,
+) -> dict[str, Any]:
+    """Mint an implementation request bound to a repo context pack.
+
+    The existing plan-convergence ledger and agent-invocation ledgers use
+    different append primitives, so this helper is the kernel-owned
+    transaction surface that validates all revision-bound inputs before
+    either public lifecycle API is invoked and returns the exact hashes
+    needed to audit the link.
+    """
+    repo_pack = build_repo_context_pack_v1(
+        workspace_root=workspace_root,
+        target_ref=target_ref,
+        base_branch=base_branch,
+        validation_matrix=validation_matrix,
+        discovery_hash=discovery_hash,
+        service_map_hash=service_map_hash,
+        belief_hash=belief_hash,
+        capability_gap_hash=capability_gap_hash,
+        agent_network_hash=agent_network_hash,
+    )
+    request = create_agent_invocation_request(
+        target_agent=implementer_agent,
+        role="implementation",
+        suggested_prompt=suggested_prompt,
+        must_satisfy=must_satisfy,
+        allowed_scope=allowed_scope,
+        evidence_refs=evidence_refs,
+        convergence_id=plan_id,
+        base_dir=base_dir,
+        context_repo_root=workspace_root,
+        target_ref=repo_pack.target_ref,
+        target_sha=repo_pack.target_sha,
+        base_branch=repo_pack.base_branch,
+        repo_context_pack=repo_pack.to_dict(),
+        repo_context_pack_hash=repo_pack.semantic_hash,
+        validation_matrix_hash=repo_pack.validation_matrix_hash,
+    )
+    from . import plan_convergence
+
+    implementation_event = plan_convergence.request_implementation(
+        plan_id=plan_id,
+        implementer_agent=implementer_agent,
+        converged_plan_revision_id=converged_plan_revision_id,
+        converged_plan_content_hash=converged_plan_content_hash,
+        base_dir=base_dir,
+    )
+    return ImplementationRequestTransaction(
+        schema_version=1,
+        plan_id=plan_id,
+        target_sha=repo_pack.target_sha,
+        repo_context_pack_hash=repo_pack.semantic_hash,
+        validation_matrix_hash=repo_pack.validation_matrix_hash,
+        implementation_event=implementation_event,
+        invocation_request=request,
+    ).to_dict()
 
 
 def _submit_legacy_invocation_result_internal(
@@ -1483,6 +1846,12 @@ def claim_request(
         # forces operator backfill BEFORE work is leased.
         request_for_check = _find_request(root, request_id)
         _strict_request_view(request_for_check)
+        _require_request_target_sha_current(
+            request=request_for_check,
+            workspace_root=None,
+            root=root,
+            boundary="claim_request",
+        )
         # Plan 024 §H-1 — defense-in-depth CAS recheck. After the lock
         # fires the state is re-derived; if it changed (e.g. another
         # worker released or stale-marked the request between our read
@@ -1587,6 +1956,12 @@ def claim_request(
         "plan_revision_hash": envelope.get("plan_revision_hash"),
         "context_hash": envelope.get("context_hash"),
         "prompt_hash": envelope.get("prompt_hash"),
+        "target_ref": envelope.get("target_ref"),
+        "target_sha": envelope.get("target_sha"),
+        "base_branch": envelope.get("base_branch"),
+        "repo_context_pack_hash": envelope.get("repo_context_pack_hash"),
+        "validation_matrix_hash": envelope.get("validation_matrix_hash"),
+        "git_head_sha_at_context": envelope.get("git_head_sha_at_context"),
         "context_ledger_hash": envelope.get("context_ledger_hash"),
         "prompt_ledger_hash": envelope.get("prompt_ledger_hash"),
         "budget_audit_hash": envelope.get("budget_audit_hash"),
@@ -1870,6 +2245,12 @@ def submit_claim_result(
 
     request_id = claim_event["request_id"]
     request = _find_request(root, request_id)
+    _require_request_target_sha_current(
+        request=request,
+        workspace_root=workspace_root,
+        root=root,
+        boundary="submit_claim_result",
+    )
     binding = verify_invocation_context_binding(
         request_id=request_id,
         context_hash=str(context_hash or ""),
@@ -2224,6 +2605,12 @@ def submit_claim_result(
             "prompt_hash": prompt_hash,
             "prompt_semantic_hash": binding["prompt"].get("prompt_semantic_hash"),
             "prompt_record_hash": binding["prompt"].get("prompt_record_hash"),
+            "target_ref": request.get("target_ref"),
+            "target_sha": request.get("target_sha"),
+            "base_branch": request.get("base_branch"),
+            "repo_context_pack_hash": request.get("repo_context_pack_hash"),
+            "validation_matrix_hash": request.get("validation_matrix_hash"),
+            "git_head_sha_at_context": request.get("git_head_sha_at_context"),
             "transcript_hash": transcript_hash,
             "transcript_artifact_ref": transcript_artifact.path.as_posix(),
             "context_ledger_hash": binding["context"].get("ledger_hash"),

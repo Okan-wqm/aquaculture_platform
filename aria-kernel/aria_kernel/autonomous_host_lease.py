@@ -64,6 +64,7 @@ from .tool_registry import (
 
 _LOCKS_DIR_RELATIVE = ("locks",)
 _LEASE_FILENAME = "autonomous-host.lock"
+_REMOTE_CAS_LEASE_FILENAME = "autonomous-host.cas.json"
 _LEASE_DURATION_MINUTES: int = 5
 
 
@@ -89,12 +90,35 @@ class HostLease:
         return expires > datetime.now(timezone.utc)
 
 
+@dataclass(frozen=True)
+class RemoteCasLease:
+    lease_id: str
+    target_ref: str
+    head_sha: str
+    owner: str
+    lease_acquired_at: str
+    lease_expires_at: str
+
+    def is_fresh(self) -> bool:
+        try:
+            expires = datetime.fromisoformat(
+                self.lease_expires_at.replace("Z", "+00:00")
+            )
+        except ValueError:
+            return False
+        return expires > datetime.now(timezone.utc)
+
+
 def _locks_dir(base_dir: str | Path) -> Path:
     return Path(base_dir).joinpath(*_LOCKS_DIR_RELATIVE)
 
 
 def _lease_path(base_dir: str | Path) -> Path:
     return _locks_dir(base_dir) / _LEASE_FILENAME
+
+
+def _remote_cas_lease_path(base_dir: str | Path) -> Path:
+    return _locks_dir(base_dir) / _REMOTE_CAS_LEASE_FILENAME
 
 
 def _resolve_host_id() -> str:
@@ -153,6 +177,48 @@ def _atomic_write_lease(path: Path, lease: HostLease) -> None:
     tmp.replace(path)
 
 
+def _read_remote_cas_lease(base_dir: str | Path) -> RemoteCasLease | None:
+    path = _remote_cas_lease_path(base_dir)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    try:
+        return RemoteCasLease(
+            lease_id=str(payload["lease_id"]),
+            target_ref=str(payload["target_ref"]),
+            head_sha=str(payload["head_sha"]),
+            owner=str(payload["owner"]),
+            lease_acquired_at=str(payload["lease_acquired_at"]),
+            lease_expires_at=str(payload["lease_expires_at"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _atomic_write_remote_cas_lease(path: Path, lease: RemoteCasLease) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    tmp.write_text(
+        json.dumps(
+            {
+                "lease_id": lease.lease_id,
+                "target_ref": lease.target_ref,
+                "head_sha": lease.head_sha,
+                "owner": lease.owner,
+                "lease_acquired_at": lease.lease_acquired_at,
+                "lease_expires_at": lease.lease_expires_at,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+
+
 def _build_lease(host_id: str, pid: int) -> HostLease:
     now = _utc_now()
     return HostLease(
@@ -163,6 +229,87 @@ def _build_lease(host_id: str, pid: int) -> HostLease:
         .isoformat()
         .replace("+00:00", "Z"),
     )
+
+
+def _build_remote_cas_lease(*, target_ref: str, head_sha: str, owner: str) -> RemoteCasLease:
+    import hashlib
+
+    now = _utc_now()
+    lease_id = hashlib.sha256(
+        f"{target_ref}\0{head_sha}\0{owner}\0{now.isoformat()}".encode("utf-8")
+    ).hexdigest()[:16]
+    return RemoteCasLease(
+        lease_id=lease_id,
+        target_ref=target_ref,
+        head_sha=head_sha,
+        owner=owner,
+        lease_acquired_at=now.isoformat().replace("+00:00", "Z"),
+        lease_expires_at=(now + timedelta(minutes=_LEASE_DURATION_MINUTES))
+        .isoformat()
+        .replace("+00:00", "Z"),
+    )
+
+
+def acquire_remote_cas_lease(
+    *,
+    base_dir: str | Path,
+    target_ref: str,
+    head_sha: str,
+    owner: str,
+) -> RemoteCasLease:
+    if not target_ref.strip() or not head_sha.strip() or not owner.strip():
+        raise GovernanceError("remote_cas_lease_requires_target_ref_head_sha_owner")
+    root = ensure_tools_dir(base_dir)
+    existing = _read_remote_cas_lease(root)
+    if existing is not None and existing.is_fresh() and existing.owner != owner:
+        append_tools_governance(
+            root,
+            "autonomous_host_remote_cas_lease_blocked",
+            {
+                "requesting_owner": owner,
+                "existing_owner": existing.owner,
+                "target_ref": target_ref,
+                "head_sha": head_sha,
+                "existing_lease_id": existing.lease_id,
+            },
+        )
+        raise GovernanceError(
+            f"autonomous_host_remote_cas_lease_blocked: owner={existing.owner!r}"
+        )
+    fresh = _build_remote_cas_lease(
+        target_ref=target_ref,
+        head_sha=head_sha,
+        owner=owner,
+    )
+    _atomic_write_remote_cas_lease(_remote_cas_lease_path(root), fresh)
+    append_tools_governance(
+        root,
+        "autonomous_host_remote_cas_lease_acquired",
+        {
+            "lease_id": fresh.lease_id,
+            "target_ref": target_ref,
+            "head_sha": head_sha,
+            "owner": owner,
+            "predecessor_was_stale": existing is not None and not existing.is_fresh(),
+        },
+    )
+    return fresh
+
+
+def remote_cas_lease_state(base_dir: str | Path) -> dict[str, Any]:
+    existing = _read_remote_cas_lease(base_dir)
+    if existing is None:
+        return {"state": "no_lease"}
+    state = "fresh" if existing.is_fresh() else "stale"
+    return {
+        "state": state,
+        "lease_id": existing.lease_id,
+        "target_ref": existing.target_ref,
+        "head_sha": existing.head_sha,
+        "owner": existing.owner,
+        "lease_acquired_at": existing.lease_acquired_at,
+        "lease_expires_at": existing.lease_expires_at,
+    }
 
 
 def acquire_lease(
@@ -299,7 +446,10 @@ def lease_state(base_dir: str | Path) -> dict[str, Any]:
 
 __all__ = [
     "HostLease",
+    "RemoteCasLease",
     "acquire_lease",
+    "acquire_remote_cas_lease",
     "lease_state",
+    "remote_cas_lease_state",
     "release_lease",
 ]

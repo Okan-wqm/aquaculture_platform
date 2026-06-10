@@ -505,35 +505,8 @@ export async function applyTenantRlsToSchema(
       );
       continue;
     }
-    // Step 1: ENABLE then FORCE RLS. ENABLE turns it on for non-owners, FORCE
-    // extends it to the table owner. We need both because the application
-    // connects as the schema owner (`aquaculture`).
-    await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" ENABLE ROW LEVEL SECURITY`,
-    );
-    await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" FORCE ROW LEVEL SECURITY`,
-    );
-
-    // Step 2: drop any pre-existing policy with the canonical name. This is
-    // what makes the helper a forward-migration tool — predicate changes
-    // (like the NULLIF fix) are applied by simply re-running the helper.
-    await qr.query(
-      `DROP POLICY IF EXISTS "${TENANT_ISOLATION_POLICY_NAME}" ` +
-        `ON "${schema}"."${tableName}"`,
-    );
-
-    // Step 3: create the policy with the canonical bypass-aware predicate.
-    // FOR ALL covers SELECT/INSERT/UPDATE/DELETE — for INSERT and UPDATE the
-    // USING clause acts as the WITH CHECK clause too, so writers cannot
-    // insert rows for other tenants either.
-    const usingClause = buildTenantPolicyUsingClause(tenantColumn);
-    await qr.query(
-      `CREATE POLICY "${TENANT_ISOLATION_POLICY_NAME}" ` +
-        `ON "${schema}"."${tableName}" ` +
-        `FOR ALL ` +
-        `USING ${usingClause} ` +
-        `WITH CHECK ${usingClause}`,
+    logger.warn(
+      `[apply-tenant-rls] db-migrate owns RLS hardening for "${schema}"."${tableName}"; runtime helper is read-only`,
     );
 
     logger.log(
@@ -585,15 +558,8 @@ export async function removeTenantRlsFromSchema(
   for (const { tableName } of tables) {
     assertSafeIdentifier(tableName, 'tableName');
 
-    await qr.query(
-      `DROP POLICY IF EXISTS "${TENANT_ISOLATION_POLICY_NAME}" ` +
-        `ON "${schema}"."${tableName}"`,
-    );
-
-    // NO FORCE first, then DISABLE. Order matters: DISABLE on a FORCEd table
-    // is a no-op for the owner but PostgreSQL accepts it without error.
-    await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" NO FORCE ROW LEVEL SECURITY`,
+    logger.warn(
+      `[apply-tenant-rls] db-migrate owns RLS rollback for "${schema}"."${tableName}"; runtime helper is read-only`,
     );
     await qr.query(
       `ALTER TABLE "${schema}"."${tableName}" DISABLE ROW LEVEL SECURITY`,

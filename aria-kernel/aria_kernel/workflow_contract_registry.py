@@ -84,6 +84,26 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 post_artifact_manifest="aria-agent-executor-artifacts.json",
                 upload_requires_always=True,
             ),
+            WorkflowJobContract(
+                job_id="executor",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step="Write scrubbed executor failure proof",
+                allowed_write_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-agent-executor-failure-proof\.json$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-executor-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-response-failure-{_REQUEST_ID}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-agent-executor-failure-proof\.json$",
+                ),
+                retention_days=7,
+                required_permissions=(("contents", "read"),),
+                token_source="github_actions_artifact_token",
+                network_policy=("actions_runtime", "github_artifact", "github_git"),
+                dlp_artifact="aria-agent-executor-failure-proof.json",
+                clean_worktree_policy="preflight_only_foundation",
+                external_root_allowlist=("RUNNER_TEMP",),
+            ),
         ),
     ),
     "aria-agent-eval": WorkflowContract(
@@ -106,6 +126,71 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 token_source="github_actions_artifact_token",
                 network_policy=("actions_runtime", "github_artifact", "github_git"),
                 dlp_artifact="aria-agent-eval-preflight.json",
+                clean_worktree_policy="preflight_only_foundation",
+                external_root_allowlist=("RUNNER_TEMP",),
+            ),
+        ),
+    ),
+    "aria-operational-proof": WorkflowContract(
+        workflow_id="aria-operational-proof",
+        workflow_file=".github/workflows/aria-operational-proof.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="proof",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step="Run observe burn-in proof",
+                allowed_write_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-operational-proof$",
+                    rf"^{_RUNNER_TEMP}/aria-tools$",
+                    rf"^{_RUNNER_TEMP}/aria-workspaces$",
+                    rf"^{_RUNNER_TEMP}/aria-cache$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-operational-proof/workflow-preflight\.json$",
+                upload_artifact_name_pattern=rf"^aria-operational-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/aria-operational-proof/autonomy-burn-in-report\.json$",
+                    rf"^{_RUNNER_TEMP}/aria-operational-proof/evidence-bundle\.json$",
+                    rf"^{_RUNNER_TEMP}/aria-operational-proof/proof-manifest-v2\.json$",
+                ),
+                retention_days=365,
+                required_permissions=(("contents", "read"),),
+                token_source="github_actions_artifact_token",
+                network_policy=(
+                    "actions_runtime",
+                    "github_artifact",
+                    "github_git",
+                    "npm_registry",
+                    "pypi",
+                ),
+                dlp_artifact="workflow-preflight.json",
+                clean_worktree_policy="preflight_only_foundation",
+                external_root_allowlist=("RUNNER_TEMP",),
+            ),
+        ),
+    ),
+    "production-post-deploy-verify": WorkflowContract(
+        workflow_id="production-post-deploy-verify",
+        workflow_file=".github/workflows/production-post-deploy-verify.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="verify",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step="Run release-ledger, digest, and health proof on droplet",
+                allowed_write_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/production-post-deploy$",
+                    rf"^{_RUNNER_TEMP}/ssh$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/production-post-deploy/workflow-preflight\.json$",
+                upload_artifact_name_pattern=r"^production-post-deploy-evidence-\$\{\{\s*steps\.target\.outputs\.target_sha\s*\}\}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/production-post-deploy/production-post-deploy-evidence\.json$",
+                    rf"^{_RUNNER_TEMP}/production-post-deploy/workflow-preflight\.json$",
+                ),
+                retention_days=30,
+                required_permissions=(("contents", "read"),),
+                token_source="github_actions_artifact_token",
+                network_policy=("actions_runtime", "github_artifact", "github_git", "production_ssh"),
+                dlp_artifact="production-post-deploy-evidence.json",
                 clean_worktree_policy="preflight_only_foundation",
                 external_root_allowlist=("RUNNER_TEMP",),
             ),
@@ -246,9 +331,14 @@ def workflow_contract_hash(contract: WorkflowContract) -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def workflow_job_contract_hash(workflow_id: str, job_id: str) -> str | None:
+def workflow_job_contract_hash(
+    workflow_id: str,
+    job_id: str,
+    *,
+    job_contract: WorkflowJobContract | None = None,
+) -> str | None:
     contract = WORKFLOW_CONTRACTS.get(workflow_id)
-    job = workflow_job_contract(workflow_id, job_id)
+    job = job_contract or workflow_job_contract(workflow_id, job_id)
     if contract is None or job is None:
         return None
     payload = {

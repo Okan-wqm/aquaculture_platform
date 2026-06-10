@@ -7,8 +7,6 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 
 import {
   TenantConfiguration,
@@ -25,6 +23,10 @@ import {
   ApiKeyConfig,
   WebhookConfig,
 } from '../entities/tenant-configuration.entity';
+import {
+  ADMIN_API_CONFIG_SERVICE,
+  ConfigServiceAdminProxy,
+} from './config-service-admin-proxy.service';
 
 // ============================================================================
 // DTOs
@@ -104,8 +106,7 @@ export class TenantConfigurationService {
   private readonly logger = new Logger(TenantConfigurationService.name);
 
   constructor(
-    @InjectRepository(TenantConfiguration)
-    private readonly configRepository: Repository<TenantConfiguration>,
+    private readonly configServiceProxy: ConfigServiceAdminProxy,
   ) {}
 
   // ============================================================================
@@ -116,19 +117,17 @@ export class TenantConfigurationService {
    * Create default configuration for a new tenant
    */
   async createConfiguration(dto: CreateTenantConfigurationDto): Promise<TenantConfiguration> {
-    // Check if configuration already exists
-    const existing = await this.configRepository.findOne({
-      where: { tenantId: dto.tenantId },
-    });
-
+    const existing = await this.configServiceProxy.getConfiguration(
+      dto.tenantId,
+      ADMIN_API_CONFIG_SERVICE,
+      'tenant.configuration',
+    );
     if (existing) {
       throw new ConflictException(`Configuration for tenant ${dto.tenantId} already exists`);
     }
 
-    // Create with defaults and merge provided values
     const defaults = createDefaultTenantConfiguration(dto.tenantId);
-
-    const config = this.configRepository.create({
+    const config = {
       ...defaults,
       userLimits: { ...defaults.userLimits, ...dto.userLimits } as UserLimitsConfig,
       storageConfig: { ...defaults.storageConfig, ...dto.storageConfig } as StorageConfig,
@@ -139,26 +138,33 @@ export class TenantConfigurationService {
       securityConfig: { ...defaults.securityConfig, ...dto.securityConfig } as TenantSecurityConfig,
       notificationConfig: { ...defaults.notificationConfig, ...dto.notificationConfig } as TenantNotificationConfig,
       featureFlags: { ...defaults.featureFlags, ...dto.featureFlags } as FeatureFlagsConfig,
-    });
+    } as TenantConfiguration;
 
-    const saved = await this.configRepository.save(config);
+    const saved = await this.persistTenantConfiguration(config, dto.tenantId, 'create_tenant_configuration');
     this.logger.log(`Created configuration for tenant: ${dto.tenantId}`);
     return saved;
+  }
+
+  async requestTenantConfigurationProvisioning(
+    dto: CreateTenantConfigurationDto,
+  ): Promise<TenantConfiguration> {
+    return this.createConfiguration(dto);
   }
 
   /**
    * Get configuration by tenant ID
    */
   async getConfigurationByTenantId(tenantId: string): Promise<TenantConfiguration> {
-    const config = await this.configRepository.findOne({
-      where: { tenantId },
-    });
-
+    const config = await this.configServiceProxy.getConfiguration(
+      tenantId,
+      ADMIN_API_CONFIG_SERVICE,
+      'tenant.configuration',
+    );
     if (!config) {
       throw new NotFoundException(`Configuration for tenant ${tenantId} not found`);
     }
 
-    return config;
+    return this.parseTenantConfiguration(tenantId, config.value);
   }
 
   /**
@@ -214,7 +220,7 @@ export class TenantConfigurationService {
       config.updatedBy = dto.updatedBy;
     }
 
-    const saved = await this.configRepository.save(config);
+    const saved = await this.persistTenantConfiguration(config, tenantId, dto.updatedBy ?? 'update_tenant_configuration');
     this.logger.log(`Updated configuration for tenant: ${tenantId}`);
     return saved;
   }
@@ -223,8 +229,11 @@ export class TenantConfigurationService {
    * Delete configuration (typically when tenant is deleted)
    */
   async deleteConfiguration(tenantId: string): Promise<void> {
-    const config = await this.getConfigurationByTenantId(tenantId);
-    await this.configRepository.remove(config);
+    await this.configServiceProxy.deleteConfigurationByKey(
+      tenantId,
+      ADMIN_API_CONFIG_SERVICE,
+      'tenant.configuration',
+    );
     this.logger.log(`Deleted configuration for tenant: ${tenantId}`);
   }
 
@@ -327,7 +336,7 @@ export class TenantConfigurationService {
     };
 
     config.apiConfig.apiKeys.push(keyConfig);
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
 
     this.logger.log(`Created API key "${dto.name}" for tenant: ${tenantId}`);
 
@@ -353,7 +362,7 @@ export class TenantConfigurationService {
     if (apiKey) {
       apiKey.isActive = false;
     }
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
 
     this.logger.log(`Revoked API key ${keyId} for tenant: ${tenantId}`);
   }
@@ -381,7 +390,7 @@ export class TenantConfigurationService {
 
     // Update last used
     key.lastUsedAt = new Date();
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
 
     return key;
   }
@@ -413,7 +422,7 @@ export class TenantConfigurationService {
 
     config.notificationConfig.webhooks.push(webhook);
     config.notificationConfig.webhookEnabled = true;
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
 
     this.logger.log(`Created webhook "${dto.name}" for tenant: ${tenantId}`);
     return { ...webhook, secretEncrypted: webhook.secretEncrypted ? '***' : undefined };
@@ -445,7 +454,7 @@ export class TenantConfigurationService {
     if (updates.retryEnabled !== undefined) webhook.retryEnabled = updates.retryEnabled;
     if (updates.retryCount !== undefined) webhook.retryCount = updates.retryCount;
 
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
     return { ...webhook, secretEncrypted: webhook.secretEncrypted ? '***' : undefined } as WebhookConfig;
   }
 
@@ -465,7 +474,7 @@ export class TenantConfigurationService {
       config.notificationConfig.webhookEnabled = false;
     }
 
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
     this.logger.log(`Deleted webhook ${webhookId} for tenant: ${tenantId}`);
   }
 
@@ -490,7 +499,7 @@ export class TenantConfigurationService {
     config.domainConfig.customDomainVerified = false;
     config.domainConfig.customDomainVerificationToken = verificationToken;
 
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
 
     return {
       verificationToken,
@@ -510,7 +519,7 @@ export class TenantConfigurationService {
     // for the audit trail. Real DNS verification is captured as a
     // dedicated follow-up.
     config.domainConfig.customDomainVerified = true;
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
 
     this.logger.log(`Verified custom domain for tenant: ${tenantId}`);
     return true;
@@ -559,7 +568,7 @@ export class TenantConfigurationService {
 
     if (!config.securityConfig.ipWhitelist.includes(ip)) {
       config.securityConfig.ipWhitelist.push(ip);
-      await this.configRepository.save(config);
+      await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
     }
 
     return config.securityConfig.ipWhitelist;
@@ -569,7 +578,7 @@ export class TenantConfigurationService {
     const config = await this.getConfigurationByTenantId(tenantId);
 
     config.securityConfig.ipWhitelist = config.securityConfig.ipWhitelist.filter(i => i !== ip);
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
 
     return config.securityConfig.ipWhitelist;
   }
@@ -579,7 +588,7 @@ export class TenantConfigurationService {
 
     if (!config.securityConfig.ipBlacklist.includes(ip)) {
       config.securityConfig.ipBlacklist.push(ip);
-      await this.configRepository.save(config);
+      await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
     }
 
     return config.securityConfig.ipBlacklist;
@@ -589,7 +598,7 @@ export class TenantConfigurationService {
     const config = await this.getConfigurationByTenantId(tenantId);
 
     config.securityConfig.ipBlacklist = config.securityConfig.ipBlacklist.filter(i => i !== ip);
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
 
     return config.securityConfig.ipBlacklist;
   }
@@ -641,7 +650,7 @@ export class TenantConfigurationService {
 
     if (!config.featureFlags.enabledModules.includes(moduleCode)) {
       config.featureFlags.enabledModules.push(moduleCode);
-      await this.configRepository.save(config);
+      await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
     }
 
     return config.featureFlags.enabledModules;
@@ -653,7 +662,7 @@ export class TenantConfigurationService {
     config.featureFlags.enabledModules = config.featureFlags.enabledModules.filter(
       m => m !== moduleCode
     );
-    await this.configRepository.save(config);
+    await this.persistTenantConfiguration(config, tenantId, 'update_tenant_configuration_section');
 
     return config.featureFlags.enabledModules;
   }
@@ -677,6 +686,43 @@ export class TenantConfigurationService {
       updatedBy,
     });
     return config.dataRetention;
+  }
+
+  private parseTenantConfiguration(tenantId: string, value: string): TenantConfiguration {
+    try {
+      const parsed = JSON.parse(value) as TenantConfiguration;
+      return {
+        ...createDefaultTenantConfiguration(tenantId),
+        ...parsed,
+        tenantId,
+      } as TenantConfiguration;
+    } catch (error) {
+      throw new BadRequestException(
+        `config-service returned invalid tenant configuration for ${tenantId}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  private async persistTenantConfiguration(
+    config: TenantConfiguration,
+    tenantId: string,
+    reason: string,
+  ): Promise<TenantConfiguration> {
+    const normalized = {
+      ...config,
+      tenantId,
+      updatedAt: new Date(),
+    } as TenantConfiguration;
+    await this.configServiceProxy.setConfiguration({
+      tenantId,
+      service: ADMIN_API_CONFIG_SERVICE,
+      key: 'tenant.configuration',
+      value: JSON.stringify(normalized),
+      environment: 'all',
+      isSecret: false,
+      reason,
+    });
+    return normalized;
   }
 
   // ============================================================================

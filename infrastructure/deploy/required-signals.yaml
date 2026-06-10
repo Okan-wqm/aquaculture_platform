@@ -1,188 +1,79 @@
-# Required Boot Signals Manifest (WS7 / ADR-016 Phase F)
-#
-# Declares the log signals each service MUST emit during boot. The
-# deploy gate scrapes `docker compose logs <service>` after the
-# criticality health check passes and fails the deploy if any
-# required signal is missing within the window.
-#
-# Why this exists:
-#   "Container healthy" is a necessary but not sufficient deploy
-#   success signal. A service can be `healthy` (DB reachable) yet
-#   silently fail to wire NATS, forget to run migrations, or skip
-#   the schema-drift validator. The 2026-04-14 cascade exposed two
-#   concrete cases where /health/live returned 200 but the service
-#   was running with an orphan config.
-#
-# Tier-1 Make-Impossible: missing signal = failed deploy = rollback.
-# Deploy success now requires both HEALTH and SIGNAL contracts.
-#
-# Signal-matching semantics:
-#   patterns are exact `message` matches inside structured JSON boot-signal
-#   records. A valid record must also carry `bootSignal: <key>` and
-#   `status: ok`. Literal strings are pinned to
-#   libs/backend-common/src/constants/boot-invariant-signals.ts.
-#
-# Window:
-#   Each signal has a `window_seconds` — how long after container
-#   start-up the signal must appear. Defaults to 60s. A service
-#   with a heavy cold-boot (migrations + drift scan) may need more.
-#
-# ─── Migration-runner signal ownership (INFRA-CRITICAL-015) ───
-#
-# Per ADR-016 Phase E the centralized `aqua-db-migrate` container
-# is the single source of truth for migration application: every
-# service's migrations run there BEFORE service containers start
-# (compose dependency: `db-migrate { condition: service_completed_successfully }`).
-#
-# The previous version of this manifest expected per-service
-# `migration_runner_applied` from each service container. That
-# expectation was a Phase 1 transitional artifact: services that
-# don't register `createMigrationRunnerService` (auth, sensor,
-# admin-api, hydroponics — they delegate to TypeORM's native
-# migrationsRun:true OR have no migrations at all) cannot emit
-# the canonical "Migration runner complete" line, so the gate
-# blocked indefinitely.
-#
-# This manifest now requires the `db_migrate_complete` signal from
-# `aqua-db-migrate` ONCE — that single signal proves all schemas'
-# migrations landed (the central runner enumerates and applies
-# every schema_slot, then logs `aqua-db-migrate complete` with
-# per-schema applied counts).
-#
-# Per-service `MigrationRunnerService` instances continue to emit
-# their own `Migration runner complete` line as defense-in-depth
-# (the libs/backend-common runner code is unchanged), but the
-# deploy gate no longer ASSERTS it.
-
+# Generated from platform service catalog.
+# source: platform/libs/service-catalog/src/index.ts
+# generator: scripts/service-catalog/generate-artifacts.ts
+# generatorVersion: 1
+# catalogHash: 099540e84aeb58d6adc570770f1368ac72c27a3d152a82dc3a89b4571ba2709e
+# do not edit by hand
 schema_version: 2
-
 defaults:
-  window_seconds: 120   # 2 minutes — covers typical migration +
-                        # schema-drift scan window on cold start.
-
-# ---------------------------------------------------------------------------
-# Signal library — patterns must match BOOT_INVARIANT_SIGNALS exactly.
-# canonicalSource is the SSoT; emitterSources are the runtime code paths
-# allowed to emit the structured record for the signal.
-# ---------------------------------------------------------------------------
+  window_seconds: 120
 signal_library:
-  nats_auth_mode_mtls:
-    pattern: "NATS auth mode: mtls-cert"
-    description: "NATS client connected with mtls-cert auth (ADR-014/015)"
-    canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"
-    emitterSources:
-      - "platform/libs/event-bus/src/nats/nats-event-bus.ts"
-
   schema_drift_clean:
     pattern: "Schema drift scan clean"
-    description: "SchemaDriftValidator found zero error-severity violations (ADR-012)"
+    description: "SchemaDriftValidator found zero error-severity violations."
     canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"
     emitterSources:
-      - "libs/backend-common/src/database/schema-drift-validator.service.ts"
-
+      - libs/backend-common/src/database/schema-drift-validator.service.ts
+  nats_auth_mode_mtls:
+    pattern: "NATS auth mode: mtls-cert"
+    description: "NATS client connected successfully with mTLS cert auth."
+    canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"
+    emitterSources:
+      - platform/libs/event-bus/src/nats/nats-event-bus.ts
   db_migrate_complete:
-    # INFRA-CRITICAL-015: canonical end-of-run signal emitted by the
-    # centralized aqua-db-migrate container at the end of its main()
-    # entry point. Single signal covers every schema (auth, farm,
-    # sensor, hr, messaging, hydroponics, alert, billing, notification,
-    # ai, admin, public, observability, event_store) AND tenant fan-out
-    # for tenant-aware schemas. Replaces the per-service
-    # migration_runner_applied expectation that was incompatible with
-    # the centralized SSoT (ADR-016 Phase E intent).
     pattern: "aqua-db-migrate complete"
-    description: "Centralized db-migrate runner reached success exit (covers ALL service schemas)"
+    description: "Centralized db-migrate runner reached its success exit."
     canonicalSource: "libs/backend-common/src/constants/boot-invariant-signals.ts"
     emitterSources:
-      - "apps/db-migrate/src/main.ts"
-
-# ---------------------------------------------------------------------------
-# Per-service signal requirements. A service listed here MUST emit
-# every referenced signal within its window_seconds; otherwise the
-# deploy fails. Services not listed are not asserted.
-#
-# Scope choices:
-#   - aqua-db-migrate emits db_migrate_complete ONCE for all schemas.
-#   - All NATS-using services assert nats_auth_mode_mtls — cert auth
-#     is the ADR-015 invariant and a silent fallback to user-pass
-#     (which the server ignores) would look healthy but be broken.
-#   - All services with SchemaDriftModule.forRoot assert schema_drift_clean.
-# ---------------------------------------------------------------------------
+      - apps/db-migrate/src/main.ts
 services:
-  # ── Centralized migration runner (ADR-016 Phase E SSoT) ──
   - name: db-migrate
     signals:
       - db_migrate_complete
-    window_seconds: 300   # cold migrations across 14 schemas + tenant
-                          # fan-out can be heavy; allow generous window.
-
-  # ── Per-service runtime signals ──
+    window_seconds: 300
   - name: auth-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-
   - name: farm-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-
   - name: sensor-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-    window_seconds: 180   # sensor cold-boot installs TimescaleDB
-                          # continuous aggregates — heavier than most
-
   - name: hr-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-
+  - name: hydroponics-service
+    signals:
+      - schema_drift_clean
   - name: messaging-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-    window_seconds: 180   # messaging sync + RLS per-tenant sweep
-
-  - name: hydroponics-service
-    signals:
-      - schema_drift_clean
-
   - name: alert-engine
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-
-  # ai-service omitted: not yet in docker-compose.droplet.yml. The
-  # NestJS module exists but no compose entry has landed, so there is
-  # no runtime container for the signal gate to scrape. Add an entry
-  # here in the same commit that introduces the compose service.
-
   - name: billing-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-
   - name: notification-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-
   - name: admin-api-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-
   - name: config-service
     signals:
       - schema_drift_clean
-
   - name: observability-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-
-  # gateway-api deliberately omitted: no DataSource, no migrations,
-  # no schema drift scanner (post-WS4 RlsModule cleanup). Its boot
-  # success signal is the /health/live gate already in the criticality
-  # manifest.

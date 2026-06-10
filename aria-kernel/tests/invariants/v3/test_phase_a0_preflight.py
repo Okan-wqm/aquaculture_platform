@@ -4,7 +4,7 @@ Locks:
   * I-V3-00a — `aria-drafter` agent file exists with locked scope
   * I-V3-00b — `lane` derivation rejects operator override (CLI has no `--lane`)
   * I-V3-00c — auto_action_policy L3 exclusion list contains every required entry
-  * I-V3-00d — secret-rotation runbook + workflow list `CLAUDE_CODE_OAUTH_TOKEN`
+  * I-V3-00d — secret-rotation runbook + workflow list Codex managed auth
   * I-V3-00e — snowball branch protection capture file exists OR documented
 """
 
@@ -29,7 +29,8 @@ class PhaseA0Preflight(unittest.TestCase):
         self.assertTrue(text.startswith("---\n"), "aria-drafter must open with YAML frontmatter")
         # name + tools + model fields present
         self.assertIn("name: aria-drafter", text)
-        self.assertIn("model: sonnet", text)
+        self.assertIn("model: opus", text)
+        self.assertIn("effort: xhigh", text)
         # Scope-locking sections present
         for required in (
             "## Mandate",
@@ -135,22 +136,24 @@ class PhaseA0Preflight(unittest.TestCase):
                 msg=f"glob {glob!r} has no reason code (decision-audit gap)",
             )
 
-    def test_i_v3_00d_secret_rotation_runbook_lists_claude_oauth_token(self) -> None:
+    def test_i_v3_00d_secret_rotation_runbook_lists_codex_managed_auth(self) -> None:
         path = _REPO_ROOT / "docs" / "runbooks" / "secret-rotation.md"
         self.assertTrue(path.exists())
         text = path.read_text(encoding="utf-8")
-        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", text)
+        self.assertIn("codex-managed-auth", text)
+        self.assertIn("CODEX_API_KEY", text)
+        self.assertIn("OPENAI_API_KEY", text)
         # Must link to aria-ack-key-rotation runbook AND name aria-ack-hmac-key
         self.assertIn("aria-ack-hmac-key", text)
         self.assertIn("aria-ack-key-rotation.md", text)
 
-    def test_i_v3_00d_secret_rotation_workflow_lists_claude_oauth_token(self) -> None:
+    def test_i_v3_00d_secret_rotation_workflow_lists_codex_managed_auth(self) -> None:
         path = (
             _REPO_ROOT / ".github" / "workflows" / "secret-rotation-reminder.yml"
         )
         self.assertTrue(path.exists())
         text = path.read_text(encoding="utf-8")
-        self.assertIn("claude-code-oauth-token", text)
+        self.assertIn("codex-managed-auth", text)
         self.assertIn("aria-ack-hmac-key", text)
 
     def test_i_v3_00d_aria_ack_key_rotation_runbook_present(self) -> None:

@@ -76,14 +76,11 @@ on:
         required: false
         default: ''
 
-# Permissions are declared explicitly here so workflow_call invocations
-# from ci-affected.yml (which restricts to `contents: read`) can still
-# push images and tags. The called workflow's permissions OVERRIDE the
-# caller's when declared at this top level.
+# Default token is read-only. Jobs that push images or update deploy tags
+# declare their write scopes locally.
 permissions:
-  contents: write # push deployed/production after successful full deploys
-  packages: write # push container images to GHCR
-  id-token: write # OIDC for GHCR auth where used
+  contents: read
+  packages: read
 
 env:
   REGISTRY: ghcr.io
@@ -303,6 +300,7 @@ jobs:
           npm run gates:schema-drift-registration
           npm run gates:criticality-manifest
           npm run gates:signals-manifest
+          npm run service-catalog:check
           npx nx test db-migrate
           bash scripts/ci/validate-deploy-ssot.sh
 
@@ -673,6 +671,7 @@ jobs:
         with:
           name: backend-dist
           path: dist/
+          if-no-files-found: error
           retention-days: 1
 
   # ===========================================================================
@@ -759,15 +758,8 @@ jobs:
           NX_VERBOSE_LOGGING: 'true'
 
       # Upload frontend artifacts (web/shell/dist + web/modules/*/dist).
-      # ARCH-CI-016: Always produce a frontend-dist artifact, even when empty.
-      # Downstream build-frontend-images job depends on this artifact existing.
-      # Without if-no-files-found: warn, the upload fails when no modules were
-      # built (e.g., only aquamobil changed). The .gitkeep placeholder ensures
-      # the artifact is always non-empty, preventing "Artifact not found" errors
-      # in the download step of build-frontend-images matrix entries that need it.
-      - name: Ensure frontend-dist artifact is always producible
-        run: mkdir -p web/.artifact-marker && echo "placeholder" > web/.artifact-marker/.gitkeep
-
+      # Enterprise artifact policy forbids placeholder uploads; a frontend
+      # artifact must be backed by real build output.
       - name: Upload frontend artifacts
         # SEC-CI-002: pinned to SHA
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
@@ -776,8 +768,7 @@ jobs:
           path: |
             web/shell/dist/
             web/modules/*/dist/
-            web/.artifact-marker/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 1
 
   # ===========================================================================
@@ -1109,6 +1100,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Assert pinned production SSH fingerprint present
+        env:
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+        run: test -n "${DROPLET_SSH_FINGERPRINT:-}"
+
       - name: Capacity preflight on production droplet
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
         env:
@@ -1121,6 +1117,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
+          fingerprint: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
           command_timeout: 8m
           envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX
           script: |
@@ -1168,7 +1165,12 @@ jobs:
       contents: write
       packages: read
     steps:
-      # SEC-CI-002: pinned to SHA (needed for tag update step)
+      - name: Assert pinned production SSH fingerprint present
+        env:
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+        run: test -n "${DROPLET_SSH_FINGERPRINT:-}"
+
+      # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 1
@@ -1198,6 +1200,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
+          fingerprint: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
           command_timeout: 75m # Sequential pulls on slow disk + service bootstrap for 22+ Docker images
           # envs: forwards these env vars from the GitHub runner into the
           # remote bash session on the droplet.
@@ -1228,13 +1231,6 @@ jobs:
             bash scripts/deploy/droplet-up.sh
             echo "=== Deployment completed at $(date) ==="
 
-      - name: Update deploy baseline tag
-        run: |
-          git tag -f deployed/production ${{ github.sha }}
-          git push -f origin deployed/production
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       # SEC-CI-005: Removed echo of DROPLET_HOST to prevent leaking server IP in logs
       - name: Verify deployment
         run: |
@@ -1243,3 +1239,29 @@ jobs:
           echo "Services deployed: ${{ needs.prepare.outputs.deploy_services }}"
           echo "Full deploy: ${{ needs.prepare.outputs.full_deploy }}"
           echo "Deploy mode: ${{ needs.prepare.outputs.deploy_mode }}"
+
+  post-deploy-verify:
+    needs: [deploy]
+    if: needs.deploy.result == 'success'
+    uses: ./.github/workflows/production-post-deploy-verify.yml
+    with:
+      target_sha: ${{ github.sha }}
+    secrets: inherit
+
+  update-production-baseline:
+    needs: [post-deploy-verify]
+    if: needs.post-deploy-verify.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Update deploy baseline tag
+        run: |
+          git tag -f deployed/production ${{ github.sha }}
+          git push -f origin deployed/production

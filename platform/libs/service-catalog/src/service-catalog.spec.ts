@@ -1,6 +1,11 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import {
   PLATFORM_SERVICE_CATALOG,
   activeDropletComposeServices,
+  frontendImageBuildTargets,
+  frontendPrebuildPlan,
   gatewaySubgraphs,
   imageBuildTargets,
   packageBuildProjects,
@@ -11,6 +16,8 @@ import {
   serviceIdentityAudienceForService,
   validateServiceCatalog,
 } from './index';
+
+const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
 
 describe('platform service catalog executable views', () => {
   it('validates catalog structure and role ownership', () => {
@@ -58,5 +65,43 @@ describe('platform service catalog executable views', () => {
       expect(entry.dbRoles?.runtime).toMatch(/_service$/);
       expect(entry.privilegeMode).toBe('dml-only');
     }
+  });
+
+  // INFRA-HIGH-005: before frontendAssets existed, the prebuild list was
+  // derived by subtraction and aquamobil (dockerfile-self-build,
+  // web/apps/) leaked into the npm-workspace lane — the first full
+  // deploy broke on `--workspace=web/modules/aquamobil` and the shell
+  // image was never produced. These pins make the regression a test
+  // failure instead of a red production deploy.
+  describe('frontend prebuild plan (deploy artifact step SSOT)', () => {
+    it('excludes dockerfile-self-build targets from both prebuild lanes', () => {
+      const plan = frontendPrebuildPlan();
+      expect(plan.nxProjects).not.toContain('aquamobil');
+      expect(plan.workspaceModules.map((entry) => entry.module)).not.toContain('aquamobil');
+    });
+
+    it('covers every active frontend image target exactly once across the three strategies', () => {
+      const plan = frontendPrebuildPlan();
+      const selfBuild = PLATFORM_SERVICE_CATALOG.filter(
+        (entry) => entry.frontendAssets === 'dockerfile-self-build',
+      ).map((entry) => entry.imageTarget);
+      const covered = [
+        ...plan.nxProjects,
+        ...plan.workspaceModules.map((entry) => entry.module),
+        ...selfBuild,
+      ].sort();
+      expect(covered).toEqual([...frontendImageBuildTargets()].sort());
+    });
+
+    it('declares an on-disk workspace (package.json) for every frontend modulePath', () => {
+      const frontends = PLATFORM_SERVICE_CATALOG.filter(
+        (entry) => entry.buildKind === 'frontend' && entry.deploymentStatus === 'active',
+      );
+      expect(frontends.length).toBeGreaterThan(0);
+      for (const entry of frontends) {
+        expect(entry.modulePath).toBeDefined();
+        expect(existsSync(join(REPO_ROOT, entry.modulePath as string, 'package.json'))).toBe(true);
+      }
+    });
   });
 });

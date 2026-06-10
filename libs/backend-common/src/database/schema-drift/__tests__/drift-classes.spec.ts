@@ -47,10 +47,14 @@ describe('drift-classes registry', () => {
     }
   });
 
-  it('refusal classes (H, I, J) have null primitive by design', () => {
+  it('refusal classes (H, I, J, K) have null primitive by design', () => {
     expect(DRIFT_CLASSES.data_cast_incompatible.primitive).toBeNull();
     expect(DRIFT_CLASSES.per_tenant_shape_divergence.primitive).toBeNull();
     expect(DRIFT_CLASSES.encrypted_column_protection.primitive).toBeNull();
+    // Class K — foreign_key_presence is a count-based detection class
+    // (no primitive). Resolution path is Faz 6 baseline reset + reviewer
+    // discipline, not a backfill primitive.
+    expect(DRIFT_CLASSES.foreign_key_presence.primitive).toBeNull();
   });
 
   it('isDriftClassId validates known IDs', () => {

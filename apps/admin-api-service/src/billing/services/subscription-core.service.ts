@@ -1,25 +1,56 @@
 import {
+  ConflictException,
   Injectable,
   Logger,
-  NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource } from 'typeorm';
 
-import { BillingCycle, PlanTier } from '../entities/plan-definition.entity';
+import { BillingCycle } from '../entities/plan-definition.entity';
 
 import { DiscountCodeService } from './discount-code.service';
 import {
-  SubscriptionStatus,
   SubscriptionOverview,
   SubscriptionFilters,
-  ModuleQuantities,
-  ModuleLineItem,
-  SubscriptionModuleConfig,
   CreateSubscriptionDto,
-  CreateSubscriptionResult,
 } from './subscription-types';
+
+type DbNumeric = number | string | null | undefined;
+
+interface CountRow {
+  count: DbNumeric;
+}
+
+type SubscriptionOverviewRow = Omit<
+  SubscriptionOverview,
+  'monthlyPrice' | 'trialEndDate' | 'cancelledAt'
+> & {
+  monthlyPrice: DbNumeric;
+  trialEndDate: Date | null;
+  cancelledAt: Date | null;
+};
+
+function dbNumber(value: DbNumeric): number {
+  if (value === null || value === undefined || value === '') {
+    return 0;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapSubscriptionOverview(row: SubscriptionOverviewRow): SubscriptionOverview {
+  return {
+    ...row,
+    monthlyPrice: dbNumber(row.monthlyPrice),
+    trialEndDate: row.trialEndDate ?? undefined,
+    cancelledAt: row.cancelledAt ?? undefined,
+  };
+}
 
 /**
  * Subscription Core Service
@@ -61,7 +92,7 @@ export class SubscriptionCoreService {
         s.cancelled_at as "cancelledAt",
         s."createdAt" as "createdAt"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
+      LEFT JOIN auth.tenants t ON t.id = s.tenant_id
       WHERE 1=1
     `;
 
@@ -110,8 +141,8 @@ export class SubscriptionCoreService {
 
     // Get total count
     const countQuery = `SELECT COUNT(*) as count FROM (${query}) as subq`;
-    const countResult = await this.dataSource.query(countQuery, params);
-    const total = parseInt(countResult[0]?.count || '0', 10);
+    const countResult = await this.dataSource.query<CountRow[]>(countQuery, params);
+    const total = dbNumber(countResult[0]?.count);
 
     // Add pagination
     query += ` ORDER BY s."createdAt" DESC`;
@@ -125,16 +156,16 @@ export class SubscriptionCoreService {
       params.push(filters.offset);
     }
 
-    const subscriptions = await this.dataSource.query(query, params);
+    const subscriptions = await this.dataSource.query<SubscriptionOverviewRow[]>(query, params);
 
-    return { subscriptions, total };
+    return { subscriptions: subscriptions.map(mapSubscriptionOverview), total };
   }
 
   /**
    * Get subscription by tenant ID
    */
   async getSubscriptionByTenant(tenantId: string): Promise<SubscriptionOverview | null> {
-    const result = await this.dataSource.query(
+    const result = await this.dataSource.query<SubscriptionOverviewRow[]>(
       `
       SELECT
         s.id,
@@ -152,169 +183,62 @@ export class SubscriptionCoreService {
         s.cancelled_at as "cancelledAt",
         s."createdAt" as "createdAt"
       FROM billing.subscriptions s
-      LEFT JOIN auth.tenants t ON t.id::text = s.tenant_id
-      WHERE s.tenant_id = $1
+      LEFT JOIN auth.tenants t ON t.id = s.tenant_id
+      WHERE s.tenant_id = $1::uuid
     `,
       [tenantId],
     );
 
-    return result[0] || null;
+    const subscription = result[0];
+    return subscription ? mapSubscriptionOverview(subscription) : null;
   }
 
   /**
    * Cancel subscription
    */
-  async cancelSubscription(
+  cancelSubscription(
     tenantId: string,
     reason: string,
     cancelledBy: string,
     cancelImmediately = false,
-  ): Promise<{ success: boolean; effectiveDate: Date; message: string }> {
-    const subscription = await this.getSubscriptionByTenant(tenantId);
-    if (!subscription) {
-      throw new NotFoundException(`No subscription found for tenant ${tenantId}`);
-    }
-
-    const effectiveDate = cancelImmediately
-      ? new Date()
-      : new Date(subscription.currentPeriodEnd);
-
-    await this.dataSource.transaction(async (manager) => {
-      await manager.query(
-        `
-        UPDATE billing.subscriptions SET
-          status = $1,
-          cancelled_at = NOW(),
-          cancellation_reason = $2,
-          auto_renew = false,
-          end_date = $3,
-          "updatedAt" = NOW(),
-          updated_by = $4
-        WHERE tenant_id = $5
-      `,
-        [
-          cancelImmediately ? SubscriptionStatus.CANCELLED : subscription.status,
-          reason,
-          effectiveDate,
-          cancelledBy,
-          tenantId,
-        ],
-      );
-
-      // Log cancellation
-      await manager.query(
-        `
-        INSERT INTO admin.audit_logs (
-          id, action, "entityType", "entityId", "tenantId",
-          "performedBy", details, "createdAt"
-        ) VALUES (
-          gen_random_uuid(), 'SUBSCRIPTION_CANCELLED', 'subscription', $1, $2,
-          $3, $4, NOW()
-        )
-      `,
-        [
-          subscription.id,
-          tenantId,
-          cancelledBy,
-          JSON.stringify({
-            reason,
-            effectiveDate,
-            cancelledImmediately: cancelImmediately,
-          }),
-        ],
-      );
-    });
-
-    this.logger.log(`Subscription cancelled for tenant ${tenantId}: ${reason}`);
-
-    return {
-      success: true,
-      effectiveDate,
-      message: cancelImmediately
-        ? 'Subscription cancelled immediately'
-        : `Subscription will be cancelled on ${effectiveDate.toLocaleDateString()}`,
-    };
+  ): never {
+    void tenantId;
+    void reason;
+    void cancelledBy;
+    void cancelImmediately;
+    throw new ConflictException(
+      'Subscription cancellation is billing-service-owned. Use BillingAdminCommandClientService.cancelSubscription.',
+    );
   }
 
   /**
    * Reactivate a cancelled subscription
    */
-  async reactivateSubscription(
+  reactivateSubscription(
     tenantId: string,
     reactivatedBy: string,
-  ): Promise<{ success: boolean; message: string }> {
-    const subscription = await this.getSubscriptionByTenant(tenantId);
-    if (!subscription) {
-      throw new NotFoundException(`No subscription found for tenant ${tenantId}`);
-    }
-
-    if (subscription.status !== SubscriptionStatus.CANCELLED) {
-      throw new BadRequestException('Can only reactivate cancelled subscriptions');
-    }
-
-    await this.dataSource.query(
-      `
-      UPDATE billing.subscriptions SET
-        status = 'active',
-        cancelled_at = NULL,
-        cancellation_reason = NULL,
-        auto_renew = true,
-        end_date = NULL,
-        "updatedAt" = NOW(),
-        updated_by = $1
-      WHERE tenant_id = $2
-    `,
-      [reactivatedBy, tenantId],
+  ): never {
+    void tenantId;
+    void reactivatedBy;
+    throw new ConflictException(
+      'Subscription reactivation is billing-service-owned. Use BillingAdminCommandClientService.reactivateSubscription.',
     );
-
-    this.logger.log(`Subscription reactivated for tenant ${tenantId}`);
-
-    return {
-      success: true,
-      message: 'Subscription reactivated successfully',
-    };
   }
 
   /**
    * Extend trial period
    */
-  async extendTrial(
+  extendTrial(
     tenantId: string,
     additionalDays: number,
     extendedBy: string,
-  ): Promise<{ success: boolean; newTrialEnd: Date }> {
-    const subscription = await this.getSubscriptionByTenant(tenantId);
-    if (!subscription) {
-      throw new NotFoundException(`No subscription found for tenant ${tenantId}`);
-    }
-
-    if (subscription.status !== SubscriptionStatus.TRIAL) {
-      throw new BadRequestException('Can only extend trial period for trial subscriptions');
-    }
-
-    const currentTrialEnd = subscription.trialEndDate
-      ? new Date(subscription.trialEndDate)
-      : new Date();
-    const newTrialEnd = new Date(currentTrialEnd);
-    newTrialEnd.setDate(newTrialEnd.getDate() + additionalDays);
-
-    await this.dataSource.query(
-      `
-      UPDATE billing.subscriptions SET
-        trial_end_date = $1,
-        current_period_end = $1,
-        "updatedAt" = NOW(),
-        updated_by = $2
-      WHERE tenant_id = $3
-    `,
-      [newTrialEnd, extendedBy, tenantId],
+  ): never {
+    void tenantId;
+    void additionalDays;
+    void extendedBy;
+    throw new ConflictException(
+      'Trial extension is billing-service-owned. Use BillingAdminCommandClientService.extendSubscriptionTrial.',
     );
-
-    this.logger.log(
-      `Extended trial for tenant ${tenantId} by ${additionalDays} days until ${newTrialEnd.toISOString()}`,
-    );
-
-    return { success: true, newTrialEnd };
   }
 
   /**
@@ -343,242 +267,11 @@ export class SubscriptionCoreService {
    * Create a new subscription for a tenant
    * This is called during tenant creation to set up billing
    */
-  async createSubscription(dto: CreateSubscriptionDto): Promise<CreateSubscriptionResult> {
-    const {
-      tenantId,
-      planTier = PlanTier.STARTER,
-      billingCycle = BillingCycle.MONTHLY,
-      modules,
-      monthlyTotal,
-      currency = 'USD',
-      trialDays = 0,
-      discountCode,
-      createdBy,
-    } = dto;
-
-    // Validate tenant exists
-    const tenantResult = await this.dataSource.query(
-      `SELECT id, name FROM auth.tenants WHERE id = $1`,
-      [tenantId],
+  createSubscription(dto: CreateSubscriptionDto): never {
+    void dto;
+    throw new ConflictException(
+      'Subscription creation is billing-service-owned. Use the tenant provisioning billing command workflow.',
     );
-
-    if (!tenantResult[0]) {
-      throw new NotFoundException(`Tenant ${tenantId} not found`);
-    }
-
-    // Check if subscription already exists
-    const existingSubscription = await this.dataSource.query(
-      `SELECT id FROM billing.subscriptions WHERE tenant_id = $1`,
-      [tenantId],
-    );
-
-    if (existingSubscription[0]) {
-      throw new BadRequestException(`Subscription already exists for tenant ${tenantId}`);
-    }
-
-    // Calculate dates
-    const now = new Date();
-    const currentPeriodStart = now;
-    const currentPeriodEnd = this.calculateNextPeriodEnd(now, billingCycle);
-    const trialEndDate = trialDays > 0 ? new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000) : null;
-    const status = trialDays > 0 ? SubscriptionStatus.TRIAL : SubscriptionStatus.ACTIVE;
-
-    // Apply discount if provided
-    let discountAmount = 0;
-    if (discountCode && monthlyTotal > 0) {
-      try {
-        const discountResult = await this.discountService.validateCode(
-          discountCode,
-          tenantId,
-          undefined,
-          monthlyTotal,
-        );
-        if (discountResult.valid && discountResult.discountAmount) {
-          discountAmount = discountResult.discountAmount;
-        }
-      } catch (err) {
-        this.logger.warn(`Discount code ${discountCode} validation failed: ${(err as Error).message}`);
-      }
-    }
-
-    const finalMonthlyPrice = Math.max(0, monthlyTotal - discountAmount);
-
-    // Build pricing object
-    const pricing = {
-      basePrice: finalMonthlyPrice,
-      moduleBreakdown: modules.map((m) => ({
-        moduleId: m.moduleId,
-        moduleCode: m.moduleCode,
-        subtotal: m.subtotal,
-        quantities: m.quantities,
-      })),
-      discount: discountAmount > 0 ? { code: discountCode, amount: discountAmount } : undefined,
-      originalTotal: monthlyTotal,
-    };
-
-    // Build limits from modules
-    const limits = {
-      maxUsers: modules.reduce((sum, m) => sum + (m.quantities.users || 0), 0) || 5,
-      maxFarms: modules.reduce((sum, m) => sum + (m.quantities.farms || 0), 0) || 1,
-      maxPonds: modules.reduce((sum, m) => sum + (m.quantities.ponds || 0), 0) || 10,
-      maxSensors: modules.reduce((sum, m) => sum + (m.quantities.sensors || 0), 0) || 10,
-      storageGB: modules.reduce((sum, m) => sum + (m.quantities.storageGb || 0), 0) || 5,
-    };
-
-    const moduleItems: Array<{
-      id: string;
-      moduleId: string;
-      moduleCode: string;
-      quantities: ModuleQuantities;
-      monthlyPrice: number;
-    }> = [];
-
-    // Execute in transaction
-    const subscriptionId = await this.dataSource.transaction(async (manager) => {
-      // Create subscription record
-      // billing.subscriptions uses snake_case columns (owned by billing-service)
-      const subscriptionResult = await manager.query(
-        `
-        INSERT INTO billing.subscriptions (
-          id, tenant_id, plan_tier, plan_name, status, billing_cycle,
-          current_period_start, current_period_end, trial_end_date,
-          limits, pricing, auto_renew, start_date, version,
-          "createdAt", "updatedAt", created_by
-        ) VALUES (
-          gen_random_uuid(), $1, $2, $3, $4, $5,
-          $6, $7, $8,
-          $9, $10, true, $6, 1,
-          NOW(), NOW(), $12
-        )
-        RETURNING id
-      `,
-        [
-          tenantId,
-          planTier,
-          `${planTier.charAt(0).toUpperCase() + planTier.slice(1)} Plan`,
-          status,
-          billingCycle,
-          currentPeriodStart,
-          currentPeriodEnd,
-          trialEndDate,
-          JSON.stringify(limits),
-          JSON.stringify(pricing),
-          currency,
-          createdBy || tenantId,
-        ],
-      );
-
-      const newSubscriptionId = subscriptionResult[0].id;
-
-      // Bulk insert all subscription_module_items in a single query
-      if (modules.length > 0) {
-        const valuesClauses: string[] = [];
-        const bulkParams: unknown[] = [newSubscriptionId];
-        let bulkParamIndex = 2; // $1 is subscriptionId
-
-        for (const moduleConfig of modules) {
-          valuesClauses.push(
-            `(gen_random_uuid(), $1, $${bulkParamIndex}, $${bulkParamIndex + 1}, $${bulkParamIndex + 2}, $${bulkParamIndex + 3}, $${bulkParamIndex + 4}, 'active', NOW(), NOW())`,
-          );
-          bulkParams.push(
-            moduleConfig.moduleId,
-            moduleConfig.moduleCode,
-            JSON.stringify(moduleConfig.quantities),
-            moduleConfig.subtotal,
-            JSON.stringify(moduleConfig.lineItems || []),
-          );
-          bulkParamIndex += 5;
-        }
-
-        // subscription_module_items uses snake_case columns (owned by billing-service)
-        const bulkInsertResult = await manager.query(
-          `
-          INSERT INTO billing.subscription_module_items (
-            id, subscription_id, module_id, module_code,
-            quantities, subtotal, line_items,
-            status, "createdAt", "updatedAt"
-          ) VALUES ${valuesClauses.join(', ')}
-          RETURNING id, module_id as "moduleId", module_code as "moduleCode"
-        `,
-          bulkParams,
-        );
-
-        for (let i = 0; i < bulkInsertResult.length; i++) {
-          const row = bulkInsertResult[i];
-          const moduleConfig = modules.find((m) => m.moduleId === row.moduleId && m.moduleCode === row.moduleCode);
-          moduleItems.push({
-            id: row.id,
-            moduleId: row.moduleId,
-            moduleCode: row.moduleCode,
-            quantities: moduleConfig?.quantities || {},
-            monthlyPrice: moduleConfig?.subtotal || 0,
-          });
-        }
-      }
-
-      // Update tenant with subscription info
-      await manager.query(
-        `
-        UPDATE auth.tenants SET
-          tier = $1,
-          limits = $2,
-          "updatedAt" = NOW()
-        WHERE id = $3
-      `,
-        [planTier, JSON.stringify(limits), tenantId],
-      );
-
-      // Log creation in audit
-      await manager.query(
-        `
-        INSERT INTO admin.audit_logs (
-          id, action, "entityType", "entityId", "tenantId",
-          "performedBy", details, "createdAt"
-        ) VALUES (
-          gen_random_uuid(), 'SUBSCRIPTION_CREATED', 'subscription', $1, $2,
-          $3, $4, NOW()
-        )
-      `,
-        [
-          newSubscriptionId,
-          tenantId,
-          createdBy || 'system',
-          JSON.stringify({
-            planTier,
-            billingCycle,
-            monthlyPrice: finalMonthlyPrice,
-            modulesCount: modules.length,
-            trialDays,
-            status,
-          }),
-        ],
-      );
-
-      return newSubscriptionId;
-    });
-
-    this.logger.log(
-      `Created subscription ${subscriptionId} for tenant ${tenantId} with ${modules.length} modules, monthly price: ${finalMonthlyPrice} ${currency}`,
-    );
-
-    return {
-      success: true,
-      subscription: {
-        id: subscriptionId,
-        tenantId,
-        status,
-        planTier,
-        billingCycle,
-        monthlyPrice: finalMonthlyPrice,
-        trialEndDate: trialEndDate || undefined,
-        currentPeriodStart,
-        currentPeriodEnd,
-      },
-      moduleItems,
-      message: trialDays > 0
-        ? `Subscription created with ${trialDays}-day trial period`
-        : 'Subscription created successfully',
-    };
   }
 
   /**

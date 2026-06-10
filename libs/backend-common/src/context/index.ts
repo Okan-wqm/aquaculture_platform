@@ -5,3 +5,4 @@
  */
 
 export { withTenantContext } from './with-tenant-context';
+export { TenantExecutionContextInterceptor } from './tenant-execution-context.interceptor';

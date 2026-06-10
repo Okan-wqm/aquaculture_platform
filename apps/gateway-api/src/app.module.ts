@@ -1,7 +1,16 @@
-import { RemoteGraphQLDataSource } from '@apollo/gateway';
-import { GatewayGraphQLRequestContext, GatewayGraphQLResponse } from '@apollo/server-gateway-interface';
-import type { ResponsePath } from '@apollo/query-planner';
-import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
+import { AuditedOperationModule, AuditLogEntity } from '@aquaculture/backend-common/audit';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
+import {
+  CorrelationIdMiddleware,
+  RequestLoggingMiddleware,
+  StripInternalHeadersMiddleware,
+  TenantContextMiddleware,
+  UserContextMiddleware,
+} from '@aquaculture/backend-common/middleware';
+import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -12,40 +21,23 @@ import { GraphQLModule } from '@nestjs/graphql';
 // JwtModule), so we still need the named-type import here for DI metadata.
 import { JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { StorageModule, StorageConfig } from '@platform/storage';
+import type { DocumentNode, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import {
   getComplexity,
   simpleEstimator,
   fieldExtensionsEstimator,
 } from 'graphql-query-complexity';
-import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
-import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
-import {
-  CorrelationIdMiddleware,
-  RequestLoggingMiddleware,
-  TenantContextMiddleware,
-  UserContextMiddleware,
-} from '@aquaculture/backend-common/middleware';
-import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
-import { generateServiceIdentityHeaders } from '@aquaculture/backend-common/utils';
-import { AuditedOperationModule, AuditLogEntity } from '@aquaculture/backend-common/audit';
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
-import { StorageModule, StorageConfig } from '@platform/storage';
 
+import { FEDERATED_SUBGRAPHS } from './config/federated-subgraphs.generated';
+import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
+import { AuthenticatedDataSource } from './federation/authenticated-data-source';
+import type { GatewayContext, RequestWithUser } from './federation/authenticated-data-source';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
-import { AuthGuard, JwtPayload } from './guards/auth.guard';
-import { ApiKeyAuthStrategy } from './guards/strategies/api-key-auth.strategy';
-import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
-import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
-import { JwtMiddleware } from './middleware/jwt.middleware';
-import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
-import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
-import { CsrfMiddleware } from './middleware/csrf.middleware';
-import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
-import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
+import { AuthGuard } from './guards/auth.guard';
 import { MutationRateLimitGuard } from './guards/mutation-rate-limit.guard';
+import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
 import { RedisRateLimitStore } from './guards/redis-rate-limit.store';
 import {
   TokenBlacklistStore,
@@ -53,221 +45,42 @@ import {
   RedisTokenBlacklistStore,
   InMemoryTokenBlacklistStore,
 } from './guards/redis-token-blacklist.store';
+import { ApiKeyAuthStrategy } from './guards/strategies/api-key-auth.strategy';
+import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
+import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
 import { HealthModule } from './health/health.module';
 import { RequestLoggingInterceptor } from './interceptors/request-logging.interceptor';
 import { GatewayMetricsModule } from './metrics/metrics.module';
-import { UploadModule } from './upload/upload.module';
-import { WebSocketModule } from './websocket/websocket.module';
+import { CsrfMiddleware } from './middleware/csrf.middleware';
+import { JwtMiddleware } from './middleware/jwt.middleware';
+import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
+import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
 import { createAliasLimitPlugin } from './plugins/graphql-alias-limit.plugin';
 import { AiRoutesModule } from './routes/v2/ai.routes';
 import { TenantLookupService } from './services/tenant-lookup.service';
-
-// JwtPayload is imported from auth.guard.ts for consistency
+import { UploadModule } from './upload/upload.module';
+import { WebSocketModule } from './websocket/websocket.module';
 
 // Module-level logger to avoid re-instantiation per GraphQL operation
 const queryComplexityLogger = new Logger('QueryComplexity');
 
-/**
- * Request headers structure
- */
-interface RequestHeaders {
-  authorization?: string;
-  cookie?: string;
-  'x-tenant-id'?: string;
-  'x-correlation-id'?: string;
-  [key: string]: string | undefined;
+interface QueryComplexityOperationContext {
+  request: {
+    operationName?: string | null;
+    variables?: Record<string, unknown> | null;
+  };
+  document: DocumentNode;
+  schema: GraphQLSchema;
 }
 
-/**
- * Request with user information attached
- */
-interface RequestWithUser {
-  headers: RequestHeaders;
-  user?: JwtPayload;
-  cookies?: Record<string, string>;
-}
-
-/**
- * Extended context type for Apollo Gateway
- */
-interface GatewayContext {
-  req: RequestWithUser;
-  res: import('express').Response;
-}
-
-/**
- * SECURITY NOTE: JWT decoding moved to guard for proper verification.
- * Context only passes through the original request reference.
- * The guard will verify the JWT and set req.user with validated payload.
- * willSendRequest then forwards the verified user data to subgraphs.
- *
- * DO NOT decode JWT without verification - it creates security risks:
- * 1. Unverified claims could be forwarded to subgraphs
- * 2. Attackers could craft malicious payloads that bypass validation
- */
-
-/**
- * Custom data source that forwards headers to subgraphs
- * Includes error logging for transient failures
- */
-class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
-  private readonly logger = new Logger('AuthenticatedDataSource');
-  private readonly secret?: string;
-
-  constructor(config: { url?: string; secret?: string }) {
-    super({ url: config.url });
-    this.secret = config.secret;
-  }
-
-  override willSendRequest(params: {
-    request: { http?: { headers: { set: (key: string, value: string) => void } } };
-    context?: GatewayContext | Record<string, unknown>;
-  }): void {
-    const { request, context } = params;
-
-    // Handle health checks and schema loading which don't have our GatewayContext
-    if (!context || !('req' in context)) {
-      return;
-    }
-
-    const req = (context as GatewayContext).req;
-    const httpRequest = request.http;
-
-    if (!httpRequest) {
-      return;
-    }
-
-    // Forward authentication header to subgraphs
-    const authorization = req.headers.authorization;
-    if (authorization) {
-      httpRequest.headers.set('authorization', authorization);
-    }
-
-    // SECURITY: Forward cookies to subgraphs (needed for httpOnly refresh token)
-    const cookie = req.headers.cookie;
-    if (cookie) {
-      httpRequest.headers.set('cookie', cookie);
-    }
-
-    // Forward tenant ID - prefer JWT tenantId (trusted), fallback to header
-    // SECURITY: Only forward valid, non-empty UUIDs to prevent subgraphs from
-    // receiving "null", "undefined", empty strings, or array values as tenant ID
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    let resolvedTenantId = req.user?.tenantId;
-    if (!resolvedTenantId) {
-      // Fallback: header (may be string[] if sent multiple times — use first element)
-      const headerVal = req.headers['x-tenant-id'];
-      const candidate = Array.isArray(headerVal) ? headerVal[0] : headerVal;
-      if (typeof candidate === 'string') {
-        resolvedTenantId = candidate.trim();
-      }
-    }
-    if (
-      resolvedTenantId &&
-      typeof resolvedTenantId === 'string' &&
-      resolvedTenantId.length > 0 &&
-      uuidRegex.test(resolvedTenantId)
-    ) {
-      httpRequest.headers.set('x-tenant-id', resolvedTenantId);
-    }
-
-    // Forward correlation ID and trace context for distributed tracing
-    const correlationId = req.headers['x-correlation-id'];
-    if (correlationId) {
-      httpRequest.headers.set('x-correlation-id', correlationId);
-    }
-
-    // Forward W3C Trace Context (traceparent)
-    const traceparent = req.headers['traceparent'];
-    if (traceparent) {
-      httpRequest.headers.set('traceparent', traceparent);
-    }
-
-    // Forward trace/span IDs
-    const traceId = req.headers['x-trace-id'];
-    if (traceId) {
-      httpRequest.headers.set('x-trace-id', traceId);
-    }
-
-    const spanId = req.headers['x-span-id'];
-    if (spanId) {
-      httpRequest.headers.set('x-span-id', spanId);
-    }
-
-    const parentSpanId = req.headers['x-parent-span-id'];
-    if (parentSpanId) {
-      httpRequest.headers.set('x-parent-span-id', parentSpanId);
-    }
-
-    // Forward user info if decoded
-    const user = req.user;
-    if (user) {
-      httpRequest.headers.set('x-user-id', user.sub);
-      httpRequest.headers.set('x-user-roles', JSON.stringify(user.roles ?? []));
-      // Forward full user payload for @CurrentUser() decorator in subgraphs
-      httpRequest.headers.set('x-user-payload', JSON.stringify(user));
-    }
-
-    // SECURITY: sign request for subgraph identity verification AND bind
-    // the resolved tenant + method + path + body into the HMAC. v2 canonical
-    // input prevents cross-endpoint replay (a captured signature for one
-    // subgraph operation cannot be forwarded to another) AND body-tampering
-    // (the receiver re-derives sha256(body) and rejects on mismatch). If
-    // no tenant applies (public / pre-auth paths), tenantId is empty string.
-    //
-    // Closes: SEC-CRITICAL-001 — sender side; subgraph guards already accept v2
-    // via verifyServiceIdentityRequest in libs/backend-common/src/guards.
-    if (this.secret) {
-      const signedTenantId = uuidRegex.test(resolvedTenantId ?? '')
-        ? (resolvedTenantId as string)
-        : '';
-      // Apollo's runtime httpRequest exposes the to-be-sent verb, URL, and
-      // body, but its public type only guarantees the header mutator.
-      // Path is extracted without the query string per v2 contract.
-      const outgoingRequest = httpRequest as typeof httpRequest & {
-        url?: string;
-        method?: string;
-        body?: unknown;
-      };
-      const subgraphUrl = new URL(outgoingRequest.url ?? '/graphql', 'http://subgraph.local');
-      const subgraphPath = subgraphUrl.pathname;
-      const subgraphMethod = outgoingRequest.method ?? 'POST';
-      const subgraphBody =
-        typeof outgoingRequest.body === 'string'
-          ? outgoingRequest.body
-          : JSON.stringify(outgoingRequest.body ?? '');
-      const identityHeaders = buildSignedInternalHeaders({
-        serviceName: 'gateway-api',
-        tenantId: signedTenantId,
-        method: subgraphMethod,
-        path: subgraphPath,
-        body: subgraphBody,
-        secret: this.secret,
-      });
-      for (const [key, value] of Object.entries(identityHeaders)) {
-        httpRequest.headers.set(key, value);
-      }
-    }
-  }
-
-  override didReceiveResponse(
-    requestContext: Required<Pick<GatewayGraphQLRequestContext<GatewayContext>, 'request' | 'response' | 'context'>> & {
-      pathInIncomingRequest?: ResponsePath;
-    },
-  ): GatewayGraphQLResponse {
-    const { response, context } = requestContext;
-    // Forward set-cookie headers from subgraph → browser
-    // Critical for httpOnly refresh token cookie from auth-service
-    if (context && 'res' in context) {
-      const res = (context as GatewayContext).res;
-      const setCookieHeader = response.http?.headers?.get('set-cookie');
-      if (setCookieHeader) {
-        // Append (don't overwrite) — multiple subgraphs may set cookies
-        res.append('set-cookie', setCookieHeader);
-      }
-    }
-    return response;
-  }
+function positiveIntConfig(
+  configService: ConfigService,
+  key: string,
+  fallback: number,
+): number {
+  const raw = configService.get<string | number>(key, fallback);
+  const parsed = typeof raw === 'number' ? raw : Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 @Module({
@@ -399,11 +212,7 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       driver: ApolloGatewayDriver,
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        // Capture INTERNAL_SERVICE_SECRET for HMAC signing in buildService closure
-        const internalServiceSecret = configService.get<string>('INTERNAL_SERVICE_SECRET');
-
-        return {
+      useFactory: (configService: ConfigService) => ({
         gateway: {
           /**
            * ARCH-GW-005: Federated subgraph registry.
@@ -425,60 +234,24 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
            *   notification (BUG-4 FIX), messaging (ADR-012)
            */
           supergraphSdl: new RetryableIntrospectAndCompose({
-            subgraphs: [
-              {
-                name: 'auth',
-                url: configService.get('AUTH_SERVICE_URL', 'http://localhost:3001/graphql'),
-              },
-              {
-                name: 'farm',
-                url: configService.get('FARM_SERVICE_URL', 'http://localhost:3002/graphql'),
-              },
-              {
-                name: 'sensor',
-                url: configService.get('SENSOR_SERVICE_URL', 'http://localhost:3003/graphql'),
-              },
-              {
-                name: 'alert',
-                url: configService.get('ALERT_SERVICE_URL', 'http://localhost:3004/graphql'),
-              },
-              {
-                name: 'hr',
-                url: configService.get('HR_SERVICE_URL', 'http://localhost:3005/graphql'),
-              },
-              {
-                name: 'billing',
-                url: configService.get('BILLING_SERVICE_URL', 'http://localhost:3006/graphql'),
-              },
-              {
-                name: 'hydroponics',
-                url: configService.get('HYDROPONICS_SERVICE_URL', 'http://localhost:4007/graphql'),
-              },
-              {
-                name: 'config',
-                url: configService.get('CONFIG_SERVICE_URL', 'http://localhost:3007/graphql'),
-              },
-              // BUG-4 FIX: notification-service exposes a federation-compatible GraphQL
-              // endpoint (myNotifications, unreadNotificationCount, markNotificationAsRead,
-              // markAllNotificationsAsRead, registerDeviceToken).  It was previously
-              // excluded with an incorrect comment.  The service uses ApolloFederationDriver
-              // and must be included for mobile notification queries to resolve.
-              {
-                name: 'notification',
-                url: configService.get('NOTIFICATION_SERVICE_URL', 'http://localhost:4008/graphql'),
-              },
-              // ADR-012: messaging-service is a federated subgraph for tenant-internal
-              // WhatsApp-like messaging. Added to docker-compose depends_on and
-              // health.service.ts serviceUrls map as part of ARCH-GW-001.
-              {
-                name: 'messaging',
-                url: configService.get('MESSAGING_SERVICE_URL', 'http://messaging-service:3000/graphql'),
-              },
-            ],
+            subgraphs: FEDERATED_SUBGRAPHS.map((subgraph) => ({
+              name: subgraph.name,
+              url: configService.get(subgraph.urlEnv, subgraph.localUrl),
+            })),
             pollIntervalInMs: 300000, // Poll for schema changes every 5 minutes
+            maxRetries: positiveIntConfig(
+              configService,
+              'GATEWAY_COMPOSITION_MAX_RETRIES',
+              24,
+            ),
+            retryDelayMs: positiveIntConfig(
+              configService,
+              'GATEWAY_COMPOSITION_RETRY_DELAY_MS',
+              3000,
+            ),
           }),
-          buildService({ url }) {
-            return new AuthenticatedDataSource({ url, secret: internalServiceSecret });
+          buildService({ name, url }) {
+            return new AuthenticatedDataSource({ url, serviceAudience: name });
           },
         },
         server: {
@@ -518,8 +291,12 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
             createAliasLimitPlugin(),
             {
               // Hoist Logger out of per-request closure to avoid re-instantiation per operation
-              requestDidStart: async () => ({
-                async didResolveOperation({ request, document, schema }) {
+              requestDidStart: () => Promise.resolve({
+                didResolveOperation({
+                  request,
+                  document,
+                  schema,
+                }: QueryComplexityOperationContext): Promise<void> {
                   const logger = queryComplexityLogger;
                   const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
@@ -553,8 +330,10 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
                     }
                     // Log but don't fail on complexity calculation errors
                     // (e.g., schema not available during startup)
-                    logger.warn(`Could not calculate query complexity: ${error}`);
+                    const message = error instanceof Error ? error.message : String(error);
+                    logger.warn(`Could not calculate query complexity: ${message}`);
                   }
+                  return Promise.resolve();
                 },
               }),
             },
@@ -572,8 +351,7 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
             return { req, res };
           },
         },
-      };
-      },
+      }),
     }),
 
     // MinIO Storage Module for file uploads

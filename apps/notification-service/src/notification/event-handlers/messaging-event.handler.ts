@@ -7,8 +7,9 @@ import type {
   AnnouncementPublishedEvent,
   BulkThreadsCreatedEvent,
 } from '@platform/event-contracts';
-import { InAppNotificationService } from '../services/in-app.service';
+
 import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
+import { InAppNotificationService } from '../services/in-app.service';
 
 // UUID v4 regex for tenant ID validation
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -39,10 +40,23 @@ class Semaphore {
     this.active--;
     if (this.queue.length > 0 && this.active < this.limit) {
       this.active++;
-      const next = this.queue.shift()!;
-      next();
+      const next = this.queue.shift();
+      if (next !== undefined) {
+        next();
+      }
     }
   }
+}
+
+function createRetryEvent(
+  event: MessagingEvent,
+  retryCount: number,
+): MessagingEvent {
+  return {
+    ...event,
+    retryCount,
+    ...createBaseEvent<MessagingEvent>(event.eventType, event.tenantId),
+  } as MessagingEvent;
 }
 
 /**
@@ -109,17 +123,18 @@ export class MessagingEventHandler
 
     // Acquire semaphore slot before processing to enforce backpressure
     await this.semaphore.acquire();
+    let retryEvent: MessagingEvent | null = null;
 
     try {
       switch (eventType) {
         case 'MessageSent':
-          await this.handleMessageSent(event as MessageSentEvent);
+          await this.handleMessageSent(event);
           break;
         case 'AnnouncementPublished':
-          await this.handleAnnouncementPublished(event as AnnouncementPublishedEvent);
+          await this.handleAnnouncementPublished(event);
           break;
         case 'BulkThreadsCreated':
-          await this.handleBulkThreadsCreated(event as BulkThreadsCreatedEvent);
+          await this.handleBulkThreadsCreated(event);
           break;
         default:
           this.logger.warn(`Unknown messaging event type: ${eventType}`);
@@ -138,13 +153,9 @@ export class MessagingEventHandler
         );
 
         if (dlqResult.retry) {
-          await this.eventBus.publish({
-            ...(event as MessagingEvent),
-            retryCount: dlqResult.retryCount,
-            ...createBaseEvent(event.eventType, event.tenantId),
-          });
+          retryEvent = createRetryEvent(event, dlqResult.retryCount);
           this.logger.warn(
-            `Messaging event ${eventType} re-published for retry attempt ${dlqResult.retryCount}`,
+            `Messaging event ${eventType} scheduled for local retry attempt ${dlqResult.retryCount}`,
           );
         }
       } catch (dlqError) {
@@ -154,6 +165,10 @@ export class MessagingEventHandler
       }
     } finally {
       this.semaphore.release();
+    }
+
+    if (retryEvent !== null) {
+      await this.handle(retryEvent);
     }
   }
 
@@ -167,15 +182,29 @@ export class MessagingEventHandler
    * SECURITY (H-2): Do NOT include message content in notification body.
    */
   private async handleMessageSent(event: MessageSentEvent): Promise<void> {
+    const legacyAdminEvent = event as MessageSentEvent &
+      Partial<{
+        isInternal: boolean;
+        threadId: string;
+        senderType: 'super_admin' | 'tenant_admin';
+      }>;
+
+    if (!legacyAdminEvent.threadId || !legacyAdminEvent.senderType) {
+      this.logger.debug(
+        `Skipping in-app notification for channel MessageSent ${event.messageId}; push fan-out is owned by messaging-service`,
+      );
+      return;
+    }
+
     // Skip internal admin notes -- no notification needed
-    if (event.isInternal) {
+    if (legacyAdminEvent.isInternal) {
       this.logger.debug(
         `Skipping notification for internal message ${event.messageId}`,
       );
       return;
     }
 
-    if (!event.messageId || !event.threadId) {
+    if (!event.messageId || !legacyAdminEvent.threadId) {
       this.logger.error(
         'MessageSent event missing required messageId or threadId. Skipping.',
       );
@@ -185,7 +214,7 @@ export class MessagingEventHandler
     // SECURITY (H-2): Generic notification text only -- no message content
     const title = 'New message received';
     const body =
-      event.senderType === 'super_admin'
+      legacyAdminEvent.senderType === 'super_admin'
         ? 'New message from platform support'
         : 'New message from tenant administrator';
 
@@ -194,7 +223,7 @@ export class MessagingEventHandler
     // notification that the recipient will pick up via their tenant scope.
     // For super_admin sender -> notify tenant (tenantId from event)
     // For tenant_admin sender -> notify platform admins (tenantId = 'system')
-    if (event.senderType === 'super_admin') {
+    if (legacyAdminEvent.senderType === 'super_admin') {
       await this.inAppService.createNotification(
         event.tenantId,
         event.tenantId, // tenant-scoped: tenant admin users will see this
@@ -202,12 +231,12 @@ export class MessagingEventHandler
         body,
         {
           type: 'MESSAGE',
-          threadId: event.threadId,
+          threadId: legacyAdminEvent.threadId,
           messageId: event.messageId,
-          senderType: event.senderType,
+          senderType: legacyAdminEvent.senderType,
         },
       );
-    } else if (event.senderType === 'tenant_admin') {
+    } else if (legacyAdminEvent.senderType === 'tenant_admin') {
       // Notify superadmins -- use 'system' as the pseudo-tenant for platform admins
       await this.inAppService.createNotification(
         'system',
@@ -216,16 +245,16 @@ export class MessagingEventHandler
         body,
         {
           type: 'MESSAGE',
-          threadId: event.threadId,
+          threadId: legacyAdminEvent.threadId,
           messageId: event.messageId,
-          senderType: event.senderType,
+          senderType: legacyAdminEvent.senderType,
           sourceTenantId: event.tenantId,
         },
       );
     }
 
     this.logger.debug(
-      `In-app notification created for MessageSent: thread ${event.threadId.substring(0, 8)}...`,
+      `In-app notification created for MessageSent: thread ${legacyAdminEvent.threadId.substring(0, 8)}...`,
     );
   }
 

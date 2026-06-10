@@ -47,7 +47,7 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
         with patch("aria_kernel.ci.subprocess.run") as mock_run:
             mock_run.return_value = self._mock_gh_run(returncode=0, stdout=gh_response)
             contexts, error = _fetch_branch_protection_contexts(
-                root=Path("/tmp"), base_branch="snowball",
+                root=Path("/tmp"), base_branch="main",
             )
         self.assertEqual(contexts, ["ci-affected", "security-snyk"])
         self.assertIsNone(error)
@@ -59,7 +59,7 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
         with patch("aria_kernel.ci.subprocess.run") as mock_run:
             mock_run.return_value = self._mock_gh_run(returncode=0, stdout=gh_response)
             contexts, error = _fetch_branch_protection_contexts(
-                root=Path("/tmp"), base_branch="snowball",
+                root=Path("/tmp"), base_branch="main",
             )
         self.assertEqual(contexts, [])
         self.assertEqual(error, "branch_protection_no_required_checks_configured")
@@ -73,7 +73,7 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
                 returncode=1, stderr="gh: Branch not protected (HTTP 404)",
             )
             contexts, error = _fetch_branch_protection_contexts(
-                root=Path("/tmp"), base_branch="snowball",
+                root=Path("/tmp"), base_branch="main",
             )
         self.assertIsNone(contexts)
         self.assertEqual(error, "branch_protection_disabled_on_base")
@@ -86,7 +86,7 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
                 returncode=1, stderr="gh: Forbidden (HTTP 403)",
             )
             contexts, error = _fetch_branch_protection_contexts(
-                root=Path("/tmp"), base_branch="snowball",
+                root=Path("/tmp"), base_branch="main",
             )
         self.assertIsNone(contexts)
         self.assertEqual(error, "branch_protection_lookup_permission_denied")
@@ -100,7 +100,7 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
                 returncode=1, stderr="gh: Authentication required (HTTP 401)",
             )
             contexts, error = _fetch_branch_protection_contexts(
-                root=Path("/tmp"), base_branch="snowball",
+                root=Path("/tmp"), base_branch="main",
             )
         self.assertIsNone(contexts)
         self.assertEqual(error, "branch_protection_lookup_permission_denied")
@@ -113,7 +113,7 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
         with patch("aria_kernel.ci.subprocess.run") as mock_run:
             mock_run.side_effect = FileNotFoundError("gh: not found")
             contexts, error = _fetch_branch_protection_contexts(
-                root=Path("/tmp"), base_branch="snowball",
+                root=Path("/tmp"), base_branch="main",
             )
         self.assertIsNone(contexts)
         self.assertEqual(error, "branch_protection_lookup_failed")

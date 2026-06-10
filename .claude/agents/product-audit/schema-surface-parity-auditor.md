@@ -4,6 +4,7 @@ description: Audits the two-way parity between product surfaces and durable data
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Schema Surface Parity Auditor -- UI-to-DB and DB-to-UI Coverage Reviewer

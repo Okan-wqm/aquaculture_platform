@@ -1,11 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import {
   CircuitBreakerService,
   DEFAULT_BREAKER_OPTIONS,
 } from '@aquaculture/backend-common/resilience';
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 export interface SystemMetrics {
   timestamp: string;
@@ -60,6 +60,46 @@ export interface ServiceHealth {
   details?: Record<string, unknown>;
 }
 
+type CountTargetKey =
+  | 'tenants'
+  | 'activeTenants'
+  | 'users'
+  | 'farms'
+  | 'sensors'
+  | 'activeSensors'
+  | 'alertRules'
+  | 'activeAlertRules';
+
+interface CountTarget {
+  schema: string;
+  table: string;
+  condition?: string;
+}
+
+type DbNumeric = number | string | null | undefined;
+
+interface PoolStatsRow {
+  total_connections: DbNumeric;
+  active_connections: DbNumeric;
+  idle_connections: DbNumeric;
+}
+
+interface CountRow {
+  count: DbNumeric;
+}
+
+interface DatabaseSizeRow {
+  size: string | null;
+}
+
+interface TableExistsRow {
+  exists: boolean | null;
+}
+
+function parseDbInt(value: DbNumeric): number {
+  return Number.parseInt(String(value ?? '0'), 10);
+}
+
 @Injectable()
 export class SystemMetricsService {
   private readonly logger = new Logger(SystemMetricsService.name);
@@ -81,11 +121,11 @@ export class SystemMetricsService {
    * Get comprehensive system metrics
    */
   async getSystemMetrics(): Promise<SystemMetrics> {
-    const [database, platform, resources] = await Promise.all([
+    const [database, platform] = await Promise.all([
       this.getDatabaseMetrics(),
       this.getPlatformMetrics(),
-      this.getResourceMetrics(),
     ]);
+    const resources = this.getResourceMetrics();
 
     return {
       timestamp: new Date().toISOString(),
@@ -101,7 +141,7 @@ export class SystemMetricsService {
   async getDatabaseMetrics(): Promise<DatabaseMetrics> {
     try {
       // Get connection pool stats
-      const poolStats = await this.dataSource.query(`
+      const poolStats = await this.dataSource.query<PoolStatsRow[]>(`
         SELECT
           count(*) as total_connections,
           count(*) FILTER (WHERE state = 'active') as active_connections,
@@ -111,29 +151,29 @@ export class SystemMetricsService {
       `);
 
       // Get database size
-      const dbSize = await this.dataSource.query(`
+      const dbSize = await this.dataSource.query<DatabaseSizeRow[]>(`
         SELECT pg_size_pretty(pg_database_size(current_database())) as size
       `);
 
       // Get tables count
-      const tablesCount = await this.dataSource.query(`
+      const tablesCount = await this.dataSource.query<CountRow[]>(`
         SELECT count(*) as count
         FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+        AND table_schema NOT LIKE 'pg_toast%'
+        AND table_type = 'BASE TABLE'
       `);
 
       return {
-        totalConnections: parseInt(poolStats[0]?.total_connections || '0', 10),
-        activeConnections: parseInt(poolStats[0]?.active_connections || '0', 10),
-        idleConnections: parseInt(poolStats[0]?.idle_connections || '0', 10),
+        totalConnections: parseDbInt(poolStats[0]?.total_connections),
+        activeConnections: parseDbInt(poolStats[0]?.active_connections),
+        idleConnections: parseDbInt(poolStats[0]?.idle_connections),
         waitingClients: 0,
         databaseSize: dbSize[0]?.size || 'unknown',
-        tablesCount: parseInt(tablesCount[0]?.count || '0', 10),
+        tablesCount: parseDbInt(tablesCount[0]?.count),
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to get database metrics: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get database metrics: ${(error as Error).message}`);
       return {
         totalConnections: 0,
         activeConnections: 0,
@@ -152,15 +192,15 @@ export class SystemMetricsService {
     try {
       // H-2 fix: removed dead query for active users (results[3]) that was fetched but never used
       const results = await Promise.all([
-        this.countEntities('tenants'),           // 0: totalTenants
-        this.countEntities('tenants', "status = 'active'"), // 1: activeTenants
-        this.countEntities('users'),             // 2: totalUsers
-        this.safeCountEntities('farms'),         // 3: totalFarms
-        this.safeCountEntities('sensors'),       // 4: totalSensors
-        this.safeCountEntities('sensors', 'is_active = true'), // 5: activeSensors
-        this.safeCountEntities('alert_rules'),   // 6: totalAlertRules
-        this.safeCountEntities('alert_rules', 'is_active = true'), // 7: activeAlertRules
-        this.countAuditLogsLast24h(),            // 8: eventsLast24h
+        this.countEntities('tenants'), // 0: totalTenants
+        this.countEntities('activeTenants'), // 1: activeTenants
+        this.countEntities('users'), // 2: totalUsers
+        this.countEntities('farms'), // 3: totalFarms
+        this.countEntities('sensors'), // 4: totalSensors
+        this.countEntities('activeSensors'), // 5: activeSensors
+        this.countEntities('alertRules'), // 6: totalAlertRules
+        this.countEntities('activeAlertRules'), // 7: activeAlertRules
+        this.countAuditLogsLast24h(), // 8: eventsLast24h
       ]);
 
       return {
@@ -176,9 +216,7 @@ export class SystemMetricsService {
         apiCallsLast24h: results[8], // Using audit logs as proxy
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to get platform metrics: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get platform metrics: ${(error as Error).message}`);
       return {
         totalTenants: 0,
         activeTenants: 0,
@@ -277,10 +315,11 @@ export class SystemMetricsService {
               return await fetch(endpoint.url, {
                 signal: controller.signal,
                 headers: buildSignedInternalHeaders({
-                  serviceName: 'admin-api',
+                  serviceName: 'admin-api-service',
                   tenantId: '',
                   method: 'GET',
                   path: new URL(endpoint.url).pathname,
+                  audience: endpoint.name,
                   body: '',
                 }),
               });
@@ -301,9 +340,7 @@ export class SystemMetricsService {
           status: response?.ok ? 'healthy' : 'degraded',
           responseTime: Date.now() - startTime,
           lastCheck: new Date(),
-          details: response
-            ? { statusCode: response.status }
-            : { error: 'unreachable' },
+          details: response ? { statusCode: response.status } : { error: 'unreachable' },
         });
       } catch {
         services.push({
@@ -322,14 +359,16 @@ export class SystemMetricsService {
   /**
    * Get metric trends over time
    */
-  async getMetricTrends(
+  getMetricTrends(
     _metric: string,
     _interval: '1h' | '24h' | '7d' | '30d',
   ): Promise<{ timestamp: Date; value: number }[]> {
     // C-3 fix: Return empty array instead of fabricated Math.random() data.
     // Real implementation requires time-series database or aggregated metrics table.
-    this.logger.warn('getMetricTrends requires time-series database integration - returning empty data');
-    return [];
+    this.logger.warn(
+      'getMetricTrends requires time-series database integration - returning empty data',
+    );
+    return Promise.resolve([]);
   }
 
   private async checkDatabaseHealth(): Promise<ServiceHealth> {
@@ -353,85 +392,80 @@ export class SystemMetricsService {
     }
   }
 
-  // H-3 fix: whitelist table names to prevent SQL injection
-  private static readonly ALLOWED_TABLES = new Set([
-    'tenants', 'users', 'farms', 'sensors', 'alert_rules', 'audit_logs',
-  ]);
-
-  // H-3 fix: whitelist conditions to prevent SQL injection
-  private static readonly ALLOWED_CONDITIONS = new Set([
-    "status = 'active'",
-    '"isActive" = true',
-    'is_active = true',
-  ]);
+  private static readonly COUNT_TARGETS: Record<CountTargetKey, CountTarget> = {
+    tenants: { schema: 'auth', table: 'tenants' },
+    activeTenants: { schema: 'auth', table: 'tenants', condition: "UPPER(status) = 'ACTIVE'" },
+    users: { schema: 'auth', table: 'users' },
+    farms: { schema: 'farm', table: 'farms' },
+    sensors: { schema: 'sensor', table: 'sensors' },
+    activeSensors: { schema: 'sensor', table: 'sensors', condition: 'is_active = true' },
+    alertRules: { schema: 'alert', table: 'alert_rules' },
+    activeAlertRules: { schema: 'alert', table: 'alert_rules', condition: 'is_active = true' },
+  };
 
   /**
    * HIGH-006 fix: cache table-existence results at first use to avoid an
-   * information_schema round-trip on every safeCountEntities() call.
+   * information_schema round-trip on every schema-qualified count.
    */
   private readonly tableExistsCache = new Map<string, boolean>();
 
-  private async countEntities(
-    table: string,
-    condition?: string,
-  ): Promise<number> {
+  private async countEntities(targetKey: CountTargetKey): Promise<number> {
     try {
-      if (!SystemMetricsService.ALLOWED_TABLES.has(table)) {
-        this.logger.warn(`countEntities called with disallowed table: ${table}`);
-        return 0;
-      }
-      if (condition && !SystemMetricsService.ALLOWED_CONDITIONS.has(condition)) {
-        this.logger.warn(`countEntities called with disallowed condition: ${condition}`);
+      const target = SystemMetricsService.COUNT_TARGETS[targetKey];
+      if (!target) {
+        this.logger.warn(`countEntities called with disallowed target: ${targetKey}`);
         return 0;
       }
 
-      const query = condition
-        ? `SELECT count(*) as count FROM ${table} WHERE ${condition}`
-        : `SELECT count(*) as count FROM ${table}`;
+      if (!(await this.tableExists(target))) {
+        this.logger.warn(`Metric source table missing: ${target.schema}.${target.table}`);
+        return 0;
+      }
 
-      const result = await this.dataSource.query(query);
-      return parseInt(result[0]?.count || '0', 10);
+      const query = target.condition
+        ? `SELECT count(*) as count FROM "${target.schema}"."${target.table}" WHERE ${target.condition}`
+        : `SELECT count(*) as count FROM "${target.schema}"."${target.table}"`;
+
+      const result = await this.dataSource.query<CountRow[]>(query);
+      return parseDbInt(result[0]?.count);
     } catch {
       return 0;
     }
   }
 
-  private async safeCountEntities(
-    table: string,
-    condition?: string,
-  ): Promise<number> {
+  private async tableExists(target: CountTarget): Promise<boolean> {
     try {
+      const cacheKey = `${target.schema}.${target.table}`;
       // HIGH-006 fix: serve table-existence from the in-process cache so we
       // avoid an information_schema round-trip on every call.
-      if (!this.tableExistsCache.has(table)) {
-        const tableExistsRows = await this.dataSource.query(`
+      if (!this.tableExistsCache.has(cacheKey)) {
+        const tableExistsRows = await this.dataSource.query<TableExistsRow[]>(
+          `
           SELECT EXISTS (
             SELECT FROM information_schema.tables
-            WHERE table_schema = 'public'
-            AND table_name = $1
+            WHERE table_schema = $1
+            AND table_name = $2
           ) AS exists
-        `, [table]);
-        this.tableExistsCache.set(table, tableExistsRows[0]?.exists === true);
+        `,
+          [target.schema, target.table],
+        );
+        this.tableExistsCache.set(cacheKey, tableExistsRows[0]?.exists === true);
       }
 
-      if (!this.tableExistsCache.get(table)) {
-        return 0;
-      }
-
-      return this.countEntities(table, condition);
+      return this.tableExistsCache.get(cacheKey) === true;
     } catch {
-      return 0;
+      return false;
     }
   }
 
   private async countAuditLogsLast24h(): Promise<number> {
     try {
-      const result = await this.dataSource.query(`
+      const result = await this.dataSource.query<CountRow[]>(`
         SELECT count(*) as count
         FROM shared.audit_logs
         WHERE "createdAt" >= NOW() - INTERVAL '24 hours'
       `);
-      return parseInt(result[0]?.count || '0', 10);
+      return parseDbInt(result[0]?.count);
     } catch {
       return 0;
     }

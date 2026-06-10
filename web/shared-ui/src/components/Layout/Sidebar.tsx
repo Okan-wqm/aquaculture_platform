@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+
 import type { NavigationItem, UserRole } from '../../types';
 
 // Alias for backward compatibility
@@ -258,16 +259,21 @@ const MenuItem: React.FC<{
   theme?: SidebarTheme;
   customIcons?: Record<string, React.ReactNode>;
 }> = ({ item, activePath, collapsed, depth = 0, onNavigate, userRoles = [], theme = 'default', customIcons }) => {
-  const hasChildren = item.children && item.children.length > 0;
+  const hasChildren = !!item.children?.length;
+  const childItems = item.children ?? [];
 
   // Access check — computed as a boolean (no useCallback overhead for a sync value)
   const hasAccess = !item.requiredRoles?.length ||
     item.requiredRoles.some((role) => userRoles.includes(role));
 
-  const isActive = item.path === activePath || (!!item.path && !!activePath && activePath.startsWith(item.path + '/'));
-  const isChildActive = item.children?.some(
-    (child) => child.path === activePath || (!!child.path && !!activePath && activePath.startsWith(child.path + '/'))
-  );
+  const pathMatches = (path?: string): boolean => {
+    if (!path || !activePath) return false;
+    if (path === activePath) return true;
+    return hasChildren && activePath.startsWith(path + '/');
+  };
+
+  const isActive = pathMatches(item.path);
+  const isChildActive = item.children?.some((child) => child.path === activePath) ?? false;
 
   // BUG-1 FIX: Auto-expand parent when a child is active
   const [isExpanded, setIsExpanded] = useState(!!isChildActive);
@@ -366,7 +372,7 @@ const MenuItem: React.FC<{
       {/* Sub-menu */}
       {hasChildren && isExpanded && !collapsed && (
         <div className="mt-1 space-y-1">
-          {item.children!.map((child) => (
+          {childItems.map((child) => (
             <MenuItem
               key={child.id}
               item={child}

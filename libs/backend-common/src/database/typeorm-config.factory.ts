@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import type { EntitySchema, MixedList } from 'typeorm';
 
+import { MIGRATION_LEDGER_TABLE } from './migration-ledger';
 import { buildDatabaseSslConfig } from './ssl-config';
 
 /**
@@ -229,6 +230,37 @@ export function createServiceTypeOrmConfig(
     opts.migrationsRunFromEnv != null
       ? opts.migrationsRunFromEnv(configService)
       : opts.migrationsRun ?? false;
+  const nodeEnv = process.env['NODE_ENV'];
+  const aquaEnv = configService.get<string>('AQUA_ENV', nodeEnv ?? 'development');
+  const dbMigrateAuthoritative =
+    configService.get<string>(
+      'DB_MIGRATE_AUTHORITATIVE',
+      nodeEnv === 'production' ? 'true' : 'false',
+    ) === 'true';
+  const isProductionLike =
+    nodeEnv === 'production' ||
+    aquaEnv === 'production' ||
+    aquaEnv === 'staging';
+  const synchronize = configService.get('DATABASE_SYNC', 'false') === 'true';
+  if (process.env['DB_MIGRATE_DDL_AUTHORITY'] === '1') {
+    throw new Error(
+      `[${opts.serviceName}] DB_MIGRATE_DDL_AUTHORITY=1 is only valid inside aqua-db-migrate; ` +
+        'runtime services must not receive DDL-authority credentials or env.',
+    );
+  }
+
+  if (migrationsRun && (nodeEnv === 'production' || dbMigrateAuthoritative)) {
+    throw new Error(
+      `[${opts.serviceName}] TypeORM migrationsRun=true is not allowed when ` +
+        'aqua-db-migrate is the authoritative DDL writer. Set DATABASE_MIGRATIONS_RUN=false.',
+    );
+  }
+  if (synchronize && (isProductionLike || dbMigrateAuthoritative)) {
+    throw new Error(
+      `[${opts.serviceName}] DATABASE_SYNC=true is not allowed when ` +
+        'aqua-db-migrate is the authoritative DDL writer or in production/staging.',
+    );
+  }
 
   // Hot-path: read env once into a local; ConfigService.get does a string-
   // parse on each call which adds up across 13 services × N reads.
@@ -267,9 +299,10 @@ export function createServiceTypeOrmConfig(
     autoLoadEntities: opts.entities == null,
     entities: opts.entities,
     subscribers: opts.subscribers,
-    synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',
+    synchronize,
     migrationsRun,
     migrations: opts.migrations,
+    migrationsTableName: MIGRATION_LEDGER_TABLE,
     logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
     ssl: buildDatabaseSslConfig(configService),
     extra: {

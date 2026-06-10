@@ -4,6 +4,7 @@ description: Invoked when reviewing authentication flows, authorization guards, 
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 1
 ---
 
 # Auth & Security Expert — Enterprise Security Authority

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import hashlib
 import os
 import sys
 import tempfile
@@ -37,6 +38,7 @@ import ci_executor  # noqa: E402
 from aria_kernel.agent_invocations import (  # noqa: E402
     claim_request,
     create_agent_invocation_request,
+    render_invocation_prompt,
 )
 from aria_kernel.planner_dispatch_hook import (  # noqa: E402
     CLAIM_METADATA_ENV_VAR,
@@ -50,10 +52,22 @@ from aria_kernel.tool_registry import GovernanceError  # noqa: E402
 
 class _SingleClaimBase(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = Path(tempfile.mkdtemp(prefix="aria-b5-"))
-        self.repo = self.tmp / "repo"
+        # Plan ARIA-V9.7+ — hermetic env isolation. Pop ARIA_TOOLS_DIR
+        # + ARIA_REPO_ROOT before each test so a prior-test pollution
+        # (e.g. test_fixture_runner_path_escape leaves them set under
+        # certain CI test-ordering paths) does NOT make ci_executor.main()
+        # resolve tools_dir to a stale tempdir and miss the claim row in
+        # _on_disk_anchors. Restore in tearDown.
+        self._saved_aria_tools_dir = os.environ.pop("ARIA_TOOLS_DIR", None)
+        self._saved_aria_repo_root = os.environ.pop("ARIA_REPO_ROOT", None)
+        # Resolve all paths via .resolve() so they match what
+        # ci_executor.main() computes from Path.cwd().resolve() under
+        # filesystems with symlinks (e.g. /tmp → /private/tmp on macOS,
+        # tmpfs vs overlayfs on some Linux CI runners).
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-b5-")).resolve()
+        self.repo = (self.tmp / "repo").resolve(strict=False)
         self.repo.mkdir()
-        self.tools = self.repo / "aria-tools"
+        self.tools = (self.repo / "aria-tools").resolve(strict=False)
         self._old_cwd = os.getcwd()
         os.chdir(self.repo)
         set_profile("standard", operator_approval_ref="t", base_dir=self.tools)
@@ -62,7 +76,7 @@ class _SingleClaimBase(unittest.TestCase):
         prompt.write_text("# test", encoding="utf-8")
 
         self.req = create_agent_invocation_request(
-            target_agent="test-agent", role="evidence_judgment",
+            target_agent="aria-evidence-judge", role="evidence_judgment",
             suggested_prompt="prove",
             expected_output_path=str(
                 self.tools / "agent-invocations" / "outputs" / "out.json"
@@ -93,6 +107,15 @@ class _SingleClaimBase(unittest.TestCase):
         import shutil
         os.chdir(self._old_cwd)
         shutil.rmtree(self.tmp, ignore_errors=True)
+        # Plan ARIA-V9.7+ — restore env saved in setUp.
+        if self._saved_aria_tools_dir is not None:
+            os.environ["ARIA_TOOLS_DIR"] = self._saved_aria_tools_dir
+        else:
+            os.environ.pop("ARIA_TOOLS_DIR", None)
+        if self._saved_aria_repo_root is not None:
+            os.environ["ARIA_REPO_ROOT"] = self._saved_aria_repo_root
+        else:
+            os.environ.pop("ARIA_REPO_ROOT", None)
 
 
 class SingleClaimSerialiserTests(_SingleClaimBase):
@@ -124,6 +147,8 @@ class SingleClaimSerialiserTests(_SingleClaimBase):
             "claim_id", "request_id", "agent_id",
             "expected_output_path", "role",
             "must_satisfy", "allowed_scope", "evidence_refs",
+            "context_hash", "prompt_hash",
+            "context_ledger_hash", "prompt_ledger_hash",
             "lease_expires_at",
             "claim_ledger_hash", "request_ledger_hash",
         ):
@@ -244,19 +269,34 @@ class SingleClaimMainEntryTests(_SingleClaimBase):
         def fake_run(argv, *args, **kwargs):
             captured.append(tuple(argv))
             if "claim" in argv:
+                claim_payload = {
+                    "lease_token": "test-token",
+                    "claim_id": "test-claim",
+                    "request_id": self.req["request_id"],
+                    "agent_id": self.agent_id,
+                    "role": "evidence_judgment",
+                    "target_agent": "aria-evidence-judge",
+                    "convergence_id": self.req.get("convergence_id"),
+                    "expected_output_path": self.req["expected_output_path"],
+                    "suggested_prompt": self.req["suggested_prompt"],
+                    "must_satisfy": [{"id": "S1", "description": "x"}],
+                    "allowed_scope": ["aria-kernel/**"],
+                    "forbidden_scope": [],
+                    "evidence_refs": ["aria-kernel/src"],
+                    "impact_graph_refs": [],
+                    "validation_commands": [],
+                    "context_hash": self.claim["context_hash"],
+                    "context_ledger_hash": self.claim["context_ledger_hash"],
+                    "prompt_ledger_hash": self.claim["prompt_ledger_hash"],
+                }
+                rendered = render_invocation_prompt(claim_payload)
+                claim_payload["prompt_hash"] = (
+                    "sha256:"
+                    + hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+                )
                 return MagicMock(
                     returncode=0,
-                    stdout=json.dumps({
-                        "lease_token": "test-token",
-                        "claim_id": "test-claim",
-                        "request_id": self.req["request_id"],
-                        "agent_id": self.agent_id,
-                        "role": "evidence_judgment",
-                        "expected_output_path": self.req["expected_output_path"],
-                        "must_satisfy": [{"id": "S1", "description": "x"}],
-                        "allowed_scope": ["aria-kernel/**"],
-                        "evidence_refs": ["aria-kernel/src"],
-                    }),
+                    stdout=json.dumps(claim_payload),
                     stderr="",
                 )
             return MagicMock(returncode=0, stdout="{}", stderr="")

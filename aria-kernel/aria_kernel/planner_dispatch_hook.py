@@ -79,6 +79,8 @@ def _serialise_claim_metadata_for_env(
     * claim_id, request_id, agent_id (control-plane identifiers)
     * expected_output_path, role, must_satisfy, allowed_scope,
       evidence_refs (envelope — fused into claim by §B.3)
+    * context_hash, prompt_hash, context_ledger_hash, prompt_ledger_hash
+      (model-visible context/prompt SSoT binding)
     * lease_expires_at (lease lifecycle anchor)
     * claim_ledger_hash, request_ledger_hash (§B.5 tamper-detection
       anchors — verified by the deserialiser against on-disk rows)
@@ -105,15 +107,57 @@ def _serialise_claim_metadata_for_env(
             f"claim_metadata_forbidden_key_in_input: {sorted(leaked)} "
             f"— lease_token MUST transit via {LEASE_TOKEN_ENV_VAR} only"
         )
+    # Plan ARIA-V10.4 Phase 3.H.5 — V8.12 follow-up that closes the
+    # actual F-017 root cause. The V8.12 fix at
+    # ``agent_invocations.claim_request:807-827`` extended the
+    # claim_request RETURN VALUE with envelope fields
+    # (suggested_prompt, convergence_id, target_agent, etc.) so
+    # ci_executor's ``_build_prompt_payload`` could render them. But
+    # the env-var SERIALISER below (this function) was never updated
+    # to PROPAGATE those fields to the ci_executor subprocess. Net
+    # effect: claim dict in this process has full envelope; serialised
+    # ARIA_CLAIM_METADATA env var previously carried only an envelope subset;
+    # ci_executor's ``request_envelope`` build (line 1542) reads None
+    # for the missing fields; the prompt file's ``## Suggested prompt``
+    # section is empty; cross_reviewer (and any role) refuses with
+    # ``evidence_underspecified``. Confirmed via V10.4 endurance cycle
+    # 1 (cyc-20260520T112130Z-auto) — requests.jsonl had full
+    # suggested_prompt (10454 chars with <untrusted_*> tags) but the
+    # prompt file delivered to the subprocess had ``## Suggested
+    # prompt\n\n\n`` (empty body).
+    #
+    # The full V8.12-extended set landed in claim_request return value
+    # (lines 807-827) is the SSoT for what ci_executor needs:
+    # expected_output_path, role, target_agent, convergence_id,
+    # suggested_prompt, must_satisfy, allowed_scope, forbidden_scope,
+    # evidence_refs, impact_graph_refs, validation_commands,
+    # plan_revision_hash. The serialiser propagates all of them so
+    # ci_executor sees the SAME envelope the kernel minted.
     payload = {
         "claim_id": claim.get("claim_id"),
         "request_id": claim.get("request_id"),
         "agent_id": agent_id,
         "expected_output_path": claim.get("expected_output_path"),
         "role": claim.get("role"),
+        # Plan ARIA-V10.4 Phase 3.H.5 — V8.12-extended envelope fields
+        # ci_executor's _build_prompt_payload reads at line 1641-1655.
+        # Without these, the agent prompt's "## Suggested prompt"
+        # section is empty + the <untrusted_*> tag bodies don't exist
+        # in the file the subprocess reads from stdin.
+        "target_agent": claim.get("target_agent"),
+        "convergence_id": claim.get("convergence_id"),
+        "suggested_prompt": claim.get("suggested_prompt"),
         "must_satisfy": claim.get("must_satisfy") or [],
         "allowed_scope": claim.get("allowed_scope") or [],
+        "forbidden_scope": claim.get("forbidden_scope") or [],
         "evidence_refs": claim.get("evidence_refs") or [],
+        "impact_graph_refs": claim.get("impact_graph_refs") or [],
+        "validation_commands": claim.get("validation_commands") or [],
+        "plan_revision_hash": claim.get("plan_revision_hash"),
+        "context_hash": claim.get("context_hash"),
+        "prompt_hash": claim.get("prompt_hash"),
+        "context_ledger_hash": claim.get("context_ledger_hash"),
+        "prompt_ledger_hash": claim.get("prompt_ledger_hash"),
         "lease_expires_at": claim.get("lease_expires_at"),
         "claim_ledger_hash": claim.get("claim_ledger_hash"),
         "request_ledger_hash": claim.get("request_ledger_hash"),

@@ -4,6 +4,7 @@ description: Reviews AquaMobil end-to-end flows for mobile-specific persistence,
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Mobile App Auditor -- AquaMobil Offline and Reconnect Reviewer

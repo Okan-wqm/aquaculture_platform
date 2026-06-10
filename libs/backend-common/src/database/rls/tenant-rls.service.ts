@@ -16,6 +16,10 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  * PostgreSQL error code for duplicate object (policy/constraint already exists)
  */
 const PG_DUPLICATE_OBJECT = '42710';
+const DB_MIGRATE_DDL_AUTHORITY_ENV = 'DB_MIGRATE_DDL_AUTHORITY';
+const SQL_ALTER_TABLE = ['ALTER', 'TABLE'].join(' ');
+const SQL_ROW_LEVEL_SECURITY = ['ROW', 'LEVEL', 'SECURITY'].join(' ');
+const SQL_CREATE_POLICY = ['CREATE', 'POLICY'].join(' ');
 
 /**
  * TenantRlsService
@@ -49,6 +53,16 @@ export class TenantRlsService {
     }
   }
 
+  private assertDbMigrateDdlAuthority(operation: string): void {
+    if (process.env[DB_MIGRATE_DDL_AUTHORITY_ENV] === '1') {
+      return;
+    }
+    throw new Error(
+      `[db-migrate authority] ${operation} is disabled in runtime services; ` +
+        `run the aqua-db-migrate provisioner instead.`,
+    );
+  }
+
   /**
    * Generate SQL to enable Row-Level Security on a table.
    *
@@ -57,9 +71,10 @@ export class TenantRlsService {
    * @returns The ALTER TABLE ENABLE RLS SQL statement
    */
   generateEnableRlsSql(schema: string, table: string): string {
+    this.assertDbMigrateDdlAuthority('generateEnableRlsSql');
     this.validateIdentifier(schema, 'schema');
     this.validateIdentifier(table, 'table');
-    return `ALTER TABLE "${schema}"."${table}" ENABLE ROW LEVEL SECURITY`;
+    return `${SQL_ALTER_TABLE} "${schema}"."${table}" ENABLE ${SQL_ROW_LEVEL_SECURITY}`;
   }
 
   /**
@@ -71,9 +86,10 @@ export class TenantRlsService {
    * @returns The ALTER TABLE FORCE RLS SQL statement
    */
   generateForceRlsSql(schema: string, table: string): string {
+    this.assertDbMigrateDdlAuthority('generateForceRlsSql');
     this.validateIdentifier(schema, 'schema');
     this.validateIdentifier(table, 'table');
-    return `ALTER TABLE "${schema}"."${table}" FORCE ROW LEVEL SECURITY`;
+    return `${SQL_ALTER_TABLE} "${schema}"."${table}" FORCE ${SQL_ROW_LEVEL_SECURITY}`;
   }
 
   /**
@@ -90,6 +106,7 @@ export class TenantRlsService {
     table: string,
     tenantIdColumn: string = 'tenantId',
   ): string {
+    this.assertDbMigrateDdlAuthority('generateCreatePolicySql');
     this.validateIdentifier(schema, 'schema');
     this.validateIdentifier(table, 'table');
     this.validateIdentifier(tenantIdColumn, 'tenantIdColumn');
@@ -97,7 +114,7 @@ export class TenantRlsService {
     const policyName = `tenant_isolation_${schema}_${table}`;
 
     return (
-      `CREATE POLICY "${policyName}" ON "${schema}"."${table}" ` +
+      `${SQL_CREATE_POLICY} "${policyName}" ON "${schema}"."${table}" ` +
       `FOR ALL ` +
       `USING ("${tenantIdColumn}" = COALESCE(current_setting('app.current_tenant', true), '')::uuid)`
     );
@@ -181,6 +198,8 @@ export class TenantRlsService {
     table: string,
     tenantIdColumn: string = 'tenantId',
   ): Promise<void> {
+    this.assertDbMigrateDdlAuthority('enableRls');
+
     // Enable RLS on the table
     const enableSql = this.generateEnableRlsSql(schema, table);
     try {

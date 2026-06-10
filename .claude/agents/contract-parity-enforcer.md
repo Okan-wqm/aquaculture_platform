@@ -4,6 +4,7 @@ description: Cross-cutting reviewer for API contract parity — OpenAPI ↔ Nest
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Contract-Parity Enforcer -- API Contract Drift Reviewer

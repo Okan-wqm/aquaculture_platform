@@ -1,6 +1,8 @@
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
+import { ClientsModule, Transport } from '@nestjs/microservices';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
 import { SchedulingSettings } from './entities/scheduling-settings.entity';
@@ -66,6 +68,13 @@ const QueryHandlers = [
       Employee,
       LeaveRequest,
       AttendanceRecord,
+    ]),
+    ClientsModule.register([
+      {
+        name: 'NATS_SERVICE',
+        transport: Transport.NATS,
+        options: buildNatsTransportOptions('hr-service'),
+      },
     ]),
     CqrsModule,
   ],

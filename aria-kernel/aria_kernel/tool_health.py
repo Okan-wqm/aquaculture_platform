@@ -13,9 +13,16 @@ from .feedback_store import (
     record_findings_for_run,
     record_raw_findings_for_run,
 )
-from .ledger import append_jsonl as append_chained_jsonl
+from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
 from .ledger import load_jsonl as load_chained_jsonl
 from .quarantine import quarantine_tool
+from .runs_reader import read_runs_rows
+from .runtime_artifacts import (
+    append_run_by_cycle,
+    run_ledger_format,
+    write_run_artifact,
+)
+from .evidence_trust import SELF_OUTPUT_PREFIXES
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, update_tool, utc_now
 from .tool_registry import append_tools_governance, update_tools_index
 
@@ -28,6 +35,7 @@ RUN_STATUSES = (
     "crash",
     "budget_exceeded",
     "tool_unhealthy",
+    "integrity_failed",
 )
 REQUIRED_RUN_FIELDS = (
     "run_id",
@@ -76,7 +84,7 @@ DEFAULT_DENY_READ_GLOBS = (
 # Backwards-compat alias for any external importer (no in-repo importer
 # per grep, but defensive). Equivalent to the pre-fix tuple ordering.
 DEFAULT_FORBIDDEN_READ_GLOBS = HARD_FORBIDDEN_READ_GLOBS + DEFAULT_DENY_READ_GLOBS
-SELF_OUTPUT_MARKERS = ("agent-workspace/", ".aria-poc/", "aria-tools/")
+SELF_OUTPUT_MARKERS = SELF_OUTPUT_PREFIXES
 
 
 def runs_path(base_dir: str | Path | None = None) -> Path:
@@ -111,7 +119,45 @@ def record_run(
         envelope["status"] = "evidence_error"
 
     raw_findings = envelope.pop("raw_findings", None)
-    append_jsonl(runs_path(base_dir), {"recorded_at": utc_now(), **envelope})
+    artifact_payload = envelope.pop("_runtime_artifact_payload", None)
+    ledger_format = run_ledger_format(base_dir)
+    if ledger_format in ("v2-shadow", "v2"):
+        artifact = write_run_artifact(
+            base_dir=base_dir,
+            run_id=envelope["run_id"],
+            cycle_uid=envelope["cycle_id"],
+            tool_id=envelope["tool_id"],
+            kind="tool_run",
+            run_status=envelope["status"],
+            repo_state_id=(envelope.get("repo_snapshot") or {}).get("repo_state_id") if isinstance(envelope.get("repo_snapshot"), dict) else None,
+            payload=_runtime_artifact_payload(envelope, raw_findings, artifact_payload),
+        )
+        envelope["schema_version"] = 2
+        envelope["run_ledger_format"] = ledger_format
+        envelope["artifact_ref"] = artifact.get("artifact_ref")
+        envelope["artifact_refs"] = [artifact["artifact_ref"]] if isinstance(artifact.get("artifact_ref"), dict) else []
+        envelope["artifact_hash"] = artifact.get("artifact_hash")
+        envelope["artifact_status"] = artifact.get("artifact_status")
+        envelope["artifact_error"] = artifact.get("artifact_error")
+        if artifact.get("artifact_status") != "present":
+            envelope["status"] = "integrity_failed"
+            envelope.setdefault("evidence_validation", {}).setdefault("errors", []).append(
+                {
+                    "code": "run_artifact_write_failed",
+                    "artifact_id": artifact.get("artifact_id"),
+                    "error": artifact.get("artifact_error"),
+                },
+            )
+            envelope["evidence_validation"]["valid"] = False
+        if ledger_format == "v2":
+            runner = envelope.get("runner")
+            if isinstance(runner, dict):
+                runner.pop("raw_findings_sample", None)
+    else:
+        envelope["artifact_status"] = "legacy_inline_or_sample_only"
+    run_row = append_jsonl(runs_path(base_dir), {"recorded_at": utc_now(), **envelope})
+    if ledger_format in ("v2-shadow", "v2"):
+        append_run_by_cycle(base_dir=base_dir, cycle_uid=envelope["cycle_id"], run_row=run_row)
     record_raw_findings_for_run(envelope, raw_findings, base_dir=base_dir)
     record_findings_for_run(envelope, base_dir=base_dir)
     decision = evaluate_health(envelope["tool_id"], base_dir=base_dir, latest_run=envelope)
@@ -158,7 +204,7 @@ def evaluate_health(
     latest_run: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     tool = get_tool(tool_id, base_dir)
-    runs = load_jsonl(runs_path(base_dir), tool_id=tool_id)
+    runs = list(read_runs_rows(runs_path(base_dir), tool_id=tool_id, base_dir=Path(base_dir) if base_dir is not None else None))
     latest = latest_run or (runs[-1] if runs else None)
     decision = {
         "schema_version": 1,
@@ -185,7 +231,7 @@ def evaluate_health(
                 "status": updated["status"],
                 "action": "quarantine",
                 "reason": quarantine_reason,
-                "metrics": compute_metrics(updated, load_jsonl(runs_path(base_dir), tool_id=tool_id), base_dir=base_dir),
+                "metrics": compute_metrics(updated, list(read_runs_rows(runs_path(base_dir), tool_id=tool_id, base_dir=Path(base_dir) if base_dir is not None else None)), base_dir=base_dir),
                 "revalidation_required": revalidation_count,
             },
         )
@@ -241,6 +287,36 @@ def can_emit_operator_facing(
     return get_tool(tool_id, base_dir)["status"] == "ACTIVE"
 
 
+def _runtime_artifact_payload(
+    envelope: dict[str, Any],
+    raw_findings: Any,
+    artifact_payload: Any,
+) -> dict[str, Any]:
+    payload = artifact_payload if isinstance(artifact_payload, dict) else {}
+    return {
+        "run_id": envelope.get("run_id"),
+        "cycle_id": envelope.get("cycle_id"),
+        "tool_id": envelope.get("tool_id"),
+        "status": envelope.get("status"),
+        "input_hash": envelope.get("input_hash"),
+        "output_hash": envelope.get("output_hash"),
+        "stdout": payload.get("stdout"),
+        "stderr": payload.get("stderr"),
+        "parsed_output": payload.get("parsed_output"),
+        "raw_observations": payload.get("raw_observations"),
+        "raw_findings": raw_findings if isinstance(raw_findings, list) else [],
+        "read_paths": envelope.get("read_paths", []),
+        "evidence_validation": envelope.get("evidence_validation"),
+        "runner": envelope.get("runner"),
+        "repo_snapshot": envelope.get("repo_snapshot"),
+        "no_silent_loss": {
+            "reason_code": "artifact_backed_runtime_output",
+            "truncated": False,
+            "summarized": True,
+        },
+    }
+
+
 def immediate_quarantine_reason(tool: dict[str, Any], run: dict[str, Any]) -> str | None:
     if run["status"] == "scope_violation" or find_scope_violations(tool, run["read_paths"]):
         return "scope violation: read outside declared scope or forbidden generated/secrets path"
@@ -264,6 +340,8 @@ def immediate_quarantine_reason(tool: dict[str, Any], run: dict[str, Any]) -> st
         return "crash corrupted ledger state"
     if run["status"] == "tool_unhealthy":
         return "tool runner unhealthy"
+    if run["status"] == "integrity_failed":
+        return "runtime artifact integrity failed"
     if has_critical_false_positive(run):
         return "operator-confirmed critical false positive"
     return None
@@ -457,8 +535,14 @@ def feedback_severity(feedback: Any) -> str | None:
     return None
 
 
-def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    append_chained_jsonl(path, payload)
+def append_jsonl(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    if path.name == "runs.jsonl":
+        return append_declared_jsonl(path, payload, expected_surface="runs")
+    if path.name == "health.jsonl":
+        return append_declared_jsonl(path, payload, expected_surface="health")
+    if path.name == "cycles.jsonl":
+        return append_declared_jsonl(path, payload, expected_surface="cycles")
+    return append_chained_jsonl(path, payload)
 
 
 def load_jsonl(path: Path, *, tool_id: str | None = None) -> list[dict[str, Any]]:

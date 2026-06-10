@@ -74,6 +74,7 @@ const MOBILE_SETTINGS_QUERY = `
 
 // SEC-06: All fetch calls include X-Requested-With for CSRF defense-in-depth
 const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
+const SILENT_REFRESH_TIMEOUT_MS = 8000;
 
 async function checkMobileEnabled(token: string): Promise<boolean> {
   try {
@@ -137,9 +138,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // On mount: attempt silent refresh via httpOnly cookie
   useEffect(() => {
     const restoreSession = async () => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), SILENT_REFRESH_TIMEOUT_MS);
+
       try {
         const response = await fetch('/graphql', {
           method: 'POST',
+          signal: controller.signal,
           headers: {
             'Content-Type': 'application/json',
             ...CSRF_HEADER,
@@ -184,6 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         // No valid session
       } finally {
+        window.clearTimeout(timeoutId);
         setIsLoading(false);
         // WHY: unblock pending authenticatedFetch() calls — resolves the
         // authReadyPromise barrier whether restoreSession succeeded or not.

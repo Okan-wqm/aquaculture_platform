@@ -227,8 +227,9 @@ The Wave 4-A.2 verifications referenced above are exercised by:
   - `tools/factory-reset/lib/verify-seed.ts` (post-reset DB shape)
   - `tools/factory-reset/lib/verify-tenant-clone.ts` (tenant-clone
     smoke test, optional)
-  - `tools/bootstrap-restore/insert-baseline-as-applied.sql` (legacy-
-    droplet baseline ledger pre-seed)
+  - `platform.release_ledger` + `<schema>.migrations` (deploy-time
+    release and schema-version truth; legacy baseline pre-seeding is not
+    a supported recovery path)
   - `e2e/tests/integration/bootstrap-from-scratch.spec.ts` (CI
     runtime drift exercise)
   - `tools/gates/schema-drift-registration.ts` (PR-time AST gate)

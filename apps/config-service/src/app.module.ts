@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -11,13 +11,18 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 import {
   AuditColumnsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
+  isSchemaDdlOwnedByDbMigrate,
   RlsModule,
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
+import {
+  StripInternalHeadersMiddleware,
+  VerifiedUserAssertionMiddleware,
+} from '@aquaculture/backend-common/middleware';
 
 /**
  * ConfigMigrationRunnerService — runs pending TypeORM migrations against
@@ -32,7 +37,7 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
  * `'public'` to the runner factory tells the runner to advisory-lock and
  * pin `search_path` against `public` while the DDL targets `config` — an
  * incoherent state where the runner attempts to maintain the migration
- * ledger (`typeorm_migrations`) in `public`, requiring CREATE privilege
+ * ledger in `public`, requiring CREATE privilege
  * on `public` that the per-service DB role does not have. Production
  * cold-boot crashed with:
  *
@@ -41,17 +46,18 @@ import { LoggingModule } from '@aquaculture/backend-common/logging';
  *
  * Aligning the runner with the schema the entities + migrations target
  * is the canonical platform shape (billing-service:
- * `createMigrationRunnerService('billing')`, hr-service: `('hr')`,
+ * `createSchemaVersionGate('billing')`, hr-service: `('hr')`,
  * ai-service: `('ai')`). The aqua-db-migrate orchestrator container
  * already applies config migrations against `config`; this restores the
  * per-service runner to the same target so the orchestrator and
  * per-service runner stay aligned (idempotent — the runner skips
- * already-applied migrations via the per-schema `typeorm_migrations`
- * ledger via `MigrationExecutor.getPendingMigrations()`).
+ * already-applied migrations via the per-schema `migrations` ledger via
+ * `MigrationExecutor.getPendingMigrations()`).
  *
  * Closes: docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-069
  */
-const ConfigMigrationRunnerService = createMigrationRunnerService('config');
+const ConfigMigrationRunnerService = createSchemaVersionGate('config');
+const configSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -71,7 +77,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     // `@Entity('<table>', { schema: 'config' })` and every migration body
     // is schema-qualified to `config.<table>`. The TypeORM factory pins
     // `search_path` to `config,public` so unqualified reads land in the
-    // owned schema and the runner ledger lives where the role has CREATE.
+    // owned schema and the runner ledger lives in `config.migrations`,
+    // where the role has CREATE.
     // ConfigMigrationRunnerService (provider above) executes migrations
     // at OnApplicationBootstrap against the same `config` schema;
     // factory's migrationsRun:false default keeps TypeORM out of that
@@ -102,7 +109,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+      autoSchemaFile: {
+        federation: 2,
+        path: join(process.cwd(), 'dist/graphql/subgraphs/config.graphql'),
+      },
       /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
        *  The gateway already blocks batching, but subgraphs must also enforce this as
        *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -153,7 +163,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      */
     RlsModule.forPoolService({
       serviceName: 'config',
-      autoApply: true,
+      autoApply: !configSchemaDdlOwnedByDbMigrate,
     }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
@@ -165,7 +175,9 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      * TIMESTAMPTZ). Closes NEW-H1 on the same OnApplicationBootstrap
      * hook.
      */
-    AuditColumnsModule.forRoot({ serviceName: 'config' }),
+    ...(configSchemaDdlOwnedByDbMigrate
+      ? []
+      : [AuditColumnsModule.forRoot({ serviceName: 'config' })]),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'config' }),
   ],
@@ -184,7 +196,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'config-service'),
       inject: [ConfigService],
     },
     // SECURITY: Tenant guard - ensures tenant isolation (defense-in-depth)
@@ -207,4 +219,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(StripInternalHeadersMiddleware, VerifiedUserAssertionMiddleware).forRoutes('*');
+  }
+}

@@ -14,46 +14,32 @@
  *
  * @module Harvest
  */
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
-import { HarvestPlan } from './entities/harvest-plan.entity';
-import { HarvestRecord } from './entities/harvest-record.entity';
-
-// Related entities
 import { Batch } from '../batch/entities/batch.entity';
-import { Tank } from '../tank/entities/tank.entity';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { TankOperation } from '../batch/entities/tank-operation.entity';
+import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
+import { FarmStockModule } from '../farm-stock/farm-stock.module';
+import { FishHealthModule } from '../fish-health/fish-health.module';
+import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile-command-receipt.entity';
+import { Tank } from '../tank/entities/tank.entity';
 
-// Services
+import { HarvestPlan } from './entities/harvest-plan.entity';
+import { HarvestRecord } from './entities/harvest-record.entity';
+import { CreateHarvestRecordHandler } from './handlers/create-harvest-record.handler';
+import { DeleteHarvestRecordHandler } from './handlers/delete-harvest-record.handler';
+import { GetHarvestStatisticsHandler } from './handlers/get-harvest-statistics.handler';
+import { GetHarvestHandler } from './handlers/get-harvest.handler';
+import { ListHarvestsHandler } from './handlers/list-harvests.handler';
+import { UpdateHarvestRecordHandler } from './handlers/update-harvest-record.handler';
+import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
+import { HarvestResolver } from './resolvers/harvest.resolver';
 import { HarvestPlanService } from './services/harvest-plan.service';
 import { HarvestPolicyService } from './services/harvest-policy.service';
-
-// Command Handlers
-import { CreateHarvestRecordHandler } from './handlers/create-harvest-record.handler';
-import { UpdateHarvestRecordHandler } from './handlers/update-harvest-record.handler';
-import { DeleteHarvestRecordHandler } from './handlers/delete-harvest-record.handler';
-
-// Query Handlers
-import { ListHarvestsHandler } from './handlers/list-harvests.handler';
-import { GetHarvestHandler } from './handlers/get-harvest.handler';
-import { GetHarvestStatisticsHandler } from './handlers/get-harvest-statistics.handler';
-
-// Resolvers
-import { HarvestResolver } from './resolvers/harvest.resolver';
-import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
-
-// Cross-module: withdrawal-period / harvest-eligibility enforcement lives
-// in the fish-health module and is shared here so createHarvestRecord can
-// block harvests that would violate an active medicine withdrawal window.
-import { FishHealthModule } from '../fish-health/fish-health.module';
-
-// Cross-cutting: backdate policy for harvest records
-// (HARVEST_BACKDATE_LIMIT_DAYS, default 7).
-import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
 
 @Module({
   imports: [
@@ -64,15 +50,18 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
       Tank,
       TankBatch,
       TankOperation,
+      FarmMobileCommandReceipt,
     ]),
     FishHealthModule,
     BackdatePolicyModule,
+    FarmStockModule,
     ConfigModule,
   ],
   providers: [
     // Services
     HarvestPlanService,
     HarvestPolicyService,
+    MobileCommandReceiptService,
     // Command Handlers
     CreateHarvestRecordHandler,
     UpdateHarvestRecordHandler,

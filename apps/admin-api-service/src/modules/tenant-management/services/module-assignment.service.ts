@@ -1,14 +1,14 @@
+import * as crypto from 'crypto';
+
 import {
   Injectable,
   Logger,
   NotFoundException,
-  ConflictException,
-  BadRequestException,
 } from '@nestjs/common';
 import { EventBus } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { createBaseEvent } from '@platform/event-contracts';
+import { DataSource } from 'typeorm';
 
 import { PlanTier, BillingCycle } from '../../../billing/entities/plan-definition.entity';
 import {
@@ -16,6 +16,7 @@ import {
   ModuleSelection,
   PricingCalculation,
 } from '../../../billing/services/pricing-calculator.service';
+import { AuthTenantProvisioningClientService } from '../../../tenant/services/auth-tenant-provisioning-client.service';
 
 /**
  * Module quantities for pricing calculation
@@ -119,6 +120,7 @@ export class ModuleAssignmentService {
     private readonly dataSource: DataSource,
     private readonly eventBus: EventBus,
     private readonly pricingCalculator: PricingCalculatorService,
+    private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
   /**
@@ -150,88 +152,53 @@ export class ModuleAssignmentService {
     // Prepare modules for pricing calculation
     const moduleSelections: ModuleSelection[] = [];
 
-    // Process each module within a transaction for atomicity
-    await this.dataSource.transaction(async (manager) => {
-      for (const moduleRequest of modules) {
-        const { moduleId, quantities = {} } = moduleRequest;
-
-        try {
-          const moduleInfo = moduleInfoMap.get(moduleId);
-          if (!moduleInfo) {
-            failedModules.push({
-              moduleId,
-              error: `Module ${moduleId} not found`,
-            });
-            continue;
-          }
-
-          // Check if already assigned
-          const existingResult = await manager.query(
-            `SELECT EXISTS(
-              SELECT 1 FROM auth.tenant_modules
-              WHERE "tenantId" = $1 AND "moduleId" = $2 AND "isEnabled" = true
-            ) as exists`,
-            [tenantId, moduleId],
-          );
-          const existing = existingResult[0]?.exists === true ||
-                          existingResult[0]?.exists === 't' ||
-                          existingResult[0]?.exists === 'true';
-
-          if (existing) {
-            // Update quantities instead of failing
-            await manager.query(
-              `UPDATE auth.tenant_modules
-               SET configuration = jsonb_set(COALESCE(configuration, '{}')::jsonb, '{quantities}', $3::jsonb),
-                   "updatedAt" = NOW(), "assignedBy" = $4
-               WHERE "tenantId" = $1 AND "moduleId" = $2`,
-              [tenantId, moduleId, JSON.stringify(quantities), assignedBy],
-            );
-            assignedModules.push(moduleId);
-            this.logger.log(`Updated quantities for module ${moduleId} on tenant ${tenantId}`);
-          } else {
-            // Insert new assignment
-            await manager.query(
-              `INSERT INTO auth.tenant_modules (
-                id, "tenantId", "moduleId", "isEnabled", "activatedAt",
-                "assignedBy", configuration, "createdAt", "updatedAt"
-              ) VALUES (
-                gen_random_uuid(), $1, $2, true, NOW(), $3, jsonb_build_object('quantities', $4::jsonb), NOW(), NOW()
-              )
-              ON CONFLICT ("tenantId", "moduleId")
-              DO UPDATE SET
-                "isEnabled" = true,
-                "activatedAt" = NOW(),
-                "assignedBy" = $3,
-                configuration = jsonb_set(COALESCE(auth.tenant_modules.configuration, '{}')::jsonb, '{quantities}', $4::jsonb),
-                "updatedAt" = NOW()`,
-              [tenantId, moduleId, assignedBy, JSON.stringify(quantities)],
-            );
-            assignedModules.push(moduleId);
-            this.logger.log(`Assigned module ${moduleId} to tenant ${tenantId}`);
-          }
-
-          // Add to pricing calculation
-          moduleSelections.push({
-            moduleId,
-            moduleCode: moduleInfo.code,
-            moduleName: moduleInfo.name,
-            quantities: {
-              users: quantities.users ?? 5,
-              farms: quantities.farms ?? 1,
-              ponds: quantities.ponds ?? 10,
-              sensors: quantities.sensors ?? 5,
-              ...quantities,
-            },
-          });
-        } catch (error) {
-          const errorMessage = (error as Error).message;
-          this.logger.error(
-            `Failed to assign module ${moduleId} to tenant ${tenantId}: ${errorMessage}`,
-          );
-          failedModules.push({ moduleId, error: errorMessage });
-        }
+    for (const moduleRequest of modules) {
+      const { moduleId, quantities = {} } = moduleRequest;
+      const moduleInfo = moduleInfoMap.get(moduleId);
+      if (!moduleInfo) {
+        failedModules.push({
+          moduleId,
+          error: `Module ${moduleId} not found`,
+        });
+        continue;
       }
-    });
+
+      assignedModules.push(moduleId);
+      moduleSelections.push({
+        moduleId,
+        moduleCode: moduleInfo.code,
+        moduleName: moduleInfo.name,
+        quantities: {
+          users: quantities.users ?? 5,
+          farms: quantities.farms ?? 1,
+          ponds: quantities.ponds ?? 10,
+          sensors: quantities.sensors ?? 5,
+          ...quantities,
+        },
+      });
+    }
+
+    if (assignedModules.length > 0) {
+      await this.authProvisioningClient.assignTenantModules({
+        operationId: crypto.randomUUID(),
+        tenantId,
+        requestReference: this.commandRequestReference('AssignModules', tenantId, {
+          moduleIds: assignedModules,
+          modules,
+          assignedBy,
+        }),
+        actor: { id: assignedBy, type: 'user' },
+        moduleIds: assignedModules,
+        modules: modules
+          .filter((module) => assignedModules.includes(module.moduleId))
+          .map((module) => ({
+            moduleId: module.moduleId,
+            ...(module.quantities ? { quantities: { ...module.quantities } } : {}),
+          })),
+        assignedBy,
+      });
+      this.logger.log(`Delegated ${assignedModules.length} module assignments to auth-service for tenant ${tenantId}`);
+    }
 
     // Calculate pricing for assigned modules
     let pricing: PricingCalculation | undefined;
@@ -301,15 +268,22 @@ export class ModuleAssignmentService {
       );
     }
 
-    await this.dataSource.query(
-      `
-      UPDATE auth.tenant_modules
-      SET "isEnabled" = false,
-          "updatedAt" = NOW()
-      WHERE "tenantId" = $1 AND "moduleId" = $2
-      `,
-      [tenantId, moduleId],
-    );
+    const result = await this.authProvisioningClient.removeTenantModule({
+      operationId: crypto.randomUUID(),
+      tenantId,
+      requestReference: this.commandRequestReference('RemoveModule', tenantId, {
+        moduleId,
+        removedBy,
+      }),
+      actor: { id: removedBy, type: 'user' },
+      moduleId,
+      removedBy,
+    });
+    if ((result.modulesRemoved ?? 0) === 0) {
+      throw new NotFoundException(
+        `Module ${moduleId} is not assigned to tenant ${tenantId}`,
+      );
+    }
 
     // Publish event
     this.eventBus.publish({
@@ -474,50 +448,6 @@ export class ModuleAssignmentService {
     return map;
   }
 
-  private async insertModuleAssignment(
-    tenantId: string,
-    moduleId: string,
-    quantities: ModuleQuantities,
-    assignedBy: string,
-  ): Promise<void> {
-    await this.dataSource.query(
-      `
-      INSERT INTO auth.tenant_modules (
-        id, "tenantId", "moduleId", "isEnabled", "activatedAt",
-        "assignedBy", configuration, "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid(), $1, $2, true, NOW(), $3, jsonb_build_object('quantities', $4::jsonb), NOW(), NOW()
-      )
-      ON CONFLICT ("tenantId", "moduleId")
-      DO UPDATE SET
-        "isEnabled" = true,
-        "activatedAt" = NOW(),
-        "assignedBy" = $3,
-        configuration = jsonb_set(COALESCE(auth.tenant_modules.configuration, '{}')::jsonb, '{quantities}', $4::jsonb),
-        "updatedAt" = NOW()
-      `,
-      [tenantId, moduleId, assignedBy, JSON.stringify(quantities)],
-    );
-  }
-
-  private async updateModuleQuantities(
-    tenantId: string,
-    moduleId: string,
-    quantities: ModuleQuantities,
-    updatedBy: string,
-  ): Promise<void> {
-    await this.dataSource.query(
-      `
-      UPDATE auth.tenant_modules
-      SET configuration = jsonb_set(COALESCE(configuration, '{}')::jsonb, '{quantities}', $3::jsonb),
-          "updatedAt" = NOW(),
-          "assignedBy" = $4
-      WHERE "tenantId" = $1 AND "moduleId" = $2
-      `,
-      [tenantId, moduleId, JSON.stringify(quantities), updatedBy],
-    );
-  }
-
   private async updateTenantModulesPricing(
     tenantId: string,
     pricing: PricingCalculation,
@@ -574,5 +504,30 @@ export class ModuleAssignmentService {
         `Failed to create audit log: ${(error as Error).message}`,
       );
     }
+  }
+
+  private commandRequestReference(
+    commandType: string,
+    tenantId: string,
+    payload: unknown,
+  ): string {
+    return `${commandType}:${tenantId}:${this.hashPayload(payload)}`;
+  }
+
+  private hashPayload(payload: unknown): string {
+    return crypto.createHash('sha256').update(this.stableStringify(payload)).digest('hex');
+  }
+
+  private stableStringify(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
+    }
+
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`).join(',')}}`;
+    }
+
+    return JSON.stringify(value);
   }
 }

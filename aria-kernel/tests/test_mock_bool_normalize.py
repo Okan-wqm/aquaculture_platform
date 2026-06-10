@@ -4,8 +4,8 @@
 
 * Truthy values: 1, true, TRUE, yes, YES, on, ON.
 * Falsy values: 0, false, FALSE, no, off, empty string.
-* Invalid values raise ValueError (no silent fallback).
-* Workflow default ``CLAUDE_CODE_MOCK=true`` activates mock mode (the
+* Invalid values raise CodexPolicyViolation (no silent fallback).
+* Workflow default ``CODEX_CLI_MOCK=true`` activates mock mode (the
   pre-§B.2 silent fail).
 """
 from __future__ import annotations
@@ -51,16 +51,16 @@ class MockBoolNormalizeTests(unittest.TestCase):
 
     def test_invalid_value_raises(self) -> None:
         with patch.dict(os.environ, {self.ci.MOCK_MODE_ENV_VAR: "maybe"}):
-            with self.assertRaises(ValueError) as ctx:
+            with self.assertRaises(self.ci.CodexPolicyViolation) as ctx:
                 self.ci._is_mock_mode()
-            self.assertIn("not a recognised boolean", str(ctx.exception))
+            self.assertIn("not a valid boolean", str(ctx.exception))
         with patch.dict(os.environ, {self.ci.MOCK_MODE_ENV_VAR: "1f"}):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(self.ci.CodexPolicyViolation):
                 self.ci._is_mock_mode()
 
     def test_workflow_default_true_activates_mock(self) -> None:
-        # The today's-CI workflow exports CLAUDE_CODE_MOCK=true; pre-§B.2
-        # this silently fell to mock=OFF + ClaudeCodeUnavailable raise.
+        # The today's-CI workflow exports CODEX_CLI_MOCK=true; pre-§B.2
+        # this silently fell to mock=OFF + CodexCliUnavailable raise.
         # Post-§B.2 the value parses to True.
         with patch.dict(os.environ, {self.ci.MOCK_MODE_ENV_VAR: "true"}):
             self.assertTrue(self.ci._is_mock_mode())

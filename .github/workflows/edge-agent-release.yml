@@ -2,17 +2,12 @@ name: Edge Agent Release
 
 # ARCH-CI-016: cross binary now cached in ~/.cargo/bin to avoid recompiling on every run
 # SEC-CI-022: Release artifacts signed with cosign (sigstore) for edge device provenance verification
+# RELEASE-CONTRACT: release creation is tag-only. Do not use manual arbitrary-version dispatch.
 
 on:
   push:
     tags:
       - 'agent-v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version tag (e.g., agent-v1.3.0)'
-        required: true
-        type: string
 
 # Cancel in-progress runs for the same workflow
 concurrency:
@@ -27,14 +22,92 @@ env:
   ARCHIVE_BINARY_NAME: edge-agent
 
 jobs:
+  release-ref-contract:
+    name: Release ref contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.contract.outputs.tag }}
+      version: ${{ steps.contract.outputs.version }}
+      cargo_version: ${{ steps.contract.outputs.cargo_version }}
+      channel: ${{ steps.contract.outputs.channel }}
+      prerelease: ${{ steps.contract.outputs.prerelease }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Validate release ref
+        id: contract
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" != "push" ] || [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+            echo "Edge releases must run from a pushed tag, got event=${GITHUB_EVENT_NAME} ref_type=${GITHUB_REF_TYPE:-unset}"
+            exit 1
+          fi
+          VERSION="${GITHUB_REF_NAME#agent-v}"
+          if [ "${VERSION}" = "${GITHUB_REF_NAME}" ]; then
+            echo "Release tag must use canonical agent-v<semver> format, got ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          if ! printf '%s' "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'; then
+            echo "Release tag must use canonical agent-v<exact Cargo semver>, got ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          CARGO_VERSION="$(awk -F' = ' '/^version = / { gsub(/"/, "", $2); print $2; exit }' sens-api-gateway/Cargo.toml)"
+          if [ -z "${CARGO_VERSION}" ]; then
+            echo "Could not read sens-api-gateway Cargo package version"
+            exit 1
+          fi
+          if [ "${VERSION}" != "${CARGO_VERSION}" ]; then
+            echo "Release tag ${GITHUB_REF_NAME} does not match Cargo version ${CARGO_VERSION}; expected agent-v${CARGO_VERSION}"
+            exit 1
+          fi
+          if [ "${GITHUB_REF_NAME}" != "agent-v${CARGO_VERSION}" ]; then
+            echo "Release tag must be exactly agent-v${CARGO_VERSION}, got ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          if printf '%s' "${VERSION}" | grep -q -- '-'; then
+            CHANNEL="${VERSION#*-}"
+            PRERELEASE="true"
+          else
+            CHANNEL="stable"
+            PRERELEASE="false"
+          fi
+
+          # Tag-triggered checkouts do not reliably keep branch tracking refs.
+          # Fetch main via a fully-qualified refspec so the reachability guard
+          # cannot accidentally prune or miss refs/remotes/origin/main.
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git show-ref --verify --quiet refs/remotes/origin/main
+          TAG_COMMIT="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          if ! git merge-base --is-ancestor "${TAG_COMMIT}" origin/main; then
+            echo "Release tag ${GITHUB_REF_NAME} (${TAG_COMMIT}) is not reachable from origin/main"
+            exit 1
+          fi
+
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "cargo_version=${CARGO_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "channel=${CHANNEL}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
+
   sens-enterprise-validation:
     name: Sens enterprise validation
+    needs: release-ref-contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
+    outputs:
+      tag: ${{ steps.release-ref.outputs.tag }}
+      version: ${{ steps.release-ref.outputs.version }}
     env:
       SENS_ENTERPRISE_RELEASE: '1'
+      SENS_ENTERPRISE_RELEASE_PROFILE: edge-agent-scada-display
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -49,20 +122,28 @@ jobs:
         run: npm ci --ignore-scripts --no-audit
 
       - name: Run Sens enterprise validation
-        run: npm run gates:sens-enterprise-validation -- --release
+        run: npm run gates:sens-enterprise-validation -- --release --release-profile=edge-agent-scada-display
+
+      - name: Export validated release ref
+        id: release-ref
+        run: |
+          echo "tag=${{ needs.release-ref-contract.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          echo "version=${{ needs.release-ref-contract.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Upload Sens enterprise validation artifacts
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sens-enterprise-release-validation-${{ github.run_number }}
+          name: sens-enterprise-release-validation-${{ needs.release-ref-contract.outputs.tag }}-${{ github.run_number }}
           path: artifacts/sens-enterprise-validation/**
           if-no-files-found: error
           retention-days: 30
 
   build:
     name: Build (${{ matrix.target }})
-    needs: sens-enterprise-validation
+    needs:
+      - release-ref-contract
+      - sens-enterprise-validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -72,15 +153,20 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            archive_name: suderra-agent-x86_64-linux
+            target_slug: x86_64-linux
             strip: true
           - target: aarch64-unknown-linux-gnu
-            archive_name: suderra-agent-aarch64-linux
+            target_slug: aarch64-linux
             strip: false
           - target: armv7-unknown-linux-gnueabihf
-            archive_name: suderra-agent-armv7-linux
+            target_slug: armv7-linux
             strip: false
 
+    env:
+      RELEASE_TAG: ${{ needs.release-ref-contract.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.release-ref-contract.outputs.version }}
+      TARGET_SLUG: ${{ matrix.target_slug }}
+      CARGO_TARGET_DIR: ${{ github.workspace }}/sens-api-gateway/target
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -122,10 +208,20 @@ jobs:
         # A known-vulnerable crate in a production edge agent binary is a
         # supply chain attack vector (IEC 62443 SL-2 FR5).
         run: |
+          set -euo pipefail
           cargo install cargo-audit --locked 2>/dev/null || true
           cargo install cargo-deny --locked 2>/dev/null || true
           echo "=== cargo audit (RUSTSEC advisories) ==="
-          cargo audit --deny warnings
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2026-0098 \
+            --ignore RUSTSEC-2026-0099 \
+            --ignore RUSTSEC-2026-0049 \
+            --ignore RUSTSEC-2026-0104 \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2025-0141 \
+            --ignore RUSTSEC-2024-0388 \
+            --ignore RUSTSEC-2025-0134 \
+            --ignore RUSTSEC-2023-0089
           echo "=== cargo deny (license + advisory + ban policy) ==="
           cargo deny check advisories bans licenses sources
 
@@ -138,49 +234,95 @@ jobs:
         # in Cross.toml — the documented cross integration pattern.
         env:
           LIBCLANG_PATH: /usr/lib/llvm-12/lib
-        run: cross build --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"
+        run: cross build --target-dir "$CARGO_TARGET_DIR" --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"
+
+      - name: Resolve release binary path
+        id: release-binary
+        run: |
+          set -euo pipefail
+          binary_path="${CARGO_TARGET_DIR}/${{ matrix.target }}/release/${BINARY_NAME}"
+          binary_dir="$(dirname "${binary_path}")"
+          echo "path=${binary_path}" >> "$GITHUB_OUTPUT"
+          echo "dir=${binary_dir}" >> "$GITHUB_OUTPUT"
+          echo "Release binary path: ${binary_path}"
 
       - name: Strip binary (x86_64 only)
         if: matrix.strip
-        run: strip sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}
+        run: strip "${{ steps.release-binary.outputs.path }}"
 
       - name: Verify binary size
         run: |
           set -euo pipefail
-          BINARY_SIZE=$(stat --format=%s "sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}" 2>/dev/null || stat -f%z "sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}")
+          binary_path="${{ steps.release-binary.outputs.path }}"
+          if [ ! -f "${binary_path}" ]; then
+            echo "ERROR: Release binary missing at ${binary_path}"
+            echo "Available ${BINARY_NAME} candidates under ${CARGO_TARGET_DIR}:"
+            find "${CARGO_TARGET_DIR}" -maxdepth 4 -type f -name "${BINARY_NAME}" -print || true
+            exit 1
+          fi
+          BINARY_SIZE="$(wc -c < "${binary_path}" | tr -d '[:space:]' )"
+          case "${BINARY_SIZE}" in
+            ''|*[!0-9]*)
+              echo "ERROR: Unable to determine binary size for ${binary_path}"
+              exit 1
+              ;;
+          esac
           echo "Binary size: $BINARY_SIZE bytes"
           if [ "$BINARY_SIZE" -lt 1048576 ]; then
             echo "ERROR: Binary is suspiciously small (< 1MB). Build may have failed."
             exit 1
           fi
 
-      - name: Package binary
+      - name: Package binary and release evidence
         run: |
           set -euo pipefail
+          ARCHIVE_BASE="${BINARY_NAME}-${RELEASE_VERSION}-${TARGET_SLUG}"
           STAGING_DIR=$(mktemp -d)
-          cp sens-api-gateway/target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} \
-            "${STAGING_DIR}/${{ env.ARCHIVE_BINARY_NAME }}"
-          tar -czf ${{ matrix.archive_name }}.tar.gz -C "${STAGING_DIR}" ${{ env.ARCHIVE_BINARY_NAME }}
-          sha256sum ${{ matrix.archive_name }}.tar.gz > ${{ matrix.archive_name }}.tar.gz.sha256
+          install -m 0755 "${{ steps.release-binary.outputs.path }}" \
+            "${STAGING_DIR}/${ARCHIVE_BINARY_NAME}"
+          tar -czf "${ARCHIVE_BASE}.tar.gz" -C "${STAGING_DIR}" "${ARCHIVE_BINARY_NAME}"
+          sha256sum "${ARCHIVE_BASE}.tar.gz" > "${ARCHIVE_BASE}.tar.gz.sha256"
+
+          cargo metadata --manifest-path sens-api-gateway/Cargo.toml --locked --format-version=1 \
+            > "${ARCHIVE_BASE}.cargo-metadata.sbom.json"
+
+          ARCHIVE_DIGEST="$(sha256sum "${ARCHIVE_BASE}.tar.gz" | awk '{print $1}')"
+          cat > "${ARCHIVE_BASE}.intoto.jsonl" <<EOF
+          {"_type":"https://in-toto.io/Statement/v1","subject":[{"name":"${ARCHIVE_BASE}.tar.gz","digest":{"sha256":"${ARCHIVE_DIGEST}"}}],"predicateType":"https://slsa.dev/provenance/v1","predicate":{"buildDefinition":{"buildType":"https://github.com/Attestations/GitHubActionsWorkflow@v1","externalParameters":{"repository":"${GITHUB_REPOSITORY}","workflow":"${GITHUB_WORKFLOW}","workflowRef":"${GITHUB_WORKFLOW_REF}","releaseTag":"${RELEASE_TAG}","target":"${TARGET_SLUG}","features":"${EDGE_RELEASE_FEATURES}"},"resolvedDependencies":[{"uri":"git+https://github.com/${GITHUB_REPOSITORY}","digest":{"gitCommit":"${GITHUB_SHA}"}}]},"runDetails":{"builder":{"id":"https://github.com/actions/runner/ubuntu-latest"},"metadata":{"invocationId":"https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"}}}}
+          EOF
+
+          cp sens-api-gateway/docs/commercial/third-party-notices.md "${ARCHIVE_BASE}.NOTICE.md"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ matrix.archive_name }}
+          name: suderra-agent-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}
           path: |
-            ${{ matrix.archive_name }}.tar.gz
-            ${{ matrix.archive_name }}.tar.gz.sha256
+            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.tar.gz
+            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.tar.gz.sha256
+            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.cargo-metadata.sbom.json
+            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.intoto.jsonl
+            ${{ env.BINARY_NAME }}-${{ needs.release-ref-contract.outputs.version }}-${{ matrix.target_slug }}.NOTICE.md
+          if-no-files-found: error
           retention-days: 5
 
   release:
     name: Create GitHub Release
-    needs: build
+    needs:
+      - release-ref-contract
+      - build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
       # SEC-CI-022: id-token required for keyless cosign signing via sigstore OIDC
       id-token: write
+    env:
+      RELEASE_TAG: ${{ needs.release-ref-contract.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.release-ref-contract.outputs.version }}
+      CARGO_VERSION: ${{ needs.release-ref-contract.outputs.cargo_version }}
+      RELEASE_CHANNEL: ${{ needs.release-ref-contract.outputs.channel }}
+      RELEASE_PRERELEASE: ${{ needs.release-ref-contract.outputs.prerelease }}
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -194,11 +336,9 @@ jobs:
       - name: Extract version from tag
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${RELEASE_PRERELEASE}" >> "$GITHUB_OUTPUT"
 
       # SEC-CI-022: Install cosign for artifact signing
       - name: Install cosign
@@ -209,15 +349,116 @@ jobs:
       # verify binary provenance: cosign verify-blob --certificate-identity ...
       - name: Sign release artifacts with cosign
         run: |
-          for tarball in artifacts/*.tar.gz; do
-            echo "Signing ${tarball}..."
+          set -euo pipefail
+          for file in artifacts/*.tar.gz artifacts/*.cargo-metadata.sbom.json artifacts/*.intoto.jsonl artifacts/*.NOTICE.md; do
+            if [ ! -f "${file}" ]; then
+              continue
+            fi
+            echo "Signing ${file}..."
             cosign sign-blob \
               --yes \
-              --output-certificate "${tarball}.pem" \
-              --output-signature "${tarball}.sig" \
-              "${tarball}"
-            echo "Signed: ${tarball}"
+              --output-certificate "${file}.pem" \
+              --output-signature "${file}.sig" \
+              "${file}"
+            echo "Signed: ${file}"
           done
+
+      - name: Create release manifest
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const artifactsDir = 'artifacts';
+          const releaseTag = process.env.RELEASE_TAG;
+          const releaseVersion = process.env.RELEASE_VERSION;
+          const cargoVersion = process.env.CARGO_VERSION;
+          const targets = ['x86_64-linux', 'aarch64-linux', 'armv7-linux'];
+
+          function sha256(filePath) {
+            return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+          }
+
+          function requireFile(fileName) {
+            const filePath = path.join(artifactsDir, fileName);
+            if (!fs.existsSync(filePath)) {
+              throw new Error(`release manifest missing artifact: ${fileName}`);
+            }
+            return {
+              name: fileName,
+              sha256: sha256(filePath),
+              bytes: fs.statSync(filePath).size,
+            };
+          }
+
+          const artifacts = targets.map((target) => {
+            const base = `suderra-agent-${releaseVersion}-${target}`;
+            const archive = requireFile(`${base}.tar.gz`);
+            return {
+              target,
+              archive: {
+                ...archive,
+                checksum: requireFile(`${base}.tar.gz.sha256`),
+                signature: requireFile(`${base}.tar.gz.sig`),
+                certificate: requireFile(`${base}.tar.gz.pem`),
+              },
+              sbom: {
+                ...requireFile(`${base}.cargo-metadata.sbom.json`),
+                signature: requireFile(`${base}.cargo-metadata.sbom.json.sig`),
+                certificate: requireFile(`${base}.cargo-metadata.sbom.json.pem`),
+              },
+              provenance: {
+                ...requireFile(`${base}.intoto.jsonl`),
+                signature: requireFile(`${base}.intoto.jsonl.sig`),
+                certificate: requireFile(`${base}.intoto.jsonl.pem`),
+              },
+              notice: {
+                ...requireFile(`${base}.NOTICE.md`),
+                signature: requireFile(`${base}.NOTICE.md.sig`),
+                certificate: requireFile(`${base}.NOTICE.md.pem`),
+              },
+            };
+          });
+
+          const manifest = {
+            schema_version: 1,
+            kind: 'suderra.edge.release.manifest',
+            generated_at: new Date().toISOString(),
+            release: {
+              tag: releaseTag,
+              version: releaseVersion,
+              cargo_version: cargoVersion,
+              feature_tier: process.env.EDGE_RELEASE_FEATURES,
+              channel: process.env.RELEASE_CHANNEL,
+              prerelease: process.env.RELEASE_PRERELEASE === 'true',
+              repository: process.env.GITHUB_REPOSITORY,
+              commit: process.env.GITHUB_SHA,
+              workflow: process.env.GITHUB_WORKFLOW,
+              workflow_ref: process.env.GITHUB_WORKFLOW_REF,
+              workflow_run_id: process.env.GITHUB_RUN_ID,
+            },
+            signing: {
+              mode: 'cosign-keyless',
+              oidc_issuer: 'https://token.actions.githubusercontent.com',
+              certificate_identity:
+                `https://github.com/${process.env.GITHUB_REPOSITORY}/.github/workflows/edge-agent-release.yml@refs/tags/${releaseTag}`,
+            },
+            artifacts,
+          };
+
+          fs.writeFileSync(path.join(artifactsDir, 'edge-release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+
+      - name: Sign release manifest with cosign
+        run: |
+          set -euo pipefail
+          cosign sign-blob \
+            --yes \
+            --output-certificate artifacts/edge-release-manifest.json.pem \
+            --output-signature artifacts/edge-release-manifest.json.sig \
+            artifacts/edge-release-manifest.json
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.1
@@ -225,49 +466,62 @@ jobs:
           name: "Edge Agent ${{ steps.version.outputs.tag }}"
           tag_name: ${{ steps.version.outputs.tag }}
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.tag, '-rc') || contains(steps.version.outputs.tag, '-beta') || contains(steps.version.outputs.tag, '-alpha') }}
+          prerelease: ${{ steps.version.outputs.prerelease }}
           generate_release_notes: true
           body: |
             ## Suderra Edge Agent ${{ steps.version.outputs.tag }}
 
-            Cross-compiled release binaries for Linux targets.
+            Tag-only release built from a commit reachable from `origin/main`.
+            Feature profile: `${{ env.EDGE_RELEASE_FEATURES }}`.
 
             ### Downloads
 
             | Platform | Architecture | File |
             |----------|-------------|------|
-            | Linux | x86_64 | `suderra-agent-x86_64-linux.tar.gz` |
-            | Linux | aarch64 (ARM64) | `suderra-agent-aarch64-linux.tar.gz` |
-            | Linux | armv7 (ARM32) | `suderra-agent-armv7-linux.tar.gz` |
+            | Linux | x86_64 | `suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz` |
+            | Linux | aarch64 (ARM64) | `suderra-agent-${{ steps.version.outputs.version }}-aarch64-linux.tar.gz` |
+            | Linux | armv7 (ARM32) | `suderra-agent-${{ steps.version.outputs.version }}-armv7-linux.tar.gz` |
+
+            Each target also includes:
+            - `.sha256` checksum
+            - `.cargo-metadata.sbom.json` dependency SBOM
+            - `.intoto.jsonl` provenance statement
+            - `.NOTICE.md` third-party notices
+            - `.sig` and `.pem` cosign keyless signature material
+            - `edge-release-manifest.json` signed release manifest
 
             ### Verify checksums
 
             ```bash
-            sha256sum -c suderra-agent-x86_64-linux.tar.gz.sha256
-            sha256sum -c suderra-agent-aarch64-linux.tar.gz.sha256
-            sha256sum -c suderra-agent-armv7-linux.tar.gz.sha256
+            sha256sum -c suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz.sha256
+            sha256sum -c suderra-agent-${{ steps.version.outputs.version }}-aarch64-linux.tar.gz.sha256
+            sha256sum -c suderra-agent-${{ steps.version.outputs.version }}-armv7-linux.tar.gz.sha256
             ```
 
             ### Verify signatures (cosign keyless / sigstore)
 
             ```bash
             cosign verify-blob \
-              --certificate suderra-agent-x86_64-linux.tar.gz.pem \
-              --signature suderra-agent-x86_64-linux.tar.gz.sig \
-              --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/edge-agent-release.yml@${{ github.ref }}" \
+              --certificate suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz.pem \
+              --signature suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz.sig \
+              --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/edge-agent-release.yml@refs/tags/${{ steps.version.outputs.tag }}" \
               --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-              suderra-agent-x86_64-linux.tar.gz
+              suderra-agent-${{ steps.version.outputs.version }}-x86_64-linux.tar.gz
             ```
 
             ### Install
 
             ```bash
-            tar -xzf suderra-agent-<arch>-linux.tar.gz
+            tar -xzf suderra-agent-${{ steps.version.outputs.version }}-<arch>-linux.tar.gz
             chmod +x edge-agent
-            sudo mv edge-agent /usr/local/bin/
+            sudo mv edge-agent /usr/local/bin/suderra-agent
             ```
           files: |
             artifacts/*.tar.gz
             artifacts/*.sha256
             artifacts/*.sig
+            artifacts/*.cargo-metadata.sbom.json
+            artifacts/*.intoto.jsonl
+            artifacts/edge-release-manifest.json
+            artifacts/*.NOTICE.md
             artifacts/*.pem

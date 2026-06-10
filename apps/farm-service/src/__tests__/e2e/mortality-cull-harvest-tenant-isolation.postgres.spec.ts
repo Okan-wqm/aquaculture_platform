@@ -11,13 +11,27 @@
 import 'reflect-metadata';
 import { randomBytes } from 'crypto';
 
-import { createTenantConnectionBootstrap, getTenantSchemaName, withTenantContext } from '@aquaculture/backend-common';
-import { bootPostgresContainer, HarnessContext, shutdownHarness } from '@platform/migration-harness';
+import {
+  createTenantConnectionBootstrap,
+  getTenantSchemaName,
+  withTenantContext,
+} from '@aquaculture/backend-common';
+import {
+  bootPostgresContainer,
+  HarnessContext,
+  shutdownHarness,
+} from '@platform/migration-harness';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, Repository } from 'typeorm';
 
-import { RecordCullCommand, CullReason as CullCommandReason } from '../../batch/commands/record-cull.command';
-import { RecordMortalityCommand, MortalityReason as MortalityCommandReason } from '../../batch/commands/record-mortality.command';
+import {
+  RecordCullCommand,
+  CullReason as CullCommandReason,
+} from '../../batch/commands/record-cull.command';
+import {
+  RecordMortalityCommand,
+  MortalityReason as MortalityCommandReason,
+} from '../../batch/commands/record-mortality.command';
 import { Batch, BatchInputType, BatchStatus } from '../../batch/entities/batch.entity';
 import { BatchDocument } from '../../batch/entities/batch-document.entity';
 import { MortalityRecord } from '../../batch/entities/mortality-record.entity';
@@ -27,14 +41,22 @@ import { TankOperation, OperationType } from '../../batch/entities/tank-operatio
 import { RecordCullHandler } from '../../batch/handlers/record-cull.handler';
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
 import { BatchService } from '../../batch/services/batch.service';
-import { Department, DepartmentStatus, DepartmentType } from '../../department/entities/department.entity';
+import {
+  Department,
+  DepartmentStatus,
+  DepartmentType,
+} from '../../department/entities/department.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
 import { CreateHarvestRecordCommand } from '../../harvest/commands/create-harvest-record.command';
 import { DeleteHarvestRecordCommand } from '../../harvest/commands/delete-harvest-record.command';
 import { HarvestPlan } from '../../harvest/entities/harvest-plan.entity';
-import { HarvestRecord, HarvestRecordStatus, QualityGrade } from '../../harvest/entities/harvest-record.entity';
+import {
+  HarvestRecord,
+  HarvestRecordStatus,
+  QualityGrade,
+} from '../../harvest/entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../harvest/handlers/create-harvest-record.handler';
 import { DeleteHarvestRecordHandler } from '../../harvest/handlers/delete-harvest-record.handler';
 import { ListHarvestsHandler } from '../../harvest/handlers/list-harvests.handler';
@@ -49,7 +71,13 @@ import {
 import { Site, SiteStatus, SiteType } from '../../site/entities/site.entity';
 import { SubSystem } from '../../system/entities/sub-system.entity';
 import { System } from '../../system/entities/system.entity';
-import { Tank, TankMaterial, TankStatus, TankType, WaterType } from '../../tank/entities/tank.entity';
+import {
+  Tank,
+  TankMaterial,
+  TankStatus,
+  TankType,
+  WaterType,
+} from '../../tank/entities/tank.entity';
 import {
   createFarmOutboxTable,
   createSourceEquipmentTypesReferenceTable,
@@ -152,8 +180,16 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
     new TenantConnectionBootstrap(dataSource).onModuleInit();
 
-    await createTenantSchemaFromSource(dataSource, getTenantSchemaName(TENANT_A), TENANT_BUSINESS_TABLES);
-    await createTenantSchemaFromSource(dataSource, getTenantSchemaName(TENANT_B), TENANT_BUSINESS_TABLES);
+    await createTenantSchemaFromSource(
+      dataSource,
+      getTenantSchemaName(TENANT_A),
+      TENANT_BUSINESS_TABLES,
+    );
+    await createTenantSchemaFromSource(
+      dataSource,
+      getTenantSchemaName(TENANT_B),
+      TENANT_BUSINESS_TABLES,
+    );
 
     siteRepository = dataSource.getRepository(Site);
     departmentRepository = dataSource.getRepository(Department);
@@ -178,6 +214,16 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     );
 
     const outboxPublisher = new OutboxPublisher(FarmOutbox);
+    const backdatePolicy = { validate: jest.fn() };
+    const harvestEligibility = {
+      checkEligibility: jest.fn().mockResolvedValue({
+        eligible: true,
+        blockingEvents: [],
+      }),
+    };
+    const harvestPolicy = {
+      evaluate: jest.fn().mockResolvedValue(undefined),
+    };
     recordMortality = new RecordMortalityHandler(
       dataSource,
       batchRepository,
@@ -188,6 +234,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankRepository,
       equipmentTypeRepository,
       outboxPublisher,
+      backdatePolicy as never,
     );
     recordCull = new RecordCullHandler(
       dataSource,
@@ -200,6 +247,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     createHarvest = new CreateHarvestRecordHandler(
       dataSource,
       outboxPublisher,
+      harvestEligibility as never,
+      backdatePolicy as never,
+      harvestPolicy as never,
       harvestRepository,
       batchRepository,
       operationRepository,
@@ -212,6 +262,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankBatchRepository,
       tankRepository,
       dataSource,
+      outboxPublisher,
     );
     listHarvests = new ListHarvestsHandler(harvestRepository);
   });
@@ -317,7 +368,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       batchRepository.findOneOrFail({ where: { id: fixtureA.batch.id, tenantId: TENANT_A } }),
     );
     const tenantATankBatch = await withTenantContext(TENANT_A, () =>
-      tankBatchRepository.findOneOrFail({ where: { tenantId: TENANT_A, tankId: fixtureA.tank.id } }),
+      tankBatchRepository.findOneOrFail({
+        where: { tenantId: TENANT_A, tankId: fixtureA.tank.id },
+      }),
     );
     const tenantATank = await withTenantContext(TENANT_A, () =>
       tankRepository.findOneOrFail({ where: { id: fixtureA.tank.id, tenantId: TENANT_A } }),
@@ -354,7 +407,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       batchRepository.findOneOrFail({ where: { id: fixtureA.batch.id, tenantId: TENANT_A } }),
     );
     const tenantAAfterDeleteTankBatch = await withTenantContext(TENANT_A, () =>
-      tankBatchRepository.findOneOrFail({ where: { tenantId: TENANT_A, tankId: fixtureA.tank.id } }),
+      tankBatchRepository.findOneOrFail({
+        where: { tenantId: TENANT_A, tankId: fixtureA.tank.id },
+      }),
     );
     const tenantAAfterDeleteHarvest = await withTenantContext(TENANT_A, () =>
       harvestRepository.findOneOrFail({ where: { id: harvest.id, tenantId: TENANT_A } }),
@@ -498,9 +553,11 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     return Number(rows[0]?.count ?? 0);
   }
 
-  async function outboxRows(tenantId: string): Promise<Array<{ eventType: string; payload: { tenantId?: string } }>> {
+  async function outboxRows(
+    tenantId: string,
+  ): Promise<Array<{ eventType: string; payload: { tenantId?: string } }>> {
     return dataSource!.query(
-      `SELECT "eventType", "payload" FROM "farm"."farm_outbox" WHERE "tenantId" = $1 ORDER BY "eventType" ASC`,
+      `SELECT "eventType", "payload" FROM "farm"."outbox_events" WHERE "tenantId" = $1 ORDER BY "eventType" ASC`,
       [tenantId],
     );
   }

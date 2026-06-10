@@ -22,6 +22,20 @@ describe('TransferBatchHandler', () => {
       utilizationPercent: 10,
       isOverCapacity: false,
     }),
+    calculate: jest.fn().mockReturnValue({
+      tankVolumeM3: 100,
+      maxBiomassKg: 10000,
+      maxDensityKgM3: 30,
+      currentBiomassKg: 0,
+      projectedBiomassKg: 5,
+      projectedDensityKgM3: 0.05,
+      utilizationPercent: 1,
+      isOverDensity: false,
+      isOverBiomass: false,
+      isStatusBlocked: false,
+      isOverCapacity: false,
+      primaryBlockReason: null,
+    }),
   };
 
   beforeEach(() => {
@@ -47,10 +61,18 @@ describe('TransferBatchHandler', () => {
     mockManager.findOne.mockResolvedValueOnce(null);
 
     await expect(
-      handler.execute(new TransferBatchCommand(TENANT, 'batch-1', {
-        sourceTankId: 'tank-1', destinationTankId: 'tank-2',
-        quantity: 100,
-      }, USER)),
+      handler.execute(
+        new TransferBatchCommand(
+          TENANT,
+          'batch-1',
+          {
+            sourceTankId: 'tank-1',
+            destinationTankId: 'tank-2',
+            quantity: 100,
+          },
+          USER,
+        ),
+      ),
     ).rejects.toThrow(NotFoundException);
 
     expect(mockQueryRunner.release).toHaveBeenCalled();
@@ -58,9 +80,12 @@ describe('TransferBatchHandler', () => {
 
   it('should transfer batch between tanks', async () => {
     const batch = {
-      id: 'batch-1', tenantId: TENANT, status: BatchStatus.GROWING,
+      id: 'batch-1',
+      tenantId: TENANT,
+      status: BatchStatus.GROWING,
       batchNumber: 'B-001',
-      currentQuantity: 5000, isActive: true,
+      currentQuantity: 5000,
+      isActive: true,
       isOperational: () => true,
       getCurrentAvgWeight: () => 50,
     } as unknown as Batch;
@@ -112,17 +137,26 @@ describe('TransferBatchHandler', () => {
       if (entity === Batch) return Promise.resolve(batch);
       if (entity === Equipment && where?.id === 'tank-1') return Promise.resolve(sourceTank);
       if (entity === Equipment && where?.id === 'tank-2') return Promise.resolve(destTank);
-      if (entity === TankBatch && where?.tankId === 'tank-1') return Promise.resolve(sourceTankBatch);
+      if (entity === TankBatch && where?.tankId === 'tank-1')
+        return Promise.resolve(sourceTankBatch);
       if (entity === TankBatch && where?.tankId === 'tank-2') return Promise.resolve(destTankBatch);
       return Promise.resolve(null);
     });
     mockManager.save.mockImplementation((_cls: any, data: any) => Promise.resolve(data));
     mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
 
-    await handler.execute(new TransferBatchCommand(TENANT, 'batch-1', {
-      sourceTankId: 'tank-1', destinationTankId: 'tank-2',
-      quantity: 100,
-    }, USER));
+    await handler.execute(
+      new TransferBatchCommand(
+        TENANT,
+        'batch-1',
+        {
+          sourceTankId: 'tank-1',
+          destinationTankId: 'tank-2',
+          quantity: 100,
+        },
+        USER,
+      ),
+    );
 
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
     expect(mockOutboxPublisher.enqueue).toHaveBeenCalledWith(
@@ -143,10 +177,18 @@ describe('TransferBatchHandler', () => {
     mockManager.findOne.mockRejectedValueOnce(new Error('deadlock'));
 
     await expect(
-      handler.execute(new TransferBatchCommand(TENANT, 'batch-1', {
-        sourceTankId: 'tank-1', destinationTankId: 'tank-2',
-        quantity: 100,
-      }, USER)),
+      handler.execute(
+        new TransferBatchCommand(
+          TENANT,
+          'batch-1',
+          {
+            sourceTankId: 'tank-1',
+            destinationTankId: 'tank-2',
+            quantity: 100,
+          },
+          USER,
+        ),
+      ),
     ).rejects.toThrow();
 
     expect(mockQueryRunner.release).toHaveBeenCalled();

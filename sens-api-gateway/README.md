@@ -1,6 +1,10 @@
-# Suderra Edge Agent v1.3.4
+# Suderra Edge Agent
 
 Industrial IoT Edge Agent for aquaculture monitoring and control systems. Built with Rust for reliability, safety, and performance on resource-constrained edge devices.
+
+Current release contract: `agent-v2.0.0-rc4` / Cargo `2.0.0-rc.4`.
+The RC4 release is tag-only and built by GitHub Actions with the `scada-display` release tier.
+See `docs/releases/sens-api-gateway-edge-v2.0.0-rc4.md` and `docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md`.
 
 ## What's New in v1.3.4 (High Availability Edition)
 
@@ -1118,10 +1122,12 @@ The CI pipeline runs on every push and PR:
 
 ### Release Process
 
-1. Tag with semver: `git tag v1.0.0`
-2. Push tag: `git push origin v1.0.0`
-3. GitHub Actions builds release binaries
-4. Binaries attached to GitHub Release
+1. Merge the release-contract PR to `main` after GitHub Actions is green.
+2. Tag the exact `main` commit: `git tag agent-v2.0.0-rc4`.
+3. Push the tag: `git push origin agent-v2.0.0-rc4`.
+4. `Edge Agent Release` verifies the tag is reachable from `origin/main`.
+5. GitHub Actions publishes versioned archives, checksums, SBOM, provenance, notices, and cosign signatures.
+6. Store the workflow run URL in `docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md`.
 
 ---
 

@@ -4,6 +4,7 @@ description: Invoked when reviewing or auditing event contracts, database migrat
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Data Expert -- Cross-Cutting Data Architecture Reviewer

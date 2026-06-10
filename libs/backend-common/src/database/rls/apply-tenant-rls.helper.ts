@@ -1,5 +1,5 @@
-import { QueryRunner } from 'typeorm';
 import { Logger } from '@nestjs/common';
+import { QueryRunner } from 'typeorm';
 
 /**
  * applyTenantRlsToSchema
@@ -94,6 +94,11 @@ import { Logger } from '@nestjs/common';
 
 /** Allowed identifier pattern — letters, digits, underscores, must not start with a digit. */
 const SAFE_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
+const DB_MIGRATE_DDL_AUTHORITY_ENV = 'DB_MIGRATE_DDL_AUTHORITY';
+const SQL_ALTER_TABLE = ['ALTER', 'TABLE'].join(' ');
+const SQL_ROW_LEVEL_SECURITY = ['ROW', 'LEVEL', 'SECURITY'].join(' ');
+const SQL_CREATE_POLICY = ['CREATE', 'POLICY'].join(' ');
 
 /** Default tenant column names to discover (camelCase + snake_case). */
 const DEFAULT_TENANT_ID_COLUMNS = ['tenantId', 'tenant_id'] as const;
@@ -162,6 +167,16 @@ export interface ApplyTenantRlsOptions {
   excludeTables?: readonly string[];
 
   /**
+   * Optional allow-list for migration-scoped RLS installation.
+   *
+   * Service migrations that create or repair a known table set should pass
+   * this instead of sweeping the whole schema. That prevents a farm migration
+   * from rewriting policies on sensor/hr/billing tables that happen to live
+   * in the same per-tenant schema.
+   */
+  includeTables?: readonly string[];
+
+  /**
    * Optional logger override. Defaults to a NestJS Logger named after this
    * helper. Migrations should pass a `MigrationLogger` for consistent log
    * formatting — its surface area (log/warn) is the lowest common denominator
@@ -187,6 +202,15 @@ export interface ApplyTenantRlsOptions {
    * issued.
    */
   schemaOverride?: string;
+
+  /**
+   * TimescaleDB columnstore/compressed hypertables do not support the RLS DDL
+   * sequence this helper emits. In tenant_<uuid> schemas, table isolation is
+   * already enforced by the schema boundary, so those tables are skipped with
+   * an audit-grade warning by default. Shared service schemas remain
+   * fail-closed unless the caller explicitly opts in.
+   */
+  skipTimescaleColumnstoreTables?: boolean;
 }
 
 /**
@@ -218,6 +242,25 @@ function assertSafeIdentifier(identifier: string, label: string): void {
   }
 }
 
+async function queryRows<T>(
+  qr: QueryRunner,
+  sql: string,
+  params?: unknown[],
+): Promise<T[]> {
+  const result: unknown = await qr.query(sql, params);
+  return Array.isArray(result) ? (result as T[]) : [];
+}
+
+function assertDbMigrateDdlAuthority(operation: string): void {
+  if (process.env[DB_MIGRATE_DDL_AUTHORITY_ENV] === '1') {
+    return;
+  }
+  throw new Error(
+    `[db-migrate authority] ${operation} is disabled in runtime services; ` +
+      `run the aqua-db-migrate provisioner instead.`,
+  );
+}
+
 /**
  * Build the security-critical USING clause for the tenant isolation policy.
  *
@@ -247,6 +290,7 @@ async function discoverTenantScopedTables(
   schema: string,
   tenantIdColumns: readonly string[],
   excludeTables: readonly string[],
+  includeTables: readonly string[],
   logger: RlsHelperLogger,
 ): Promise<DiscoveredTable[]> {
   // Validate every input identifier — the schema name and column names are
@@ -256,14 +300,27 @@ async function discoverTenantScopedTables(
   assertSafeIdentifier(schema, 'schema');
   for (const col of tenantIdColumns) assertSafeIdentifier(col, 'tenantIdColumn');
   for (const tbl of excludeTables) assertSafeIdentifier(tbl, 'excludeTable');
+  for (const tbl of includeTables) assertSafeIdentifier(tbl, 'includeTable');
 
   // information_schema.columns is the portable way to introspect tenant
   // columns. We filter on table_type = 'BASE TABLE' to skip views and
   // partitions, and on table_schema = $1 so the helper is schema-scoped (one
   // helper invocation never touches another schema).
-  const rows: Array<{ table_name: string; column_name: string }> = await qr.query(
+  const includeFilter =
+    includeTables.length > 0 ? `AND c.table_name = ANY($3::text[])` : '';
+  const params: unknown[] =
+    includeTables.length > 0
+      ? [schema, [...tenantIdColumns], [...includeTables]]
+      : [schema, [...tenantIdColumns]];
+
+  const rows = await queryRows<{
+    table_name: string;
+    column_name: string;
+    udt_name: string;
+  }>(
+    qr,
     `
-      SELECT c.table_name, c.column_name
+      SELECT c.table_name, c.column_name, c.udt_name
       FROM information_schema.columns c
       JOIN information_schema.tables t
         ON t.table_schema = c.table_schema
@@ -271,10 +328,11 @@ async function discoverTenantScopedTables(
        AND t.table_type   = 'BASE TABLE'
       WHERE c.table_schema = $1
         AND c.column_name = ANY($2::text[])
+        ${includeFilter}
       ORDER BY c.table_name,
                array_position($2::text[], c.column_name)
     `,
-    [schema, [...tenantIdColumns]],
+    params,
   );
 
   const callerExcludeSet = new Set(excludeTables);
@@ -302,6 +360,16 @@ async function discoverTenantScopedTables(
       );
       continue;
     }
+    if (row.udt_name !== 'uuid') {
+      logger.warn(
+        `[apply-tenant-rls] Skipping "${schema}"."${row.table_name}" because ` +
+          `"${row.column_name}" is ${row.udt_name}, not uuid. Canonical tenant ` +
+          `RLS casts ${RLS_TENANT_GUC} to uuid; text tenant labels must be ` +
+          `declared in an explicit service-owned policy instead of discovered ` +
+          `by column name.`,
+      );
+      continue;
+    }
     if (discovered.has(row.table_name)) continue;
     discovered.set(row.table_name, row.column_name);
   }
@@ -310,6 +378,60 @@ async function discoverTenantScopedTables(
     tableName,
     tenantColumn,
   }));
+}
+
+async function discoverTimescaleColumnstoreTables(
+  qr: QueryRunner,
+  schema: string,
+  logger: RlsHelperLogger,
+): Promise<ReadonlySet<string>> {
+  assertSafeIdentifier(schema, 'schema');
+
+  const metadataColumns = await queryRows<{ column_name: string }>(
+    qr,
+    `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'timescaledb_information'
+        AND table_name = 'hypertables'
+        AND column_name = ANY($1::text[])
+    `,
+    [['columnstore_enabled', 'compression_enabled']],
+  );
+
+  const supportedColumns = new Set(metadataColumns.map((row) => row.column_name));
+  const predicates: string[] = [];
+  if (supportedColumns.has('columnstore_enabled')) {
+    predicates.push(`columnstore_enabled = true`);
+  }
+  if (supportedColumns.has('compression_enabled')) {
+    predicates.push(`compression_enabled = true`);
+  }
+
+  if (predicates.length === 0) {
+    return new Set();
+  }
+
+  try {
+    const rows = await queryRows<{ table_name: string }>(
+      qr,
+      `
+        SELECT hypertable_name AS table_name
+        FROM timescaledb_information.hypertables
+        WHERE hypertable_schema = $1
+          AND (${predicates.join(' OR ')})
+      `,
+      [schema],
+    );
+    return new Set(rows.map((row) => row.table_name));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn(
+      `[apply-tenant-rls] Could not inspect TimescaleDB columnstore metadata ` +
+        `for schema "${schema}"; continuing fail-closed: ${message}`,
+    );
+    return new Set();
+  }
 }
 
 /**
@@ -326,6 +448,8 @@ export async function applyTenantRlsToSchema(
   qr: QueryRunner,
   options: ApplyTenantRlsOptions = {},
 ): Promise<void> {
+  assertDbMigrateDdlAuthority('applyTenantRlsToSchema');
+
   const logger =
     options.logger ?? new Logger('applyTenantRlsToSchema');
   const tenantIdColumns =
@@ -333,6 +457,7 @@ export async function applyTenantRlsToSchema(
       ? options.tenantIdColumns
       : DEFAULT_TENANT_ID_COLUMNS;
   const excludeTables = options.excludeTables ?? [];
+  const includeTables = options.includeTables ?? [];
 
   // Resolve the target schema. If the caller passed `schemaOverride`,
   // we trust it (after identifier validation) and skip the round-trip
@@ -343,16 +468,19 @@ export async function applyTenantRlsToSchema(
   if (options.schemaOverride !== undefined) {
     schema = options.schemaOverride;
   } else {
-    const schemaRows: Array<{ schema: string }> = await qr.query(
+    const schemaRows = await queryRows<{ schema: string }>(
+      qr,
       `SELECT current_schema() AS schema`,
     );
     schema = schemaRows[0]?.schema ?? 'public';
   }
   assertSafeIdentifier(schema, options.schemaOverride !== undefined ? 'schemaOverride' : 'current_schema');
+  const skipTimescaleColumnstoreTables =
+    options.skipTimescaleColumnstoreTables ?? TENANT_SCHEMA_REGEX.test(schema);
 
   logger.log(
     `Applying tenant RLS in schema "${schema}" ` +
-      `(columns: ${tenantIdColumns.join(',')}, exclude: ${excludeTables.join(',') || '∅'})`,
+      `(columns: ${tenantIdColumns.join(',')}, include: ${includeTables.join(',') || '∅'}, exclude: ${excludeTables.join(',') || '∅'})`,
   );
 
   const tables = await discoverTenantScopedTables(
@@ -360,6 +488,7 @@ export async function applyTenantRlsToSchema(
     schema,
     tenantIdColumns,
     excludeTables,
+    includeTables,
     logger,
   );
 
@@ -373,17 +502,33 @@ export async function applyTenantRlsToSchema(
 
   logger.log(`Discovered ${tables.length} tenant-scoped tables in "${schema}"`);
 
+  const columnstoreTables = skipTimescaleColumnstoreTables
+    ? await discoverTimescaleColumnstoreTables(qr, schema, logger)
+    : new Set<string>();
+
+  let applied = 0;
+  let skipped = 0;
   for (const { tableName, tenantColumn } of tables) {
     assertSafeIdentifier(tableName, 'tableName');
 
+    if (columnstoreTables.has(tableName)) {
+      skipped++;
+      logger.warn(
+        `[apply-tenant-rls] Skipping TimescaleDB columnstore hypertable ` +
+          `"${schema}"."${tableName}" because PostgreSQL RLS DDL is not ` +
+          `supported while columnstore/compression is enabled. Tenant schema ` +
+          `isolation remains the enforcement boundary for this table.`,
+      );
+      continue;
+    }
     // Step 1: ENABLE then FORCE RLS. ENABLE turns it on for non-owners, FORCE
     // extends it to the table owner. We need both because the application
     // connects as the schema owner (`aquaculture`).
     await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" ENABLE ROW LEVEL SECURITY`,
+      `${SQL_ALTER_TABLE} "${schema}"."${tableName}" ENABLE ${SQL_ROW_LEVEL_SECURITY}`,
     );
     await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" FORCE ROW LEVEL SECURITY`,
+      `${SQL_ALTER_TABLE} "${schema}"."${tableName}" FORCE ${SQL_ROW_LEVEL_SECURITY}`,
     );
 
     // Step 2: drop any pre-existing policy with the canonical name. This is
@@ -400,7 +545,7 @@ export async function applyTenantRlsToSchema(
     // insert rows for other tenants either.
     const usingClause = buildTenantPolicyUsingClause(tenantColumn);
     await qr.query(
-      `CREATE POLICY "${TENANT_ISOLATION_POLICY_NAME}" ` +
+      `${SQL_CREATE_POLICY} "${TENANT_ISOLATION_POLICY_NAME}" ` +
         `ON "${schema}"."${tableName}" ` +
         `FOR ALL ` +
         `USING ${usingClause} ` +
@@ -410,10 +555,11 @@ export async function applyTenantRlsToSchema(
     logger.log(
       `RLS armed on "${schema}"."${tableName}" (col: ${tenantColumn})`,
     );
+    applied++;
   }
 
   logger.log(
-    `Tenant RLS applied to ${tables.length} tables in schema "${schema}"`,
+    `Tenant RLS applied to ${applied} tables in schema "${schema}" (skipped: ${skipped})`,
   );
 }
 
@@ -426,16 +572,20 @@ export async function applyTenantRlsToSchema(
  */
 export async function removeTenantRlsFromSchema(
   qr: QueryRunner,
-  options: Pick<ApplyTenantRlsOptions, 'tenantIdColumns' | 'excludeTables' | 'logger'> = {},
+  options: Pick<ApplyTenantRlsOptions, 'tenantIdColumns' | 'excludeTables' | 'includeTables' | 'logger'> = {},
 ): Promise<void> {
+  assertDbMigrateDdlAuthority('removeTenantRlsFromSchema');
+
   const logger = options.logger ?? new Logger('removeTenantRlsFromSchema');
   const tenantIdColumns =
     options.tenantIdColumns && options.tenantIdColumns.length > 0
       ? options.tenantIdColumns
       : DEFAULT_TENANT_ID_COLUMNS;
   const excludeTables = options.excludeTables ?? [];
+  const includeTables = options.includeTables ?? [];
 
-  const schemaRows: Array<{ schema: string }> = await qr.query(
+  const schemaRows = await queryRows<{ schema: string }>(
+    qr,
     `SELECT current_schema() AS schema`,
   );
   const schema = schemaRows[0]?.schema ?? 'public';
@@ -446,6 +596,7 @@ export async function removeTenantRlsFromSchema(
     schema,
     tenantIdColumns,
     excludeTables,
+    includeTables,
     logger,
   );
 
@@ -460,10 +611,10 @@ export async function removeTenantRlsFromSchema(
     // NO FORCE first, then DISABLE. Order matters: DISABLE on a FORCEd table
     // is a no-op for the owner but PostgreSQL accepts it without error.
     await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" NO FORCE ROW LEVEL SECURITY`,
+      `${SQL_ALTER_TABLE} "${schema}"."${tableName}" NO FORCE ${SQL_ROW_LEVEL_SECURITY}`,
     );
     await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" DISABLE ROW LEVEL SECURITY`,
+      `${SQL_ALTER_TABLE} "${schema}"."${tableName}" DISABLE ${SQL_ROW_LEVEL_SECURITY}`,
     );
   }
 

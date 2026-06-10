@@ -6,20 +6,23 @@
  * Supports role-based navigation with dynamic module loading.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import {
+  ADMIN_BILLING_NAV_ITEMS,
   Header,
   Sidebar,
-  useAuthContext,
-  useTenantContext,
+  createTenantQueryKey,
   type NavigationItem,
   type SidebarTheme,
-  type HeaderTheme,
+  useAuthContext,
+  useTenantContext,
 } from '@aquaculture/shared-ui';
-import { NotificationPanel } from '@/components/NotificationPanel';
+import { useQueryClient } from '@tanstack/react-query';
+import React, { useState, useCallback, useMemo } from 'react';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+
 import ConsentBanner from '../components/ConsentBanner';
+
+import { NotificationPanel } from '@/components/NotificationPanel';
 
 // ============================================================================
 // Navigation Configuration - Role Based
@@ -29,6 +32,8 @@ import ConsentBanner from '../components/ConsentBanner';
  * SUPER_ADMIN navigation - Full System Management
  * Synchronized with AdminSidebar
  */
+const adminBillingNavItems: NavigationItem[] = ADMIN_BILLING_NAV_ITEMS.map((item) => ({ ...item }));
+
 const superAdminNavigation: NavigationItem[] = [
   {
     id: 'admin-dashboard',
@@ -73,15 +78,7 @@ const superAdminNavigation: NavigationItem[] = [
     id: 'admin-billing',
     label: 'Billing',
     icon: 'billing',
-    children: [
-      { id: 'billing-overview', label: 'Overview', path: '/admin/billing' },
-      { id: 'billing-module-pricing', label: 'Module Pricing', path: '/admin/billing/module-pricing' },
-      { id: 'billing-subscriptions', label: 'Subscriptions', path: '/admin/billing/subscriptions' },
-      { id: 'billing-invoices', label: 'Invoices', path: '/admin/billing/invoices' },
-      { id: 'billing-payments', label: 'Payments', path: '/admin/billing/payments' },
-      { id: 'billing-discounts', label: 'Discounts', path: '/admin/billing/discounts' },
-      { id: 'billing-custom-plans', label: 'Custom Plans', path: '/admin/billing/custom-plans' },
-    ],
+    children: adminBillingNavItems,
   },
   {
     id: 'admin-support',
@@ -455,7 +452,7 @@ const MainLayout: React.FC = () => {
       await logout();
     } finally {
       if (currentTenantId) {
-        queryClient.removeQueries({ queryKey: ['tenant', currentTenantId] });
+        queryClient.removeQueries({ queryKey: createTenantQueryKey(currentTenantId) });
       }
       navigate('/login');
     }
@@ -533,8 +530,10 @@ const MainLayout: React.FC = () => {
           tenant={tenant}
           onSearch={handleSearch}
           userMenuItems={userMenuItems}
-          onLogout={handleLogout}
-          theme={theme as HeaderTheme}
+          onLogout={() => {
+            void handleLogout();
+          }}
+          theme={theme}
           leftContent={leftContent}
           rightContent={notificationPanelElement}
         />

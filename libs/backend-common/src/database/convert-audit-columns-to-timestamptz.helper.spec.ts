@@ -49,10 +49,7 @@ function makeMockRunner(replies: ReadonlyArray<unknown>): {
       calls.push({ sql, params });
       if (idx >= replies.length) {
         throw new Error(
-          `mock runner exhausted at call ${idx}: unexpected SQL "${sql.slice(
-            0,
-            80,
-          )}..."`,
+          `mock runner exhausted at call ${idx}: unexpected SQL "${sql.slice(0, 80)}..."`,
         );
       }
       return replies[idx++];
@@ -62,6 +59,23 @@ function makeMockRunner(replies: ReadonlyArray<unknown>): {
 }
 
 describe('convertAuditColumnsToTimestamptz', () => {
+  const originalEnv = {
+    DB_MIGRATE_AUTHORITATIVE: process.env['DB_MIGRATE_AUTHORITATIVE'],
+    DB_MIGRATE_DDL_AUTHORITY: process.env['DB_MIGRATE_DDL_AUTHORITY'],
+    NODE_ENV: process.env['NODE_ENV'],
+    AQUA_ENV: process.env['AQUA_ENV'],
+  };
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+
   describe('happy path', () => {
     it('discovers TIMESTAMP audit columns and emits one ALTER per table', async () => {
       const replies = [
@@ -148,18 +162,12 @@ describe('convertAuditColumnsToTimestamptz', () => {
       // Verify the filter exists in the SQL — this is the
       // security-critical piece that makes re-runs idempotent at the
       // database level instead of relying on application-side state.
-      const replies = [
-        [{ schema: 'sensor' }],
-        [{ setting: 'UTC' }],
-        [],
-      ];
+      const replies = [[{ schema: 'sensor' }], [{ setting: 'UTC' }], []];
       const { runner, calls } = makeMockRunner(replies);
 
       await convertAuditColumnsToTimestamptz(runner);
 
-      expect(calls[2]?.sql).toContain(
-        `c.data_type = 'timestamp without time zone'`,
-      );
+      expect(calls[2]?.sql).toContain(`c.data_type = 'timestamp without time zone'`);
       // Negative assertion: must NOT use 'timestamptz' or 'with time
       // zone' in the discovery filter — that would invert the logic.
       expect(calls[2]?.sql).not.toContain(`'timestamptz'`);
@@ -242,10 +250,21 @@ describe('convertAuditColumnsToTimestamptz', () => {
         auditColumns: ['inserted_at', 'modified_at'],
       });
 
-      expect(calls[2]?.params).toEqual([
-        'legacy',
-        ['inserted_at', 'modified_at'],
-      ]);
+      expect(calls[2]?.params).toEqual(['legacy', ['inserted_at', 'modified_at']]);
+    });
+  });
+
+  describe('db-migrate authority boundary', () => {
+    it('refuses production-authoritative DDL without db-migrate authority before issuing SQL', async () => {
+      process.env['DB_MIGRATE_AUTHORITATIVE'] = 'true';
+      Reflect.deleteProperty(process.env, 'DB_MIGRATE_DDL_AUTHORITY');
+      const { runner, calls } = makeMockRunner([]);
+
+      await expect(convertAuditColumnsToTimestamptz(runner)).rejects.toThrow(
+        /db-migrate authority/,
+      );
+
+      expect(calls).toHaveLength(0);
     });
   });
 });
@@ -261,9 +280,7 @@ describe('revertAuditColumnsToTimestamp', () => {
     await revertAuditColumnsToTimestamp(runner);
 
     // Inverse of up(): only revert what we previously converted
-    expect(calls[1]?.sql).toContain(
-      `c.data_type = 'timestamp with time zone'`,
-    );
+    expect(calls[1]?.sql).toContain(`c.data_type = 'timestamp with time zone'`);
   });
 
   it('emits ALTER ... TYPE TIMESTAMP USING ... AT TIME ZONE UTC', async () => {

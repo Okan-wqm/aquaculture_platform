@@ -59,7 +59,7 @@ export interface SpecificationSchema {
   }>;
 }
 
-@Entity('equipment_types', { synchronize: false })
+@Entity('equipment_types')
 @Index(['code'], { unique: true })
 @Index(['category'])
 @Index(['isActive'])

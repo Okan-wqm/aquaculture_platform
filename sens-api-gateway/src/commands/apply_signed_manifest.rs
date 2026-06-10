@@ -419,13 +419,6 @@ impl CommandHandler {
         let streaming_outcome =
             apply_streaming_step(params, &ab_partitions, &manifest, target_slot);
         let streaming_status_json = match &streaming_outcome {
-            StreamingStep::Skipped { reason } => {
-                info!("apply_signed_manifest: streaming skipped ({})", reason);
-                json!({
-                    "status": "skipped",
-                    "reason": reason,
-                })
-            }
             StreamingStep::Streamed { verified_count } => {
                 info!(
                     "apply_signed_manifest: streamed {} file(s) to slot {:?}",
@@ -640,10 +633,6 @@ fn call_set_next_boot_slot(
 /// Streaming-step outcome (Batch 126 Sprint 6.5).
 #[derive(Debug)]
 pub(super) enum StreamingStep {
-    /// ab_partitions not configured — streaming skipped;
-    /// apply continues against PartitionStore + bootloader
-    /// only.
-    Skipped { reason: String },
     /// Bytes streamed + per-file verified; apply proceeds.
     Streamed { verified_count: usize },
     /// Streaming rejected; apply MUST abort. `gate` is a
@@ -664,9 +653,9 @@ pub(super) enum StreamingStep {
 /// mirrored here as the implementation contract):
 ///
 /// - ab_partitions.is_fully_configured() == false →
-///   Skipped. HC-1 backward-compat; the state-machine
-///   path still advances but no files land on the
-///   standby slot.
+///   Rejected(gate=ab_partitions_required). Production
+///   signed OTA must not state-only apply without a
+///   writable standby slot.
 /// - is_fully_configured() == true + params["files"]
 ///   missing → Rejected(gate=no_file_source_configured).
 /// - is_fully_configured() == true + params["files"]
@@ -693,10 +682,12 @@ pub(super) fn apply_streaming_step(
     target_slot: AbPartition,
 ) -> StreamingStep {
     if !ab_partitions.is_fully_configured() {
-        return StreamingStep::Skipped {
-            reason:
-                "ab_partitions mount paths not configured (HC-1 backward compat — state-only apply)"
-                    .to_string(),
+        return StreamingStep::Rejected {
+            gate: "ab_partitions_required",
+            reason: "ab_partitions.slot_a_mount and slot_b_mount are required before apply_signed_manifest can stream files to a standby slot"
+                .to_string(),
+            verified_count: 0,
+            failed: vec![],
         };
     }
 
@@ -1315,13 +1306,19 @@ mod tests {
     }
 
     #[test]
-    fn apply_streaming_step_skipped_when_ab_partitions_not_configured() {
+    fn apply_streaming_step_rejects_when_ab_partitions_not_configured() {
         let manifest = build_manifest_for_streaming(vec![("bin/a".to_string(), b"alpha".to_vec())]);
         let params = json!({});
         let ab = AbPartitionMountConfig::default();
 
         let out = apply_streaming_step(&params, &ab, &manifest, AbPartition::A);
-        assert!(matches!(out, StreamingStep::Skipped { .. }));
+        assert!(matches!(
+            out,
+            StreamingStep::Rejected {
+                gate: "ab_partitions_required",
+                ..
+            }
+        ));
     }
 
     #[test]

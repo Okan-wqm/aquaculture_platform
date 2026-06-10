@@ -4,50 +4,34 @@
  * Comprehensive audit logging interface with retention policies and alert management.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
 import {
   FileText,
   Search,
-  Filter,
   Download,
   RefreshCw,
   Eye,
-  Shield,
   Clock,
   AlertTriangle,
-  Settings,
   Bell,
   Plus,
   Edit2,
   Trash2,
-  Save,
   X,
-  Calendar,
-  Database,
   Archive,
-  CheckCircle2,
   XCircle,
   Info,
 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+
 import { securityApi } from '../../services/adminApi';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type AuditAction =
-  | 'create'
-  | 'read'
-  | 'update'
-  | 'delete'
-  | 'login'
-  | 'logout'
-  | 'permission_change'
-  | 'export'
-  | 'import'
-  | 'config_change';
+type AuditAction = string;
 
-type AuditSeverity = 'info' | 'low' | 'medium' | 'high' | 'critical';
+type AuditSeverity = 'info' | 'warning' | 'critical';
 
 interface AuditEntry {
   id: string;
@@ -124,30 +108,29 @@ async function fetchAuditEntries(params: {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
+  if (params.action && params.action !== 'all') apiParams.action = params.action;
   if (params.entityType && params.entityType !== 'all') apiParams.entityType = params.entityType;
+  if (params.severity && params.severity !== 'all') apiParams.severity = params.severity;
+  if (params.searchQuery) apiParams.search = params.searchQuery;
   if (params.startDate) apiParams.startDate = params.startDate;
   if (params.endDate) apiParams.endDate = params.endDate;
 
   const result = await securityApi.getAuditTrail(apiParams);
-  // Map API response to local AuditEntry type
-  const anyEntry = (e: typeof result.data[0]) => e as unknown as Record<string, unknown>;
   return {
     data: result.data.map((entry) => ({
       id: entry.id,
-      action: entry.action as AuditAction,
+      action: entry.action,
       entityType: entry.entityType,
-      entityId: entry.entityId,
-      entityName: anyEntry(entry).entityName as string | undefined,
-      severity: (anyEntry(entry).severity as AuditSeverity) || 'info',
-      tenantId: (anyEntry(entry).tenantId as string) || '',
-      tenantName: anyEntry(entry).tenantName as string | undefined,
+      entityId: entry.entityId ?? '',
+      severity: entry.severity,
+      tenantId: entry.tenantId ?? '',
       userId: entry.performedBy,
-      userName: anyEntry(entry).userName as string | undefined,
-      userEmail: entry.performedByEmail,
-      ipAddress: anyEntry(entry).ipAddress as string | undefined,
-      changes: anyEntry(entry).changes as AuditEntry['changes'],
-      metadata: anyEntry(entry).metadata as Record<string, unknown> | undefined,
-      createdAt: (anyEntry(entry).createdAt as string) || entry.timestamp,
+      userName: entry.performedByEmail ?? entry.performedBy,
+      userEmail: entry.performedByEmail ?? undefined,
+      ipAddress: entry.ipAddress ?? undefined,
+      changes: buildAuditChanges(entry.previousValue, entry.newValue),
+      metadata: entry.details ?? undefined,
+      createdAt: entry.createdAt,
     })),
     total: result.total,
     page: result.page,
@@ -156,7 +139,23 @@ async function fetchAuditEntries(params: {
 }
 
 async function fetchAuditSummary(): Promise<AuditStats> {
-  return securityApi.getAuditSummary();
+  const summary = await securityApi.getAuditSummary();
+  return {
+    totalEntries: summary.totalLogs,
+    byAction: Object.fromEntries(
+      summary.byAction.map((item) => [item.action, item.count]),
+    ),
+    bySeverity: Object.fromEntries(
+      summary.bySeverity.map((item) => [item.severity, item.count]),
+    ),
+    byEntityType: Object.fromEntries(
+      summary.byEntityType.map((item) => [item.entityType, item.count]),
+    ),
+    last24Hours: summary.last24Hours,
+    last7Days: 0,
+    retentionPoliciesCount: 0,
+    alertRulesCount: 0,
+  };
 }
 
 async function fetchRetentionPolicies(): Promise<RetentionPolicy[]> {
@@ -165,25 +164,55 @@ async function fetchRetentionPolicies(): Promise<RetentionPolicy[]> {
   return policies.map((policy) => ({
     id: policy.id,
     name: policy.name,
-    entityTypes: (policy as unknown as { entityTypes?: string[] }).entityTypes || [],
+    entityTypes: [policy.category ?? policy.entityType ?? 'activity'],
     retentionDays: policy.retentionDays,
-    archiveBeforeDelete: (policy as unknown as { archiveBeforeDelete?: boolean }).archiveBeforeDelete ?? false,
-    enabled: (policy as unknown as { enabled?: boolean }).enabled ?? true,
-    createdAt: (policy as unknown as { createdAt?: string }).createdAt || '',
-    updatedAt: (policy as unknown as { updatedAt?: string }).updatedAt,
+    archiveBeforeDelete: policy.archiveAfterDays !== undefined,
+    enabled: policy.isActive,
+    createdAt: policy.createdAt ?? '',
+    updatedAt: policy.updatedAt,
   }));
 }
 
 async function fetchAlertRules(): Promise<AlertRule[]> {
   const rules = await securityApi.getAlertRules();
-  return rules as unknown as AlertRule[];
+  return rules.map((rule) => ({
+    id: rule.id,
+    name: rule.name,
+    condition: rule.description,
+    actions: rule.alertChannels,
+    severity: rule.conditions.severity?.includes('critical') ? 'critical' : 'warning',
+    enabled: rule.isActive,
+    triggeredCount: 0,
+    lastTriggered: rule.lastTriggeredAt,
+    createdAt: '',
+  }));
+}
+
+function buildAuditChanges(
+  previousValue?: Record<string, unknown> | null,
+  newValue?: Record<string, unknown> | null,
+): AuditEntry['changes'] {
+  if (!previousValue && !newValue) {
+    return undefined;
+  }
+
+  const fields = new Set([
+    ...Object.keys(previousValue ?? {}),
+    ...Object.keys(newValue ?? {}),
+  ]);
+
+  return Array.from(fields).map((field) => ({
+    field,
+    oldValue: previousValue?.[field],
+    newValue: newValue?.[field],
+  }));
 }
 
 // ============================================================================
 // Components
 // ============================================================================
 
-const getActionColor = (action: AuditAction) => {
+const getActionColor = (action: AuditAction): string => {
   switch (action) {
     case 'create':
       return 'bg-green-100 text-green-800';
@@ -206,37 +235,29 @@ const getActionColor = (action: AuditAction) => {
   }
 };
 
-const getSeverityColor = (severity: AuditSeverity) => {
+const getSeverityColor = (severity: AuditSeverity): string => {
   switch (severity) {
     case 'critical':
       return 'bg-red-100 text-red-800 border-red-200';
-    case 'high':
-      return 'bg-orange-100 text-orange-800 border-orange-200';
-    case 'medium':
+    case 'warning':
       return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-    case 'low':
-      return 'bg-blue-100 text-blue-800 border-blue-200';
     default:
       return 'bg-gray-100 text-gray-800 border-gray-200';
   }
 };
 
-const getSeverityIcon = (severity: AuditSeverity) => {
+const getSeverityIcon = (severity: AuditSeverity): React.ReactElement => {
   switch (severity) {
     case 'critical':
       return <XCircle className="w-4 h-4 text-red-600" />;
-    case 'high':
-      return <AlertTriangle className="w-4 h-4 text-orange-600" />;
-    case 'medium':
+    case 'warning':
       return <AlertTriangle className="w-4 h-4 text-yellow-600" />;
-    case 'low':
-      return <Info className="w-4 h-4 text-blue-600" />;
     default:
       return <Info className="w-4 h-4 text-gray-600" />;
   }
 };
 
-const formatDate = (dateString: string) => {
+const formatDate = (dateString: string): string => {
   const date = new Date(dateString);
   return date.toLocaleString('tr-TR', {
     day: '2-digit',
@@ -247,7 +268,7 @@ const formatDate = (dateString: string) => {
   });
 };
 
-const formatTimeAgo = (dateString: string) => {
+const formatTimeAgo = (dateString: string): string => {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -281,21 +302,21 @@ const AuditDetailModal: React.FC<{
           {/* Basic Info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium text-gray-500">ID</label>
+              <span className="text-sm font-medium text-gray-500">ID</span>
               <p className="text-sm text-gray-900 font-mono">{entry.id}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Timestamp</label>
+              <span className="text-sm font-medium text-gray-500">Timestamp</span>
               <p className="text-sm text-gray-900">{formatDate(entry.createdAt)}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Action</label>
+              <span className="text-sm font-medium text-gray-500">Action</span>
               <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}>
                 {entry.action}
               </span>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500">Severity</label>
+              <span className="text-sm font-medium text-gray-500">Severity</span>
               <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}>
                 {getSeverityIcon(entry.severity)}
                 {entry.severity}
@@ -308,16 +329,16 @@ const AuditDetailModal: React.FC<{
             <h3 className="text-sm font-medium text-gray-700 mb-3">Entity Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-500">Type</label>
+                <span className="text-xs text-gray-500">Type</span>
                 <p className="text-sm text-gray-900">{entry.entityType}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">ID</label>
+                <span className="text-xs text-gray-500">ID</span>
                 <p className="text-sm text-gray-900 font-mono">{entry.entityId}</p>
               </div>
               {entry.entityName && (
                 <div className="col-span-2">
-                  <label className="text-xs text-gray-500">Name</label>
+                  <span className="text-xs text-gray-500">Name</span>
                   <p className="text-sm text-gray-900">{entry.entityName}</p>
                 </div>
               )}
@@ -329,19 +350,19 @@ const AuditDetailModal: React.FC<{
             <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-500">User</label>
+                <span className="text-xs text-gray-500">User</span>
                 <p className="text-sm text-gray-900">{entry.userName || 'System'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Email</label>
+                <span className="text-xs text-gray-500">Email</span>
                 <p className="text-sm text-gray-900">{entry.userEmail || 'N/A'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Tenant</label>
+                <span className="text-xs text-gray-500">Tenant</span>
                 <p className="text-sm text-gray-900">{entry.tenantName || 'N/A'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">IP Address</label>
+                <span className="text-xs text-gray-500">IP Address</span>
                 <p className="text-sm text-gray-900 font-mono">{entry.ipAddress || 'N/A'}</p>
               </div>
             </div>
@@ -359,13 +380,13 @@ const AuditDetailModal: React.FC<{
                       <div>
                         <span className="text-xs text-red-600">Old:</span>
                         <pre className="text-xs text-gray-600 mt-1 overflow-auto">
-                          {JSON.stringify(change.oldValue, null, 2)}
+                          {JSON.stringify(change.oldValue)}
                         </pre>
                       </div>
                       <div>
                         <span className="text-xs text-green-600">New:</span>
                         <pre className="text-xs text-gray-600 mt-1 overflow-auto">
-                          {JSON.stringify(change.newValue, null, 2)}
+                          {JSON.stringify(change.newValue)}
                         </pre>
                       </div>
                     </div>
@@ -380,7 +401,7 @@ const AuditDetailModal: React.FC<{
             <div>
               <h3 className="text-sm font-medium text-gray-700 mb-3">Metadata</h3>
               <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto">
-                {JSON.stringify(entry.metadata, null, 2)}
+                {JSON.stringify(entry.metadata)}
               </pre>
             </div>
           )}
@@ -419,46 +440,85 @@ export const AuditTrailPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [actionFilter, setActionFilter] = useState<string>('all');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
-  const [entityTypeFilter, setEntityTypeFilter] = useState<string>('all');
-  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [entityTypeFilter, _setEntityTypeFilter] = useState<string>('all');
+  const [dateRange, _setDateRange] = useState({ start: '', end: '' });
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
-    try {
-      const [entriesResult, summaryResult, policiesResult, rulesResult] = await Promise.all([
-        fetchAuditEntries({
-          page,
-          limit,
-          action: actionFilter,
-          severity: severityFilter,
-          entityType: entityTypeFilter,
-          searchQuery: searchTerm || undefined,
-          startDate: dateRange.start || undefined,
-          endDate: dateRange.end || undefined,
-        }),
-        fetchAuditSummary(),
-        fetchRetentionPolicies(),
-        fetchAlertRules(),
-      ]);
-      setEntries(entriesResult.data);
-      setTotal(entriesResult.total);
-      setStats(summaryResult);
-      setRetentionPolicies(policiesResult);
-      setAlertRules(rulesResult);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load audit data');
-      console.error('Failed to load audit data:', err);
-    } finally {
-      setLoading(false);
+    const [entriesResult, summaryResult, policiesResult, rulesResult] = await Promise.allSettled([
+      fetchAuditEntries({
+        page,
+        limit,
+        action: actionFilter,
+        severity: severityFilter,
+        entityType: entityTypeFilter,
+        searchQuery: searchTerm || undefined,
+        startDate: dateRange.start || undefined,
+        endDate: dateRange.end || undefined,
+      }),
+      fetchAuditSummary(),
+      fetchRetentionPolicies(),
+      fetchAlertRules(),
+    ]);
+    const failures: string[] = [];
+    const policies = policiesResult.status === 'fulfilled' ? policiesResult.value : [];
+    const rules = rulesResult.status === 'fulfilled' ? rulesResult.value : [];
+
+    if (entriesResult.status === 'fulfilled') {
+      setEntries(entriesResult.value.data);
+      setTotal(entriesResult.value.total);
+    } else {
+      failures.push(
+        entriesResult.reason instanceof Error
+          ? entriesResult.reason.message
+          : 'Failed to load audit entries',
+      );
     }
+
+    if (summaryResult.status === 'fulfilled') {
+      setStats({
+        ...summaryResult.value,
+        retentionPoliciesCount: policies.length,
+        alertRulesCount: rules.length,
+      });
+    } else {
+      failures.push(
+        summaryResult.reason instanceof Error
+          ? summaryResult.reason.message
+          : 'Failed to load audit summary',
+      );
+    }
+
+    if (policiesResult.status === 'fulfilled') {
+      setRetentionPolicies(policies);
+    } else {
+      failures.push(
+        policiesResult.reason instanceof Error
+          ? policiesResult.reason.message
+          : 'Failed to load retention policies',
+      );
+    }
+
+    if (rulesResult.status === 'fulfilled') {
+      setAlertRules(rules);
+    } else {
+      failures.push(
+        rulesResult.reason instanceof Error
+          ? rulesResult.reason.message
+          : 'Failed to load alert rules',
+      );
+    }
+
+    setError(failures.length > 0 ? failures.join('; ') : null);
+    setLoading(false);
   }, [page, limit, actionFilter, severityFilter, entityTypeFilter, searchTerm, dateRange]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
-  const handleExport = () => {
+  const handleExport = (): void => {
     const csvContent = [
       ['ID', 'Timestamp', 'Action', 'Entity Type', 'Entity ID', 'Severity', 'User', 'IP'].join(','),
       ...entries.map((e) =>
@@ -497,7 +557,7 @@ export const AuditTrailPage: React.FC = () => {
         <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
         <p className="text-red-600 mb-4">{error}</p>
         <button
-          onClick={loadData}
+          onClick={() => void loadData()}
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
         >
           Retry
@@ -525,7 +585,7 @@ export const AuditTrailPage: React.FC = () => {
             Export
           </button>
           <button
-            onClick={loadData}
+            onClick={() => void loadData()}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
@@ -647,9 +707,7 @@ export const AuditTrailPage: React.FC = () => {
               >
                 <option value="all">All Severities</option>
                 <option value="info">Info</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
+                <option value="warning">Warning</option>
                 <option value="critical">Critical</option>
               </select>
             </div>

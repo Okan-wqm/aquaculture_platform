@@ -54,12 +54,27 @@
  *   2 — usage error
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { relative, resolve } from 'node:path';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const REPO_ROOT = (() => {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return process.cwd();
+  }
+})();
+
+function writeStdout(message = ''): void {
+  process.stdout.write(`${message}\n`);
+}
+
+function writeStderr(message = ''): void {
+  process.stderr.write(`${message}\n`);
+}
 
 interface BannedPhraseRule {
   phrase: RegExp;
@@ -171,7 +186,11 @@ const BANNED_PHRASES: readonly BannedPhraseRule[] = [
     label: 'out of scope (without ADR / review / plan / Faz reference)',
   },
   { phrase: /\bgood enough\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'good enough' },
-  { phrase: /\bsufficient for now\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'sufficient for now' },
+  {
+    phrase: /\bsufficient for now\b/i,
+    allowIf: META_DISCUSSION_ALLOW_IF,
+    label: 'sufficient for now',
+  },
 ];
 
 const EXEMPT_PATHS: readonly RegExp[] = [
@@ -187,6 +206,22 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   // the doc IS the meta-text describing the discipline.
   /^docs\/aria\/reviews\//,
   /^docs\/aria\/plans\//,
+  // ARIA closure reports (post-sprint architectural records) legitimately
+  // discuss tracked deferrals with owner+deadline+finding-ID context and
+  // self-audit the banned-phrase discipline. Same meta-text exemption
+  // rationale as reviews/plans above. Pattern matches v{major}-{minor}-
+  // closure-report.md and architectural arc summaries.
+  /^docs\/aria\/v\d+-\d+-closure-report\.md$/,
+  // Architectural-arbiter recommendations (ADRs) legitimately discuss
+  // tracked deferrals with owner+deadline+finding-ID context per
+  // CLAUDE.md §Architectural Approach. Same exemption rationale as
+  // docs/adr/ above.
+  /^docs\/recommendations\//,
+  // Finding artifacts (aria-findings/F-*.json) legitimately use the
+  // word "deferred" in the title/scope of V10.6 tracked-deferral
+  // findings. The finding JSON itself IS the structured form of the
+  // owner+deadline+finding-ID compliance.
+  /^aria-findings\/F-AUTO-V\d+-/,
   /^CHANGELOG\.md$/,
   /^\.claude\/agents\.legacy\//,
   /^\.claude\/agents\//,
@@ -238,12 +273,6 @@ interface Violation {
   context: string;
 }
 
-interface Commit {
-  sha: string;
-  subject: string;
-  body: string;
-}
-
 function run(cmd: string): string {
   try {
     return execSync(cmd, {
@@ -278,11 +307,7 @@ function rangeFiles(baseRef: string, headRef: string): string[] {
  * alone (otherwise long-lived feature branches surface every historical
  * hit as a new violation — mechanically correct, operationally noise).
  */
-function addedLinesInRange(
-  baseRef: string,
-  headRef: string,
-  file: string,
-): ReadonlySet<number> {
+function addedLinesInRange(baseRef: string, headRef: string, file: string): ReadonlySet<number> {
   const diff = run(`git diff --unified=0 ${baseRef}..${headRef} -- "${file}"`);
   if (!diff) return new Set();
   const added = new Set<number>();
@@ -557,7 +582,7 @@ function main(): void {
   const rawArgv = process.argv.slice(2);
   const { mode, flags, positional, modeExplicit } = parseArgv(rawArgv);
   if (!modeExplicit) {
-    console.error('[banned-phrase] no --mode supplied; defaulting to --mode=staged.');
+    writeStderr('[banned-phrase] no --mode supplied; defaulting to --mode=staged.');
   }
   const ignoreExemptions = flags.has('ignore-exemptions');
 
@@ -570,7 +595,7 @@ function main(): void {
   } else if (mode === 'range') {
     const [baseRef, headRef] = positional;
     if (!baseRef || !headRef) {
-      console.error('range mode requires two refs: --mode=range <base> <head>');
+      writeStderr('range mode requires two refs: --mode=range <base> <head>');
       process.exit(2);
     }
     for (const f of rangeFiles(baseRef, headRef)) {
@@ -583,40 +608,40 @@ function main(): void {
   } else if (mode === 'file') {
     const [fp] = positional;
     if (!fp) {
-      console.error('file mode requires a path: --mode=file <path>');
+      writeStderr('file mode requires a path: --mode=file <path>');
       process.exit(2);
     }
     violations.push(...scanFile(relative(REPO_ROOT, resolve(fp)), ignoreExemptions));
   } else {
-    console.error(`Unknown mode: ${mode}`);
+    writeStderr(`Unknown mode: ${mode}`);
     process.exit(2);
   }
 
   if (violations.length === 0) {
-    console.log('No banned phrases detected.');
+    writeStdout('No banned phrases detected.');
     return;
   }
 
-  console.error('Banned-phrase violations detected:');
+  writeStderr('Banned-phrase violations detected:');
   for (const v of violations) {
-    console.error(`  ${v.source}:${v.line}:${v.column}  "${v.phrase}"`);
-    console.error(`    > ${v.context}`);
+    writeStderr(`  ${v.source}:${v.line}:${v.column}  "${v.phrase}"`);
+    writeStderr(`    > ${v.context}`);
   }
-  console.error('');
-  console.error('Phrases banned by CLAUDE.md — "Architectural Approach" section:');
-  console.error('  for now, interim, temporary, pragmatic, simpler approach, middle ground,');
-  console.error(
+  writeStderr('');
+  writeStderr('Phrases banned by CLAUDE.md — "Architectural Approach" section:');
+  writeStderr('  for now, interim, temporary, pragmatic, simpler approach, middle ground,');
+  writeStderr(
     '  for momentum, just this commit, deferred*, out of scope*, good enough, sufficient for now',
   );
-  console.error(
+  writeStderr(
     '  (* = allowed only with plan phase reference OR owner+deadline+finding-ID for "deferred",',
   );
-  console.error('     ADR/review/plan reference for "out of scope")');
-  console.error('');
-  console.error(
+  writeStderr('     ADR/review/plan reference for "out of scope")');
+  writeStderr('');
+  writeStderr(
     'If the match is on a legitimate discussion (e.g., ADR documenting rejected alternative),',
   );
-  console.error('add the path to EXEMPT_PATHS in tools/gates/banned-phrase.ts AND document why.');
+  writeStderr('add the path to EXEMPT_PATHS in tools/gates/banned-phrase.ts AND document why.');
   process.exit(1);
 }
 

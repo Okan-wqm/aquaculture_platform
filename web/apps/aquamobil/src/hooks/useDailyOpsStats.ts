@@ -26,12 +26,10 @@ interface DailyOpsCountsResponse {
  * single isLoading flag, avoiding 4+ loading states in the page component.
  */
 export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean } {
-  const { tenantId, isAuthenticated, user } = useAuth();
-  // WHY employeeId fallback: BUG-11 — employeeId and user.id can diverge.
-  const employeeId = user?.employeeId ?? user?.id;
+  const { tenantId, isAuthenticated } = useAuth();
 
   // Source 1: Clock-in status (React Query, already migrated)
-  const { data: todaysAttendance, isLoading: attendanceLoading } = useTodaysAttendance(employeeId);
+  const { data: todaysAttendance, isLoading: attendanceLoading } = useTodaysAttendance();
 
   // Source 2: Feeding plan progress
   const todayStr = useMemo(() => {
@@ -64,25 +62,18 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
     gcTime: 1000 * 60 * 30,
   });
 
-  // Source 4: Mortality + WQ counts (new aggregate query)
-  // WHY graceful fallback: backend resolver may not be deployed yet.
+  // Source 4: Mortality + WQ counts from the farm mobile aggregate resolver.
   const { data: opsCounts, isLoading: opsCountsLoading } = useQuery<DailyOpsCountsResponse>({
     queryKey: createTenantQueryKey(tenantId, 'dailyOpsCounts', tenantId),
     queryFn: async () => {
-      try {
-        const result = await graphqlRequest<{ todaysDailyOpsCounts: DailyOpsCountsResponse }>(
-          GET_TODAYS_DAILY_OPS_COUNTS,
-        );
-        return result.todaysDailyOpsCounts;
-      } catch {
-        // WHY swallow: resolver may not exist yet — return zeros so hub renders.
-        return { mortalityCount: 0, wqReadingsCount: 0, feedingCompletedCount: 0, feedingTotalCount: 0 };
-      }
+      const result = await graphqlRequest<{ todaysDailyOpsCounts: DailyOpsCountsResponse }>(
+        GET_TODAYS_DAILY_OPS_COUNTS,
+      );
+      return result.todaysDailyOpsCounts;
     },
     enabled: isAuthenticated && !!tenantId,
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 30,
-    retry: false, // WHY: if resolver doesn't exist, retrying wastes time
   });
 
   // Combine all sources
@@ -90,8 +81,9 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
     // WHY: a record with clockIn but no clockOut means the user is on shift.
     const activeRecord = todaysAttendance?.find((r) => r.clockIn && !r.clockOut);
 
-    // WHY fallback: prefer aggregate query counts (include all tanks); fall
-    // back to counting execution statuses from the feeding plan query.
+    // WHY: prefer aggregate query counts because they include all tanks. While
+    // the aggregate request is loading, the local feeding-plan query provides
+    // the same feeding-only count for the current page.
     const feedCompleted = opsCounts?.feedingTotalCount
       ? opsCounts.feedingCompletedCount
       : (feedingExecutions?.filter((e) => e.status === 'COMPLETED').length ?? 0);

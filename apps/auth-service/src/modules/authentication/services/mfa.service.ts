@@ -30,6 +30,7 @@ import { TokenService } from './token.service';
 
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const ENCRYPTION_PREFIX = 'ENC_V1:';
+const MFA_ENCRYPTION_KEY_REGEX = /^[0-9a-fA-F]{64}$/;
 
 /** TOTP time step in seconds (RFC 6238 default) */
 const TOTP_PERIOD = 30;
@@ -201,6 +202,7 @@ export class MfaService {
   private readonly logger = new Logger(MfaService.name);
   private encryptionKey: Buffer | null = null;
   private mfaDisabled = false;
+  private mfaUnavailableReason: string | null = null;
   private readonly issuerName: string;
 
   constructor(
@@ -219,38 +221,51 @@ export class MfaService {
     /**
      * SECURITY (H-17): MFA encryption key validation with graceful degradation.
      *
-     * MFA is an optional security feature — its absence should NOT prevent the
-     * entire auth-service from starting. An auth service without MFA (password-only)
-     * is strictly better than no auth service at all.
-     *
-     * Architecture decision: Infrastructure requirements (JWT_SECRET, DATABASE_PASSWORD)
-     * cause hard crash because the service literally cannot function without them.
-     * Feature availability (MFA, WebAuthn) degrades gracefully — the feature is
-     * disabled and a prominent error is logged so operators can configure it.
-     *
      * When MFA_ENCRYPTION_KEY is not configured:
-     * - All MFA enrollment/verification endpoints return 503 with clear message
-     * - Existing MFA-enrolled users fall back to password-only until key is set
-     * - Security audit logs capture the degraded state for compliance visibility
+     * - Production startup fails closed.
+     * - Non-production keeps MFA disabled so local/dev workflows can run.
+     * - Existing MFA-enrolled users never fall back to password-only; login blocks
+     *   in AuthenticationService when MFA is enabled but unavailable.
      */
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development').toLowerCase();
+    const aquaEnv = this.configService.get<string>('AQUA_ENV', '').toLowerCase();
+    const deployEnv = this.configService.get<string>('DEPLOY_ENV', '').toLowerCase();
+    const isStrictKeyEnv =
+      nodeEnv === 'production' ||
+      aquaEnv === 'production' ||
+      aquaEnv === 'staging' ||
+      deployEnv === 'production' ||
+      deployEnv === 'staging';
     const masterKey = this.configService.get<string>('MFA_ENCRYPTION_KEY');
     if (!masterKey) {
-      const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
-      const logLevel = nodeEnv === 'production' ? 'error' : 'warn';
+      if (isStrictKeyEnv) {
+        throw new Error(
+          'MFA_ENCRYPTION_KEY must be configured in production-like environments. Generate a 64-character hex key with: openssl rand -hex 32',
+        );
+      }
 
-      this.logger[logLevel](
+      this.logger.warn(
         'SECURITY: MFA_ENCRYPTION_KEY not configured — MFA features DISABLED. ' +
         'Users cannot enable or use multi-factor authentication until this env var is set. ' +
         'Generate a 64-character hex key: openssl rand -hex 32',
       );
       this.mfaDisabled = true;
+      this.mfaUnavailableReason = 'MFA_ENCRYPTION_KEY is not configured';
       return;
     }
 
-    // Parse encryption key: support 64-char hex or derive via scrypt
-    if (masterKey.length === 64 && /^[0-9a-fA-F]+$/.test(masterKey)) {
+    if (MFA_ENCRYPTION_KEY_REGEX.test(masterKey)) {
       this.encryptionKey = Buffer.from(masterKey, 'hex');
     } else {
+      if (isStrictKeyEnv) {
+        throw new Error(
+          'MFA_ENCRYPTION_KEY must be a 64-character hex string in production-like environments. Generate one with: openssl rand -hex 32',
+        );
+      }
+      this.logger.warn(
+        'SECURITY: MFA_ENCRYPTION_KEY is not a 64-character hex key. ' +
+        'Deriving a development-only encryption key with scrypt; production-like environments reject this format.',
+      );
       const salt = crypto.createHash('sha256').update(masterKey).digest().subarray(0, 16);
       this.encryptionKey = crypto.scryptSync(masterKey, salt, 32);
     }
@@ -264,6 +279,10 @@ export class MfaService {
    */
   isMfaAvailable(): boolean {
     return !this.mfaDisabled;
+  }
+
+  getMfaUnavailableReason(): string | null {
+    return this.mfaDisabled ? this.mfaUnavailableReason : null;
   }
 
   // ==========================================================================

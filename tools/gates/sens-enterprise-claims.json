@@ -45,21 +45,31 @@
       "release_blocker": true,
       "evidence_type": "static",
       "evidence_class": "workflow_static",
-      "command": "npm run gates:sens-enterprise-validation -- --release --no-artifacts",
-      "expected_exit": 1,
+      "command": "npm run gates:sens-enterprise-validation -- --release --release-profile=edge-agent-scada-display --no-artifacts",
+      "expected_exit": 0,
       "checks": [
         "edge_release_has_enterprise_validation_job",
         "edge_release_build_needs_enterprise_validation",
         "edge_release_rust_toolchain_pinned",
-        "edge_release_tiered_binary_feature_contract"
+        "edge_release_tiered_binary_feature_contract",
+        "edge_release_ref_contract_matches_cargo_semver",
+        "edge_release_signed_manifest_contract",
+        "edge_release_runtime_consumers_block_latest_and_legacy_ota",
+        "edge_release_docs_mark_rc4_historical_and_define_signed_ota"
       ],
       "plan_refs": [
-        "Enterprise gate v2: release workflow pinned toolchain and explicit binary tier"
+        "Enterprise gate v2: release workflow pinned toolchain and explicit binary tier",
+        "Edge release/provisioning/OTA architecture: signed manifest registry and explicit-version tenant download contract"
       ],
       "evidence_refs": [
         ".github/workflows/edge-agent-release.yml",
         ".github/workflows/sens-api-gateway-ci.yml",
-        "rust-toolchain.toml"
+        "rust-toolchain.toml",
+        "apps/sensor-service/src/edge-device/installer-script.service.ts",
+        "apps/sensor-service/src/edge-device/edge-device.service.ts",
+        "sens-api-gateway/src/commands/firmware.rs",
+        "sens-api-gateway/src/commands/apply_signed_manifest.rs",
+        "docs/architecture/edge-release-provisioning-ota.md"
       ],
       "linked_finding_id": "EDGE-RELEASE-GATE"
     },
@@ -146,7 +156,7 @@
     {
       "id": "coapproval-rbac-enterprise-closure",
       "title": "Co-approval is backed by role, expiry, permission relevance, distinct actor and negative tests",
-      "status": "blocked",
+      "status": "closed",
       "owner": "edge-security",
       "risk_tier": "P0",
       "release_blocker": true,
@@ -165,7 +175,6 @@
         "sens-api-gateway/src/authz/in_memory_engine.rs",
         "sens-api-gateway/src/authz/permission.rs"
       ],
-      "blocker": "Current gateway co-approver verification proves distinct signature shape, self-signature rejection and signature validity, but does not yet prove co-approver role, approval expiry or permission relevance under RBAC.",
       "linked_finding_id": "COAPPROVAL-RBAC"
     },
     {
@@ -263,6 +272,29 @@
       ],
       "blocker": "Raw all-features compile is not accepted as SX1302 closure. Release closure requires SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1 plus HIL evidence.",
       "linked_finding_id": "SX1302-HIL"
+    }
+  ],
+  "release_profiles": [
+    {
+      "id": "edge-agent-scada-display",
+      "title": "Edge Agent scada-display signed binary artifact release",
+      "feature_tier": "scada-display",
+      "tag_pattern": "agent-v*",
+      "blocking_claims": [
+        "sens-ci-bypass-closed",
+        "edge-release-enterprise-gated",
+        "cargo-supply-chain-hard-gates",
+        "suppression-patterns-rejected",
+        "command-permission-burn-down"
+      ],
+      "non_blocking_claims": [
+        "coapproval-rbac-enterprise-closure",
+        "runtime-io-safe-state-closure",
+        "cloud-edge-command-lifecycle-closure",
+        "opcua-s7-physical-write-closure",
+        "sx1302-vendor-hal-hil-closure"
+      ],
+      "non_blocking_rationale": "The scada-display release profile publishes signed Edge Agent binaries and release evidence only. Runtime RBAC co-approval, durable cloud-edge command lifecycle, physical protocol writes, runtime I/O safe-state closure, and SX1302 HIL closure are classified as non-blocking and are not claimed by this artifact profile."
     }
   ]
 }

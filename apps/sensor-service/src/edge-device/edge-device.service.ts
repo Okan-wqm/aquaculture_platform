@@ -1,33 +1,31 @@
 import { randomUUID } from 'crypto';
 
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import {
-  Injectable,
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
+import {
+  BadRequestException,
+  ConflictException,
   Inject,
+  Injectable,
   Logger,
   NotFoundException,
-  ConflictException,
-  BadRequestException,
-  Optional,
   OnModuleDestroy,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
-import { InstallerScriptService } from './installer-script.service';
 import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
-import {
-  EdgeDevice,
-  DeviceLifecycleState,
-  DeviceModel,
-} from './entities/edge-device.entity';
+import { EdgeDevice, DeviceLifecycleState, DeviceModel } from './entities/edge-device.entity';
 import { LoRaDevice, LoRaActivationMode, LoRaDeviceClass } from './entities/lora-device.entity';
-
+import { InstallerScriptService } from './installer-script.service';
 
 /**
  * Input type for registering a new edge device
@@ -91,6 +89,19 @@ export interface AddIoConfigInput {
   deadband?: number;
 }
 
+type DeviceIoConfigWithGpioPin = DeviceIoConfig & { gpioPin: number };
+type DeviceIoConfigWithI2cAddress = DeviceIoConfig & { i2cAddress: number };
+type DeviceIoConfigWithModbusRegister = DeviceIoConfig & { modbusRegister: number };
+
+interface EdgeDeviceFingerprint {
+  cpuSerial?: string;
+  macAddresses?: string[];
+  machineId?: string;
+  hostname?: string;
+}
+
+type RowValueMap = Record<string, unknown>;
+
 /**
  * Device statistics type
  */
@@ -141,51 +152,11 @@ export interface PingResult {
 type AgentRegisterType = 'coil' | 'discrete_input' | 'holding' | 'input';
 
 /** Matches config.rs → ModbusRegisterConfig */
-interface AgentModbusRegisterConfig {
-  name: string;
-  address: number;
-  register_type: AgentRegisterType;
-  data_type: string;
-  scale: number;
-  unit: string;
-}
-
-/** Matches config.rs → ModbusDeviceConfig */
-interface AgentModbusDeviceConfig {
-  name: string;
-  connection_type: 'tcp' | 'rtu';
-  address: string;
-  slave_id: number;
-  registers: AgentModbusRegisterConfig[];
-}
-
-/** Matches config.rs → GpioConfig */
-interface AgentGpioConfig {
-  name: string;
-  pin: number;
-  direction: 'input' | 'output';
-  invert: boolean;
-}
-
-/** Matches config.rs → I2cDeviceConfig */
-interface AgentI2cDeviceConfig {
-  name: string;
-  bus: number;
-  address: number;
-  driver_type: Record<string, unknown>;
-  io_type: string;
-  data_type: string;
-  raw_min: number | null;
-  raw_max: number | null;
-  eng_min: number | null;
-  eng_max: number | null;
-  eng_unit: string | null;
-  alarm_hh: number | null;
-  alarm_h: number | null;
-  alarm_l: number | null;
-  alarm_ll: number | null;
-  deadband: number | null;
-}
+// The v1 device-level wire shapes (ModbusDeviceConfig / GpioConfig /
+// I2cDeviceConfig mirrors of config.rs) were retired with the
+// schemaVersion-2 flat-tag transform: v2 emits per-tag protocol fields
+// (slaveId/register/pin/bus...) and no device-level connection blocks.
+// tools/gates/fixtures/agent-io-config-v2.golden.json is the wire SSoT.
 
 // ============================================================================
 // LoRaWAN Agent Wire Format
@@ -202,11 +173,11 @@ interface AgentI2cDeviceConfig {
  */
 interface AgentLoRaDeviceConfig {
   dev_eui: string;
-  app_eui: string;           // Rust String — null olmaz, varsayılan '0000000000000000'
+  app_eui: string; // Rust String — null olmaz, varsayılan '0000000000000000'
   app_key: string;
   dev_addr: string | null;
-  activation: string;        // Rust serde küçük harf: 'otaa' | 'abp'
-  device_class: string;      // Rust serde küçük harf: 'a' | 'b' | 'c'
+  activation: string; // Rust serde küçük harf: 'otaa' | 'abp'
+  device_class: string; // Rust serde küçük harf: 'a' | 'b' | 'c'
   name: string;
   tag_prefix: string;
   codec: string;
@@ -226,10 +197,36 @@ export interface AgentLoRaWanConfig {
 }
 
 /** Top-level I/O config payload sent to the agent via MQTT */
+interface AgentIoTagConfig {
+  tagName: string;
+  protocol: 'gpio' | 'modbus' | 'i2c';
+  ioType: string;
+  dataType: string;
+  rawMin: number | null;
+  rawMax: number | null;
+  engMin: number | null;
+  engMax: number | null;
+  engUnit: string | null;
+  invert: boolean;
+  alarmHH: number | null;
+  alarmH: number | null;
+  alarmL: number | null;
+  alarmLL: number | null;
+  deadband: number | null;
+  pin?: number;
+  slaveId?: number;
+  register?: number;
+  function?: number;
+  registerType?: AgentRegisterType;
+  bus?: number;
+  address?: number;
+  driverType?: string;
+  sensorType?: string | null;
+}
+
 export interface AgentIoConfig {
-  modbus: AgentModbusDeviceConfig[];
-  gpio: AgentGpioConfig[];
-  i2c: AgentI2cDeviceConfig[];
+  schemaVersion: 2;
+  tags: AgentIoTagConfig[];
   lorawan?: AgentLoRaWanConfig;
 }
 
@@ -238,6 +235,7 @@ export interface AgentIoConfig {
  */
 interface PendingPing {
   commandId: string;
+  deviceId: string;
   deviceCode: string;
   startTime: number;
   resolve: (result: PingResult) => void;
@@ -263,10 +261,6 @@ export class EdgeDeviceService implements OnModuleDestroy {
   private cleanupIntervalId: NodeJS.Timeout | null = null;
   private isShuttingDown = false;
 
-  // Firmware version cache
-  private firmwareVersionsCache: { data: FirmwareVersionInfo[]; fetchedAt: number } | null = null;
-  private readonly FIRMWARE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
   constructor(
     @InjectRepository(EdgeDevice)
     private readonly deviceRepository: Repository<EdgeDevice>,
@@ -286,11 +280,35 @@ export class EdgeDeviceService implements OnModuleDestroy {
     this.startPendingPingsCleanup();
   }
 
+  private static isRecord(value: unknown): value is RowValueMap {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  private static queryAffectedRows(result: unknown): number {
+    if (!EdgeDeviceService.isRecord(result)) {
+      return 0;
+    }
+
+    const rowCount = result.rowCount;
+    if (typeof rowCount === 'number') {
+      return rowCount;
+    }
+
+    const affected = result.affected;
+    return typeof affected === 'number' ? affected : 0;
+  }
+
+  private isLegacyOtaAllowed(): boolean {
+    return (
+      this.configService.get<string>('EDGE_LEGACY_OTA_ALLOWED', 'false').toLowerCase() === 'true'
+    );
+  }
+
   /**
    * Lifecycle: Clean up resources on module destroy
    * Prevents memory leaks from pending pings and intervals
    */
-  async onModuleDestroy(): Promise<void> {
+  onModuleDestroy(): void {
     this.isShuttingDown = true;
     this.logger.log('EdgeDeviceService shutting down...');
 
@@ -362,7 +380,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * Clear all pending pings with a specific error message
    */
   private clearAllPendingPings(errorMessage: string): void {
-    for (const [commandId, pending] of this.pendingPings) {
+    for (const [, pending] of this.pendingPings) {
       clearTimeout(pending.timeout);
       pending.resolve({
         success: false,
@@ -389,9 +407,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       where: { deviceCode: input.deviceCode },
     });
     if (existing) {
-      throw new ConflictException(
-        `Device with code '${input.deviceCode}' already exists`,
-      );
+      throw new ConflictException(`Device with code '${input.deviceCode}' already exists`);
     }
 
     // Check for duplicate serial number if provided
@@ -539,8 +555,10 @@ export class EdgeDeviceService implements OnModuleDestroy {
   async approveDevice(id: string, tenantId: string, approvedBy: string): Promise<EdgeDevice> {
     const device = await this.findByIdOrFail(id, tenantId);
 
-    if (device.lifecycleState !== DeviceLifecycleState.REGISTERED &&
-        device.lifecycleState !== DeviceLifecycleState.PENDING_APPROVAL) {
+    if (
+      device.lifecycleState !== DeviceLifecycleState.REGISTERED &&
+      device.lifecycleState !== DeviceLifecycleState.PENDING_APPROVAL
+    ) {
       throw new BadRequestException(
         `Device in '${device.lifecycleState}' state cannot be approved`,
       );
@@ -562,9 +580,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const device = await this.findByIdOrFail(id, tenantId);
 
     if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
-      throw new BadRequestException(
-        'Cannot change maintenance mode of a decommissioned device',
-      );
+      throw new BadRequestException('Cannot change maintenance mode of a decommissioned device');
     }
 
     device.lifecycleState = enabled
@@ -577,11 +593,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
   /**
    * Decommission a device
    */
-  async decommissionDevice(
-    id: string,
-    tenantId: string,
-    reason: string,
-  ): Promise<EdgeDevice> {
+  async decommissionDevice(id: string, tenantId: string, reason: string): Promise<EdgeDevice> {
     const device = await this.findByIdOrFail(id, tenantId);
 
     device.lifecycleState = DeviceLifecycleState.DECOMMISSIONED;
@@ -603,7 +615,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
   async updateHeartbeat(heartbeat: DeviceHeartbeat): Promise<EdgeDevice | null> {
     // Device identifier from MQTT topic can be either deviceCode (e.g. "PI-A36C09D4")
     // or device UUID (e.g. "0cfb7dad-..."). The edge agent uses UUID in topic paths.
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(heartbeat.deviceCode);
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      heartbeat.deviceCode,
+    );
 
     // Use tenant-scoped query when tenantId is available (MQTT listener always provides it)
     let device: EdgeDevice | null = null;
@@ -611,12 +625,13 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     if (tenantSchema) {
       const column = isUuid ? 'id' : 'device_code';
-      const rows = await this.dataSource.query(
+      const rows = await this.dataSource.query<RowValueMap[]>(
         `SELECT * FROM "${tenantSchema}".edge_devices WHERE "${column}" = $1 LIMIT 1`,
         [heartbeat.deviceCode],
       );
-      if (rows && rows.length > 0) {
-        device = this.mapRowToEdgeDevice(rows[0]);
+      const firstRow = rows[0];
+      if (firstRow) {
+        device = this.mapRowToEdgeDevice(firstRow);
       }
     } else {
       const whereCondition: Record<string, unknown> = isUuid
@@ -637,14 +652,15 @@ export class EdgeDeviceService implements OnModuleDestroy {
     if (heartbeat.cpuUsage !== undefined) device.cpuUsage = heartbeat.cpuUsage;
     if (heartbeat.memoryUsage !== undefined) device.memoryUsage = heartbeat.memoryUsage;
     if (heartbeat.storageUsage !== undefined) device.storageUsage = heartbeat.storageUsage;
-    if (heartbeat.temperatureCelsius !== undefined) device.temperatureCelsius = heartbeat.temperatureCelsius;
+    if (heartbeat.temperatureCelsius !== undefined)
+      device.temperatureCelsius = heartbeat.temperatureCelsius;
     if (heartbeat.uptimeSeconds !== undefined) device.uptimeSeconds = heartbeat.uptimeSeconds;
     if (heartbeat.firmwareVersion) {
       device.firmwareVersion = heartbeat.firmwareVersion;
 
       // Check if firmware update target has been reached
       if (device.targetFirmwareVersion) {
-        const normalize = (v: string) => v.replace(/^agent-v/, '');
+        const normalize = (v: string): string => v.replace(/^agent-v/, '');
         if (normalize(heartbeat.firmwareVersion) === normalize(device.targetFirmwareVersion)) {
           device.firmwareUpdatedAt = new Date();
           device.targetFirmwareVersion = undefined;
@@ -667,10 +683,11 @@ export class EdgeDeviceService implements OnModuleDestroy {
       device.lifecycleState = DeviceLifecycleState.MAINTENANCE;
     } else if (status === 'offline' && device.lifecycleState === DeviceLifecycleState.ACTIVE) {
       device.lifecycleState = DeviceLifecycleState.OFFLINE;
-    } else if (heartbeat.isOnline && (
-      device.lifecycleState === DeviceLifecycleState.OFFLINE ||
-      device.lifecycleState === DeviceLifecycleState.PROVISIONING
-    )) {
+    } else if (
+      heartbeat.isOnline &&
+      (device.lifecycleState === DeviceLifecycleState.OFFLINE ||
+        device.lifecycleState === DeviceLifecycleState.PROVISIONING)
+    ) {
       // Transition to ACTIVE when device comes online from OFFLINE or PROVISIONING state
       device.lifecycleState = DeviceLifecycleState.ACTIVE;
     } else if (!heartbeat.isOnline && device.lifecycleState === DeviceLifecycleState.ACTIVE) {
@@ -690,11 +707,18 @@ export class EdgeDeviceService implements OnModuleDestroy {
           updated_at = NOW()
         WHERE id = $1`,
         [
-          device.id, device.lastSeenAt, device.isOnline, device.lifecycleState,
-          device.cpuUsage ?? null, device.memoryUsage ?? null,
-          device.storageUsage ?? null, device.temperatureCelsius ?? null,
-          device.uptimeSeconds ?? null, device.firmwareVersion ?? null,
-          device.ipAddress ?? null, device.connectionQuality,
+          device.id,
+          device.lastSeenAt,
+          device.isOnline,
+          device.lifecycleState,
+          device.cpuUsage ?? null,
+          device.memoryUsage ?? null,
+          device.storageUsage ?? null,
+          device.temperatureCelsius ?? null,
+          device.uptimeSeconds ?? null,
+          device.firmwareVersion ?? null,
+          device.ipAddress ?? null,
+          device.connectionQuality,
         ],
       );
       return device;
@@ -724,7 +748,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
         `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%'`,
       );
     } catch (err) {
-      this.logger.error(`Failed to fetch tenant schemas for stale-device check: ${(err as Error).message}`);
+      this.logger.error(
+        `Failed to fetch tenant schemas for stale-device check: ${(err as Error).message}`,
+      );
       return 0;
     }
 
@@ -734,7 +760,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
         await qr.connect();
         await qr.query(`SET search_path TO "${schema_name}", sensor, public`);
 
-        const result = await qr.query(
+        const result: unknown = await qr.query(
           `UPDATE edge_devices
            SET is_online = false,
                lifecycle_state = $1
@@ -749,7 +775,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           ],
         );
 
-        const affected = result?.rowCount ?? result?.affected ?? 0;
+        const affected = EdgeDeviceService.queryAffectedRows(result);
         if (affected > 0) {
           this.logger.log(`Marked ${affected} devices as offline in ${schema_name}`);
           totalAffected += affected;
@@ -759,7 +785,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           `Failed stale-device check for ${schema_name}: ${(err as Error).message}`,
         );
       } finally {
-        await qr.query('RESET search_path').catch(() => {});
+        await qr.query('RESET search_path').catch(() => undefined);
         await qr.release();
       }
     }
@@ -852,9 +878,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       where: { deviceId, tagName: input.tagName },
     });
     if (existing) {
-      throw new ConflictException(
-        `I/O tag '${input.tagName}' already exists on this device`,
-      );
+      throw new ConflictException(`I/O tag '${input.tagName}' already exists on this device`);
     }
 
     const ioConfig = this.ioConfigRepository.create({
@@ -907,11 +931,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
   /**
    * Remove I/O configuration
    */
-  async removeIoConfig(
-    id: string,
-    deviceId: string,
-    tenantId: string,
-  ): Promise<boolean> {
+  async removeIoConfig(id: string, deviceId: string, tenantId: string): Promise<boolean> {
     // Verify device exists
     await this.findByIdOrFail(deviceId, tenantId);
 
@@ -922,10 +942,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
   /**
    * Get I/O config by tag name
    */
-  async getIoConfigByTag(
-    deviceId: string,
-    tagName: string,
-  ): Promise<DeviceIoConfig | null> {
+  async getIoConfigByTag(deviceId: string, tagName: string): Promise<DeviceIoConfig | null> {
     return await this.ioConfigRepository.findOne({
       where: { deviceId, tagName },
     });
@@ -952,12 +969,20 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     // Build install URL/command — use token if available (not yet activated)
     const token = device.provisioningToken || undefined;
-    const installUrl = await this.installerScriptService.buildInstallerUrl(device.deviceCode, token);
-    const installCommand = await this.installerScriptService.buildInstallerCommand(device.deviceCode, token);
+    const installUrl = await this.installerScriptService.buildInstallerUrl(
+      device.deviceCode,
+      token,
+    );
+    const installCommand = await this.installerScriptService.buildInstallerCommand(
+      device.deviceCode,
+      token,
+    );
 
     // Build uninstall URL/command — always available
     const uninstallUrl = await this.installerScriptService.buildUninstallUrl(device.deviceCode);
-    const uninstallCommand = await this.installerScriptService.buildUninstallCommand(device.deviceCode);
+    const uninstallCommand = await this.installerScriptService.buildUninstallCommand(
+      device.deviceCode,
+    );
 
     // Build update URL/command — always available
     const updateUrl = await this.installerScriptService.buildUpdateUrl(device.deviceCode);
@@ -1007,6 +1032,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
       this.pendingPings.set(commandId, {
         commandId,
+        deviceId: device.id,
         deviceCode: device.deviceCode,
         startTime,
         resolve,
@@ -1053,6 +1079,13 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return;
     }
 
+    if (deviceCode !== pending.deviceCode && deviceCode !== pending.deviceId) {
+      this.logger.debug(
+        `Ignoring ping response for ${deviceCode}; pending command ${commandId} belongs to ${pending.deviceCode}`,
+      );
+      return;
+    }
+
     // Clear timeout and remove from pending
     clearTimeout(pending.timeout);
     this.pendingPings.delete(commandId);
@@ -1063,7 +1096,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     pending.resolve({
       success: true,
       latencyMs,
-      deviceCode,
+      deviceCode: pending.deviceCode,
       timestamp: new Date(),
     });
   }
@@ -1082,7 +1115,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     try {
       // Sanitize reason to prevent log injection
-      const safeReason = (reason || 'User requested reboot').replace(/[^a-zA-Z0-9 ._\-]/g, '').substring(0, 200);
+      const safeReason = (reason || 'User requested reboot')
+        .replace(/[^a-zA-Z0-9 ._-]/g, '')
+        .substring(0, 200);
       // Publish using tenant-scoped topic for proper ACL enforcement
       await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
         commandId: randomUUID(),
@@ -1094,7 +1129,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
       this.logger.log(`Reboot command sent to ${device.deviceCode}`);
       return true;
     } catch (error) {
-      this.logger.error(`Failed to send reboot to ${device.deviceCode}: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to send reboot to ${device.deviceCode}: ${(error as Error).message}`,
+      );
       throw new BadRequestException(`Failed to send reboot command: ${(error as Error).message}`);
     }
   }
@@ -1122,11 +1159,16 @@ export class EdgeDeviceService implements OnModuleDestroy {
    */
   private static mapModbusFunctionToRegisterType(fc: number | undefined): AgentRegisterType {
     switch (fc) {
-      case 1:  return 'coil';
-      case 2:  return 'discrete_input';
-      case 3:  return 'holding';
-      case 4:  return 'input';
-      default: return 'holding'; // safe default — FC3 is the most widely used
+      case 1:
+        return 'coil';
+      case 2:
+        return 'discrete_input';
+      case 3:
+        return 'holding';
+      case 4:
+        return 'input';
+      default:
+        return 'holding'; // safe default — FC3 is the most widely used
     }
   }
 
@@ -1145,10 +1187,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    */
   private static computeLinearScale(cfg: DeviceIoConfig): number {
     const { engMax, engMin, rawMax, rawMin } = cfg;
-    if (
-      engMax == null || engMin == null ||
-      rawMax == null || rawMin == null
-    ) {
+    if (engMax == null || engMin == null || rawMax == null || rawMin == null) {
       return 1.0;
     }
     const rawSpan = Number(rawMax) - Number(rawMin);
@@ -1169,12 +1208,17 @@ export class EdgeDeviceService implements OnModuleDestroy {
    */
   private static mapIoTypeToGpioDirection(ioType: IoType): 'input' | 'output' {
     switch (ioType) {
-      case IoType.DI: return 'input';
-      case IoType.DO: return 'output';
+      case IoType.DI:
+        return 'input';
+      case IoType.DO:
+        return 'output';
       // AI/AO should be Modbus, not GPIO — defensive fallback to read-only
-      case IoType.AI: return 'input';
-      case IoType.AO: return 'output';
-      default:        return 'input';
+      case IoType.AI:
+        return 'input';
+      case IoType.AO:
+        return 'output';
+      default:
+        return 'input';
     }
   }
 
@@ -1186,9 +1230,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * 2. Well-known Atlas Scientific EZO addresses (0x61–0x66)
    * 3. Fallback: generic_direct (raw byte read)
    */
-  private inferI2cDriverType(
-    cfg: DeviceIoConfig,
-  ): Record<string, unknown> {
+  private inferI2cDriverType(cfg: DeviceIoConfig): Record<string, unknown> {
     // If explicitly set via driverType column
     if (cfg.driverType) {
       if (cfg.driverType.startsWith('atlas_ezo_')) {
@@ -1219,127 +1261,152 @@ export class EdgeDeviceService implements OnModuleDestroy {
     return { generic_direct: { read_length: 4 } };
   }
 
+  private inferFlatI2cDriver(cfg: DeviceIoConfig): {
+    driverType: string;
+    sensorType: string | null;
+  } {
+    if (cfg.driverType?.startsWith('atlas_ezo_')) {
+      return {
+        driverType: 'atlas_ezo',
+        sensorType: cfg.driverType.replace('atlas_ezo_', ''),
+      };
+    }
+
+    if (cfg.driverType === 'generic_register') {
+      return { driverType: 'generic_register', sensorType: null };
+    }
+
+    if (cfg.driverType) {
+      return { driverType: cfg.driverType, sensorType: null };
+    }
+
+    const atlasAddressMap: Record<number, string> = {
+      0x61: 'do',
+      0x62: 'orp',
+      0x63: 'ph',
+      0x64: 'ec',
+      0x66: 'temp',
+    };
+    const sensorType = cfg.i2cAddress == null ? undefined : atlasAddressMap[cfg.i2cAddress];
+    return sensorType
+      ? { driverType: 'atlas_ezo', sensorType }
+      : { driverType: 'generic_direct', sensorType: null };
+  }
+
+  private static nullableNumber(value: number | string | null | undefined): number | null {
+    if (value == null) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private static baseAgentTag(
+    cfg: DeviceIoConfig,
+    protocol: AgentIoTagConfig['protocol'],
+  ): Omit<
+    AgentIoTagConfig,
+    | 'pin'
+    | 'slaveId'
+    | 'register'
+    | 'function'
+    | 'registerType'
+    | 'bus'
+    | 'address'
+    | 'driverType'
+    | 'sensorType'
+  > {
+    return {
+      tagName: cfg.tagName,
+      protocol,
+      ioType: cfg.ioType,
+      dataType: cfg.dataType.toLowerCase(),
+      rawMin: EdgeDeviceService.nullableNumber(cfg.rawMin),
+      rawMax: EdgeDeviceService.nullableNumber(cfg.rawMax),
+      engMin: EdgeDeviceService.nullableNumber(cfg.engMin),
+      engMax: EdgeDeviceService.nullableNumber(cfg.engMax),
+      engUnit: cfg.engUnit ?? null,
+      invert: cfg.invertValue ?? false,
+      alarmHH: EdgeDeviceService.nullableNumber(cfg.alarmHH),
+      alarmH: EdgeDeviceService.nullableNumber(cfg.alarmH),
+      alarmL: EdgeDeviceService.nullableNumber(cfg.alarmL),
+      alarmLL: EdgeDeviceService.nullableNumber(cfg.alarmLL),
+      deadband: EdgeDeviceService.nullableNumber(cfg.deadband),
+    };
+  }
+
+  private static supportedProtocolMarkers(cfg: DeviceIoConfig): AgentIoTagConfig['protocol'][] {
+    const protocols: AgentIoTagConfig['protocol'][] = [];
+    if (cfg.gpioPin != null) protocols.push('gpio');
+    if (cfg.modbusRegister != null) protocols.push('modbus');
+    if (cfg.busType === 'i2c' && cfg.i2cAddress != null) protocols.push('i2c');
+    return protocols;
+  }
+
   /**
-   * Transform DeviceIoConfig rows into the agent's expected wire format.
+   * Transform DeviceIoConfig rows into the agent's schemaVersion-2 flat
+   * tag wire format (tools/gates/fixtures/agent-io-config-v2.golden.json
+   * is the wire SSoT).
    *
-   * The output structure mirrors the Rust agent's config.rs types:
-   *   - modbus[] → Vec<ModbusDeviceConfig>  (grouped by slave ID)
-   *   - gpio[]   → Vec<GpioConfig>
-   *
-   * Each Modbus slave becomes a separate ModbusDeviceConfig because the
-   * agent opens one TCP connection per slave device.  All registers that
-   * share the same slave ID are batched under a single connection.
+   * v2 carries per-tag protocol fields (slaveId/register/function for
+   * modbus, pin for gpio, bus/address for i2c). The v1 device-level
+   * ModbusDeviceConfig blocks — and with them the cloud-supplied Modbus
+   * TCP target IP — were retired: the agent resolves its own Modbus
+   * connection target from local provisioning, so the cloud no longer
+   * ships an IP it can only know stale (last heartbeat).
    *
    * @param ioConfigs  Active I/O config rows from the database
-   * @param deviceIpAddress  The edge device's last-known IP (from heartbeat).
-   *                         Used as the Modbus TCP target; falls back to
-   *                         localhost for development/simulation.
    */
-  transformIoConfigsToAgentFormat(
-    ioConfigs: DeviceIoConfig[],
-    deviceIpAddress?: string,
-  ): AgentIoConfig {
-    // Partition configs by protocol: GPIO uses gpioPin, Modbus uses modbusRegister.
-    // Configs with neither field set are skipped (incomplete configuration).
-    const gpioConfigs: DeviceIoConfig[] = [];
-    const modbusConfigs: DeviceIoConfig[] = [];
+  transformIoConfigsToAgentFormat(ioConfigs: DeviceIoConfig[]): AgentIoConfig {
+    const tags: AgentIoTagConfig[] = [];
+    const validationErrors: string[] = [];
 
     for (const cfg of ioConfigs) {
-      if (cfg.gpioPin != null) {
-        gpioConfigs.push(cfg);
-      } else if (cfg.modbusRegister != null) {
-        modbusConfigs.push(cfg);
-      } else if (cfg.busType === 'i2c' && cfg.i2cAddress != null) {
-        // I2C configs handled below
-      } else if (cfg.busType === 'spi' || cfg.busType === 'uart') {
-        // SPI/UART not yet supported — logged below
+      const protocols = EdgeDeviceService.supportedProtocolMarkers(cfg);
+      if (protocols.length === 0) {
+        validationErrors.push(`${cfg.tagName}: no supported protocol address configured`);
+        continue;
+      }
+      if (protocols.length > 1) {
+        validationErrors.push(`${cfg.tagName}: multiple protocol addresses configured`);
+        continue;
+      }
+
+      const protocol = protocols[0];
+      if (protocol === 'gpio') {
+        const gpioCfg = cfg as DeviceIoConfigWithGpioPin;
+        tags.push({
+          ...EdgeDeviceService.baseAgentTag(gpioCfg, 'gpio'),
+          pin: gpioCfg.gpioPin,
+        });
+      } else if (protocol === 'modbus') {
+        const modbusCfg = cfg as DeviceIoConfigWithModbusRegister;
+        const modbusFunction = modbusCfg.modbusFunction ?? 3;
+        tags.push({
+          ...EdgeDeviceService.baseAgentTag(modbusCfg, 'modbus'),
+          slaveId: modbusCfg.modbusSlaveId ?? 1,
+          register: modbusCfg.modbusRegister,
+          function: modbusFunction,
+          registerType: EdgeDeviceService.mapModbusFunctionToRegisterType(modbusFunction),
+        });
       } else {
-        this.logger.warn(
-          `I/O tag "${cfg.tagName}" has neither gpioPin nor modbusRegister — skipping`,
-        );
+        const i2cCfg = cfg as DeviceIoConfigWithI2cAddress;
+        const driver = this.inferFlatI2cDriver(i2cCfg);
+        tags.push({
+          ...EdgeDeviceService.baseAgentTag(i2cCfg, 'i2c'),
+          bus: i2cCfg.i2cBus ?? 1,
+          address: i2cCfg.i2cAddress,
+          driverType: driver.driverType,
+          sensorType: driver.sensorType,
+        });
       }
     }
 
-    // I2C partition
-    const i2cConfigs = ioConfigs.filter(
-      (cfg) => cfg.busType === 'i2c' && cfg.i2cAddress != null,
-    );
-
-    // SPI/UART warning
-    const unsupported = ioConfigs.filter(
-      (cfg) => cfg.busType === 'spi' || cfg.busType === 'uart',
-    );
-    if (unsupported.length > 0) {
-      this.logger.warn(
-        `${unsupported.length} SPI/UART configs skipped (not yet supported)`,
+    if (validationErrors.length > 0) {
+      throw new BadRequestException(
+        `I/O config semantic validation failed: ${validationErrors.join('; ')}`,
       );
     }
 
-    // Group Modbus configs by slave ID.  Each group becomes one TCP
-    // connection on the agent side (ModbusDeviceConfig).
-    const modbusGrouped = new Map<number, DeviceIoConfig[]>();
-    for (const cfg of modbusConfigs) {
-      const slaveId = cfg.modbusSlaveId ?? 1;
-      const group = modbusGrouped.get(slaveId);
-      if (group) {
-        group.push(cfg);
-      } else {
-        modbusGrouped.set(slaveId, [cfg]);
-      }
-    }
-
-    // Build ModbusDeviceConfig array
-    const modbus: AgentModbusDeviceConfig[] = Array.from(
-      modbusGrouped.entries(),
-    ).map(([slaveId, configs]) => ({
-      name: `slave_${slaveId}`,
-      connection_type: 'tcp' as const,
-      // Standard Modbus TCP port 502.  In production the device IP comes
-      // from the last heartbeat; localhost fallback is for dev/simulation.
-      address: deviceIpAddress ? `${deviceIpAddress}:502` : '127.0.0.1:502',
-      slave_id: slaveId,
-      registers: configs.map((cfg): AgentModbusRegisterConfig => ({
-        name: cfg.tagName,
-        address: cfg.modbusRegister!,
-        register_type: EdgeDeviceService.mapModbusFunctionToRegisterType(cfg.modbusFunction),
-        data_type: cfg.dataType.toLowerCase(),
-        scale: EdgeDeviceService.computeLinearScale(cfg),
-        unit: cfg.engUnit ?? '',
-      })),
-    }));
-
-    // Build GpioConfig array
-    const gpio: AgentGpioConfig[] = gpioConfigs.map((cfg): AgentGpioConfig => ({
-      name: cfg.tagName,
-      pin: cfg.gpioPin!,
-      direction: EdgeDeviceService.mapIoTypeToGpioDirection(cfg.ioType),
-      invert: cfg.invertValue ?? false,
-    }));
-
-    // Build I2C device config array
-    const i2c: AgentI2cDeviceConfig[] = i2cConfigs.map((cfg) => ({
-      name: cfg.tagName,
-      bus: cfg.i2cBus ?? 1,
-      address: cfg.i2cAddress!,
-      driver_type: this.inferI2cDriverType(cfg),
-      io_type: cfg.ioType,
-      data_type: cfg.dataType.toLowerCase(),
-      raw_min: cfg.rawMin ? Number(cfg.rawMin) : null,
-      raw_max: cfg.rawMax ? Number(cfg.rawMax) : null,
-      eng_min: cfg.engMin ? Number(cfg.engMin) : null,
-      eng_max: cfg.engMax ? Number(cfg.engMax) : null,
-      eng_unit: cfg.engUnit ?? null,
-      alarm_hh: cfg.alarmHH ? Number(cfg.alarmHH) : null,
-      alarm_h: cfg.alarmH ? Number(cfg.alarmH) : null,
-      alarm_l: cfg.alarmL ? Number(cfg.alarmL) : null,
-      alarm_ll: cfg.alarmLL ? Number(cfg.alarmLL) : null,
-      deadband: cfg.deadband ? Number(cfg.deadband) : null,
-    }));
-
-    // Build LoRaWAN config if available
-    // Not included in transformIoConfigsToAgentFormat since LoRa devices
-    // are in a separate table — use buildLoRaWanConfig() and merge externally.
-    return { modbus, gpio, i2c };
+    return { schemaVersion: 2, tags };
   }
 
   /**
@@ -1373,31 +1440,24 @@ export class EdgeDeviceService implements OnModuleDestroy {
       where: { deviceId, isActive: true },
     });
 
-    const agentConfig = this.transformIoConfigsToAgentFormat(
-      ioConfigs,
-      device.ipAddress ?? undefined,
-    );
-
-    // LoRaWAN config'i ayrı tablodan al ve merge et
-    const loraConfig = await this.buildLoRaWanConfig(deviceId);
-    if (loraConfig) {
-      agentConfig.lorawan = loraConfig;
-    }
-
-    const commandId = randomUUID();
-
     try {
+      const agentConfig = this.transformIoConfigsToAgentFormat(ioConfigs);
+
+      // LoRaWAN config'i ayrı tablodan al ve merge et
+      const loraConfig = await this.buildLoRaWanConfig(deviceId);
+      if (loraConfig) {
+        agentConfig.lorawan = loraConfig;
+      }
+
+      const commandId = randomUUID();
       // Publish to the tenant-scoped command topic.
       // Uses device.id (UUID) — the edge agent resolves topics via device_id.
-      await mqtt.publish(
-        `tenants/${device.tenantId}/devices/${device.id}/commands`,
-        {
-          commandId,
-          command: 'update_io_config',
-          params: agentConfig,
-          timestamp: new Date(),
-        },
-      );
+      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
+        commandId,
+        command: 'update_io_config',
+        params: agentConfig,
+        timestamp: new Date(),
+      });
 
       // LoRa config push (ayrı komut) — agent LoRa cihaz listesini bağımsız olarak günceller
       if (agentConfig.lorawan && agentConfig.lorawan.devices.length > 0) {
@@ -1407,17 +1467,21 @@ export class EdgeDeviceService implements OnModuleDestroy {
           params: { devices: agentConfig.lorawan.devices },
           timestamp: new Date(),
         };
-        await mqtt.publish(
-          `tenants/${device.tenantId}/devices/${device.id}/commands`,
-          loraCommand,
-        );
+        await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, loraCommand);
       }
 
       const loraCount = loraConfig?.devices.length ?? 0;
+      const countByProtocol = agentConfig.tags.reduce(
+        (counts, tag) => {
+          counts[tag.protocol] += 1;
+          return counts;
+        },
+        { gpio: 0, modbus: 0, i2c: 0 },
+      );
       this.logger.log(
         `Pushed I/O config to ${device.deviceCode}: ${ioConfigs.length} tags ` +
-        `(${agentConfig.modbus.length} modbus devices, ${agentConfig.gpio.length} gpio pins, ` +
-        `${agentConfig.i2c.length} i2c devices, ${loraCount} lora devices)`,
+          `(${countByProtocol.modbus} modbus tags, ${countByProtocol.gpio} gpio tags, ` +
+          `${countByProtocol.i2c} i2c tags, ${loraCount} lora devices)`,
       );
 
       return { success: true };
@@ -1446,10 +1510,16 @@ export class EdgeDeviceService implements OnModuleDestroy {
     }
 
     // Reject sensitive/dangerous config keys
-    const BLOCKED_KEYS = ['mqtt_credentials', 'mqtt_password', 'firmware_update_url', 'api_key', 'secret'];
+    const BLOCKED_KEYS = [
+      'mqtt_credentials',
+      'mqtt_password',
+      'firmware_update_url',
+      'api_key',
+      'secret',
+    ];
     const configKeys = Object.keys(config);
     for (const key of configKeys) {
-      if (BLOCKED_KEYS.some(blocked => key.toLowerCase().includes(blocked))) {
+      if (BLOCKED_KEYS.some((blocked) => key.toLowerCase().includes(blocked))) {
         throw new BadRequestException(`Config key "${key}" is not allowed via this endpoint`);
       }
     }
@@ -1466,7 +1536,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
       this.logger.log(`Config update sent to ${device.deviceCode}`);
       return true;
     } catch (error) {
-      this.logger.error(`Failed to send config to ${device.deviceCode}: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to send config to ${device.deviceCode}: ${(error as Error).message}`,
+      );
       throw new BadRequestException(`Failed to send config: ${(error as Error).message}`);
     }
   }
@@ -1543,28 +1615,25 @@ export class EdgeDeviceService implements OnModuleDestroy {
       // 6. Edge agent'a set_output komutu gönder
       // Topic: tenants/{tenantId}/devices/{device.id}/commands
       // Agent bu komutu alıp GPIO/Modbus üzerinden fiziksel çıkışı değiştirir
-      await mqtt.publish(
-        `tenants/${device.tenantId}/devices/${device.id}/commands`,
-        {
-          commandId,
-          command: 'set_output',
-          params: {
-            tag_name: ioConfig.tagName,
-            value,
-            // Agent'ın hangi pini/register'ı kullanacağını bilmesi için
-            gpio_pin: ioConfig.gpioPin,
-            modbus_register: ioConfig.modbusRegister,
-            modbus_slave_id: ioConfig.modbusSlaveId,
-            io_type: ioConfig.ioType,
-            // invertValue: I/O config'de ters çevrilme ayarı varsa agent bunu uygular
-            // Ör: NO (Normally Open) röle durumlarında fiziksel çıkışı ters çevirmek gerekir
-            invert_value: ioConfig.invertValue ?? false,
-          },
-          timestamp: new Date(),
-          // Audit trail — hangi kullanıcı bu komutu tetikledi
-          ...(userId ? { triggeredBy: userId } : {}),
+      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
+        commandId,
+        command: 'set_output',
+        params: {
+          tag_name: ioConfig.tagName,
+          value,
+          // Agent'ın hangi pini/register'ı kullanacağını bilmesi için
+          gpio_pin: ioConfig.gpioPin,
+          modbus_register: ioConfig.modbusRegister,
+          modbus_slave_id: ioConfig.modbusSlaveId,
+          io_type: ioConfig.ioType,
+          // invertValue: I/O config'de ters çevrilme ayarı varsa agent bunu uygular
+          // Ör: NO (Normally Open) röle durumlarında fiziksel çıkışı ters çevirmek gerekir
+          invert_value: ioConfig.invertValue ?? false,
         },
-      );
+        timestamp: new Date(),
+        // Audit trail — hangi kullanıcı bu komutu tetikledi
+        ...(userId ? { triggeredBy: userId } : {}),
+      });
 
       this.logger.log(
         `DO command sent: ${ioConfig.tagName} = ${value} on ${device.deviceCode} (command: ${commandId}, user: ${userId || 'system'})`,
@@ -1600,10 +1669,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * - RPi: BCM GPIO 2-27
    * - Generic: /sys/class/gpio/gpiochip*
    */
-  async scanHardware(
-    deviceId: string,
-    tenantId: string,
-  ): Promise<HardwareScanResult> {
+  async scanHardware(deviceId: string, tenantId: string): Promise<HardwareScanResult> {
     const device = await this.findByIdOrFail(deviceId, tenantId);
 
     // Only scan active/maintenance devices
@@ -1669,14 +1735,11 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     // Send scan_hardware command via tenant-scoped topic
     try {
-      await mqtt.publish(
-        `tenants/${device.tenantId}/devices/${device.id}/commands`,
-        {
-          commandId,
-          command: 'scan_hardware',
-          timestamp: new Date(),
-        },
-      );
+      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
+        commandId,
+        command: 'scan_hardware',
+        timestamp: new Date(),
+      });
       this.logger.log(`scan_hardware command sent to ${device.deviceCode} (${commandId})`);
     } catch (error) {
       const pending = this.pendingScans.get(commandId);
@@ -1700,10 +1763,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * Handle scan_hardware response from edge agent.
    * Called by MqttListenerService when command='scan_hardware' response arrives.
    */
-  handleScanHardwareResponse(
-    deviceCode: string,
-    payload: Record<string, unknown>,
-  ): void {
+  handleScanHardwareResponse(deviceCode: string, payload: Record<string, unknown>): void {
     const commandId = payload['commandId'] as string;
     if (!commandId) {
       this.logger.warn(`Scan response without commandId from ${deviceCode}`);
@@ -1786,10 +1846,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
     }));
 
     // Map UART port info
-    const uartPorts = ((result['uart_ports'] as Array<Record<string, unknown>>) ?? []).map((uart) => ({
-      devicePath: (uart['device_path'] as string) ?? '',
-      portType: (uart['port_type'] as string) ?? 'unknown',
-    }));
+    const uartPorts = ((result['uart_ports'] as Array<Record<string, unknown>>) ?? []).map(
+      (uart) => ({
+        devicePath: (uart['device_path'] as string) ?? '',
+        portType: (uart['port_type'] as string) ?? 'unknown',
+      }),
+    );
 
     pending.resolve({
       success: true,
@@ -1812,7 +1874,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
     deviceId: string,
     tenantId: string,
     inputs: AddIoConfigInput[],
-  ): Promise<{ created: DeviceIoConfig[]; skipped: string[]; createdCount: number; skippedCount: number }> {
+  ): Promise<{
+    created: DeviceIoConfig[];
+    skipped: string[];
+    createdCount: number;
+    skippedCount: number;
+  }> {
     const device = await this.findByIdOrFail(deviceId, tenantId);
 
     // Load existing tags for duplicate detection
@@ -1927,22 +1994,24 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     return {
       enabled: true,
-      devices: loraDevices.map((dev): AgentLoRaDeviceConfig => ({
-        dev_eui: dev.devEui,
-        // Rust String bekler, null olmaz — varsayılan sıfır EUI kullan
-        app_eui: dev.appEui ?? '0000000000000000',
-        app_key: dev.appKey,
-        dev_addr: dev.devAddr ?? null,
-        // Rust serde küçük harf bekler: "otaa" | "abp"
-        activation: dev.activationMode.toLowerCase(),
-        // Rust serde küçük harf bekler: "a" | "b" | "c"
-        device_class: dev.deviceClass.toLowerCase(),
-        name: dev.name,
-        tag_prefix: dev.tagPrefix,
-        codec: dev.codec,
-        adr_enabled: dev.adrEnabled,
-        f_port: dev.fPort,
-      })),
+      devices: loraDevices.map(
+        (dev): AgentLoRaDeviceConfig => ({
+          dev_eui: dev.devEui,
+          // Rust String bekler, null olmaz — varsayılan sıfır EUI kullan
+          app_eui: dev.appEui ?? '0000000000000000',
+          app_key: dev.appKey,
+          dev_addr: dev.devAddr ?? null,
+          // Rust serde küçük harf bekler: "otaa" | "abp"
+          activation: dev.activationMode.toLowerCase(),
+          // Rust serde küçük harf bekler: "a" | "b" | "c"
+          device_class: dev.deviceClass.toLowerCase(),
+          name: dev.name,
+          tag_prefix: dev.tagPrefix,
+          codec: dev.codec,
+          adr_enabled: dev.adrEnabled,
+          f_port: dev.fPort,
+        }),
+      ),
     };
   }
 
@@ -1988,9 +2057,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       where: { devEui: input.devEui.toUpperCase() },
     });
     if (existing) {
-      throw new ConflictException(
-        `LoRa device with DevEUI '${input.devEui}' already exists`,
-      );
+      throw new ConflictException(`LoRa device with DevEUI '${input.devEui}' already exists`);
     }
 
     const device = this.loraDeviceRepository.create({
@@ -2075,18 +2142,13 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const devices = loraConfig?.devices ?? [];
 
     try {
-      await mqtt.publish(
-        `tenants/${edgeDevice.tenantId}/devices/${edgeDevice.id}/commands`,
-        {
-          commandId: randomUUID(),
-          command: 'update_lora_devices',
-          params: { devices },
-          timestamp: new Date(),
-        },
-      );
-      this.logger.log(
-        `Pushed LoRa config to ${edgeDevice.deviceCode}: ${devices.length} devices`,
-      );
+      await mqtt.publish(`tenants/${edgeDevice.tenantId}/devices/${edgeDevice.id}/commands`, {
+        commandId: randomUUID(),
+        command: 'update_lora_devices',
+        params: { devices },
+        timestamp: new Date(),
+      });
+      this.logger.log(`Pushed LoRa config to ${edgeDevice.deviceCode}: ${devices.length} devices`);
     } catch (error) {
       this.logger.error(
         `Failed to push LoRa config to ${edgeDevice.deviceCode}: ${(error as Error).message}`,
@@ -2128,8 +2190,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
     if (!loraDevice.devAddr) {
       return {
         success: false,
-        error: `LoRa device '${loraDevice.name}' has not joined the network yet (devAddr is null). ` +
-               `Wait for join_accept before sending downlink.`,
+        error:
+          `LoRa device '${loraDevice.name}' has not joined the network yet (devAddr is null). ` +
+          `Wait for join_accept before sending downlink.`,
       };
     }
 
@@ -2155,24 +2218,21 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const commandId = randomUUID();
 
     try {
-      await mqtt.publish(
-        `tenants/${edgeDevice.tenantId}/devices/${edgeDevice.id}/commands`,
-        {
-          commandId,
-          command: 'lora_downlink',
-          params: {
-            dev_addr: loraDevice.devAddr,  // dev_eui DEĞİL — LoRa downlink devAddr üzerinden çalışır
-            payload,                        // hex string olarak (frontend'ten gelen hex doğrudan iletilir)
-            f_port: fPort,
-            confirmed,
-          },
-          timestamp: new Date(),
+      await mqtt.publish(`tenants/${edgeDevice.tenantId}/devices/${edgeDevice.id}/commands`, {
+        commandId,
+        command: 'lora_downlink',
+        params: {
+          dev_addr: loraDevice.devAddr, // dev_eui DEĞİL — LoRa downlink devAddr üzerinden çalışır
+          payload, // hex string olarak (frontend'ten gelen hex doğrudan iletilir)
+          f_port: fPort,
+          confirmed,
         },
-      );
+        timestamp: new Date(),
+      });
 
       this.logger.log(
         `LoRa downlink sent to ${loraDevice.name} (DevAddr: ${loraDevice.devAddr}) ` +
-        `via ${edgeDevice.deviceCode} (fPort: ${fPort}, confirmed: ${confirmed})`,
+          `via ${edgeDevice.deviceCode} (fPort: ${fPort}, confirmed: ${confirmed})`,
       );
       return { success: true };
     } catch (error) {
@@ -2185,106 +2245,42 @@ export class EdgeDeviceService implements OnModuleDestroy {
   // ==================== Firmware Update Methods ====================
 
   /**
-   * Fetch available firmware versions from GitHub releases.
-   * Results are cached for 5 minutes to avoid rate limiting.
+   * Firmware versions are sourced from the signed Edge release registry.
+   * Until that registry is wired into this service, production must not infer
+   * consumable versions from live GitHub release state.
    */
-  async getAvailableFirmwareVersions(): Promise<FirmwareVersionInfo[]> {
-    // Return cached data if still valid
-    if (
-      this.firmwareVersionsCache &&
-      Date.now() - this.firmwareVersionsCache.fetchedAt < this.FIRMWARE_CACHE_TTL_MS
-    ) {
-      return this.firmwareVersionsCache.data;
-    }
-
-    const repo = this.configService.get<string>('GITHUB_REPO', '');
-    if (!repo) {
-      this.logger.warn('GITHUB_REPO not configured — firmware version list unavailable');
-      return [];
-    }
-    const url = `https://api.github.com/repos/${repo}/releases`;
-
-    try {
-      // Use Node.js https module for better compatibility across environments
-      const https = await import('https');
-      const githubToken = this.configService.get<string>('GITHUB_TOKEN');
-      const headers: Record<string, string> = {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'aquaculture-platform-sensor-service',
-      };
-      if (githubToken) {
-        headers['Authorization'] = `token ${githubToken}`;
-      }
-
-      const body = await new Promise<string>((resolve, reject) => {
-        const req = https.get(
-          url,
-          {
-            headers,
-          },
-          (res) => {
-            if (res.statusCode !== 200) {
-              reject(new Error(`GitHub API responded with ${res.statusCode}`));
-              res.resume();
-              return;
-            }
-            const chunks: Buffer[] = [];
-            res.on('data', (chunk) => chunks.push(chunk));
-            res.on('end', () => resolve(Buffer.concat(chunks).toString()));
-            res.on('error', reject);
-          },
-        );
-        req.on('error', reject);
-        req.setTimeout(15_000, () => {
-          req.destroy(new Error('GitHub API request timed out'));
-        });
-      });
-
-      const releases = JSON.parse(body) as Array<{
-        tag_name: string;
-        name: string;
-        published_at: string;
-        prerelease: boolean;
-      }>;
-
-      const filtered: FirmwareVersionInfo[] = releases
-        .filter((r) => r.tag_name.startsWith('agent-v'))
-        .map((r) => ({
-          tag: r.tag_name,
-          name: r.name || r.tag_name,
-          publishedAt: new Date(r.published_at),
-          prerelease: r.prerelease,
-        }));
-
-      this.firmwareVersionsCache = { data: filtered, fetchedAt: Date.now() };
-      return filtered;
-    } catch (error) {
-      this.logger.error(`Failed to fetch firmware versions from ${url}: ${(error as Error).message}`);
-      // Return stale cache if available
-      if (this.firmwareVersionsCache) {
-        return this.firmwareVersionsCache.data;
-      }
-      // Return empty array instead of throwing — avoids blocking UI when API is unreachable
-      return [];
-    }
+  getAvailableFirmwareVersions(): FirmwareVersionInfo[] {
+    this.logger.warn(
+      'Edge release registry is not connected to availableFirmwareVersions; returning no production-consumable firmware versions.',
+    );
+    return [];
   }
 
   /**
-   * Trigger firmware update on a single edge device.
-   * Sets targetFirmwareVersion and sends MQTT command.
+   * Legacy firmware update path. Production rollouts use the signed release
+   * registry and apply_signed_manifest command path, not live latest tarballs.
    */
   async updateDeviceFirmware(
     deviceId: string,
     tenantId: string,
     targetVersion?: string,
   ): Promise<EdgeDevice> {
-    // Validate targetVersion format — must be 'latest' or match 'agent-v*' tag pattern
-    if (targetVersion && targetVersion !== 'latest') {
-      if (!/^agent-v\d+\.\d+\.\d+/.test(targetVersion)) {
-        throw new BadRequestException(
-          `Invalid firmware version format: '${targetVersion}'. Expected 'agent-vX.Y.Z' or 'latest'.`,
-        );
-      }
+    if (!this.isLegacyOtaAllowed()) {
+      throw new BadRequestException(
+        'Legacy update_firmware is disabled. Use the signed Edge release registry and apply_signed_manifest rollout path.',
+      );
+    }
+
+    if (!targetVersion || targetVersion === 'latest') {
+      throw new BadRequestException(
+        'Firmware update requires an explicit agent-v<exact Cargo semver> target version.',
+      );
+    }
+
+    if (!/^agent-v\d+\.\d+\.\d+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$/.test(targetVersion)) {
+      throw new BadRequestException(
+        `Invalid firmware version format: '${targetVersion}'. Expected agent-v<exact Cargo semver>.`,
+      );
     }
 
     const device = await this.findByIdOrFail(deviceId, tenantId);
@@ -2294,31 +2290,25 @@ export class EdgeDeviceService implements OnModuleDestroy {
     }
 
     // Send MQTT command first — only persist targetFirmwareVersion if
-    // the command was successfully published.  This prevents the DB from
+    // the command was successfully published. This prevents the DB from
     // recording a pending update that was never actually sent.
     const mqtt = this.ensureMqttAvailable();
-    const repo = this.configService.get<string>('GITHUB_REPO', '');
-    const resolvedVersion = targetVersion || 'latest';
 
-    await mqtt.publish(
-      `tenants/${device.tenantId}/devices/${device.id}/commands`,
-      {
-        commandId: randomUUID(),
-        command: 'update_firmware',
-        params: {
-          target_version: resolvedVersion,
-          github_repo: repo,
-        },
-        timestamp: new Date(),
+    await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
+      commandId: randomUUID(),
+      command: 'update_firmware',
+      params: {
+        target_version: targetVersion,
       },
-    );
+      timestamp: new Date(),
+    });
 
     // Persist after successful MQTT publish
-    device.targetFirmwareVersion = resolvedVersion;
+    device.targetFirmwareVersion = targetVersion;
     const saved = await this.deviceRepository.save(device);
 
     this.logger.log(
-      `Firmware update command sent to ${device.deviceCode}: target=${resolvedVersion}`,
+      `Legacy firmware update command sent to ${device.deviceCode}: target=${targetVersion}`,
     );
 
     return saved;
@@ -2345,9 +2335,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       }
     }
 
-    this.logger.log(
-      `Bulk firmware update: ${success.length} succeeded, ${failed.length} failed`,
-    );
+    this.logger.log(`Bulk firmware update: ${success.length} succeeded, ${failed.length} failed`);
 
     return { success, failed };
   }
@@ -2398,33 +2386,83 @@ export class EdgeDeviceService implements OnModuleDestroy {
     return getTenantSchemaName(tenantId);
   }
 
-  private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
+  private rowString(row: RowValueMap, key: string): string | undefined {
+    const value = row[key];
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private rowNumber(row: RowValueMap, key: string): number | undefined {
+    const value = row[key];
+    return typeof value === 'number' ? value : undefined;
+  }
+
+  private rowBoolean(row: RowValueMap, key: string): boolean {
+    const value = row[key];
+    return typeof value === 'boolean' ? value : false;
+  }
+
+  private rowDate(row: RowValueMap, key: string): Date | undefined {
+    const value = row[key];
+    if (value instanceof Date) {
+      return value;
+    }
+    return typeof value === 'string' || typeof value === 'number' ? new Date(value) : undefined;
+  }
+
+  private rowObject(row: RowValueMap, key: string): Record<string, unknown> | undefined {
+    const value = row[key];
+    return EdgeDeviceService.isRecord(value) ? value : undefined;
+  }
+
+  private rowFingerprint(row: RowValueMap): EdgeDeviceFingerprint | null {
+    const value = this.rowObject(row, 'fingerprint');
+    if (!value) {
+      return null;
+    }
+    return {
+      cpuSerial: this.stringOrUndefined(value.cpuSerial),
+      macAddresses: Array.isArray(value.macAddresses)
+        ? value.macAddresses.filter((entry): entry is string => typeof entry === 'string')
+        : undefined,
+      machineId: this.stringOrUndefined(value.machineId),
+      hostname: this.stringOrUndefined(value.hostname),
+    };
+  }
+
+  private stringOrUndefined(value: unknown): string | undefined {
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private mapRowToEdgeDevice(row: RowValueMap): EdgeDevice {
     const device = new EdgeDevice();
-    device.id = row['id'];
-    device.tenantId = row['tenant_id'];
-    device.deviceCode = row['device_code'];
-    device.deviceName = row['device_name'];
-    device.deviceModel = row['device_model'];
-    device.serialNumber = row['serial_number'];
-    device.description = row['description'];
-    device.siteId = row['site_id'];
-    device.lifecycleState = row['lifecycle_state'];
-    device.mqttClientId = row['mqtt_client_id'];
-    device.mqttPasswordHash = row['mqtt_password_hash'];
-    device.isOnline = row['is_online'];
-    device.lastSeenAt = row['last_seen_at'] ? new Date(row['last_seen_at']) : undefined;
-    device.cpuUsage = row['cpu_usage'];
-    device.memoryUsage = row['memory_usage'];
-    device.storageUsage = row['storage_usage'];
-    device.temperatureCelsius = row['temperature_celsius'];
-    device.uptimeSeconds = row['uptime_seconds'];
-    device.firmwareVersion = row['firmware_version'];
-    device.targetFirmwareVersion = row['target_firmware_version'];
-    device.ipAddress = row['ip_address'];
-    device.connectionQuality = row['connection_quality'];
-    device.fingerprint = row['fingerprint'];
-    device.agentVersion = row['agent_version'];
-    device.config = row['config'];
+    device.id = this.rowString(row, 'id') ?? '';
+    device.tenantId = this.rowString(row, 'tenant_id') ?? '';
+    device.deviceCode = this.rowString(row, 'device_code') ?? '';
+    device.deviceName = this.rowString(row, 'device_name') ?? '';
+    device.deviceModel =
+      (this.rowString(row, 'device_model') as DeviceModel | undefined) ?? DeviceModel.CUSTOM;
+    device.serialNumber = this.rowString(row, 'serial_number');
+    device.description = this.rowString(row, 'description');
+    device.siteId = this.rowString(row, 'site_id');
+    device.lifecycleState =
+      (this.rowString(row, 'lifecycle_state') as DeviceLifecycleState | undefined) ??
+      DeviceLifecycleState.REGISTERED;
+    device.mqttClientId = this.rowString(row, 'mqtt_client_id');
+    device.mqttPasswordHash = this.rowString(row, 'mqtt_password_hash') ?? null;
+    device.isOnline = this.rowBoolean(row, 'is_online');
+    device.lastSeenAt = this.rowDate(row, 'last_seen_at');
+    device.cpuUsage = this.rowNumber(row, 'cpu_usage');
+    device.memoryUsage = this.rowNumber(row, 'memory_usage');
+    device.storageUsage = this.rowNumber(row, 'storage_usage');
+    device.temperatureCelsius = this.rowNumber(row, 'temperature_celsius');
+    device.uptimeSeconds = this.rowNumber(row, 'uptime_seconds');
+    device.firmwareVersion = this.rowString(row, 'firmware_version');
+    device.targetFirmwareVersion = this.rowString(row, 'target_firmware_version');
+    device.ipAddress = this.rowString(row, 'ip_address');
+    device.connectionQuality = this.rowNumber(row, 'connection_quality');
+    device.fingerprint = this.rowFingerprint(row);
+    device.agentVersion = this.rowString(row, 'agent_version') ?? null;
+    device.config = this.rowObject(row, 'config');
     return device;
   }
 }

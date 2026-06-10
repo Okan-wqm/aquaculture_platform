@@ -15,6 +15,18 @@
 .claude/knowledge/               @Okan-wqm
 .claude/skills/                  @Okan-wqm
 
+# ── ARIA autonomy control plane ───────────────────────────────────────
+# Kernel/runtime contracts, live ARIA docs, and Codex executor surfaces
+# are one authority chain. Changes must be reviewed together so docs,
+# workflows, runtime gates, and tests cannot drift independently.
+aria-kernel/                    @Okan-wqm
+docs/aria/                      @Okan-wqm
+tools/aria-poc/                @Okan-wqm
+aria-tools/preflight/           @Okan-wqm
+package.json                    @Okan-wqm
+package-lock.json               @Okan-wqm
+.gitignore                      @Okan-wqm
+
 # ── Enforcement gate configuration ────────────────────────────────────
 # Allowlists, rule manifests, and boundary carve-outs must not drift silently.
 .claude/allowlists/              @Okan-wqm
@@ -61,7 +73,33 @@ CLAUDE.md                        @Okan-wqm
 # tools/gates/migration-codeowners-coverage.ts asserts every migration
 # path is covered by a CODEOWNERS entry below.
 apps/*/src/database/migrations/                                       @Okan-wqm
+apps/*/src/migrations/                                                @Okan-wqm
 libs/backend-common/src/database/schema-primitives/                   @Okan-wqm
 libs/backend-common/src/database/schema-drift/                        @Okan-wqm
 libs/backend-common/src/database/base-migration.ts                    @Okan-wqm
 libs/backend-common/src/database/schema-drift-validator.service.ts    @Okan-wqm
+
+# ── Migration runtime SSoT (Faz 1.11 of day-one baseline reset) ─────
+# These paths control how migrations are discovered, scheduled, and
+# verified on every deploy. Drift here = silent ledger/DB divergence
+# (the 2026-04 HR migration "applied but not applied" class).
+# Co-reviewed by infra-expert + database-reviewer in principle —
+# enforced via this allowlist until per-team team-owners exist.
+libs/backend-common/src/database/migration-runner/                    @Okan-wqm
+libs/backend-common/src/database/tenant-schema-sync.service.ts        @Okan-wqm
+libs/backend-common/src/database/schema-manager.service.ts            @Okan-wqm
+libs/backend-common/src/database/rls/                                 @Okan-wqm
+libs/backend-common/src/constants/protected-tables.ts                 @Okan-wqm
+apps/db-migrate/src/schema-registry.ts                                @Okan-wqm
+apps/db-migrate/src/migration-orchestrator.ts                         @Okan-wqm
+apps/db-migrate/src/main.ts                                           @Okan-wqm
+
+# ── Deploy + signal manifests (Faz 1.11) ────────────────────────────
+# Drift in these manifests can mask boot-signal failures or skip
+# criticality gates entirely, allowing a broken release to ship.
+infrastructure/deploy/required-signals.yaml                           @Okan-wqm
+infrastructure/deploy/service-criticality.yaml                        @Okan-wqm
+scripts/deploy/droplet-up.sh                                          @Okan-wqm
+scripts/deploy/check-service-health.ts                                @Okan-wqm
+scripts/deploy/assert-service-signals.ts                              @Okan-wqm
+infrastructure/docker/init-scripts/                                   @Okan-wqm

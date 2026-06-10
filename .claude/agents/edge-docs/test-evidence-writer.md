@@ -4,6 +4,7 @@ description: Produces the test-evidence chapters a Siemens quality auditor and a
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 3
 ---
 
 # Test Evidence Writer — Lane-C Producer

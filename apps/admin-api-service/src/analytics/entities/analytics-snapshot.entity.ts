@@ -157,6 +157,17 @@ export interface TimeSeriesData {
   color?: string;
 }
 
+export type AnalyticsRange = '7d' | '30d' | '90d' | '1y';
+export type AnalyticsGranularity = 'day' | 'week' | 'month';
+
+export interface TimeSeriesResponse {
+  range: AnalyticsRange;
+  granularity: AnalyticsGranularity;
+  data: TimeSeriesPoint[];
+  source: string;
+  asOf: string;
+}
+
 export interface ChartData {
   labels: string[];
   datasets: Array<{
@@ -180,7 +191,7 @@ export type ReportType =
   | 'usage_features'
   | 'system_performance';
 
-export type ReportFormat = 'json' | 'csv' | 'excel' | 'pdf';
+export type ReportFormat = 'json' | 'csv' | 'pdf';
 
 export interface ReportRequest {
   type: ReportType;
@@ -308,6 +319,15 @@ export class ReportExecution {
 
   @Column({ type: 'int', nullable: true })
   fileSizeBytes?: number;
+
+  @Column({ type: 'varchar', length: 1024, nullable: true })
+  artifactObjectKey?: string;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  artifactSha256?: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  artifactContentType?: string;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   downloadUrl?: string;

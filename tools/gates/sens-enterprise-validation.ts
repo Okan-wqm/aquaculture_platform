@@ -26,6 +26,17 @@ interface ClaimManifest {
   metadata: ManifestMetadata;
   version: number;
   claims: ClaimDefinition[];
+  release_profiles: ReleaseProfile[];
+}
+
+interface ReleaseProfile {
+  id: string;
+  title: string;
+  feature_tier: string;
+  tag_pattern: string;
+  blocking_claims: string[];
+  non_blocking_claims: string[];
+  non_blocking_rationale: string;
 }
 
 interface ManifestMetadata {
@@ -76,6 +87,7 @@ interface EvaluatedClaim extends ClaimDefinition {
 interface RunOptions {
   artifactRoot: string;
   releaseMode: boolean;
+  releaseProfile: string | null;
   noArtifacts: boolean;
 }
 
@@ -91,6 +103,7 @@ const REPO_ROOT = (() => {
 })();
 
 const MANIFEST_PATH = 'tools/gates/sens-enterprise-claims.json';
+const DEFAULT_RELEASE_PROFILE = 'edge-agent-scada-display';
 const WORKFLOW_CI = '.github/workflows/ci-affected.yml';
 const WORKFLOW_SENS = '.github/workflows/sens-api-gateway-ci.yml';
 const WORKFLOW_RELEASE = '.github/workflows/edge-agent-release.yml';
@@ -99,6 +112,13 @@ const SX1302_HIL_EVIDENCE_SCHEMA = 'tools/gates/sx1302-hil-evidence.schema.json'
 const CATALOG = 'sens-api-gateway/src/commands/catalog.rs';
 const PERMISSION = 'sens-api-gateway/src/authz/permission.rs';
 const IO_CONFIG = 'sens-api-gateway/src/commands/io_config.rs';
+const INSTALLER_SCRIPT = 'apps/sensor-service/src/edge-device/installer-script.service.ts';
+const EDGE_DEVICE_SERVICE = 'apps/sensor-service/src/edge-device/edge-device.service.ts';
+const EDGE_DEVICE_RESOLVER = 'apps/sensor-service/src/edge-device/edge-device.resolver.ts';
+const RUST_FIRMWARE = 'sens-api-gateway/src/commands/firmware.rs';
+const RUST_APPLY_SIGNED_MANIFEST = 'sens-api-gateway/src/commands/apply_signed_manifest.rs';
+const EDGE_RELEASE_ARCHITECTURE_DOC = 'docs/architecture/edge-release-provisioning-ota.md';
+const DISALLOWED_WORKFLOW_UPDATE_FLAG = '--update-' + 'baseline';
 
 const ALL_WORKFLOWS_DIR = path.join(REPO_ROOT, '.github', 'workflows');
 const CI_AFFECTED_SENS_FEATURES =
@@ -166,6 +186,17 @@ function sha256File(relPath: string): string {
   return createHash('sha256').update(readFile(relPath)).digest('hex');
 }
 
+function sensCargoPackageVersion(): string {
+  const cargo = readFile('sens-api-gateway/Cargo.toml');
+  const versionLine = cargo.split(/\r?\n/).find((line) => line.startsWith('version = '));
+  const match = /^version = "([^"]+)"$/.exec(versionLine ?? '');
+  const version = match?.[1];
+  if (!version) {
+    throw new Error('sens-api-gateway Cargo package version not found');
+  }
+  return version;
+}
+
 function lineRef(relPath: string, needle: string): string {
   const src = readFile(relPath);
   const line = src.split(/\r?\n/).findIndex((candidate) => candidate.includes(needle));
@@ -185,12 +216,12 @@ function stripCommentOnlyLines(src: string): string {
 
 function workflowJobBlock(src: string, jobName: string): string {
   const lines = src.split(/\r?\n/);
-  const start = lines.findIndex((line) => new RegExp(`^  ${escapeRegExp(jobName)}:\\s*$`).test(line));
+  const start = lines.findIndex((line) => new RegExp(`^ {2}${escapeRegExp(jobName)}:\\s*$`).test(line));
   if (start < 0) return '';
 
   let end = lines.length;
   for (let index = start + 1; index < lines.length; index += 1) {
-    if (/^  [A-Za-z0-9_-]+:\s*$/.test(lines[index] ?? '')) {
+    if (/^ {2}[A-Za-z0-9_-]+:\s*$/.test(lines[index] ?? '')) {
       end = index;
       break;
     }
@@ -268,7 +299,11 @@ function check(
 function workflowCommandsOnly(src: string): string {
   return stripCommentOnlyLines(src)
     .split(/\r?\n/)
-    .filter((line) => /^\s*(run:|continue-on-error:|\|\||.*--update-baseline|.*cargo\s+(audit|deny))/.test(line))
+    .filter((line) =>
+      new RegExp(
+        `^\\s*(run:|continue-on-error:|\\|\\||.*${escapeRegExp(DISALLOWED_WORKFLOW_UPDATE_FLAG)}|.*cargo\\s+(audit|deny))`,
+      ).test(line),
+    )
     .join('\n');
 }
 
@@ -277,7 +312,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function requiredString(obj: Record<string, unknown>, key: string, errors: string[]): void {
-  if (typeof obj[key] !== 'string' || (obj[key] as string).length === 0) {
+  const value = obj[key];
+  if (typeof value !== 'string' || value.length === 0) {
     errors.push(`${key} must be a non-empty string`);
   }
 }
@@ -285,6 +321,20 @@ function requiredString(obj: Record<string, unknown>, key: string, errors: strin
 function requireStringArray(value: unknown, label: string): string[] {
   if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
     throw new Error(`${label} must be a non-empty string array`);
+  }
+  const strings = value as string[];
+  if (new Set(strings).size !== strings.length) {
+    throw new Error(`${label} must be unique`);
+  }
+  return strings;
+}
+
+function requireClaimIdArray(value: unknown, label: string, allowEmpty: boolean): string[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    throw new Error(`${label} must be ${allowEmpty ? 'an array' : 'a non-empty string array'}`);
+  }
+  if (value.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
+    throw new Error(`${label} entries must be non-empty strings`);
   }
   const strings = value as string[];
   if (new Set(strings).size !== strings.length) {
@@ -315,7 +365,8 @@ function validateSx1302HilEvidence(relPath: string): string[] {
     errors.push('hardware must be an object');
   } else {
     for (const key of ['concentrator_model', 'sx1302_hal_source_sha256', 'spi_bus', 'reset_gpio']) {
-      if (typeof evidence.hardware[key] !== 'string' || (evidence.hardware[key] as string).length === 0) {
+      const value = evidence.hardware[key];
+      if (typeof value !== 'string' || value.length === 0) {
         errors.push(`hardware.${key} must be a non-empty string`);
       }
     }
@@ -426,6 +477,8 @@ const CHECKS: Record<string, () => CheckResult> = {
       'sens-enterprise-validation:',
       'npm run gates:sens-enterprise-validation -- --release',
       'SENS_ENTERPRISE_RELEASE: \'1\'',
+      'SENS_ENTERPRISE_RELEASE_PROFILE: edge-agent-scada-display',
+      '--release-profile=edge-agent-scada-display',
       'if-no-files-found: error',
     ];
     const missing = job ? hasAll(job, required) : ['sens-enterprise-validation:'];
@@ -442,12 +495,14 @@ const CHECKS: Record<string, () => CheckResult> = {
   edge_release_build_needs_enterprise_validation: () => {
     const src = readFile(WORKFLOW_RELEASE);
     const buildJob = workflowJobBlock(src, 'build');
-    const ok = hasExecutableText(buildJob, 'needs: sens-enterprise-validation');
+    const missing = hasAll(buildJob, ['needs:', '- release-ref-contract', '- sens-enterprise-validation']);
     return check(
       'edge_release_build_needs_enterprise_validation',
       'edge release build matrix depends on enterprise validation',
-      ok,
-      ok ? 'build job needs enterprise validation' : 'build job does not need sens-enterprise-validation',
+      missing.length === 0,
+      missing.length === 0
+        ? 'build job needs release-ref-contract and enterprise validation'
+        : `build job dependency drift: ${missing.join(', ')}`,
       [WORKFLOW_RELEASE],
       [lineRef(WORKFLOW_RELEASE, 'build:')],
     );
@@ -476,7 +531,8 @@ const CHECKS: Record<string, () => CheckResult> = {
     const buildJob = workflowJobBlock(release, 'build');
     const ok =
       hasExecutableText(release, 'EDGE_RELEASE_FEATURES: scada-display') &&
-      hasExecutableText(buildJob, 'cross build --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"') &&
+      hasExecutableText(release, 'CARGO_TARGET_DIR: ${{ github.workspace }}/sens-api-gateway/target') &&
+      hasExecutableText(buildJob, 'cross build --target-dir "$CARGO_TARGET_DIR" --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"') &&
       hasExecutableText(sensCi, `SENS_API_GATEWAY_CI_FEATURES: ${CI_AFFECTED_SENS_FEATURES}`) &&
       !hasExecutableText(buildJob, '--features scada-display');
     return check(
@@ -488,6 +544,140 @@ const CHECKS: Record<string, () => CheckResult> = {
         : 'release feature tier is implicit or drifted from the curated CI feature contract',
       [WORKFLOW_RELEASE, WORKFLOW_SENS],
       [lineRef(WORKFLOW_RELEASE, 'EDGE_RELEASE_FEATURES'), lineRef(WORKFLOW_SENS, 'SENS_API_GATEWAY_CI_FEATURES')],
+    );
+  },
+
+  edge_release_ref_contract_matches_cargo_semver: () => {
+    const release = readFile(WORKFLOW_RELEASE);
+    const cargoVersion = sensCargoPackageVersion();
+    const required = [
+      'VERSION="${GITHUB_REF_NAME#agent-v}"',
+      "grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'",
+      'CARGO_VERSION="$(awk -F\' = \'',
+      'if [ "${VERSION}" != "${CARGO_VERSION}" ]; then',
+      'if [ "${GITHUB_REF_NAME}" != "agent-v${CARGO_VERSION}" ]; then',
+      'echo "version=${VERSION}" >> "$GITHUB_OUTPUT"',
+      'echo "version=${{ needs.release-ref-contract.outputs.version }}" >> "$GITHUB_OUTPUT"',
+      'RELEASE_VERSION: ${{ needs.release-ref-contract.outputs.version }}',
+    ];
+    const forbidden = [
+      'echo "version=${GITHUB_REF_NAME#agent-}" >> "$GITHUB_OUTPUT"',
+      'needs.sens-enterprise-validation.outputs.version',
+      'contains(steps.version.outputs.tag, \'-rc\')',
+    ];
+    const missing = [
+      ...hasAll(release, required),
+      ...forbidden.filter((needle) => hasExecutableText(release, needle)).map((needle) => `forbidden marker: ${needle}`),
+    ];
+    const ok = missing.length === 0 && hasExecutableText(release, 'expected agent-v${CARGO_VERSION}');
+    return check(
+      'edge_release_ref_contract_matches_cargo_semver',
+      'edge release tag contract is canonical agent-v<exact Cargo semver> with no self-referential outputs',
+      ok,
+      ok
+        ? `release ref contract requires agent-v${cargoVersion} and exports validated release-ref-contract outputs`
+        : `release ref contract drift: ${missing.join(', ') || 'missing expected agent-v${CARGO_VERSION}'}`,
+      [WORKFLOW_RELEASE, 'sens-api-gateway/Cargo.toml'],
+      [lineRef(WORKFLOW_RELEASE, 'Validate release ref'), lineRef('sens-api-gateway/Cargo.toml', 'version = ')],
+    );
+  },
+
+  edge_release_signed_manifest_contract: () => {
+    const release = readFile(WORKFLOW_RELEASE);
+    const required = [
+      'Create release manifest',
+      'Sign release manifest with cosign',
+      'edge-release-manifest.json',
+      "kind: 'suderra.edge.release.manifest'",
+      "targets = ['x86_64-linux', 'aarch64-linux', 'armv7-linux']",
+      'signature: requireFile(`${base}.tar.gz.sig`)',
+      'certificate: requireFile(`${base}.tar.gz.pem`)',
+      'artifacts/edge-release-manifest.json.sig',
+      'artifacts/edge-release-manifest.json.pem',
+      'artifacts/edge-release-manifest.json',
+    ];
+    const missing = hasAll(release, required);
+    return check(
+      'edge_release_signed_manifest_contract',
+      'edge release publishes a signed machine-readable manifest for all target artifacts',
+      missing.length === 0,
+      missing.length ? `missing signed manifest markers: ${missing.join(', ')}` : 'signed manifest contract present',
+      [WORKFLOW_RELEASE],
+      [lineRef(WORKFLOW_RELEASE, 'Create release manifest'), lineRef(WORKFLOW_RELEASE, 'Sign release manifest with cosign')],
+    );
+  },
+
+  edge_release_runtime_consumers_block_latest_and_legacy_ota: () => {
+    const installer = readFile(INSTALLER_SCRIPT);
+    const service = readFile(EDGE_DEVICE_SERVICE);
+    const resolver = readFile(EDGE_DEVICE_RESOLVER);
+    const firmware = readFile(RUST_FIRMWARE);
+    const applyManifest = readFile(RUST_APPLY_SIGNED_MANIFEST);
+    const required = [
+      [installer, 'assertExplicitAgentVersion'],
+      [installer, 'AGENT_VERSION cannot be latest'],
+      [installer, 'RELEASE_VERSION="\\${AGENT_VERSION#agent-v}"'],
+      [service, 'EDGE_LEGACY_OTA_ALLOWED'],
+      [service, 'Legacy update_firmware is disabled'],
+      [resolver, 'explicit-version-required'],
+      [firmware, 'FirmwareUpdateMode::Disabled => LegacyTarballGateDecision::Reject'],
+      [applyManifest, 'gate: "ab_partitions_required"'],
+    ] as const;
+    const missing = required
+      .filter(([src, needle]) => !hasExecutableText(src, needle))
+      .map(([, needle]) => needle);
+    const forbidden = [
+      [installer, "AGENT_VERSION', 'latest'"],
+      [installer, 'releases?per_page=20'],
+      [installer, "grep 'agent-v' | head -1"],
+      [service, "targetVersion || 'latest'"],
+      [service, 'github_repo'],
+      [firmware, 'if target == "latest"'],
+      [applyManifest, 'HC-1 backward-compat'],
+    ] as const;
+    const offenders = forbidden
+      .filter(([src, needle]) => hasExecutableText(src, needle))
+      .map(([, needle]) => `forbidden marker: ${needle}`);
+    const details = [...missing, ...offenders];
+    return check(
+      'edge_release_runtime_consumers_block_latest_and_legacy_ota',
+      'tenant provisioning and edge OTA consumers cannot resolve live latest or legacy GitHub tarball updates by default',
+      details.length === 0,
+      details.length ? `runtime consumer contract drift: ${details.join(', ')}` : 'runtime consumers require explicit signed release paths',
+      [INSTALLER_SCRIPT, EDGE_DEVICE_SERVICE, EDGE_DEVICE_RESOLVER, RUST_FIRMWARE, RUST_APPLY_SIGNED_MANIFEST],
+      [
+        lineRef(INSTALLER_SCRIPT, 'assertExplicitAgentVersion'),
+        lineRef(EDGE_DEVICE_SERVICE, 'EDGE_LEGACY_OTA_ALLOWED'),
+        lineRef(RUST_FIRMWARE, 'FirmwareUpdateMode::Disabled'),
+        lineRef(RUST_APPLY_SIGNED_MANIFEST, 'ab_partitions_required'),
+      ],
+    );
+  },
+
+  edge_release_docs_mark_rc4_historical_and_define_signed_ota: () => {
+    const docExists = fs.existsSync(path.join(REPO_ROOT, EDGE_RELEASE_ARCHITECTURE_DOC));
+    const releaseNotes = readFile('docs/releases/sens-api-gateway-edge-v2.0.0-rc4.md');
+    const runbook = readFile('docs/runbooks/edge-gateway-rc4-operator.md');
+    const architecture = docExists ? readFile(EDGE_RELEASE_ARCHITECTURE_DOC) : '';
+    const required = [
+      [releaseNotes, 'not an approved production tenant download'],
+      [runbook, 'not approved for production tenant downloads'],
+      [architecture, 'EdgeReleaseRegistryService'],
+      [architecture, 'ProvisioningCredentialService'],
+      [architecture, 'apply_signed_manifest'],
+      [architecture, 'agent-v<exact Cargo semver>'],
+    ] as const;
+    const missing = required
+      .filter(([src, needle]) => !hasExecutableText(src, needle))
+      .map(([, needle]) => needle);
+    const ok = docExists && missing.length === 0;
+    return check(
+      'edge_release_docs_mark_rc4_historical_and_define_signed_ota',
+      'edge release documentation marks RC4 historical and defines signed provisioning/OTA architecture',
+      ok,
+      ok ? 'edge release docs are aligned with signed manifest provisioning architecture' : `documentation drift: ${missing.join(', ')}`,
+      [EDGE_RELEASE_ARCHITECTURE_DOC, 'docs/releases/sens-api-gateway-edge-v2.0.0-rc4.md', 'docs/runbooks/edge-gateway-rc4-operator.md'],
+      [lineRef(EDGE_RELEASE_ARCHITECTURE_DOC, 'EdgeReleaseRegistryService')],
     );
   },
 
@@ -575,15 +765,19 @@ const CHECKS: Record<string, () => CheckResult> = {
   },
 
   workflows_do_not_update_baselines: () => {
-    const offenders = listWorkflowFiles().filter((rel) => /--update-baseline/.test(readFile(rel)));
+    const offenders = listWorkflowFiles().filter((rel) =>
+      readFile(rel).includes(DISALLOWED_WORKFLOW_UPDATE_FLAG),
+    );
     return check(
       'workflows_do_not_update_baselines',
       'workflows do not update baselines as part of validation',
       offenders.length === 0,
-      offenders.length ? `baseline update found in ${offenders.join(', ')}` : 'no --update-baseline workflow use found',
+      offenders.length
+        ? `disallowed workflow update flag found in ${offenders.join(', ')}`
+        : 'no disallowed workflow update flag use found',
       offenders.length ? offenders : listWorkflowFiles(),
       offenders.length
-        ? offenders.map((rel) => lineRef(rel, '--update-baseline'))
+        ? offenders.map((rel) => lineRef(rel, DISALLOWED_WORKFLOW_UPDATE_FLAG))
         : listWorkflowFiles().map((rel) => lineRef(rel, 'name:')),
     );
   },
@@ -680,14 +874,44 @@ const CHECKS: Record<string, () => CheckResult> = {
   },
 
   coapproval_role_expiry_permission_relevance_negative_tests: () =>
-    check(
-      'coapproval_role_expiry_permission_relevance_negative_tests',
-      'co-approver role, expiry and permission relevance negative tests exist',
-      false,
-      'blocked: no executable RBAC role/expiry/permission relevance negative test evidence is present',
-      ['sens-api-gateway/src/commands/envelope_adapter.rs'],
-      [lineRef('sens-api-gateway/src/commands/envelope_adapter.rs', 'verify_co_approver_if_present')],
-    ),
+    {
+      const adapter = readFile('sens-api-gateway/src/commands/envelope_adapter.rs');
+      const engine = readFile('sens-api-gateway/src/authz/in_memory_engine.rs');
+      const policy = readFile('sens-api-gateway/src/authz/policy.rs');
+      const required = [
+        [adapter, 'verify_co_approver_if_present'],
+        [adapter, 'CoApproverSelfSignature'],
+        [adapter, 'co_approver_pubkey_missing_rejects_with_invalid'],
+        [engine, 'co_approver_has_relevant_permission'],
+        [engine, 'operator_has_active_permission'],
+        [engine, 'authorize_allows_tpi_when_co_approver_has_relevant_active_permission'],
+        [engine, 'authorize_denies_tpi_self_approval_even_when_primary_has_permission'],
+        [engine, 'authorize_denies_tpi_when_co_approver_role_expired'],
+        [engine, 'authorize_denies_tpi_when_co_approver_lacks_requested_permission'],
+        [policy, 'pub struct CoApproverEvidence'],
+      ] as const;
+      const missing = required
+        .filter(([src, needle]) => !hasExecutableText(src, needle))
+        .map(([, needle]) => needle);
+      return check(
+        'coapproval_role_expiry_permission_relevance_negative_tests',
+        'co-approver role, expiry and permission relevance negative tests exist',
+        missing.length === 0,
+        missing.length
+          ? `missing co-approval RBAC evidence: ${missing.join(', ')}`
+          : 'co-approval checks cover second signature shape, distinct actor, active role expiry and requested-permission relevance',
+        [
+          'sens-api-gateway/src/commands/envelope_adapter.rs',
+          'sens-api-gateway/src/authz/in_memory_engine.rs',
+          'sens-api-gateway/src/authz/policy.rs',
+        ],
+        [
+          lineRef('sens-api-gateway/src/commands/envelope_adapter.rs', 'verify_co_approver_if_present'),
+          lineRef('sens-api-gateway/src/authz/in_memory_engine.rs', 'co_approver_has_relevant_permission'),
+          lineRef('sens-api-gateway/src/authz/in_memory_engine.rs', 'authorize_denies_tpi_when_co_approver_role_expired'),
+        ],
+      );
+    },
 
   safe_state_all_outputs_success_required: () =>
     {
@@ -858,16 +1082,22 @@ function parseArgs(argv: string[]): { options: RunOptions; selfTest: boolean } {
   let selfTest = false;
   let noArtifacts = false;
   let releaseMode = process.env.SENS_ENTERPRISE_RELEASE === '1';
+  let releaseProfile = process.env.SENS_ENTERPRISE_RELEASE_PROFILE || null;
   let artifactRoot = process.env.SENS_ENTERPRISE_ARTIFACT_ROOT || 'artifacts/sens-enterprise-validation';
 
   for (const arg of argv) {
     if (arg === '--self-test') selfTest = true;
     else if (arg === '--no-artifacts') noArtifacts = true;
     else if (arg === '--release') releaseMode = true;
+    else if (arg.startsWith('--release-profile=')) releaseProfile = arg.slice('--release-profile='.length);
     else if (arg.startsWith('--artifact-root=')) artifactRoot = arg.slice('--artifact-root='.length);
     else if (arg.length > 0) {
       throw new Error(`Unknown argument: ${arg}`);
     }
+  }
+
+  if (releaseMode && !releaseProfile) {
+    releaseProfile = DEFAULT_RELEASE_PROFILE;
   }
 
   return {
@@ -875,9 +1105,79 @@ function parseArgs(argv: string[]): { options: RunOptions; selfTest: boolean } {
     options: {
       artifactRoot,
       releaseMode,
+      releaseProfile,
       noArtifacts,
     },
   };
+}
+
+
+function loadReleaseProfiles(raw: unknown, claims: ClaimDefinition[]): ReleaseProfile[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error('claim manifest release_profiles must be a non-empty array');
+  }
+
+  const claimIds = new Set(claims.map((claim) => claim.id));
+  const releaseBlockerClaimIds = new Set(claims.filter((claim) => claim.release_blocker).map((claim) => claim.id));
+  const profileIds = new Set<string>();
+
+  return raw.map((item, index): ReleaseProfile => {
+    if (!isRecord(item)) {
+      throw new Error(`release_profile[${index}] must be an object`);
+    }
+    const profile = item;
+    const allowed = new Set(['id', 'title', 'feature_tier', 'tag_pattern', 'blocking_claims', 'non_blocking_claims', 'non_blocking_rationale']);
+    for (const key of Object.keys(profile)) {
+      if (!allowed.has(key)) throw new Error(`release_profile[${index}] has unknown field: ${key}`);
+    }
+
+    const id = profile.id;
+    if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]*$/.test(id)) {
+      throw new Error(`release_profile[${index}] id must be kebab-case`);
+    }
+    if (profileIds.has(id)) throw new Error(`duplicate release profile id: ${id}`);
+    profileIds.add(id);
+
+    const title = profile.title;
+    const featureTier = profile.feature_tier;
+    const tagPattern = profile.tag_pattern;
+    const deferRationale = profile.non_blocking_rationale;
+    if (typeof title !== 'string' || title.length === 0) throw new Error(`release_profile[${id}] title required`);
+    if (typeof featureTier !== 'string' || featureTier.length === 0) throw new Error(`release_profile[${id}] feature_tier required`);
+    if (typeof tagPattern !== 'string' || tagPattern.length === 0) throw new Error(`release_profile[${id}] tag_pattern required`);
+    if (typeof deferRationale !== 'string' || deferRationale.length === 0) {
+      throw new Error(`release_profile[${id}] non_blocking_rationale required`);
+    }
+
+    const blockingClaims = requireClaimIdArray(profile.blocking_claims, `release_profile[${id}] blocking_claims`, false);
+    const nonBlockingClaims = requireClaimIdArray(profile.non_blocking_claims, `release_profile[${id}] non_blocking_claims`, true);
+    const nonBlockingSet = new Set(nonBlockingClaims);
+    const overlap = blockingClaims.filter((claimId) => nonBlockingSet.has(claimId));
+    if (overlap.length > 0) {
+      throw new Error(`release_profile[${id}] claims cannot be both blocking and non-blocking: ${overlap.join(', ')}`);
+    }
+
+    for (const claimId of [...blockingClaims, ...nonBlockingClaims]) {
+      if (!claimIds.has(claimId)) throw new Error(`release_profile[${id}] references unknown claim: ${claimId}`);
+    }
+
+    const classified = new Set([...blockingClaims, ...nonBlockingClaims]);
+    for (const claimId of releaseBlockerClaimIds) {
+      if (!classified.has(claimId)) {
+        throw new Error(`release_profile[${id}] must classify release_blocker claim: ${claimId}`);
+      }
+    }
+
+    return {
+      id,
+      title,
+      feature_tier: featureTier,
+      tag_pattern: tagPattern,
+      blocking_claims: blockingClaims,
+      non_blocking_claims: nonBlockingClaims,
+      non_blocking_rationale: deferRationale,
+    };
+  });
 }
 
 function loadManifestObject(raw: unknown): ClaimManifest {
@@ -885,7 +1185,7 @@ function loadManifestObject(raw: unknown): ClaimManifest {
     throw new Error('claim manifest must be an object');
   }
   const obj = raw as Record<string, unknown>;
-  const allowedTopLevel = new Set(['$schema', 'version', 'metadata', 'claims']);
+  const allowedTopLevel = new Set(['$schema', 'version', 'metadata', 'claims', 'release_profiles']);
   for (const key of Object.keys(obj)) {
     if (!allowedTopLevel.has(key)) throw new Error(`claim manifest has unknown field: ${key}`);
   }
@@ -900,20 +1200,31 @@ function loadManifestObject(raw: unknown): ClaimManifest {
   for (const key of Object.keys(metadataObj)) {
     if (!allowedMetadata.has(key)) throw new Error(`claim manifest metadata has unknown field: ${key}`);
   }
-  for (const key of ['plan_id', 'plan_path', 'reviewed_at', 'claim_schema']) {
-    if (typeof metadataObj[key] !== 'string' || (metadataObj[key] as string).length === 0) {
-      throw new Error(`claim manifest metadata.${key} must be a non-empty string`);
-    }
+  const planId = metadataObj.plan_id;
+  const planPath = metadataObj.plan_path;
+  const reviewedAt = metadataObj.reviewed_at;
+  const claimSchema = metadataObj.claim_schema;
+  if (typeof planId !== 'string' || planId.length === 0) {
+    throw new Error('claim manifest metadata.plan_id must be a non-empty string');
+  }
+  if (typeof planPath !== 'string' || planPath.length === 0) {
+    throw new Error('claim manifest metadata.plan_path must be a non-empty string');
+  }
+  if (typeof reviewedAt !== 'string' || reviewedAt.length === 0) {
+    throw new Error('claim manifest metadata.reviewed_at must be a non-empty string');
+  }
+  if (typeof claimSchema !== 'string' || claimSchema.length === 0) {
+    throw new Error('claim manifest metadata.claim_schema must be a non-empty string');
   }
   if (metadataObj.release_gate !== true) {
     throw new Error('claim manifest metadata.release_gate must be true');
   }
   const metadata: ManifestMetadata = {
-    plan_id: metadataObj.plan_id as string,
-    plan_path: metadataObj.plan_path as string,
-    reviewed_at: metadataObj.reviewed_at as string,
-    release_gate: metadataObj.release_gate as boolean,
-    claim_schema: metadataObj.claim_schema as string,
+    plan_id: planId,
+    plan_path: planPath,
+    reviewed_at: reviewedAt,
+    release_gate: true,
+    claim_schema: claimSchema,
   };
   if (!Array.isArray(obj.claims) || obj.claims.length === 0) {
     throw new Error('claim manifest must contain at least one claim');
@@ -1037,7 +1348,9 @@ function loadManifestObject(raw: unknown): ClaimManifest {
     };
   });
 
-  return { version: obj.version, metadata, claims };
+  const releaseProfiles = loadReleaseProfiles(obj.release_profiles, claims);
+
+  return { version: obj.version, metadata, claims, release_profiles: releaseProfiles };
 }
 
 function evaluateClaim(
@@ -1107,12 +1420,25 @@ function timestampForArtifact(): string {
   return new Date().toISOString().replaceAll(':', '-').replace(/\.\d{3}Z$/, 'Z');
 }
 
+function writeJsonArtifact(filePath: string, value: unknown): void {
+  fs.writeFileSync(filePath, `${JSON.stringify(value)}\n`);
+}
+
+function writeStdout(message: string): void {
+  process.stdout.write(`${message}\n`);
+}
+
+function writeStderr(message: string): void {
+  process.stderr.write(`${message}\n`);
+}
+
 function writeArtifacts(
   options: RunOptions,
   claims: EvaluatedClaim[],
   commands: CheckResult[],
   metadata: ManifestMetadata,
   manifestHash: string,
+  releaseProfile: ReleaseProfile | null,
 ): string | null {
   if (options.noArtifacts) return null;
   const dir = path.resolve(REPO_ROOT, options.artifactRoot, timestampForArtifact());
@@ -1122,33 +1448,20 @@ function writeArtifacts(
   const commandsPath = path.join(dir, 'commands.json');
   const reportPath = path.join(dir, 'report.md');
 
-  fs.writeFileSync(
-    claimsPath,
-    JSON.stringify(
-      {
-        generated_at: new Date().toISOString(),
-        release_mode: options.releaseMode,
-        manifest: MANIFEST_PATH,
-        manifest_metadata: metadata,
-        manifest_sha256: manifestHash,
-        claims,
-      },
-      null,
-      2,
-    ) + '\n',
-  );
+  writeJsonArtifact(claimsPath, {
+    generated_at: new Date().toISOString(),
+    release_mode: options.releaseMode,
+    release_profile: releaseProfile,
+    manifest: MANIFEST_PATH,
+    manifest_metadata: metadata,
+    manifest_sha256: manifestHash,
+    claims,
+  });
 
-  fs.writeFileSync(
-    commandsPath,
-    JSON.stringify(
-      {
-        generated_at: new Date().toISOString(),
-        commands,
-      },
-      null,
-      2,
-    ) + '\n',
-  );
+  writeJsonArtifact(commandsPath, {
+    generated_at: new Date().toISOString(),
+    commands,
+  });
 
   const passCount = claims.filter((claim) => claim.evaluated_status === 'pass').length;
   const blockedCount = claims.filter((claim) => claim.evaluated_status === 'blocked').length;
@@ -1158,6 +1471,15 @@ function writeArtifacts(
     '',
     `- Generated: ${new Date().toISOString()}`,
     `- Release mode: ${options.releaseMode ? 'yes' : 'no'}`,
+    `- Release profile: ${releaseProfile ? releaseProfile.id : 'none'}`,
+    ...(releaseProfile
+      ? [
+          `- Release profile tier: ${releaseProfile.feature_tier}`,
+          `- Blocking profile claims: ${releaseProfile.blocking_claims.join(', ')}`,
+          `- Non-blocking profile claims: ${releaseProfile.non_blocking_claims.join(', ') || 'none'}`,
+          `- Non-blocking rationale: ${releaseProfile.non_blocking_rationale}`,
+        ]
+      : []),
     `- Plan: ${metadata.plan_id} (${metadata.plan_path})`,
     `- Manifest hash: ${manifestHash}`,
     `- Claims: ${passCount} pass, ${blockedCount} blocked, ${failCount} fail`,
@@ -1189,10 +1511,24 @@ function writeArtifacts(
   return path.relative(REPO_ROOT, dir);
 }
 
+
+function resolveReleaseProfile(manifest: ClaimManifest, options: RunOptions): ReleaseProfile | null {
+  if (!options.releaseMode && !options.releaseProfile) return null;
+
+  const profileId = options.releaseProfile || DEFAULT_RELEASE_PROFILE;
+  const profile = manifest.release_profiles.find((candidate) => candidate.id === profileId);
+  if (!profile) {
+    const available = manifest.release_profiles.map((candidate) => candidate.id).join(', ') || 'none';
+    throw new Error(`unknown release profile: ${profileId}; available profiles: ${available}`);
+  }
+  return profile;
+}
+
 function runGate(options: RunOptions): { exitCode: number; artifactDir: string | null; claims: EvaluatedClaim[] } {
   const manifestRaw = readFile(MANIFEST_PATH);
   const manifest = loadManifestObject(JSON.parse(manifestRaw));
   const manifestHash = createHash('sha256').update(manifestRaw).digest('hex');
+  const releaseProfile = resolveReleaseProfile(manifest, options);
 
   const checkIds = new Set(manifest.claims.flatMap((claim) => claim.checks));
   const results = new Map<string, CheckResult>();
@@ -1217,35 +1553,38 @@ function runGate(options: RunOptions): { exitCode: number; artifactDir: string |
   const workflowRunId = process.env.GITHUB_RUN_ID || 'local';
   const claims = manifest.claims.map((claim) => evaluateClaim(claim, results, workflowRunId));
   const commands = [...results.values()].sort((a, b) => a.id.localeCompare(b.id));
-  const artifactDir = writeArtifacts(options, claims, commands, manifest.metadata, manifestHash);
+  const artifactDir = writeArtifacts(options, claims, commands, manifest.metadata, manifestHash, releaseProfile);
 
   const failedClosedClaims = claims.filter((claim) => claim.status === 'closed' && claim.evaluated_status !== 'pass');
   const failedClaims = claims.filter((claim) => claim.evaluated_status === 'fail' && claim.status !== 'closed');
   const blockedClaims = claims.filter((claim) => claim.evaluated_status === 'blocked');
 
-  console.log(
+  writeStdout(
     `sens-enterprise-validation: ${claims.filter((c) => c.evaluated_status === 'pass').length} pass, ` +
       `${blockedClaims.length} blocked, ${failedClosedClaims.length + failedClaims.length} fail` +
+      (releaseProfile ? `; profile=${releaseProfile.id}` : '') +
       (artifactDir ? `; artifacts=${artifactDir}` : ''),
   );
 
   if (failedClosedClaims.length > 0) {
     for (const claim of failedClosedClaims) {
-      console.error(`FAIL closed-claim ${claim.id}: ${claim.closure_errors.join('; ')}`);
+      writeStderr(`FAIL closed-claim ${claim.id}: ${claim.closure_errors.join('; ')}`);
     }
     return { exitCode: 1, artifactDir, claims };
   }
 
   if (failedClaims.length > 0) {
     for (const claim of failedClaims) {
-      console.error(`FAIL claim ${claim.id}`);
+      writeStderr(`FAIL claim ${claim.id}`);
     }
     return { exitCode: 1, artifactDir, claims };
   }
 
-  if (options.releaseMode && blockedClaims.length > 0) {
-    for (const claim of blockedClaims) {
-      console.error(`BLOCKED release claim ${claim.id}: ${claim.blocker ?? 'no blocker detail'}`);
+  const blockedReleaseClaims = blockedClaims;
+
+  if (options.releaseMode && blockedReleaseClaims.length > 0) {
+    for (const claim of blockedReleaseClaims) {
+      writeStderr(`BLOCKED release claim ${claim.id}: ${claim.blocker ?? 'no blocker detail'}`);
     }
     return { exitCode: 1, artifactDir, claims };
   }
@@ -1296,6 +1635,17 @@ function runSelfTest(): void {
   const manifest = loadManifestObject({
     version: 1,
     metadata,
+    release_profiles: [
+      {
+        id: 'self-test-profile',
+        title: 'Self-test profile',
+        feature_tier: 'self-test',
+        tag_pattern: 'self-test-*',
+        blocking_claims: ['closed-claim'],
+        non_blocking_claims: ['blocked-claim'],
+        non_blocking_rationale: 'self-test non-blocking claim remains outside the closed release profile',
+      },
+    ],
     claims: [
       {
         id: 'closed-claim',
@@ -1342,7 +1692,7 @@ function runSelfTest(): void {
   const evaluated = manifest.claims.map((claim) => evaluateClaim(claim, checks, 'self-test'));
   assert.equal(evaluated[0]?.evaluated_status, 'pass');
   assert.equal(evaluated[1]?.evaluated_status, 'blocked');
-  console.log('sens-enterprise-validation self-test: ok');
+  writeStdout('sens-enterprise-validation self-test: ok');
 }
 
 function main(): void {
@@ -1359,7 +1709,7 @@ if (require.main === module) {
   try {
     main();
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    writeStderr(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
 }

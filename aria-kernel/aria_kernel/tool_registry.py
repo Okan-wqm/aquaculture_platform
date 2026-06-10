@@ -7,11 +7,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, file_hash, write_index
-from .workspace import canonical_repo_root, governance_event, repo_hash
+from .ledger import append_declared_jsonl, append_jsonl, file_hash, rewrite_declared_json, write_index
+from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
+from .implementation_safety import verify_bash_command_allowed
 
 
-SCHEMA_VERSION = 2
+# Plan ARIA-V2 §3.2 — contract v3 introduces canonical-identity-bound
+# tools root. v3 is backward-compatible at the IDENTITY FILE level:
+# legacy ``bound_repo_hash`` is migrated to ``bound_canonical_identity``
+# in place on first bind under v3. Operators on v2 trees must run
+# ``aria-kernel integrity migrate-tools-bootstrap`` once after pull.
+SCHEMA_VERSION = 3
 TOOL_STATUSES = (
     "DRAFT",
     "SANDBOX",
@@ -62,8 +68,96 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _walk_up_to_bound_identity(start_cwd: str | os.PathLike[str]) -> Path | None:
+    """Plan ARIA-V3.3 §2a — walk-up resolver for an existing aria-tools.
+
+    Walks the directory chain from ``start_cwd`` toward the filesystem
+    root. At each ancestor checks whether
+    ``<ancestor>/aria-tools/repo_identity.json`` exists; returns the
+    FIRST matching ``<ancestor>/aria-tools`` as an absolute path.
+
+    Why walk-up vs CWD-relative fallback (pre-V3.3 behavior):
+      * Pre-V3.3, ``tools_dir(None)`` returned ``Path("aria-tools")``
+        — CWD-relative. A kernel invocation from inside the
+        ``aria-kernel/`` subdir silently created a SHADOW
+        ``aria-kernel/aria-tools/`` tree because the relative path
+        resolved against the wrong cwd. Reflection then read the
+        shadow ledger (a handful of stale rows) instead of the
+        canonical worktree-rooted ``aria-tools/``.
+      * Walk-up locates the canonical tools root from ANY cwd inside
+        the worktree by definition — the canonical root is the first
+        initialized aria-tools encountered on the way to filesystem
+        root. The defect class is structurally impossible after this
+        change (Tier-1 — "make impossible").
+
+    Returns ``None`` if no initialized aria-tools is found before the
+    filesystem root. The caller decides whether ``None`` means
+    "fail-fast" (the default ``tools_dir`` path) or "no-op" (the
+    frozen-profile read helper ``ensure_tools_dir_readonly``).
+    """
+    cur = Path(start_cwd).resolve()
+    while True:
+        candidate = cur / "aria-tools" / "repo_identity.json"
+        if candidate.is_file():
+            return (cur / "aria-tools").resolve()
+        if cur.parent == cur:
+            return None
+        cur = cur.parent
+
+
 def tools_dir(path: str | os.PathLike[str] | None = None) -> Path:
-    return Path(path or os.environ.get("ARIA_TOOLS_DIR", "aria-tools"))
+    """Plan ARIA-V3.3 §2a — always-absolute tools_dir resolver.
+
+    Resolution order:
+      1. Explicit ``path`` argument → ``Path(path).resolve()``.
+      2. ``ARIA_TOOLS_DIR`` env var → ``Path(env).resolve()``.
+      3. Walk up from cwd to the first
+         ``<ancestor>/aria-tools/repo_identity.json`` and return that
+         absolute directory.
+      4. Raise ``GovernanceError("tools_root_unresolvable")`` with a
+         remediation pointer to ``aria-kernel integrity migrate-tools-
+         bootstrap``.
+
+    Why this matters (Plan ARIA-V3.3 §2a / F-010-D4):
+      The pre-V3.3 fallback ``Path("aria-tools")`` was CWD-relative.
+      When the kernel was invoked from inside the ``aria-kernel/``
+      subdir (e.g. ``cd aria-kernel && python -m aria_kernel.cli ...``),
+      the relative path resolved against the wrong cwd and silently
+      created a SHADOW ``aria-kernel/aria-tools/`` tree. Reflection
+      then read the shadow ledger instead of the canonical worktree-
+      rooted ``aria-tools/`` — the daily report's "Total governance
+      events" number diverged from the actual governance.jsonl
+      contents.
+
+      V3.3 closes the class architecturally: ``tools_dir`` NEVER
+      returns a CWD-relative path. Every successful return is an
+      absolute Path; if no path can be inferred, the kernel raises
+      with an explicit remediation message rather than auto-creating a
+      shadow.
+
+    Operator workflow on a fresh checkout: run
+    ``aria-kernel integrity migrate-tools-bootstrap --workspace-root .
+    --tools-dir aria-tools --acknowledge --reason "<text>"`` once.
+    Subsequent invocations from any cwd inside the worktree find the
+    canonical aria-tools via walk-up.
+    """
+    if path is not None:
+        return Path(path).resolve()
+    env = os.environ.get("ARIA_TOOLS_DIR")
+    if env:
+        return Path(env).resolve()
+    discovered = _walk_up_to_bound_identity(Path.cwd())
+    if discovered is not None:
+        return discovered
+    raise GovernanceError(
+        "tools_root_unresolvable: no --tools-dir argument, no "
+        "ARIA_TOOLS_DIR env var, and no parent directory contains an "
+        "initialized aria-tools/ with repo_identity.json. Run "
+        "`aria-kernel integrity migrate-tools-bootstrap "
+        "--workspace-root . --tools-dir aria-tools --acknowledge "
+        "--reason \"<text>\"` to initialize a tools root, OR set "
+        "ARIA_TOOLS_DIR=<absolute-path>, OR pass --tools-dir explicitly."
+    )
 
 
 def registry_path(base_dir: str | os.PathLike[str] | None = None) -> Path:
@@ -86,6 +180,8 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
         }
         _prepare_tools_dirs(root)
         _atomic_write_json(identity_file, identity)
+        if not registry_path(root).exists():
+            _atomic_write_json(registry_path(root), {"schema_version": SCHEMA_VERSION, "tools": []})
         append_tools_governance(
             root,
             "tools_root_bootstrapped",
@@ -125,65 +221,114 @@ def ensure_tools_binding(
     *,
     workspace_root: str | os.PathLike[str] | None = None,
 ) -> Path:
+    """Plan ARIA-V2 §3.2 — bind aria-tools to a canonical repo identity.
+
+    v3 semantics (backward-compatible upgrade from v2):
+      * Binding identity is ``canonical_identity(workspace_root)`` —
+        environment-independent (ARIA-V-006 fix). Cross-clone /
+        cross-protocol invocation of the same repo binds identically;
+        legitimate cross-repo reuse still fails closed.
+      * ``aria-tools/repo_identity.json`` stores the binding as
+        ``bound_canonical_identity`` (preferred) while keeping legacy
+        ``bound_repo_hash`` populated for callsites still reading it.
+        Both fields are kept in sync on every bind under v3.
+      * Worktree paths of the SAME repo bind identically because
+        ``canonical_identity`` resolves through ``--git-common-dir``
+        before hashing. The legacy worktree-aware fallback is no
+        longer needed — the canonical resolution is built into the
+        identity function itself (Tier-1: structural).
+    """
     root = ensure_tools_dir(base_dir)
     if workspace_root is None:
         return root
     repo_root = Path(workspace_root).resolve()
     identity_file = root / "repo_identity.json"
     identity = json.loads(identity_file.read_text(encoding="utf-8"))
-    expected_hash = repo_hash(repo_root)
-    if identity.get("bound_repo_hash") in (None, ""):
-        identity["bound_repo_hash"] = expected_hash
+    expected = canonical_identity(repo_root)
+    legacy_bound = identity.get("bound_repo_hash")
+    bound_canonical = identity.get("bound_canonical_identity")
+    bound_value = bound_canonical or legacy_bound  # tolerate either field during migration
+    if bound_value in (None, ""):
+        # Fresh bind — populate both legacy and canonical fields so
+        # any reader on either schema sees a consistent value.
+        identity_source = canonical_identity_source(repo_root)
+        identity["bound_canonical_identity"] = expected
+        identity["bound_repo_hash"] = expected  # legacy mirror
         identity["bound_repo_root"] = str(repo_root)
-        identity["aria_tools_contract_version"] = 2
-        identity["schema_version"] = 2
+        identity["aria_tools_contract_version"] = SCHEMA_VERSION
+        identity["schema_version"] = SCHEMA_VERSION
         _atomic_write_json(identity_file, identity)
-        append_tools_governance(root, "tools_root_bound", {"bound_repo_hash": expected_hash, "bound_repo_root": str(repo_root)})
-    elif identity["bound_repo_hash"] != expected_hash:
-        # Plan 024 v3 followup (ORPHAN-HIGH-056) — worktree-aware
-        # binding. Pre-fix the cross-repo defense rejected ANY hash
-        # mismatch, including same-repo-different-worktree scenarios
-        # (e.g. operator running ARIA from .worktrees/snowball when
-        # aria-tools/ is bound to /var/aqua-saas canonical repo
-        # root). The hash differs because repo_hash() includes the
-        # filesystem path of the worktree. Post-fix: resolve the
-        # workspace_root through git --git-common-dir to find the
-        # canonical repo root + recompute the hash on that path. If
-        # the canonical hash matches the binding, accept (worktree of
-        # the same repo). If still mismatching, reject (genuine
-        # cross-repo reuse) — the original defense is preserved for
-        # the case it was designed to catch.
-        canonical = canonical_repo_root(repo_root)
-        canonical_hash = repo_hash(canonical) if canonical != repo_root else expected_hash
-        if identity["bound_repo_hash"] == canonical_hash:
-            # Worktree of the bound repo: same git common_dir,
-            # different filesystem path. Binding stays valid; emit
-            # an observability event so audit trails capture the
-            # worktree-vs-canonical resolution.
+        append_tools_governance(
+            root,
+            "tools_root_bound",
+            {
+                "bound_canonical_identity": expected,
+                "bound_repo_root": str(repo_root),
+                "identity_source": identity_source["source"],
+            },
+        )
+        if identity_source["source"] != "remote_url":
             append_tools_governance(
                 root,
-                "tools_root_worktree_resolved",
+                "canonical_identity_offline_fallback",
                 {
-                    "bound_repo_hash": identity["bound_repo_hash"],
-                    "bound_repo_root": identity.get("bound_repo_root"),
-                    "worktree_root": str(repo_root),
-                    "canonical_repo_root": str(canonical),
+                    "identity_source": identity_source["source"],
+                    "seed_summary": identity_source["normalized"][:64],
+                    "canonical_identity": expected,
                 },
             )
-            return root
-        # Plan 022 §C-3 — fail-closed on cross-repo aria-tools reuse.
-        # Both the worktree path AND its canonical resolution differ
-        # from the bound hash; this is a genuine cross-repo reuse.
-        raise GovernanceError(
-            f"tools_root_repo_hash_mismatch: "
-            f"bound={identity['bound_repo_hash']!r} "
-            f"current={expected_hash!r} canonical={canonical_hash!r}; "
-            f"aria-tools cannot be reused across repos. "
-            f"bound_repo_root={identity.get('bound_repo_root')!r}, "
-            f"current workspace_root={str(repo_root)!r}, "
-            f"canonical_repo_root={str(canonical)!r}"
+        return root
+    if bound_value == expected:
+        # Already bound and identity matches. If this is a legacy v2
+        # tree (only ``bound_repo_hash`` set, no ``bound_canonical_identity``)
+        # transparently upgrade to v3 by populating the canonical
+        # field in place. This makes ``migrate-tools-bootstrap`` a
+        # no-op for trees that happen to have already had their
+        # binding computed via the new canonical recipe.
+        if bound_canonical in (None, "") and legacy_bound:
+            identity["bound_canonical_identity"] = legacy_bound
+            identity["aria_tools_contract_version"] = SCHEMA_VERSION
+            identity["schema_version"] = SCHEMA_VERSION
+            _atomic_write_json(identity_file, identity)
+            append_tools_governance(
+                root,
+                "tools_root_canonical_identity_backfilled",
+                {"bound_canonical_identity": legacy_bound},
+            )
+        return root
+    # Mismatch. Try the legacy worktree-aware fallback (which now
+    # delegates to canonical_repo_root → canonical_identity, so a
+    # different working tree of the same repo binds identically).
+    canonical = canonical_repo_root(repo_root)
+    canonical_hash = canonical_identity(canonical) if canonical != repo_root else expected
+    if bound_value == canonical_hash:
+        append_tools_governance(
+            root,
+            "tools_root_worktree_resolved",
+            {
+                "bound_canonical_identity": bound_value,
+                "bound_repo_root": identity.get("bound_repo_root"),
+                "worktree_root": str(repo_root),
+                "canonical_repo_root": str(canonical),
+            },
         )
-    return root
+        return root
+    # Plan ARIA-V2 §3.2 — fail-closed on cross-repo aria-tools reuse.
+    # Under v3 this should fire ONLY for genuine cross-repo reuse
+    # because the canonical_identity recipe is path-independent.
+    # Operators on legacy v2 trees with a stale env-bound hash see
+    # this error and run ``integrity migrate-tools-bootstrap`` to
+    # rebind under v3.
+    raise GovernanceError(
+        f"tools_root_canonical_identity_mismatch: "
+        f"bound={bound_value!r} current={expected!r} canonical={canonical_hash!r}; "
+        f"aria-tools cannot be reused across repos. "
+        f"bound_repo_root={identity.get('bound_repo_root')!r}, "
+        f"current workspace_root={str(repo_root)!r}, "
+        f"canonical_repo_root={str(canonical)!r}. "
+        f"If this is a stale legacy v2 binding from another environment, "
+        f"run `aria-kernel integrity migrate-tools-bootstrap --acknowledge --reason \"<text>\"`."
+    )
 
 
 def tools_contract_version(base_dir: str | os.PathLike[str] | None = None) -> int:
@@ -216,9 +361,27 @@ def covered_tool_ledgers(root: Path) -> dict[str, Path]:
         "worker_results": root / "dispatch" / "worker-results.jsonl",
         "verification_results": root / "dispatch" / "verification-results.jsonl",
         "agent_fitness": root / "fitness" / "agent-fitness.jsonl",
+        "goldset_proposals": root / "goldsets" / "proposals.jsonl",
+        "proposals": root / "proposals" / "proposals.jsonl",
+        "impact_graphs": root / "impact" / "impact-graphs.jsonl",
+        "impact_plans": root / "impact" / "impact-plans.jsonl",
+        "executor_registry": root / "executor" / "registry.jsonl",
+        "executor_packets": root / "executor" / "packets.jsonl",
+        "executor_diff_reviews": root / "executor" / "diff-reviews.jsonl",
+        "executor_prompts": root / "executor" / "prompts.jsonl",
+        "executor_applications": root / "executor" / "applications.jsonl",
+        "executor_locks": root / "executor" / "locks.jsonl",
+        "executor_retries": root / "executor" / "retries.jsonl",
+        "executor_operator_takeovers": root / "executor" / "operator-takeovers.jsonl",
+        "executor_flaky_fingerprints": root / "executor" / "flaky-fingerprints.jsonl",
         "plans_events": root / "plans" / "events.jsonl",
         "agent_invocations_requests": root / "agent-invocations" / "requests.jsonl",
         "agent_invocations_results": root / "agent-invocations" / "results.jsonl",
+        "runtime_artifact_index": root / "run-artifacts" / "artifact-index.jsonl",
+        "runtime_artifact_manifest": root / "run-artifacts" / "manifest.jsonl",
+        "runtime_retention_events": root / "retention" / "events.jsonl",
+        "runtime_observability_alerts": root / "observability" / "alerts.jsonl",
+        "runtime_artifact_inventory": root / "observability" / "artifact-inventory.jsonl",
     }
     for name, path in optional.items():
         if path.exists():
@@ -276,10 +439,12 @@ def append_tools_governance(
         # tool_registry for ensure_tools_dir + append_tools_governance.
         from .runtime_profile import enforce_profile_for_write
         enforce_profile_for_write("tool_governance", base_dir=base_dir)
-    root = Path(base_dir)
-    root.mkdir(parents=True, exist_ok=True)
-    return append_jsonl(
-        root / "governance.jsonl", governance_event(kind=kind, details=details)
+    root = ensure_tools_dir(base_dir)
+    return append_declared_jsonl(
+        root / "governance.jsonl",
+        governance_event(kind=kind, details=details),
+        expected_surface="tools_governance",
+        bypass_profile_gate=bypass_profile_gate,
     )
 
 
@@ -315,6 +480,9 @@ def _guard_tools_lock(root: Path) -> None:
         payload = {}
     age = (datetime.now(timezone.utc) - started.astimezone(timezone.utc)).total_seconds()
     pid = int(payload.get("pid") or 0)
+    operation = str(payload.get("operation") or "")
+    if pid == os.getpid() and operation in {"tools_migration", "tools_rollback"}:
+        return
     if age >= 120 and (pid <= 0 or not _pid_exists(pid)):
         try:
             lock_path.unlink()
@@ -356,9 +524,11 @@ def save_registry(
 ) -> None:
     ensure_tools_dir(base_dir)
     path = registry_path(base_dir)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(registry, handle, indent=2, sort_keys=True)
-        handle.write("\n")
+    rewrite_declared_json(
+        path,
+        registry,
+        expected_surface="tool_registry",
+    )
 
 
 def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
@@ -428,6 +598,10 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
     cwd_path = Path(cwd)
     if cwd_path.is_absolute() or ".." in cwd_path.parts:
         raise GovernanceError("runner.cwd must be relative to the workspace root and must not escape it")
+    try:
+        verify_bash_command_allowed(list(candidate["argv"]), cwd=cwd)
+    except Exception as exc:
+        raise GovernanceError(f"runner.argv_rejected_by_command_policy:{exc}") from exc
     timeout_ms = candidate.get("timeout_ms")
     if not isinstance(timeout_ms, int) or timeout_ms <= 0:
         raise GovernanceError("runner.timeout_ms must be a positive integer")
@@ -475,7 +649,7 @@ def register_tool(
         # Promotions through SHADOW -> ACTIVE require precision/evidence
         # validation that only transition_tool() performs. Block bare
         # re-registration that tries to skip the matrix.
-        if existing_status in {"SHADOW", "CALIBRATE"} and candidate_status == "ACTIVE":
+        if existing_status in {"DRAFT", "SANDBOX", "SHADOW", "CALIBRATE"} and candidate_status == "ACTIVE":
             raise GovernanceError(
                 f"register_tool blocked: tool_id={candidate['tool_id']!r} promotion "
                 f"{existing_status!r} -> 'ACTIVE' must route through transition_tool() "
@@ -750,20 +924,17 @@ def update_tool(
     if "runner" in updates:
         new_argv = list((result.get("runner") or {}).get("argv", []))
         if pre_runner_argv != new_argv:
-            from .ledger import append_jsonl
             tools_root = ensure_tools_dir(base_dir)
-            append_jsonl(
-                tools_root / "governance.jsonl",
-                governance_event(
-                    kind="tool_runner_replaced",
-                    details={
-                        "tool_id": tool_id,
-                        "previous_argv": pre_runner_argv,
-                        "new_argv": new_argv,
-                        "reason": reason,
-                        "operator_approval_ref": operator_approval_ref,
-                    },
-                ),
+            append_tools_governance(
+                tools_root,
+                "tool_runner_replaced",
+                {
+                    "tool_id": tool_id,
+                    "previous_argv": pre_runner_argv,
+                    "new_argv": new_argv,
+                    "reason": reason,
+                    "operator_approval_ref": operator_approval_ref,
+                },
             )
 
     # Plan 023 v3 §C-4 — emit tool_health_thresholds_updated when the
@@ -771,20 +942,17 @@ def update_tool(
     # so demotion / quarantine / calibrate trigger rewrites are
     # readable from governance.jsonl alone.
     if "health_thresholds" in updates:
-        from .ledger import append_jsonl
         tools_root = ensure_tools_dir(base_dir)
-        append_jsonl(
-            tools_root / "governance.jsonl",
-            governance_event(
-                kind="tool_health_thresholds_updated",
-                details={
-                    "tool_id": tool_id,
-                    "previous_thresholds": pre.get("health_thresholds"),
-                    "new_thresholds": result.get("health_thresholds"),
-                    "reason": reason,
-                    "operator_approval_ref": operator_approval_ref,
-                },
-            ),
+        append_tools_governance(
+            tools_root,
+            "tool_health_thresholds_updated",
+            {
+                "tool_id": tool_id,
+                "previous_thresholds": pre.get("health_thresholds"),
+                "new_thresholds": result.get("health_thresholds"),
+                "reason": reason,
+                "operator_approval_ref": operator_approval_ref,
+            },
         )
 
     return result
@@ -810,10 +978,31 @@ def transition_tool(
     fixture_update_ref: str | None = None,
     fixture_suite_passed: bool = False,
     operator_approval: bool = False,
+    auto_promote_token: str | None = None,
     precision: float | None = None,
     critical_false_positives: int = 0,
     evidence_chains_valid: bool = False,
 ) -> dict[str, Any]:
+    """Plan ARIA-V6 §2e v2 B-V1-1 — auto_promote_token added.
+
+    The ``auto_promote_token`` kwarg substitutes for ``operator_
+    approval`` ONLY when the genesis_policy ``auto_promote`` block is
+    enabled, the runtime profile is ``autonomous``, the adapter's
+    precision history shows ≥ ``min_precision`` over ≥
+    ``min_clean_cycles`` consecutive runs, and ``critical_false_
+    positives`` over that window is zero. The token is generated by
+    ``adapter_calibration.compute_auto_promote_token(tool_id, base_dir)``
+    which inspects the precision_history ledger; tamper-evident hash
+    over (tool_id, last_N runs, base_dir contract hash).
+
+    The literal predicate (I-V6.4-04 source-substring invariant pins):
+
+        if (not operator_approval and not auto_promote_token) or not evidence_chains_valid:
+
+    preserves V5's evidence_chains_valid check unchanged; auto-promote
+    can never bypass evidence chain integrity. Precision + FP thresholds
+    above this line are also UNCHANGED.
+    """
     if target_status not in TOOL_STATUSES:
         raise GovernanceError(f"unknown lifecycle state: {target_status}")
     if not reason:
@@ -853,9 +1042,17 @@ def transition_tool(
                 raise GovernanceError("SHADOW -> ACTIVE requires precision above threshold")
             if critical_false_positives > 0:
                 raise GovernanceError("SHADOW -> ACTIVE requires zero critical false positives")
-            if not evidence_chains_valid or not operator_approval:
+            # Plan ARIA-V6 §2e v2 B-V1-1 — literal predicate pinned by
+            # I-V6.4-04 source-substring invariant. The order of the
+            # boolean clauses is load-bearing: evidence_chains_valid
+            # is checked LAST so it short-circuits independently of
+            # the operator_approval / auto_promote_token path. A
+            # refactor that reorders OR drops either clause silently
+            # weakens the SHADOW -> ACTIVE gate.
+            if (not operator_approval and not auto_promote_token) or not evidence_chains_valid:
                 raise GovernanceError(
-                    "SHADOW -> ACTIVE requires valid evidence chains and operator approval",
+                    "SHADOW -> ACTIVE requires valid evidence chains and "
+                    "(operator_approval OR auto_promote_token under safe conditions)",
                 )
 
     # Plan 022 §C-2b — transition_tool is the audited state machine;

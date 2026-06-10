@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { useAuth } from './useAuth';
 import { useTodaysAttendance } from './useAttendance';
 import { useMyLeaveBalances } from './useLeave';
 import { useMySchedule } from './useMySchedule';
@@ -18,17 +17,11 @@ export function useStaffSummary(): {
   summary: StaffSummary;
   isLoading: boolean;
 } {
-  const { user } = useAuth();
-
-  // WHY employeeId fallback: BUG-11 — employeeId is the HR system identifier,
-  // which can differ from the auth user.id in some deployments.
-  const employeeId = user?.employeeId ?? user?.id;
-
   // --- Source 1: Clock-in status ---
   const {
     data: todaysAttendance,
     isLoading: attendanceLoading,
-  } = useTodaysAttendance(employeeId);
+  } = useTodaysAttendance();
 
   // --- Source 2: Leave balance ---
   const currentYear = new Date().getFullYear();

@@ -6,6 +6,7 @@
  *
  * @module Batch/Commands
  */
+import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 import { ITenantCommand } from '@platform/cqrs';
 
 export interface TransferBatchPayload {
@@ -25,5 +26,6 @@ export class TransferBatchCommand implements ITenantCommand {
     public readonly batchId: string,
     public readonly payload: TransferBatchPayload,
     public readonly transferredBy: string,
+    public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

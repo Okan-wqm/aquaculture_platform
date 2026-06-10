@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +24,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.runtime_profile import set_profile
+from tests._helpers.declared_fixtures import sha256_file
 
 
 class ResultContentHashAliasTests(unittest.TestCase):
@@ -37,15 +39,26 @@ class ResultContentHashAliasTests(unittest.TestCase):
         (self.workspace / "docs" / "evidence.md").write_text(
             "# evidence", encoding="utf-8",
         )
+        subprocess.run(["git", "init", "-q"], cwd=self.workspace, check=True)
+        subprocess.run(["git", "config", "user.email", "aria-test@example.invalid"], cwd=self.workspace, check=True)
+        subprocess.run(["git", "config", "user.name", "ARIA Test"], cwd=self.workspace, check=True)
+        subprocess.run(["git", "add", "docs/evidence.md"], cwd=self.workspace, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "fixture: evidence"], cwd=self.workspace, check=True)
+        self.target_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.workspace,
+            text=True,
+        ).strip()
 
         self.req = create_agent_invocation_request(
-            target_agent="ext-agent",
+            target_agent="aria-evidence-judge",
             role="evidence_judgment",
             suggested_prompt="verify",
             expected_output_path=str(self.workspace / "out.json"),
             must_satisfy=[{"id": "S1", "description": "evidence-grounded"}],
             allowed_scope=["docs/"],
             evidence_refs=["docs/evidence.md"],
+            target_sha=self.target_sha,
             base_dir=self.base,
         )
         self.claim = claim_request(
@@ -78,6 +91,16 @@ class ResultContentHashAliasTests(unittest.TestCase):
         }
         path.write_text(json.dumps(envelope), encoding="utf-8")
 
+    def _binding_kwargs(self, output_path: Path | None = None) -> dict[str, str]:
+        transcript = self.workspace / "out.transcript.txt"
+        transcript.write_text("fixture transcript for result content hash alias\n", encoding="utf-8")
+        return {
+            "context_hash": str(self.req["context_hash"]),
+            "prompt_hash": str(self.req["prompt_hash"]),
+            "transcript_hash": sha256_file(transcript),
+            "transcript_artifact_ref": transcript.resolve().as_posix(),
+        }
+
     def test_accepted_result_row_carries_both_hash_fields(self) -> None:
         out = self.workspace / "out.json"
         self._write_envelope(out)
@@ -88,6 +111,7 @@ class ResultContentHashAliasTests(unittest.TestCase):
             output_path=str(out),
             workspace_root=str(self.workspace),
             base_dir=self.base,
+            **self._binding_kwargs(),
         )
         self.assertEqual(result["status"], "accepted", result)
         row = result["row"]
@@ -125,6 +149,7 @@ class ResultContentHashAliasTests(unittest.TestCase):
             output_path=str(out),
             workspace_root=str(self.workspace),
             base_dir=self.base,
+            **self._binding_kwargs(out),
         )
         self.assertEqual(result["status"], "rejected", result)
         row = result["row"]
@@ -144,6 +169,7 @@ class ResultContentHashAliasTests(unittest.TestCase):
             output_path=str(out),
             workspace_root=str(self.workspace),
             base_dir=self.base,
+            **self._binding_kwargs(out),
         )
         target_hash = result["row"]["content_hash"]
         rows = load_jsonl(self.base / "agent-invocations" / "results.jsonl")

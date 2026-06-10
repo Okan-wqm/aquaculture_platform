@@ -65,8 +65,8 @@
  * change on AUDIT-MEDIUM-005's premise, not an inline exemption.
  */
 
-import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -166,8 +166,9 @@ function scanFile(file: string): readonly Hit[] {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';
-    for (let r = 0; r < ROOT_IMPORT_REGEXES.length; r++) {
-      const re = ROOT_IMPORT_REGEXES[r]!;
+    for (const [index, re] of ROOT_IMPORT_REGEXES.entries()) {
+      const banned = BANNED_SPECIFIERS[index];
+      if (!banned) continue;
       if (re.test(line)) {
         // Skip line-comment lines — `// some doc that mentions
         // @aquaculture/backend-common` is documentation, not a real
@@ -180,7 +181,7 @@ function scanFile(file: string): readonly Hit[] {
           file,
           line: i + 1,
           text: line.trim().slice(0, 120),
-          banned: BANNED_SPECIFIERS[r]!,
+          banned,
         });
       }
     }
@@ -218,7 +219,7 @@ describe('INVARIANT: no source file imports from the bare root barrel of @aquacu
           `  '@platform/backend-common'     →  '@aquaculture/backend-common/<subtree>'   (canonical alias)\n\n` +
           `Subtree set: /auth, /audit, /ai-safety, /bootstrap, /config, /constants, ` +
           `/context, /database, /decorators, /finding-registry, /guards, /health, ` +
-          `/nats, /pagination, /redis, /utils  (full list in tsconfig.base.json paths). ` +
+          `/mobile-command, /nats, /pagination, /redis, /utils  (full list in tsconfig.base.json paths). ` +
           `If your import target is genuinely not in any subtree, add it to a subtree ` +
           `rather than re-introducing the root barrel.`,
       );

@@ -17,21 +17,14 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { EventBusModule } from '@platform/event-bus';
 import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { APP_GUARD, Reflector } from '@nestjs/core';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
-import { GraphQLError } from 'graphql';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
+import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
-import {
-  fieldExtensionsEstimator,
-  getComplexity,
-  simpleEstimator,
-} from 'graphql-query-complexity';
+import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
   RlsModule,
@@ -58,6 +51,7 @@ import {
 // Tenant infrastructure — 'messaging' source schema for template tables
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('messaging');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('messaging');
+const runtimeTenantRlsSyncEnabled = process.env['DB_MIGRATE_DDL_AUTHORITY'] === '1';
 
 /**
  * MessagingMigrationRunnerService — runs pending TypeORM migrations in the
@@ -72,7 +66,7 @@ const TenantConnectionBootstrap = createTenantConnectionBootstrap('messaging');
  * the forRootAsync factory below so there is exactly one source of
  * truth for migration execution.
  */
-const MessagingMigrationRunnerService = createMigrationRunnerService('messaging');
+const MessagingMigrationRunnerService = createSchemaVersionGate('messaging');
 
 // Entities
 import { Channel } from './channel/entities/channel.entity';
@@ -98,34 +92,12 @@ import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 // Migrations — imported as class references so webpack bundles them into main.js.
 // Glob paths ('dist/migrations/*.js') do NOT work with NX webpack builds because
 // all source files are bundled into a single output file.
-import { CreateMessagingTables1711800000000 } from './migrations/1711800000000-CreateMessagingTables';
-import { CreateAITables1711800000001 } from './migrations/1711800000001-CreateAITables';
-import { AddAiPersonaColumns1711800000002 } from './migrations/1711800000002-AddAiPersonaColumns';
-import { CreateComplianceTables1711800000003 } from './migrations/1711800000003-CreateComplianceTables';
-import { ConvertMessagingOutboxToIdentity1781200000000 } from './migrations/1781200000000-ConvertMessagingOutboxToIdentity';
-import { AddCompositeFkIndexesOnMessageChildren1781600000000 } from './migrations/1781600000000-AddCompositeFkIndexesOnMessageChildren';
-// NEW-H1: convert audit columns from TIMESTAMP to TIMESTAMPTZ across the
-// messaging schema. Excludes messaging_outbox to stay in lockstep with the
-// outbox migration's invariants (cross-tenant table read by background
-// workers). Runs after the outbox IDENTITY conversion is complete; the
-// helper is idempotent at the discovery layer so retries are free.
-import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
-// Package 21-26: Tenant isolation, message idempotency, outbox dedup, audit immutability
-import { AddTenantIsolationAndAuditImmutability1782000000000 } from './migrations/1782000000000-AddTenantIsolationAndAuditImmutability';
-import { AddMessagingOutboxNotifyTrigger1782100000000 } from './migrations/1782100000000-AddMessagingOutboxNotifyTrigger';
-import { AddMissingOutboxColumns1782200000000 } from './migrations/1782200000000-AddMissingOutboxColumns';
-// P3 of 2026-04-14 messaging-isolation plan — tenantId on 7 child tables;
-// prerequisite for the P4 RLS install.
-import { AddTenantIdToMessageChildren1782300000000 } from './migrations/1782300000000-AddTenantIdToMessageChildren';
-// P4 of 2026-04-14 messaging-isolation plan — canonical tenant_isolation_policy
-// on messaging source schema. Tenant-schema clones receive the same policy
-// via TenantRlsSyncService (wired by RlsModule.forPoolService syncTenantSchemas: true).
-import { EnableRowLevelSecurity1782400000000 } from './migrations/1782400000000-EnableRowLevelSecurity';
-import { AlignMessagingEntityDrift1782600000000 } from './migrations/1782600000000-AlignMessagingEntityDrift';
-import { AlignAiConsentColumns1782700000000 } from './migrations/1782700000000-AlignAiConsentColumns';
-import { AddLegalHoldDualApprover1782700000001 } from './migrations/1782700000001-AddLegalHoldDualApprover';
-import { AddMessageAttachmentIsDeletedIndex1782800000000 } from './migrations/1782800000000-AddMessageAttachmentIsDeletedIndex';
-
+// Baseline1800000000000 plus forward repair migrations after day-one reset (ADR-030).
+import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
+import { CreateMessagingOutboxTable1800200000000 } from './migrations/1800200000000-CreateMessagingOutboxTable';
+import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800300000000-AddUserAiConsentTenantUserUnique';
+import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from './migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
+import { EnsureMessagingPartitionContract1800500000000 } from './migrations/1800500000000-EnsureMessagingPartitionContract';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -142,6 +114,16 @@ import { MetricsModule } from './metrics/metrics.module';
 
 // Per-process complexity cache keyed by document hash
 const complexityCache = new Map<string, number>();
+
+type QueryComplexityOperationContext = {
+  request: {
+    query?: string;
+    operationName?: string;
+    variables?: Record<string, unknown>;
+  };
+  document: DocumentNode;
+  schema: GraphQLSchema;
+};
 
 @Module({
   imports: [
@@ -166,12 +148,11 @@ const complexityCache = new Map<string, number>();
         createServiceTypeOrmConfig(configService, {
           serviceName: 'messaging',
           schema: 'messaging',
-          // INFRA-CRITICAL-020: env-aware migrationsRun timing.
-          // Test E2E (DATABASE_MIGRATIONS_RUN=true) → TypeORM applies
-          // migrations at DataSource init, BEFORE NestJS lifecycle hooks
-          // fire → SourceSchemaBootstrapService finds tables → no false-fail.
-          // Production (DATABASE_MIGRATIONS_RUN=false) → unchanged; aqua-db-migrate
-          // runs as a separate container BEFORE service containers start.
+          // INFRA-CRITICAL-020: keep TypeORM's built-in runner behind an
+          // explicit env switch. Messaging E2E leaves this false and enables
+          // the platform migration runner via MIGRATION_RUNNER_ENABLED=true
+          // so transaction='none' migrations keep their custom-runner
+          // semantics.
           migrationsRunFromEnv: (cs) =>
             cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
           entities: [
@@ -196,22 +177,11 @@ const complexityCache = new Map<string, number>();
           // Class references (NOT glob paths) — webpack bundles all into main.js,
           // so 'dist/migrations/*.js' would match zero files at runtime.
           migrations: [
-            CreateMessagingTables1711800000000,
-            CreateAITables1711800000001,
-            AddAiPersonaColumns1711800000002,
-            CreateComplianceTables1711800000003,
-            ConvertMessagingOutboxToIdentity1781200000000,
-            AddCompositeFkIndexesOnMessageChildren1781600000000,
-            ConvertAuditColumnsToTimestamptz1781900000000,
-            AddTenantIsolationAndAuditImmutability1782000000000,
-            AddMessagingOutboxNotifyTrigger1782100000000,
-            AddMissingOutboxColumns1782200000000,
-            AddTenantIdToMessageChildren1782300000000,
-            EnableRowLevelSecurity1782400000000,
-            AlignMessagingEntityDrift1782600000000,
-            AlignAiConsentColumns1782700000000,
-            AddLegalHoldDualApprover1782700000001,
-            AddMessageAttachmentIsDeletedIndex1782800000000,
+            Baseline1800000000000,
+            CreateMessagingOutboxTable1800200000000,
+            AddUserAiConsentTenantUserUnique1800300000000,
+            EnforceSourceOnlyMessagingOutboxContract1800400000000,
+            EnsureMessagingPartitionContract1800500000000,
           ],
         }),
     }),
@@ -237,13 +207,17 @@ const complexityCache = new Map<string, number>();
           csrfPrevention: true,
           autoSchemaFile: {
             federation: 2,
-            path: join('/tmp', 'messaging-schema.graphql'),
+            path: join(process.cwd(), 'dist/graphql/subgraphs/messaging.graphql'),
           },
           validationRules: [depthLimit(10)],
           plugins: [
             {
               requestDidStart: async () => ({
-                async didResolveOperation({ request, document, schema }) {
+                async didResolveOperation({
+                  request,
+                  document,
+                  schema,
+                }: QueryComplexityOperationContext) {
                   const docSource = request.query ?? '';
                   const opName = request.operationName ?? '';
                   /** SEC-L01: Use SHA-256 instead of deprecated SHA-1 for cache key generation.
@@ -282,8 +256,7 @@ const complexityCache = new Map<string, number>();
           // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
           // WHY: messaging subgraph developer UI must not rely on deprecated Apollo Playground behavior.
           introspection:
-            !isProduction ||
-            configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
+            !isProduction || configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
           context: ({ req }: { req: Request }) => ({ req }),
         };
       },
@@ -348,17 +321,13 @@ const complexityCache = new Map<string, number>();
      * Messages carry user/tenant PII — defence-in-depth isolation via RLS
      * means an app-layer tenantId bypass cannot read cross-tenant messages.
      *
-     * excludeTables MUST stay in lockstep with the migration
-     * 1782400000000-EnableRowLevelSecurity so that runtime
-     * TenantRlsSyncService (which sweeps tenant_<uuid>.* schemas) uses
-     * the same skip list as the migration that installed policies on
-     * the source schema. Divergence would mean a table has RLS on
-     * source but none on tenant clones (leak), or vice-versa (orphan
-     * policy).
+     * Tenant schema RLS DDL is owned by db-migrate/provisioner. Runtime
+     * services do not hold DB_MIGRATE_DDL_AUTHORITY, so registering
+     * TenantRlsSyncService in app boot would fail closed by design.
      */
     RlsModule.forPoolService({
       serviceName: 'messaging',
-      syncTenantSchemas: true,
+      syncTenantSchemas: runtimeTenantRlsSyncEnabled,
       // See P4 migration docblock for rationale:
       // - messaging_outbox: cross-tenant worker reads (BypassRls)
       // - embeddings_metadata: platform-wide reference data (no tenantId)
@@ -370,23 +339,37 @@ const complexityCache = new Map<string, number>();
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
-    { provide: APP_GUARD, useFactory: (c: ConfigService): ServiceIdentityGuard => new ServiceIdentityGuard(c), inject: [ConfigService] },
-    { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService): TenantGuard => new TenantGuard(r, undefined, c), inject: [Reflector, ConfigService] },
-    { provide: APP_GUARD, useFactory: (r: Reflector): RolesGuard => new RolesGuard(r), inject: [Reflector] },
-    { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard => new ThrottlerGuard(r, c, s), inject: [Reflector, ConfigService, SlidingWindowStrategy] },
+    {
+      provide: APP_GUARD,
+      useFactory: (c: ConfigService): ServiceIdentityGuard =>
+        new ServiceIdentityGuard(c, undefined, 'messaging-service'),
+      inject: [ConfigService],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector, c: ConfigService): TenantGuard => new TenantGuard(r, undefined, c),
+      inject: [Reflector, ConfigService],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector): RolesGuard => new RolesGuard(r),
+      inject: [Reflector],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard =>
+        new ThrottlerGuard(r, c, s),
+      inject: [Reflector, ConfigService, SlidingWindowStrategy],
+    },
 
     // Migration runner — runs pending TypeORM migrations on the messaging
     // source schema at OnApplicationBootstrap with search_path pinning.
     // See docblock on MessagingMigrationRunnerService above.
     //
-    // ORDER MATTERS: NestJS calls onApplicationBootstrap in provider
-    // registration order. The migration runner MUST appear BEFORE
-    // SourceSchemaBootstrapService so the source-schema invariant check
-    // (which hard-fails on empty tables, INFRA-CRITICAL-009) sees a
-    // populated schema. Production previously masked this ordering
-    // requirement because aqua-db-migrate populated the schema before
-    // service containers started; in E2E (DATABASE_MIGRATIONS_RUN=false
-    // converged path) the runner is the SSoT for migration execution.
+    // SourceSchemaBootstrapService waits on the migration runner's in-process
+    // completion promise before checking the source schema. Production still
+    // relies on aqua-db-migrate before service containers start; in E2E the
+    // runner is the SSoT for migration execution.
     MessagingMigrationRunnerService,
 
     // Tenant infrastructure providers (all 5 required — see ADR-012 section 6.1)

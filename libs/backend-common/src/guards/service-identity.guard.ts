@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 import {
   Injectable,
   CanActivate,
@@ -9,106 +11,104 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GqlExecutionContext } from '@nestjs/graphql';
-import { verifyServiceIdentityRequest } from '../utils/service-identity.util';
+
+import { serviceIdentityAudienceForService } from '../../../../platform/libs/service-catalog/src/index';
 import { SecurityEventService } from '../security/security-event.service';
+import type { TenantRequest } from '../types/tenant-request.interface';
+import {
+  getServiceIdentityHeader,
+  parseServiceIdentityKeyring,
+  verifyServiceIdentityRequest,
+} from '../utils/service-identity.util';
+import type { ServiceIdentityKeyringEntry } from '../utils/service-identity.util';
 
 /**
- * ServiceIdentityGuard — validates that incoming requests to a subgraph
- * service carry valid HMAC-signed service identity headers.
- *
- * This guard ensures that only the trusted gateway (or another service
- * sharing the INTERNAL_SERVICE_SECRET) can invoke the subgraph's GraphQL
- * endpoint, preventing direct access from arbitrary processes on the
- * Docker network.
- *
- * Behaviour:
- * - When INTERNAL_SERVICE_SECRET is set: validates X-Service-Identity,
- *   X-Service-Timestamp, and X-Service-Signature headers on every request.
- * - When INTERNAL_SERVICE_SECRET is NOT set (dev mode): logs a warning and
- *   allows all requests through.
- * - GraphQL introspection queries (__schema, __type) are always allowed
- *   without identity headers so that tooling and the gateway's schema
- *   polling continue to work.
- * - Health check endpoints (/health/*) are not affected — they use HTTP
- *   context and the guard only enforces on GraphQL context.
+ * ServiceIdentityGuard validates GraphQL subgraph calls using the canonical
+ * v2 service-identity contract. Production uses SERVICE_IDENTITY_KEYRING;
+ * legacy single-secret fallback is limited to non-production/test flows.
  */
 @Injectable()
 export class ServiceIdentityGuard implements CanActivate {
   private readonly logger = new Logger(ServiceIdentityGuard.name);
-  private readonly secret: string | undefined;
+  private readonly keyring: ServiceIdentityKeyringEntry[];
+  private readonly devSecret: string | undefined;
+  private readonly expectedAudience: string | undefined;
   private warned = false;
 
-  // WHY: Explicit @Inject() — design:paramtypes may not survive all build/runtime environments.
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Optional() private readonly securityEventService?: SecurityEventService,
+    @Optional()
+    @Inject('SERVICE_IDENTITY_SERVICE_ID')
+    private readonly configuredServiceId?: string,
   ) {
-    this.secret = this.configService.get<string>('INTERNAL_SERVICE_SECRET');
+    this.keyring = parseServiceIdentityKeyring(
+      this.configService.get<string>('SERVICE_IDENTITY_KEYRING') ??
+        process.env['SERVICE_IDENTITY_KEYRING'],
+    );
+    this.devSecret =
+      process.env['NODE_ENV'] === 'production'
+        ? undefined
+        : (this.configService.get<string>('SERVICE_IDENTITY_SIGNING_SECRET') ??
+          this.configService.get<string>('INTERNAL_SERVICE_SECRET'));
+    this.expectedAudience = this.resolveExpectedAudience();
   }
 
   canActivate(context: ExecutionContext): boolean {
-    // Only enforce on GraphQL (HTTP health checks etc. should pass through)
     const contextType = context.getType<string>();
     if (contextType !== 'graphql') {
       return true;
     }
 
-    // If no secret configured, fail-fast in production or skip validation (dev mode)
-    if (!this.secret) {
+    const gqlCtx = GqlExecutionContext.create(context);
+    const req = gqlCtx.getContext().req as TenantRequest | undefined;
+
+    if (!req) {
+      return true;
+    }
+
+    if (req.verifiedIdentity) {
+      return true;
+    }
+
+    const body = req.body as { query?: string; operationName?: string } | undefined;
+    if (process.env['NODE_ENV'] !== 'production' && this.isIntrospectionQuery(body)) {
+      return true;
+    }
+
+    if (this.keyring.length === 0 && !this.devSecret) {
       if (process.env['NODE_ENV'] === 'production') {
         throw new Error(
-          'INTERNAL_SERVICE_SECRET is not set. ' +
-          'Inter-service authentication is required in production. ' +
-          'Set INTERNAL_SERVICE_SECRET to enable service identity validation.',
+          'SERVICE_IDENTITY_KEYRING is not set. Inter-service authentication is required in production.',
         );
       }
       if (!this.warned) {
         this.warned = true;
         this.logger.warn(
-          'INTERNAL_SERVICE_SECRET is not set — service identity validation is DISABLED. ' +
-          'Set INTERNAL_SERVICE_SECRET in production to enforce inter-service authentication.',
+          'SERVICE_IDENTITY_KEYRING is not set — service identity validation is DISABLED for local development.',
         );
       }
       return true;
     }
 
-    const gqlCtx = GqlExecutionContext.create(context);
-    const req = gqlCtx.getContext().req;
-
-    if (!req) {
-      // No request object (e.g. subscription) — allow
-      return true;
-    }
-
-    // Allow introspection queries without identity headers.
-    // The gateway's IntrospectAndCompose polls subgraph schemas periodically
-    // and Apollo's internal introspection does not go through willSendRequest
-    // context flow (context is undefined for health-check/schema loads).
-    const body = req.body as { query?: string; operationName?: string } | undefined;
-    if (this.isIntrospectionQuery(body)) {
-      return true;
-    }
-
-    // SECURITY: bind X-Tenant-ID into signature verification so a compromised
-    // caller cannot forward a valid signature with a spoofed tenant header.
-    // Absent header verifies with empty string (non-tenant path).
-    const tenantHeader = (req.headers['x-tenant-id'] as string | undefined) ?? '';
-    const serviceName = (req.headers['x-service-identity'] as string | undefined) ?? 'unknown';
-
-    // Unified v1/v2 verifier — closes SEC-CRITICAL-001 by binding method,
-    // path, and body into the v2 canonical input. v1 is accepted only for
-    // the W0.A rolling-deploy window; verifier emits a security event on
-    // every v1 outcome so the fleet can confirm zero v1 traffic before
-    // W0.A-finalize removes v1 acceptance entirely.
-    const observedBody = this.serializeBodyForHash(req.body);
+    const headers = req.headers as Record<string, string | string[] | undefined>;
+    const tenantHeader = getServiceIdentityHeader(headers, 'x-tenant-id') ?? '';
+    const serviceName = getServiceIdentityHeader(headers, 'x-service-identity') ?? 'unknown';
+    const keyId = getServiceIdentityHeader(headers, 'x-service-key-id') ?? '';
 
     const outcome = verifyServiceIdentityRequest({
-      headers: req.headers as Record<string, string | string[] | undefined>,
+      headers,
       observedMethod: req.method ?? 'POST',
       observedPath: this.canonicalisePath(req),
-      observedBody,
-      secret: this.secret,
+      observedQuery: this.canonicaliseQuery(req),
+      observedContentType: getServiceIdentityHeader(headers, 'content-type') ?? '',
+      observedAssertionHash: this.assertionHash(headers),
+      observedBody: this.serializeBodyForHash(req.body),
+      secret: this.devSecret,
+      keyring: this.keyring,
+      allowUnscopedDevKey: process.env['NODE_ENV'] !== 'production',
       expectedTenantId: tenantHeader,
+      expectedAudience: this.expectedAudience,
     });
 
     if (!outcome.valid) {
@@ -116,13 +116,17 @@ export class ServiceIdentityGuard implements CanActivate {
         `Rejected request: ${outcome.reason} from "${serviceName}"` +
           (tenantHeader ? ` (tenant=${tenantHeader})` : ''),
       );
-      this.securityEventService?.publishServiceIdentityRejected({
-        serviceName,
-        reason:
-          outcome.reason === 'missing-headers'
-            ? 'Missing service identity headers'
-            : `Service identity verification failed: ${outcome.reason}`,
-      }).catch(() => { /* best-effort */ });
+      this.securityEventService
+        ?.publishServiceIdentityRejected({
+          serviceName,
+          reason:
+            outcome.reason === 'missing-headers'
+              ? 'Missing service identity headers'
+              : `Service identity verification failed: ${outcome.reason}`,
+        })
+        .catch(() => {
+          /* best-effort */
+        });
       throw new ForbiddenException(
         outcome.reason === 'missing-headers'
           ? 'Missing service identity headers. Direct access to subgraph services is not allowed.'
@@ -130,26 +134,19 @@ export class ServiceIdentityGuard implements CanActivate {
       );
     }
 
-    if (outcome.version === 'v1') {
-      // Deprecated path observed — emit a security event so the metric
-      // for "safe to remove v1" can be tracked. Not a rejection (yet).
-      this.securityEventService?.publishServiceIdentityRejected({
-        serviceName,
-        reason: 'service-identity-v1-deprecated-accepted',
-      }).catch(() => { /* best-effort */ });
-    }
+    req.verifiedIdentity = {
+      serviceName: outcome.serviceName,
+      tenantId: tenantHeader,
+      effectiveTenantId: outcome.effectiveTenantId,
+      keyId: keyId || outcome.keyId,
+      audience: outcome.audience,
+      nonce: outcome.nonce,
+      version: 'v2',
+    };
 
     return true;
   }
 
-  /**
-   * Coerce the parsed body back into a byte-stable representation for
-   * sha256. Express + body-parser already JSON.parse'd the body for us;
-   * we re-serialize with stable key ordering by relying on JSON.stringify
-   * default ordering (insertion order), which matches what the sender's
-   * JSON.stringify produced. Raw-body callers (e.g. webhook controllers)
-   * should attach req.rawBody and we prefer that when present.
-   */
   private serializeBodyForHash(body: unknown): string | Buffer {
     if (body === undefined || body === null) return '';
     if (typeof body === 'string') return body;
@@ -157,23 +154,25 @@ export class ServiceIdentityGuard implements CanActivate {
     return JSON.stringify(body);
   }
 
-  /**
-   * Extract the path-only component of the request URL for v2 canonical
-   * comparison. Express's req.path already excludes the query string in
-   * the typical case; this helper is defensive about variants where
-   * originalUrl carries query params.
-   */
   private canonicalisePath(req: { path?: string; originalUrl?: string; url?: string }): string {
-    const raw = req.path ?? req.originalUrl ?? req.url ?? '/';
+    const raw = req.originalUrl ?? req.url ?? req.path ?? '/';
     const qIdx = raw.indexOf('?');
     return qIdx === -1 ? raw : raw.slice(0, qIdx);
   }
 
-  /**
-   * Detect if a request is a GraphQL introspection query.
-   * Introspection queries are used by Apollo Gateway for schema polling,
-   * Apollo Studio, GraphQL Playground, and other development tools.
-   */
+  private canonicaliseQuery(req: { originalUrl?: string; url?: string }): string {
+    const raw = req.originalUrl ?? req.url ?? '';
+    const qIdx = raw.indexOf('?');
+    return qIdx === -1 ? '' : raw.slice(qIdx);
+  }
+
+  private assertionHash(
+    headers: Record<string, string | string[] | undefined>,
+  ): string | undefined {
+    const assertion = getServiceIdentityHeader(headers, 'x-verified-user-assertion');
+    return assertion ? createHash('sha256').update(assertion).digest('hex') : undefined;
+  }
+
   private isIntrospectionQuery(
     body: { query?: string; operationName?: string } | undefined,
   ): boolean {
@@ -181,25 +180,50 @@ export class ServiceIdentityGuard implements CanActivate {
       return false;
     }
 
-    // Apollo Gateway introspection uses specific operation names
     if (body.operationName === 'IntrospectionQuery') {
       return true;
     }
 
-    // Check if the query body contains introspection fields
     const query = body.query;
     if (typeof query === 'string') {
       const trimmed = query.replace(/\s+/g, ' ').trim();
-      // Match __schema or __type introspection patterns
       if (trimmed.includes('__schema') || trimmed.includes('__type')) {
         return true;
       }
-      // Apollo Gateway's _service { sdl } federation query
       if (trimmed.includes('_service') && trimmed.includes('sdl')) {
         return true;
       }
     }
 
     return false;
+  }
+
+  private resolveExpectedAudience(): string | undefined {
+    const configured =
+      this.configService.get<string>('SERVICE_IDENTITY_AUDIENCE') ??
+      process.env['SERVICE_IDENTITY_AUDIENCE'];
+    if (configured && configured.trim().length > 0) {
+      return configured.trim();
+    }
+
+    const serviceId =
+      this.configuredServiceId ??
+      this.configService.get<string>('SERVICE_IDENTITY_SERVICE_ID') ??
+      this.configService.get<string>('SERVICE_NAME') ??
+      process.env['SERVICE_IDENTITY_SERVICE_ID'] ??
+      process.env['SERVICE_NAME'];
+    const catalogAudience = serviceId ? serviceIdentityAudienceForService(serviceId) : undefined;
+    if (catalogAudience) {
+      return catalogAudience;
+    }
+
+    if (process.env['NODE_ENV'] === 'production') {
+      throw new Error(
+        'SERVICE_IDENTITY_AUDIENCE or catalog-backed SERVICE_NAME is required in production. ' +
+          'Receiver audience must not be inferred from SERVICE_IDENTITY_KEYRING.',
+      );
+    }
+
+    return undefined;
   }
 }

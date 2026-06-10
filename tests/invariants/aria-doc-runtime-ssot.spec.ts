@@ -1,0 +1,496 @@
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { describe, expect, it } from '@jest/globals';
+
+const REPO_ROOT = (() => {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+  } catch {
+    return process.cwd();
+  }
+})();
+
+function read(rel: string): string {
+  return readFileSync(join(REPO_ROOT, rel), 'utf8');
+}
+
+function git(args: string[]): string {
+  return execFileSync('git', ['-C', REPO_ROOT, ...args], { encoding: 'utf8' });
+}
+
+function gitSucceeds(args: string[]): boolean {
+  try {
+    execFileSync('git', ['-C', REPO_ROOT, ...args], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const LIVE_DOCS = [
+  'docs/aria/SPEC.md',
+  'docs/aria/CONTRACTS.md',
+  'docs/aria/IDENTITY.md',
+  'docs/aria/ROADMAP.md',
+  'docs/adr/033-aria-autonomous-profile.md',
+];
+
+const ARCHITECTURE_DOC = 'docs/aria/ARCHITECTURE.md';
+const ENTERPRISE_AUTONOMY_DOC = 'docs/aria/ENTERPRISE_AUTONOMY_SSOT.md';
+const BURN_IN_SCHEMA = 'docs/aria/schemas/autonomy-burn-in-report.schema.json';
+const PLAN_MARKERS = ['ARIA-HISTORICAL', 'ARIA-SUPERSEDED', 'ARIA-LIVE-AUTHORITY'];
+const STALE_LIVE_PLAN_PATTERNS = [
+  /merge_if_green`?\s+is\s+the\s+only\s+(?:real\s+)?merge\s+executor/i,
+  /Claude\/Anthropic(?:-oriented)?\s+(?:execution\s+model|runtime|executor)/i,
+  /(?:full|complete)\s+autonom(?:y|ous).*closed/i,
+  /generated(?:\/mechanically checked)?\s+docs\s+SSoT\s+complete/i,
+];
+
+const HISTORICAL_ARIA_RUNBOOKS = [
+  'docs/runbooks/aria-v3-1-smoke.md',
+  'docs/runbooks/aria-github-app-setup.md',
+];
+
+const LIVE_WORKFLOWS = [
+  '.github/workflows/aria-agent-eval.yml',
+  '.github/workflows/aria-agent-executor.yml',
+  '.github/workflows/aria-daily-report.yml',
+  '.github/workflows/aria-kernel.yml',
+  '.github/workflows/aria-kernel-fast.yml',
+  '.github/workflows/aria-kernel-full.yml',
+  '.github/workflows/aria-operational-proof.yml',
+];
+
+const ARCHITECTURE_SECTIONS = [
+  'Authority Chain / Yetki Zinciri',
+  'Main Value / Ana Değer',
+  'Repo-Shape Acquisition / Repo Şeklini Edinme',
+  'Memory And State / Hafıza ve Durum',
+  'Decision Making / Karar Verme',
+  'Skill Writing / Skill Yazımı',
+  'Agent Writing / Agent Yazımı',
+  'Bug Finding / Hata Bulma',
+  'Aqua Risk Maps / Aqua Risk Haritaları',
+  'Runtime And Safety / Çalışma Zamanı ve Güvenlik',
+  "Historical Docs And Runbooks / Tarihsel Dokümanlar ve Runbook'lar",
+  'Executable Anchor Matrix / Çalıştırılabilir Dayanak Matrisi',
+  'Known Limits / Bilinen Sınırlar',
+];
+
+const ARIA_AUTHORITY_HASH_SENTINEL =
+  'Last verified ARIA authority hash: `ARIA_AUTHORITY_HASH_SENTINEL`';
+
+function ariaAuthorityFiles(): string[] {
+  const tracked = git(['ls-files', 'docs/aria', 'aria-kernel', 'tools/aria-poc'])
+    .split(/\r?\n/)
+    .filter(Boolean);
+  const workflowFiles = git(['ls-files', '.github/workflows'])
+    .split(/\r?\n/)
+    .filter((rel) => /^\.github\/workflows\/aria-[^/]+\.ya?ml$/.test(rel));
+  return [...new Set([...tracked, ...workflowFiles])].sort();
+}
+
+function normalizedAriaAuthorityContent(rel: string): string {
+  const body = read(rel);
+  if (rel !== 'docs/aria/CURRENT_STATE.md') {
+    return body;
+  }
+  return body.replace(
+    /Last verified ARIA authority hash: `(?:[a-f0-9]{64}|ARIA_AUTHORITY_HASH_SENTINEL)`/,
+    ARIA_AUTHORITY_HASH_SENTINEL,
+  );
+}
+
+function ariaAuthorityHash(): string {
+  const hash = createHash('sha256');
+  for (const rel of ariaAuthorityFiles()) {
+    hash.update(rel);
+    hash.update('\0');
+    hash.update(normalizedAriaAuthorityContent(rel));
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+function markdownSection(body: string, heading: string): string {
+  const marker = `## ${heading}`;
+  const start = body.indexOf(marker);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const next = body.indexOf('\n## ', start + marker.length);
+  return body.slice(start, next === -1 ? body.length : next);
+}
+
+function planDocs(): string[] {
+  const tracked = git(['ls-files', 'docs/aria/plans'])
+    .split(/\r?\n/)
+    .filter((rel) => rel.endsWith('.md'));
+  const fromFs: string[] = [];
+  const visit = (rel: string): void => {
+    const abs = join(REPO_ROOT, rel);
+    if (!existsSync(abs)) return;
+    for (const name of readdirSync(abs)) {
+      const child = `${rel}/${name}`;
+      const childAbs = join(REPO_ROOT, child);
+      const stat = statSync(childAbs);
+      if (stat.isDirectory()) visit(child);
+      else if (stat.isFile() && child.endsWith('.md')) fromFs.push(child);
+    }
+  };
+  visit('docs/aria/plans');
+  return [...new Set([...tracked, ...fromFs])].sort();
+}
+
+function planMarkerCount(body: string): number {
+  return PLAN_MARKERS.reduce((count, marker) => {
+    const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return count + (body.match(new RegExp(escaped, 'g')) ?? []).length;
+  }, 0);
+}
+
+describe('ARIA live runtime/documentation SSoT', () => {
+  it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
+    const current = read('docs/aria/CURRENT_STATE.md');
+    expect(current).toContain('Date: 2026-06-06');
+    const target = current.match(/Target ref: `([^`]+)`/)?.[1];
+    expect(target).toBe('aria/context-proof-20260605');
+    const verifiedHash = current.match(
+      /Last verified ARIA authority hash: `([a-f0-9]{64})`/,
+    )?.[1];
+    expect(verifiedHash).toBeTruthy();
+    expect(verifiedHash).toBe(ariaAuthorityHash());
+    expect(current).not.toContain('Last verified commit');
+    expect(current).toContain('## Authority Chain');
+    expect(current).toContain('Executable code and machine-checked contracts are normative');
+    expect(current).toContain('Codex CLI');
+    for (const anchor of [
+      'aria-kernel/aria_kernel/cli.py',
+      'aria-kernel/aria_kernel/runtime_profile.py',
+      'aria-kernel/aria_kernel/state_manifest.py',
+      'aria-kernel/aria_kernel/tool_registry.py',
+      'aria-kernel/aria_kernel/runtime_artifacts.py',
+      'aria-kernel/aria_kernel/agent_surface.py',
+      'aria-kernel/aria_kernel/burn_in.py',
+      'docs/aria/schemas/autonomy-burn-in-report.schema.json',
+      'tools/aria-poc/ci_executor.py',
+      'tools/aria-poc/worker_executor.py',
+    ]) {
+      expect(current).toContain(anchor);
+    }
+    expect(current).toContain('artifact-bearing');
+    expect(current).toContain('Lifecycle-only cycles do not authorize promotion');
+    expect(current).toContain('autonomy burn-in observe');
+    expect(current).toContain('It is not a full autonomous merge proof');
+    expect(current).toContain(ENTERPRISE_AUTONOMY_DOC);
+  });
+
+  it('CURRENT_STATE file.py::symbol anchors resolve through Python AST', () => {
+    const current = read('docs/aria/CURRENT_STATE.md');
+    const anchors = [...current.matchAll(/([\w./-]+\.py)::([A-Za-z_]\w*)/g)]
+      .map((match) => {
+        const [, file, symbol] = match;
+        if (!file || !symbol) {
+          throw new Error(`Malformed ARIA anchor match: ${match[0] ?? '<empty>'}`);
+        }
+        return { file, symbol };
+      });
+    expect(anchors.length).toBeGreaterThan(0);
+    const script = [
+      'import ast, sys',
+      'path, symbol = sys.argv[1], sys.argv[2]',
+      'tree = ast.parse(open(path, encoding="utf-8").read(), filename=path)',
+      'for node in tree.body:',
+      '    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == symbol:',
+      '        raise SystemExit(0)',
+      '    if isinstance(node, ast.Assign):',
+      '        for target in node.targets:',
+      '            if isinstance(target, ast.Name) and target.id == symbol:',
+      '                raise SystemExit(0)',
+      '    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == symbol:',
+      '        raise SystemExit(0)',
+      'raise SystemExit(1)',
+    ].join('\n');
+    for (const anchor of anchors) {
+      execFileSync('python3', ['-c', script, join(REPO_ROOT, anchor.file), anchor.symbol], {
+        cwd: REPO_ROOT,
+        stdio: 'ignore',
+      });
+    }
+  });
+
+  it('every ARIA plan doc has exactly one authority marker', () => {
+    const rels = planDocs();
+    expect(rels.length).toBeGreaterThan(0);
+    for (const rel of rels) {
+      expect(planMarkerCount(read(rel))).toBe(1);
+    }
+  });
+
+  it('plan marker invariant rejects an unmarked stale plan fixture', () => {
+    const stale = '# Plan\n\n`merge_if_green` is the only real merge executor.\n';
+    expect(planMarkerCount(stale)).toBe(0);
+    expect(STALE_LIVE_PLAN_PATTERNS.some((pattern) => pattern.test(stale))).toBe(true);
+  });
+
+  it('live-authority ARIA plan docs do not contain stale runtime closure claims', () => {
+    for (const rel of planDocs()) {
+      const body = read(rel);
+      if (!body.includes('ARIA-LIVE-AUTHORITY')) continue;
+      for (const pattern of STALE_LIVE_PLAN_PATTERNS) {
+        expect(body).not.toMatch(pattern);
+      }
+    }
+  });
+
+  it('historical live docs are explicitly subordinate to CURRENT_STATE', () => {
+    const staleRuntimeTerms = [
+      'Claude Code',
+      'Anthropic',
+      'ANTHROPIC_API_KEY',
+      'llm_bridge.py',
+      'only implemented ARIA code',
+      'does not implement the kernel',
+      'never auto-merge pull requests',
+    ];
+    for (const rel of LIVE_DOCS) {
+      const body = read(rel);
+      const containsStaleTerm = staleRuntimeTerms.some((term) => body.includes(term));
+      if (!containsStaleTerm) continue;
+      expect(body).toMatch(/ARIA-LIVE-AUTHORITY|ARIA-CURRENT-STATE-NOTICE/);
+    }
+  });
+
+  it('ARCHITECTURE is a bilingual diagram-heavy explanatory map subordinate to CURRENT_STATE', () => {
+    const architecture = read(ARCHITECTURE_DOC);
+    expect(architecture).toContain('ARIA-CURRENT-STATE-NOTICE');
+    expect(architecture).toContain('Authority: explanatory-architecture');
+    expect(architecture).toContain('Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts');
+    for (const anchor of [
+      'Executable code and machine-checked contracts are normative',
+      'Codex CLI',
+      'artifact-bearing',
+      'Lifecycle-only cycles do not authorize promotion',
+      'docs/aria/CURRENT_STATE.md',
+    ]) {
+      expect(architecture).toContain(anchor);
+    }
+    for (const section of ARCHITECTURE_SECTIONS) {
+      const sectionBody = markdownSection(architecture, section);
+      expect(sectionBody).toContain('### EN');
+      expect(sectionBody).toContain('### TR');
+      expect(sectionBody).toContain('### Executable Links / Çalıştırılabilir Bağlantılar');
+      expect(sectionBody).toContain('### Diagram / Diyagram');
+    }
+    expect(architecture.match(/```mermaid/g)?.length ?? 0).toBeGreaterThanOrEqual(12);
+    for (const diagramKind of ['flowchart TD', 'flowchart LR', 'stateDiagram-v2', 'sequenceDiagram']) {
+      expect(architecture).toContain(diagramKind);
+    }
+    for (const anchor of [
+      'aria-kernel/aria_kernel/cli.py',
+      'aria-kernel/aria_kernel/runtime_profile.py',
+      'aria-kernel/aria_kernel/state_manifest.py',
+      'aria-kernel/aria_kernel/tool_registry.py',
+      'aria-kernel/aria_kernel/runtime_artifacts.py',
+      'aria-kernel/aria_kernel/tool_health.py',
+      'aria-kernel/aria_kernel/runs_reader.py',
+      'aria-kernel/aria_kernel/agent_surface.py',
+      'aria-kernel/aria_kernel/agent_contract.py',
+      'aria-kernel/aria_kernel/ledger.py',
+      'aria-kernel/aria_kernel/auto_merge.py',
+      'tools/aria-poc/ci_executor.py',
+      'tools/aria-poc/worker_executor.py',
+      'tools/aria-poc/codex_runtime.py',
+      'aria-kernel/aria_kernel/artifact_safety.py',
+      'aria-kernel/aria_kernel/burn_in.py',
+      'docs/aria/ENTERPRISE_AUTONOMY_SSOT.md',
+    ]) {
+      expect(architecture).toContain(anchor);
+    }
+  });
+
+  it('enterprise autonomy SSoT defines observe burn-in gates and genesis lifecycle', () => {
+    const body = read(ENTERPRISE_AUTONOMY_DOC);
+    expect(body).toContain('ARIA-CURRENT-STATE-NOTICE');
+    expect(body).toContain('Authority: enterprise-autonomy-ssot');
+    expect(body).toContain('Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts');
+    expect(body).toContain('Runtime entrypoint: `autonomy burn-in observe`');
+    expect(body).toContain(BURN_IN_SCHEMA);
+    expect(body).toContain('## EN');
+    expect(body).toContain('## TR');
+    for (const required of [
+      '30-attempt observe burn-in',
+      'No Action Surfaces',
+      'PRESSURE',
+      'CANDIDATE_PROPOSED',
+      'HUMAN_REQUIRED',
+      'REAL_SANDBOX',
+      'EVAL_WINDOW',
+      'ACTIVE',
+      'global workflow kill switch',
+      'remote CAS lease proof',
+    ]) {
+      expect(body).toContain(required);
+    }
+    expect(body.match(/```mermaid/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    for (const anchor of [
+      'aria-kernel/aria_kernel/burn_in.py',
+      'aria-kernel/aria_kernel/cli.py',
+      'aria-kernel/aria_kernel/state_manifest.py',
+      'aria-kernel/aria_kernel/discovery.py',
+      'aria-kernel/aria_kernel/memory.py',
+      'aria-kernel/aria_kernel/pressure.py',
+      'aria-kernel/aria_kernel/triage.py',
+    ]) {
+      expect(body).toContain(anchor);
+    }
+  });
+
+  it('observe burn-in report schema is the machine contract for enterprise acceptance', () => {
+    const generated = execFileSync(
+      'python3',
+      ['-m', 'aria_kernel.docs_ssot', 'burn-in-schema'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: { ...process.env, PYTHONPATH: 'aria-kernel' },
+      },
+    );
+    expect(read(BURN_IN_SCHEMA)).toBe(generated);
+    const schema = JSON.parse(read(BURN_IN_SCHEMA)) as {
+      additionalProperties: boolean;
+      required: string[];
+      properties: Record<string, unknown>;
+    };
+    expect(schema).toHaveProperty('$id', 'aria/autonomy-burn-in-report/v1');
+    expect(schema.additionalProperties).toBe(false);
+    for (const field of [
+      'schema_version',
+      'generated_at',
+      'started_at',
+      'completed_at',
+      'target_ref',
+      'base_commit_sha',
+      'cycle_attempts',
+      'valid_cycles',
+      'min_valid_cycles',
+      'workspace_root',
+      'workspace_base',
+      'tools_dir',
+      'profile',
+      'discovery_summary',
+      'memory_summary',
+      'pressure_summary',
+      'finding_summary',
+      'triage_summary',
+      'skill_gap_candidates',
+      'agent_gap_candidates',
+      'candidate_observations',
+      'disallowed_actions_observed',
+      'cycles',
+      'artifact_hashes',
+      'cycle_ledger_summary',
+      'disallowed_actions_report',
+      'manifest_tail_hashes',
+      'candidate_detection',
+      'evidence_bundle',
+      'evidence_bundle_hash',
+      'failure_reports',
+      'failed_cycles',
+      'acceptance_conditions',
+      'acceptance_verdict',
+    ]) {
+      expect(schema.required).toContain(field);
+      expect(schema.properties).toHaveProperty(field);
+    }
+  });
+
+  it('stale ARIA runbooks are marked historical or compatibility material', () => {
+    const staleRuntimeTerms = ['snowball', 'Claude Code', 'Anthropic', 'ANTHROPIC_API_KEY', 'llm_bridge.py'];
+    for (const rel of HISTORICAL_ARIA_RUNBOOKS) {
+      const body = read(rel);
+      const containsStaleTerm = staleRuntimeTerms.some((term) => body.includes(term));
+      if (!containsStaleTerm) continue;
+      expect(body).toContain('ARIA-CURRENT-STATE-NOTICE');
+      expect(body).toMatch(/Historical\/compatibility|historical|compatibility/i);
+      expect(body).toContain('docs/aria/CURRENT_STATE.md');
+    }
+  });
+
+  it('Codex executor contract is mainline, version-bound, and has no pending verification placeholders', () => {
+    const contract = read('tools/aria-poc/ci_executor_contract_proven.md');
+    expect(contract).toContain('checkout the `main` target ref');
+    expect(contract).toContain('codex_cli_version_minimum: codex-cli 0.135.0');
+    expect(contract).toContain('verification_mode: runtime-preflight');
+    expect(contract).toContain('ChatGPT-managed Codex CLI login');
+    expect(contract).not.toMatch(/PENDING-CODEX-CONTRACT-TESTS|codex_cli_version_minimum:\s*PENDING|verified_by_operator_handle:\s*PENDING|verified_at_iso8601:\s*PENDING/);
+  });
+
+  it('live ARIA workflows target main and enforce the Codex CLI floor', () => {
+    for (const rel of LIVE_WORKFLOWS) {
+      const workflow = read(rel);
+      expect(workflow).not.toMatch(
+        /ref:\s*snowball|refs\/heads\/snowball|origin snowball|branches:\s*\n\s*-\s*snowball/,
+      );
+    }
+    const executor = read('.github/workflows/aria-agent-executor.yml');
+    expect(executor).toContain('ref: main');
+    expect(executor).toContain('REQUIRED_CODEX_VERSION="0.135.0"');
+    expect(executor).toContain('codex --version');
+    expect(read('.github/workflows/aria-kernel.yml')).toMatch(/branches:\s*\n\s*- main/);
+    expect(read('.github/workflows/aria-kernel-fast.yml')).toMatch(/branches:\s*\n\s*- main/);
+    expect(read('.github/workflows/aria-kernel-full.yml')).toMatch(/branches:\s*\n\s*- main/);
+    const kernelWorkflow = read('.github/workflows/aria-kernel.yml');
+    const kernelFullWorkflow = read('.github/workflows/aria-kernel-full.yml');
+    expect(kernelWorkflow).toContain('node-version: "22"');
+    expect(kernelFullWorkflow).toContain('node-version: "22"');
+    for (const workflow of [kernelWorkflow, kernelFullWorkflow]) {
+      expect(workflow).toContain('tomllib.load');
+      expect(workflow).toContain('aria-kernel/pyproject.toml');
+      expect(workflow).not.toMatch(/pip install[^\n]*\s-e\s+aria-kernel/);
+    }
+    expect(kernelWorkflow).toContain('Run ARIA docs/runtime SSoT invariant');
+    expect(kernelWorkflow).toContain('Run ARIA runtime artifact smoke');
+    expect(kernelWorkflow).toContain('Verify post-run clean worktree');
+  });
+
+  it('package scripts expose the clean ARIA validation entrypoints', () => {
+    const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
+    expect(pkg.scripts['aria:compile']).toContain("compile(p.read_text(encoding='utf-8'), str(p), 'exec')");
+    expect(pkg.scripts['aria:compile']).not.toContain('compileall');
+    expect(pkg.scripts['aria:test:unit']).toContain("python3 -m unittest discover aria-kernel -p '*test*.py'");
+    expect(pkg.scripts['aria:docs:ssot']).toBe('jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts');
+    expect(pkg.scripts['aria:burnin:observe']).toBe('PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe');
+    expect(pkg.scripts['aria:ci:all']).toBe('npm run aria:compile && npm run aria:test:unit && npm run invariants:fast');
+  });
+
+  it('CODEOWNERS covers the ARIA control-plane authority chain', () => {
+    const owners = read('.github/CODEOWNERS');
+    for (const required of [
+      'aria-kernel/',
+      'docs/aria/',
+      'tools/aria-poc/',
+      'aria-tools/preflight/',
+      'package.json',
+      '.gitignore',
+    ]) {
+      expect(owners).toContain(required);
+    }
+  });
+
+  it('runtime state roots are ignored and .aria-ci is not tracked', () => {
+    expect(git(['ls-files', '.aria-ci']).trim()).toBe('');
+    for (const rel of [
+      '.aria-ci/tools/runs.jsonl',
+      'artifacts/example.json',
+      'aria-kernel/aria-tools/runs.jsonl',
+      'aria-tools/autonomy_state.jsonl',
+      'aria-tools/daemons/lease.json',
+      'aria-tools/quarantine/finding.jsonl',
+    ]) {
+      expect(gitSucceeds(['check-ignore', '--no-index', '-q', '--', rel])).toBe(true);
+    }
+    expect(existsSync(join(REPO_ROOT, '.gitignore'))).toBe(true);
+  });
+});

@@ -88,8 +88,33 @@ export class SensorReading {
   @Index()
   tenantId!: string;
 
+  /**
+   * TimescaleDB partition column — included in the composite primary key
+   * so the hypertable contract is satisfied.
+   *
+   * TimescaleDB requires every UNIQUE INDEX (and therefore the PRIMARY
+   * KEY) on a hypertable to contain the time-partition column. With PK
+   * = `id` alone, `create_hypertable('sensor_readings', 'timestamp')`
+   * raises `cannot create a unique index without the column "timestamp"
+   * (used in partitioning)` and the entire baseline migration aborts.
+   *
+   * Composite PK `(id, timestamp)`:
+   *   - `id` (UUID) keeps the per-row uniqueness contract Apollo
+   *     Federation's `@key(fields: "id")` resolver relies on; the gateway
+   *     never composes a reference with timestamp, so the federation
+   *     contract is unchanged.
+   *   - Query-by-id (`WHERE id = ?`) is still index-scan because the
+   *     composite PK starts with `id`. No app-code change needed.
+   *   - `timestamp` partition column zorunluluğu karşılanır → hypertable
+   *     creation succeeds, time-range scans use the chunk-locality the
+   *     hypertable is designed for.
+   *
+   * Sibling table `sensor.sensor_metrics` already uses a composite PK
+   * `(time, sensor_id, channel_id)` — same pattern, just authored
+   * correctly on first write.
+   */
   @Field(() => GraphQLISODateTime)
-  @Column({ type: 'timestamptz' })
+  @PrimaryColumn({ type: 'timestamptz' })
   @Index()
   timestamp!: Date;
 

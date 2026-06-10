@@ -10,19 +10,19 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .feedback import derive_pressure
-from .ledger import load_jsonl_verified, verify_index_hashes, write_index
-from .learning import run_learning_pass
+from .ledger import verify_index_hashes, write_index
+from .learning import run_learning_pass, run_learning_post_evidence_closure, run_learning_pre_cycle
 from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
 from .memory import update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
+from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
 from .reflection import run_reflection
-from .tool_health import load_jsonl, runs_path
-from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now
+from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
 from .tool_runner import run_tool
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 
 
 # Plan 024 v3 followup §E (ORPHAN-LOW-057) — typed cycles.jsonl row schema.
@@ -225,7 +225,19 @@ def run_enterprise_cycle(
     run_phases: tuple[str, ...] | None = None,
     pre_tool_phases: tuple[str, ...] | None = None,
     plan_id: str | None = None,
+    defer_reflection: bool = False,
 ) -> dict[str, Any]:
+    # Plan ARIA-V3.3 §2b — ``defer_reflection`` opt-in for the autonomy
+    # orchestrator. When True, the in-cycle ``run_reflection`` call
+    # (line ~397 below) is skipped and ``state["reflection"]`` is
+    # ``None``; the orchestrator invokes reflection itself AFTER its
+    # planner+bridge+worker+auto_merge drainer phases complete so the
+    # operator-visible daily report counts the full cycle (~25+ events)
+    # rather than the pre-drainer snapshot (~4 events) that the
+    # 2026-05-16 autonomous-loop audit surfaced as F-010-D2-POSTMORTEM.
+    # Default ``False`` preserves the direct CLI contract (``aria-
+    # kernel cycle run``) so non-orchestrator callers still receive a
+    # reflection payload in the state dict.
     # Plan 023 v3 §R-1 — pre_tool_phases kwarg runs extended phases
     # BEFORE the tool loop. Pre-Plan-023 all extended phases ran
     # AFTER tools, so architecture_baseline / validation_matrix_pre /
@@ -234,6 +246,29 @@ def run_enterprise_cycle(
     # fires first; failure aborts the cycle with cycle_aborted_by_
     # pre_phase. The legacy run_phases kwarg continues to run AFTER
     # tools (post-tool observation).
+    # Plan ARIA-V2 §3.4 + CRITICAL-009 fix — input validation runs at
+    # function entry BEFORE any side effect (discovery, memory write,
+    # ledger append, FATES integrity recompute). Pre-fix the unknown-
+    # phase check at line 391 fired AFTER ``update_memory`` had already
+    # raised ``memory_fates_content_hash_mismatch`` against the (mutating)
+    # governance.jsonl, so operators received the wrong error class for
+    # a structurally-detectable input mistake. Validating preconditions
+    # at entry is the Tier-1 architectural shape (impossible to ship a
+    # cycle that mutates ledgers under a malformed run_phases tuple).
+    if run_phases is not None:
+        _unknown_run = [p for p in tuple(run_phases) if p not in SUPPORTED_CYCLE_PHASES]
+        if _unknown_run:
+            raise ValueError(
+                f"unknown cycle phase(s): {_unknown_run}; "
+                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
+            )
+    if pre_tool_phases is not None:
+        _unknown_pre = [p for p in tuple(pre_tool_phases) if p not in SUPPORTED_CYCLE_PHASES]
+        if _unknown_pre:
+            raise ValueError(
+                f"unknown pre_tool_phases: {_unknown_pre}; "
+                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
+            )
     started = time.monotonic()
     # Plan 025 §C — UTC wall-clock of cycle start. Bounds the
     # change_committed window for validation_matrix phase so the
@@ -247,7 +282,7 @@ def run_enterprise_cycle(
         # "open forever" against integrity._verify_cycle_lifecycle.
         # We persist a typed `stopped` terminal row before returning
         # so cycle lifecycle integrity holds for stop-aborted cycles.
-        append_jsonl(root / "cycles.jsonl", _stopped_event(cycle_id))
+        append_declared_jsonl(root / "cycles.jsonl", _stopped_event(cycle_id), expected_surface="cycles")
         return {
             "schema_version": 2,
             "cycle_id": cycle_id,
@@ -256,8 +291,15 @@ def run_enterprise_cycle(
         }
     workspace = _ensure_enterprise_workspace(workspace_root, workspace_base, root)
     git_head_sha_at_cycle = _git_head_sha(Path(workspace_root))
-    append_jsonl(root / "cycles.jsonl", _started_cycle_row(cycle_id=cycle_id))
-    learning = run_learning_pass(workspace, cycle_id=cycle_id, tools_root=root)
+    append_declared_jsonl(root / "cycles.jsonl", _started_cycle_row(cycle_id=cycle_id), expected_surface="cycles")
+    learning_pre = run_learning_pre_cycle(workspace, cycle_id=cycle_id, tools_root=root)
+    learning = {
+        "schema_version": 2,
+        "cycle_id": cycle_id,
+        "pre_cycle": learning_pre,
+        "post_evidence_closure": {},
+        "hooks": list(learning_pre.get("hooks", [])),
+    }
     discovery = run_discovery(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)
     diff = run_cycle_diff(cycle_id=cycle_id, base_dir=root)
     if discovery_only:
@@ -318,7 +360,7 @@ def run_enterprise_cycle(
                     git_head_sha_at_cycle=git_head_sha_at_cycle,
                     decision_count=0,
                 )
-                append_jsonl(root / "cycles.jsonl", event)
+                append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
                 return {
                     "schema_version": 2,
                     "cycle_id": cycle_id,
@@ -347,19 +389,22 @@ def run_enterprise_cycle(
             base_dir=root,
         )
         decisions.append(decision)
-    # Plan 026R §A.2 — strict verified load of the runs ledger. Pre-§A.2
-    # the loader accepted hashless / tampered rows silently; the strict
-    # primitive raises `LedgerIntegrityError` so cycle summarisation
-    # cannot proceed on a corrupt ledger.
-    for run in load_jsonl_verified(runs_path(root)):
-        if run.get("cycle_id") != cycle_id:
-            continue
+    # v2 runtime contract — prefer the per-cycle run index to avoid
+    # O(N) scans over a growing runs.jsonl. The helper falls back to the
+    # strict runs reader for legacy ledgers.
+    for run in read_runs_for_cycle(base_dir=root, cycle_uid=cycle_id):
+        runner = run.get("runner") if isinstance(run.get("runner"), dict) else {}
+        artifact_ref = run.get("artifact_ref") if isinstance(run.get("artifact_ref"), dict) else None
         run_summary.append(
             {
                 "tool_id": run.get("tool_id"),
+                "run_id": run.get("run_id"),
                 "status": run.get("status"),
-                "raw_findings_count": int(run.get("runner", {}).get("raw_findings_count") or 0),
-                "raw_observations_count": int(run.get("runner", {}).get("raw_observations_count") or 0),
+                "artifact_status": run.get("artifact_status", "legacy_inline_or_sample_only"),
+                "artifact_ref": artifact_ref,
+                "artifact_hash": run.get("artifact_hash"),
+                "raw_findings_count": int(runner.get("raw_findings_count") or 0),
+                "raw_observations_count": int(runner.get("raw_observations_count") or 0),
                 "emitted_findings_count": len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0,
                 "emitted_observations_count": len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0,
             },
@@ -367,19 +412,70 @@ def run_enterprise_cycle(
     # Plan 026R §E.7 — pass workspace_root so update_memory's FATES
     # hash recompute check fires. Pre-§E.7 legacy callers omitted
     # workspace_root and the integrity check silently skipped.
-    memory = update_memory(
-        cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
-    )
-    pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
-    reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
-    metrics = record_cycle_metrics(
-        cycle_id=cycle_id,
-        phase_durations_ms={"cycle": int((time.monotonic() - started) * 1000)},
-        artifact_count=len(run_summary) + 4,
-        status="ok",
-        base_dir=root,
-    )
-    dashboard = generate_observability_dashboard(cycle_id=cycle_id, base_dir=root)
+    # Runtime hardening: post-tool phase failures must still close the
+    # cycle ledger and retain tool artifact evidence in the returned state.
+    memory: dict[str, Any] = {}
+    pressure: dict[str, Any] = {}
+    reflection = None if defer_reflection else {}
+    post_tool_failure = None
+    try:
+        memory = update_memory(
+            cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
+        )
+    except Exception as exc:
+        post_tool_failure = {"phase": "memory", "status": "failed", "error": str(exc)}
+    if post_tool_failure is None:
+        try:
+            pressure = run_pressure(cycle_id=cycle_id, base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "pressure", "status": "failed", "error": str(exc)}
+    if post_tool_failure is None and not defer_reflection:
+        try:
+            reflection = run_reflection(cycle_id=cycle_id, base_dir=root, repo_root=workspace_root)
+        except Exception as exc:
+            post_tool_failure = {"phase": "reflection", "status": "failed", "error": str(exc)}
+    try:
+        learning_post = run_learning_post_evidence_closure(workspace, cycle_id=cycle_id, tools_root=root)
+    except Exception as exc:
+        learning_post = {"schema_version": 1, "cycle_id": cycle_id, "status": "failed", "error": str(exc), "hooks": []}
+        if post_tool_failure is None:
+            post_tool_failure = {"phase": "learning_post_evidence_closure", "status": "failed", "error": str(exc)}
+    learning = {
+        "schema_version": 2,
+        "cycle_id": cycle_id,
+        "pre_cycle": learning_pre,
+        "post_evidence_closure": learning_post,
+        "hooks": list(learning_pre.get("hooks", [])) + list(learning_post.get("hooks", [])),
+    }
+    artifact_integrity = verify_artifacts(base_dir=root)
+    non_ok_runs = [
+        run for run in run_summary
+        if run.get("status") != "ok" or run.get("artifact_status") in {"missing", "hash_mismatch", "write_failed"}
+    ]
+    runtime_status = "ok" if not non_ok_runs and artifact_integrity.get("valid") else "integrity_failed"
+    if post_tool_failure is not None:
+        runtime_status = "failed"
+    try:
+        metrics = record_cycle_metrics(
+            cycle_id=cycle_id,
+            phase_durations_ms={"cycle": int((time.monotonic() - started) * 1000)},
+            artifact_count=len(run_summary) + 4,
+            status="ok" if runtime_status == "ok" else "failed",
+            cost_units=sum(float((decision.get("envelope") or {}).get("cost_units") or 0) for decision in decisions if isinstance(decision, dict)),
+            base_dir=root,
+        )
+    except Exception as exc:
+        metrics = {"schema_version": 1, "cycle_id": cycle_id, "status": "failed", "error": str(exc)}
+        if post_tool_failure is None:
+            post_tool_failure = {"phase": "metrics", "status": "failed", "error": str(exc)}
+        runtime_status = "failed"
+    try:
+        dashboard = generate_observability_dashboard(cycle_id=cycle_id, base_dir=root)
+    except Exception as exc:
+        dashboard = {"schema_version": 1, "cycle_id": cycle_id, "status": "failed", "error": str(exc)}
+        if post_tool_failure is None:
+            post_tool_failure = {"phase": "observability_dashboard", "status": "failed", "error": str(exc)}
+        runtime_status = "failed"
 
     # Plan 022 §M-1 — extended-phase dispatch. Default behaviour
     # (run_phases=None) is unchanged; only when the operator opts into
@@ -414,26 +510,36 @@ def run_enterprise_cycle(
         name for name, result in extended_phase_results.items()
         if isinstance(result, dict) and result.get("status") == "fail"
     ]
-    if phase_failures:
+    failed_phases = [
+        {"phase": str(name), "status": "failed"}
+        for name in phase_failures
+    ]
+    if post_tool_failure is not None:
+        failed_phases.append(post_tool_failure)
+    if phase_failures or runtime_status != "ok":
         event = _failed_event(
             cycle_id,
             decision_count=len(decisions),
             git_head_sha_at_cycle=git_head_sha_at_cycle,
         )
-        append_jsonl(root / "cycles.jsonl", event)
+        append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
+        update_tools_index(root)
         state_status: str = "failed"
     else:
         event = _complete_event(
             root, cycle_id, len(decisions),
             git_head_sha_at_cycle=git_head_sha_at_cycle,
         )
+        update_tools_index(root)
         state_status = "completed"
     state = {
         "schema_version": 2,
         "cycle_id": cycle_id,
         "git_head_sha_at_cycle": git_head_sha_at_cycle,
         "status": state_status,
+        "runtime_status": runtime_status,
         "extended_phase_failures": phase_failures,
+        "failed_phases": failed_phases,
         "event": event,
         "learning": learning,
         "discovery": discovery,
@@ -443,6 +549,10 @@ def run_enterprise_cycle(
         "reflection": reflection,
         "cycle_metrics": metrics,
         "observability_dashboard": dashboard,
+        "artifact_integrity": artifact_integrity,
+        "artifact_refs": [run["artifact_ref"] for run in run_summary if isinstance(run.get("artifact_ref"), dict)],
+        "non_ok_tools": non_ok_runs,
+        "incomplete_lifecycle_count": 0,
         "tool_decisions": decisions,
         "tool_governance_decisions": decisions,
         "tool_run_summary": run_summary,
@@ -691,7 +801,7 @@ def _complete_event(
         decision_count,
         git_head_sha_at_cycle=git_head_sha_at_cycle,
     )
-    append_jsonl(root / "cycles.jsonl", row)
+    append_declared_jsonl(root / "cycles.jsonl", row, expected_surface="cycles")
     return row
 
 

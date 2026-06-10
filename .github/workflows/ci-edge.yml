@@ -49,11 +49,15 @@ on:
     paths:
       - 'sens-api-gateway/**'
       - '.github/workflows/ci-edge.yml'
+      - '.github/workflows/edge-agent-release.yml'
+      - '.github/workflows/sens-api-gateway-ci.yml'
   pull_request:
     branches: [main, develop, agentic]
     paths:
       - 'sens-api-gateway/**'
       - '.github/workflows/ci-edge.yml'
+      - '.github/workflows/edge-agent-release.yml'
+      - '.github/workflows/sens-api-gateway-ci.yml'
   workflow_dispatch:
 
 # SEC-CI-021: minimum token permissions.

@@ -1,6 +1,12 @@
+const workspaceJestPreset = require('../../jest.preset.js');
+const { pathsToModuleNameMapper } = require('ts-jest');
+const { compilerOptions } = require('../../tsconfig.base.json');
+const { resolver: _nxResolver, moduleNameMapper: workspaceModuleNameMapper, ...dbMigratePreset } =
+  workspaceJestPreset;
+
 module.exports = {
+  ...dbMigratePreset,
   displayName: 'db-migrate',
-  preset: '../../jest.preset.js',
   testEnvironment: 'node',
   testMatch: [
     '<rootDir>/src/**/*.spec.ts',
@@ -8,6 +14,12 @@ module.exports = {
   ],
   transform: {
     '^.+\\.[tj]s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
+  },
+  moduleNameMapper: {
+    ...pathsToModuleNameMapper(compilerOptions.paths, {
+      prefix: '<rootDir>/../../',
+    }),
+    ...workspaceModuleNameMapper,
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../coverage/apps/db-migrate',

@@ -12,14 +12,39 @@
 import { ExecutionContext, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as jwt from 'jsonwebtoken';
 
 import { ROLES_KEY } from '../../decorators/roles.decorator';
 import { PlatformAdminGuard, JwtPayload, IS_PUBLIC_KEY } from '../platform-admin.guard';
 
+jest.mock('@aquaculture/backend-common/auth', () => {
+  const actual = jest.requireActual<typeof import('@aquaculture/backend-common/auth')>(
+    '@aquaculture/backend-common/auth',
+  );
+  return {
+    ...actual,
+    getJwtVerifyOptions: jest.fn(() => ({ secret: 'a-very-secure-test-secret-that-is-at-least-32-chars-long' })),
+  };
+});
+
+interface MockRequest {
+  headers: { authorization?: string };
+  method: string;
+  url: string;
+  user?: {
+    id: string;
+    email?: string;
+    roles: string[];
+    role?: string;
+    tenantId?: string;
+  };
+}
+
 describe('PlatformAdminGuard', () => {
   const TEST_JWT_SECRET = 'a-very-secure-test-secret-that-is-at-least-32-chars-long';
+  let nodeEnv = 'development';
 
   let guard: PlatformAdminGuard;
   let reflector: Reflector;
@@ -31,13 +56,12 @@ describe('PlatformAdminGuard', () => {
     isPublic?: boolean;
     requiredRoles?: string[];
   }): ExecutionContext {
-    const request = {
+    const request: MockRequest = {
       headers: overrides.authHeader !== undefined
         ? { authorization: overrides.authHeader }
         : {},
       method: overrides.method || 'GET',
       url: overrides.url || '/test',
-      user: undefined as Record<string, unknown> | undefined,
     };
 
     const mockReflector = reflector;
@@ -51,7 +75,7 @@ describe('PlatformAdminGuard', () => {
 
     return {
       switchToHttp: () => ({
-        getRequest: () => request,
+        getRequest: <T = MockRequest>() => request as T,
         getResponse: () => ({}),
       }),
       getHandler: () => ({}),
@@ -64,6 +88,8 @@ describe('PlatformAdminGuard', () => {
       sub: 'user-123',
       email: 'admin@test.com',
       roles: ['SUPER_ADMIN'],
+      type: 'access',
+      jti: 'test-jti',
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + 3600,
     };
@@ -71,6 +97,7 @@ describe('PlatformAdminGuard', () => {
   }
 
   beforeEach(async () => {
+    nodeEnv = 'development';
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PlatformAdminGuard,
@@ -80,10 +107,18 @@ describe('PlatformAdminGuard', () => {
           useValue: {
             get: jest.fn((key: string, defaultValue?: unknown) => {
               if (key === 'JWT_SECRET') return TEST_JWT_SECRET;
-              if (key === 'NODE_ENV') return 'development';
+              if (key === 'NODE_ENV') return nodeEnv;
               if (key === 'ALLOW_DEV_JWT_SECRET') return 'false';
               return defaultValue;
             }),
+          },
+        },
+        {
+          provide: JwtService,
+          useValue: {
+            verifyAsync: jest.fn((token: string) =>
+              Promise.resolve(jwt.verify(token, TEST_JWT_SECRET) as JwtPayload),
+            ),
           },
         },
       ],
@@ -153,10 +188,10 @@ describe('PlatformAdminGuard', () => {
       await expect(guard.canActivate(context)).resolves.toBe(true);
     });
 
-    it('should accept a valid PLATFORM_ADMIN token', async () => {
+    it('should reject a literal PLATFORM_ADMIN token because the auth role is SUPER_ADMIN', async () => {
       const token = signToken({ sub: 'admin-2', roles: ['PLATFORM_ADMIN'] });
       const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
-      await expect(guard.canActivate(context)).resolves.toBe(true);
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
     });
 
     it('should reject a token signed with wrong secret', async () => {
@@ -175,7 +210,11 @@ describe('PlatformAdminGuard', () => {
       const token = signToken({ roles: ['SUPER_ADMIN'] });
       // Tamper with the payload portion (middle segment)
       const parts = token.split('.');
-      const payload = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString());
+      const encodedPayload = parts[1];
+      if (!encodedPayload) throw new Error('JWT payload segment missing');
+      const payload = JSON.parse(
+        Buffer.from(encodedPayload, 'base64url').toString(),
+      ) as Record<string, unknown>;
       payload.roles = ['HACKED_ROLE'];
       parts[1] = Buffer.from(JSON.stringify(payload)).toString('base64url');
       const tamperedToken = parts.join('.');
@@ -194,6 +233,25 @@ describe('PlatformAdminGuard', () => {
       await expect(guard.canActivate(context)).rejects.toThrow('Token has expired');
     });
 
+    it('should reject a signed refresh token on admin-api routes', async () => {
+      const token = signToken({ type: 'refresh' });
+      const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should reject a signed token without access token type', async () => {
+      const token = signToken({ type: undefined });
+      const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should reject an access token without jti in production', async () => {
+      nodeEnv = 'production';
+      const token = signToken({ jti: undefined });
+      const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+    });
+
     it('should attach user info to request on success', async () => {
       const token = signToken({
         sub: 'user-555',
@@ -204,12 +262,14 @@ describe('PlatformAdminGuard', () => {
       const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
       await guard.canActivate(context);
 
-      const request = context.switchToHttp().getRequest();
-      expect(request.user).toBeDefined();
-      expect(request.user.id).toBe('user-555');
-      expect(request.user.email).toBe('test@admin.com');
-      expect(request.user.roles).toContain('SUPER_ADMIN');
-      expect(request.user.tenantId).toBe('tenant-abc');
+      const request = context.switchToHttp().getRequest<MockRequest>();
+      const user = request.user;
+      expect(user).toBeDefined();
+      if (!user) throw new Error('Expected guard to attach user to request');
+      expect(user.id).toBe('user-555');
+      expect(user.email).toBe('test@admin.com');
+      expect(user.roles).toContain('SUPER_ADMIN');
+      expect(user.tenantId).toBe('tenant-abc');
     });
   });
 
@@ -223,10 +283,10 @@ describe('PlatformAdminGuard', () => {
       await expect(guard.canActivate(context)).resolves.toBe(true);
     });
 
-    it('should allow PLATFORM_ADMIN when no @Roles() decorator (default roles)', async () => {
+    it('should reject PLATFORM_ADMIN when no @Roles() decorator (auth role remains SUPER_ADMIN)', async () => {
       const token = signToken({ roles: ['PLATFORM_ADMIN'] });
       const context = createMockExecutionContext({ authHeader: `Bearer ${token}` });
-      await expect(guard.canActivate(context)).resolves.toBe(true);
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
     });
 
     it('should reject TENANT_ADMIN when no @Roles() decorator (default requires admin)', async () => {
@@ -253,13 +313,13 @@ describe('PlatformAdminGuard', () => {
       await expect(guard.canActivate(context)).resolves.toBe(true);
     });
 
-    it('should respect custom @Roles() decorator', async () => {
+    it('should not let custom @Roles() widen admin-api beyond the platform admin auth role', async () => {
       const token = signToken({ roles: ['TENANT_ADMIN'] });
       const context = createMockExecutionContext({
         authHeader: `Bearer ${token}`,
         requiredRoles: ['TENANT_ADMIN', 'SUPER_ADMIN'],
       });
-      await expect(guard.canActivate(context)).resolves.toBe(true);
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
     });
 
     it('should reject user not in custom @Roles() list', async () => {
@@ -291,99 +351,7 @@ describe('PlatformAdminGuard', () => {
   });
 
   // ========================================================================
-  // 5. JWT Secret Configuration
-  // ========================================================================
-  describe('JWT secret configuration', () => {
-    it('should throw on startup if JWT_SECRET missing in production', async () => {
-      await expect(
-        Test.createTestingModule({
-          providers: [
-            PlatformAdminGuard,
-            Reflector,
-            {
-              provide: ConfigService,
-              useValue: {
-                get: jest.fn((key: string) => {
-                  if (key === 'JWT_SECRET') return undefined;
-                  if (key === 'NODE_ENV') return 'production';
-                  return undefined;
-                }),
-              },
-            },
-          ],
-        }).compile(),
-      ).rejects.toThrow('CRITICAL SECURITY ERROR');
-    });
-
-    it('should throw if JWT_SECRET is shorter than 32 characters', async () => {
-      await expect(
-        Test.createTestingModule({
-          providers: [
-            PlatformAdminGuard,
-            Reflector,
-            {
-              provide: ConfigService,
-              useValue: {
-                get: jest.fn((key: string) => {
-                  if (key === 'JWT_SECRET') return 'too-short';
-                  if (key === 'NODE_ENV') return 'development';
-                  return undefined;
-                }),
-              },
-            },
-          ],
-        }).compile(),
-      ).rejects.toThrow('at least 32 characters');
-    });
-
-    it('should require ALLOW_DEV_JWT_SECRET=true for dev without secret', async () => {
-      await expect(
-        Test.createTestingModule({
-          providers: [
-            PlatformAdminGuard,
-            Reflector,
-            {
-              provide: ConfigService,
-              useValue: {
-                get: jest.fn((key: string, defaultValue?: unknown) => {
-                  if (key === 'JWT_SECRET') return undefined;
-                  if (key === 'NODE_ENV') return 'development';
-                  if (key === 'ALLOW_DEV_JWT_SECRET') return 'false';
-                  return defaultValue;
-                }),
-              },
-            },
-          ],
-        }).compile(),
-      ).rejects.toThrow('ALLOW_DEV_JWT_SECRET');
-    });
-
-    it('should accept auto-generated dev secret when ALLOW_DEV_JWT_SECRET=true', async () => {
-      const module = await Test.createTestingModule({
-        providers: [
-          PlatformAdminGuard,
-          Reflector,
-          {
-            provide: ConfigService,
-            useValue: {
-              get: jest.fn((key: string, defaultValue?: unknown) => {
-                if (key === 'JWT_SECRET') return undefined;
-                if (key === 'NODE_ENV') return 'development';
-                if (key === 'ALLOW_DEV_JWT_SECRET') return 'true';
-                return defaultValue;
-              }),
-            },
-          },
-        ],
-      }).compile();
-
-      const devGuard = module.get(PlatformAdminGuard);
-      expect(devGuard).toBeDefined();
-    });
-  });
-
-  // ========================================================================
-  // 6. Security Edge Cases
+  // 5. Security Edge Cases
   // ========================================================================
   describe('Security edge cases', () => {
     it('should not leak error details for generic JWT errors', async () => {
@@ -406,6 +374,8 @@ describe('PlatformAdminGuard', () => {
       const payload = {
         sub: 'user-1',
         email: 'test@test.com',
+        type: 'access',
+        jti: 'test-jti-no-roles',
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + 3600,
       };

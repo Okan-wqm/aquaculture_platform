@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from .fixture_runner import latest_fixture_status
-from .tool_health import compute_metrics, load_jsonl, runs_path
+from .runs_reader import read_runs_rows
+from .tool_health import compute_metrics, runs_path
 from .tool_registry import GovernanceError, get_tool
 
 
@@ -25,7 +26,7 @@ def adapter_active_readiness(
     tool = get_tool(tool_id, base_dir)
     if tool.get("kind") != "adapter":
         raise GovernanceError(f"tool is not an adapter: {tool_id}")
-    runs = load_jsonl(runs_path(base_dir), tool_id=tool_id)
+    runs = list(read_runs_rows(runs_path(base_dir), tool_id=tool_id, base_dir=Path(base_dir) if base_dir is not None else None))
     latest_runs = runs[-5:]
     fixture_status = latest_fixture_status(tool_id, base_dir=base_dir)
     fixture_pass = fixture_status["current_tool_passed"]
@@ -93,7 +94,7 @@ def is_stable_shadow_run(run: dict[str, Any]) -> bool:
     if run.get("status") != "ok":
         return False
     validation = run.get("evidence_validation", {})
-    if validation.get("valid") is False:
+    if validation.get("valid") is not True:
         return False
     return not validation.get("repository_mutation_attempt")
 

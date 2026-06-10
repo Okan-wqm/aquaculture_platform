@@ -55,6 +55,13 @@ interface StorageLocation {
   code: string;
 }
 
+interface StorageInventoryItem {
+  itemId: string;
+  itemName?: string | null;
+  unit: string;
+  itemType: StorageItemType;
+}
+
 // ============================================================================
 // GRAPHQL
 // ============================================================================
@@ -64,9 +71,12 @@ interface StorageLocation {
  * to the tenant's warehouse inventory (feed brands, chemical products, etc.).
  */
 const STORAGE_ITEMS_QUERY = `
-  query StorageItems($filter: StorageItemFilterInput) {
-    storageItems(filter: $filter) {
-      items { id name code unit itemType }
+  query StorageInventoryItems($itemType: StorageItemType) {
+    storageInventory(itemType: $itemType, limit: 100) {
+      itemId
+      itemName
+      unit
+      itemType
     }
   }
 `;
@@ -120,6 +130,22 @@ const EXPIRY_REQUIRED_TYPES: StorageItemType[] = ['FEED', 'HEALTHCARE'];
 // Total wizard steps: itemType -> item -> quantity -> location -> lot/expiry -> notes (WASTE) -> confirm
 const TOTAL_STEPS = 7;
 
+function toStorageItems(inventory: StorageInventoryItem[]): StorageItem[] {
+  const byItemId = new Map<string, StorageItem>();
+  for (const item of inventory) {
+    if (!byItemId.has(item.itemId)) {
+      byItemId.set(item.itemId, {
+        id: item.itemId,
+        name: item.itemName || item.itemId,
+        code: item.itemId.slice(0, 8),
+        unit: item.unit,
+        itemType: item.itemType,
+      });
+    }
+  }
+  return Array.from(byItemId.values());
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -157,11 +183,11 @@ export function StockMovementPage() {
   const { data: itemsData, isLoading: itemsLoading } = useQuery<StorageItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-items', selectedItemType, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ storageItems: { items: StorageItem[] } }>(
+      const result = await graphqlRequest<{ storageInventory: StorageInventoryItem[] }>(
         STORAGE_ITEMS_QUERY,
-        { filter: { itemType: selectedItemType } },
+        { itemType: selectedItemType },
       );
-      return result.storageItems?.items ?? [];
+      return toStorageItems(result.storageInventory ?? []);
     },
     // Data fetches when online; when offline, React Query serves the stale cache
     // from gcTime (1h). This ensures the form is usable at remote cage sites with

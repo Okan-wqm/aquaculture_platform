@@ -1,6 +1,9 @@
-import { requestContextStorage, RequestContext } from '../logging/request-context';
-import { getTenantSchemaName } from '../database/tenant-schema.utils';
-import { isValidUUID } from '../database/tenant-schema.utils';
+import { getTenantSchemaName, isValidUUID } from '../database/tenant-schema.utils';
+import {
+  getRequestContext,
+  requestContextStorage,
+  RequestContext,
+} from '../logging/request-context';
 
 /**
  * Execute an async function within a tenant context.
@@ -53,11 +56,13 @@ export async function withTenantContext<T>(
 
   const schemaName = getTenantSchemaName(tenantId);
 
+  const currentContext = getRequestContext();
   const context: RequestContext = {
+    ...currentContext,
     tenantId,
     schemaName,
     bypassRls: options?.bypassRls,
-    correlationId: options?.correlationId,
+    correlationId: options?.correlationId ?? currentContext.correlationId,
   };
 
   return requestContextStorage.run(context, fn);

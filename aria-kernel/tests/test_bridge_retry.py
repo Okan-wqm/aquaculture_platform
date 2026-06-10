@@ -3,7 +3,7 @@
 14 tests across 4 test classes:
 
 Constants + transition enum (3):
-* BRIDGE_REQUIRED_ROLES shape — 8 roles, frozenset, exported SSoT.
+* BRIDGE_REQUIRED_ROLES shape — 9 roles, frozenset, exported SSoT.
 * BRIDGE_TRANSITIONS shape — 4 values, ``pending`` NOT a transition.
 * bridge_status_for_role: pending vs not_required predicate.
 
@@ -43,9 +43,10 @@ from aria_kernel.bridge_status_ledger import (
     derive_bridge_state,
     latest_bridge_status_for,
 )
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import load_jsonl
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class BridgeConstantsTests(unittest.TestCase):
@@ -61,9 +62,10 @@ class BridgeConstantsTests(unittest.TestCase):
                 "cross_review",
                 "change_intelligence",
                 "goldset_curation",
+                "implementation",
             }),
         )
-        self.assertEqual(len(BRIDGE_REQUIRED_ROLES), 8)
+        self.assertEqual(len(BRIDGE_REQUIRED_ROLES), 9)
 
     def test_bridge_transitions_closed_enum(self) -> None:
         self.assertEqual(
@@ -239,7 +241,7 @@ class DeriveRequestStateBridgeAwareTests(unittest.TestCase):
         # (skip the full submit_claim_result pipeline for state-derivation
         # focus).
         self.request_id = "req-c5"
-        append_jsonl(
+        append_declared_fixture(
             self.base / "agent-invocations" / "requests.jsonl",
             {
                 "$schema": "aria/agent-invocation-request/v1",
@@ -249,9 +251,10 @@ class DeriveRequestStateBridgeAwareTests(unittest.TestCase):
                 "role": "evidence_judgment",
                 "state": "pending",
             },
+            expected_surface="agent_invocation_requests",
         )
         self.envelope_evidence_hash = "sha256:" + "e" * 64
-        self.persisted_result = append_jsonl(
+        self.persisted_result = append_declared_fixture(
             self.base / "agent-invocations" / "results.jsonl",
             {
                 "$schema": "aria/agent-claim-result/v1",
@@ -266,6 +269,7 @@ class DeriveRequestStateBridgeAwareTests(unittest.TestCase):
                 "envelope_evidence_hash": self.envelope_evidence_hash,
                 "bridge_status": "pending",
             },
+            expected_surface="agent_invocation_results",
         )
 
     def tearDown(self) -> None:

@@ -1,21 +1,40 @@
 name: aria-kernel
 
+# Plan ARIA-V2 §3.7 (Phase 6) — workflow hygiene closures:
+#   * paths: filter removed from push block (mainline re-push must
+#     re-evaluate the kernel regardless of which files changed; the
+#     paths gate caused the validation cycle to skip re-runs that
+#     were architecturally meaningful — closes ARIA-V-007)
+#   * workflow_dispatch added so operators can manually re-fire
+#   * top-level permissions: contents: read (INFRA-HIGH-003)
+#   * actions/checkout: persist-credentials: false (INFRA-HIGH-004)
+#   * npm ci → npm ci --ignore-scripts --no-audit --no-fund with retry (INFRA-CRITICAL-001)
+#   * concurrency key unified across workflows (INFRA-HIGH-001)
+# Invariant lock: aria-kernel/tests/test_ci_workflow_invariants.py (I-25).
+
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "aria-kernel/**"
       - "docs/aria/**"
       - ".github/workflows/aria-kernel.yml"
+      # Plan ARIA-V2 §3.6 — tools/aria-poc + tools/shared are now
+      # kernel-quality-gate adjacent (I-19..I-22, I-39 land here).
+      - "tools/aria-poc/**"
+      - "tools/shared/**"
   push:
     branches:
-      - snowball
-    paths:
-      - "aria-kernel/**"
-      - "docs/aria/**"
-      - ".github/workflows/aria-kernel.yml"
+      - main
+
+# Plan ARIA-V2 §3.7 — top-level default-deny token surface.
+permissions:
+  contents: read
 
 concurrency:
-  group: aria-kernel-${{ github.ref }}
+  # Plan ARIA-V2 INFRA-HIGH-001 — unified key so PR + push on the same
+  # SHA share the group (no 2x CI minutes charge).
+  group: aria-kernel-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,19 +43,147 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
-      - run: npm ci
-      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'
+      - run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
+      # Plan ARIA-V2 §Phase 1 CRITICAL-020 — aria-kernel declares
+      # pyyaml>=6.0 in pyproject.toml (required by I-25 + I-26
+      # invariants for YAML workflow + frontmatter parsing).
+      # Architectural shape: pyproject.toml is the dependency SSoT;
+      # source imports come from PYTHONPATH below. Installing the local
+      # package directly writes aria_kernel.egg-info into the checkout,
+      # which violates the post-run clean-worktree contract.
+      - name: Install aria-kernel dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          with Path("aria-kernel/pyproject.toml").open("rb") as fh:
+              dependencies = tomllib.load(fh).get("project", {}).get("dependencies", [])
+          if dependencies:
+              subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
+          PY
+      - name: Run aria-kernel unit + invariant tests
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
+      # Plan ARIA-V2 §3.6 + CRITICAL-013 — tests under tools/aria-poc/invariants
+      # and tools/shared/invariants are first-class invariants (I-19..I-22, I-39).
+      # Discovery must run them on every kernel-touching PR/push, otherwise
+      # PoC dedup regressions ship undetected.
+      - name: Run tools/aria-poc invariant tests (Plan ARIA-V2 §3.6)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/aria-poc/invariants -p '*test*.py'
+      - name: Run tools/shared invariant tests (Plan ARIA-V2 §3.6)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/shared/invariants -p '*test*.py'
+      # Plan ARIA-V5 §3e v2 R1 — pedagogy lint over all 81 agents.
+      # Warn-mode (no --strict flag) respects the allowlist at
+      # tests/invariants/agent-pedagogy.allowlist.json — current
+      # 80 entries expire 30 days from their added_at date. As
+      # operator writes narrative pairings, allowlist entries are
+      # removed; when allowlist is empty, this step naturally
+      # tightens. After all editorial work lands, a follow-up
+      # commit can add --strict to make allowlist-bypass impossible.
+      - name: Run pedagogy lint (Plan ARIA-V5 §3e)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.pedagogy_lint --agents-dir .claude/agents --allowlist tests/invariants/agent-pedagogy.allowlist.json --format text
+      # Plan ARIA-V6 §3 V6.5 (C5) — specialist-review dry-run validates
+      # the Lane-A inventory + role mapping. Warn-mode at C5; flip to
+      # --strict in a follow-up commit once the Lane-A inventory is
+      # fully populated.
+      - name: Specialist-review dry-run (Plan ARIA-V6 §3 V6.5)
+        run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel specialist-review dry-run --agents-dir .claude/agents
       - name: Reset CI-local ARIA state
         run: |
           rm -rf ./.aria-ci/tools ./.aria-ci/workspaces
           mkdir -p ./.aria-ci
-      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity migrate-tools-v1-to-v2 --tools-dir ./.aria-ci/tools --workspace-root . --acknowledge --reason "ci bootstrap"
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity migrate-tools-bootstrap --tools-dir ./.aria-ci/tools --workspace-root . --acknowledge --reason "ci bootstrap (Plan ARIA-V2 §3.8 idempotent umbrella)"
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools --cycle-id ci-${{ github.run_id }} --snapshot-mode committed
       - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./.aria-ci/tools
+      - name: Run ARIA docs/runtime SSoT invariant
+        run: npm run aria:docs:ssot
+      - name: Run ARIA runtime artifact smoke
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 - <<'PY'
+          import json
+          import tempfile
+          from pathlib import Path
+
+          # The smoke writes governed surfaces ('runs'/'cycles' are
+          # enterprise-required), so it MUST go through the declared-surface
+          # API like every production writer (tool_health.py / cycle.py) —
+          # the raw append_jsonl primitive is rejected by the ledger's
+          # declared-surface guard for exactly this class of writer.
+          from aria_kernel.ledger import append_declared_jsonl
+          from aria_kernel.runtime_artifacts import ARTIFACT_BEARING, classify_cycle_evidence, write_run_artifact
+          from aria_kernel.tool_registry import ensure_tools_binding
+
+          repo = Path.cwd().resolve()
+          watched_repo_outputs = [
+              repo / "aria-tools" / "runs.jsonl",
+              repo / "aria-tools" / "autonomy_state.jsonl",
+              repo / "aria-tools" / "governance.jsonl",
+              repo / "aria-tools" / "run-artifacts",
+              repo / "aria-kernel" / "aria-tools",
+              repo / "artifacts",
+          ]
+          before = {
+              path: (path.exists(), path.stat().st_mtime_ns if path.exists() else None)
+              for path in watched_repo_outputs
+          }
+          tools = Path(tempfile.mkdtemp(prefix="aria-tools-smoke-"))
+          root = ensure_tools_binding(tools, workspace_root=repo)
+          (root / "registry.json").write_text(
+              json.dumps({"schema_version": 1, "tools": [{"tool_id": "smoke-tool", "status": "ACTIVE"}]}) + "\n",
+              encoding="utf-8",
+          )
+          cycle_id = "ci-runtime-smoke"
+          run_id = "run-1"
+          artifact = write_run_artifact(
+              base_dir=root,
+              run_id=run_id,
+              cycle_uid=cycle_id,
+              tool_id="smoke-tool",
+              kind="runtime_smoke",
+              payload={"stdout": "ok", "stderr": "", "parsed_output": {"observations": [], "findings": []}},
+              run_status="ok",
+              repo_state_id="ci-smoke",
+              owner="ci-runtime-smoke",
+          )
+          append_declared_jsonl(root / "runs.jsonl", {
+              "schema_version": 2,
+              "cycle_id": cycle_id,
+              "run_id": run_id,
+              "tool_id": "smoke-tool",
+              "status": "ok",
+              "artifact_ref": artifact["artifact_ref"],
+              "artifact_hash": artifact["artifact_hash"],
+              "artifact_status": artifact["artifact_status"],
+              "runner": {"raw_findings_count": 0},
+          }, expected_surface="runs")
+          append_declared_jsonl(root / "cycles.jsonl", {"schema_version": 1, "cycle_id": cycle_id, "event": "completed"}, expected_surface="cycles")
+          evidence = classify_cycle_evidence(base_dir=root, cycle_id=cycle_id)
+          if evidence.get("cycle_evidence_class") != ARTIFACT_BEARING:
+              raise SystemExit(json.dumps(evidence, indent=2, sort_keys=True))
+          after = {
+              path: (path.exists(), path.stat().st_mtime_ns if path.exists() else None)
+              for path in watched_repo_outputs
+          }
+          changed = [path.relative_to(repo).as_posix() for path in watched_repo_outputs if before[path] != after[path]]
+          if changed:
+              raise SystemExit(f"repo-local runtime output touched by smoke: {changed}")
+          PY
+      - name: Verify post-run clean worktree
+        run: |
+          status="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi

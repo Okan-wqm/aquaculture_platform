@@ -6,6 +6,10 @@
 - You know which subsystems the device hosts: Modbus TCP/RTU, GPIO, I2C (Atlas EZO), scripting, scada-display, LoRaWAN. Each has its own block in the schema.
 - You have a tested config change already validated on a non-production device or in a review workflow.
 
+## RC4 release posture
+
+For `agent-v2.0.0-rc4`, production deployments must keep TLS verification enabled, reject retained command messages, keep unsigned mutating commands out of operational use, and use the signed GitHub Release artifacts documented in `docs/runbooks/edge-gateway-rc4-operator.md`.
+
 **Duration:** 10–30 min per edit.
 **Blast radius:** single device.
 **Safety:** configuration reloads via SIGHUP do NOT restart the process. Actuator outputs under active control retain their state across the reload. When changing the Modbus/GPIO/I2C topology, coordinate with the plant operator and plan a SafeStateManager pass if the edit removes an actuator tag (see Step 8 below + `src/safe_state.rs:123`).

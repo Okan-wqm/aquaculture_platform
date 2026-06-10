@@ -4,13 +4,10 @@
  * Multi-tenant database schema oluşturma, yönetim ve izolasyon servisi.
  */
 
-import { Injectable, Logger, BadRequestException, NotFoundException, Optional, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@aquaculture/backend-common/database';
 
-import { AuditLogService } from '../../audit/audit.service';
-import { AuditSeverity } from '../../audit/audit.entity';
 import {
   TenantSchema,
   SchemaStatus,
@@ -46,9 +43,6 @@ export class SchemaManagementService {
     private readonly schemaRepository: Repository<TenantSchema>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly auditLogService: AuditLogService,
-    @Optional()
-    private readonly schemaManager?: SchemaManagerService,
   ) {}
 
   // ============================================================================
@@ -72,143 +66,12 @@ export class SchemaManagementService {
    * Delegates to backend-common SchemaManagerService for full module table creation
    * (sensor, farm, hr, hydroponics) so tenant schemas are production-ready.
    */
-  async createTenantSchema(tenantId: string): Promise<TenantSchema> {
-    this.logger.log(`Creating schema for tenant: ${tenantId}`);
-
-    // Check if schema already exists
-    const existing = await this.schemaRepository.findOne({
-      where: { tenantId },
-    });
-
-    if (existing) {
-      throw new BadRequestException(`Schema already exists for tenant: ${tenantId}`);
-    }
-
-    const schemaName = this.generateSchemaName(tenantId);
-
-    // Create schema record first (status: creating)
-    const schemaRecord = this.schemaRepository.create({
-      tenantId,
-      schemaName,
-      status: 'creating' as SchemaStatus,
-      currentVersion: '1.0.0',
-    });
-    await this.schemaRepository.save(schemaRecord);
-
-    try {
-      // Use backend-common SchemaManagerService for full module table creation
-      if (this.schemaManager) {
-        const allModules = DEFAULT_TENANT_MODULES;
-        const result = await this.schemaManager.createTenantSchema(tenantId, allModules);
-
-        if (!result.success && !result.partialSuccess) {
-          throw new Error(`Schema creation failed: ${result.errors.join(', ')}`);
-        }
-
-        if (result.errors.length > 0) {
-          this.logger.warn(
-            `Schema ${schemaName} created with warnings: ${result.errors.join(', ')}`,
-          );
-        }
-
-        this.logger.log(
-          `Schema ${schemaName}: ${result.tablesCreated.length} tables created via SchemaManagerService`,
-        );
-      } else {
-        // Fallback: create schema + default tables only (no module tables)
-        this.logger.warn(
-          'SchemaManagerService not available — creating schema with default tables only',
-        );
-        await this.createDatabaseSchema(schemaName);
-        await this.createDefaultTables(schemaName);
-      }
-
-      // Update status to active
-      schemaRecord.status = 'active';
-      schemaRecord.tableCount = await this.getTableCount(schemaName);
-      await this.schemaRepository.save(schemaRecord);
-
-      this.logger.log(`Schema created successfully: ${schemaName} (${schemaRecord.tableCount} tables)`);
-      return schemaRecord;
-    } catch (err) {
-      const error = err as Error;
-      // Cleanup on failure
-      schemaRecord.status = 'suspended';
-      await this.schemaRepository.save(schemaRecord);
-
-      this.logger.error(`Failed to create schema: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Create database schema
-   */
-  private async createDatabaseSchema(schemaName: string): Promise<void> {
-    // Validate schema name to prevent SQL injection
-    if (!this.isValidSchemaName(schemaName)) {
-      throw new BadRequestException('Invalid schema name');
-    }
-
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  /**
-   * Create default tables for tenant schema
-   */
-  private async createDefaultTables(schemaName: string): Promise<void> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      // Base metadata table for tenant-specific settings
-      await queryRunner.query(`
-        CREATE TABLE IF NOT EXISTS "${schemaName}"."_metadata" (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          key VARCHAR(100) NOT NULL UNIQUE,
-          value JSONB,
-          created_at TIMESTAMP DEFAULT NOW(),
-          updated_at TIMESTAMP DEFAULT NOW()
-        )
-      `);
-
-      // Audit trail table
-      await queryRunner.query(`
-        CREATE TABLE IF NOT EXISTS "${schemaName}"."_audit_log" (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          entity_type VARCHAR(100),
-          entity_id VARCHAR(100),
-          action VARCHAR(50),
-          old_data JSONB,
-          new_data JSONB,
-          user_id VARCHAR(100),
-          ip_address VARCHAR(45),
-          created_at TIMESTAMP DEFAULT NOW()
-        )
-      `);
-
-      // Insert initial metadata — parameterized to prevent interpolation pattern drift.
-      // new Date().toISOString() is safe today, but this pattern invites future
-      // tenant-supplied data to be interpolated the same way.
-      await queryRunner.query(
-        `INSERT INTO "${schemaName}"."_metadata" (key, value)
-         VALUES
-           ('schema_version', $1),
-           ('created_at', $2),
-           ('last_migration', $3)
-         ON CONFLICT (key) DO NOTHING`,
-        ['"1.0.0"', `"${new Date().toISOString()}"`, 'null'],
-      );
-    } finally {
-      await queryRunner.release();
-    }
+  createTenantSchema(tenantId: string): never {
+    void tenantId;
+    throw new ConflictException(
+      'Runtime tenant schema creation is disabled. Tenant schema creation must be requested ' +
+        'through the tenant provisioning workflow and completed by aqua-db-migrate.',
+    );
   }
 
   // ============================================================================
@@ -272,16 +135,18 @@ export class SchemaManagementService {
   /**
    * Update schema status
    */
-  async updateSchemaStatus(tenantId: string, status: SchemaStatus): Promise<TenantSchema> {
-    const schema = await this.getSchemaByTenantId(tenantId);
-    schema.status = status;
-    return this.schemaRepository.save(schema);
+  updateSchemaStatus(tenantId: string, status: SchemaStatus): never {
+    void tenantId;
+    void status;
+    throw new ConflictException(
+      'Runtime admin.tenant_schemas status writes are disabled. Status evidence is owned by aqua-db-migrate.',
+    );
   }
 
   /**
    * Suspend tenant schema
    */
-  async suspendSchema(tenantId: string): Promise<TenantSchema> {
+  suspendSchema(tenantId: string): never {
     this.logger.log(`Suspending schema for tenant: ${tenantId}`);
     return this.updateSchemaStatus(tenantId, 'suspended');
   }
@@ -289,7 +154,7 @@ export class SchemaManagementService {
   /**
    * Activate tenant schema
    */
-  async activateSchema(tenantId: string): Promise<TenantSchema> {
+  activateSchema(tenantId: string): never {
     this.logger.log(`Activating schema for tenant: ${tenantId}`);
     return this.updateSchemaStatus(tenantId, 'active');
   }
@@ -298,7 +163,8 @@ export class SchemaManagementService {
    * Delete tenant schema.
    *
    * Soft delete marks the schema record as 'deleted'.
-   * Hard delete executes DROP SCHEMA CASCADE and removes the tracking record.
+   * Hard delete is intentionally blocked here. Destructive tenant deletion must
+   * run through TenantDeprovisionWorkflow with CleanupDropProof evidence.
    *
    * @param tenantId - UUID of the tenant whose schema should be deleted
    * @param hardDelete - when true, physically drops the database schema
@@ -313,98 +179,18 @@ export class SchemaManagementService {
 
     const schema = await this.getSchemaByTenantId(tenantId);
 
-    if (hardDelete) {
-      // SECURITY: destructive action requires confirmation token and audit
-      // Write an immutable audit entry BEFORE the destructive operation.
-      // If the audit write fails, the DROP does NOT proceed.
-      const auditEntry = await this.auditLogService.log({
-        action: 'SCHEMA_HARD_DELETE',
-        entityType: 'TenantSchema',
-        entityId: tenantId,
-        tenantId,
-        performedBy: actionContext.performedBy,
-        ipAddress: actionContext?.ipAddress,
-        userAgent: actionContext?.userAgent,
-        severity: AuditSeverity.CRITICAL,
-        details: {
-          schemaName: schema.schemaName,
-          operation: 'DROP SCHEMA CASCADE',
-          status: 'initiated',
-        },
-      });
-
-      // SECURITY: If the audit write failed, do NOT proceed with the drop.
-      // An irrecoverable destructive operation must have an immutable audit record.
-      if (!auditEntry) {
-        this.logger.error(
-          'SECURITY: Aborting schema hard delete — audit log write failed. ' +
-          `tenantId=${tenantId}, schemaName=${schema.schemaName}`,
-        );
-        throw new InternalServerErrorException(
-          'Cannot proceed with hard delete: audit log write failed. ' +
-          'Contact platform support.',
-        );
-      }
-
-      this.logger.warn('Schema hard delete initiated — audit entry persisted', {
-        action: 'SCHEMA_HARD_DELETE',
-        tenantId,
-        schemaName: schema.schemaName,
-        auditEntryId: auditEntry.id,
-      });
-
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-
-      try {
-        await queryRunner.query(`DROP SCHEMA IF EXISTS "${schema.schemaName}" CASCADE`);
-        await this.schemaRepository.delete({ id: schema.id });
-
-        // SECURITY: Record completion in audit trail
-        await this.auditLogService.log({
-          action: 'SCHEMA_HARD_DELETE_COMPLETED',
-          entityType: 'TenantSchema',
-          entityId: tenantId,
-          tenantId,
-          performedBy: actionContext.performedBy,
-          ipAddress: actionContext?.ipAddress,
-          userAgent: actionContext?.userAgent,
-          severity: AuditSeverity.CRITICAL,
-          details: {
-            schemaName: schema.schemaName,
-            operation: 'DROP SCHEMA CASCADE',
-            status: 'completed',
-            initiatingAuditEntryId: auditEntry.id,
-          },
-        });
-
-        this.logger.warn('Schema hard delete completed', {
-          action: 'SCHEMA_HARD_DELETE_COMPLETED',
-          tenantId,
-          schemaName: schema.schemaName,
-        });
-      } finally {
-        await queryRunner.release();
-      }
-    } else {
-      // Soft delete - just mark as deleted
-      schema.status = 'deleted';
-      await this.schemaRepository.save(schema);
-    }
+    void hardDelete;
+    void schema;
+    void actionContext;
+    throw new ConflictException(
+      'Runtime schema deletion is disabled. Tenant schema deletion must be queued through ' +
+        'the deprovision workflow with CleanupDropProof and completed by aqua-db-migrate.',
+    );
   }
 
   // ============================================================================
   // Schema Validation
   // ============================================================================
-
-  /**
-   * Validate schema name
-   */
-  private isValidSchemaName(schemaName: string): boolean {
-    // Only allow alphanumeric characters and underscores
-    const validPattern = /^[a-z][a-z0-9_]*$/i;
-    return validPattern.test(schemaName) && schemaName.length <= 63;
-  }
 
   /**
    * Validate schema isolation
@@ -421,7 +207,8 @@ export class SchemaManagementService {
 
     try {
       // Check for cross-schema references
-      const crossRefs = await queryRunner.query(`
+      const crossRefs = await queryRunner.query(
+        `
         SELECT DISTINCT
           tc.table_schema,
           tc.table_name,
@@ -433,19 +220,24 @@ export class SchemaManagementService {
         WHERE tc.constraint_type = 'FOREIGN KEY'
           AND tc.table_schema = $1
           AND ccu.table_schema != $1
-      `, [schema.schemaName]);
+      `,
+        [schema.schemaName],
+      );
 
       if (crossRefs.length > 0) {
         issues.push(`Found ${crossRefs.length} cross-schema foreign key references`);
       }
 
       // Check for shared sequences
-      const sharedSequences = await queryRunner.query(`
+      const sharedSequences = await queryRunner.query(
+        `
         SELECT sequence_name
         FROM information_schema.sequences
         WHERE sequence_schema = 'public'
           AND sequence_name LIKE $1
-      `, [`%${schema.schemaName}%`]);
+      `,
+        [`%${schema.schemaName}%`],
+      );
 
       if (sharedSequences.length > 0) {
         issues.push(`Found ${sharedSequences.length} potentially shared sequences`);
@@ -506,12 +298,14 @@ export class SchemaManagementService {
   /**
    * Get connections by tenant
    */
-  async getConnectionsByTenant(): Promise<Array<{
-    tenantId: string;
-    schemaName: string;
-    activeConnections: number;
-    idleConnections: number;
-  }>> {
+  async getConnectionsByTenant(): Promise<
+    Array<{
+      tenantId: string;
+      schemaName: string;
+      activeConnections: number;
+      idleConnections: number;
+    }>
+  > {
     const schemas = await this.schemaRepository.find({
       where: { status: 'active' as SchemaStatus },
     });
@@ -528,13 +322,16 @@ export class SchemaManagementService {
       }> = [];
 
       for (const schema of schemas) {
-        const connections = await queryRunner.query(`
+        const connections = await queryRunner.query(
+          `
           SELECT
             count(*) FILTER (WHERE state = 'active') as active,
             count(*) FILTER (WHERE state = 'idle') as idle
           FROM pg_stat_activity
           WHERE query LIKE $1
-        `, [`%${schema.schemaName}%`]);
+        `,
+          [`%${schema.schemaName}%`],
+        );
 
         results.push({
           tenantId: schema.tenantId,
@@ -562,12 +359,15 @@ export class SchemaManagementService {
     await queryRunner.connect();
 
     try {
-      const result = await queryRunner.query(`
+      const result = await queryRunner.query(
+        `
         SELECT count(*) as count
         FROM information_schema.tables
         WHERE table_schema = $1
           AND table_type = 'BASE TABLE'
-      `, [schemaName]);
+      `,
+        [schemaName],
+      );
 
       return parseInt(result[0]?.count || '0', 10);
     } finally {
@@ -583,11 +383,14 @@ export class SchemaManagementService {
     await queryRunner.connect();
 
     try {
-      const result = await queryRunner.query(`
+      const result = await queryRunner.query(
+        `
         SELECT COALESCE(SUM(pg_total_relation_size(quote_ident(schemaname) || '.' || quote_ident(tablename))), 0) as size
         FROM pg_tables
         WHERE schemaname = $1
-      `, [schemaName]);
+      `,
+        [schemaName],
+      );
 
       return parseInt(result[0]?.size || '0', 10);
     } finally {
@@ -603,7 +406,8 @@ export class SchemaManagementService {
     await queryRunner.connect();
 
     try {
-      const tables = await queryRunner.query(`
+      const tables = await queryRunner.query(
+        `
         SELECT
           t.tablename as table_name,
           COALESCE(s.n_live_tup, 0) as row_count,
@@ -615,7 +419,9 @@ export class SchemaManagementService {
         LEFT JOIN pg_stat_user_tables s ON t.tablename = s.relname AND t.schemaname = s.schemaname
         WHERE t.schemaname = $1
         ORDER BY size_bytes DESC
-      `, [schemaName]);
+      `,
+        [schemaName],
+      );
 
       return tables.map((t: Record<string, unknown>) => ({
         tableName: t.table_name as string,
@@ -633,13 +439,12 @@ export class SchemaManagementService {
   /**
    * Update schema statistics
    */
-  async updateSchemaStats(tenantId: string): Promise<TenantSchema> {
-    const schema = await this.getSchemaByTenantId(tenantId);
-
-    schema.sizeBytes = await this.getSchemaSize(schema.schemaName);
-    schema.tableCount = await this.getTableCount(schema.schemaName);
-
-    return this.schemaRepository.save(schema);
+  updateSchemaStats(tenantId: string): never {
+    void tenantId;
+    throw new ConflictException(
+      'Runtime admin.tenant_schemas statistics writes are disabled. ' +
+        'Read live schema details through getSchemaInfo; durable evidence is owned by aqua-db-migrate.',
+    );
   }
 
   /**
@@ -648,7 +453,7 @@ export class SchemaManagementService {
    */
   async syncExistingTenantSchemas(
     tenantId?: string,
-    modules?: string[],
+    _modules?: string[],
   ): Promise<{
     results: Array<{
       tenantId: string;
@@ -659,10 +464,6 @@ export class SchemaManagementService {
     }>;
     summary: { totalCreated: number; totalErrors: number; tenantsProcessed: number };
   }> {
-    if (!this.schemaManager) {
-      throw new BadRequestException('SchemaManagerService not available');
-    }
-
     let schemas: TenantSchema[];
     if (tenantId) {
       const schema = await this.schemaRepository.findOne({ where: { tenantId } });
@@ -681,39 +482,21 @@ export class SchemaManagementService {
       errors: string[];
     }> = [];
 
-    let totalCreated = 0;
+    const totalCreated = 0;
     let totalErrors = 0;
+    const disabledMessage =
+      'Runtime tenant schema repair is disabled for existing tenants. ' +
+      'Use authored migrations plus tenant fan-out; this admin schema sync route is report-only during Sites Setup SSOT remediation.';
 
     for (const schema of schemas) {
-      try {
-        const syncResult = await this.schemaManager.syncTenantSchema(
-          schema.tenantId,
-          modules,
-        );
-        results.push({
-          tenantId: schema.tenantId,
-          schemaName: schema.schemaName,
-          ...syncResult,
-        });
-        totalCreated += syncResult.created.length;
-        totalErrors += syncResult.errors.length;
-
-        // Update table count
-        if (syncResult.created.length > 0) {
-          schema.tableCount = await this.getTableCount(schema.schemaName);
-          await this.schemaRepository.save(schema);
-        }
-      } catch (err) {
-        const error = err as Error;
-        results.push({
-          tenantId: schema.tenantId,
-          schemaName: schema.schemaName,
-          created: [],
-          skipped: [],
-          errors: [error.message],
-        });
-        totalErrors++;
-      }
+      results.push({
+        tenantId: schema.tenantId,
+        schemaName: schema.schemaName,
+        created: [],
+        skipped: [],
+        errors: [disabledMessage],
+      });
+      totalErrors++;
     }
 
     return {
@@ -738,8 +521,8 @@ export class SchemaManagementService {
   }> {
     const schemas = await this.schemaRepository.find();
 
-    const activeSchemas = schemas.filter(s => s.status === 'active').length;
-    const suspendedSchemas = schemas.filter(s => s.status === 'suspended').length;
+    const activeSchemas = schemas.filter((s) => s.status === 'active').length;
+    const suspendedSchemas = schemas.filter((s) => s.status === 'suspended').length;
     const totalSizeBytes = schemas.reduce((sum, s) => sum + Number(s.sizeBytes), 0);
 
     return {
@@ -752,19 +535,19 @@ export class SchemaManagementService {
   }
 
   /**
-   * Backfill tenant_schemas tracking records for existing tenant schemas
-   * that were created before this tracking was added.
+   * Report tenant schemas that lack tracking records.
    *
-   * Scans information_schema for schemas matching the tenant_* naming pattern,
-   * cross-references with the tenants table, and inserts missing tracking records.
+   * Scans information_schema for schemas matching the tenant_* naming pattern
+   * and cross-references with the tenants table. This method is intentionally
+   * report-only: aqua-db-migrate owns admin.tenant_schemas evidence writes.
    */
   async backfillTrackingRecords(): Promise<{
     created: number;
     skipped: number;
     errors: string[];
   }> {
-    this.logger.log('Starting tenant_schemas backfill...');
-    let created = 0;
+    this.logger.log('Starting tenant_schemas report-only backfill scan...');
+    const created = 0;
     let skipped = 0;
     const errors: string[] = [];
 
@@ -795,10 +578,13 @@ export class SchemaManagementService {
           }
 
           // Resolve tenantId by matching the schema name pattern against the tenants table
-          const tenantRows: Array<{ id: string }> = await queryRunner.query(`
+          const tenantRows: Array<{ id: string }> = await queryRunner.query(
+            `
             SELECT id FROM tenants
             WHERE LEFT(REPLACE(id::text, '-', ''), 16) = $1
-          `, [schemaName.replace('tenant_', '')]);
+          `,
+            [schemaName.replace('tenant_', '')],
+          );
 
           if (tenantRows.length === 0) {
             errors.push(`No matching tenant found for schema ${schemaName}`);
@@ -820,19 +606,13 @@ export class SchemaManagementService {
           // Get table count for this schema
           const tableCount = await this.getTableCount(schemaName);
 
-          // Create tracking record
-          const record = this.schemaRepository.create({
-            tenantId,
-            schemaName,
-            status: 'active' as SchemaStatus,
-            currentVersion: '1.0.0',
-            tableCount,
-          });
-          await this.schemaRepository.save(record);
-          created++;
+          void tableCount;
+          errors.push(
+            `${schemaName}: missing admin.tenant_schemas evidence; queue a db-migrate tenant-schema reconciliation job`,
+          );
 
           this.logger.log(
-            `Backfilled tracking record: tenant ${tenantId} → ${schemaName} (${tableCount} tables)`,
+            `Detected missing tracking record: tenant ${tenantId} -> ${schemaName} (${tableCount} tables)`,
           );
         } catch (err) {
           const error = err as Error;

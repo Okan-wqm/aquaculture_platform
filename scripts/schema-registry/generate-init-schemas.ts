@@ -74,15 +74,22 @@ const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * entity emits a false-positive drift block for `shared.*`.
  *
  * Mirrors `SHARED_SCHEMA_TABLES` in
- * `e2e/tests/integration/schema-invariants.spec.ts:51-56`. Adding a 5th
+ * `e2e/tests/integration/schema-invariants.spec.ts:51-56`. Adding a 6th
  * shared table requires updating BOTH constants in the same PR; the
  * invariant test catches drift between them.
+ *
+ * 2026-05-18 (Faz 4 of day-one baseline reset): `access_logs` promoted
+ * to the canonical shared list. The table exists in the live shared
+ * schema (admin-api migration 1788400-CreateSharedAccessLogs) and is
+ * declared in protected-tables.ts as a compliance-critical surface;
+ * its absence here would create a SSoT drift the next reset cycle.
  */
 const SHARED_SCHEMA_TABLES = [
   'audit_logs',
   'gdpr_data_requests',
   'user_consents',
   'user_permissions',
+  'access_logs',
 ] as const;
 
 function assertSafeIdent(name: string, context: string): void {

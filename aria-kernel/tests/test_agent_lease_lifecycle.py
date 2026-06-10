@@ -202,8 +202,11 @@ class LeaseLifecycleTests(unittest.TestCase):
     def test_derived_states_enumeration_includes_ten_states(self) -> None:
         # Plan 026R §C.5 — DERIVED_STATES expanded with two bridge-
         # aware acceptance states (ACCEPTED_PENDING_BRIDGE +
-        # ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL). Count is now 12.
-        self.assertEqual(len(DERIVED_STATES), 12)
+        # ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL).
+        # V10.5 Phase 3 (per ADR-0001) — EXTERNAL_OUTAGE added for
+        # Anthropic API 529 transient outage handling. Count is now 13.
+        self.assertEqual(len(DERIVED_STATES), 13)
+        self.assertIn("EXTERNAL_OUTAGE", DERIVED_STATES)
 
 
 if __name__ == "__main__":

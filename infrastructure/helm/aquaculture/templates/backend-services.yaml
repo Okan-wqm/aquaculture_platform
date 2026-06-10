@@ -53,6 +53,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "aquaculture.fullname" . }}-secrets
                   key: passwordPepper
+            - name: MFA_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aquaculture.fullname" . }}-secrets
+                  key: mfaEncryptionKey
             - name: JWT_EXPIRES_IN
               value: {{ .Values.authService.env.JWT_EXPIRES_IN | quote }}
             - name: REFRESH_TOKEN_EXPIRES_IN

@@ -27,7 +27,7 @@ export class InvoiceReadOnly {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'tenant_id' })
+  @Column({ type: 'uuid', name: 'tenant_id' })
   tenantId!: string;
 
   @Column({ name: 'invoice_number', unique: true })

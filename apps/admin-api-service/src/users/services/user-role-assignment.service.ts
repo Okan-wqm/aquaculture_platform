@@ -1,9 +1,8 @@
-import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { DataSource } from 'typeorm';
 
-import { PanelPermissions, panelPermissionsToResourceArray } from '../entities/tenant-role-permissions.entity';
+import { PanelPermissions } from '../entities/tenant-role-permissions.entity';
 import {
   UserRoleAssignment,
   PermissionOverrides,
@@ -35,18 +34,69 @@ export interface UpdateUserRoleInput {
 /**
  * User Role Assignment with role details
  */
-export interface UserRoleAssignmentWithDetails extends UserRoleAssignment {
+export type UserRoleAssignmentWithDetails = Omit<UserRoleAssignment, 'role'> & {
   roleName: string;
   roleColor: string;
   roleIcon: string;
   roleLevel: number;
   panelPermissions: PanelPermissions;
   resourcePermissions: string[];
+};
+
+type QueryRow = Record<string, unknown>;
+
+async function queryRows<T extends QueryRow>(
+  dataSource: DataSource,
+  sql: string,
+  parameters?: unknown[],
+): Promise<T[]> {
+  const result: unknown = await dataSource.query(sql, parameters);
+  return Array.isArray(result) ? (result as T[]) : [];
+}
+
+function parsePanelPermissions(value: unknown): PanelPermissions {
+  if (typeof value === 'string') {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  }
+  return value && typeof value === 'object' ? value : {};
+}
+
+function parsePermissionOverrides(value: unknown): PermissionOverrides {
+  const parsed = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
+  if (!parsed || typeof parsed !== 'object') {
+    return { grants: [], revokes: [] };
+  }
+  const candidate = parsed as { grants?: unknown; revokes?: unknown };
+  return {
+    grants: parseStringArray(candidate.grants),
+    revokes: parseStringArray(candidate.revokes),
+  };
+}
+
+function parseStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function rowString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function rowBoolean(value: unknown): boolean {
+  return value === true;
+}
+
+function rowNumber(value: unknown): number {
+  return typeof value === 'number' ? value : Number(value ?? 0);
+}
+
+function rowDate(value: unknown): Date {
+  return value instanceof Date ? value : new Date(String(value));
 }
 
 /**
  * User Role Assignment Service
- * Manages user-role assignments in tenant schemas
+ * Manages user-role assignments in auth.* with tenantId scoping through roles.
  */
 @Injectable()
 export class UserRoleAssignmentService {
@@ -55,23 +105,8 @@ export class UserRoleAssignmentService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly schemaManager: SchemaManagerService,
     private readonly tenantRoleService: TenantRoleService,
   ) {}
-
-  /**
-   * HIGH-002 fix: Assert that a schema name matches the safe pattern
-   * before it is interpolated into any SQL query.
-   * getTenantSchemaName() already validates UUID format; this is a
-   * defence-in-depth check at the SQL usage site.
-   */
-  private assertSafeSchemaName(schemaName: string): void {
-    if (!/^tenant_[0-9a-f]{16}$/.test(schemaName)) {
-      throw new BadRequestException(
-        `SECURITY: Unexpected schema name format: "${schemaName}". Aborting SQL execution.`,
-      );
-    }
-  }
 
   /**
    * Get role assignment for a user
@@ -80,10 +115,8 @@ export class UserRoleAssignmentService {
     tenantId: string,
     userId: string,
   ): Promise<UserRoleAssignmentWithDetails | null> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-    this.assertSafeSchemaName(schemaName);
-
-    const result = await this.dataSource.query(
+    const result = await queryRows<QueryRow>(
+      this.dataSource,
       `
       SELECT
         a.*,
@@ -93,35 +126,28 @@ export class UserRoleAssignmentService {
         r.level as role_level,
         p.panel_permissions,
         p.resource_permissions
-      FROM "${schemaName}"."user_role_assignments" a
-      JOIN "${schemaName}"."tenant_roles" r ON a.role_id = r.id
-      LEFT JOIN "${schemaName}"."tenant_role_permissions" p ON a.role_id = p.role_id
-      WHERE a.user_id = $1 AND a.is_active = true
+      FROM "auth"."user_role_assignments" a
+      JOIN "auth"."tenant_roles" r ON a.role_id = r.id
+      LEFT JOIN "auth"."tenant_role_permissions" p ON a.role_id = p.role_id
+      WHERE r."tenantId" = $1 AND a.user_id = $2 AND a.is_active = true
       `,
-      [userId],
+      [tenantId, userId],
     );
 
-    if (result.length === 0) {
+    const [row] = result;
+    if (!row) {
       return null;
     }
 
-    return this.mapRowToAssignment(result[0]);
+    return this.mapRowToAssignment(row);
   }
 
   /**
    * Get all role assignments for a tenant
    */
   async getAllAssignments(tenantId: string): Promise<UserRoleAssignmentWithDetails[]> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-    this.assertSafeSchemaName(schemaName);
-
-    // Check if table exists
-    const tableExists = await this.schemaManager.tableExists(schemaName, 'user_role_assignments');
-    if (!tableExists) {
-      return [];
-    }
-
-    const result = await this.dataSource.query(
+    const result = await queryRows<QueryRow>(
+      this.dataSource,
       `
       SELECT
         a.*,
@@ -131,11 +157,13 @@ export class UserRoleAssignmentService {
         r.level as role_level,
         p.panel_permissions,
         p.resource_permissions
-      FROM "${schemaName}"."user_role_assignments" a
-      JOIN "${schemaName}"."tenant_roles" r ON a.role_id = r.id
-      LEFT JOIN "${schemaName}"."tenant_role_permissions" p ON a.role_id = p.role_id
+      FROM "auth"."user_role_assignments" a
+      JOIN "auth"."tenant_roles" r ON a.role_id = r.id
+      LEFT JOIN "auth"."tenant_role_permissions" p ON a.role_id = p.role_id
+      WHERE r."tenantId" = $1
       ORDER BY r.level DESC, a.assigned_at DESC
       `,
+      [tenantId],
     );
 
     return result.map((row: Record<string, unknown>) => this.mapRowToAssignment(row));
@@ -150,9 +178,6 @@ export class UserRoleAssignmentService {
     input: AssignUserRoleInput,
     assignedBy: string,
   ): Promise<UserRoleAssignmentWithDetails> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-    this.assertSafeSchemaName(schemaName);
-
     // Verify role exists
     const role = await this.tenantRoleService.getRoleById(tenantId, input.roleId);
     if (!role) {
@@ -174,7 +199,7 @@ export class UserRoleAssignmentService {
     // Create assignment
     await this.dataSource.query(
       `
-      INSERT INTO "${schemaName}"."user_role_assignments" (
+      INSERT INTO "auth"."user_role_assignments" (
         user_id, role_id, permission_overrides, assigned_by, assigned_at, expires_at, is_active, created_at, updated_at
       ) VALUES ($1, $2, $3, $4, NOW(), $5, true, NOW(), NOW())
       `,
@@ -201,9 +226,6 @@ export class UserRoleAssignmentService {
     input: UpdateUserRoleInput,
     updatedBy: string,
   ): Promise<UserRoleAssignmentWithDetails> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-    this.assertSafeSchemaName(schemaName);
-
     // Get existing assignment
     const existing = await this.getUserRoleAssignment(tenantId, userId);
     if (!existing) {
@@ -249,7 +271,7 @@ export class UserRoleAssignmentService {
     values.push(userId);
 
     await this.dataSource.query(
-      `UPDATE "${schemaName}"."user_role_assignments" SET ${updateFields.join(', ')} WHERE user_id = $${paramIndex}`,
+      `UPDATE "auth"."user_role_assignments" SET ${updateFields.join(', ')} WHERE user_id = $${paramIndex}`,
       values,
     );
 
@@ -272,9 +294,6 @@ export class UserRoleAssignmentService {
     userId: string,
     revokedBy: string,
   ): Promise<boolean> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-    this.assertSafeSchemaName(schemaName);
-
     // Get existing assignment
     const existing = await this.getUserRoleAssignment(tenantId, userId);
     if (!existing) {
@@ -283,8 +302,12 @@ export class UserRoleAssignmentService {
 
     // Delete the assignment
     await this.dataSource.query(
-      `DELETE FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1`,
-      [userId],
+      `
+      DELETE FROM "auth"."user_role_assignments" a
+      USING "auth"."tenant_roles" r
+      WHERE a.role_id = r.id AND r."tenantId" = $1 AND a.user_id = $2
+      `,
+      [tenantId, userId],
     );
 
     this.logger.log(
@@ -425,37 +448,31 @@ export class UserRoleAssignmentService {
    * Map database row to UserRoleAssignmentWithDetails
    */
   private mapRowToAssignment(row: Record<string, unknown>): UserRoleAssignmentWithDetails {
-    const panelPermissions = typeof row.panel_permissions === 'string'
-      ? JSON.parse(row.panel_permissions)
-      : (row.panel_permissions as PanelPermissions) || {};
-
-    const permissionOverrides = typeof row.permission_overrides === 'string'
-      ? JSON.parse(row.permission_overrides)
-      : (row.permission_overrides as PermissionOverrides) || { grants: [], revokes: [] };
+    const panelPermissions = parsePanelPermissions(row.panel_permissions);
+    const permissionOverrides = parsePermissionOverrides(row.permission_overrides);
 
     return {
-      id: row.id as string,
-      userId: row.user_id as string,
-      roleId: row.role_id as string,
+      id: rowString(row.id),
+      userId: rowString(row.user_id),
+      roleId: rowString(row.role_id),
       permissionOverrides,
-      assignedBy: row.assigned_by as string,
-      assignedAt: row.assigned_at as Date,
-      expiresAt: row.expires_at as Date | undefined,
-      isActive: row.is_active as boolean,
-      createdAt: row.created_at as Date,
-      updatedAt: row.updated_at as Date,
-      role: null!,
-      roleName: row.role_name as string,
-      roleColor: row.role_color as string,
-      roleIcon: row.role_icon as string,
-      roleLevel: row.role_level as number,
+      assignedBy: rowString(row.assigned_by),
+      assignedAt: rowDate(row.assigned_at),
+      expiresAt: row.expires_at ? rowDate(row.expires_at) : undefined,
+      isActive: rowBoolean(row.is_active),
+      createdAt: rowDate(row.created_at),
+      updatedAt: rowDate(row.updated_at),
+      roleName: rowString(row.role_name),
+      roleColor: rowString(row.role_color),
+      roleIcon: rowString(row.role_icon),
+      roleLevel: rowNumber(row.role_level),
       panelPermissions,
-      resourcePermissions: (row.resource_permissions as string[]) || [],
-      isExpired: function() {
+      resourcePermissions: parseStringArray(row.resource_permissions),
+      isExpired: function(): boolean {
         if (!this.expiresAt) return false;
         return new Date() > this.expiresAt;
       },
-      isValid: function() {
+      isValid: function(): boolean {
         return this.isActive && !this.isExpired();
       },
     };

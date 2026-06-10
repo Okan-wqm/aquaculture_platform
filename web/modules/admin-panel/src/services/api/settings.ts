@@ -50,10 +50,11 @@ export const settingsApi = {
   getEmailConfig: () => apiFetch<Record<string, unknown>>('/settings/config/email'),
   updateEmailConfig: (config: Record<string, unknown>) =>
     apiFetch<Record<string, unknown>>('/settings/config/email', { method: 'PUT', body: JSON.stringify(config) }),
-  // TODO: No backend endpoint for /settings/config/email/test
-  testEmailConfig: (_to: string) => {
-    throw new Error('Not implemented: no backend endpoint for /settings/config/email/test');
-  },
+  testEmailConfig: (to: string) =>
+    apiFetch<Record<string, unknown>>('/settings/config/email/test', {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    }),
   getSecurityConfig: () => apiFetch<Record<string, unknown>>('/settings/config/security'),
   updateSecurityConfig: (config: Record<string, unknown>) =>
     apiFetch<Record<string, unknown>>('/settings/config/security', { method: 'PUT', body: JSON.stringify(config) }),

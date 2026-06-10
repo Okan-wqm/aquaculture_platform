@@ -22,7 +22,27 @@ set -euo pipefail
 # Configuration
 # ---------------------------------------------------------------------------
 
-BASE_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --base-dir)
+      if [ "$#" -lt 2 ]; then
+        echo "ERROR: --base-dir requires a value" >&2
+        exit 2
+      fi
+      BASE_DIR="$2"
+      shift 2
+      ;;
+    --base-dir=*)
+      BASE_DIR="${1#--base-dir=}"
+      shift
+      ;;
+    *)
+      echo "Usage: $0 [--base-dir <project-root>]" >&2
+      exit 2
+      ;;
+  esac
+done
 OUTPUT_DIR="${BASE_DIR}/web/shell/src/generated"
 OUTPUT_FILE="${OUTPUT_DIR}/remoteHashes.json"
 
@@ -85,23 +105,20 @@ for module in $(echo "${!MODULES[@]}" | tr ' ' '\n' | sort); do
     else
       json_content+=","
     fi
-    json_content+=$'\n'"  \"${module}\": \"${hash}\""
+    json_content+=$'\n'"  \"${url_path}\": \"${hash}\""
   else
     missing_count=$((missing_count + 1))
     missing_modules="${missing_modules} ${module}"
-    echo "  [SKIP] ${module}: remoteEntry.js not found at ${entry_path}"
+    echo "  [MISSING] ${module}: remoteEntry.js not found at ${entry_path}"
   fi
 done
 
 json_content+=$'\n'"}"
 
-# Write JSON file
-echo "${json_content}" > "${OUTPUT_FILE}"
-
 echo ""
 echo "=== Results ==="
 echo "  Hashes generated: ${found_count}"
-echo "  Modules skipped:  ${missing_count}${missing_modules:+ (${missing_modules})}"
+echo "  Modules missing:  ${missing_count}${missing_modules:+ (${missing_modules})}"
 echo "  Output:           ${OUTPUT_FILE}"
 
 # Exit with error if NO modules were found (likely a build issue)
@@ -110,6 +127,16 @@ if [ "$found_count" -eq 0 ]; then
   echo "ERROR: No remoteEntry.js files found. Ensure MFE modules are built before running this script."
   exit 1
 fi
+
+if [ "$missing_count" -ne 0 ]; then
+  echo ""
+  echo "ERROR: Missing remoteEntry.js files for:${missing_modules}"
+  echo "Every federation remote must be built before SRI hashes are generated."
+  exit 1
+fi
+
+# Write JSON file only after the expected remote set is complete.
+echo "${json_content}" > "${OUTPUT_FILE}"
 
 echo ""
 echo "SRI hash generation complete."

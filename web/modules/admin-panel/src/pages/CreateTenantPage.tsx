@@ -7,7 +7,7 @@
  * - Custom pricing per tenant (no fixed plans)
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -23,10 +23,12 @@ import {
   billingApi,
   PricingMetricType,
   TenantTier,
+  TenantProvisioningState,
   PlanTier,
   BillingCycle,
   type SystemModule,
   type CreateTenantDto,
+  type CreateTenantAcceptedResponse,
   type ModulePricingWithModule,
   type ModuleQuantities,
   type ModuleSelection,
@@ -140,6 +142,50 @@ const getMetricLabel = (metricType: string | PricingMetricType): string =>
 const getQuantityField = (metricType: string | PricingMetricType): keyof ModuleQuantities | null =>
   metricToQuantityField[metricType as PricingMetricType] ?? null;
 
+const TENANT_CREATE_IDEMPOTENCY_PREFIX = 'admin-panel:tenant-create:idempotency:';
+
+const stableStringify = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(',')}}`;
+  }
+
+  return JSON.stringify(value);
+};
+
+const hashString = (value: string): string => {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+};
+
+const getTenantCreateIdempotency = (payload: CreateTenantDto): { key: string; storageKey?: string } => {
+  const storageKey = `${TENANT_CREATE_IDEMPOTENCY_PREFIX}${hashString(stableStringify(payload))}`;
+
+  if (typeof window === 'undefined') {
+    return { key: crypto.randomUUID() };
+  }
+
+  const existing = window.sessionStorage.getItem(storageKey);
+  if (existing) {
+    return { key: existing, storageKey };
+  }
+
+  const key = crypto.randomUUID();
+  window.sessionStorage.setItem(storageKey, key);
+  return { key, storageKey };
+};
+
 // ============================================================================
 // Step Indicator Component
 // ============================================================================
@@ -216,6 +262,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
         <div className="flex items-start gap-3">
           <button
             type="button"
+            aria-label={`${config.enabled ? 'Disable' : 'Enable'} ${config.moduleName}`}
             onClick={onToggle}
             className={`mt-1 w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
               config.enabled
@@ -259,9 +306,9 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
 
             if (!quantityField) return null;
 
-            const includedQty = metric.includedQuantity || 0;
-            const minQty = Math.max(includedQty, metric.minQuantity || 1);
-            const currentValue = Math.max(config.quantities[quantityField] || minQty, minQty);
+            const includedQty = metric.includedQuantity ?? 0;
+            const minQty = Math.max(metric.minQuantity ?? 0, 0);
+            const currentValue = Math.max(config.quantities[quantityField] ?? minQty, minQty);
             const unitPrice = metric.price || 0;
             const extraQty = Math.max(0, currentValue - includedQty);
 
@@ -283,7 +330,8 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
                     max={metric.maxQuantity || 9999}
                     value={currentValue}
                     onChange={(e) => {
-                      const newValue = parseInt(e.target.value) || minQty;
+                      const parsedValue = Number.parseInt(e.target.value, 10);
+                      const newValue = Number.isNaN(parsedValue) ? minQty : parsedValue;
                       onQuantityChange(quantityField, Math.max(newValue, minQty));
                     }}
                     className="w-24 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -315,6 +363,9 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
 // Create Tenant Page
 // ============================================================================
 
+const isTerminalProvisioningStatus = (status: TenantProvisioningState): boolean =>
+  status === TenantProvisioningState.SUCCEEDED || status === TenantProvisioningState.FAILED;
+
 const CreateTenantPage: React.FC = () => {
   const navigate = useNavigate();
 
@@ -328,7 +379,12 @@ const CreateTenantPage: React.FC = () => {
   const [calculatingPrice, setCalculatingPrice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [createdTenantId, setCreatedTenantId] = useState<string | null>(null);
+  const [provisioningOperation, setProvisioningOperation] = useState<CreateTenantAcceptedResponse | null>(null);
+  const [pollNonce, setPollNonce] = useState(0);
+  const quoteRequestSeq = useRef(0);
+  const pollFailureCount = useRef(0);
+  const pollAbortRef = useRef<AbortController | null>(null);
+  const idempotencyStorageKeyRef = useRef<string | null>(null);
 
   const steps = [
     { label: 'Basic Info', description: 'Company details' },
@@ -427,10 +483,13 @@ const CreateTenantPage: React.FC = () => {
   const calculatePrice = useCallback(async () => {
     const enabledModules = formData.moduleConfigs.filter((c) => c.enabled);
     if (enabledModules.length === 0) {
+      quoteRequestSeq.current += 1;
       setPriceCalculation(null);
       return;
     }
 
+    const requestId = quoteRequestSeq.current + 1;
+    quoteRequestSeq.current = requestId;
     setCalculatingPrice(true);
 
     // Calculate locally first (most reliable) — use the same logic as calculatedTotal useMemo
@@ -444,8 +503,8 @@ const CreateTenantPage: React.FC = () => {
           } else {
             const field = getQuantityField(metric.type);
             if (field) {
-              const qty = config.quantities[field] || 0;
-              const included = metric.includedQuantity || 0;
+              const qty = config.quantities[field] ?? 0;
+              const included = metric.includedQuantity ?? 0;
               const billable = Math.max(0, qty - included);
               localTotal += billable * (metric.price || 0);
             }
@@ -488,10 +547,13 @@ const CreateTenantPage: React.FC = () => {
       };
 
       const calculation = await billingApi.calculatePricing(request);
+      if (quoteRequestSeq.current !== requestId) {
+        return;
+      }
 
       // Only use API result if it has valid totals
-      const apiTotal = calculation.monthlyTotal || calculation.total || calculation.subtotal;
-      if (apiTotal && apiTotal > 0) {
+      const apiTotal = calculation.monthlyTotal ?? calculation.total ?? calculation.subtotal;
+      if (apiTotal !== undefined && apiTotal >= 0) {
         const normalizedCalculation = {
           ...calculation,
           monthlyTotal: apiTotal,
@@ -503,7 +565,9 @@ const CreateTenantPage: React.FC = () => {
       // API failed, local calculation already set - that's fine
       console.debug('API pricing calculation not available, using local calculation');
     } finally {
-      setCalculatingPrice(false);
+      if (quoteRequestSeq.current === requestId) {
+        setCalculatingPrice(false);
+      }
     }
   }, [formData.moduleConfigs, formData.pricingTier, modulePricings]);
 
@@ -572,11 +636,29 @@ const CreateTenantPage: React.FC = () => {
     return null;
   };
 
+  const validateDomain = (domain: string): string | null => {
+    const value = domain.trim().toLowerCase();
+    if (!value) return null;
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(value)) {
+      return 'Domain must be a valid hostname';
+    }
+    return null;
+  };
+
+  const validateCountry = (country: string): string | null => {
+    const value = country.trim().toUpperCase();
+    if (!value) return null;
+    if (!/^[A-Z]{2}$/.test(value)) return 'Country must be a 2-letter ISO code';
+    return null;
+  };
+
   const validateStep = (step: number): boolean => {
     switch (step) {
       case 0: {
         const slugError = validateSlug(formData.slug.trim());
-        return formData.name.trim().length >= 2 && !slugError;
+        const domainError = validateDomain(formData.domain);
+        const countryError = validateCountry(formData.country);
+        return formData.name.trim().length >= 2 && !slugError && !domainError && !countryError;
       }
       case 1:
         return (
@@ -601,7 +683,9 @@ const CreateTenantPage: React.FC = () => {
         setError('Please select at least one module');
       } else if (currentStep === 0) {
         const slugError = validateSlug(formData.slug.trim());
-        setError(slugError || 'Please fill in all required fields');
+        const domainError = validateDomain(formData.domain);
+        const countryError = validateCountry(formData.country);
+        setError(slugError || domainError || countryError || 'Please fill in all required fields');
       } else {
         setError('Please fill in all required fields');
       }
@@ -628,9 +712,9 @@ const CreateTenantPage: React.FC = () => {
         slug: formData.slug || undefined,
         description: formData.description || undefined,
         tier: formData.pricingTier === 'free' ? TenantTier.STARTER : formData.pricingTier as TenantTier,
-        domain: formData.domain || undefined,
-        country: formData.country || undefined,
-        region: formData.region || undefined,
+        domain: formData.domain.trim().toLowerCase() || undefined,
+        country: formData.country.trim().toUpperCase() || undefined,
+        region: formData.region.trim() || undefined,
         primaryContact: {
           name: formData.primaryContact.name,
           email: formData.primaryContact.email,
@@ -649,25 +733,105 @@ const CreateTenantPage: React.FC = () => {
           farms: m.quantities.farms,
           ponds: m.quantities.ponds,
           sensors: m.quantities.sensors,
+          devices: m.quantities.devices,
+          storageGb: m.quantities.storageGb,
+          apiCalls: m.quantities.apiCalls,
+          alerts: m.quantities.alerts,
+          reports: m.quantities.reports,
+          integrations: m.quantities.integrations,
         })),
         // NEW: Billing cycle
         billingCycle: BillingCycle.MONTHLY,
       };
 
-      const tenant = await tenantsApi.create(createData);
-      setCreatedTenantId(tenant.id);
+      const idempotency = getTenantCreateIdempotency(createData);
+      idempotencyStorageKeyRef.current = idempotency.storageKey ?? null;
+      const operation = await tenantsApi.create(createData, idempotency.key);
+      setProvisioningOperation(operation);
 
-      // NOTE: Module assignment and subscription creation is now handled by backend
-      // during tenant creation. The backend will:
-      // 1. Create the tenant
-      // 2. Assign selected modules with quantities
-      // 3. Calculate pricing based on tier and quantities
-      // 4. Create subscription with trial period if specified
-      // 5. Send invitation email to the primary contact
-
-      setSuccess(true);
+      if (operation.status === TenantProvisioningState.SUCCEEDED) {
+        if (idempotency.storageKey) {
+          window.sessionStorage.removeItem(idempotency.storageKey);
+        }
+        setSuccess(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create tenant');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!provisioningOperation || success) return;
+
+    if (provisioningOperation.status === TenantProvisioningState.SUCCEEDED) {
+      if (idempotencyStorageKeyRef.current && typeof window !== 'undefined') {
+        window.sessionStorage.removeItem(idempotencyStorageKeyRef.current);
+        idempotencyStorageKeyRef.current = null;
+      }
+      setSuccess(true);
+      return;
+    }
+
+    if (provisioningOperation.status === TenantProvisioningState.FAILED) {
+      setError('Tenant provisioning failed');
+      return;
+    }
+
+    if (
+      !isTerminalProvisioningStatus(provisioningOperation.status) &&
+      (!Number.isFinite(provisioningOperation.retryAfterMs) || provisioningOperation.retryAfterMs <= 0)
+    ) {
+      setError('Tenant provisioning status contract error: retryAfterMs must be positive while operation is running');
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    pollAbortRef.current?.abort();
+    pollAbortRef.current = controller;
+    const retryAfterMs = provisioningOperation.retryAfterMs;
+    const pollDelay = Math.min(30_000, retryAfterMs * 2 ** pollFailureCount.current);
+    const timer = window.setTimeout(async () => {
+      try {
+        const latest = await tenantsApi.getProvisioningOperationByStatusUrl(
+          provisioningOperation.statusUrl,
+          { signal: controller.signal },
+        );
+        if (!cancelled) {
+          pollFailureCount.current = 0;
+          setProvisioningOperation(latest);
+        }
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+        if (!cancelled) {
+          pollFailureCount.current += 1;
+          setError(err instanceof Error ? err.message : 'Failed to refresh provisioning status');
+          setPollNonce((value) => value + 1);
+        }
+      }
+    }, pollDelay);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      controller.abort();
+      if (pollAbortRef.current === controller) {
+        pollAbortRef.current = null;
+      }
+    };
+  }, [provisioningOperation, success, pollNonce]);
+
+  const handleRetryProvisioning = async () => {
+    if (!provisioningOperation) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const retried = await tenantsApi.retryProvisioningOperation(provisioningOperation.statusUrl);
+      setProvisioningOperation(retried);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to retry provisioning');
     } finally {
       setLoading(false);
     }
@@ -693,9 +857,9 @@ const CreateTenantPage: React.FC = () => {
           } else {
             const field = getQuantityField(metric.type);
             if (field) {
-              const includedQty = metric.includedQuantity || 0;
-              const minQty = Math.max(includedQty, 1);
-              const qty = Math.max(config.quantities[field] || minQty, minQty);
+              const includedQty = metric.includedQuantity ?? 0;
+              const minQty = Math.max(metric.minQuantity ?? 0, 0);
+              const qty = Math.max(config.quantities[field] ?? minQty, minQty);
               const billableQty = Math.max(0, qty - includedQty);
               total += billableQty * (metric.price || 0);
             }
@@ -706,8 +870,68 @@ const CreateTenantPage: React.FC = () => {
     return total;
   }, [enabledModules, modulePricings]);
 
+  if (provisioningOperation && !success) {
+    const isFailed = provisioningOperation.status === TenantProvisioningState.FAILED;
+    const canRetry = provisioningOperation.availableActions?.includes('retryProvisioning') === true;
+
+    return (
+      <div className="max-w-2xl mx-auto">
+        <Card className="p-8">
+          <div className="flex items-start justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Tenant Provisioning</h2>
+              <p className="text-gray-600 mt-1">
+                {formData.name} is being provisioned.
+              </p>
+            </div>
+            <Badge variant={isFailed ? 'error' : 'warning'}>
+              {provisioningOperation.status}
+            </Badge>
+          </div>
+
+          {error && (
+            <Alert type={isFailed ? 'error' : 'warning'} className="mb-6">
+              {error}
+            </Alert>
+          )}
+
+          <div className="space-y-3 mb-6">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Status URL</span>
+              <span className="font-mono text-gray-700">{provisioningOperation.statusUrl}</span>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => navigate('/admin/tenants')}>
+              Tenant List
+            </Button>
+            {canRetry ? (
+              <Button onClick={handleRetryProvisioning} loading={loading}>
+                Retry
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={async () => {
+                setError(null);
+                try {
+                  const latest = await tenantsApi.getProvisioningOperationByStatusUrl(provisioningOperation.statusUrl);
+                  pollFailureCount.current = 0;
+                  setProvisioningOperation(latest);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Failed to refresh provisioning status');
+                }
+              }}>
+                Refresh
+              </Button>
+            )}
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   // Success view
-  if (success && createdTenantId) {
+  if (success) {
     return (
       <div className="max-w-2xl mx-auto">
         <Card className="p-8 text-center">
@@ -716,9 +940,9 @@ const CreateTenantPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Tenant Created Successfully!</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Tenant Provisioned Successfully!</h2>
           <p className="text-gray-600 mb-4">
-            Tenant <strong>{formData.name}</strong> has been created.
+            Tenant <strong>{formData.name}</strong> has been created and provisioned.
           </p>
           {enabledModules.length > 0 && (
             <div className="bg-indigo-50 rounded-lg p-4 mb-6">
@@ -732,15 +956,15 @@ const CreateTenantPage: React.FC = () => {
           )}
           {formData.primaryContact.email && (
             <p className="text-sm text-gray-500 mb-6">
-              An invitation email has been sent to <strong>{formData.primaryContact.email}</strong> for the admin user.
+              Primary contact: <strong>{formData.primaryContact.email}</strong>
             </p>
           )}
           <div className="flex justify-center gap-4">
             <Button variant="outline" onClick={() => navigate('/admin/tenants')}>
               Tenant List
             </Button>
-            <Button onClick={() => navigate(`/admin/tenants/${createdTenantId}`)}>
-              Tenant Details
+            <Button onClick={() => window.location.reload()}>
+              Create Another
             </Button>
           </div>
         </Card>
@@ -814,8 +1038,8 @@ const CreateTenantPage: React.FC = () => {
                   <Input
                     label="Country"
                     value={formData.country}
-                    onChange={(e) => updateFormData('country', e.target.value)}
-                    placeholder="Turkey"
+                    onChange={(e) => updateFormData('country', e.target.value.toUpperCase())}
+                    placeholder="TR"
                   />
                   <Input
                     label="Region"
@@ -1037,7 +1261,7 @@ const CreateTenantPage: React.FC = () => {
               </div>
 
               <Alert type="info">
-                When the tenant is created, an invitation email will be sent to <strong>{formData.primaryContact.email}</strong>.
+                Tenant provisioning will create the workspace, admin access, module assignments, and billing subscription for <strong>{formData.primaryContact.email}</strong>.
               </Alert>
             </div>
           )}

@@ -6,7 +6,7 @@ import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/ap
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import { Request } from 'express';
-import { GraphQLError } from 'graphql';
+import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
@@ -15,9 +15,12 @@ import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/back
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import {
   CorrelationIdMiddleware,
+  StripInternalHeadersMiddleware,
   TenantContextMiddleware,
   UserContextMiddleware,
+  VerifiedUserAssertionMiddleware,
 } from '@aquaculture/backend-common/middleware';
+import { RedisModule } from '@aquaculture/backend-common/redis';
 import { ThrottlerModule } from '@aquaculture/backend-common/security';
 
 /**
@@ -26,9 +29,20 @@ import { ThrottlerModule } from '@aquaculture/backend-common/security';
 interface GraphQLContextRequest extends Request {
   user?: {
     sub: string;
+    tenantId?: string;
     roles: string[];
   };
+  tenantId?: string;
 }
+
+type QueryComplexityOperationContext = {
+  request: {
+    operationName?: string;
+    variables?: Record<string, unknown>;
+  };
+  document: DocumentNode;
+  schema: GraphQLSchema;
+};
 import {
   createTenantConnectionBootstrap,
   TenantSchemaSyncService,
@@ -82,6 +96,9 @@ import { WeatherModule } from './weather/weather.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { EventListenersModule } from './events/event-listeners.module';
 import { TaskModule } from './task/task.module';
+import { FarmStockModule } from './farm-stock/farm-stock.module';
+import { MobileDashboardModule } from './mobile-dashboard/mobile-dashboard.module';
+import { FarmDocumentModule } from './document/document.module';
 /**
  * WHY: AiInsightsModule integrates the MCP Farm Intelligence server with the
  * farm service, providing AI-powered risk assessment, anomaly detection, growth
@@ -151,7 +168,10 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
       imports: [ConfigModule, GraphQLContextModule],
       inject: [ConfigService, GraphQLContextFactory],
       useFactory: (configService: ConfigService, contextFactory: GraphQLContextFactory) => ({
-        autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'dist/graphql/subgraphs/farm.graphql'),
+        },
         /** SEC-CSRF: Apollo CSRF prevention. Rejects simple-CORS GraphQL
          *  requests that cannot carry a custom header — defense against
          *  cross-site GraphQL execution from a victim's browser. The
@@ -196,7 +216,11 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
         plugins: [
           {
             requestDidStart: async () => ({
-              async didResolveOperation({ request, document, schema }) {
+              async didResolveOperation({
+                request,
+                document,
+                schema,
+              }: QueryComplexityOperationContext) {
                 const rawLimit = configService.get<number | string>(
                   'FARM_GRAPHQL_MAX_COMPLEXITY',
                   1000,
@@ -236,34 +260,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: GraphQLContextRequest }) => {
-          // Reconstruct user from gateway headers for @CurrentUser() decorator
-          const userPayloadHeader = req.headers['x-user-payload'];
-          const userIdHeader = req.headers['x-user-id'];
-          const userRolesHeader = req.headers['x-user-roles'];
-
-          if (typeof userPayloadHeader === 'string') {
-            try {
-              req.user = JSON.parse(userPayloadHeader);
-            } catch {
-              // Fallback: create minimal user from individual headers
-              if (typeof userIdHeader === 'string') {
-                req.user = {
-                  sub: userIdHeader,
-                  roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
-                };
-              }
-            }
-          } else if (typeof userIdHeader === 'string') {
-            // Fallback if x-user-payload not present
-            req.user = {
-              sub: userIdHeader,
-              roles: typeof userRolesHeader === 'string' ? JSON.parse(userRolesHeader) : [],
-            };
-          }
-
-          // Create per-request DataLoaders for equipment batch metrics (N+1 → bulk)
-          const tenantHeader = req.headers['x-tenant-id'];
-          const tenantId = typeof tenantHeader === 'string' ? tenantHeader : undefined;
+          // User and tenant context are populated by VerifiedUserAssertionMiddleware.
+          const tenantId = req.user?.tenantId ?? req.tenantId;
           let loaders;
           if (tenantId) {
             const schema = getTenantSchemaName(tenantId);
@@ -330,6 +328,17 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     // @Cacheable. Tenant-scoped keys by default; operators tune
     // TTL per call site.
     CacheableModule,
+    RedisModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        host: configService.get('REDIS_HOST', 'localhost'),
+        port: parseInt(configService.get('REDIS_PORT', '6379'), 10),
+        password: configService.get('REDIS_PASSWORD'),
+        db: parseInt(configService.get('REDIS_DB', '0'), 10),
+        keyPrefix: 'farm:',
+      }),
+    }),
 
     // Targeted jsonb_set UPDATE helper — phase 5.7. Lets
     // concurrent handlers patch DIFFERENT keys of the same JSONB
@@ -386,6 +395,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     FarmOutboxModule,
 
     // Feature modules
+    FarmDocumentModule,
     FarmModule,
     HealthModule,
     SpeciesModule,
@@ -413,6 +423,8 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     SchedulerModule,
     EventListenersModule,
     TaskModule,
+    FarmStockModule,
+    MobileDashboardModule,
     // WHY: AI insights module — MCP Farm Intelligence integration
     AiInsightsModule,
     /**
@@ -441,7 +453,14 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
       serviceName: 'farm',
       autoApply: false,
       syncTenantSchemas: true,
-      excludeTables: ['farm_outbox', 'audit_logs', 'audit_log'],
+      excludeTables: [
+        'farm_outbox',
+        'outbox_events',
+        'inbox_messages',
+        'event_dlq',
+        'audit_logs',
+        'audit_log',
+      ],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'farm' }),
@@ -467,7 +486,7 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'farm-service'),
       inject: [ConfigService],
     },
     // Tenant guard
@@ -508,12 +527,15 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Middleware execution order:
-    // 1. CorrelationIdMiddleware - Add correlation ID for request tracing
-    // 2. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
-    // 3. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
-    // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
+    // 1. StripInternalHeadersMiddleware - remove spoofable gateway headers unless service-signed
+    // 2. CorrelationIdMiddleware - Add correlation ID for request tracing
+    // 3. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
+    // 4. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
+    // 5. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
+        StripInternalHeadersMiddleware,
+        VerifiedUserAssertionMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

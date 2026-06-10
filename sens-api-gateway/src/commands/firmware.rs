@@ -21,11 +21,9 @@
 //!     (defense against URL injection via the `repo` param).
 //!   - `is_valid_version_string` — tag-string safety validator
 //!     (alphanumeric + dot + dash + underscore only).
-//!   - `resolve_firmware_version` — "latest" / "agent-v1.5.3" /
-//!     bare "1.5.2" → canonical GitHub release tag name.
-//!   - `fetch_latest_agent_tag` — GitHub Releases API consumer;
-//!     filters tags prefixed with `agent-v` (prevents random
-//!     non-agent releases from being installed).
+//!   - `resolve_firmware_version` — explicit "agent-v1.5.3" /
+//!     bare "1.5.2" → canonical GitHub release tag name; live
+//!     "latest" resolution is rejected.
 //!   - `download_file` — reqwest GET with 300s timeout; writes
 //!     to local path.
 //!   - `compute_sha256` / `read_checksum_file` — integrity
@@ -62,12 +60,9 @@ use super::CommandHandler;
 
 /// Decision returned by the Batch 119 legacy-tarball mode
 /// gate (pure function for testability). The command body
-/// uses this to either proceed, warn-and-proceed, or reject.
+/// uses this to either warn-and-proceed or reject.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LegacyTarballGateDecision {
-    /// `firmware_update.mode=Disabled` — HC-1 backward
-    /// compat; no gate action.
-    Allow,
     /// `firmware_update.mode=Permissive` — operator
     /// migration signal. Proceed but warn-log on invocation
     /// so the operator sees the path is being deprecated.
@@ -85,8 +80,8 @@ pub(super) enum LegacyTarballGateDecision {
 ///
 /// ## Contract (plan §3 HC-6 rollout discipline)
 ///
-/// - Disabled (HC-1 default): Allow. Legacy tarball OTA
-///   runs unchanged.
+/// - Disabled (default): Reject. Signed-manifest rollout is
+///   the only production-safe OTA path.
 /// - Permissive: AllowWithWarn. Operator migration signal;
 ///   the path still works but the agent warn-logs on each
 ///   invocation so the operator can plan the cutover.
@@ -99,7 +94,7 @@ pub(super) fn legacy_tarball_mode_gate(
 ) -> LegacyTarballGateDecision {
     use crate::config::FirmwareUpdateMode;
     match mode {
-        FirmwareUpdateMode::Disabled => LegacyTarballGateDecision::Allow,
+        FirmwareUpdateMode::Disabled => LegacyTarballGateDecision::Reject,
         FirmwareUpdateMode::Permissive => LegacyTarballGateDecision::AllowWithWarn,
         FirmwareUpdateMode::Enforcing => LegacyTarballGateDecision::Reject,
     }
@@ -135,9 +130,6 @@ impl CommandHandler {
                 s.config.firmware_update.mode
             };
             match legacy_tarball_mode_gate(mode) {
-                LegacyTarballGateDecision::Allow => {
-                    // HC-1 default; proceed unchanged.
-                }
                 LegacyTarballGateDecision::AllowWithWarn => {
                     warn!(
                         "update_firmware: legacy tarball OTA invoked while firmware_update.mode=Permissive. \
@@ -147,24 +139,24 @@ impl CommandHandler {
                 }
                 LegacyTarballGateDecision::Reject => {
                     warn!(
-                        "update_firmware: REJECTED under firmware_update.mode=Enforcing. \
+                        "update_firmware: REJECTED under firmware_update.mode={:?}. \
                          Legacy tarball OTA does NOT run the 8-gate SignedFirmwareManifest \
-                         verify pipeline; operators in Enforcing mode MUST use \
-                         'apply_signed_manifest'."
+                         verify pipeline; operators MUST use 'apply_signed_manifest'.",
+                        mode
                     );
                     return (
                         false,
                         json!({
                             "rejected": true,
-                            "gate": "legacy_tarball_disabled_in_enforcing_mode",
-                            "mode": "enforcing",
+                            "gate": "legacy_tarball_disabled",
+                            "mode": format!("{:?}", mode).to_ascii_lowercase(),
                             "migration": "use_apply_signed_manifest",
                         }),
-                        Some(
-                            "update_firmware rejected: firmware_update.mode=Enforcing disables the legacy tarball path. \
-                             Use 'apply_signed_manifest' with a SignedFirmwareManifest payload instead."
-                                .to_string(),
-                        ),
+                        Some(format!(
+                            "update_firmware rejected: firmware_update.mode={:?} disables the legacy tarball path. \
+                                     Use 'apply_signed_manifest' with a SignedFirmwareManifest payload instead.",
+                            mode
+                        )),
                     );
                 }
             }
@@ -541,14 +533,16 @@ pub(super) fn is_valid_version_string(version: &str) -> bool {
 /// Resolve a firmware version string to a GitHub release tag.
 ///
 /// Accepts:
-/// - "latest" → fetches latest `agent-v*` tag from GitHub
-///   releases (prefix filter prevents installing non-agent
-///   releases).
 /// - "agent-v1.5.3" → used as-is.
 /// - "1.5.2" → prefixed with "agent-v".
-pub(super) async fn resolve_firmware_version(target: &str, repo: &str) -> anyhow::Result<String> {
-    if target == "latest" {
-        fetch_latest_agent_tag(repo).await
+///
+/// Rejects "latest" because production consumers must be bound
+/// to the signed release registry, not live release ordering.
+pub(super) async fn resolve_firmware_version(target: &str, _repo: &str) -> anyhow::Result<String> {
+    if target.eq_ignore_ascii_case("latest") {
+        anyhow::bail!(
+            "latest firmware resolution is disabled; specify an explicit agent-v<semver> tag"
+        )
     } else if !is_valid_version_string(target) {
         anyhow::bail!("Invalid version string: contains disallowed characters")
     } else if target.starts_with("agent-v") {
@@ -556,50 +550,6 @@ pub(super) async fn resolve_firmware_version(target: &str, repo: &str) -> anyhow
     } else {
         Ok(format!("agent-v{}", target))
     }
-}
-
-/// Fetch the latest `agent-v*` release tag from GitHub API.
-///
-/// Filters releases to only those with tag names starting with
-/// "agent-v" — prevents installing docs-v1.0 / infra-v2.0 etc if
-/// the release-tag namespace is shared across multiple artifact
-/// types.
-pub(super) async fn fetch_latest_agent_tag(repo: &str) -> anyhow::Result<String> {
-    let url = format!("https://api.github.com/repos/{}/releases", repo);
-
-    let suderra_tls = crate::mtls::build_suderra_https_client_config()
-        .map_err(|e| anyhow::anyhow!("Failed to build Suderra HTTPS ClientConfig: {e}"))?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .use_preconfigured_tls((*suderra_tls).clone())
-        .build()?;
-
-    let response = client
-        .get(&url)
-        .header("User-Agent", "suderra-agent")
-        .header("Accept", "application/vnd.github.v3+json")
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        anyhow::bail!(
-            "GitHub API returned status {}: {}",
-            response.status(),
-            response.text().await.unwrap_or_default()
-        );
-    }
-
-    let releases: Vec<Value> = response.json().await?;
-
-    for release in &releases {
-        if let Some(tag) = release.get("tag_name").and_then(|v| v.as_str()) {
-            if tag.starts_with("agent-v") {
-                return Ok(tag.to_string());
-            }
-        }
-    }
-
-    anyhow::bail!("No agent-v* release found in repository {}", repo)
 }
 
 /// Download a file from a URL to a local path with a 300-second
@@ -620,7 +570,7 @@ pub(super) async fn fetch_latest_agent_tag(repo: &str) -> anyhow::Result<String>
 ///
 /// Closure: this helper now goes through `build_suderra_https_client_config`
 /// — same TLS 1.3 + 3-suite AEAD allowlist as `provisioning.rs::activate`,
-/// `scripting/engine.rs`, and `fetch_latest_agent_tag`. Every reqwest
+/// `scripting/engine.rs`, and explicit firmware artifact downloads. Every reqwest
 /// callsite in the agent now uniformly enforces the cipher allowlist.
 pub(super) async fn download_file(url: &str, dest: &Path) -> anyhow::Result<()> {
     info!("Downloading {} -> {:?}", url, dest);
@@ -693,10 +643,10 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn mode_gate_disabled_returns_allow() {
+    fn mode_gate_disabled_returns_reject() {
         assert_eq!(
             legacy_tarball_mode_gate(FirmwareUpdateMode::Disabled),
-            LegacyTarballGateDecision::Allow
+            LegacyTarballGateDecision::Reject
         );
     }
 
@@ -732,13 +682,11 @@ mod tests {
         ];
         for m in all {
             let decision = legacy_tarball_mode_gate(m);
-            // The decision must be one of the 3 known
+            // The decision must be one of the known
             // variants; the match on the result itself is
             // also exhaustive.
             match decision {
-                LegacyTarballGateDecision::Allow
-                | LegacyTarballGateDecision::AllowWithWarn
-                | LegacyTarballGateDecision::Reject => {}
+                LegacyTarballGateDecision::AllowWithWarn | LegacyTarballGateDecision::Reject => {}
             }
         }
     }

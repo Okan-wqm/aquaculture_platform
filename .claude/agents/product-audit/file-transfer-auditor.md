@@ -4,6 +4,7 @@ description: Reviews upload, attachment, import, export, preview, and download f
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # File Transfer Auditor -- Upload and Export Flow Reviewer

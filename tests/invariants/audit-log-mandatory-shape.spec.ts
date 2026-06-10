@@ -2,16 +2,16 @@
  * Platform-wide invariant — AUDITTRAIL-CRITICAL-004:
  *
  * `shared.audit_logs` MUST carry the audit-trail-completeness-auditor
- * agent's mandatory 22-column shape, declared coherently across THREE
+ * agent's mandatory 24-column shape, declared coherently across THREE
  * SSoT layers:
  *
  *   1. `AuditLogEntity` (TypeORM mapping — runtime read/write)
  *   2. `CreateAuditEntryDto` (audit-log.tokens — caller-facing contract)
- *   3. `1788100000000-AddAuditLogShapeExtension` (DB schema migration)
+ *   3. `006-shared-schema-tables.sql` (db-migrate Phase 0 platform bootstrap)
  *
  * # Why this lives in tests/invariants/
  *
- * The 8 fields added by AUDITTRAIL-CRITICAL-004 close a forensic
+ * The forensic extension fields added by AUDITTRAIL-CRITICAL-004 close a
  * capability gap. A future "simplification" or column-drop migration
  * that re-strips any of these fields without touching the entity would
  * reintroduce the regression silently — the schema-drift validator runs
@@ -25,7 +25,7 @@
  *
  * # Failure mode
  *
- * If a migration removes any of the 8 columns or the entity drops any
+ * If a migration removes any of the extension columns or the entity drops any
  * `@Column()` declaration, this test fails with a precise per-layer
  * report. Maintainers must either:
  *
@@ -45,13 +45,14 @@ const TOKENS_PATH = 'libs/backend-common/src/audit/audit-log.tokens.ts';
 const SERVICE_PATH = 'libs/backend-common/src/audit/audit-log.service.ts';
 const INTERCEPTOR_PATH =
   'libs/backend-common/src/audit/audited-operation.interceptor.ts';
-const MIGRATION_PATH =
-  'apps/admin-api-service/src/migrations/1788100000000-AddAuditLogShapeExtension.ts';
+const PLATFORM_BOOTSTRAP_SQL_PATH =
+  'apps/db-migrate/src/sql/platform-bootstrap/006-shared-schema-tables.sql';
 
 /**
- * The 22-column mandatory shape per the audit-trail-completeness-auditor
- * agent's invariant. The first 14 are the legacy V1 shape; the remaining
- * 8 (marked `mandatoryShapeExt: true`) are the AUDITTRAIL-CRITICAL-004
+ * The 24-column mandatory shape per the audit-trail-completeness-auditor
+ * agent's invariant. The first 14 are the legacy V1 shape, `legalHold`
+ * is the retention-protection extension, and the remaining 9 fields
+ * (marked `mandatoryShapeExt: true`) are the AUDITTRAIL-CRITICAL-004
  * extension.
  */
 const MANDATORY_FIELDS = [
@@ -109,7 +110,7 @@ describe('audit-log mandatory shape (AUDITTRAIL-CRITICAL-004)', () => {
     expect(missing).toEqual([]);
   });
 
-  it('AuditLogEntity decorates the 8 extension fields with @Column', () => {
+  it('AuditLogEntity decorates the extension fields with @Column', () => {
     const src = read(ENTITY_PATH);
     const undecorated: string[] = [];
     for (const fieldName of ENTITY_EXT_FIELDS) {
@@ -193,59 +194,48 @@ describe('audit-log mandatory shape (AUDITTRAIL-CRITICAL-004)', () => {
     expect(body).toMatch(/AuditResult\.FAILED/);
   });
 
-  describe('migration 1788100000000-AddAuditLogShapeExtension', () => {
-    const migrationSrc = read(MIGRATION_PATH);
+  describe('platform bootstrap shared.audit_logs shape', () => {
+    const bootstrapSrc = read(PLATFORM_BOOTSTRAP_SQL_PATH);
+    const bootstrapAddedFields = ['legalHold', ...ENTITY_EXT_FIELDS] as const;
 
     it.each(ENTITY_EXT_FIELDS)(
       'ALTER TABLE adds %s column',
       (fieldName) => {
-        // ADD COLUMN IF NOT EXISTS "<fieldName>"
+        // ADD COLUMN IF NOT EXISTS "<fieldName>" or unquoted lower-case name.
         const re = new RegExp(
-          `ADD\\s+COLUMN\\s+IF\\s+NOT\\s+EXISTS\\s+"${fieldName}"`,
+          `ADD\\s+COLUMN\\s+IF\\s+NOT\\s+EXISTS\\s+"?${fieldName}"?`,
           'i',
         );
-        expect(migrationSrc).toMatch(re);
+        expect(bootstrapSrc).toMatch(re);
+      },
+    );
+
+    it.each(bootstrapAddedFields)(
+      'Phase 0 idempotently guarantees %s column',
+      (fieldName) => {
+        const re = new RegExp(
+          `ADD\\s+COLUMN\\s+IF\\s+NOT\\s+EXISTS\\s+"?${fieldName}"?`,
+          'i',
+        );
+        expect(bootstrapSrc).toMatch(re);
       },
     );
 
     it('declares CHECK constraints for the closed-vocabulary fields', () => {
-      expect(migrationSrc).toMatch(/chk_audit_logs_method/);
-      expect(migrationSrc).toMatch(/'HTTP'\s*,\s*'GRAPHQL'\s*,\s*'NATS'\s*,\s*'CRON'\s*,\s*'CLI'/);
-      expect(migrationSrc).toMatch(/chk_audit_logs_result/);
-      expect(migrationSrc).toMatch(/'SUCCESS'\s*,\s*'DENIED'\s*,\s*'FAILED'/);
-    });
-
-    it('uses transaction:none and CONCURRENTLY for the live-write index path', () => {
-      // CONCURRENTLY cannot run inside a transaction; this is the only safe
-      // shape on a high-write production audit table. Drift here would
-      // stall every audit write at deploy time.
-      expect(migrationSrc).toMatch(/transaction:\s*'none'\s*=\s*'none'/);
-      expect(migrationSrc).toMatch(/CREATE\s+INDEX\s+CONCURRENTLY/);
+      expect(bootstrapSrc).toMatch(/chk_audit_logs_method/);
+      expect(bootstrapSrc).toMatch(/'HTTP'\s*,\s*'GRAPHQL'\s*,\s*'NATS'\s*,\s*'CRON'\s*,\s*'CLI'/);
+      expect(bootstrapSrc).toMatch(/chk_audit_logs_result/);
+      expect(bootstrapSrc).toMatch(/'SUCCESS'\s*,\s*'DENIED'\s*,\s*'FAILED'/);
     });
 
     it('installs the three forensic secondary indexes', () => {
-      expect(migrationSrc).toMatch(
+      expect(bootstrapSrc).toMatch(
         /idx_audit_logs_actor_home_tenant_created/,
       );
-      expect(migrationSrc).toMatch(
+      expect(bootstrapSrc).toMatch(
         /idx_audit_logs_acted_on_tenant_created/,
       );
-      expect(migrationSrc).toMatch(/idx_audit_logs_mfa_verified_created/);
-    });
-
-    it('down() drops every column the up() added (round-trip safety)', () => {
-      const downRe = /public\s+async\s+down\s*\(([\s\S]*?)\n  }\s*\n}/;
-      const match = downRe.exec(migrationSrc);
-      expect(match).not.toBeNull();
-      const body = match![1] ?? '';
-      const missing: string[] = [];
-      for (const fieldName of ENTITY_EXT_FIELDS) {
-        const re = new RegExp(`DROP\\s+COLUMN\\s+IF\\s+EXISTS\\s+"${fieldName}"`, 'i');
-        if (!re.test(body)) {
-          missing.push(fieldName);
-        }
-      }
-      expect(missing).toEqual([]);
+      expect(bootstrapSrc).toMatch(/idx_audit_logs_mfa_verified_created/);
     });
   });
 });

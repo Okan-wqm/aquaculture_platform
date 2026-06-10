@@ -54,22 +54,57 @@ def _seed_tools(prefix: str = "aria-rt-profile-") -> Path:
 
 
 class ProfileTaxonomyTests(unittest.TestCase):
-    def test_profiles_are_the_locked_4_mode_taxonomy(self) -> None:
-        self.assertEqual(set(PROFILES), {"observe", "standard", "strict", "frozen"})
+    def test_profiles_are_the_locked_5_mode_taxonomy(self) -> None:
+        # Plan ARIA-V3 §B2 — added ``autonomous`` to the previous
+        # 4-mode (observe/standard/strict/frozen) taxonomy. The
+        # autonomous profile gates the L3-snowball auto-merge path.
+        # Default stays standard; operator MUST set autonomous via
+        # ``aria-kernel profile set --profile autonomous --operator-
+        # approval-ref <ref>`` (Plan ARIA-V3 §B2 invariant I-V3-27).
+        self.assertEqual(
+            set(PROFILES),
+            {"observe", "standard", "strict", "frozen", "autonomous"},
+        )
 
     def test_default_profile_is_standard(self) -> None:
         self.assertEqual(DEFAULT_PROFILE, "standard")
 
     def test_action_permissions_table_is_locked(self) -> None:
+        # Plan ARIA-V3 §B2 §2a + §2j + I-V3-27a — ACTION_PERMISSIONS
+        # lists ``autonomous`` EXPLICITLY on every action_kind it
+        # permits (no inherit-from-strict). The explicit listing
+        # closes the test-runner missing-test-#6 invariant gap; a
+        # future refactor that drops autonomous from any cell must
+        # update this table directly.
         self.assertEqual(set(ACTION_PERMISSIONS.keys()), {
-            "agent_claim", "change_committed", "change_validated", "pr_open",
+            "agent_claim", "change_committed", "change_validated", "pr_create", "pr_open", "pr_merge",
         })
-        self.assertEqual(ACTION_PERMISSIONS["agent_claim"], frozenset({"standard", "strict"}))
-        self.assertEqual(ACTION_PERMISSIONS["change_committed"], frozenset({"standard", "strict"}))
-        self.assertEqual(ACTION_PERMISSIONS["change_validated"], frozenset({"standard", "strict"}))
-        self.assertEqual(ACTION_PERMISSIONS["pr_open"], frozenset({"strict"}))
+        self.assertEqual(
+            ACTION_PERMISSIONS["agent_claim"],
+            frozenset({"standard", "strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["change_committed"],
+            frozenset({"standard", "strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["change_validated"],
+            frozenset({"standard", "strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["pr_create"],
+            frozenset({"strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["pr_open"],
+            frozenset({"strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["pr_merge"],
+            frozenset({"autonomous"}),
+        )
 
-    def test_plan_020_write_surfaces_includes_22_locked_entries(self) -> None:
+    def test_plan_020_write_surfaces_include_required_enterprise_entries(self) -> None:
         # Plan 020 v3.3 Phase 1.B + Plan 026R §A.4 PLAN_020_WRITE_SURFACES
         # taxonomy. The original 14 surfaces (Phase 1.B → Phase 13) plus
         # the 8 §A.4 legacy-mutator surfaces.
@@ -83,19 +118,41 @@ class ProfileTaxonomyTests(unittest.TestCase):
             "finding", "debt", "governance", "observation",
             "agent_genesis", "tool_governance",
             "critical_observation", "human_required",
+            # Enterprise autonomy hardening surfaces
+            "runtime_v2_promotion", "plan_promotion_dispatch",
+            "worker_verification", "worker_result",
+            "pr_lifecycle", "pr_action",
+            "tool_registry", "tool_lifecycle", "skill_genesis",
         }
-        self.assertEqual(PLAN_020_WRITE_SURFACES, frozenset(expected))
+        self.assertTrue(frozenset(expected).issubset(PLAN_020_WRITE_SURFACES))
+        from aria_kernel.state_manifest import profile_surfaces
+        self.assertTrue(profile_surfaces().issubset(PLAN_020_WRITE_SURFACES))
+
+    def test_manifest_resolution_prefers_exact_dispatch_surfaces(self) -> None:
+        from aria_kernel.state_manifest import surface_for_relative_path
+
+        self.assertEqual(
+            surface_for_relative_path("dispatch/requests.jsonl").name,
+            "dispatch_requests",
+        )
+        self.assertEqual(
+            surface_for_relative_path("dispatch/custom-worker.jsonl").name,
+            "worker_dispatch",
+        )
 
     def test_observe_allowlist_is_observation_class_only(self) -> None:
         # Observe-mode permission table per Plan 020 v3.3 Phase 1.B +
         # Plan 026R §A.4 (added ``tool_governance`` so observation-class
         # governance event emitters keep working under observe).
-        self.assertEqual(OBSERVE_PERMITTED_SURFACES, frozenset({
+        expected = frozenset({
             "finding", "debt", "observation",
             "context_audits", "handoffs", "surface_validations",
             "instinct_candidates",
             "tool_governance",
-        }))
+        })
+        self.assertTrue(expected.issubset(OBSERVE_PERMITTED_SURFACES))
+        from aria_kernel.state_manifest import observe_permitted_profile_surfaces
+        self.assertEqual(OBSERVE_PERMITTED_SURFACES, observe_permitted_profile_surfaces())
 
     def test_known_write_surfaces_is_union(self) -> None:
         # Plan 026R §A.4 — KNOWN_WRITE_SURFACES now also includes
@@ -237,10 +294,16 @@ class EnforceProfileForActionTests(unittest.TestCase):
         self.assertEqual(enforce_profile_for_action("change_validated", base_dir=self.tools), "standard")
         with self.assertRaises(GovernanceError):
             enforce_profile_for_action("pr_open", base_dir=self.tools)
+        with self.assertRaises(GovernanceError):
+            enforce_profile_for_action("pr_merge", base_dir=self.tools)
 
-    def test_strict_permits_every_action(self) -> None:
+    def test_strict_permits_all_non_merge_actions(self) -> None:
         set_profile("strict", operator_approval_ref="op:1", base_dir=self.tools)
         for action in ACTION_PERMISSIONS:
+            if action == "pr_merge":
+                with self.assertRaises(GovernanceError):
+                    enforce_profile_for_action(action, base_dir=self.tools)
+                continue
             self.assertEqual(enforce_profile_for_action(action, base_dir=self.tools), "strict")
 
     def test_unknown_action_kind_raises(self) -> None:
@@ -386,7 +449,7 @@ class WiringSmokeTests(unittest.TestCase):
             )
         # Profile gate fires before the missing-proposal check.
         self.assertIn("profile_violation", str(cm.exception))
-        self.assertIn("pr_open", str(cm.exception))
+        self.assertIn("pr_create", str(cm.exception))
 
     def test_run_tool_gated_under_observe(self) -> None:
         from aria_kernel.tool_runner import run_tool

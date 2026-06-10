@@ -16,7 +16,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -97,7 +97,7 @@ class CliAutonomyRunTests(unittest.TestCase):
                 "autonomy", "run",
                 "--max-cycles", "1",
             ])
-        self.assertEqual(rc, 1)
+        self.assertEqual(rc, 3)
 
     def test_autonomy_status_prints_canonical_state(self) -> None:
         with redirect_stdout(io.StringIO()) as buf:
@@ -111,6 +111,50 @@ class CliAutonomyRunTests(unittest.TestCase):
         self.assertEqual(payload["cycles_completed"], 0)
         self.assertEqual(payload["transition_count"], 0)
         self.assertFalse(payload["aria_stop_active"])
+
+    def test_autonomy_burn_in_observe_requires_explicit_tools_dir(self) -> None:
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            cli_main([
+                "autonomy", "burn-in", "observe",
+                "--workspace-root", str(self.tmp),
+                "--workspace-base", str(self.tmp / "workspaces"),
+                "--target-ref", "HEAD",
+                "--output-dir", str(self.base / "burn-in" / "test-run"),
+            ])
+
+    def test_autonomy_burn_in_observe_dispatches_runner(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_burn_in(**kwargs):  # type: ignore[no-untyped-def]
+            captured.update(kwargs)
+            return {
+                "schema_version": "aria/autonomy-burn-in-report/v1",
+                "acceptance_verdict": "passed",
+                "valid_cycles": kwargs["min_valid_cycles"],
+            }
+
+        with patch("aria_kernel.cli.run_observe_burn_in", fake_burn_in), redirect_stdout(io.StringIO()) as buf:
+            rc = cli_main([
+                "--tools-dir", str(self.base),
+                "autonomy", "burn-in", "observe",
+                "--workspace-root", str(self.tmp),
+                "--workspace-base", str(self.tmp / "workspaces"),
+                "--target-ref", "HEAD",
+                "--cycles", "30",
+                "--min-valid-cycles", "20",
+                "--output-dir", str(self.base / "burn-in" / "test-run"),
+            ])
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(captured["workspace_root"], str(self.tmp))
+        self.assertEqual(captured["workspace_base"], str(self.tmp / "workspaces"))
+        self.assertEqual(captured["base_dir"], str(self.base.resolve()))
+        self.assertEqual(captured["target_ref"], "HEAD")
+        self.assertEqual(captured["cycles"], 30)
+        self.assertEqual(captured["min_valid_cycles"], 20)
+        self.assertEqual(captured["output_dir"], str(self.base / "burn-in" / "test-run"))
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(payload["acceptance_verdict"], "passed")
 
 
 if __name__ == "__main__":

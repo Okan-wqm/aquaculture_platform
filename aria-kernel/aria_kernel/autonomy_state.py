@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import ensure_tools_dir, utc_now
 
 
@@ -45,10 +45,84 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     "planner_dispatch_drained",
     "bridge_drained",
     "convergent_plan_completed",
+    # Plan ARIA-V5 §2 V5.1 Gate A — pre-worker primary↔challenger
+    # convergence phases. ``convergence_started`` fires when the
+    # drainer issues the primary envelope; ``..._round_completed`` per
+    # round; ``..._resolved`` on terminal verdict; ``..._blocked``
+    # when verdict != "converged" and worker_drainer is therefore
+    # skipped. All four are discoverability-only — the reducer
+    # accepts any phase string (autonomy_state.py:146 docstring).
+    "convergence_started",
+    "convergence_round_completed",
+    "convergence_resolved",
+    "convergence_blocked",
     "worker_dispatch_drained",
     "validation_completed",
     "pr_lifecycle_completed",
     "auto_merge_completed",
+    # Plan ARIA-V5 §2 V5.2 Gate B — post-implementation adversarial
+    # review phases. ``review_started`` fires when review_runner is
+    # invoked; ``..._round_completed`` per judge round;
+    # ``..._resolved`` on terminal verdict; ``..._blocked_merge`` when
+    # verdict != "no_gaps" and auto_merge_runner is therefore skipped.
+    "review_started",
+    "review_round_completed",
+    "review_resolved",
+    "review_blocked_merge",
+    # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A specialist
+    # dispatch phases. Fired between convergence_resolved and
+    # worker_dispatch_drained: specialist_review_started when N
+    # specialists are minted; _round_completed per polling pass;
+    # _resolved on terminal verdict (consolidated_no_gaps /
+    # consolidated_remediation_required / consolidated_judge_split /
+    # specialists_unavailable); _blocked when verdict requires
+    # remediation and worker_drainer skipped.
+    "specialist_review_started",
+    "specialist_review_round_completed",
+    "specialist_review_resolved",
+    "specialist_review_blocked",
+    # Plan ARIA-V7 §2i v2 Phase 7.1 — cycle_runner plan synthesis
+    # phases. ``cycle_runner_synthesized_plan`` fires when the
+    # plan_synthesizer produced a valid plan_content from real
+    # workspace deltas; ``cycle_runner_no_pressure`` fires when
+    # discovery found nothing and the orchestrator routes directly
+    # to reflection (Gate A + downstream phases skipped). The
+    # constant is a discoverability hint; the reducer accepts any
+    # phase string.
+    "cycle_runner_synthesized_plan",
+    "cycle_runner_no_pressure",
+    # Plan ARIA-V7 §2g v2 Phase 7.2 — orchestrator try/except
+    # envelope around convergence_runner. ``convergence_invalid_plan``
+    # fires when plan_convergence._validate_plan_content (or any
+    # downstream surface) raises GovernanceError. The crash is
+    # converted to a verdict + governance event for operator
+    # forensics; cycle continues to reflection without crashing the
+    # autonomy loop (closes ORPHAN-HIGH-079 for malformed-payload
+    # edge cases beyond V7.1's empty-skip).
+    "convergence_invalid_plan",
+    # Plan ARIA-V7 §2h v2 Phase 7.4 — skill_genesis_drainer phases.
+    # ``skill_genesis_drainer_started`` fires when the drainer scans
+    # the requests.jsonl ledger; ``_resolved`` on terminal verdict
+    # (dispatched_clean / dispatched_mixed / drainer_disabled /
+    # token_budget_exceeded / authoring_error_present / no_requests).
+    # ``_round_completed`` fires per request dispatched;
+    # ``_blocked`` fires when verdict requires operator review.
+    "skill_genesis_drainer_started",
+    "skill_genesis_drainer_round_completed",
+    "skill_genesis_drainer_resolved",
+    "skill_genesis_drainer_blocked",
+    # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter phase fires
+    # AFTER auto_merge_runner and BEFORE reflection. Invokes
+    # generate_adapter_calibration_report for every SHADOW/ACTIVE
+    # adapter; persists precision_history to the calibration ledger.
+    # Without this V6.4 compute_auto_promote_token can NEVER fire
+    # (V6.4 was a latent dead loop pre-V7).
+    "calibration_reporter_completed",
+    # Plan ARIA-V7 §3 Phase 7.7 — cycle watchdog deadline phase.
+    # Fires when a cycle exceeds cycle_deadline_seconds; orchestrator
+    # writes ARIA_STOP to halt the autonomy loop cleanly. No silent
+    # hang (closes V7.8 verification gate H-1 flakiness).
+    "cycle_deadline_exceeded",
     "next_cycle_queued",
     "aria_stop",
     "profile_frozen",
@@ -164,7 +238,11 @@ class AutonomyStateReducer:
             "details": details or {},
             "recorded_at": utc_now(),
         }
-        return append_jsonl(path, row)
+        return append_declared_jsonl(
+            path,
+            row,
+            expected_surface="autonomy_state",
+        )
 
     @staticmethod
     def derive_current(
@@ -178,7 +256,11 @@ class AutonomyStateReducer:
         recent ``cycle_started`` row (or no ``cycle_started`` exists).
         """
         path = autonomy_state_path(base_dir)
-        rows = load_jsonl(path, verify=True)
+        rows = load_declared_jsonl(
+            path,
+            expected_surface="autonomy_state",
+            verify=True,
+        )
         if not rows:
             return AutonomyState()
         cycles_completed = 0

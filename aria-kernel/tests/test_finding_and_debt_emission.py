@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -21,6 +22,15 @@ from aria_kernel.workspace import ensure_workspace, workspace_paths
 def _seed_repo() -> Path:
     """Create a tempdir that looks like a repo root for emit_*. Caller cleans up."""
     tmp = Path(tempfile.mkdtemp(prefix="aria-finding-test-"))
+    for i in range(1, 4):
+        path = tmp / "apps" / "farm-service" / "src" / "database" / "migrations" / f"000{i}-create.ts"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(f"line {n}" for n in range(1, 45)) + "\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+    subprocess.run(["git", "config", "user.email", "aria-test@example.com"], cwd=tmp, check=True)
+    subprocess.run(["git", "config", "user.name", "ARIA Test"], cwd=tmp, check=True)
+    subprocess.run(["git", "add", "apps"], cwd=tmp, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed evidence"], cwd=tmp, check=True)
     # ensure_tools_binding requires a workspace.
     workspace_base = tmp / "workspaces"
     paths = workspace_paths(tmp, workspace_base)
@@ -63,9 +73,13 @@ class FindingEmissionTests(unittest.TestCase):
         self.assertEqual(record["finding_id"], "F-001")
         self.assertEqual(record["status"], "OPEN")
         self.assertTrue(record["evidence_chain_id"].startswith("chain_"))
+        self.assertEqual(record["source_event_id"], "finding:F-001:emitted")
+        self.assertTrue(record["source_ledger_hash"].startswith("sha256:"))
+        self.assertIn("evidence_envelope", record["evidences"][0])
 
         output = self.repo / "aria-findings" / "F-001.json"
         self.assertTrue(output.exists())
+        self.assertTrue((self.repo / "aria-findings" / "finding-events.jsonl").exists())
         index = json.loads((self.repo / "aria-findings" / "_index.json").read_text())
         self.assertEqual(len(index["findings"]), 1)
         self.assertEqual(index["findings"][0]["finding_id"], "F-001")
@@ -159,6 +173,37 @@ class FindingEmissionTests(unittest.TestCase):
         self.assertEqual(record["originating_run_id"], "run-abc-123")
         self.assertEqual(record["originating_pressure_event_id"], "PE-2026-05-07-001")
 
+    def test_missing_evidence_rejected_fail_closed(self) -> None:
+        with self.assertRaisesRegex(GovernanceError, "repo_verified"):
+            emit_finding(
+                repo_root=self.repo,
+                base_dir=self.tools,
+                claim_type="wrong_code",
+                claim_summary="missing committed evidence is rejected",
+                severity="MEDIUM",
+                evidences=[{"ref": "missing/file.ts:1", "summary": "missing"}],
+                facts=["missing evidence cannot back a finding"],
+                scope_files=["missing/file.ts"],
+            )
+
+    def test_show_replays_event_ledger_not_tampered_doc(self) -> None:
+        record = emit_finding(
+            repo_root=self.repo,
+            base_dir=self.tools,
+            claim_type="wrong_code",
+            claim_summary="committed evidence backs this finding",
+            severity="MEDIUM",
+            evidences=_good_evidence(1),
+            facts=["a committed source line is cited"],
+            scope_files=["x.ts"],
+        )
+        doc_path = self.repo / "aria-findings" / f"{record['finding_id']}.json"
+        tampered = dict(record)
+        tampered["claim_summary"] = "tampered derived view"
+        doc_path.write_text(json.dumps(tampered, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        replayed = show_finding(self.repo, record["finding_id"])
+        self.assertEqual(replayed["claim_summary"], "committed evidence backs this finding")
+
 
 class DebtEmissionTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -192,7 +237,7 @@ class DebtEmissionTests(unittest.TestCase):
             root_cause_summary="Migration generator copies the column-add block verbatim across three files",
             short_term_action={
                 "kind": "test_added",
-                "ref": "aria-kernel/tests/test_migration_dup_regression.py:1",
+                "ref": "apps/farm-service/src/database/migrations/0001-create.ts:1",
                 "rationale": "Regression test asserts the three migrations produce identical AST nodes",
             },
             permanent_fix_required="Extract shared column-add helper and have each migration call it",
@@ -208,6 +253,9 @@ class DebtEmissionTests(unittest.TestCase):
             debt["originating_finding_evidence_chain_id"],
             self.finding["evidence_chain_id"],
         )
+        self.assertEqual(debt["source_event_id"], f"debt:{debt['debt_id']}:emitted")
+        self.assertTrue(debt["source_ledger_hash"].startswith("sha256:"))
+        self.assertTrue((self.repo / "aria-debts" / "debt-events.jsonl").exists())
 
         governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
         emitted = [json.loads(line) for line in governance if "debt_emitted" in line]
@@ -222,7 +270,7 @@ class DebtEmissionTests(unittest.TestCase):
                 root_cause_summary="Real root cause statement here",
                 short_term_action={
                     "kind": "feature_flag",
-                    "ref": "config.yaml:11",
+                    "ref": "apps/farm-service/src/database/migrations/0001-create.ts:1",
                     "rationale": "Flag isolates new behavior",
                 },
                 permanent_fix_required="Real permanent fix description",

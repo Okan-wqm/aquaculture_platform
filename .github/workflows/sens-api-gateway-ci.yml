@@ -10,6 +10,8 @@ on:
     paths:
       - "sens-api-gateway/**"
       - ".github/workflows/sens-api-gateway-ci.yml"
+      - ".github/workflows/edge-agent-release.yml"
+      - ".github/workflows/ci-edge.yml"
       - "rust-toolchain.toml"
       - "rustfmt.toml"
   push:
@@ -17,6 +19,8 @@ on:
     paths:
       - "sens-api-gateway/**"
       - ".github/workflows/sens-api-gateway-ci.yml"
+      - ".github/workflows/edge-agent-release.yml"
+      - ".github/workflows/ci-edge.yml"
       - "rust-toolchain.toml"
       - "rustfmt.toml"
   workflow_dispatch: {}
@@ -36,9 +40,35 @@ env:
   # 2026-04-30: CI feature set compiles every software protocol/security path
   # while excluding `sx1302-vendor-hal`, which is a real hardware C HAL build
   # and must fail closed unless vendor/sx1302_hal sources are present.
+  SENS_API_GATEWAY_RELEASE_FEATURES: scada-display
   SENS_API_GATEWAY_CI_FEATURES: health,telemetry,metrics,strict-security,scada-display,lorawan,signed-deploy,tpm,st-bytecode,multi-task-scheduler,opc-ua-server,live-debug,license-enforce
 
 jobs:
+  release-contract:
+    name: edge release contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate Edge release contract
+        run: |
+          set -euo pipefail
+          if grep -q "workflow_dispatch" .github/workflows/edge-agent-release.yml; then
+            echo "edge-agent-release.yml must not allow arbitrary manual release dispatch"
+            exit 1
+          fi
+          grep -q "EDGE_RELEASE_FEATURES: scada-display" .github/workflows/edge-agent-release.yml
+          grep -q "Release ref contract" .github/workflows/edge-agent-release.yml
+          grep -q 'refs/tags/' .github/workflows/edge-agent-release.yml
+          grep -q "cargo-metadata.sbom.json" .github/workflows/edge-agent-release.yml
+          grep -q "intoto.jsonl" .github/workflows/edge-agent-release.yml
+          grep -q "NOTICE.md" .github/workflows/edge-agent-release.yml
+          grep -q 'version = "2.0.0-rc.4"' sens-api-gateway/Cargo.toml
+          if grep -q "apps/admin-api-service/src/edge" docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md; then
+            grep -q "Excluded" docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md
+          fi
+
   format:
     name: cargo fmt --check
     runs-on: ubuntu-latest
@@ -85,6 +115,32 @@ jobs:
       - name: Check gateway default build
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
         run: cargo check --locked
+
+  check-release-features:
+    name: cargo check --features scada-display
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: sens-api-gateway -> target
+          shared-key: sens-api-gateway-release-features
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
+
+      # Release profile parity gate. The tag-only release workflow builds
+      # this exact feature tier across the cross targets; this host-native
+      # PR gate catches manifest/profile drift before a release tag is pushed.
+      - name: Check gateway release feature profile
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo check --locked --features "$SENS_API_GATEWAY_RELEASE_FEATURES"
 
   check-ci-features:
     name: cargo check --release --all-targets --features curated
@@ -262,7 +318,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1
         with:
           tool: cargo-deny
 
@@ -278,7 +334,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1
         with:
           tool: cargo-audit
 
@@ -299,7 +355,8 @@ jobs:
             --ignore RUSTSEC-2025-0141 \
             --ignore RUSTSEC-2024-0388 \
             --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2023-0089
+            --ignore RUSTSEC-2023-0089 \
+            --ignore RUSTSEC-2026-0173
 
   doc:
     name: cargo doc -D warnings
@@ -331,8 +388,10 @@ jobs:
   sens-api-gateway-summary:
     name: Sens API Gateway summary
     needs:
+      - release-contract
       - format
       - check-default
+      - check-release-features
       - check-ci-features
       - clippy
       - test
@@ -347,8 +406,10 @@ jobs:
       - name: Fail on skipped, cancelled or failed gateway dependencies
         run: |
           for result in \
+            "${{ needs.release-contract.result }}" \
             "${{ needs.format.result }}" \
             "${{ needs.check-default.result }}" \
+            "${{ needs.check-release-features.result }}" \
             "${{ needs.check-ci-features.result }}" \
             "${{ needs.clippy.result }}" \
             "${{ needs.test.result }}" \

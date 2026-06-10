@@ -1,3 +1,5 @@
+<!-- ARIA-HISTORICAL: Historical plan document. Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
+
 # ARIA Plan 020 — Harness Reliability, Context Budget, Agent Eval
 
 ## Summary

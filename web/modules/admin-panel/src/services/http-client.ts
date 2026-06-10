@@ -5,7 +5,7 @@
  * SECURITY:
  *  - Waits for token lifecycle barrier before firing (prevents 401 race on page load)
  *  - Retries once on 401 after a silent refresh (keeps user logged in across token expiry)
- *  - Injects X-Tenant-Id from the shared auth store (prevents cross-tenant leak)
+ *  - Keeps admin-panel requests platform-scoped by default
  *  - Adds X-CSRF-Token header from the XSRF-TOKEN cookie on mutating methods
  *  - Preserves the existing exponential backoff retry for 502/503/504 errors
  */
@@ -19,7 +19,8 @@ import {
 } from '@aquaculture/shared-ui';
 
 // API URL - Shell nginx uzerinden /api prefix'i ile admin-api-service'e yonlendirilir
-export const ADMIN_API_URL = import.meta.env.VITE_ADMIN_API_URL || '/api';
+const adminImportMeta = import.meta as { readonly env?: { readonly VITE_ADMIN_API_URL?: string } };
+export const ADMIN_API_URL = adminImportMeta.env?.VITE_ADMIN_API_URL ?? '/api';
 
 // ============================================================================
 // Types
@@ -31,10 +32,26 @@ export interface ApiError extends Error {
   details?: Record<string, unknown>;
 }
 
+interface ApiErrorBody {
+  message?: string;
+  code?: string;
+  details?: Record<string, unknown>;
+}
+
+interface ApiEnvelope {
+  data: unknown;
+  meta?: Record<string, unknown>;
+  success?: unknown;
+}
+
 export interface RetryConfig {
   maxRetries: number;
   baseDelay: number;
   maxDelay: number;
+}
+
+export interface ApiFetchOptions extends RequestInit {
+  tenantScope?: 'tenant' | 'platform';
 }
 
 const DEFAULT_RETRY_CONFIG: RetryConfig = {
@@ -49,6 +66,13 @@ const CSRF_PROTECTED_METHODS: ReadonlySet<string> = new Set([
   'PUT',
   'PATCH',
   'DELETE',
+]);
+
+const RESERVED_SECURITY_HEADERS: ReadonlySet<string> = new Set([
+  'authorization',
+  'x-tenant-id',
+  'x-request-id',
+  'x-csrf-token',
 ]);
 
 // ============================================================================
@@ -81,7 +105,7 @@ const getCsrfTokenFromCookie = (): string | null => {
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 };
 
-/** Construct a well-typed ApiError without resorting to `as any`. */
+/** Construct a well-typed ApiError without unsafe casts. */
 const createApiError = (
   message: string,
   status?: number,
@@ -95,13 +119,102 @@ const createApiError = (
   return error;
 };
 
+const resolveTenantIdForScope = (tenantScope: ApiFetchOptions['tenantScope']): string | null => {
+  if (tenantScope === 'platform') {
+    return null;
+  }
+  if (tenantScope === 'tenant') {
+    return getTenantId();
+  }
+  throw createApiError('Invalid tenant scope', 400, 'INVALID_TENANT_SCOPE');
+};
+
+const normalizeHeaders = (headers?: HeadersInit): Record<string, string> => {
+  if (!headers) {
+    return {};
+  }
+
+  const normalized: Record<string, string> = {};
+  if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      normalized[key] = value;
+    });
+    return normalized;
+  }
+
+  if (Array.isArray(headers)) {
+    for (const [key, value] of headers) {
+      normalized[key] = value;
+    }
+    return normalized;
+  }
+
+  for (const [key, value] of Object.entries(headers)) {
+    normalized[key] = String(value);
+  }
+  return normalized;
+};
+
+const mergeHeadersWithReservedPolicy = (
+  internalHeaders: Record<string, string>,
+  callerHeaders?: HeadersInit,
+): HeadersInit => {
+  const merged: Record<string, string> = { ...internalHeaders };
+  for (const [key, value] of Object.entries(normalizeHeaders(callerHeaders))) {
+    if (RESERVED_SECURITY_HEADERS.has(key.toLowerCase())) {
+      continue;
+    }
+    merged[key] = value;
+  }
+  return merged;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const parseApiErrorBody = (value: unknown): ApiErrorBody => {
+  if (!isRecord(value)) {
+    return { message: 'API Error' };
+  }
+
+  return {
+    message: typeof value.message === 'string' ? value.message : undefined,
+    code: typeof value.code === 'string' ? value.code : undefined,
+    details: isRecord(value.details) ? value.details : undefined,
+  };
+};
+
+const parseApiEnvelope = (value: unknown): ApiEnvelope | null => {
+  if (!isRecord(value) || !('success' in value) || !('data' in value)) {
+    return null;
+  }
+
+  return {
+    success: value.success,
+    data: value.data,
+    meta: isRecord(value.meta) ? value.meta : undefined,
+  };
+};
+
+const queryValueToString = (value: unknown): string | null => {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  return null;
+};
+
 // ============================================================================
 // Core API Fetch
 // ============================================================================
 
 export async function apiFetch<T>(
   endpoint: string,
-  options?: RequestInit,
+  options?: ApiFetchOptions,
   retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG,
 ): Promise<T> {
   // SECURITY / LIFECYCLE BARRIER: wait for the silent refresh on page load to
@@ -118,7 +231,8 @@ export async function apiFetch<T>(
     }
   }
 
-  const method = (options?.method ?? 'GET').toUpperCase();
+  const { tenantScope = 'platform', ...fetchOptions } = options ?? {};
+  const method = (fetchOptions.method ?? 'GET').toUpperCase();
   let lastError: ApiError | null = null;
   let has401Retried = false;
 
@@ -132,10 +246,9 @@ export async function apiFetch<T>(
         ...getAuthHeader(),
       };
 
-      // SECURITY: attach X-Tenant-Id so the gateway can enforce tenant isolation
-      // and the backend can scope queries. WHY: without this header the server
-      // falls back to the JWT claim which may be stale during tenant switches.
-      const tenantId = getTenantId();
+      // Admin-panel is a platform-admin surface. Default to platform scope so
+      // stale tenant context cannot leak into cross-tenant administration calls.
+      const tenantId = resolveTenantIdForScope(tenantScope);
       if (tenantId) {
         headers['X-Tenant-Id'] = tenantId;
       }
@@ -149,14 +262,13 @@ export async function apiFetch<T>(
         }
       }
 
-      // Caller-supplied headers win last so tests / special cases can override.
-      const mergedHeaders: HeadersInit = {
-        ...headers,
-        ...(options?.headers as Record<string, string> | undefined),
-      };
+      const mergedHeaders = mergeHeadersWithReservedPolicy(
+        headers,
+        fetchOptions.headers,
+      );
 
       const response = await fetch(`${ADMIN_API_URL}${endpoint}`, {
-        ...options,
+        ...fetchOptions,
         credentials: 'include',
         headers: mergedHeaders,
       });
@@ -183,9 +295,10 @@ export async function apiFetch<T>(
       }
 
       if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({ message: 'API Error' }));
+        const rawErrorBody: unknown = await response.json().catch((): ApiErrorBody => ({ message: 'API Error' }));
+        const errorBody = parseApiErrorBody(rawErrorBody);
         const error = createApiError(
-          errorBody.message || `HTTP ${response.status}`,
+          errorBody.message ?? 'HTTP ' + String(response.status),
           response.status,
           errorBody.code,
           errorBody.details,
@@ -225,21 +338,21 @@ export async function apiFetch<T>(
         return {} as T;
       }
 
-      const json = JSON.parse(text);
-      // Unwrap API envelope: { success, data, meta }
-      if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
-        // Paginated response: meta has 'page' field -> return {data, ...meta} to match PaginatedResult
-        if (json.meta && typeof json.meta === 'object' && 'page' in json.meta) {
-          return { data: json.data, ...json.meta } as T;
+      const json: unknown = JSON.parse(text);
+      const envelope = parseApiEnvelope(json);
+      if (envelope) {
+        if (envelope.meta && 'page' in envelope.meta) {
+          return { data: envelope.data, ...envelope.meta } as T;
         }
-        // Non-paginated: return data directly
-        return json.data as T;
+
+        return envelope.data as T;
       }
-      return json;
+
+      return json as T;
     } catch (err) {
       if (err instanceof TypeError && err.message.includes('fetch')) {
         // Network error - retry
-        lastError = err as ApiError;
+        lastError = err;
         if (attempt < retryConfig.maxRetries) {
           const delay = Math.min(
             retryConfig.baseDelay * Math.pow(2, attempt),
@@ -262,14 +375,27 @@ export async function apiFetch<T>(
 
 export const buildQueryString = (params: Record<string, unknown>): string => {
   const searchParams = new URLSearchParams();
+
   Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      if (Array.isArray(value)) {
-        searchParams.set(key, value.join(','));
-      } else {
-        searchParams.set(key, String(value));
+    if (value === undefined || value === null || value === '') {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      const values = value
+        .map(queryValueToString)
+        .filter((item): item is string => item !== null);
+      if (values.length > 0) {
+        searchParams.set(key, values.join(','));
       }
+      return;
+    }
+
+    const stringValue = queryValueToString(value);
+    if (stringValue !== null) {
+      searchParams.set(key, stringValue);
     }
   });
+
   return searchParams.toString();
 };

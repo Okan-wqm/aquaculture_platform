@@ -15,8 +15,9 @@ from aria_kernel.executor import (
     retry_pr,
     review_executor_diff,
 )
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class ExecutorLaneTests(unittest.TestCase):
@@ -184,7 +185,7 @@ class ExecutorLaneTests(unittest.TestCase):
         )
         self.assertEqual(application["status"], "ready_for_retry")
         for index in range(4):
-            append_jsonl(
+            append_declared_fixture(
                 self.tools_dir / "executor" / "retries.jsonl",
                 {
                     "schema_version": 1,
@@ -194,6 +195,7 @@ class ExecutorLaneTests(unittest.TestCase):
                     "root_failure_family": f"other-{index}",
                     "status": "planned",
                 },
+                expected_surface="executor_retries",
             )
         with self.assertRaises(GovernanceError):
             retry_pr(packet_id=packet["packet_id"], pr_number=20, workspace_root=self.root, base_dir=self.tools_dir)
@@ -211,7 +213,7 @@ class ExecutorLaneTests(unittest.TestCase):
         )
         self.assertEqual(application["status"], "ready_for_retry")
         previous_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root, check=True, capture_output=True, text=True).stdout.strip()
-        append_jsonl(
+        append_declared_fixture(
             self.tools_dir / "executor" / "retries.jsonl",
             {
                 "schema_version": 1,
@@ -222,6 +224,7 @@ class ExecutorLaneTests(unittest.TestCase):
                 "status": "retried",
                 "commit_sha": previous_head,
             },
+            expected_surface="executor_retries",
         )
         subprocess.run(["git", "add", "src/app.ts"], cwd=self.root, check=True)
         subprocess.run(["git", "commit", "-m", "manual fix"], cwd=self.root, check=True, capture_output=True)
@@ -331,7 +334,11 @@ class ExecutorLaneTests(unittest.TestCase):
             "changed_file_overlap": ["src/app.ts"],
             "test_names": ["src/app.spec.ts"],
         }
-        return append_jsonl(self.tools_dir / "ci" / "failures.jsonl", row)
+        return append_declared_fixture(
+            self.tools_dir / "ci" / "failures.jsonl",
+            row,
+            expected_surface="ci_failures",
+        )
 
     def _packet(self, proposal_id, ci_failure_id, *, declared_severity=None):
         packet = {

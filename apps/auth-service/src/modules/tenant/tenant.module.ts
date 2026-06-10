@@ -1,8 +1,9 @@
+import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { EventBusModule } from '@platform/event-bus';
 
+import { ActionToken } from '../authentication/entities/action-token.entity';
 import { Invitation } from '../authentication/entities/invitation.entity';
 import { RefreshToken } from '../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../authentication/entities/user-module-assignment.entity';
@@ -19,10 +20,11 @@ import { TenantRoleResolver } from './resolvers/tenant-role.resolver';
 import { TenantResolver } from './resolvers/tenant.resolver';
 import { MobileSettingsService } from './services/mobile-settings.service';
 import { TenantAdminService } from './services/tenant-admin.service';
+import { TenantProvisioningCommandService } from './services/tenant-provisioning-command.service';
 import { TenantRoleService } from './services/tenant-role.service';
+import { TenantUserCountReconcileService } from './services/tenant-user-count-reconcile.service';
 import { TenantUserManagementService } from './services/tenant-user-management.service';
 import { TenantService } from './services/tenant.service';
-import { TenantUserCountReconcileService } from './services/tenant-user-count-reconcile.service';
 import { UserLifecycleService } from './services/user-lifecycle.service';
 
 @Module({
@@ -31,6 +33,7 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
       Tenant,
       TenantModuleEntity,
       User,
+      ActionToken,
       UserModuleAssignment,
       SystemModule,
       MobileUserSettings,
@@ -50,6 +53,7 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
     TenantRoleService,
     TenantUserManagementService,
     UserLifecycleService,
+    TenantProvisioningCommandService,
     MobileSettingsService,
     TenantResolver,
     TenantAdminResolver,
@@ -66,5 +70,6 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
   ],
   exports: [TenantService, TenantAdminService, TenantRoleService, UserLifecycleService, TypeOrmModule],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
-export class TenantModule {}
+export class TenantModule {
+  private readonly moduleClass = TenantModule.name;
+}

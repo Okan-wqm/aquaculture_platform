@@ -17,25 +17,32 @@
  *
  * @module Batch/Handlers
  */
-import { randomUUID } from 'crypto';
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import type { MortalityRecordedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { Repository, DataSource } from 'typeorm';
+
+import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+  defaultMobileCommandReceiptsForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
+import { toMortalityReasonCode } from '../../common/utils/reason-codecs';
+import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { Equipment } from '../../equipment/entities/equipment.entity';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { Tank } from '../../tank/entities/tank.entity';
 import { RecordMortalityCommand } from '../commands/record-mortality.command';
 import { Batch } from '../entities/batch.entity';
 import { MortalityRecord, MortalityCause } from '../entities/mortality-record.entity';
-import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
-import { Equipment } from '../../equipment/entities/equipment.entity';
-import { Tank } from '../../tank/entities/tank.entity';
-import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
-import { findTankOrEquipmentWithManager, TankLookupResult } from '../utils/tank-lookup.util';
-import { toMortalityReasonCode } from '../../common/utils/reason-codecs';
-import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
+import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
+import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
 
 @Injectable()
 @CommandHandler(RecordMortalityCommand)
@@ -60,6 +67,11 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly backdatePolicy: BackdatePolicyService,
+    private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService =
+      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: RecordMortalityCommand): Promise<Batch> {
@@ -88,6 +100,26 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     let batch: Batch;
 
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope: command.mobileCommand,
+        operationType: 'recordMortality',
+        responseType: 'Batch',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(Batch, {
+              where: { id: receipt.responseId, tenantId, isActive: true },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
       // Batch bul with pessimistic lock (prevents concurrent mortality on same batch)
       const foundBatch = await queryRunner.manager.findOne(Batch, {
         where: { id: batchId, tenantId, isActive: true },
@@ -114,12 +146,11 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
 
       const tank = tankLookup.equipment;
 
-      // Validasyon: mortality mevcut sayıyı aşamaz
-      if (payload.quantity > batch.currentQuantity) {
-        throw new BadRequestException(
-          `Mortality sayısı (${payload.quantity}) mevcut sayıdan (${batch.currentQuantity}) fazla olamaz`
-        );
-      }
+      this.mortalityCullPolicy.assertQuantityWithinCurrent({
+        operation: 'Mortality',
+        quantity: payload.quantity,
+        currentQuantity: batch.currentQuantity,
+      });
 
       // Biomass hesapla
       const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();
@@ -220,6 +251,12 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         await queryRunner.manager.save(Equipment, tank);
       }
 
+      await this.farmStockProjection.refreshContainers(
+        queryRunner.manager,
+        tenantId,
+        [payload.tankId],
+      );
+
       // Enqueue MortalityRecordedEvent into the transactional outbox BEFORE commit.
       // The outbox INSERT is part of the same transaction as the domain writes —
       // either both commit or neither. OutboxWorkerService publishes to NATS
@@ -236,6 +273,13 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         newMortalityRate: batch.getMortalityRate(),
       };
       await this.outboxPublisher.enqueue(mortalityEvent, queryRunner.manager);
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'Batch',
+        responseId: batch.id,
+        responsePayload: { id: batch.id },
+      });
 
       // Commit transaction (domain writes + outbox row are atomic)
       await queryRunner.commitTransaction();

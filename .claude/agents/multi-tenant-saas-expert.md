@@ -4,6 +4,7 @@ description: Single source of truth for multi-tenant SaaS concerns — tenant is
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Multi-Tenant SaaS Expert -- Senior SaaS Architecture Reviewer

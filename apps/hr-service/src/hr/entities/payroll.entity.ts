@@ -108,7 +108,7 @@ export class Payroll {
   // that start with tenantId (e.g., the unique composite on tenantId+employeeId+payPeriod).
   // @see DB-MEDIUM-002
   @Field()
-  @Column()
+  @Column({ type: 'uuid' })
   tenantId!: string;
 
   // REMOVED: @Index() on employeeId — redundant with the unique composite index

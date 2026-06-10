@@ -14,18 +14,20 @@ import {
   Param,
   Query,
   Res,
+  Req,
   HttpCode,
   HttpStatus,
   BadRequestException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsIn, IsString, IsOptional, IsBoolean, IsObject, IsArray } from 'class-validator';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 
 import {
   ReportType,
   ReportFormat,
   ReportRequest,
+  ReportResult,
   ReportDefinition,
   ReportExecution,
   ReportDefinitionStatus,
@@ -42,7 +44,7 @@ class GenerateReportDto {
   @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
   type!: ReportType;
 
-  @IsIn(['json', 'csv', 'excel', 'pdf'])
+  @IsIn(['json', 'csv', 'pdf'])
   format!: ReportFormat;
 
   @IsString()
@@ -72,7 +74,7 @@ class CreateDefinitionDto {
   type!: ReportType;
 
   @IsOptional()
-  @IsIn(['json', 'csv', 'excel', 'pdf'])
+  @IsIn(['json', 'csv', 'pdf'])
   defaultFormat?: ReportFormat;
 
   @IsOptional()
@@ -102,7 +104,7 @@ class UpdateDefinitionDto {
   description?: string;
 
   @IsOptional()
-  @IsIn(['json', 'csv', 'excel', 'pdf'])
+  @IsIn(['json', 'csv', 'pdf'])
   defaultFormat?: ReportFormat;
 
   @IsOptional()
@@ -131,7 +133,19 @@ class ExecuteReportDto {
   @IsString()
   reportId?: string;
 
-  @IsIn(['json', 'csv', 'excel', 'pdf'])
+  @IsOptional()
+  @IsString()
+  definitionId?: string;
+
+  @IsOptional()
+  @IsIn(['tenant_overview', 'tenant_churn', 'financial_revenue', 'financial_payments', 'usage_modules', 'usage_features', 'system_performance'])
+  reportType?: ReportType;
+
+  @IsOptional()
+  @IsString()
+  reportName?: string;
+
+  @IsIn(['json', 'csv', 'pdf'])
   format!: ReportFormat;
 
   @IsOptional()
@@ -148,7 +162,7 @@ class ExecuteReportDto {
 }
 
 class QuickReportDto {
-  @IsIn(['json', 'csv', 'excel', 'pdf'])
+  @IsIn(['json', 'csv', 'pdf'])
   format!: ReportFormat;
 
   @IsOptional()
@@ -239,13 +253,47 @@ export class ReportsController {
     });
   }
 
+  @Post('executions')
+  @HttpCode(HttpStatus.CREATED)
+  async createExecution(
+    @Body() dto: ExecuteReportDto,
+    @Req() req: Request & { user?: { id?: string; email?: string } },
+  ): Promise<ReportExecution> {
+    const startDate = dto.startDate ? new Date(dto.startDate) : undefined;
+    const endDate = dto.endDate ? new Date(dto.endDate) : undefined;
+
+    if (dto.startDate && (!startDate || isNaN(startDate.getTime()))) {
+      throw new BadRequestException('Invalid startDate format');
+    }
+
+    if (dto.endDate && (!endDate || isNaN(endDate.getTime()))) {
+      throw new BadRequestException('Invalid endDate format');
+    }
+
+    if (startDate && endDate && startDate > endDate) {
+      throw new BadRequestException('Start date must be before end date');
+    }
+
+    return this.reportsService.executeReport({
+      definitionId: dto.definitionId ?? dto.reportId,
+      reportType: dto.reportType,
+      reportName: dto.reportName,
+      format: dto.format,
+      filters: dto.filters,
+      startDate,
+      endDate,
+      executedBy: req.user?.id,
+      executedByEmail: req.user?.email,
+    });
+  }
+
   @Get('executions/:id')
   async getExecution(@Param('id') id: string): Promise<ReportExecution> {
     return this.reportsService.getExecution(id);
   }
 
   @Get('executions/:id/download')
-  async downloadExecution(@Param('id') id: string, @Res() res: Response) {
+  async downloadExecution(@Param('id') id: string, @Res() res: Response): Promise<void> {
     const download = await this.reportsService.getExecutionDownload(id);
 
     res.setHeader('Content-Type', download.contentType);
@@ -253,17 +301,7 @@ export class ReportsController {
     const safeFilename = this.sanitizeFilename(download.filename);
     res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
 
-    if (download.execution.format === 'json') {
-      res.send(JSON.stringify(download.data, null, 2));
-    } else if (download.execution.format === 'pdf') {
-      const pdfBuffer = await this.reportsService.generatePdfBuffer(
-        download.execution.reportType,
-        download.data,
-      );
-      res.send(pdfBuffer);
-    } else {
-      res.send(download.data);
-    }
+    res.send(download.data);
   }
 
   // ============================================================================
@@ -299,7 +337,7 @@ export class ReportsController {
   // ============================================================================
 
   @Get('types')
-  getAvailableReports() {
+  getAvailableReports(): ReturnType<ReportsService['getAvailableReports']> {
     return this.reportsService.getAvailableReports();
   }
 
@@ -308,7 +346,7 @@ export class ReportsController {
   // ============================================================================
 
   @Post('generate')
-  async generateReport(@Body() dto: GenerateReportDto) {
+  async generateReport(@Body() dto: GenerateReportDto): Promise<ReportResult> {
     // Validate dates
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
@@ -340,7 +378,7 @@ export class ReportsController {
   @Get('tenant-overview')
   async getTenantOverviewReport(
     @Query('format') format: ReportFormat = 'json',
-  ) {
+  ): Promise<ReportResult> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - 1);
@@ -357,7 +395,7 @@ export class ReportsController {
   async getChurnAnalysisReport(
     @Query('format') format: ReportFormat = 'json',
     @Query('months') months = 3,
-  ) {
+  ): Promise<ReportResult> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - months);
@@ -374,7 +412,7 @@ export class ReportsController {
   async getRevenueReport(
     @Query('format') format: ReportFormat = 'json',
     @Query('days') days = 30,
-  ) {
+  ): Promise<ReportResult> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
@@ -390,7 +428,7 @@ export class ReportsController {
   @Get('payments')
   async getPaymentsReport(
     @Query('format') format: ReportFormat = 'json',
-  ) {
+  ): Promise<ReportResult> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - 1);
@@ -406,7 +444,7 @@ export class ReportsController {
   @Get('module-usage')
   async getModuleUsageReport(
     @Query('format') format: ReportFormat = 'json',
-  ) {
+  ): Promise<ReportResult> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - 1);
@@ -422,7 +460,7 @@ export class ReportsController {
   @Get('feature-usage')
   async getFeatureUsageReport(
     @Query('format') format: ReportFormat = 'json',
-  ) {
+  ): Promise<ReportResult> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - 1);
@@ -439,7 +477,7 @@ export class ReportsController {
   async getSystemPerformanceReport(
     @Query('format') format: ReportFormat = 'json',
     @Query('days') days = 7,
-  ) {
+  ): Promise<ReportResult> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
@@ -462,21 +500,21 @@ export class ReportsController {
     @Query('format') format: 'pdf' | 'csv' = 'pdf',
     @Query('days') days = 30,
     @Res() res: Response,
-  ) {
+  ): Promise<void> {
     // MED-007 fix: validate reportType against the known enum at runtime
     // (TypeScript types are erased at runtime — an invalid value would reach generateReport()
     // and the Content-Disposition header if the switch default did not throw).
-    const allowedReportTypes: readonly string[] = [
+    const allowedReportTypes: readonly ReportType[] = [
       'tenant_overview', 'tenant_churn', 'financial_revenue',
       'financial_payments', 'usage_modules', 'usage_features', 'system_performance',
     ];
-    if (!allowedReportTypes.includes(reportType as string)) {
+    if (!allowedReportTypes.includes(reportType)) {
       throw new BadRequestException(`Invalid report type: "${reportType}"`);
     }
 
     // MED-007 fix: validate format parameter
-    const allowedFormats: readonly string[] = ['pdf', 'csv'];
-    if (!allowedFormats.includes(format as string)) {
+    const allowedFormats: ReadonlyArray<'pdf' | 'csv'> = ['pdf', 'csv'];
+    if (!allowedFormats.includes(format)) {
       throw new BadRequestException(`Invalid format: "${format}". Must be "pdf" or "csv"`);
     }
 
@@ -521,7 +559,7 @@ export class ReportsController {
     @Param('reportType') reportType: ReportType,
     @Query('days') days = 30,
     @Res() res: Response,
-  ) {
+  ): Promise<void> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
@@ -551,7 +589,7 @@ export class ReportsController {
   async exportCsv(
     @Query('type') type: string,
     @Res() res: Response,
-  ) {
+  ): Promise<void> {
     const endDate = new Date();
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - 1);

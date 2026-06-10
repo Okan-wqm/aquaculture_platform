@@ -1,22 +1,25 @@
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { InputType, Field, Float } from '@nestjs/graphql';
 import {
-  IsUUID,
   IsDateString,
-  IsOptional,
   IsBoolean,
   IsEnum,
-  IsString,
   IsNumber,
-  Min,
+  IsOptional,
+  IsString,
+  IsUUID,
   MaxLength,
+  Min,
 } from 'class-validator';
+
 import { HalfDayPeriod } from '../entities/leave-request.entity';
 
 @InputType()
-export class CreateLeaveRequestInput {
-  @Field()
+export class CreateLeaveRequestInput extends MobileCommandEnvelopeInput {
+  @Field({ nullable: true })
   @IsUUID()
-  employeeId!: string;
+  @IsOptional()
+  employeeId?: string;
 
   @Field()
   @IsUUID()

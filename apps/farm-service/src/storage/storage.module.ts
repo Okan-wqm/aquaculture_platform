@@ -40,6 +40,7 @@ import { GetStorageInventoryHandler } from './handlers/get-storage-inventory.han
 import { ListStorageInventoryByCursorHandler } from './handlers/list-storage-inventory-by-cursor.handler';
 import { ListStockMovementsHandler } from './handlers/list-stock-movements.handler';
 import { GetStorageOverviewHandler } from './handlers/get-storage-overview.handler';
+import { GetWarehouseSummaryHandler } from './handlers/get-warehouse-summary.handler';
 import { ListPurchaseOrdersHandler } from './handlers/list-purchase-orders.handler';
 import { GetPurchaseOrderHandler } from './handlers/get-purchase-order.handler';
 import { GetPendingDeliveriesHandler } from './handlers/get-pending-deliveries.handler';
@@ -69,6 +70,7 @@ const QueryHandlers = [
   ListStorageInventoryByCursorHandler,
   ListStockMovementsHandler,
   GetStorageOverviewHandler,
+  GetWarehouseSummaryHandler,
   ListPurchaseOrdersHandler,
   GetPurchaseOrderHandler,
   GetPendingDeliveriesHandler,

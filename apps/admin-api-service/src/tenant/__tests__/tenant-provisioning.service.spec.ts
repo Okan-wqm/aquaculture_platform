@@ -10,25 +10,23 @@
  * - İlişkisel Veri Testleri
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
-import { Repository, DataSource, QueryRunner } from 'typeorm';
+import { randomUUID as uuidv4 } from 'node:crypto';
 
-import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
-import { EmailSenderService } from '../../settings/services/email-sender.service';
+import { LegalHoldService } from '@aquaculture/backend-common/compliance';
+import { Test, TestingModule } from '@nestjs/testing';
+import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource, QueryRunner, Repository } from 'typeorm';
+
 import { TenantSchema } from '../../database-management/entities/database-management.entity';
+import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
 import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
-import { RoleTemplateService } from '../../users/services/role-template.service';
-import { UserPermissionsService } from '../../users/services/user-permissions.service';
 import { Tenant, TenantStatus, TenantTier, TenantPlan } from '../entities/tenant.entity';
+import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 import {
   TenantProvisioningService,
   ProvisioningResult,
   TenantProvisioningOptions,
 } from '../services/tenant-provisioning.service';
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { randomUUID: uuidv4 } = require('crypto');
 
 // =============================================================================
 // Mock Factories
@@ -37,7 +35,9 @@ const { randomUUID: uuidv4 } = require('crypto');
 const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
   const tenant = new Tenant();
   // Extract 'limits' from overrides since it's a getter-only property on Tenant
-  const { limits: _limits, ...safeOverrides } = overrides as any;
+  const { limits: _limits, ...safeOverrides } = overrides as Partial<Tenant> & {
+    limits?: unknown;
+  };
   Object.assign(tenant, {
     id: uuidv4(),
     name: 'Test Tenant',
@@ -95,6 +95,39 @@ const createMockQueryRunner = (): jest.Mocked<Partial<QueryRunner>> => ({
   } as any,
 });
 
+const mockInfrastructureQueryResult = (sql: string): unknown[] | null => {
+  if (sql.includes('to_regclass') && sql.includes('tenant_roles')) {
+    return [{ relation: 'auth.tenant_roles' }];
+  }
+  if (sql.includes('INSERT INTO admin.cleanup_runs')) {
+    return [{ id: 'cleanup-run-id' }];
+  }
+  if (sql.includes('admin.cleanup_runs') || sql.includes('admin.cleanup_run_steps')) {
+    return [];
+  }
+  if (sql.includes('COUNT(*) AS count')) {
+    return [{ count: '0' }];
+  }
+  if (sql.includes('FROM admin.tenant_schemas')) {
+    return [];
+  }
+  if (sql.includes('FROM pg_namespace')) {
+    return [];
+  }
+  return null;
+};
+
+const mockTenantClaimQuery = (sql: string): Promise<unknown[]> => {
+  if (sql.includes('UPDATE auth.tenants') && sql.includes('RETURNING id')) {
+    return Promise.resolve([{ id: 'claimed-tenant-id' }]);
+  }
+  const infrastructureResult = mockInfrastructureQueryResult(sql);
+  if (infrastructureResult !== null) {
+    return Promise.resolve(infrastructureResult);
+  }
+  return Promise.resolve([]);
+};
+
 // =============================================================================
 // Test Suite
 // =============================================================================
@@ -102,8 +135,9 @@ const createMockQueryRunner = (): jest.Mocked<Partial<QueryRunner>> => ({
 describe('TenantProvisioningService', () => {
   let service: TenantProvisioningService;
   let tenantRepository: jest.Mocked<Repository<Tenant>>;
+  let tenantSchemaRepository: jest.Mocked<Repository<TenantSchema>>;
   let dataSource: jest.Mocked<DataSource>;
-  let emailSenderService: jest.Mocked<EmailSenderService>;
+  let authProvisioningClient: jest.Mocked<AuthTenantProvisioningClientService>;
   let queryRunner: jest.Mocked<Partial<QueryRunner>>;
 
   beforeEach(async () => {
@@ -111,7 +145,7 @@ describe('TenantProvisioningService', () => {
 
     const mockDataSource = {
       createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-      query: jest.fn().mockResolvedValue([]),
+      query: jest.fn(mockTenantClaimQuery),
       transaction: jest.fn(),
     };
 
@@ -132,28 +166,56 @@ describe('TenantProvisioningService', () => {
       update: jest.fn(),
     };
 
-    const mockEmailSenderService = {
-      sendInvitationEmail: jest.fn().mockResolvedValue({ success: true, messageId: 'test-msg-id' }),
-      sendEmail: jest.fn().mockResolvedValue({ success: true }),
-      testConnection: jest.fn().mockResolvedValue({ success: true }),
-    };
-
     const mockTenantConfigurationService = {
       createConfiguration: jest.fn().mockResolvedValue(undefined),
       getConfiguration: jest.fn().mockResolvedValue({}),
+      requestDefaultConfigurationProvisioning: jest.fn().mockResolvedValue({
+        success: true,
+        requestId: 'config-provisioning-request-id',
+      }),
     };
 
-    const mockRoleTemplateService = {
-      createDefaultRoles: jest.fn().mockResolvedValue(undefined),
-      getRoleTemplates: jest.fn().mockResolvedValue([]),
-    };
-
-    const mockUserPermissionsService = {
-      createDefaultPermissions: jest.fn().mockResolvedValue(undefined),
+    const mockAuthProvisioningClient = {
+      setupTenantRoles: jest.fn().mockResolvedValue({ success: true, rolesCreated: 1 }),
+      assignTenantModules: jest.fn().mockResolvedValue({ success: true, modulesAssigned: 0 }),
+      createTenantAdmin: jest.fn().mockResolvedValue({
+        success: true,
+        userId: 'new-user-id',
+        invitationId: 'new-invitation-id',
+        email: 'admin@test.com',
+      }),
+      removeTenantModule: jest.fn().mockResolvedValue({ success: true, modulesRemoved: 1 }),
+      activateTenant: jest.fn().mockResolvedValue({
+        success: true,
+        tenantId: 'tenant-id',
+        status: TenantStatus.ACTIVE,
+      }),
+      failProvisioning: jest.fn().mockResolvedValue({
+        success: true,
+        tenantId: 'tenant-id',
+        status: TenantStatus.PROVISIONING_FAILED,
+      }),
+      rollbackTenantProvisioning: jest.fn().mockResolvedValue({
+        success: true,
+        removedUsers: 0,
+        removedInvitations: 0,
+        removedRoles: 0,
+        removedModules: 0,
+      }),
     };
 
     const mockBackupRestoreService = {
-      createBackup: jest.fn().mockResolvedValue({ status: 'completed' }),
+      createBackup: jest.fn().mockResolvedValue({
+        id: 'backup-id',
+        status: 'completed',
+        checksum: 'a'.repeat(64),
+        sizeBytes: 1024,
+        isEncrypted: true,
+      }),
+    };
+
+    const mockLegalHoldService = {
+      assertNoHold: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -172,32 +234,32 @@ describe('TenantProvisioningService', () => {
           useValue: mockDataSource,
         },
         {
-          provide: EmailSenderService,
-          useValue: mockEmailSenderService,
-        },
-        {
           provide: TenantConfigurationService,
           useValue: mockTenantConfigurationService,
         },
         {
-          provide: RoleTemplateService,
-          useValue: mockRoleTemplateService,
-        },
-        {
-          provide: UserPermissionsService,
-          useValue: mockUserPermissionsService,
+          provide: AuthTenantProvisioningClientService,
+          useValue: mockAuthProvisioningClient,
         },
         {
           provide: BackupRestoreService,
           useValue: mockBackupRestoreService,
+        },
+        {
+          provide: LegalHoldService,
+          useValue: mockLegalHoldService,
         },
       ],
     }).compile();
 
     service = module.get<TenantProvisioningService>(TenantProvisioningService);
     tenantRepository = module.get(getRepositoryToken(Tenant));
+    tenantSchemaRepository = module.get(getRepositoryToken(TenantSchema));
     dataSource = module.get(getDataSourceToken());
-    emailSenderService = module.get(EmailSenderService);
+    authProvisioningClient = module.get(AuthTenantProvisioningClientService);
+    (service as unknown as {
+      createTenantSchema: jest.Mock;
+    }).createTenantSchema = jest.fn().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -255,18 +317,20 @@ describe('TenantProvisioningService', () => {
         // Arrange
         const tenant = createMockTenant({ status: TenantStatus.PENDING });
         tenantRepository.findOne.mockResolvedValue(tenant);
-        tenantRepository.save.mockImplementation(async (t) => ({
-          ...t,
-          status: TenantStatus.ACTIVE,
-        }) as any);
 
         // Act
         const result = await service.provisionTenant(tenant.id);
 
         // Assert
         expect(result.success).toBe(true);
-        expect(tenantRepository.save).toHaveBeenCalledWith(
-          expect.objectContaining({ status: TenantStatus.ACTIVE }),
+        expect(authProvisioningClient.activateTenant).toHaveBeenCalledWith(
+          expect.objectContaining({
+            tenantId: tenant.id,
+            requestReference: expect.stringContaining(':ActivateTenant'),
+            auditMetadata: expect.objectContaining({
+              commandType: 'ActivateTenant',
+            }),
+          }),
         );
       });
 
@@ -296,7 +360,7 @@ describe('TenantProvisioningService', () => {
         const tenant = createMockTenant({ status: TenantStatus.PENDING });
         tenantRepository.findOne.mockResolvedValue(tenant);
         tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-        dataSource.query.mockResolvedValue([]);
+        dataSource.query.mockImplementation(mockTenantClaimQuery);
         (dataSource.transaction as jest.Mock).mockImplementation(async (callback: any) => {
           return callback({
             query: jest
@@ -325,12 +389,9 @@ describe('TenantProvisioningService', () => {
         const tenant = createMockTenant({ status: TenantStatus.PENDING });
         tenantRepository.findOne.mockResolvedValue(tenant);
         tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-        dataSource.query.mockImplementation(async (sql: string) => {
-          if (sql.includes('SELECT id FROM auth.users')) {
-            return [{ id: 'existing-user-id' }];
-          }
-          return [];
-        });
+        authProvisioningClient.createTenantAdmin.mockRejectedValue(
+          new Error('A user with this email already exists'),
+        );
 
         // Act
         const result = await service.provisionTenant(tenant.id, {
@@ -341,27 +402,19 @@ describe('TenantProvisioningService', () => {
         });
 
         // Assert
-        expect(result.success).toBe(true);
+        expect(result.success).toBe(false);
         const adminStep = result.steps.find((s) => s.name === 'create_first_admin');
-        expect(adminStep?.status).toBe('completed');
+        expect(adminStep?.status).toBe('failed');
         expect(result.adminUser).toBeUndefined();
-        expect(result.warnings?.[0]).toContain('A user with this email already exists');
+        expect(result.error).toContain('A user with this email already exists');
       });
 
-      it('admin oluşturulunca davet emaili gönderilir', async () => {
+      it('admin oluşturulunca auth-service davet handoff komutu gönderilir', async () => {
         // Arrange
         const tenant = createMockTenant({ status: TenantStatus.PENDING });
         tenantRepository.findOne.mockResolvedValue(tenant);
         tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-        dataSource.query.mockResolvedValue([]);
-        (dataSource.transaction as jest.Mock).mockImplementation(async (callback: any) => {
-          return callback({
-            query: jest
-              .fn()
-              .mockResolvedValueOnce([{ id: 'new-user-id' }])
-              .mockResolvedValue([]),
-          });
-        });
+        dataSource.query.mockImplementation(mockTenantClaimQuery);
 
         // Act
         await service.provisionTenant(tenant.id, {
@@ -372,13 +425,12 @@ describe('TenantProvisioningService', () => {
         });
 
         // Assert
-        expect(emailSenderService.sendInvitationEmail).toHaveBeenCalledWith(
+        expect(authProvisioningClient.createTenantAdmin).toHaveBeenCalledWith(
           expect.objectContaining({
+            tenantId: tenant.id,
             email: 'admin@test.com',
             firstName: 'Test',
             lastName: 'Admin',
-            tenantName: tenant.name,
-            role: 'TENANT_ADMIN',
           }),
         );
       });
@@ -397,7 +449,7 @@ describe('TenantProvisioningService', () => {
       tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
 
       // Act
-      const result = await service.provisionTenant(tenant.id);
+      const result = await service.provisionTenant(tenant.id, { skipSchemaCreation: false });
 
       // Assert
       expect(result.success).toBe(true);
@@ -412,7 +464,7 @@ describe('TenantProvisioningService', () => {
       tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
 
       // Act
-      const result = await service.provisionTenant(tenant.id);
+      const result = await service.provisionTenant(tenant.id, { skipSchemaCreation: false });
 
       // Assert
       const rolesStep = result.steps.find((s) => s.name === 'setup_default_roles');
@@ -462,36 +514,32 @@ describe('TenantProvisioningService', () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
-      tenantRepository.save.mockRejectedValue(new Error('Database error'));
+      (service as unknown as {
+        createTenantSchema: jest.Mock;
+      }).createTenantSchema.mockRejectedValue(new Error('Database error'));
 
       // Act
-      const result = await service.provisionTenant(tenant.id);
+      const result = await service.provisionTenant(tenant.id, { skipSchemaCreation: false });
 
       // Assert
       expect(result.success).toBe(false);
       expect(result.error).toBe('Database error');
       const failedStep = result.steps.find((s) => s.status === 'failed');
       expect(failedStep).toBeDefined();
+      expect(authProvisioningClient.failProvisioning).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: tenant.id,
+          reason: 'Database error',
+        }),
+      );
     });
 
-    it('email gönderme başarısız olsa bile provisioning devam eder', async () => {
+    it('auth handoff başarısız olursa provisioning fail-closed kalır', async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
       tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-      dataSource.query.mockResolvedValue([]);
-      (dataSource.transaction as jest.Mock).mockImplementation(async (callback: any) => {
-        return callback({
-          query: jest
-            .fn()
-            .mockResolvedValueOnce([{ id: 'new-user-id' }])
-            .mockResolvedValue([]),
-        });
-      });
-      emailSenderService.sendInvitationEmail.mockResolvedValue({
-        success: false,
-        error: 'SMTP error',
-      });
+      authProvisioningClient.createTenantAdmin.mockRejectedValue(new Error('SMTP handoff error'));
 
       // Act
       const result = await service.provisionTenant(tenant.id, {
@@ -500,7 +548,8 @@ describe('TenantProvisioningService', () => {
       });
 
       // Assert
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('SMTP handoff error');
     });
 
     it('admin user oluşturma başarısız olursa provisioning yine de tamamlanır', async () => {
@@ -508,12 +557,9 @@ describe('TenantProvisioningService', () => {
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
       tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-      dataSource.query.mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT id FROM auth.users')) {
-          return [{ id: 'existing-user-id' }];
-        }
-        return [];
-      });
+      authProvisioningClient.createTenantAdmin.mockRejectedValue(
+        new Error('A user with this email already exists'),
+      );
 
       // Act
       const result = await service.provisionTenant(tenant.id, {
@@ -522,9 +568,8 @@ describe('TenantProvisioningService', () => {
       });
 
       // Assert
-      expect(result.success).toBe(true);
-      const activateStep = result.steps.find((s) => s.name === 'activate_tenant');
-      expect(activateStep?.status).toBe('completed');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('A user with this email already exists');
     });
   });
 
@@ -550,6 +595,12 @@ describe('TenantProvisioningService', () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.SUSPENDED });
       tenantRepository.findOne.mockResolvedValue(tenant);
+      tenantSchemaRepository.findOne.mockResolvedValue({
+        tenantId: tenant.id,
+        schemaName: 'tenant_test',
+        status: 'active',
+        metadata: {},
+      } as TenantSchema);
 
       // Act
       const result = await service.deprovisionTenant(tenant.id);
@@ -562,6 +613,12 @@ describe('TenantProvisioningService', () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.DEACTIVATED });
       tenantRepository.findOne.mockResolvedValue(tenant);
+      tenantSchemaRepository.findOne.mockResolvedValue({
+        tenantId: tenant.id,
+        schemaName: 'tenant_test',
+        status: 'active',
+        metadata: {},
+      } as TenantSchema);
 
       // Act
       const result = await service.deprovisionTenant(tenant.id);
@@ -574,6 +631,12 @@ describe('TenantProvisioningService', () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.DEACTIVATED });
       tenantRepository.findOne.mockResolvedValue(tenant);
+      tenantSchemaRepository.findOne.mockResolvedValue({
+        tenantId: tenant.id,
+        schemaName: 'tenant_test',
+        status: 'active',
+        metadata: {},
+      } as TenantSchema);
 
       // Act
       const result = await service.deprovisionTenant(tenant.id);
@@ -587,6 +650,12 @@ describe('TenantProvisioningService', () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.DEACTIVATED });
       tenantRepository.findOne.mockResolvedValue(tenant);
+      tenantSchemaRepository.findOne.mockResolvedValue({
+        tenantId: tenant.id,
+        schemaName: 'tenant_test',
+        status: 'active',
+        metadata: {},
+      } as TenantSchema);
 
       // Act
       const result = await service.deprovisionTenant(tenant.id);
@@ -686,7 +755,7 @@ describe('TenantProvisioningService', () => {
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
       tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-      dataSource.query.mockResolvedValue([]);
+      dataSource.query.mockImplementation(mockTenantClaimQuery);
 
       // Act
       const result = await service.provisionTenant(tenant.id, {
@@ -704,12 +773,9 @@ describe('TenantProvisioningService', () => {
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
       tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-      dataSource.query.mockImplementation(async (sql: string) => {
-        if (sql.includes('INSERT INTO auth.tenant_modules')) {
-          throw new Error('Module assignment error');
-        }
-        return [];
-      });
+      authProvisioningClient.assignTenantModules.mockRejectedValue(
+        new Error('Module assignment error'),
+      );
 
       // Act
       const result = await service.provisionTenant(tenant.id, {
@@ -773,89 +839,42 @@ describe('TenantProvisioningService', () => {
   // ===========================================================================
 
   describe('Edge Cases', () => {
-    it('EmailSenderService yoksa provisioning yine de tamamlanır', async () => {
-      // Bu test için EmailSenderService'i undefined yaparak yeni bir module oluşturmalıyız
-      const moduleWithoutEmail: TestingModule = await Test.createTestingModule({
-        providers: [
-          TenantProvisioningService,
-          {
-            provide: getRepositoryToken(Tenant),
-            useValue: tenantRepository,
-          },
-          {
-            provide: getRepositoryToken(TenantSchema),
-            useValue: {
-              findOne: jest.fn().mockResolvedValue(null),
-              create: jest.fn((entity) => entity),
-              save: jest.fn().mockImplementation(async (entity) => entity),
-              update: jest.fn(),
-            },
-          },
-          {
-            provide: getDataSourceToken(),
-            useValue: dataSource,
-          },
-          {
-            provide: TenantConfigurationService,
-            useValue: { createConfiguration: jest.fn().mockResolvedValue(undefined), getConfiguration: jest.fn().mockResolvedValue({}) },
-          },
-          {
-            provide: RoleTemplateService,
-            useValue: { createDefaultRoles: jest.fn().mockResolvedValue(undefined), getRoleTemplates: jest.fn().mockResolvedValue([]) },
-          },
-          {
-            provide: UserPermissionsService,
-            useValue: { createDefaultPermissions: jest.fn().mockResolvedValue(undefined) },
-          },
-          {
-            provide: BackupRestoreService,
-            useValue: { createBackup: jest.fn().mockResolvedValue({ status: 'completed' }) },
-          },
-          // EmailSenderService yok
-        ],
-      }).compile();
-
-      const serviceWithoutEmail = moduleWithoutEmail.get<TenantProvisioningService>(
-        TenantProvisioningService,
-      );
-
-      // Arrange
+    it('auth-service user id dönmezse first-admin provisioning fail-closed kalır', async () => {
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
       tenantRepository.save.mockResolvedValue({ ...tenant, status: TenantStatus.ACTIVE } as any);
-      dataSource.query.mockResolvedValue([]);
-      (dataSource.transaction as jest.Mock).mockImplementation(async (callback: any) => {
-        return callback({
-          query: jest
-            .fn()
-            .mockResolvedValueOnce([{ id: 'new-user-id' }])
-            .mockResolvedValue([]),
-        });
+      authProvisioningClient.createTenantAdmin.mockResolvedValue({
+        success: true,
+        email: 'admin@test.com',
       });
 
       // Act
-      const result = await serviceWithoutEmail.provisionTenant(tenant.id, {
+      const result = await service.provisionTenant(tenant.id, {
         createFirstAdmin: true,
         adminEmail: 'admin@test.com',
       });
 
       // Assert
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('missing user id');
     });
 
     it('lastActivityAt güncellenir', async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
-      tenantRepository.save.mockImplementation(async (t) => t as any);
 
       // Act
       await service.provisionTenant(tenant.id);
 
       // Assert
-      expect(tenantRepository.save).toHaveBeenCalledWith(
+      expect(authProvisioningClient.activateTenant).toHaveBeenCalledWith(
         expect.objectContaining({
-          lastActivityAt: expect.any(Date),
+          tenantId: tenant.id,
+          requestReference: expect.stringContaining(':ActivateTenant'),
+          auditMetadata: expect.objectContaining({
+            commandType: 'ActivateTenant',
+          }),
         }),
       );
     });

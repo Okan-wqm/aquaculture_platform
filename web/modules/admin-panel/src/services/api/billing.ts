@@ -49,12 +49,12 @@ export const billingApi = {
     apiFetch<PlanDefinition>('/billing/plans', { method: 'POST', body: JSON.stringify(data) }),
   updatePlan: (id: string, data: Partial<PlanDefinition>) =>
     apiFetch<PlanDefinition>(`/billing/plans/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deprecatePlan: (id: string, updatedBy: string) =>
-    apiFetch<PlanDefinition>(`/billing/plans/${id}/deprecate`, { method: 'POST', body: JSON.stringify({ updatedBy }) }),
+  deprecatePlan: (id: string, _updatedBy?: string) =>
+    apiFetch<PlanDefinition>(`/billing/plans/${id}/deprecate`, { method: 'POST' }),
   comparePlans: (currentPlanId: string, newPlanId: string) =>
     apiFetch<Record<string, unknown>>('/billing/plans/compare', { method: 'POST', body: JSON.stringify({ currentPlanId, newPlanId }) }),
-  seedPlans: (createdBy: string) =>
-    apiFetch<{ success: boolean }>('/billing/plans/seed', { method: 'POST', body: JSON.stringify({ createdBy }) }),
+  seedPlans: (_createdBy?: string) =>
+    apiFetch<{ success: boolean }>('/billing/plans/seed', { method: 'POST' }),
   getPlanByTier: (tier: string) =>
     apiFetch<PlanDefinition>(`/billing/plans/tier/${tier}`),
   getDefaultLimitsForTier: (tier: string) =>
@@ -66,12 +66,14 @@ export const billingApi = {
   getDiscountStats: () => apiFetch<DiscountStats>('/billing/discounts/stats'),
   getDiscountById: (id: string) => apiFetch<DiscountCode>(`/billing/discounts/${id}`),
   getDiscountByCode: (code: string) => apiFetch<{ found: boolean; discount?: DiscountCode }>(`/billing/discounts/code/${code}`),
-  createDiscountCode: (data: Partial<DiscountCode>) =>
-    apiFetch<DiscountCode>('/billing/discounts', { method: 'POST', body: JSON.stringify(data) }),
+  createDiscountCode: (data: Partial<DiscountCode>) => {
+    const { createdBy: _createdBy, ...payload } = data;
+    return apiFetch<DiscountCode>('/billing/discounts', { method: 'POST', body: JSON.stringify(payload) });
+  },
   updateDiscountCode: (id: string, data: Partial<DiscountCode>) =>
     apiFetch<DiscountCode>(`/billing/discounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deactivateDiscountCode: (id: string, updatedBy: string) =>
-    apiFetch<DiscountCode>(`/billing/discounts/${id}/deactivate`, { method: 'POST', body: JSON.stringify({ updatedBy }) }),
+  deactivateDiscountCode: (id: string, _updatedBy?: string) =>
+    apiFetch<DiscountCode>(`/billing/discounts/${id}/deactivate`, { method: 'POST' }),
   validateDiscountCode: (code: string, tenantId: string, planId?: string, orderAmount?: number) =>
     apiFetch<{ valid: boolean; discountCode?: DiscountCode; discountAmount?: number }>('/billing/discounts/validate', {
       method: 'POST',
@@ -109,22 +111,23 @@ export const billingApi = {
     apiFetch<Array<{ tenantId: string; tenantName: string; daysUntilExpiry: number; type: 'trial' | 'subscription' }>>('/billing/subscriptions/reminders'),
   getSubscriptionByTenant: (tenantId: string) =>
     apiFetch<SubscriptionOverview | null>(`/billing/subscriptions/tenant/${tenantId}`),
-  changePlan: (request: { tenantId: string; currentPlanId: string; newPlanId: string; changedBy: string }) =>
-    apiFetch<Record<string, unknown>>('/billing/subscriptions/change-plan', { method: 'POST', body: JSON.stringify(request) }),
-  cancelSubscription: (tenantId: string, reason: string, cancelledBy: string) =>
+  changePlan: (request: { tenantId: string; currentPlanId: string; newPlanId: string; changedBy?: string }) => {
+    const { changedBy: _changedBy, ...payload } = request;
+    return apiFetch<Record<string, unknown>>('/billing/subscriptions/change-plan', { method: 'POST', body: JSON.stringify(payload) });
+  },
+  cancelSubscription: (tenantId: string, reason: string, _cancelledBy?: string) =>
     apiFetch<{ success: boolean }>(`/billing/subscriptions/tenant/${tenantId}/cancel`, {
       method: 'POST',
-      body: JSON.stringify({ reason, cancelledBy }),
+      body: JSON.stringify({ reason }),
     }),
-  reactivateSubscription: (tenantId: string, reactivatedBy: string) =>
+  reactivateSubscription: (tenantId: string, _reactivatedBy?: string) =>
     apiFetch<{ success: boolean }>(`/billing/subscriptions/tenant/${tenantId}/reactivate`, {
       method: 'POST',
-      body: JSON.stringify({ reactivatedBy }),
     }),
-  extendTrial: (tenantId: string, additionalDays: number, extendedBy: string) =>
+  extendTrial: (tenantId: string, additionalDays: number, _extendedBy?: string) =>
     apiFetch<{ success: boolean; newTrialEnd: string }>(`/billing/subscriptions/tenant/${tenantId}/extend-trial`, {
       method: 'POST',
-      body: JSON.stringify({ additionalDays, extendedBy }),
+      body: JSON.stringify({ additionalDays }),
     }),
   processRenewals: () =>
     apiFetch<{ processed: number; failed: number; renewals: Array<{ tenantId: string; success: boolean; message?: string }> }>('/billing/subscriptions/process-renewals', {
@@ -158,11 +161,27 @@ export const billingApi = {
     }),
   createInvoice: (data: {
     tenantId: string;
-    amount: number;
+    billingAddress: {
+      companyName: string;
+      attention?: string;
+      street: string;
+      city: string;
+      state: string;
+      postalCode: string;
+      country: string;
+      taxId?: string;
+    };
+    lineItems: Array<{
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      productCode?: string;
+    }>;
     currency: string;
     dueDate: string;
     periodStart: string;
     periodEnd: string;
+    notes?: string;
   }) =>
     apiFetch<InvoiceOverview>('/billing/invoices', {
       method: 'POST',
@@ -231,16 +250,18 @@ export const billingApi = {
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`),
   getCustomPlanByTenant: (tenantId: string) =>
     apiFetch<CustomPlan | null>(`/billing/custom-plans/tenant/${tenantId}`),
-  createCustomPlan: (data: CreateCustomPlanDto) =>
-    apiFetch<CustomPlan>('/billing/custom-plans', { method: 'POST', body: JSON.stringify(data) }),
+  createCustomPlan: (data: CreateCustomPlanDto) => {
+    const { createdBy: _createdBy, ...payload } = data;
+    return apiFetch<CustomPlan>('/billing/custom-plans', { method: 'POST', body: JSON.stringify(payload) });
+  },
   updateCustomPlan: (planId: string, data: UpdateCustomPlanDto) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`, { method: 'PUT', body: JSON.stringify(data) }),
   submitCustomPlanForApproval: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/submit`, { method: 'POST' }),
-  approveCustomPlan: (planId: string, approverId: string) =>
-    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/approve`, { method: 'POST', body: JSON.stringify({ approverId }) }),
-  rejectCustomPlan: (planId: string, reason: string, rejectedBy: string) =>
-    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/reject`, { method: 'POST', body: JSON.stringify({ reason, rejectedBy }) }),
+  approveCustomPlan: (planId: string, _approverId?: string) =>
+    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/approve`, { method: 'POST' }),
+  rejectCustomPlan: (planId: string, reason: string, _rejectedBy?: string) =>
+    apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
   activateCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/activate`, { method: 'POST' }),
   deleteCustomPlan: (planId: string) =>
@@ -250,13 +271,13 @@ export const billingApi = {
 
   // Usage Metering
   getUsageSummary: (params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string }) =>
-    apiFetch<UsageSummaryStats>(`/billing/usage/summary?${buildQueryString((params || {}) as Record<string, unknown>)}`),
+    apiFetch<UsageSummaryStats>(`/billing/usage/summary?${buildQueryString(params || {})}`),
   getAllTenantsUsage: (params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }) =>
-    apiFetch<{ tenants: TenantUsageOverview[]; total: number }>(`/billing/usage/tenants?${buildQueryString((params || {}) as Record<string, unknown>)}`),
+    apiFetch<{ tenants: TenantUsageOverview[]; total: number }>(`/billing/usage/tenants?${buildQueryString(params || {})}`),
   getTenantUsageOverview: (tenantId: string, params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string }) =>
-    apiFetch<TenantUsageOverview>(`/billing/usage/tenant/${tenantId}?${buildQueryString((params || {}) as Record<string, unknown>)}`),
+    apiFetch<TenantUsageOverview>(`/billing/usage/tenant/${tenantId}?${buildQueryString(params || {})}`),
   getUsageTrends: (params?: { period?: AggregationPeriod; meterType?: MeterType; tenantId?: string; numPeriods?: number }) =>
-    apiFetch<UsageTrendPoint[]>(`/billing/usage/trends?${buildQueryString((params || {}) as Record<string, unknown>)}`),
+    apiFetch<UsageTrendPoint[]>(`/billing/usage/trends?${buildQueryString(params || {})}`),
   getTopTenantsByUsage: (meterType: MeterType, params?: { period?: AggregationPeriod; limit?: number; dateFrom?: string; dateTo?: string }) =>
-    apiFetch<TopTenantUsage[]>(`/billing/usage/top-tenants?${buildQueryString({ meterType, ...(params || {}) } as Record<string, unknown>)}`),
+    apiFetch<TopTenantUsage[]>(`/billing/usage/top-tenants?${buildQueryString({ meterType, ...(params || {}) })}`),
 };

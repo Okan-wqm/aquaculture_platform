@@ -9,7 +9,12 @@ from typing import Any
 
 from .agent_priors import related_agents_for_paths
 from .auto_merge import evaluate_auto_merge
-from .ledger import append_jsonl, load_jsonl
+from .ledger import (
+    append_declared_jsonl,
+    append_jsonl as _append_jsonl,
+    load_declared_jsonl,
+    load_jsonl as _load_jsonl,
+)
 from .proposal import record_proposal
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -40,6 +45,39 @@ SUPPRESSION_PATTERNS = (
     "allow failure",
     "continue-on-error",
 )
+
+
+_CI_SURFACE_BY_FILENAME: dict[str, str] = {
+    "workflow-inventory.jsonl": "ci_workflow_inventory",
+    "workflow-runs.jsonl": "ci_workflow_runs",
+    "failures.jsonl": "ci_failures",
+    "ci-reports.jsonl": "ci_reports",
+    "pr-ci-gates.jsonl": "ci_pr_gates",
+    "agent-review-tasks.jsonl": "ci_agent_review_tasks",
+    "agent-reviews.jsonl": "ci_agent_reviews",
+    "remediation-proposals.jsonl": "ci_remediation_proposals",
+}
+
+
+def _ci_surface_name(path: str | Path) -> str | None:
+    concrete = Path(path)
+    if concrete.parent.name != "ci":
+        return None
+    return _CI_SURFACE_BY_FILENAME.get(concrete.name)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    surface = _ci_surface_name(path)
+    if surface is not None:
+        return append_declared_jsonl(path, record, expected_surface=surface)
+    return _append_jsonl(path, record)
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _ci_surface_name(path)
+    if surface is not None:
+        return load_declared_jsonl(path, expected_surface=surface)
+    return _load_jsonl(path)
 
 
 def inventory_workflows(
@@ -128,7 +166,7 @@ def evaluate_pr_ci_gate(
     auto = evaluate_auto_merge(
         pr=pr,
         github=github,
-        policy=policy or {"enabled": True, "base_branch": "snowball", "merge_method": "squash"},
+        policy=policy or {"enabled": True, "base_branch": "main", "merge_method": "squash"},
         base_dir=base_dir,
         cycle_id=cycle_id,
         dry_run=True,
@@ -699,7 +737,7 @@ def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, 
     # instead of deriving from already-run gh-pr-checks list. The
     # checks-list approach silently accepted PRs with 0 runs against a
     # protected base.
-    base_branch = pr.get("baseRefName") or "snowball"
+    base_branch = pr.get("baseRefName") or "main"
     bp_contexts, bp_error = _fetch_branch_protection_contexts(
         root=root, base_branch=str(base_branch),
     )
@@ -713,6 +751,12 @@ def _gh_pr_snapshot(*, pr_number: int, workspace_root: str | Path) -> dict[str, 
         }
         for name in required_authoritative
     ]
+    if not required_runs and required:
+        # Branch protection can be readable but unconfigured for local/test
+        # repos. Do not hide real gh-pr-check states from consumers; an empty
+        # checks.runs list would make failures invisible to gates that inspect
+        # the snapshot's concrete run state.
+        required_runs = [runs_by_name[name] for name in required if name in runs_by_name]
 
     branch_protection_block: dict[str, Any] = {
         "readable": bp_error is None,

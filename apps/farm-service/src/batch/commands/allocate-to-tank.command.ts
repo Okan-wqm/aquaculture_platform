@@ -6,8 +6,10 @@
  *
  * @module Batch/Commands
  */
-import { ITenantCommand } from '@platform/cqrs';
 import { Role } from '@aquaculture/backend-common/decorators';
+import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
+import { ITenantCommand } from '@platform/cqrs';
+
 import { AllocationType } from '../entities/tank-allocation.entity';
 
 export { AllocationType };
@@ -28,5 +30,6 @@ export class AllocateToTankCommand implements ITenantCommand {
     public readonly payload: AllocateToTankPayload,
     public readonly allocatedBy: string,
     public readonly userRoles: Role[] = [],
+    public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

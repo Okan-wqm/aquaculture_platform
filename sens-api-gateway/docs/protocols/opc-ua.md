@@ -2,7 +2,9 @@
 
 **Protocol role on this device:** binary-transport OPC UA client. `suderra-agent` connects to third-party OPC UA servers (Siemens S7-1500, Beckhoff TwinCAT 3, B&R Automation Studio, Unified Automation and other PLCopen-OPCUA servers) to browse / read / write / call methods against the address space.
 
-A separate OPC UA **server** role (feature `opc-ua-server`, crate `opcua = "0.12"`, `Cargo.toml:266`) is off by default and is covered by `integration/opcua-server.md`; this chapter covers the **client** role only.
+A separate OPC UA **server** role (feature `opc-ua-server`, crate `async-opcua`) is off by default and is not part of the RC4 `scada-display` release tier; this chapter covers the **client** role only.
+
+RC4 operator guidance lives in `docs/runbooks/edge-gateway-opcua.md`. For `agent-v2.0.0-rc4`, treat the client as `SecurityPolicy#None` unless a later runtime PR proves signed/encrypted chunk support.
 
 RFC 2119 keywords apply.
 

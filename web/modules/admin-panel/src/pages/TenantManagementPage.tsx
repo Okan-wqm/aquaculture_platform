@@ -24,10 +24,10 @@ import { tenantsApi, type Tenant, TenantTier, TenantStatus } from '../services/a
 // ============================================================================
 
 interface TenantStats {
-  total: number;
-  active: number;
-  suspended: number;
-  pending: number;
+  totalTenants: number;
+  activeTenants: number;
+  suspendedTenants: number;
+  pendingTenants: number;
 }
 
 // ============================================================================
@@ -64,9 +64,12 @@ const TenantManagementPage: React.FC = () => {
 
   // Bulk operation state
   const [saving, setSaving] = useState(false);
+  const tenantRequestSeq = useRef(0);
 
   // Fetch tenants
   const fetchTenants = useCallback(async () => {
+    const requestId = tenantRequestSeq.current + 1;
+    tenantRequestSeq.current = requestId;
     setLoading(true);
     setError(null);
     try {
@@ -77,15 +80,20 @@ const TenantManagementPage: React.FC = () => {
         page,
         limit,
       });
-      setTenants(result.data);
-      setTotalTenants(result.total);
+      if (tenantRequestSeq.current === requestId) {
+        setTenants(result.data);
+        setTotalTenants(result.total);
+      }
     } catch (err) {
+      if (tenantRequestSeq.current !== requestId) return;
       console.error('Failed to fetch tenants:', err);
       setTenants([]);
       setTotalTenants(0);
       setError('Failed to load tenants. Please try again.');
     } finally {
-      setLoading(false);
+      if (tenantRequestSeq.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [searchTerm, statusFilter, tierFilter, page, limit]);
 
@@ -117,6 +125,10 @@ const TenantManagementPage: React.FC = () => {
     fetchInitialData();
   }, [fetchInitialData]);
 
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [searchTerm, statusFilter, tierFilter, page]);
+
   // Handle suspend/activate
   const handleToggleStatus = async (tenant: Tenant, action: 'suspend' | 'activate') => {
     if (action === 'suspend') {
@@ -128,6 +140,7 @@ const TenantManagementPage: React.FC = () => {
     }
     try {
       await tenantsApi.activate(tenant.id);
+      statsCacheRef.current = null;
       fetchTenants();
       fetchInitialData();
     } catch (err) {
@@ -139,6 +152,7 @@ const TenantManagementPage: React.FC = () => {
     if (!tenantToSuspend || !suspendReason.trim()) return;
     try {
       await tenantsApi.suspend(tenantToSuspend.id, suspendReason.trim());
+      statsCacheRef.current = null;
       setIsSuspendReasonModalOpen(false);
       setTenantToSuspend(null);
       setSuspendReason('');
@@ -175,6 +189,7 @@ const TenantManagementPage: React.FC = () => {
     setSaving(true);
     try {
       await tenantsApi.bulkSuspend(Array.from(selectedIds), bulkSuspendReason);
+      statsCacheRef.current = null;
       setIsBulkSuspendModalOpen(false);
       setBulkSuspendReason('');
       setSelectedIds(new Set());
@@ -196,6 +211,7 @@ const TenantManagementPage: React.FC = () => {
     setSaving(true);
     try {
       await tenantsApi.bulkActivate(Array.from(selectedIds));
+      statsCacheRef.current = null;
       setIsBulkActivateModalOpen(false);
       setSelectedIds(new Set());
       fetchTenants();
@@ -210,8 +226,8 @@ const TenantManagementPage: React.FC = () => {
   const getStatusVariant = (status: TenantStatus | string): 'success' | 'warning' | 'error' | 'default' => {
     const s = String(status).toLowerCase();
     if (s === 'active') return 'success';
-    if (s === 'pending') return 'warning';
-    if (s === 'suspended') return 'error';
+    if (s === 'pending' || s === 'provisioning') return 'warning';
+    if (s === 'suspended' || s === 'provisioning_failed') return 'error';
     return 'default';
   };
 
@@ -284,9 +300,9 @@ const TenantManagementPage: React.FC = () => {
       header: 'Usage',
       render: (tenant) => (
         <div className="text-sm">
-          <span className="text-gray-600">{tenant.userCount || 0} users</span>
+          <span className="text-gray-600">{tenant.userCount ?? 0} users</span>
           <span className="mx-1 text-gray-500">|</span>
-          <span className="text-gray-600">{tenant.farmCount || 0} farms</span>
+          <span className="text-gray-600">{tenant.farmCount ?? 0} farms</span>
         </div>
       ),
     },
@@ -338,19 +354,23 @@ const TenantManagementPage: React.FC = () => {
         <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
           {selectedIds.size > 0 && (
             <>
-              <Button
-                variant="outline"
-                onClick={handleBulkActivate}
-                disabled={saving}
-              >
-                Activate Selected ({selectedIds.size})
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => setIsBulkSuspendModalOpen(true)}
-              >
-                Suspend Selected ({selectedIds.size})
-              </Button>
+              {tenants.filter((tenant) => selectedIds.has(tenant.id)).every((tenant) => tenant.status === TenantStatus.SUSPENDED) && (
+                <Button
+                  variant="outline"
+                  onClick={handleBulkActivate}
+                  disabled={saving}
+                >
+                  Activate Selected ({selectedIds.size})
+                </Button>
+              )}
+              {tenants.filter((tenant) => selectedIds.has(tenant.id)).every((tenant) => tenant.status === TenantStatus.ACTIVE) && (
+                <Button
+                  variant="danger"
+                  onClick={() => setIsBulkSuspendModalOpen(true)}
+                >
+                  Suspend Selected ({selectedIds.size})
+                </Button>
+              )}
             </>
           )}
           <Button variant="outline" onClick={fetchTenants} disabled={loading}>
@@ -370,19 +390,19 @@ const TenantManagementPage: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Card className="p-4">
             <p className="text-sm text-gray-500">Total</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
+            <p className="text-2xl font-bold text-gray-900">{stats.totalTenants}</p>
           </Card>
           <Card className="p-4">
             <p className="text-sm text-gray-500">Active</p>
-            <p className="text-2xl font-bold text-green-600">{stats.active}</p>
+            <p className="text-2xl font-bold text-green-600">{stats.activeTenants}</p>
           </Card>
           <Card className="p-4">
             <p className="text-sm text-gray-500">Pending</p>
-            <p className="text-2xl font-bold text-yellow-600">{stats.pending}</p>
+            <p className="text-2xl font-bold text-yellow-600">{stats.pendingTenants}</p>
           </Card>
           <Card className="p-4">
             <p className="text-sm text-gray-500">Suspended</p>
-            <p className="text-2xl font-bold text-red-600">{stats.suspended}</p>
+            <p className="text-2xl font-bold text-red-600">{stats.suspendedTenants}</p>
           </Card>
         </div>
       )}
@@ -407,9 +427,11 @@ const TenantManagementPage: React.FC = () => {
             onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             options={[
               { value: '', label: 'All Statuses' },
-              { value: 'active', label: 'Active' },
-              { value: 'pending', label: 'Pending' },
-              { value: 'suspended', label: 'Suspended' },
+              { value: TenantStatus.ACTIVE, label: 'Active' },
+              { value: TenantStatus.PENDING, label: 'Pending' },
+              { value: TenantStatus.PROVISIONING, label: 'Provisioning' },
+              { value: TenantStatus.PROVISIONING_FAILED, label: 'Provisioning Failed' },
+              { value: TenantStatus.SUSPENDED, label: 'Suspended' },
             ]}
           />
           <Select

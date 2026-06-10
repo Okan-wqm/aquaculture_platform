@@ -18,8 +18,11 @@
  * Adding a new admin route: edit `adminNavItems` below. New SVG:
  * add a key to `adminNavIcons`. No other file is touched.
  */
+import {
+  ADMIN_BILLING_NAV_ITEMS,
+  type NavigationItem,
+} from '@aquaculture/shared-ui';
 import React from 'react';
-import type { NavigationItem } from '@aquaculture/shared-ui';
 
 /**
  * Admin-specific icon set. Keys are the `icon` string on each
@@ -101,6 +104,21 @@ export const adminNavIcons: Record<string, React.ReactNode> = {
   ),
 };
 
+const billingNavIconById: Record<string, string> = {
+  'billing-overview': 'billing',
+  'billing-module-pricing': 'billing',
+  'billing-subscriptions': 'billing',
+  'billing-invoices': 'reports',
+  'billing-payments': 'billing',
+  'billing-discounts': 'billing',
+  'billing-custom-plans': 'modules',
+};
+
+const adminBillingNavItems: NavigationItem[] = ADMIN_BILLING_NAV_ITEMS.map((item) => ({
+  ...item,
+  icon: billingNavIconById[item.id] ?? 'billing',
+}));
+
 /**
  * Admin-panel navigation tree. `icon` is a string key into
  * `adminNavIcons` (or shared-ui's built-in `defaultIcons`).
@@ -141,17 +159,7 @@ export const adminNavItems: NavigationItem[] = [
     id: 'billing',
     label: 'Billing',
     icon: 'billing',
-    children: [
-      { id: 'billing-overview', label: 'Overview', path: '/admin/billing', icon: 'billing' },
-      { id: 'billing-subscriptions', label: 'Subscriptions', path: '/admin/billing/subscriptions', icon: 'billing' },
-      { id: 'billing-invoices', label: 'Invoices', path: '/admin/billing/invoices', icon: 'reports' },
-      { id: 'billing-payments', label: 'Payments', path: '/admin/billing/payments', icon: 'billing' },
-      { id: 'billing-usage', label: 'Usage Metering', path: '/admin/billing/usage', icon: 'analytics' },
-      { id: 'billing-plans', label: 'Plans', path: '/admin/billing/plans', icon: 'modules' },
-      { id: 'billing-discounts', label: 'Discount Codes', path: '/admin/billing/discounts', icon: 'billing' },
-      { id: 'billing-module-pricing', label: 'Module Pricing', path: '/admin/billing/module-pricing', icon: 'billing' },
-      { id: 'billing-custom-plans', label: 'Custom Plans', path: '/admin/billing/custom-plans', icon: 'modules' },
-    ],
+    children: adminBillingNavItems,
   },
   {
     id: 'support',

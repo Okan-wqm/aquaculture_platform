@@ -22,14 +22,24 @@ interface NavigateToChannelMessage {
   channelId?: string;
 }
 
+interface NavigateToNotificationRefMessage {
+  type: 'NAVIGATE_TO_NOTIFICATION_REF';
+  notificationRef?: string;
+}
+
 /** Union of all SW navigation message types. Extend as new event types are added. */
-type SwNavigationMessage = NavigateToChannelMessage;
+type SwNavigationMessage =
+  | NavigateToChannelMessage
+  | NavigateToNotificationRefMessage;
 
 /** Type guard: narrows unknown MessageEvent data to a known SW navigation message. */
 function isSwNavigationMessage(data: unknown): data is SwNavigationMessage {
   if (typeof data !== 'object' || data === null) return false;
   const msg = data as { type?: unknown };
-  return msg.type === 'NAVIGATE_TO_CHANNEL';
+  return (
+    msg.type === 'NAVIGATE_TO_CHANNEL' ||
+    msg.type === 'NAVIGATE_TO_NOTIFICATION_REF'
+  );
 }
 
 /**
@@ -58,6 +68,13 @@ export function useSwNavigation(): void {
           // route to the correct page within the SPA.
           const path = event.data.channelId
             ? `/messages/${event.data.channelId}`
+            : '/messages';
+          navigate(path);
+          break;
+        }
+        case 'NAVIGATE_TO_NOTIFICATION_REF': {
+          const path = event.data.notificationRef
+            ? `/messages?notificationRef=${encodeURIComponent(event.data.notificationRef)}`
             : '/messages';
           navigate(path);
           break;

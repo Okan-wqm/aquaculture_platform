@@ -6,12 +6,14 @@
  * main.tsx does only `import('./bootstrap')` to trigger this asynchronously.
  */
 
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider } from '@aquaculture/shared-ui';
 import { installVisibilityTokenRefresh } from '@aquaculture/shared-ui';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+
 import App from './App';
+import { applyThemePreference, getStoredThemePreference } from './utils/theme';
 import './styles/index.css';
 
 // SECURITY: Remote integrity guard is installed in main.tsx (before this
@@ -22,6 +24,7 @@ import './styles/index.css';
 // FE-HIGH-006: Install visibilitychange listener so returning to a sleeping
 // tab triggers a proactive token refresh instead of a 401 force-logout.
 installVisibilityTokenRefresh();
+applyThemePreference(getStoredThemePreference());
 
 // ============================================================================
 // Query Client Configuration

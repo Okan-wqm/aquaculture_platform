@@ -220,12 +220,46 @@ def _run_git_bytes(root: Path, args: list[str]) -> subprocess.CompletedProcess[b
 
 
 def _filesystem_paths(root: Path) -> list[str]:
+    """Plan ARIA-V2 §3.4 — non-git snapshot walker.
+
+    In a real git repo, ``git ls-files`` returns only tracked files and
+    the canonical ``aria-tools/`` runtime ledgers are gitignored — so
+    they never reach FATES and never trigger ``memory_fates_content_hash_mismatch``.
+    In a fresh tempdir there is no git repo and no ``.gitignore``, so
+    the walker has to skip the kernel-internal runtime directories
+    itself. Without this, every cycle run in a tempdir produces FATES
+    entries for mutating files (governance.jsonl, runs.jsonl …) and the
+    Plan-026R §E.7 integrity check then raises against the cycle's
+    own append-only writes (false positive that masks real input
+    validation errors).
+
+    The skip set mirrors the shared ``BASE_EXCLUDED_DIRS`` frozenset
+    plus ``aria-tools`` itself (which is NOT in BASE_EXCLUDED_DIRS
+    because operator tooling can legitimately walk into
+    ``aria-tools/agent-evals/fixtures`` for read-only purposes). Treating
+    aria-tools as a snapshot exclusion is the architecturally correct
+    decision: snapshot is a SOURCE inventory; runtime ledgers are
+    state, not source.
+    """
+    # Plan ARIA-V2 §3.4 — kernel runtime root + cross-tool excluded dirs.
+    # ``aria-tools`` listed alongside BASE_EXCLUDED_DIRS so a tempdir
+    # cycle's mutating governance.jsonl never enters FATES.
+    try:
+        from tools.shared.excluded_paths import BASE_EXCLUDED_DIRS as _SHARED_EXCLUDED
+    except ImportError:
+        _SHARED_EXCLUDED = frozenset()
+    skipped_segments: frozenset[str] = _SHARED_EXCLUDED | frozenset({"aria-tools"})
     paths: list[str] = []
     for path in root.rglob("*"):
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
         if rel.startswith(".git/"):
+            continue
+        # Reject if ANY path segment is in the excluded set; matches
+        # os.walk's ``dirs[:] = ...`` behaviour for nested cases like
+        # ``foo/node_modules/bar.js``.
+        if any(segment in skipped_segments for segment in rel.split("/")):
             continue
         paths.append(rel)
     return sorted(paths)

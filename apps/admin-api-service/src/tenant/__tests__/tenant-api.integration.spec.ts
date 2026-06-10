@@ -6,13 +6,14 @@ import request from 'supertest';
 import { Tenant, TenantStatus, TenantTier } from '../entities/tenant.entity';
 import { TenantActivityService } from '../services/tenant-activity.service';
 import { TenantDetailService } from '../services/tenant-detail.service';
+import { TenantProvisioningWorkflowService } from '../services/tenant-provisioning-workflow.service';
 import { TenantProvisioningService } from '../services/tenant-provisioning.service';
-import { TenantController } from '../tenant.controller';
+import { TenantAdminController, TenantPublicController } from '../tenant.controller';
 
 // Valid UUID constants for test use
-const TENANT_UUID = '11111111-1111-1111-1111-111111111111';
-const TENANT_UUID_2 = '22222222-2222-2222-2222-222222222222';
-const NOTE_UUID = '33333333-3333-3333-3333-333333333333';
+const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
+const TENANT_UUID_2 = '22222222-2222-4222-8222-222222222222';
+const NOTE_UUID = '33333333-3333-4333-8333-333333333333';
 const NULL_UUID = '00000000-0000-0000-0000-000000000000';
 
 // Mock CommandBus and QueryBus
@@ -41,6 +42,13 @@ const mockActivityService = {
 const mockProvisioningService = {
   provisionTenant: jest.fn().mockResolvedValue({ success: true }),
   getProvisioningStatus: jest.fn().mockResolvedValue({ status: 'completed' }),
+};
+
+const mockProvisioningWorkflowService = {
+  createTenantOperation: jest.fn(),
+  processOperation: jest.fn().mockResolvedValue(undefined),
+  getOperation: jest.fn(),
+  retryOperation: jest.fn(),
 };
 
 // Helper to create mock tenant
@@ -79,7 +87,7 @@ describe('Tenant API Integration Tests', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [CqrsModule],
-      controllers: [TenantController],
+      controllers: [TenantPublicController, TenantAdminController],
       providers: [
         {
           provide: CommandBus,
@@ -100,6 +108,10 @@ describe('Tenant API Integration Tests', () => {
         {
           provide: TenantProvisioningService,
           useValue: mockProvisioningService,
+        },
+        {
+          provide: TenantProvisioningWorkflowService,
+          useValue: mockProvisioningWorkflowService,
         },
       ],
     }).compile();
@@ -129,6 +141,14 @@ describe('Tenant API Integration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockProvisioningWorkflowService.createTenantOperation.mockResolvedValue({
+      status: 'QUEUED',
+      tenantStatus: 'PENDING',
+      statusUrl: `/tenants/provisioning/${NOTE_UUID}`,
+      retryAfterMs: 2000,
+      availableActions: [],
+    });
+    mockProvisioningWorkflowService.processOperation.mockResolvedValue(undefined);
   });
 
   describe('POST /tenants', () => {
@@ -143,25 +163,36 @@ describe('Tenant API Integration Tests', () => {
     };
 
     it('should create a new tenant', async () => {
-      const createdTenant = createMockTenant({ name: 'New Tenant', slug: 'new-tenant' });
-      mockCommandBus.execute.mockResolvedValueOnce(createdTenant);
+      mockProvisioningWorkflowService.createTenantOperation.mockResolvedValueOnce({
+        status: 'QUEUED',
+        tenantStatus: 'PENDING',
+        statusUrl: `/tenants/provisioning/${NOTE_UUID}`,
+        retryAfterMs: 2000,
+        availableActions: [],
+      });
 
       const response = await request(app.getHttpServer())
         .post('/tenants')
         .send(validCreateDto)
+        .set('Idempotency-Key', 'tenant-create-test-key')
         .set('x-user-id', 'admin-123')
         .set('x-user-email', 'admin@example.com')
         .set('x-user-roles', JSON.stringify(['SUPER_ADMIN']));
 
-      expect(response.status).toBe(HttpStatus.CREATED);
-      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      expect(response.status).toBe(HttpStatus.ACCEPTED);
+      expect(mockProvisioningWorkflowService.createTenantOperation).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            name: 'New Tenant',
-            slug: 'new-tenant',
-          }),
+          name: 'New Tenant',
+          slug: 'new-tenant',
         }),
+        'admin-123',
+        'tenant-create-test-key',
       );
+      expect(mockProvisioningWorkflowService.processOperation).toHaveBeenCalledWith(NOTE_UUID);
+      expect(response.body).toEqual(expect.objectContaining({
+        status: 'QUEUED',
+        statusUrl: `/tenants/provisioning/${NOTE_UUID}`,
+      }));
     });
 
     it('should return 400 for invalid tenant data', async () => {
@@ -180,7 +211,7 @@ describe('Tenant API Integration Tests', () => {
     });
 
     it('should handle duplicate slug error', async () => {
-      mockCommandBus.execute.mockRejectedValueOnce({
+      mockProvisioningWorkflowService.createTenantOperation.mockRejectedValueOnce({
         name: 'ConflictException',
         message: 'Tenant with slug already exists',
       });
@@ -194,7 +225,7 @@ describe('Tenant API Integration Tests', () => {
     });
   });
 
-  describe('GET /tenants', () => {
+  describe('GET /admin/tenants', () => {
     it('should list tenants with pagination', async () => {
       const tenants = [createMockTenant(), createMockTenant({ id: TENANT_UUID_2 })];
       mockQueryBus.execute.mockResolvedValueOnce({
@@ -206,7 +237,7 @@ describe('Tenant API Integration Tests', () => {
       });
 
       const response = await request(app.getHttpServer())
-        .get('/tenants')
+        .get('/admin/tenants')
         .query({ page: 1, limit: 20 });
 
       expect(response.status).toBe(HttpStatus.OK);
@@ -223,7 +254,7 @@ describe('Tenant API Integration Tests', () => {
       });
 
       const response = await request(app.getHttpServer())
-        .get('/tenants')
+        .get('/admin/tenants')
         .query({ status: 'ACTIVE' });
 
       expect(response.status).toBe(HttpStatus.OK);
@@ -239,7 +270,7 @@ describe('Tenant API Integration Tests', () => {
       });
 
       const response = await request(app.getHttpServer())
-        .get('/tenants')
+        .get('/admin/tenants')
         .query({ tier: 'enterprise' });
 
       expect(response.status).toBe(HttpStatus.OK);
@@ -255,7 +286,7 @@ describe('Tenant API Integration Tests', () => {
       });
 
       const response = await request(app.getHttpServer())
-        .get('/tenants')
+        .get('/admin/tenants')
         .query({ search: 'Farm' });
 
       expect(response.status).toBe(HttpStatus.OK);
@@ -271,14 +302,14 @@ describe('Tenant API Integration Tests', () => {
       });
 
       const response = await request(app.getHttpServer())
-        .get('/tenants')
+        .get('/admin/tenants')
         .query({ page: 5, limit: 10 });
 
       expect(response.status).toBe(HttpStatus.OK);
     });
   });
 
-  describe('GET /tenants/stats', () => {
+  describe('GET /admin/tenants/stats', () => {
     it('should return tenant statistics', async () => {
       const stats = {
         totalTenants: 100,
@@ -295,20 +326,20 @@ describe('Tenant API Integration Tests', () => {
       mockQueryBus.execute.mockResolvedValueOnce(stats);
 
       const response = await request(app.getHttpServer())
-        .get('/tenants/stats');
+        .get('/admin/tenants/stats');
 
       expect(response.status).toBe(HttpStatus.OK);
       expect(response.body).toBeDefined();
     });
   });
 
-  describe('GET /tenants/search', () => {
+  describe('GET /admin/tenants/search', () => {
     it('should search tenants by query', async () => {
       const foundTenants = [createMockTenant({ name: 'Farm Corp' })];
       mockQueryBus.execute.mockResolvedValueOnce(foundTenants);
 
       const response = await request(app.getHttpServer())
-        .get('/tenants/search')
+        .get('/admin/tenants/search')
         .query({ q: 'Farm' });
 
       expect(response.status).toBe(HttpStatus.OK);
@@ -319,20 +350,20 @@ describe('Tenant API Integration Tests', () => {
       mockQueryBus.execute.mockResolvedValueOnce(foundTenants);
 
       const response = await request(app.getHttpServer())
-        .get('/tenants/search')
+        .get('/admin/tenants/search')
         .query({ q: 'test', limit: 5 });
 
       expect(response.status).toBe(HttpStatus.OK);
     });
   });
 
-  describe('GET /tenants/approaching-limits', () => {
+  describe('GET /admin/tenants/approaching-limits', () => {
     it('should return tenants near usage limits', async () => {
       const nearLimitTenants = [createMockTenant()];
       mockQueryBus.execute.mockResolvedValueOnce(nearLimitTenants);
 
       const response = await request(app.getHttpServer())
-        .get('/tenants/approaching-limits')
+        .get('/admin/tenants/approaching-limits')
         .query({ threshold: 80 });
 
       expect(response.status).toBe(HttpStatus.OK);
@@ -342,32 +373,32 @@ describe('Tenant API Integration Tests', () => {
       mockQueryBus.execute.mockResolvedValueOnce([]);
 
       const response = await request(app.getHttpServer())
-        .get('/tenants/approaching-limits');
+        .get('/admin/tenants/approaching-limits');
 
       expect(response.status).toBe(HttpStatus.OK);
     });
   });
 
-  describe('GET /tenants/expiring-trials', () => {
+  describe('GET /admin/tenants/expiring-trials', () => {
     it('should return tenants with expiring trials', async () => {
       const expiringTenants = [createMockTenant({ isTrialActive: true })];
       mockQueryBus.execute.mockResolvedValueOnce(expiringTenants);
 
       const response = await request(app.getHttpServer())
-        .get('/tenants/expiring-trials')
+        .get('/admin/tenants/expiring-trials')
         .query({ withinDays: 7 });
 
       expect(response.status).toBe(HttpStatus.OK);
     });
   });
 
-  describe('GET /tenants/slug/:slug', () => {
+  describe('GET /admin/tenants/slug/:slug', () => {
     it('should return tenant by slug', async () => {
       const tenant = createMockTenant();
       mockQueryBus.execute.mockResolvedValueOnce(tenant);
 
       const response = await request(app.getHttpServer())
-        .get('/tenants/slug/test-tenant');
+        .get('/admin/tenants/slug/test-tenant');
 
       expect(response.status).toBe(HttpStatus.OK);
     });
@@ -379,26 +410,26 @@ describe('Tenant API Integration Tests', () => {
       });
 
       const response = await request(app.getHttpServer())
-        .get('/tenants/slug/non-existent');
+        .get('/admin/tenants/slug/non-existent');
 
       // Should return 404
     });
   });
 
-  describe('GET /tenants/:id', () => {
+  describe('GET /admin/tenants/:id', () => {
     it('should return tenant by ID', async () => {
       const tenant = createMockTenant();
       mockQueryBus.execute.mockResolvedValueOnce(tenant);
 
       const response = await request(app.getHttpServer())
-        .get(`/tenants/${TENANT_UUID}`);
+        .get(`/admin/tenants/${TENANT_UUID}`);
 
       expect(response.status).toBe(HttpStatus.OK);
     });
 
     it('should return 400 for invalid UUID', async () => {
       const response = await request(app.getHttpServer())
-        .get('/tenants/invalid-uuid');
+        .get('/admin/tenants/invalid-uuid');
 
       // ParseUUIDPipe should reject
       // expect(response.status).toBe(HttpStatus.BAD_REQUEST);
@@ -411,13 +442,13 @@ describe('Tenant API Integration Tests', () => {
       });
 
       const response = await request(app.getHttpServer())
-        .get(`/tenants/${NULL_UUID}`);
+        .get(`/admin/tenants/${NULL_UUID}`);
 
       // Should return 404
     });
   });
 
-  describe('GET /tenants/:id/detail', () => {
+  describe('GET /admin/tenants/:id/detail', () => {
     it('should return tenant detail', async () => {
       const detail = {
         tenant: createMockTenant(),
@@ -428,13 +459,13 @@ describe('Tenant API Integration Tests', () => {
       mockDetailService.getTenantDetail.mockResolvedValueOnce(detail);
 
       const response = await request(app.getHttpServer())
-        .get(`/tenants/${TENANT_UUID}/detail`);
+        .get(`/admin/tenants/${TENANT_UUID}/detail`);
 
       expect(response.status).toBe(HttpStatus.OK);
     });
   });
 
-  describe('GET /tenants/:id/usage', () => {
+  describe('GET /admin/tenants/:id/usage', () => {
     it('should return tenant usage', async () => {
       const usage = {
         currentUsers: 25,
@@ -446,13 +477,13 @@ describe('Tenant API Integration Tests', () => {
       mockQueryBus.execute.mockResolvedValueOnce(usage);
 
       const response = await request(app.getHttpServer())
-        .get(`/tenants/${TENANT_UUID}/usage`);
+        .get(`/admin/tenants/${TENANT_UUID}/usage`);
 
       expect(response.status).toBe(HttpStatus.OK);
     });
   });
 
-  describe('GET /tenants/:id/activities', () => {
+  describe('GET /admin/tenants/:id/activities', () => {
     it('should return tenant activities', async () => {
       mockDetailService.getActivitiesTimeline.mockResolvedValueOnce({
         data: [{ id: 'activity-1', type: 'STATUS_CHANGE' }],
@@ -461,7 +492,7 @@ describe('Tenant API Integration Tests', () => {
       });
 
       const response = await request(app.getHttpServer())
-        .get(`/tenants/${TENANT_UUID}/activities`);
+        .get(`/admin/tenants/${TENANT_UUID}/activities`);
 
       expect(response.status).toBe(HttpStatus.OK);
     });
@@ -474,7 +505,7 @@ describe('Tenant API Integration Tests', () => {
       });
 
       const response = await request(app.getHttpServer())
-        .get(`/tenants/${TENANT_UUID}/activities`)
+        .get(`/admin/tenants/${TENANT_UUID}/activities`)
         .query({ page: 2, limit: 20 });
 
       expect(response.status).toBe(HttpStatus.OK);
@@ -482,14 +513,14 @@ describe('Tenant API Integration Tests', () => {
   });
 
   describe('Notes Endpoints', () => {
-    describe('GET /tenants/:id/notes', () => {
+    describe('GET /admin/tenants/:id/notes', () => {
       it('should return tenant notes', async () => {
         mockActivityService.getNotes.mockResolvedValueOnce([
           { id: 'note-1', content: 'Test note' },
         ]);
 
         const response = await request(app.getHttpServer())
-          .get(`/tenants/${TENANT_UUID}/notes`);
+          .get(`/admin/tenants/${TENANT_UUID}/notes`);
 
         expect(response.status).toBe(HttpStatus.OK);
       });
@@ -498,14 +529,14 @@ describe('Tenant API Integration Tests', () => {
         mockActivityService.getNotes.mockResolvedValueOnce([]);
 
         const response = await request(app.getHttpServer())
-          .get(`/tenants/${TENANT_UUID}/notes`)
+          .get(`/admin/tenants/${TENANT_UUID}/notes`)
           .query({ category: 'support' });
 
         expect(response.status).toBe(HttpStatus.OK);
       });
     });
 
-    describe('POST /tenants/:id/notes', () => {
+    describe('POST /admin/tenants/:id/notes', () => {
       it('should create a new note', async () => {
         const noteData = { content: 'New note', category: 'general' };
         mockActivityService.createNote.mockResolvedValueOnce({
@@ -514,7 +545,7 @@ describe('Tenant API Integration Tests', () => {
         });
 
         const response = await request(app.getHttpServer())
-          .post(`/tenants/${TENANT_UUID}/notes`)
+          .post(`/admin/tenants/${TENANT_UUID}/notes`)
           .send(noteData)
           .set('x-user-id', 'admin-123')
           .set('x-user-email', 'admin@example.com');
@@ -523,7 +554,7 @@ describe('Tenant API Integration Tests', () => {
       });
     });
 
-    describe('PATCH /tenants/:id/notes/:noteId', () => {
+    describe('PATCH /admin/tenants/:id/notes/:noteId', () => {
       it('should update a note', async () => {
         const updateData = { content: 'Updated content' };
         mockActivityService.updateNote.mockResolvedValueOnce({
@@ -532,19 +563,19 @@ describe('Tenant API Integration Tests', () => {
         });
 
         const response = await request(app.getHttpServer())
-          .patch(`/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`)
+          .patch(`/admin/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`)
           .send(updateData);
 
         expect(response.status).toBe(HttpStatus.OK);
       });
     });
 
-    describe('DELETE /tenants/:id/notes/:noteId', () => {
+    describe('DELETE /admin/tenants/:id/notes/:noteId', () => {
       it('should delete a note', async () => {
         mockActivityService.deleteNote.mockResolvedValueOnce(undefined);
 
         const response = await request(app.getHttpServer())
-          .delete(`/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`);
+          .delete(`/admin/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`);
 
         expect(response.status).toBe(HttpStatus.NO_CONTENT);
       });
@@ -552,7 +583,7 @@ describe('Tenant API Integration Tests', () => {
   });
 
   describe('Bulk Operations', () => {
-    describe('POST /tenants/bulk/suspend', () => {
+    describe('POST /admin/tenants/bulk/suspend', () => {
       it('should suspend multiple tenants', async () => {
         mockDetailService.bulkSuspend.mockResolvedValueOnce({
           success: [TENANT_UUID, TENANT_UUID_2],
@@ -560,7 +591,7 @@ describe('Tenant API Integration Tests', () => {
         });
 
         const response = await request(app.getHttpServer())
-          .post('/tenants/bulk/suspend')
+          .post('/admin/tenants/bulk/suspend')
           .send({
             tenantIds: [TENANT_UUID, TENANT_UUID_2],
             reason: 'Policy violation',
@@ -578,7 +609,7 @@ describe('Tenant API Integration Tests', () => {
         });
 
         const response = await request(app.getHttpServer())
-          .post('/tenants/bulk/suspend')
+          .post('/admin/tenants/bulk/suspend')
           .send({
             tenantIds: [TENANT_UUID, TENANT_UUID_2],
             reason: 'Test',
@@ -590,7 +621,7 @@ describe('Tenant API Integration Tests', () => {
       });
     });
 
-    describe('POST /tenants/bulk/activate', () => {
+    describe('POST /admin/tenants/bulk/activate', () => {
       it('should activate multiple tenants', async () => {
         mockDetailService.bulkActivate.mockResolvedValueOnce({
           success: [TENANT_UUID, TENANT_UUID_2],
@@ -598,7 +629,7 @@ describe('Tenant API Integration Tests', () => {
         });
 
         const response = await request(app.getHttpServer())
-          .post('/tenants/bulk/activate')
+          .post('/admin/tenants/bulk/activate')
           .send({ tenantIds: [TENANT_UUID, TENANT_UUID_2] })
           .set('x-user-id', 'admin-123');
 
@@ -608,14 +639,14 @@ describe('Tenant API Integration Tests', () => {
   });
 
   describe('Status Change Endpoints', () => {
-    describe('PUT /tenants/:id', () => {
+    describe('PUT /admin/tenants/:id', () => {
       it('should update tenant', async () => {
         const updateDto = { name: 'Updated Name', maxUsers: 100 };
         const updatedTenant = createMockTenant(updateDto);
         mockCommandBus.execute.mockResolvedValueOnce(updatedTenant);
 
         const response = await request(app.getHttpServer())
-          .put(`/tenants/${TENANT_UUID}`)
+          .put(`/admin/tenants/${TENANT_UUID}`)
           .send(updateDto)
           .set('x-user-id', 'admin-123');
 
@@ -623,13 +654,13 @@ describe('Tenant API Integration Tests', () => {
       });
     });
 
-    describe('PATCH /tenants/:id/suspend', () => {
+    describe('PATCH /admin/tenants/:id/suspend', () => {
       it('should suspend tenant', async () => {
         const suspendedTenant = createMockTenant({ status: TenantStatus.SUSPENDED });
         mockCommandBus.execute.mockResolvedValueOnce(suspendedTenant);
 
         const response = await request(app.getHttpServer())
-          .patch(`/tenants/${TENANT_UUID}/suspend`)
+          .patch(`/admin/tenants/${TENANT_UUID}/suspend`)
           .send({ reason: 'Policy violation' })
           .set('x-user-id', 'admin-123');
 
@@ -637,26 +668,26 @@ describe('Tenant API Integration Tests', () => {
       });
     });
 
-    describe('PATCH /tenants/:id/activate', () => {
+    describe('PATCH /admin/tenants/:id/activate', () => {
       it('should activate tenant', async () => {
         const activatedTenant = createMockTenant({ status: TenantStatus.ACTIVE });
         mockCommandBus.execute.mockResolvedValueOnce(activatedTenant);
 
         const response = await request(app.getHttpServer())
-          .patch(`/tenants/${TENANT_UUID}/activate`)
+          .patch(`/admin/tenants/${TENANT_UUID}/activate`)
           .set('x-user-id', 'admin-123');
 
         expect(response.status).toBe(HttpStatus.OK);
       });
     });
 
-    describe('PATCH /tenants/:id/deactivate', () => {
+    describe('PATCH /admin/tenants/:id/deactivate', () => {
       it('should deactivate tenant', async () => {
         const deactivatedTenant = createMockTenant({ status: TenantStatus.DEACTIVATED });
         mockCommandBus.execute.mockResolvedValueOnce(deactivatedTenant);
 
         const response = await request(app.getHttpServer())
-          .patch(`/tenants/${TENANT_UUID}/deactivate`)
+          .patch(`/admin/tenants/${TENANT_UUID}/deactivate`)
           .send({ reason: 'Maintenance' })
           .set('x-user-id', 'admin-123');
 
@@ -664,12 +695,12 @@ describe('Tenant API Integration Tests', () => {
       });
     });
 
-    describe('DELETE /tenants/:id', () => {
+    describe('DELETE /admin/tenants/:id', () => {
       it('should archive tenant', async () => {
         mockCommandBus.execute.mockResolvedValueOnce(undefined);
 
         const response = await request(app.getHttpServer())
-          .delete(`/tenants/${TENANT_UUID}`)
+          .delete(`/admin/tenants/${TENANT_UUID}`)
           .set('x-user-id', 'admin-123');
 
         expect(response.status).toBe(HttpStatus.NO_CONTENT);

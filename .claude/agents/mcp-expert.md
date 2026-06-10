@@ -4,6 +4,7 @@ description: Reviews MCP server implementations under `mcp/` for tool safety, se
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # MCP Expert -- Tooling Boundary & Session-Safety Reviewer

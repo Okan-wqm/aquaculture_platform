@@ -29,6 +29,23 @@ export * from './tenant-schema.utils';
 // Migration Logger (structured logging for TypeORM migrations outside DI)
 export { MigrationLogger } from './migration-logger';
 
+// Migration ledger SSoT. Keep every runner/gate/tenant seeding path on the
+// same TypeORM ledger table name.
+export { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
+
+// Tenant migration ledger privilege SSoT. aqua-db-migrate creates/backfills
+// tenant ledgers; runtime services only need read access for SchemaVersionGate.
+export {
+  buildTenantMigrationLedgerReadGrant,
+  grantTenantMigrationLedgerReadAccess,
+  serviceRoleForTenantAwareSchema,
+} from './tenant-migration-ledger-privileges';
+export type {
+  TenantMigrationLedgerQueryExecutor,
+  TenantMigrationLedgerReadGrant,
+  TenantMigrationLedgerReadGrantOptions,
+} from './tenant-migration-ledger-privileges';
+
 // Migration helpers — column/table existence guards. Shared across all
 // services for migrations that reference state created by squashed
 // earlier migrations. See migration-helpers.ts docblock for rationale.
@@ -66,10 +83,16 @@ export type {
 // by migration-runner.service.ts (boot-time fan-out), aqua-db-migrate
 // orchestrator (deploy-time fan-out), and schema-propagation.spec.ts
 // (CI invariant). See tenant-aware-schemas.ts for rationale.
+export { TENANT_AWARE_SCHEMAS, TENANT_SCHEMA_NAME_RE } from './tenant-aware-schemas';
 export {
-  TENANT_AWARE_SCHEMAS,
-  TENANT_SCHEMA_NAME_RE,
-} from './tenant-aware-schemas';
+  SourceOnlyMigration,
+  getSourceOnlyMigrationMetadata,
+  isSourceOnlyMigration,
+} from './tenant-fanout.decorator';
+export type {
+  SourceOnlyMigrationMetadata,
+  SourceOnlyMigrationOptions,
+} from './tenant-fanout.decorator';
 
 // Tenant Schema Sync (auto-provisioning)
 export * from './tenant-schema-sync.service';
@@ -118,6 +141,16 @@ export * from './migration-runner';
 export { MigrationRunnerModule } from './migration-runner/migration-runner.module';
 export type { MigrationRunnerModuleOptions } from './migration-runner/migration-runner.module';
 
+// SchemaVersionGate — Faz 1.5 of day-one baseline reset + ADR-021.
+// Strict superset of createMigrationRunnerService: in production-like
+// envs (DB_MIGRATE_AUTHORITATIVE=true) runs as a read-only probe that
+// refuses boot if aqua-db-migrate has not finalised the ledger. In dev
+// (default) delegates to the runner verbatim. Use this factory in every
+// service's app.module.ts instead of createMigrationRunnerService —
+// production safety + dev ergonomics in a single provider class.
+export { createSchemaVersionGate } from './schema-version-gate.service';
+export type { SchemaVersionGateOptions } from './schema-version-gate.service';
+
 // Retention — single-enforcer-many-policies pattern (plan v3 R17).
 // Tables with SOC2 / KVKK retention windows register a policy at
 // module-init; RetentionEnforcementService iterates all on a daily
@@ -150,16 +183,8 @@ export type { SchemaDriftModuleOptions } from './schema-drift/schema-drift.modul
 // Drift-class registry — single source of truth for validator ↔ primitive
 // parity. See docs/plans/2026-04-21-db-migrate-enterprise-refactor.md §R11
 // + libs/backend-common/src/database/schema-drift/drift-classes.ts docblock.
-export {
-  DRIFT_CLASSES,
-  DRIFT_CLASS_LIST,
-  isDriftClassId,
-} from './schema-drift/drift-classes';
-export type {
-  DriftClassId,
-  DriftClassSpec,
-  DriftSeverity,
-} from './schema-drift/drift-classes';
+export { DRIFT_CLASSES, DRIFT_CLASS_LIST, isDriftClassId } from './schema-drift/drift-classes';
+export type { DriftClassId, DriftClassSpec, DriftSeverity } from './schema-drift/drift-classes';
 export {
   expectedEntityDbType,
   isUuidTypeDrift,
@@ -192,10 +217,7 @@ export type {
 // Phase 4 PR-gate foundation — pairwise snapshot diff + severity
 // partitioning. Pure, side-effect-free; consumed by the CI diff
 // script that compares pre-merge vs post-migrate shadow snapshots.
-export {
-  diffSnapshots,
-  partitionBySeverity,
-} from './schema-drift/diff-snapshots';
+export { diffSnapshots, partitionBySeverity } from './schema-drift/diff-snapshots';
 export type {
   SnapshotChange,
   SnapshotChangeKind,
@@ -204,14 +226,8 @@ export type {
 
 // Phase 7 R14 — snapshot PII scrubber. Produces a redacted copy of a
 // SchemaSnapshot suitable for cross-region upload or public channels.
-export {
-  scrubSnapshot,
-  DEFAULT_PII_COLUMN_NAMES,
-} from './schema-drift/snapshot-scrubber';
-export type {
-  ScrubbedSnapshot,
-  ScrubOptions,
-} from './schema-drift/snapshot-scrubber';
+export { scrubSnapshot, DEFAULT_PII_COLUMN_NAMES } from './schema-drift/snapshot-scrubber';
+export type { ScrubbedSnapshot, ScrubOptions } from './schema-drift/snapshot-scrubber';
 
 // Phase 3 primitives — declarative schema healers for drift classes
 // A-G. Each primitive composes over withDdlSafety and sql.* branded
@@ -354,12 +370,13 @@ export type {
 // Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
 // `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`
 // are imported by per-service migrations in `auth`, `admin-api`, `farm`,
-// `sensor`, and `messaging`. `AuditColumnsBootstrap` is the runtime
-// installer used by services without a migration runner via the
-// `AuditColumnsModule` dynamic module below.
+// `sensor`, and `messaging`. Under DB_MIGRATE_AUTHORITATIVE deployments,
+// audit hardening belongs in aqua-db-migrate postMigrationHardening; the
+// runtime `AuditColumnsModule` is a local/dev convenience only.
 export * from './convert-audit-columns-to-timestamptz.helper';
 export * from './audit-columns-bootstrap.service';
 export * from './audit-columns.module';
+export * from './db-migrate-authority.util';
 
 // DATA-LOW-001 cure: typed pg.Pool extractor that hides the
 // single `as any` driver-shape bridge in one canonical adapter.

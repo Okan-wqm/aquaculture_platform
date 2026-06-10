@@ -71,6 +71,17 @@ import { readdirSync, statSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
 import { ConfigService } from '@nestjs/config';
 
+// ADR-031 Platform Bootstrap Atom — runs the schema/role/extension/function/
+// shared-table DDL contract that init-scripts USED to own pre-cutover. The
+// init-scripts bind-mount below now contains only `01-init-databases.sql`
+// (initdb-only DB GRANTs). Schemas, roles, functions, and shared.* tables
+// are created by the call to runPlatformBootstrap() below before any
+// per-service migration loop runs.
+import {
+  runPlatformBootstrap,
+  resolvePlatformBootstrapSqlDir,
+} from '../../../apps/db-migrate/src/platform-bootstrap.service';
+
 // Dynamic require to avoid the e2e tsconfig's rootDir guard. Importing
 // schema-drift-validator.service.ts directly via `import { ... }` would
 // pull a file outside the e2e/ rootDir into the type-check graph and
@@ -100,11 +111,43 @@ const POSTGRES_IMAGE =
 const DATABASE_NAME = 'aquaculture';
 const DATABASE_USER = 'aquaculture';
 const DATABASE_PASSWORD = 'aquaculture-test';
+const DB_MIGRATE_DDL_AUTHORITY_ENV = 'DB_MIGRATE_DDL_AUTHORITY';
+const SERVICE_ROLE_PASSWORD_ENVS = [
+  'AUTH_SERVICE_DB_PASS',
+  'FARM_SERVICE_DB_PASS',
+  'SENSOR_SERVICE_DB_PASS',
+  'BILLING_SERVICE_DB_PASS',
+  'HR_SERVICE_DB_PASS',
+  'ALERT_SERVICE_DB_PASS',
+  'ADMIN_SERVICE_DB_PASS',
+  'GATEWAY_SERVICE_DB_PASS',
+  'NOTIFICATION_SERVICE_DB_PASS',
+  'HYDROPONICS_SERVICE_DB_PASS',
+  'AI_SERVICE_DB_PASS',
+  'MESSAGING_SERVICE_DB_PASS',
+  'OBSERVABILITY_SERVICE_DB_PASS',
+  'EVENT_STORE_SERVICE_DB_PASS',
+  'CONFIG_SERVICE_DB_PASS',
+] as const;
 
 // Repo root, derived from this file's location:
 //   e2e/tests/integration/bootstrap-from-scratch.spec.ts -> ../../..
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 const INIT_SCRIPTS_DIR = join(REPO_ROOT, 'infrastructure', 'docker', 'init-scripts');
+
+async function runWithDbMigrateDdlAuthority<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = process.env[DB_MIGRATE_DDL_AUTHORITY_ENV];
+  process.env[DB_MIGRATE_DDL_AUTHORITY_ENV] = '1';
+  try {
+    return await operation();
+  } finally {
+    if (previous === undefined) {
+      Reflect.deleteProperty(process.env, DB_MIGRATE_DDL_AUTHORITY_ENV);
+    } else {
+      process.env[DB_MIGRATE_DDL_AUTHORITY_ENV] = previous;
+    }
+  }
+}
 
 /**
  * Per-service migration manifest.
@@ -682,6 +725,10 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
   const dataSources = new Map<string, DataSource>();
 
   beforeAll(async () => {
+    for (const envName of SERVICE_ROLE_PASSWORD_ENVS) {
+      process.env[envName] ??= `${envName.toLowerCase()}_test`;
+    }
+
     // -----------------------------------------------------------------
     // 1. Boot Postgres with init-scripts mounted.
     // -----------------------------------------------------------------
@@ -695,10 +742,15 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
         POSTGRES_DB: DATABASE_NAME,
         POSTGRES_USER: DATABASE_USER,
         POSTGRES_PASSWORD: DATABASE_PASSWORD,
-        // The init scripts read these `*_SERVICE_DB_PASS` vars — when not
-        // provided they generate random passwords (see init-script line
-        // 19). Random passwords are fine for this test (we connect as
-        // POSTGRES_USER which has full access).
+        // The platform bootstrap atom refuses empty service-role password
+        // envs. Forward deterministic dummy values into the container so
+        // init scripts and Phase 0 exercise the same env contract as prod.
+        ...Object.fromEntries(
+          SERVICE_ROLE_PASSWORD_ENVS.map((envName) => [
+            envName,
+            process.env[envName] ?? `${envName.toLowerCase()}_test`,
+          ]),
+        ),
       })
       .withBindMounts([
         {
@@ -718,6 +770,29 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
     const host = postgresContainer.getHost();
     const port = postgresContainer.getMappedPort(5432);
     connectionUri = `postgresql://${DATABASE_USER}:${DATABASE_PASSWORD}@${host}:${port}/${DATABASE_NAME}`;
+
+    // -----------------------------------------------------------------
+    // 1.5. Run the ADR-031 platform-bootstrap atom.
+    // -----------------------------------------------------------------
+    // Pre-ADR-031, init-scripts ran the entire platform DDL contract on
+    // initdb. Post-ADR-031, init-scripts hold only DB-level GRANTs;
+    // schemas/roles/extensions/functions/shared.* tables come from this
+    // atom which is identical to what aqua-db-migrate Phase 0 runs in
+    // production. Calling it here from the test keeps the
+    // bootstrap-from-scratch fixture aligned with the live deploy path.
+    await runPlatformBootstrap({
+      database: {
+        host,
+        port,
+        username: DATABASE_USER,
+        password: DATABASE_PASSWORD,
+        database: DATABASE_NAME,
+        ssl: false,
+      },
+      sqlDir: resolvePlatformBootstrapSqlDir(REPO_ROOT),
+      log: () => undefined, // silent — Jest captures stdout per spec
+      lockTimeoutSeconds: 60,
+    });
 
     // -----------------------------------------------------------------
     // 2. Run every service's migration chain in dependency order.
@@ -783,7 +858,9 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
         // empty `<schema>.migrations` ledger table that would skew the
         // "ledger is non-empty" assertion below.
         if (migrationClasses.length > 0) {
-          await ds.runMigrations({ transaction: 'each' });
+          await runWithDbMigrateDdlAuthority(() =>
+            ds.runMigrations({ transaction: 'each' }),
+          );
         }
       } catch (err) {
         // Surface which service failed so the diagnostic message is

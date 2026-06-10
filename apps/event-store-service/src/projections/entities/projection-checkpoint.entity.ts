@@ -6,7 +6,10 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { BigIntTransformer } from '../../event-store/transformers/bigint.transformer';
+import {
+  BigIntStringTransformer,
+  BigIntTransformer,
+} from '../../event-store/transformers/bigint.transformer';
 
 export enum ProjectionStatus {
   RUNNING = 'running',
@@ -42,8 +45,21 @@ export class ProjectionCheckpoint {
   /**
    * Current position in the global event log
    */
-  @Column({ type: 'bigint', default: 0, transformer: new BigIntTransformer() })
-  position!: number;
+  @Column({ type: 'bigint', default: 0, transformer: new BigIntStringTransformer() })
+  position!: string;
+
+  /**
+   * Rebuild generation. Checkpoint updates are fenced by generation so a
+   * rebuild/swap cannot race with an old worker lease.
+   */
+  @Column({ type: 'int', default: 0 })
+  generation!: number;
+
+  /**
+   * Lease token held by the active worker for this projection generation.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  leaseToken?: string;
 
   /**
    * Current status of the projection

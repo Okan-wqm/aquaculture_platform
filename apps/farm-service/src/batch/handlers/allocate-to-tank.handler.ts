@@ -15,22 +15,29 @@
  *
  * @module Batch/Handlers
  */
-import { randomUUID } from 'crypto';
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { Injectable, NotFoundException, BadRequestException, Logger, ConflictException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import type { BatchAllocatedToTankEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { Repository, DataSource } from 'typeorm';
+
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+  defaultMobileCommandReceiptsForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
+import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { Tank, TankStatus } from '../../tank/entities/tank.entity';
+import { TankCapacityService } from '../../tank/services/tank-capacity.service';
 import { AllocateToTankCommand, AllocationType } from '../commands/allocate-to-tank.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
-import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
-import { TankCapacityService } from '../../tank/services/tank-capacity.service';
-import { AuditLogService } from '../../database/services/audit-log.service';
-import { AuditAction } from '../../database/entities/audit-log.entity';
 
 /**
  * Map the command's AllocationType enum to the BatchAllocatedToTankEvent
@@ -78,6 +85,10 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankCapacityService: TankCapacityService,
     private readonly auditLogService: AuditLogService,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService =
+      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
   ) {}
 
   /**
@@ -95,6 +106,26 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope: command.mobileCommand,
+        operationType: 'allocateBatchToTank',
+        responseType: 'TankAllocation',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(TankAllocation, {
+              where: { id: receipt.responseId, tenantId, isDeleted: false },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
       // Batch bul with pessimistic lock
       const batch = await queryRunner.manager.findOne(Batch, {
         where: { id: batchId, tenantId, isActive: true },
@@ -105,14 +136,25 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         throw new NotFoundException(`Batch ${batchId} bulunamadı`);
       }
 
-      // Equipment (Tank/Pond/Cage) bul with pessimistic lock
-      const equipment = await queryRunner.manager.findOne(Equipment, {
+      // Equipment compatibility row or canonical Tank row bul with pessimistic lock
+      let equipment = await queryRunner.manager.findOne(Equipment, {
         where: { id: payload.tankId, tenantId, isActive: true, isDeleted: false },
         lock: { mode: 'pessimistic_write' },
       });
+      let canonicalTank: Tank | null = null;
 
       if (!equipment) {
-        throw new NotFoundException(`Equipment ${payload.tankId} bulunamadı`);
+        canonicalTank = await queryRunner.manager.findOne(Tank, {
+          where: { id: payload.tankId, tenantId, isActive: true },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (canonicalTank) {
+          equipment = this.tankToCapacityEquipment(canonicalTank);
+        }
+      }
+
+      if (!equipment) {
+        throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
       }
 
       // Existing biomass on the tank — pull the cleaner-fish component
@@ -149,7 +191,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         tenantId,
         batchId,
         tankId: payload.tankId,
-        allocationType: payload.allocationType as AllocationType,
+        allocationType: payload.allocationType,
         allocationDate: payload.allocatedAt || new Date(),
         quantity: payload.quantity,
         avgWeightG: payload.avgWeightG,
@@ -281,13 +323,23 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         });
       }
 
-      // Equipment güncelle
-      equipment.currentBiomass = tankBatch.totalBiomassKg;
-      equipment.currentCount = tankBatch.totalQuantity;
-      if (equipment.status === EquipmentStatus.PREPARING || equipment.status === EquipmentStatus.FALLOW) {
-        equipment.status = EquipmentStatus.ACTIVE;
+      // Canonical container güncelle
+      if (canonicalTank) {
+        canonicalTank.currentBiomass = tankBatch.totalBiomassKg;
+        canonicalTank.currentCount = tankBatch.totalQuantity;
+        if (canonicalTank.status === TankStatus.PREPARING || canonicalTank.status === TankStatus.FALLOW) {
+          canonicalTank.status = TankStatus.ACTIVE;
+          canonicalTank.statusChangedAt = new Date();
+        }
+        await queryRunner.manager.save(canonicalTank);
+      } else {
+        equipment.currentBiomass = tankBatch.totalBiomassKg;
+        equipment.currentCount = tankBatch.totalQuantity;
+        if (equipment.status === EquipmentStatus.PREPARING || equipment.status === EquipmentStatus.FALLOW) {
+          equipment.status = EquipmentStatus.ACTIVE;
+        }
+        await queryRunner.manager.save(equipment);
       }
-      await queryRunner.manager.save(equipment);
 
       // Batch status güncelle (ilk stoklama ise)
       if (batch.status === BatchStatus.QUARANTINE && payload.allocationType === AllocationType.INITIAL_STOCKING) {
@@ -295,6 +347,12 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         batch.statusChangedAt = new Date();
         await queryRunner.manager.save(batch);
       }
+
+      await this.farmStockProjection.refreshContainers(
+        queryRunner.manager,
+        tenantId,
+        [payload.tankId],
+      );
 
       // Enqueue BatchAllocatedToTankEvent into the transactional outbox BEFORE commit.
       const allocationDate = payload.allocatedAt || new Date();
@@ -306,10 +364,17 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         tankId: payload.tankId,
         quantity: payload.quantity,
         biomassKg: eventBiomassKg,
-        allocationType: toAllocationTypeCode(payload.allocationType as AllocationType),
+        allocationType: toAllocationTypeCode(payload.allocationType),
         allocationDate,
       };
       await this.outboxPublisher.enqueue(allocationEvent, queryRunner.manager);
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'TankAllocation',
+        responseId: savedAllocation.id,
+        responsePayload: { id: savedAllocation.id },
+      });
 
       await queryRunner.commitTransaction();
 
@@ -325,5 +390,54 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     } finally {
       await queryRunner.release();
     }
+  }
+
+  private tankToCapacityEquipment(tank: Tank): Equipment {
+    const equipment = new Equipment();
+    equipment.id = tank.id;
+    equipment.tenantId = tank.tenantId;
+    equipment.name = tank.name;
+    equipment.code = tank.code;
+    equipment.status = this.mapTankStatusToEquipmentStatus(tank.status);
+    equipment.isTank = true;
+    equipment.isActive = tank.isActive;
+    equipment.isDeleted = false;
+    equipment.volume = Number(tank.volume);
+    equipment.currentBiomass = Number(tank.currentBiomass);
+    equipment.currentCount = tank.currentCount;
+    equipment.specifications = {
+      tankType: tank.tankType,
+      material: tank.material,
+      waterType: tank.waterType,
+      dimensions: {
+        diameter: tank.diameter,
+        length: tank.length,
+        width: tank.width,
+        depth: tank.depth,
+        waterDepth: tank.waterDepth,
+        freeboard: tank.freeboard,
+      },
+      volume: Number(tank.volume),
+      waterVolume: tank.waterVolume ? Number(tank.waterVolume) : undefined,
+      maxBiomass: Number(tank.maxBiomass),
+      maxDensity: Number(tank.maxDensity),
+      waterFlow: tank.waterFlow,
+      aeration: tank.aeration,
+    };
+    return equipment;
+  }
+
+  private mapTankStatusToEquipmentStatus(status: TankStatus): EquipmentStatus {
+    const mapping: Record<TankStatus, EquipmentStatus> = {
+      [TankStatus.ACTIVE]: EquipmentStatus.ACTIVE,
+      [TankStatus.PREPARING]: EquipmentStatus.PREPARING,
+      [TankStatus.CLEANING]: EquipmentStatus.CLEANING,
+      [TankStatus.MAINTENANCE]: EquipmentStatus.MAINTENANCE,
+      [TankStatus.HARVESTING]: EquipmentStatus.HARVESTING,
+      [TankStatus.FALLOW]: EquipmentStatus.FALLOW,
+      [TankStatus.QUARANTINE]: EquipmentStatus.QUARANTINE,
+      [TankStatus.INACTIVE]: EquipmentStatus.OUT_OF_SERVICE,
+    };
+    return mapping[status] ?? EquipmentStatus.OPERATIONAL;
   }
 }

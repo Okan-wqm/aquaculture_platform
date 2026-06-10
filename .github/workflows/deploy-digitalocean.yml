@@ -35,10 +35,10 @@ on:
   workflow_call:
     inputs:
       services:
-        description: 'Services to deploy (comma-separated, or "all")'
+        description: 'Services to deploy (comma-separated, "all", or "auto")'
         required: false
         type: string
-        default: 'all'
+        default: 'auto'
       bypass_staging_gate:
         description: 'EMERGENCY ONLY — bypass the staging-success gate.'
         required: false
@@ -81,7 +81,7 @@ on:
 # push images and tags. The called workflow's permissions OVERRIDE the
 # caller's when declared at this top level.
 permissions:
-  contents: write # push the deployed/production tag after success
+  contents: write # push deployed/production after successful full deploys
   packages: write # push container images to GHCR
   id-token: write # OIDC for GHCR auth where used
 
@@ -89,12 +89,11 @@ env:
   REGISTRY: ghcr.io
   TAG: ${{ github.sha }}
 
-# Cancel in-progress deploys for the same branch+trigger combination.
-# workflow_dispatch and workflow_run are in separate groups so a manual
-# trigger is never cancelled by an automated CI-triggered deploy.
+# Production has exactly one writer. Manual and automated deploys share a
+# concurrency group so they cannot mutate the droplet concurrently.
 concurrency:
-  group: deploy-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  group: deploy-production-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # ===========================================================================
@@ -134,27 +133,14 @@ jobs:
       # WS9 / ADR-016 Phase D — topology-aware enablement gate.
       #
       # Two architecturally-valid topologies are supported. The gate
-      # auto-bypasses on EITHER signal of an unconfigured staging:
+      # auto-bypasses on the explicit repo variable:
       #
       #   1. `vars.STAGING_ENABLED` repo variable not set to 'true' (the
       #      operator's explicit opt-in flag).
-      #   2. `secrets.STAGING_DROPLET_HOST` is empty (the structural truth:
-      #      no host = no possible staging deploy = nothing for the gate
-      #      to wait on).
       #
-      # The two checks together are belt-and-braces:
-      #   - If the operator sets STAGING_ENABLED=true but forgets to add
-      #     the secrets, signal 2 catches it (Tier-1 Make-Impossible:
-      #     gate cannot wait for a deploy that physically cannot run).
-      #   - If the operator adds the secrets but forgets the variable,
-      #     signal 1 still requires the explicit opt-in (the operator
-      #     gets the multi-droplet topology only after consciously
-      #     enabling it; prevents accidental gating mid-rollout).
-      #
-      # Both must resolve to "configured" for the gate to enforce. The
-      # secret-presence signal is the same one deploy-staging.yml uses
-      # in its `staging-configured` job — both workflows share the
-      # discriminator so they cannot drift relative to each other.
+      # Prod never reads staging environment-scoped secrets. When
+      # STAGING_ENABLED=true, the only accepted proof is the
+      # deployed/staging-<sha> tag emitted by deploy-staging.yml.
       #
       # Operator workflow (Topology A — multi-droplet, gate enforces):
       #   1. terraform apply infrastructure/terraform/modules/staging-droplet/
@@ -171,12 +157,6 @@ jobs:
       # ────────────────────────────────────────────────────────────────────
       - name: Check staging enablement (topology detection)
         id: enablement
-        # STAGING_HOST is read into env (NOT interpolated into the script
-        # body) — same pattern as deploy-staging.yml `staging-configured`
-        # job. Bash `-n` test discriminates configured/unconfigured cleanly
-        # without leaking the secret value into logs.
-        env:
-          STAGING_HOST: ${{ secrets.STAGING_DROPLET_HOST }}
         run: |
           set -euo pipefail
           ENABLED='${{ vars.STAGING_ENABLED }}'
@@ -186,20 +166,6 @@ jobs:
             echo "::notice::STAGING_ENABLED repo variable is not 'true' (Topology B: single-droplet)."
             echo "::notice::Skipping staging-gate — staging environment not opted-in."
             echo "::notice::See docs/runbooks/staging-environment.md to enable Topology A."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Signal 2 — secret presence (structural truth)
-          # Even if STAGING_ENABLED=true, an empty STAGING_DROPLET_HOST
-          # means deploy-staging.yml's staging-configured job emitted
-          # configured=false and skipped — the deployed/staging-<sha>
-          # tag will never arrive. Skip the gate to avoid a 55-minute
-          # timeout that prod cannot recover from.
-          if [ -z "${STAGING_HOST}" ]; then
-            echo "::warning::STAGING_ENABLED=true but STAGING_DROPLET_HOST secret is empty."
-            echo "::warning::This is a configuration drift — staging cannot physically deploy."
-            echo "::warning::Bypassing staging-gate to avoid a 55-min timeout. Fix the staging Environment secrets."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -288,8 +254,7 @@ jobs:
         run: |
           if [ "${{ steps.enablement.outputs.skip }}" = "true" ]; then
             echo "Staging gate: SKIPPED (Topology B: single-droplet, or staging not yet provisioned)."
-            echo "  Either STAGING_ENABLED is not 'true' or STAGING_DROPLET_HOST is empty."
-            echo "  This is the expected state until the staging droplet is provisioned + opted-in."
+            echo "  STAGING_ENABLED is not 'true'; bypass is explicit and logged."
           elif [ "${{ steps.bypass.outputs.bypass }}" = "true" ]; then
             echo "Staging gate: BYPASSED (emergency — see earlier warning)."
           else
@@ -297,20 +262,20 @@ jobs:
           fi
 
   # ===========================================================================
-  # Deploy manifest gates
+  # Release verification gates
   #
-  # Manual deploys must run the same SSoT checks as PR/merge CI before touching
-  # the droplet. This catches criticality/signals/compose drift before the
-  # SSH deploy script stops live containers.
+  # Manual and push-to-main deploys must prove the same release contracts before
+  # touching the droplet. This catches type/spec drift, migration-runner drift,
+  # manifest drift, and compose drift before SSH can mutate live containers.
   # ===========================================================================
-  deploy-manifest-gates:
+  release-verification:
     needs: [staging-gate]
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -327,16 +292,42 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit
 
-      - name: Run deploy manifest gates
+      - name: Install Linux platform binaries
+        uses: ./.github/actions/install-platform-binaries
+
+      - name: Run release verification gates
         run: |
+          npm run type-check
+          npm run gates:type-check-spec
+          npm run invariants:fast
+          npm run gates:schema-drift-registration
           npm run gates:criticality-manifest
           npm run gates:signals-manifest
+          npx nx test db-migrate
+          bash scripts/ci/validate-deploy-ssot.sh
+
+      - name: Compose preflight (droplet + staging overlay)
+        run: |
+          set -euo pipefail
+          ENV_FILE="$(mktemp)"
+          perl -ne 'while (/\$\{([A-Z0-9_]+):\?[^}]+\}/g) { print "$1\n" }' \
+            docker-compose.droplet.yml docker-compose.staging.yml | sort -u | while read -r key; do
+            [ -n "$key" ] || continue
+            printf '%s=%s\n' "$key" "ci-preflight-${key,,}" >> "$ENV_FILE"
+          done
+          {
+            echo "TAG=${{ github.sha }}"
+            echo "IMAGE_TAG=staging-${{ github.sha }}"
+            echo "COMPOSE_PROFILES="
+          } >> "$ENV_FILE"
+          docker compose --env-file "$ENV_FILE" -f docker-compose.droplet.yml config --quiet
+          docker compose --env-file "$ENV_FILE" -f docker-compose.droplet.yml -f docker-compose.staging.yml config --quiet
 
   # ===========================================================================
   # Prepare - Detect affected services & build dynamic matrices
   # ===========================================================================
   prepare:
-    needs: [staging-gate, deploy-manifest-gates]
+    needs: [staging-gate, release-verification]
     # CI-success precondition is now implicit: workflow_call is only
     # invoked from ci-affected.yml's final `deploy` job after all other
     # jobs are green. workflow_dispatch is operator-initiated.
@@ -349,13 +340,16 @@ jobs:
       image_prefix: ${{ steps.vars.outputs.image_prefix }}
       has_backend_changes: ${{ steps.detect.outputs.has_backend }}
       has_frontend_changes: ${{ steps.detect.outputs.has_frontend }}
+      has_infra_image_changes: ${{ steps.detect.outputs.has_infra_image }}
       affected_backend: ${{ steps.detect.outputs.affected_backend }}
       affected_frontend_matrix: ${{ steps.detect.outputs.affected_frontend_matrix }}
+      affected_infra_image_matrix: ${{ steps.detect.outputs.affected_infra_image_matrix }}
       backend_csv: ${{ steps.detect.outputs.backend_csv }}
       nx_frontend_csv: ${{ steps.detect.outputs.nx_frontend_csv }}
       non_nx_frontend_csv: ${{ steps.detect.outputs.non_nx_frontend_csv }}
       deploy_services: ${{ steps.detect.outputs.deploy_services }}
       full_deploy: ${{ steps.detect.outputs.full_deploy }}
+      deploy_mode: ${{ steps.detect.outputs.deploy_mode }}
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -374,25 +368,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ── Service definitions ──
-          # WS10: db-migrate is a one-shot tooling container that bundles
-          # every service's migrations; it ships as a backend image but is
-          # NOT a subgraph (gateway federation / CORS unaffected). Listed
-          # first so the deploy workflow's selective-deploy logic pulls
-          # the latest migration image before restarting service containers.
-          ALL_BACKEND=(db-migrate gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service)
-          ALL_FRONTEND=(shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil)
-          NX_FRONTEND=(shell dashboard farm-module admin-panel tenant-admin)
-          NON_NX_FRONTEND=(sensor-module hr-module hydroponics-module)
+          # ── Service definitions from generated platform service catalog ──
+          CATALOG_DEPLOY_ENV="infrastructure/deploy/service-catalog.deploy.vars"
+          if [ ! -r "${CATALOG_DEPLOY_ENV}" ]; then
+            echo "::error::Missing generated service catalog deploy artifact: ${CATALOG_DEPLOY_ENV}"
+            echo "Run npm run service-catalog:generate and commit the generated artifact."
+            exit 1
+          fi
+          # shellcheck source=infrastructure/deploy/service-catalog.deploy.vars
+          . "${CATALOG_DEPLOY_ENV}"
+          read -r -a ALL_BACKEND <<< "${CATALOG_BACKEND_IMAGE_SERVICES:?generated backend image services missing}"
+          read -r -a ALL_FRONTEND <<< "${CATALOG_FRONTEND_IMAGE_SERVICES:?generated frontend image services missing}"
+          read -r -a ALL_INFRA_IMAGES <<< "${CATALOG_INFRA_IMAGE_SERVICES:?generated infra image services missing}"
+          read -r -a NX_FRONTEND <<< "${CATALOG_NX_FRONTEND_PROJECTS:-}"
+          read -r -a NON_NX_FRONTEND <<< "${CATALOG_NON_NX_FRONTEND_PROJECTS:-}"
 
           AFFECTED_BACKEND=()
           AFFECTED_FRONTEND=()
+          AFFECTED_INFRA_IMAGES=()
           FULL_DEPLOY=false
+          DEPLOY_MODE="auto_selective"
+          REQUESTED_SERVICES="${{ inputs.services || github.event.inputs.services || 'all' }}"
+          REQUESTED_SERVICES="$(echo "${REQUESTED_SERVICES}" | xargs)"
 
-          # ── Case 1: workflow_dispatch with specific services ──
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.services }}" != "all" ] && [ -n "${{ github.event.inputs.services }}" ]; then
-            echo "Mode: workflow_dispatch with specific services"
-            IFS=',' read -ra SPECIFIED <<< "${{ github.event.inputs.services }}"
+          # ── Case 1: workflow_dispatch/workflow_call with specific services ──
+          if [ "${REQUESTED_SERVICES}" != "all" ] && [ "${REQUESTED_SERVICES}" != "auto" ] && [ -n "${REQUESTED_SERVICES}" ]; then
+            echo "Mode: specific services (${REQUESTED_SERVICES})"
+            IFS=',' read -ra SPECIFIED <<< "${REQUESTED_SERVICES}"
             for svc in "${SPECIFIED[@]}"; do
               svc=$(echo "$svc" | xargs)
               for b in "${ALL_BACKEND[@]}"; do
@@ -401,14 +403,19 @@ jobs:
               for f in "${ALL_FRONTEND[@]}"; do
                 [ "$f" = "$svc" ] && AFFECTED_FRONTEND+=("$svc") && break
               done
+              for i in "${ALL_INFRA_IMAGES[@]}"; do
+                [ "$i" = "$svc" ] && AFFECTED_INFRA_IMAGES+=("$svc") && break
+              done
             done
 
-          # ── Case 2: workflow_dispatch with "all" ──
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.services }}" = "all" ]; then
-            echo "Mode: workflow_dispatch ALL"
+          # ── Case 2: explicit "all" from workflow_dispatch or workflow_call ──
+          elif [ "${REQUESTED_SERVICES}" = "all" ]; then
+            echo "Mode: ALL"
             AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
             AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+            AFFECTED_INFRA_IMAGES=("${ALL_INFRA_IMAGES[@]}")
             FULL_DEPLOY=true
+            DEPLOY_MODE="full"
 
           # ── Case 3: workflow_call (push from CI) or other — detect from
           #   the deployed/production tag. Computes the diff against the
@@ -421,7 +428,9 @@ jobs:
               echo "  No deployed/production tag found — full deploy"
               AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
               AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+              AFFECTED_INFRA_IMAGES=("${ALL_INFRA_IMAGES[@]}")
               FULL_DEPLOY=true
+              DEPLOY_MODE="full"
             else
               echo "  Baseline: ${DEPLOY_BASE} (deployed/production)"
               echo "  Head:     ${{ github.sha }}"
@@ -431,18 +440,23 @@ jobs:
                 echo "  git diff failed — full deploy"
                 AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
                 AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+                AFFECTED_INFRA_IMAGES=("${ALL_INFRA_IMAGES[@]}")
                 FULL_DEPLOY=true
+                DEPLOY_MODE="full"
               else
                 echo "  Changed files: $(echo "$CHANGED" | wc -l)"
 
                 # Shared deps / infra → rebuild everything
-                if echo "$CHANGED" | grep -qE "^(libs/|platform/|\.github/|infrastructure/|docker-compose|nx\.json$)" || \
+                if echo "$CHANGED" | grep -qE "^(libs/|platform/|\.github/|infrastructure/|scripts/deploy/|docker-compose|nx\.json$)" || \
                    echo "$CHANGED" | grep -qE "^package(-lock)?\.json$" || \
-                   echo "$CHANGED" | grep -qE "^tsconfig"; then
-                  echo "  Shared/infra change detected — full deploy"
+                   echo "$CHANGED" | grep -qE "^tsconfig" || \
+                   echo "$CHANGED" | grep -qE "^apps/[^/]+/src/(database/)?migrations/"; then
+                  echo "  Schema/shared/infra/workflow/package change detected — full deploy"
                   AFFECTED_BACKEND=("${ALL_BACKEND[@]}")
                   AFFECTED_FRONTEND=("${ALL_FRONTEND[@]}")
+                  AFFECTED_INFRA_IMAGES=("${ALL_INFRA_IMAGES[@]}")
                   FULL_DEPLOY=true
+                  DEPLOY_MODE="full"
                 else
                   # Detect individual backend services
                   for svc in "${ALL_BACKEND[@]}"; do
@@ -450,6 +464,10 @@ jobs:
                       AFFECTED_BACKEND+=("$svc")
                     fi
                   done
+
+                  if echo "$CHANGED" | grep -q "^infrastructure/mosquitto/"; then
+                    AFFECTED_INFRA_IMAGES+=("mosquitto")
+                  fi
 
                   # WS10: db-migrate bundles every service's migration files
                   # (per apps/db-migrate/tsconfig.build.json). A migration
@@ -492,6 +510,16 @@ jobs:
             fi
           fi
 
+          # db-migrate is the release's schema-writer image. Build and deploy
+          # it for every deploy, including frontend-only selective deploys, so
+          # the droplet never falls back to a mutable `latest` migration bundle.
+          if [ "$FULL_DEPLOY" != "true" ] && { [ ${#AFFECTED_BACKEND[@]} -gt 0 ] || [ ${#AFFECTED_FRONTEND[@]} -gt 0 ]; }; then
+            case " ${AFFECTED_BACKEND[*]} " in
+              *" db-migrate "*) ;;
+              *) AFFECTED_BACKEND=("db-migrate" "${AFFECTED_BACKEND[@]}") ;;
+            esac
+          fi
+
           # ── Generate outputs ──
 
           # JSON arrays (compact, single-line)
@@ -502,21 +530,15 @@ jobs:
           fi
 
           if [ ${#AFFECTED_FRONTEND[@]} -gt 0 ]; then
-            # Build frontend image matrix JSON
-            FE_MATRIX="["
-            first=true
-            for mod in "${AFFECTED_FRONTEND[@]}"; do
-              [ "$first" = true ] || FE_MATRIX+=","
-              first=false
-              case "$mod" in
-                shell)      FE_MATRIX+="{\"module\":\"shell\",\"dockerfile\":\"infrastructure/docker/Dockerfile.shell\",\"module_path\":\"web/shell\"}" ;;
-                aquamobil)  FE_MATRIX+="{\"module\":\"aquamobil\",\"dockerfile\":\"infrastructure/docker/Dockerfile.aquamobil\",\"module_path\":\"web/apps/aquamobil\"}" ;;
-                *)          FE_MATRIX+="{\"module\":\"${mod}\",\"dockerfile\":\"infrastructure/docker/Dockerfile.microfrontend.simple\",\"module_path\":\"web/modules/${mod}\"}" ;;
-              esac
-            done
-            FE_MATRIX+="]"
+            FE_MATRIX=$(node -e 'const fs=require("fs"); const selected=new Set(process.argv.slice(1)); const data=JSON.parse(fs.readFileSync("infrastructure/deploy/service-catalog.generated.json","utf8")); const matrix=(data.deploy?.frontendImageMatrix ?? []).filter((entry)=>selected.has(entry.module)); if (matrix.length !== selected.size) { const known=new Set(matrix.map((entry)=>entry.module)); const missing=[...selected].filter((name)=>!known.has(name)); throw new Error(`Unknown frontend deploy matrix service(s): ${missing.join(", ")}`); } console.log(JSON.stringify(matrix));' "${AFFECTED_FRONTEND[@]}")
           else
             FE_MATRIX="[]"
+          fi
+
+          if [ ${#AFFECTED_INFRA_IMAGES[@]} -gt 0 ]; then
+            INFRA_MATRIX=$(node -e 'const fs=require("fs"); const selected=new Set(process.argv.slice(1)); const data=JSON.parse(fs.readFileSync("infrastructure/deploy/service-catalog.generated.json","utf8")); const matrix=(data.deploy?.infraImageMatrix ?? []).filter((entry)=>selected.has(entry.image)); if (matrix.length !== selected.size) { const known=new Set(matrix.map((entry)=>entry.image)); const missing=[...selected].filter((name)=>!known.has(name)); throw new Error(`Unknown infra deploy matrix service(s): ${missing.join(", ")}`); } console.log(JSON.stringify(matrix));' "${AFFECTED_INFRA_IMAGES[@]}")
+          else
+            INFRA_MATRIX="[]"
           fi
 
           # CSV for nx run-many (backend)
@@ -538,29 +560,35 @@ jobs:
           NON_NX_FE_CSV=$(IFS=,; echo "${NON_NX_FE_AFFECTED[*]}")
 
           # Compose service names for selective pull/restart
-          DEPLOY_SERVICES="${AFFECTED_BACKEND[*]} ${AFFECTED_FRONTEND[*]}"
+          DEPLOY_SERVICES="${AFFECTED_BACKEND[*]} ${AFFECTED_INFRA_IMAGES[*]} ${AFFECTED_FRONTEND[*]}"
           DEPLOY_SERVICES=$(echo "$DEPLOY_SERVICES" | xargs)
 
           HAS_BACKEND=$( [ ${#AFFECTED_BACKEND[@]} -gt 0 ] && echo true || echo false )
           HAS_FRONTEND=$( [ ${#AFFECTED_FRONTEND[@]} -gt 0 ] && echo true || echo false )
+          HAS_INFRA_IMAGE=$( [ ${#AFFECTED_INFRA_IMAGES[@]} -gt 0 ] && echo true || echo false )
 
           # Summary
           echo "=== Affected Services ==="
           echo "  Backend (${#AFFECTED_BACKEND[@]}): ${AFFECTED_BACKEND[*]:-none}"
+          echo "  Infra images (${#AFFECTED_INFRA_IMAGES[@]}): ${AFFECTED_INFRA_IMAGES[*]:-none}"
           echo "  Frontend (${#AFFECTED_FRONTEND[@]}): ${AFFECTED_FRONTEND[*]:-none}"
           echo "  Full deploy: ${FULL_DEPLOY}"
+          echo "  Deploy mode: ${DEPLOY_MODE}"
           echo "  Deploy services: ${DEPLOY_SERVICES:-none}"
 
           # Write outputs
           echo "has_backend=${HAS_BACKEND}" >> $GITHUB_OUTPUT
           echo "has_frontend=${HAS_FRONTEND}" >> $GITHUB_OUTPUT
+          echo "has_infra_image=${HAS_INFRA_IMAGE}" >> $GITHUB_OUTPUT
           echo "affected_backend=${BACKEND_JSON}" >> $GITHUB_OUTPUT
           echo "affected_frontend_matrix=${FE_MATRIX}" >> $GITHUB_OUTPUT
+          echo "affected_infra_image_matrix=${INFRA_MATRIX}" >> $GITHUB_OUTPUT
           echo "backend_csv=${BACKEND_CSV}" >> $GITHUB_OUTPUT
           echo "nx_frontend_csv=${NX_FE_CSV}" >> $GITHUB_OUTPUT
           echo "non_nx_frontend_csv=${NON_NX_FE_CSV}" >> $GITHUB_OUTPUT
           echo "deploy_services=${DEPLOY_SERVICES}" >> $GITHUB_OUTPUT
           echo "full_deploy=${FULL_DEPLOY}" >> $GITHUB_OUTPUT
+          echo "deploy_mode=${DEPLOY_MODE}" >> $GITHUB_OUTPUT
 
   # ===========================================================================
   # Build backend artifacts (affected only)
@@ -623,7 +651,7 @@ jobs:
       # Upload backend artifacts (dist/apps/*)
       - name: Upload backend artifacts
         # SEC-CI-002: pinned to SHA
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: backend-dist
           path: dist/
@@ -724,7 +752,7 @@ jobs:
 
       - name: Upload frontend artifacts
         # SEC-CI-002: pinned to SHA
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: frontend-dist
           path: |
@@ -764,14 +792,47 @@ jobs:
           path: dist/
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
-      # SEC-CI-002: pinned to SHA
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # ORPHAN-HIGH-076 — GHCR login retry on transient network failure.
+      #
+      # The previous `docker/login-action@<SHA>` had no retries; a single
+      # net/http timeout between the GHA runner and ghcr.io aborted the
+      # matrix shard and dragged the whole deploy down (2026-05-18 deploy
+      # run 26081565625, tenant-admin shard). The native action has no
+      # retry knob and `fail-fast: false` on the matrix only avoids
+      # cancelling SIBLING shards — the failing shard itself still
+      # produces a missing image that breaks `docker compose pull` on
+      # the droplet.
+      #
+      # This shell loop replaces the third-party action with an explicit
+      # `docker login` retry: 3 attempts, exponential-ish backoff (5s, 10s,
+      # 15s). No third-party SHA-pin churn; the supply-chain surface
+      # narrows by one action. `--password-stdin` keeps the token off the
+      # process table even on retry. Final attempt failure exits non-zero
+      # so the shard fails loud — same observable contract as the action,
+      # plus transient-resilience.
+      - name: Login to GHCR (3-attempt retry — ORPHAN-HIGH-076)
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          for attempt in 1 2 3; do
+            echo "[ghcr-login] attempt ${attempt}/3"
+            echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" \
+              -u "${GHCR_USERNAME}" --password-stdin
+            rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "[ghcr-login] success on attempt ${attempt}"
+              exit 0
+            fi
+            backoff=$((attempt * 5))
+            echo "[ghcr-login] attempt ${attempt} failed (rc=${rc}); sleeping ${backoff}s"
+            sleep "${backoff}"
+          done
+          echo "[ghcr-login] 3 attempts exhausted; aborting build."
+          exit 1
 
       # WS10: pick the right Dockerfile per service. db-migrate uses its
       # own Dockerfile (no HEALTHCHECK, one-shot CMD) while every other
@@ -799,7 +860,16 @@ jobs:
             SERVICE_NAME=${{ matrix.service }}
           # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main-v2
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main-v2,mode=max
+          # ORPHAN-HIGH-079 — GHCR cache-write transient class.
+          # `cache-to: type=registry` writes a buildcache manifest to GHCR
+          # after every successful build. A transient GHCR 502/network blip
+          # on the manifest HEAD/PUT aborts the entire matrix shard AFTER
+          # the image itself built + pushed successfully — pure waste.
+          # `ignore-error=true` (docker/build-push-action v6 supported)
+          # downgrades cache-write failures to a warning: image is still
+          # pushed; next build runs with one less cached layer. The cache
+          # class is an optimization, not a correctness gate.
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.service }}:buildcache-main-v2,mode=max,ignore-error=true
 
   # ===========================================================================
   # Build Frontend Docker Images (dynamic matrix — affected only)
@@ -841,14 +911,47 @@ jobs:
           path: web
 
       # SEC-CI-002: pinned to SHA
-      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
-      # SEC-CI-002: pinned to SHA
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # ORPHAN-HIGH-076 — GHCR login retry on transient network failure.
+      #
+      # The previous `docker/login-action@<SHA>` had no retries; a single
+      # net/http timeout between the GHA runner and ghcr.io aborted the
+      # matrix shard and dragged the whole deploy down (2026-05-18 deploy
+      # run 26081565625, tenant-admin shard). The native action has no
+      # retry knob and `fail-fast: false` on the matrix only avoids
+      # cancelling SIBLING shards — the failing shard itself still
+      # produces a missing image that breaks `docker compose pull` on
+      # the droplet.
+      #
+      # This shell loop replaces the third-party action with an explicit
+      # `docker login` retry: 3 attempts, exponential-ish backoff (5s, 10s,
+      # 15s). No third-party SHA-pin churn; the supply-chain surface
+      # narrows by one action. `--password-stdin` keeps the token off the
+      # process table even on retry. Final attempt failure exits non-zero
+      # so the shard fails loud — same observable contract as the action,
+      # plus transient-resilience.
+      - name: Login to GHCR (3-attempt retry — ORPHAN-HIGH-076)
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          for attempt in 1 2 3; do
+            echo "[ghcr-login] attempt ${attempt}/3"
+            echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" \
+              -u "${GHCR_USERNAME}" --password-stdin
+            rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "[ghcr-login] success on attempt ${attempt}"
+              exit 0
+            fi
+            backoff=$((attempt * 5))
+            echo "[ghcr-login] attempt ${attempt} failed (rc=${rc}); sleeping ${backoff}s"
+            sleep "${backoff}"
+          done
+          echo "[ghcr-login] 3 attempts exhausted; aborting build."
+          exit 1
 
       - name: Build and push ${{ matrix.module }}
         # SEC-CI-002: pinned to SHA
@@ -864,7 +967,154 @@ jobs:
             MODULE_PATH=${{ matrix.module_path }}
           # ARCH-CI-002: Namespaced buildcache tag to avoid collision with cd-production.yml
           cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2,mode=max
+          # ORPHAN-HIGH-079 — same cache-write transient class as backend matrix above.
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.module }}:buildcache-main-v2,mode=max,ignore-error=true
+
+  # ===========================================================================
+  # Build infrastructure-owned app images (registry-only; never built on droplet)
+  # ===========================================================================
+  build-infra-images:
+    needs: [prepare]
+    if: needs.prepare.outputs.has_infra_image_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.affected_infra_image_matrix) }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Login to GHCR
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          for attempt in 1 2 3; do
+            echo "[ghcr-login] attempt ${attempt}/3"
+            echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" \
+              -u "${GHCR_USERNAME}" --password-stdin
+            rc=$?
+            if [ "$rc" -eq 0 ]; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          exit 1
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:${{ env.TAG }}
+            ${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:latest
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.image_prefix }}/${{ matrix.image }}:buildcache-main-v2,mode=max,ignore-error=true
+
+  # ===========================================================================
+  # Verify immutable SHA images and build the digest manifest consumed by droplet
+  # ===========================================================================
+  verify-images:
+    needs:
+      [
+        prepare,
+        build-backend-images,
+        build-frontend-images,
+        build-infra-images,
+      ]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      (needs.build-backend-images.result == 'success' || needs.build-backend-images.result == 'skipped') &&
+      (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped') &&
+      (needs.build-infra-images.result == 'success' || needs.build-infra-images.result == 'skipped') &&
+      needs.prepare.outputs.deploy_services != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      digest_manifest_b64: ${{ steps.manifest.outputs.digest_manifest_b64 }}
+    steps:
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Login to GHCR
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${GHCR_PASSWORD}" | docker login "${REGISTRY}" -u "${GHCR_USERNAME}" --password-stdin
+
+      - name: Verify image manifests
+        id: manifest
+        run: |
+          set -euo pipefail
+          : > image-digests.tsv
+          for svc in ${{ needs.prepare.outputs.deploy_services }}; do
+            ref="${{ needs.prepare.outputs.image_prefix }}/${svc}:${{ github.sha }}"
+            echo "Verifying ${ref}"
+            inspect="$(docker buildx imagetools inspect "${ref}")"
+            digest="$(printf '%s\n' "${inspect}" | awk '/^Digest:/ {print $2; exit}')"
+            if [ -z "${digest}" ]; then
+              echo "::error::No digest found for ${ref}"
+              exit 1
+            fi
+            printf '%s\t%s\t%s\n' "${svc}" "${{ needs.prepare.outputs.image_prefix }}/${svc}" "${digest}" >> image-digests.tsv
+          done
+          echo "digest_manifest_b64=$(base64 -w0 image-digests.tsv)" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Verified deploy images"
+            echo ""
+            echo '```'
+            cat image-digests.tsv
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # Visible remote capacity preflight before the mutating SSH deploy
+  # ===========================================================================
+  capacity-preflight:
+    needs: [prepare, verify-images]
+    if: needs.verify-images.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Capacity preflight on production droplet
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
+        env:
+          DEPLOY_SERVICES: ${{ needs.prepare.outputs.deploy_services }}
+          FULL_DEPLOY: ${{ needs.prepare.outputs.full_deploy }}
+          DEPLOY_MODE: ${{ needs.prepare.outputs.deploy_mode }}
+          DEPLOY_SHA: ${{ github.sha }}
+          IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          command_timeout: 8m
+          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX
+          script: |
+            set -e
+            cd /var/aqua-saas
+            git fetch --force --prune origin
+            git checkout -f "${DEPLOY_SHA}"
+            # GitHub Actions is the only deploy-remediation control plane.
+            # The gate may run one safe image-only GC pass through the
+            # canonical droplet-capacity script; it still never prunes
+            # volumes, containers, networks, or build cache.
+            CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate
 
   # ===========================================================================
   # Deploy to DigitalOcean Droplet (selective — affected services only)
@@ -877,6 +1127,9 @@ jobs:
         build-frontend-artifacts,
         build-backend-images,
         build-frontend-images,
+        build-infra-images,
+        verify-images,
+        capacity-preflight,
       ]
     # Only deploy if at least one image build succeeded (artifact jobs may be skipped when there are no changes)
     if: |
@@ -886,7 +1139,10 @@ jobs:
       (needs.build-frontend-artifacts.result == 'success' || needs.build-frontend-artifacts.result == 'skipped') &&
       (needs.build-backend-images.result == 'success' || needs.build-backend-images.result == 'skipped') &&
       (needs.build-frontend-images.result == 'success' || needs.build-frontend-images.result == 'skipped') &&
-      (needs.build-backend-images.result == 'success' || needs.build-frontend-images.result == 'success')
+      (needs.build-infra-images.result == 'success' || needs.build-infra-images.result == 'skipped') &&
+      needs.verify-images.result == 'success' &&
+      needs.capacity-preflight.result == 'success' &&
+      (needs.build-backend-images.result == 'success' || needs.build-frontend-images.result == 'success' || needs.build-infra-images.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 80
     environment: production
@@ -912,7 +1168,10 @@ jobs:
           # 2c055125 + ancestors). See scripts/deploy/droplet-up.sh header.
           DEPLOY_SERVICES: ${{ needs.prepare.outputs.deploy_services }}
           FULL_DEPLOY: ${{ needs.prepare.outputs.full_deploy }}
+          DEPLOY_MODE: ${{ needs.prepare.outputs.deploy_mode }}
           DEPLOY_SHA: ${{ github.sha }}
+          IMAGE_PREFIX: ${{ needs.prepare.outputs.image_prefix }}
+          DEPLOY_IMAGE_DIGESTS_B64: ${{ needs.verify-images.outputs.digest_manifest_b64 }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # GITHUB_ACTOR is a reserved env var set by the runner; use a
           # distinct name here and let the remote script read it.
@@ -924,7 +1183,7 @@ jobs:
           command_timeout: 75m # Sequential pulls on slow disk + service bootstrap for 22+ Docker images
           # envs: forwards these env vars from the GitHub runner into the
           # remote bash session on the droplet.
-          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_SHA,GHCR_TOKEN,GHCR_ACTOR
+          envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX,DEPLOY_IMAGE_DIGESTS_B64,GHCR_TOKEN,GHCR_ACTOR
           script: |
             # Pull the exact commit being deployed so scripts/deploy/droplet-up.sh
             # is loaded from the deploy's own source. Everything else is
@@ -965,3 +1224,4 @@ jobs:
           echo "Commit: ${{ github.sha }}"
           echo "Services deployed: ${{ needs.prepare.outputs.deploy_services }}"
           echo "Full deploy: ${{ needs.prepare.outputs.full_deploy }}"
+          echo "Deploy mode: ${{ needs.prepare.outputs.deploy_mode }}"

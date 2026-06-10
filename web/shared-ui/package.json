@@ -11,6 +11,10 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
     },
+    "./federation/federationSharedConfig": {
+      "types": "./src/federation/federationSharedConfig.ts",
+      "import": "./src/federation/federationSharedConfig.ts"
+    },
     "./styles": {
       "import": "./dist/styles/index.mjs",
       "require": "./dist/styles/index.js"

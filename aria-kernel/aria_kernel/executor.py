@@ -13,7 +13,7 @@ from typing import Any
 from .apply_engine import list_apply_actions
 from .ci import list_ci_failures
 from .codegen import record_code_change_plan, record_generated_diff_packet
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .proposal import get_proposal
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import run_validation_commands
@@ -33,6 +33,39 @@ DEFAULT_FORBIDDEN_GLOBS = (
     "**/.env*",
     "**/migrations/**",
 )
+
+_EXECUTOR_SURFACE_BY_FILENAME: dict[str, str] = {
+    "registry.jsonl": "executor_registry",
+    "packets.jsonl": "executor_packets",
+    "diff-reviews.jsonl": "executor_diff_reviews",
+    "prompts.jsonl": "executor_prompts",
+    "applications.jsonl": "executor_applications",
+    "locks.jsonl": "executor_locks",
+    "retries.jsonl": "executor_retries",
+    "operator-takeovers.jsonl": "executor_operator_takeovers",
+    "flaky-fingerprints.jsonl": "executor_flaky_fingerprints",
+}
+
+
+def _executor_surface_name(path: str | Path) -> str | None:
+    concrete = Path(path)
+    if concrete.parent.name != "executor":
+        return None
+    return _EXECUTOR_SURFACE_BY_FILENAME.get(concrete.name)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    surface = _executor_surface_name(path)
+    if surface is None:
+        raise GovernanceError(f"executor_append_unknown_surface:{path.as_posix()}")
+    return append_declared_jsonl(path, record, expected_surface=surface)
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _executor_surface_name(path)
+    if surface is None:
+        raise GovernanceError(f"executor_load_unknown_surface:{path.as_posix()}")
+    return load_declared_jsonl(path, expected_surface=surface)
 SUPPRESSION_PATTERNS = (
     "skip test",
     "skip the test",

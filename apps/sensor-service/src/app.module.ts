@@ -27,7 +27,7 @@ import { RedisModule } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
-import { GraphQLError } from 'graphql';
+import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 
 import { AutomationModule } from './automation/automation.module';
@@ -51,12 +51,22 @@ import { SensorTypeDefinition } from './database/entities/sensor-type-definition
 import { EdgeDeviceModule } from './edge-device/edge-device.module';
 import { DeviceIoConfig } from './edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from './edge-device/entities/edge-device.entity';
+import {
+  EdgeAuditArchiveV2,
+  EdgeDeviceV2,
+  EdgeFirmwareReleaseV2,
+  EdgeLicenseV2,
+  EdgePolicyV2,
+  EdgeProvisioningRecordV2,
+  EdgeWitnessV2,
+} from './edge-device/entities/v2';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
 import {
   createTenantConnectionBootstrap,
+  createSchemaVersionGate,
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
   SchemaDriftModule,
@@ -64,6 +74,16 @@ import {
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
+const SensorSchemaVersionGate = createSchemaVersionGate('sensor');
+
+type QueryComplexityOperationContext = {
+  request: {
+    operationName?: string;
+    variables?: Record<string, unknown>;
+  };
+  document: DocumentNode;
+  schema: GraphQLSchema;
+};
 import { Process } from './process/entities/process.entity';
 import { ScadaPackage } from './process/entities/scada-package.entity';
 import { UnifiedTag } from './process/entities/unified-tag.entity';
@@ -158,6 +178,13 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             ScadaPackage,
             DashboardLayout,
             EdgeDevice,
+            EdgeDeviceV2,
+            EdgePolicyV2,
+            EdgeLicenseV2,
+            EdgeFirmwareReleaseV2,
+            EdgeProvisioningRecordV2,
+            EdgeWitnessV2,
+            EdgeAuditArchiveV2,
             DeviceIoConfig,
             LoRaDevice,
             TenantProvisioningKey,
@@ -194,9 +221,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
           // AddSensorMetricsCompositeIndex, CreateScadaTables) — schema
           // state lagged the entity declarations on every fresh deploy.
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
-          // When sync is on (initial deploy), skip migrations to avoid index conflicts.
-          // When sync is off (production), run migrations for structural changes.
-          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_SYNC', 'false') !== 'true',
+          // Single-writer deploy contract: aqua-db-migrate owns production
+          // migrations. Local/E2E can still opt in explicitly.
+          migrationsRunFromEnv: (cfg) =>
+            cfg.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
 
@@ -211,7 +239,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
         const maxComplexity = configService.get<number>('GRAPHQL_MAX_COMPLEXITY', 1000);
 
         return {
-          autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+          autoSchemaFile: {
+            federation: 2,
+            path: join(process.cwd(), 'dist/graphql/subgraphs/sensor.graphql'),
+          },
           /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -241,7 +272,11 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
           plugins: [
             {
               requestDidStart: async () => ({
-                async didResolveOperation({ request, document, schema }) {
+                async didResolveOperation({
+                  request,
+                  document,
+                  schema,
+                }: QueryComplexityOperationContext) {
                   const complexity = getComplexity({
                     schema,
                     operationName: request.operationName,
@@ -382,6 +417,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     SchemaDriftModule.forRoot({ serviceName: 'sensor' }),
   ],
   providers: [
+    SensorSchemaVersionGate,
     // Global exception filter
     {
       provide: APP_FILTER,
@@ -393,7 +429,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'sensor-service'),
       inject: [ConfigService],
     },
     // Tenant guard - ensures tenant isolation

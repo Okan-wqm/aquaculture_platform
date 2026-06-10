@@ -167,11 +167,17 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(activeHold);
 
     const releaserId = fakeUuid('usr');
-    const result = await service.release(holdId, TENANT_A, releaserId);
+    const result = await service.release(
+      holdId,
+      TENANT_A,
+      releaserId,
+      approverUserId,
+      LONG_RELEASE_REASON,
+    );
 
     expect(result.isActive).toBe(false);
     expect(result.releasedBy).toBe(releaserId);
-    expect(result.releasedByApprover).toBe(approver);
+    expect(result.releasedByApprover).toBe(approverUserId);
     expect(result.releaseReason).toBe(LONG_RELEASE_REASON);
     expect(result.releasedAt).toBeInstanceOf(Date);
     expect(holdRepo.save).toHaveBeenCalled();
@@ -187,7 +193,13 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(null);
 
     await expect(
-      service.release(fakeUuid('lh'), TENANT_A, adminUserId),
+      service.release(
+        fakeUuid('lh'),
+        TENANT_A,
+        adminUserId,
+        approverUserId,
+        LONG_RELEASE_REASON,
+      ),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -196,7 +208,13 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(releasedHold);
 
     await expect(
-      service.release(releasedHold.id, TENANT_A, adminUserId),
+      service.release(
+        releasedHold.id,
+        TENANT_A,
+        adminUserId,
+        approverUserId,
+        LONG_RELEASE_REASON,
+      ),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -216,7 +234,13 @@ describe('LegalHoldService', () => {
     const wrongTenant = fakeUuid('tn');
 
     await expect(
-      service.release(holdId, wrongTenant, adminUserId),
+      service.release(
+        holdId,
+        wrongTenant,
+        adminUserId,
+        approverUserId,
+        LONG_RELEASE_REASON,
+      ),
     ).rejects.toThrow(ForbiddenException);
     expect(holdRepo.findOne).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: holdId, tenantId: wrongTenant } }),

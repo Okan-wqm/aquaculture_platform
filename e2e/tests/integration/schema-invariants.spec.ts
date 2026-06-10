@@ -41,12 +41,17 @@
  *     revert the migration.
  */
 
-import { TestDatabase } from '../../helpers/db.helper';
-import { getMetadataArgsStorage } from 'typeorm';
 import { readdirSync, statSync, existsSync } from 'fs';
+import { createRequire } from 'module';
 import { join, resolve } from 'path';
 
+import { MODULE_SCHEMAS } from '@aquaculture/backend-common/database';
+import { getMetadataArgsStorage } from 'typeorm';
+
+import { TestDatabase } from '../../helpers/db.helper';
+
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
+const requireEntity = createRequire(__filename);
 
 /**
  * Wave 4-A.2 Dalga 5 — TENANT_SCOPED vs PLATFORM_LEVEL audit lists.
@@ -87,6 +92,13 @@ const PLATFORM_LEVEL_SCHEMAS: ReadonlyArray<string> = [
   'shared',
 ];
 
+const TENANT_FANOUT_TABLES_BY_SCHEMA: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
+  MODULE_SCHEMAS.map((moduleSchema) => [
+    moduleSchema.sourceSchema,
+    moduleSchema.tables,
+  ]),
+);
+
 // The TENANT_SCOPED set is also the allow-list for entities legitimately
 // declaring `schema: undefined` (farm-pattern: SchemaManagerService
 // routes them at provision time, so the @Entity decorator stays
@@ -116,7 +128,8 @@ function discoverEntityFiles(): Array<{ service: string; file: string }> {
     if (!existsSync(svcRoot)) continue;
     const stack: string[] = [svcRoot];
     while (stack.length > 0) {
-      const cur = stack.pop()!;
+      const cur = stack.pop();
+      if (!cur) continue;
       let entries: string[];
       try {
         entries = readdirSync(cur);
@@ -158,12 +171,11 @@ function loadAllEntityTableArgs(): Array<{
   // Map target class -> the service+file that registered it. We
   // populate this BEFORE require() to attribute drift back to the
   // owning service when getMetadataArgsStorage() reports a target.
-  const ownership = new Map<Function, { service: string; file: string }>();
+  const ownership = new Map<object, { service: string; file: string }>();
   for (const { service, file } of files) {
     let mod: Record<string, unknown>;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      mod = require(file) as Record<string, unknown>;
+      mod = requireEntity(file) as Record<string, unknown>;
     } catch {
       continue;
     }
@@ -176,7 +188,7 @@ function loadAllEntityTableArgs(): Array<{
 
   const storage = getMetadataArgsStorage();
   return storage.tables.map((t) => {
-    const target = typeof t.target === 'function' ? (t.target as Function) : null;
+    const target = typeof t.target === 'function' ? (t.target) : null;
     const own = target ? ownership.get(target) : undefined;
     return {
       serviceName: own?.service ?? 'unknown',
@@ -482,7 +494,7 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
           drifts.join('\n  '),
       );
     }
-  });
+  }, 30_000);
 
   // B.4 — Per-service schema ownership at the role level.
   //
@@ -561,21 +573,18 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
         // with stronger preconditions.
         return;
       }
-      // Sample one source-schema table; assert at least one tenant
-      // clone has the same table. We pick the first table in the
-      // source schema deterministically to keep the assertion stable.
-      const sourceTables = await db.query<{ table_name: string }>(
-        `SELECT table_name FROM information_schema.tables
-         WHERE table_schema = $1 AND table_type = 'BASE TABLE'
-         ORDER BY table_name LIMIT 1`,
-        [sourceSchema],
-      );
-      if (sourceTables.rows.length === 0) {
-        // Source schema is empty — nothing to clone, nothing to
-        // assert. Bootstrap correctness is the bootstrap spec's job.
+      // Sample one fan-out table from the SchemaManagerService SSoT.
+      // Source schemas may also contain source-only infrastructure
+      // tables (migrations, outbox, audit ledgers) that must NOT be
+      // tenant-cloned.
+      const sourceTables = TENANT_FANOUT_TABLES_BY_SCHEMA.get(sourceSchema) ?? [];
+      const sampleTable = [...sourceTables].sort()[0];
+      if (!sampleTable) {
+        // No fan-out tables declared — nothing to clone, nothing to
+        // assert. MODULE_SCHEMAS static invariants cover declaration
+        // completeness.
         return;
       }
-      const sampleTable = sourceTables.rows[0]!.table_name;
       const cloneCheck = await db.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM information_schema.tables
          WHERE table_schema ~ '^tenant_[a-f0-9]{16}$'

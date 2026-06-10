@@ -12,21 +12,24 @@
  * computed name (not "Direct Message") for clarity.
  */
 
-import { useState, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { clsx } from 'clsx';
 import {
   MessageSquare,
-  Search,
   Plus,
   RefreshCw,
+  Search,
   X,
 } from 'lucide-react';
-import { clsx } from 'clsx';
-import { useChannels } from '@/hooks/useChannels';
-import { useAuth } from '@/hooks/useAuth';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactElement } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
-import { formatRelativeTime, getUserDisplayName } from '@/utils/messaging-helpers';
+import { useAuth } from '@/hooks/useAuth';
+import { useChannels } from '@/hooks/useChannels';
+import { useMessageSocket } from '@/hooks/useMessageSocket';
 import type { Channel } from '@/types/messaging';
+import { formatRelativeTime, getUserDisplayName } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,7 +63,7 @@ function isOtherUserOnline(channel: Channel, currentUserId: string | undefined):
 // ---------------------------------------------------------------------------
 
 /** Skeleton loader for a single channel row while data is fetching. */
-function ChannelSkeleton() {
+function ChannelSkeleton(): ReactElement {
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <div className="w-12 h-12 rounded-full skeleton flex-shrink-0" />
@@ -82,7 +85,7 @@ function ChannelRow({
   channel: Channel;
   currentUserId: string | undefined;
   onPress: () => void;
-}) {
+}): ReactElement {
   const displayName = getChannelDisplayName(channel, currentUserId);
   const online = isOtherUserOnline(channel, currentUserId);
   const hasUnread = (channel.unreadCount ?? 0) > 0;
@@ -178,15 +181,40 @@ function ChannelRow({
  * sorted by most recent activity. Supports search filtering, pull-to-refresh,
  * and a FAB for creating new conversations.
  */
-export function ChannelListPage() {
+export function ChannelListPage(): ReactElement {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { channels, isLoading, error, refetch } = useChannels();
+  const { isConnected, resolveNotificationRef } = useMessageSocket();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const resolvingNotificationRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const notificationRef = searchParams.get('notificationRef');
+    if (
+      !notificationRef ||
+      !isConnected ||
+      resolvingNotificationRef.current === notificationRef
+    ) {
+      return;
+    }
+
+    resolvingNotificationRef.current = notificationRef;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('notificationRef');
+
+    void resolveNotificationRef(notificationRef).then((resolved) => {
+      setSearchParams(nextParams, { replace: true });
+      if (resolved) {
+        navigate(`/messages/${resolved.channelId}`, { replace: true });
+      }
+    });
+  }, [isConnected, navigate, resolveNotificationRef, searchParams, setSearchParams]);
 
   // Filter channels by search query
   const filteredChannels = useMemo(() => {
@@ -286,7 +314,9 @@ export function ChannelListPage() {
       {/* Pull-to-refresh button */}
       <div className="px-4 pt-3 flex justify-end">
         <button
-          onClick={handleRefresh}
+          onClick={() => {
+            void handleRefresh();
+          }}
           disabled={isRefreshing}
           className="flex items-center gap-1.5 text-xs text-ocean-500 font-medium touch-feedback"
         >
@@ -317,7 +347,9 @@ export function ChannelListPage() {
             </p>
             <p className="text-sm text-gray-400 mt-1">{errorMsg}</p>
             <button
-              onClick={handleRefresh}
+              onClick={() => {
+                void handleRefresh();
+              }}
               className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-ocean-500 text-white rounded-xl text-sm font-semibold touch-feedback"
             >
               <RefreshCw size={16} />

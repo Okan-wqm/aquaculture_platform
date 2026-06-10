@@ -191,7 +191,7 @@ class CliToolsDirPositionUniformityTests(unittest.TestCase):
                             "--workspace-root",
                             str(self.tmp.name),
                             "--reason",
-                            "smoke",
+                            "smoke regression check fixture",
                             "--acknowledge",
                         ]
                     )
@@ -229,7 +229,7 @@ class CliToolsDirPositionUniformityTests(unittest.TestCase):
                             "--from-backup",
                             "/tmp/aria-bogus-backup",
                             "--reason",
-                            "smoke",
+                            "smoke regression check fixture",
                             "--acknowledge",
                         ]
                     )

@@ -58,21 +58,9 @@
  * @see Phase B of farm domain real-time visibility plan.
  */
 
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-  Inject,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  connect,
-  NatsConnection,
-  Subscription,
-  StringCodec,
-  ConnectionOptions,
-} from 'nats';
+import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
 import { TENANT_ID_REGEX } from '@aquaculture/backend-common/constants';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import { validateFarmEvent } from '@platform/event-contracts';
@@ -123,6 +111,28 @@ const FARM_SUBJECTS = [
   'events.*.CullRecorded',
   'events.*.FeedingRecorded',
   'events.*.FeedInventoryLow',
+  'events.*.SiteCreated',
+  'events.*.SiteUpdated',
+  'events.*.SiteDeleted',
+  'events.*.DepartmentCreated',
+  'events.*.DepartmentUpdated',
+  'events.*.DepartmentDeleted',
+  'events.*.SystemCreated',
+  'events.*.SystemUpdated',
+  'events.*.SystemDeleted',
+  'events.*.SiteContactsChanged',
+  'events.*.TankCreated',
+  'events.*.TankUpdated',
+  'events.*.TankStatusChanged',
+  'events.*.TankDeleted',
+  'events.*.EquipmentCreated',
+  'events.*.EquipmentUpdated',
+  'events.*.EquipmentDeleted',
+  'events.*.SubEquipmentCreated',
+  'events.*.SubEquipmentUpdated',
+  'events.*.SubEquipmentDeleted',
+  'events.*.SupplierApprovedSitesChanged',
+  'events.*.FeederCalibrationsSaved',
 ] as const;
 
 /** Stable NATS queue group name — load-balances across gateway-api replicas. */
@@ -145,8 +155,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const natsEnabled =
-      this.configService.get<string>('NATS_ENABLED', 'true') === 'true';
+    const natsEnabled = this.configService.get<string>('NATS_ENABLED', 'true') === 'true';
     if (!natsEnabled) {
       this.logger.log('Farm NATS bridge is disabled via NATS_ENABLED=false');
       return;
@@ -167,16 +176,12 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
 
     try {
       this.connection = await connect(connectionOptions);
-      this.logger.log(
-        `Farm bridge connected to NATS at ${connectionOptions.servers}`,
-      );
+      this.logger.log(`Farm bridge connected to NATS at ${connectionOptions.servers}`);
 
       this.subscribeToFarmEvents();
       this.handleConnectionEvents();
     } catch (error) {
-      this.logger.error(
-        `Failed to connect Farm bridge to NATS: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to connect Farm bridge to NATS: ${(error as Error).message}`);
       // Don't re-throw — the bridge will reconnect via the status loop, and
       // failing fast here would crash the entire gateway-api which is wrong:
       // sensor + messaging bridges should keep working.
@@ -200,9 +205,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         // FARM_SUBJECTS is hard-coded above as `events.*.X` — this branch
         // can only fire if someone edits the constant to a malformed
         // entry, which the check catches at startup time.
-        this.logger.error(
-          `Malformed FARM_SUBJECTS entry: ${subject} — expected three tokens`,
-        );
+        this.logger.error(`Malformed FARM_SUBJECTS entry: ${subject} — expected three tokens`);
         continue;
       }
 
@@ -210,9 +213,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         queue: FARM_QUEUE_GROUP,
       });
       this.subscriptions.push(sub);
-      this.logger.log(
-        `Subscribed to ${subject} (queue: ${FARM_QUEUE_GROUP})`,
-      );
+      this.logger.log(`Subscribed to ${subject} (queue: ${FARM_QUEUE_GROUP})`);
 
       (async () => {
         for await (const msg of sub) {
@@ -224,17 +225,14 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
             // in this bridge (see class-level doc block for the rationale
             // and the CR-1 attack scenario that motivates this design).
             const subjectTokens = msg.subject.split('.');
-            const [eventsPrefix, routingTenantId, subjectEventType] =
-              subjectTokens;
+            const [eventsPrefix, routingTenantId, subjectEventType] = subjectTokens;
             if (
               subjectTokens.length !== 3 ||
               eventsPrefix !== 'events' ||
               !routingTenantId ||
               !subjectEventType
             ) {
-              this.logger.warn(
-                `Dropping event with malformed NATS subject: ${msg.subject}`,
-              );
+              this.logger.warn(`Dropping event with malformed NATS subject: ${msg.subject}`);
               continue;
             }
 
@@ -254,9 +252,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
             // check rather than an expected branch. Catches broker bugs
             // or test-harness mis-routes.
             if (subjectEventType !== expectedEventType) {
-              this.logger.warn(
-                `Subject eventType mismatch on ${subject}: got ${subjectEventType}`,
-              );
+              this.logger.warn(`Subject eventType mismatch on ${subject}: got ${subjectEventType}`);
               continue;
             }
 
@@ -286,9 +282,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
             const validation = validateFarmEvent(expectedEventType, parsed);
             if (!validation.valid) {
               const preview =
-                typeof parsed === 'object' &&
-                parsed !== null &&
-                'eventId' in parsed
+                typeof parsed === 'object' && parsed !== null && 'eventId' in parsed
                   ? `eventId=${String((parsed as Record<string, unknown>).eventId)}`
                   : 'eventId=missing';
               this.logger.warn(
@@ -308,15 +302,11 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
             // but the routing key comes exclusively from the subject.
             this.handleEvent(routingTenantId, expectedEventType, event);
           } catch (error) {
-            this.logger.warn(
-              `Failed to process ${subject}: ${(error as Error).message}`,
-            );
+            this.logger.warn(`Failed to process ${subject}: ${(error as Error).message}`);
           }
         }
       })().catch((error) => {
-        this.logger.error(
-          `NATS ${subject} subscription loop error: ${(error as Error).message}`,
-        );
+        this.logger.error(`NATS ${subject} subscription loop error: ${(error as Error).message}`);
       });
     }
   }
@@ -361,10 +351,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         this.farmGateway.broadcastBatchClosed(routingTenantId, event);
         break;
       case 'BatchAllocatedToTank':
-        this.farmGateway.broadcastBatchAllocatedToTank(
-          routingTenantId,
-          event,
-        );
+        this.farmGateway.broadcastBatchAllocatedToTank(routingTenantId, event);
         break;
       case 'MortalityRecorded':
         this.farmGateway.broadcastMortalityRecorded(routingTenantId, event);
@@ -377,6 +364,72 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         break;
       case 'FeedInventoryLow':
         this.farmGateway.broadcastFeedInventoryLow(routingTenantId, event);
+        break;
+      case 'SiteCreated':
+        this.farmGateway.broadcastSiteCreated(routingTenantId, event);
+        break;
+      case 'SiteUpdated':
+        this.farmGateway.broadcastSiteUpdated(routingTenantId, event);
+        break;
+      case 'SiteDeleted':
+        this.farmGateway.broadcastSiteDeleted(routingTenantId, event);
+        break;
+      case 'DepartmentCreated':
+        this.farmGateway.broadcastDepartmentCreated(routingTenantId, event);
+        break;
+      case 'DepartmentUpdated':
+        this.farmGateway.broadcastDepartmentUpdated(routingTenantId, event);
+        break;
+      case 'DepartmentDeleted':
+        this.farmGateway.broadcastDepartmentDeleted(routingTenantId, event);
+        break;
+      case 'SystemCreated':
+        this.farmGateway.broadcastSystemCreated(routingTenantId, event);
+        break;
+      case 'SystemUpdated':
+        this.farmGateway.broadcastSystemUpdated(routingTenantId, event);
+        break;
+      case 'SystemDeleted':
+        this.farmGateway.broadcastSystemDeleted(routingTenantId, event);
+        break;
+      case 'SiteContactsChanged':
+        this.farmGateway.broadcastSiteContactsChanged(routingTenantId, event);
+        break;
+      case 'TankCreated':
+        this.farmGateway.broadcastTankCreated(routingTenantId, event);
+        break;
+      case 'TankUpdated':
+        this.farmGateway.broadcastTankUpdated(routingTenantId, event);
+        break;
+      case 'TankStatusChanged':
+        this.farmGateway.broadcastTankStatusChanged(routingTenantId, event);
+        break;
+      case 'TankDeleted':
+        this.farmGateway.broadcastTankDeleted(routingTenantId, event);
+        break;
+      case 'EquipmentCreated':
+        this.farmGateway.broadcastEquipmentCreated(routingTenantId, event);
+        break;
+      case 'EquipmentUpdated':
+        this.farmGateway.broadcastEquipmentUpdated(routingTenantId, event);
+        break;
+      case 'EquipmentDeleted':
+        this.farmGateway.broadcastEquipmentDeleted(routingTenantId, event);
+        break;
+      case 'SubEquipmentCreated':
+        this.farmGateway.broadcastSubEquipmentCreated(routingTenantId, event);
+        break;
+      case 'SubEquipmentUpdated':
+        this.farmGateway.broadcastSubEquipmentUpdated(routingTenantId, event);
+        break;
+      case 'SubEquipmentDeleted':
+        this.farmGateway.broadcastSubEquipmentDeleted(routingTenantId, event);
+        break;
+      case 'SupplierApprovedSitesChanged':
+        this.farmGateway.broadcastSupplierApprovedSitesChanged(routingTenantId, event);
+        break;
+      case 'FeederCalibrationsSaved':
+        this.farmGateway.broadcastFeederCalibrationsSaved(routingTenantId, event);
         break;
       default:
         this.logger.debug(
@@ -416,9 +469,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
               try {
                 sub.unsubscribe();
               } catch (error) {
-                this.logger.debug(
-                  `Stale subscription cleanup error: ${(error as Error).message}`,
-                );
+                this.logger.debug(`Stale subscription cleanup error: ${(error as Error).message}`);
               }
             }
             this.subscriptions = [];
@@ -430,9 +481,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         }
       }
     })().catch((error) => {
-      this.logger.error(
-        `Farm NATS status loop error: ${(error as Error).message}`,
-      );
+      this.logger.error(`Farm NATS status loop error: ${(error as Error).message}`);
     });
   }
 
@@ -453,9 +502,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         await this.connection.drain();
         this.logger.log('Farm NATS bridge connection drained and closed');
       } catch (error) {
-        this.logger.warn(
-          `Farm NATS bridge drain error: ${(error as Error).message}`,
-        );
+        this.logger.warn(`Farm NATS bridge drain error: ${(error as Error).message}`);
       } finally {
         this.connection = null;
       }

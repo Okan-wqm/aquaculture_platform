@@ -28,23 +28,47 @@ describe('BiomassCalculatorService', () => {
   const mockBatchRepository = {
     find: jest.fn(),
     findOne: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
 
   const mockTankBatchRepository = {
     find: jest.fn(),
     findOne: jest.fn(),
     count: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
 
   const mockTankRepository = {
     find: jest.fn(),
     findOne: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
 
   const mockMeasurementRepository = {
     find: jest.fn(),
     findOne: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
+
+  function createQueryBuilderMock(
+    options: {
+      getMany?: unknown[] | (() => unknown[] | Promise<unknown[]>);
+      getRawMany?: unknown[];
+    } = {},
+  ) {
+    const resolveGetMany = async () =>
+      typeof options.getMany === 'function' ? options.getMany() : (options.getMany ?? []);
+
+    return {
+      innerJoin: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getMany: jest.fn(resolveGetMany),
+      getRawMany: jest.fn().mockResolvedValue(options.getRawMany ?? []),
+    };
+  }
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -76,6 +100,26 @@ describe('BiomassCalculatorService', () => {
     measurementRepository = module.get(getRepositoryToken(GrowthMeasurement));
 
     jest.clearAllMocks();
+    mockTankRepository.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock({ getMany: [{ id: 'tank-1' }] }) as never,
+    );
+    mockTankBatchRepository.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock({
+        getMany: [
+          { primaryBatchId: 'batch-1' },
+          { primaryBatchId: 'batch-2' },
+          { primaryBatchId: 'batch-3' },
+          { primaryBatchId: 'batch-4' },
+          { primaryBatchId: 'batch-5' },
+        ],
+      }) as never,
+    );
+    mockBatchRepository.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock({ getMany: () => mockBatchRepository.find() }) as never,
+    );
+    mockMeasurementRepository.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock({ getRawMany: [] }) as never,
+    );
   });
 
   describe('calculateBiomass', () => {
@@ -135,8 +179,9 @@ describe('BiomassCalculatorService', () => {
     it('should throw error when batch not found', async () => {
       mockBatchRepository.findOne.mockResolvedValue(null);
 
-      await expect(service.getBatchBiomass(batchId, tenantId))
-        .rejects.toThrow(`Batch ${batchId} bulunamadı`);
+      await expect(service.getBatchBiomass(batchId, tenantId)).rejects.toThrow(
+        `Batch ${batchId} bulunamadı`,
+      );
     });
 
     it('should return measured biomass with high confidence for recent measurement', async () => {
@@ -187,7 +232,7 @@ describe('BiomassCalculatorService', () => {
 
       const result = await service.getBatchBiomass(batchId, tenantId);
 
-      // Weight should be estimated: 220 + (2 * 14) = 248
+      // Fixed 14-day projection: 220g + (2g/day * 14 days).
       expect(result.avgWeightG).toBeCloseTo(248, 0);
       expect(result.method).toBe('estimated');
       expect(result.confidence).toBe('medium');
@@ -268,17 +313,18 @@ describe('BiomassCalculatorService', () => {
     it('should throw error when tank not found', async () => {
       mockTankRepository.findOne.mockResolvedValue(null);
 
-      await expect(service.analyzeTankDensity(tankId, tenantId))
-        .rejects.toThrow(`Tank ${tankId} bulunamadı`);
+      await expect(service.analyzeTankDensity(tankId, tenantId)).rejects.toThrow(
+        `Tank ${tankId} bulunamadı`,
+      );
     });
 
     it('should return optimal status for normal density', async () => {
       mockTankRepository.findOne.mockResolvedValue({
         id: tankId,
         tenantId,
-        tankCode: 'T-001',
-        volumeM3: 100,
-        maxDensityKgM3: 25,
+        code: 'T-001',
+        volume: 100,
+        maxDensity: 25,
         optimalDensityMinKgM3: 10,
         optimalDensityMaxKgM3: 20,
         isDeleted: false,
@@ -303,9 +349,9 @@ describe('BiomassCalculatorService', () => {
       mockTankRepository.findOne.mockResolvedValue({
         id: tankId,
         tenantId,
-        tankCode: 'T-001',
-        volumeM3: 100,
-        maxDensityKgM3: 25,
+        code: 'T-001',
+        volume: 100,
+        maxDensity: 25,
         optimalDensityMinKgM3: 10,
         optimalDensityMaxKgM3: 20,
         isDeleted: false,
@@ -329,9 +375,9 @@ describe('BiomassCalculatorService', () => {
       mockTankRepository.findOne.mockResolvedValue({
         id: tankId,
         tenantId,
-        tankCode: 'T-001',
-        volumeM3: 100,
-        maxDensityKgM3: 25,
+        code: 'T-001',
+        volume: 100,
+        maxDensity: 25,
         optimalDensityMinKgM3: 10,
         optimalDensityMaxKgM3: 20,
         isDeleted: false,
@@ -354,9 +400,9 @@ describe('BiomassCalculatorService', () => {
       mockTankRepository.findOne.mockResolvedValue({
         id: tankId,
         tenantId,
-        tankCode: 'T-001',
-        volumeM3: 100,
-        maxDensityKgM3: 25,
+        code: 'T-001',
+        volume: 100,
+        maxDensity: 25,
         optimalDensityMinKgM3: 10,
         optimalDensityMaxKgM3: 20,
         isDeleted: false,
@@ -379,9 +425,9 @@ describe('BiomassCalculatorService', () => {
       mockTankRepository.findOne.mockResolvedValue({
         id: tankId,
         tenantId,
-        tankCode: 'T-001',
-        volumeM3: 100,
-        maxDensityKgM3: 25,
+        code: 'T-001',
+        volume: 100,
+        maxDensity: 25,
         optimalDensityMinKgM3: 10,
         optimalDensityMaxKgM3: 20,
         isDeleted: false,
@@ -445,7 +491,7 @@ describe('BiomassCalculatorService', () => {
       // Destination will have 30 kg/m3 (2000+1000)/100
       expect(result.destinationDensity).toBe(30);
       expect(result.isValid).toBe(false);
-      expect(result.warnings.some(w => w.includes('kritik'))).toBe(true);
+      expect(result.warnings.some((w) => w.includes('kritik'))).toBe(true);
     });
 
     it('should handle different tank volumes', () => {
@@ -500,8 +546,9 @@ describe('BiomassCalculatorService', () => {
     it('should throw error when batch not found', async () => {
       mockBatchRepository.findOne.mockResolvedValue(null);
 
-      await expect(service.projectBiomass(batchId, tenantId, 30))
-        .rejects.toThrow(`Batch ${batchId} bulunamadı`);
+      await expect(service.projectBiomass(batchId, tenantId, 30)).rejects.toThrow(
+        `Batch ${batchId} bulunamadı`,
+      );
     });
 
     it('should use default values when species data missing', async () => {
@@ -616,8 +663,8 @@ describe('BiomassCalculatorService', () => {
 
       expect(result.speciesBreakdown).toHaveLength(2);
 
-      const salmonBreakdown = result.speciesBreakdown.find(s => s.speciesName === 'Salmon');
-      const troutBreakdown = result.speciesBreakdown.find(s => s.speciesName === 'Trout');
+      const salmonBreakdown = result.speciesBreakdown.find((s) => s.speciesName === 'Salmon');
+      const troutBreakdown = result.speciesBreakdown.find((s) => s.speciesName === 'Trout');
 
       expect(salmonBreakdown).toBeDefined();
       expect(troutBreakdown).toBeDefined();
@@ -628,6 +675,9 @@ describe('BiomassCalculatorService', () => {
     it('should handle empty site', async () => {
       mockBatchRepository.find.mockResolvedValue([]);
       mockTankBatchRepository.count.mockResolvedValue(0);
+      mockTankRepository.createQueryBuilder.mockReturnValue(
+        createQueryBuilderMock({ getMany: [] }) as never,
+      );
 
       const result = await service.getSiteBiomassReport(siteId, tenantId);
 

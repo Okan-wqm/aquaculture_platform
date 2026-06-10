@@ -100,6 +100,13 @@ jobs:
         if: always()
         run: node scripts/ci/check-messaging-tenant-entity-routing.mjs
 
+      - name: Run farm-service enterprise guardrails
+        if: always()
+        run: |
+          ./node_modules/.bin/ts-node --project tools/gates/tsconfig.json \
+            tools/gates/farm-service-enterprise-guardrails.ts \
+            --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+
       - name: Run Apollo Router static fallback gate
         if: always()
         run: node scripts/apollo-router/check-router-static-fallback.mjs

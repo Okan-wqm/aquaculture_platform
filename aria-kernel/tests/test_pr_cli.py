@@ -21,10 +21,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.cli import main as cli_main
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._gh_mock import gh_create_success, recorded_calls, reset_recorded
 
 
@@ -105,7 +105,11 @@ def _seed_proposal_and_action(*, repo: Path, proposal_id: str = "PROP-CLI-01") -
         "status": "ready_for_pr",
         "blocked_by": [],
     }
-    append_jsonl(tools / "apply" / "actions.jsonl", action_row)
+    append_declared_fixture(
+        tools / "apply" / "actions.jsonl",
+        action_row,
+        expected_surface="apply_actions",
+    )
     return proposal
 
 
@@ -170,11 +174,11 @@ class PrCliCreateTests(unittest.TestCase):
         ])
         self.assertEqual(exit_code, 0)
         row = json.loads(stdout)
-        self.assertEqual(row["base_branch"], "snowball")
+        self.assertEqual(row["base_branch"], "main")
         self.assertIn("## Problem", row["body"])
         self.assertIn("## Provenance", row["body"])
 
-    def test_create_explicit_base_main_rejected(self) -> None:
+    def test_create_explicit_base_develop_rejected(self) -> None:
         # Plan 018 Phase 6.2 explicit base guard fires inside
         # open_pr_for_action and propagates up through cli main as a
         # GovernanceError. The CLI does not swallow it (the kernel's
@@ -182,13 +186,13 @@ class PrCliCreateTests(unittest.TestCase):
         # asserts the exception surfaces with the expected message so
         # operator scripts/CI workflows can pattern-match the failure.
         from aria_kernel.tool_registry import GovernanceError
-        with self.assertRaisesRegex(GovernanceError, "ARIA PRs MUST target 'snowball'; got base='main'"):
+        with self.assertRaisesRegex(GovernanceError, "ARIA PRs MUST target 'main'; got base='develop'"):
             _run_cli([
                 "pr", "create",
                 "--tools-dir", str(self.tools),
                 "--proposal-id", self.pid,
                 "--workspace-root", str(self.repo),
-                "--base", "main",
+                "--base", "develop",
             ])
 
     def test_create_no_dry_run_invokes_gh(self) -> None:
@@ -203,7 +207,7 @@ class PrCliCreateTests(unittest.TestCase):
             ])
         self.assertEqual(exit_code, 0)
         row = json.loads(stdout)
-        self.assertEqual(row["base_branch"], "snowball")
+        self.assertEqual(row["base_branch"], "main")
         # Plan 022 §C-4 — recorded_calls() now contains BOTH the
         # `git rev-parse <branch>` head_sha resolution + the gh pr
         # create invocation. Filter to gh_calls for the binding assertion.
@@ -212,7 +216,7 @@ class PrCliCreateTests(unittest.TestCase):
         self.assertEqual(len(gh_calls), 1)
         argv = gh_calls[0].argv
         self.assertIn("--base", argv)
-        self.assertEqual(argv[argv.index("--base") + 1], "snowball")
+        self.assertEqual(argv[argv.index("--base") + 1], "main")
 
 
 class PrCliListActionsTests(unittest.TestCase):
@@ -235,14 +239,18 @@ class PrCliListActionsTests(unittest.TestCase):
 
     def test_list_actions_after_seed_returns_rows(self) -> None:
         # Seed a synthetic action row directly in the ledger.
-        append_jsonl(self.tools / "pr-actions.jsonl", {
-            "schema_version": 1,
-            "proposal_id": "PROP-X",
-            "branch": "aria/seed",
-            "action": "prepare_branch",
-            "status": "planned",
-            "dry_run": True,
-        })
+        append_declared_fixture(
+            self.tools / "pr-actions.jsonl",
+            {
+                "schema_version": 1,
+                "proposal_id": "PROP-X",
+                "branch": "aria/seed",
+                "action": "prepare_branch",
+                "status": "planned",
+                "dry_run": True,
+            },
+            expected_surface="pr_actions",
+        )
         exit_code, stdout = _run_cli([
             "pr", "list-actions",
             "--tools-dir", str(self.tools),

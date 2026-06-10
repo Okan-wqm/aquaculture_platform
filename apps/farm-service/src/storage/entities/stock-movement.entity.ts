@@ -1,6 +1,8 @@
 /**
  * Stock Movement Entity - Audit trail of stock changes
  */
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -8,8 +10,6 @@ import {
   CreateDateColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common/database';
-import { registerEnumType } from '@nestjs/graphql';
 
 export enum MovementType {
   IN = 'in',
@@ -32,6 +32,7 @@ registerEnumType(MovementType, {
 // Composite index for TraceLot queries: enables efficient lot traceability
 // without full table scan, required by EU 178/2002 Article 18 audits.
 @Index(['tenantId', 'lotNumber'])
+@Index('idx_stock_movements_tenant_idempotency', ['tenantId', 'idempotencyKey'], { unique: true, where: '"idempotency_key" IS NOT NULL' })
 export class StockMovement {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -110,7 +111,6 @@ export class StockMovement {
    * movement record instead of creating a new one.
    */
   @Column({ type: 'varchar', length: 64, nullable: true, name: 'idempotency_key' })
-  @Index({ unique: true, where: '"idempotency_key" IS NOT NULL' })
   idempotencyKey?: string;
 
   @Column({ type: 'uuid', name: 'performed_by' })

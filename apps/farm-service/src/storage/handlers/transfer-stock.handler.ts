@@ -42,6 +42,16 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
       throw new BadRequestException('Cannot transfer to the same location');
     }
 
+    if (input.idempotencyKey) {
+      const existing = await this.movementRepository.findOne({
+        where: { tenantId, idempotencyKey: input.idempotencyKey },
+      });
+      if (existing) {
+        this.logger.log(`Idempotent transfer hit: movement ${existing.id} for key ${input.idempotencyKey}`);
+        return existing;
+      }
+    }
+
     // Validate locations
     const fromLocation = await this.locationRepository.findOne({
       where: { id: input.fromLocationId, tenantId },
@@ -150,6 +160,7 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
         reason: input.reason,
         lotNumber: input.lotNumber ?? sourceInventory.lotNumber,
         expiryDate: sourceInventory.expiryDate,
+        idempotencyKey: input.idempotencyKey,
         performedBy: userId,
         performedByName: userName,
         performedAt: new Date(),

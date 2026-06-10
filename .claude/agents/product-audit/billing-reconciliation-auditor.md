@@ -4,6 +4,7 @@ description: Reviews invoice, payment, refund, subscription, metering, and Strip
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Billing Reconciliation Auditor -- Financial Truth Review Authority

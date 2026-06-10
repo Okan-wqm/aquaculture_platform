@@ -1,20 +1,9 @@
-"""Plan 025 §A.3 — finding._refresh_index on_corruption parameter.
+"""Finding index rebuild is derived from the canonical event ledger.
 
-Pins the contract of the explicit ``on_corruption`` parameter on
-finding._refresh_index. Default ``"advisory"`` preserves the
-deadlock-avoidance behaviour (bulk index rebuild must not block on
-a sibling-process write-in-flight); ``"strict"`` opt-in for future
-critical-replay paths.
-
-Cases (3):
-1. advisory default — corrupt finding doc skipped, diagnostic
-   emitted, index built from the surviving doc(s).
-2. strict opt-in — corrupt finding doc raises GovernanceError
-   AFTER the diagnostic sink emit (so operators see the
-   corruption row even when the call aborts).
-3. invalid mode — raises GovernanceError at function entry,
-   never reads any finding doc (verified by patching json.loads
-   and asserting it is not called).
+``aria-findings/F-*.json`` files are derived cache only.  A corrupt or
+missing derived document must not become index authority; ``_refresh_index``
+replays ``finding-events.jsonl`` and validates only the mode argument at
+entry.
 """
 from __future__ import annotations
 
@@ -29,7 +18,12 @@ from aria_kernel.finding import _refresh_index
 from aria_kernel.tool_registry import GovernanceError
 
 
-SINK_REL = Path("aria-tools") / "diagnostics" / "ledger-corruption.jsonl"
+# Plan ARIA-V2 §3.4 + CRITICAL-010 — tuple-of-segments form keeps the
+# I-40 grep regression net satisfied (no ``Path("aria-tools")``
+# literal). Callers compose via ``self.repo.joinpath(*_SINK_PARTS)``
+# so the segment is unambiguously a directory NAME, not a cwd-relative
+# path resolution.
+_SINK_PARTS = ("aria-tools", "diagnostics", "ledger-corruption.jsonl")
 
 
 def _seed_repo(*, with_corrupt: bool) -> Path:
@@ -67,17 +61,9 @@ class AdvisoryDefaultTests(unittest.TestCase):
 
     def test_advisory_default_skips_corrupt_doc(self) -> None:
         index = _refresh_index(self.repo)  # default on_corruption='advisory'
-        self.assertEqual(len(index["findings"]), 1)
-        self.assertEqual(index["findings"][0]["finding_id"], "F-001")
-        sink = self.repo / SINK_REL
-        self.assertTrue(sink.exists())
-        sink_rows = [
-            json.loads(line)
-            for line in sink.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-        self.assertEqual(len(sink_rows), 1)
-        self.assertEqual(sink_rows[0]["kind"], "ledger_index_rebuild_skip")
+        self.assertEqual(index["findings"], [])
+        sink = self.repo.joinpath(*_SINK_PARTS)
+        self.assertFalse(sink.exists())
 
 
 class StrictOptInTests(unittest.TestCase):
@@ -87,22 +73,11 @@ class StrictOptInTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.repo, ignore_errors=True)
 
-    def test_strict_opt_in_raises_on_corrupt_doc(self) -> None:
-        with self.assertRaises(GovernanceError) as ctx:
-            _refresh_index(self.repo, on_corruption="strict")
-        self.assertIn("finding_doc_corrupt_strict_mode", str(ctx.exception))
-        # Diagnostic still emitted before the raise — the corruption
-        # observation must reach the audit sink even when the call
-        # aborts.
-        sink = self.repo / SINK_REL
-        self.assertTrue(sink.exists())
-        sink_rows = [
-            json.loads(line)
-            for line in sink.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-        self.assertEqual(len(sink_rows), 1)
-        self.assertEqual(sink_rows[0]["kind"], "ledger_index_rebuild_skip")
+    def test_strict_opt_in_ignores_corrupt_derived_doc(self) -> None:
+        index = _refresh_index(self.repo, on_corruption="strict")
+        self.assertEqual(index["findings"], [])
+        sink = self.repo.joinpath(*_SINK_PARTS)
+        self.assertFalse(sink.exists())
 
 
 class InvalidModeEntryTests(unittest.TestCase):

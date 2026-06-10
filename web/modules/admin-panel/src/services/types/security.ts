@@ -3,111 +3,330 @@
  */
 
 export type SecurityEventSeverity = 'low' | 'medium' | 'high' | 'critical';
-export type SecurityEventType = 'login_failure' | 'suspicious_activity' | 'permission_violation' | 'data_breach' | 'api_abuse' | 'brute_force';
+export type SecurityEventType =
+  | 'failed_login'
+  | 'brute_force_attempt'
+  | 'suspicious_activity'
+  | 'unauthorized_access'
+  | 'privilege_escalation'
+  | 'data_exfiltration'
+  | 'malware_detected'
+  | 'api_abuse'
+  | 'rate_limit_exceeded'
+  | 'sql_injection_attempt'
+  | 'xss_attempt'
+  | 'csrf_attempt'
+  | 'account_lockout'
+  | 'password_spray'
+  | 'credential_stuffing'
+  | 'session_hijacking'
+  | 'ip_blacklisted'
+  | 'geo_anomaly'
+  | 'device_anomaly'
+  | 'time_anomaly';
 
-export interface ActivityLog {
+export type ActivityLogCategory =
+  | 'user_action'
+  | 'system_event'
+  | 'api_call'
+  | 'data_access'
+  | 'security_event'
+  | 'configuration'
+  | 'authentication';
+
+export type ActivityLogSeverity = 'debug' | 'info' | 'warning' | 'error' | 'critical';
+export type AuditSeverity = 'info' | 'warning' | 'critical';
+export type SecurityEventStatus =
+  | 'detected'
+  | 'investigating'
+  | 'confirmed'
+  | 'mitigated'
+  | 'false_positive'
+  | 'escalated';
+export type SecurityIncidentStatus =
+  | 'open'
+  | 'investigating'
+  | 'contained'
+  | 'eradicated'
+  | 'recovered'
+  | 'closed';
+export type ThreatIndicatorType =
+  | 'ip'
+  | 'domain'
+  | 'url'
+  | 'hash'
+  | 'email'
+  | 'user_agent'
+  | 'cidr';
+export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
+export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
+export type DataRequestStatus = 'pending' | 'in_progress' | 'completed' | 'rejected' | 'expired';
+
+export interface BackendActivityLog {
   id: string;
+  category: ActivityLogCategory;
   action: string;
-  entityType: string;
-  entityId: string;
-  tenantId?: string;
-  userId: string;
-  userEmail: string;
-  ipAddress: string;
-  userAgent: string;
-  location?: { country: string; city: string };
-  metadata?: Record<string, unknown>;
-  timestamp: string;
+  severity: ActivityLogSeverity;
+  tenantId?: string | null;
+  tenantName?: string | null;
+  userId?: string | null;
+  userName?: string | null;
+  userEmail?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  geoLocation?: {
+    country?: string;
+    region?: string;
+    city?: string;
+    latitude?: number;
+    longitude?: number;
+  } | null;
+  location?: { country?: string; city?: string };
+  entityType?: string | null;
+  entityId?: string | null;
+  entityName?: string | null;
+  previousValue?: Record<string, unknown> | null;
+  newValue?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  duration?: number | null;
+  success: boolean;
+  errorMessage?: string | null;
+  createdAt: string;
+  timestamp?: string;
 }
 
-export interface AuditTrailEntry {
+export interface BackendAuditLog {
   id: string;
   action: string;
   entityType: string;
-  entityId: string;
-  previousValue?: Record<string, unknown>;
-  newValue?: Record<string, unknown>;
+  entityId?: string | null;
+  tenantId?: string | null;
   performedBy: string;
-  performedByEmail: string;
-  reason?: string;
-  timestamp: string;
+  performedByEmail?: string | null;
+  ipAddress?: string | null;
+  details?: Record<string, unknown> | null;
+  previousValue?: Record<string, unknown> | null;
+  newValue?: Record<string, unknown> | null;
+  severity: AuditSeverity;
+  requestId?: string | null;
+  sessionId?: string | null;
+  createdAt: string;
+  legalHold?: boolean;
+}
+
+export interface ActivityStatsOverview {
+  totalActivities: number;
+  byCategory: Record<string, number>;
+  bySeverity: Record<string, number>;
+  bySuccess: Record<string, number>;
+  topActions: Array<{ action: string; count: number }>;
+  topUsers: Array<{ userId: string; userName?: string; count: number }>;
+  topIPs: Array<{ ip: string; count: number }>;
+  activityOverTime: Array<{ date: string; count: number }>;
+}
+
+export interface AuditSummary {
+  totalLogs: number;
+  last24Hours: number;
+  byAction: Array<{ action: string; count: number }>;
+  bySeverity: Array<{ severity: string; count: number }>;
+  byEntityType: Array<{ entityType: string; count: number }>;
+  topUsers: Array<{ userId: string; email: string; count: number }>;
+}
+
+export interface BackendAuditAlertRule {
+  id: string;
+  name: string;
+  description: string;
+  isActive: boolean;
+  conditions: {
+    category?: ActivityLogCategory[];
+    severity?: ActivityLogSeverity[];
+    actions?: string[];
+    entityTypes?: string[];
+    successOnly?: boolean;
+    failureOnly?: boolean;
+    ipPatterns?: string[];
+  };
+  alertChannels: Array<'email' | 'webhook' | 'slack' | 'sms'>;
+  recipients: string[];
+  cooldownMinutes: number;
+  lastTriggeredAt?: string;
+}
+
+export interface BackendComplianceReport {
+  id: string;
+  complianceType: ComplianceType;
+  tenantId?: string | null;
+  reportPeriodStart: string;
+  reportPeriodEnd: string;
+  status?: string;
+  complianceScore: number;
+  violations?: Array<Record<string, unknown>> | null;
+  recommendations?: string[] | null;
+  detailedFindings?: {
+    complianceResults?: Array<{
+      category?: string;
+      requirement?: string;
+      status?: string;
+      description?: string;
+      recommendation?: string;
+    }>;
+    [key: string]: unknown;
+  } | null;
+  generatedBy?: string | null;
+  generatedByName?: string | null;
+  createdAt: string;
+  generatedAt?: string;
+  updatedAt?: string;
+}
+
+export interface BackendDataSubjectRequest {
+  id: string;
+  requestType: DataRequestType;
+  complianceFramework?: ComplianceType;
+  status: DataRequestStatus;
+  tenantId?: string | null;
+  tenantName?: string | null;
+  requesterId?: string | null;
+  requesterName?: string | null;
+  requesterEmail: string;
+  description?: string | null;
+  dataCategories?: string[] | null;
+  dueDate: string;
+  assignedTo?: string | null;
+  assignedToName?: string | null;
+  identityVerified?: boolean;
+  verifiedAt?: string | null;
+  completedAt?: string | null;
+  deliveryFormat?: string | null;
+  downloadUrl?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface BackendSecurityEvent {
+  id: string;
+  eventType: SecurityEventType;
+  threatLevel: SecurityEventSeverity;
+  status: SecurityEventStatus;
+  title: string;
+  description: string;
+  ipAddress: string;
+  geoLocation?: {
+    country?: string;
+    city?: string;
+    latitude?: number;
+    longitude?: number;
+  } | null;
+  tenantId?: string | null;
+  userId?: string | null;
+  userName?: string | null;
+  targetResource?: string | null;
+  targetEndpoint?: string | null;
+  detectionSource: string;
+  confidenceScore?: number | null;
+  rawData?: Record<string, unknown> | null;
+  assignedTo?: string | null;
+  assignedToName?: string | null;
+  investigationNotes?: string | null;
+  resolution?: string | null;
+  resolvedAt?: string | null;
+  resolvedBy?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface BackendSecurityIncident {
+  id: string;
+  title: string;
+  description: string;
+  severity: SecurityEventSeverity;
+  status: SecurityIncidentStatus;
+  category?: string | null;
+  affectedSystems?: string[] | null;
+  affectedUsers?: number | null;
+  relatedEvents?: string[] | null;
+  leadInvestigator?: string | null;
+  leadInvestigatorName?: string | null;
+  timeline?: Array<{ action: string; timestamp: string; user?: string }> | null;
+  impactDescription?: string | null;
+  rootCauseAnalysis?: string | null;
+  remediation?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+  resolvedAt?: string | null;
+}
+
+export interface BackendThreatIndicator {
+  id: string;
+  indicatorType: ThreatIndicatorType;
+  value: string;
+  threatLevel: SecurityEventSeverity;
+  source: string;
+  description?: string | null;
+  threatTypes?: string[] | null;
+  tags?: string[] | null;
+  confidence: number;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
+  hitCount?: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface BackendSecurityDashboardStats {
+  totalSecurityEvents: number;
+  eventsLast24h: number;
+  eventsLast7d: number;
+  eventsLast30d: number;
+  eventsTrend: 'increasing' | 'decreasing' | 'stable';
+  criticalEvents: number;
+  activeIncidents: number;
+  threatsBlocked: number;
+  eventsByType: Record<SecurityEventType, number>;
+  eventsBySeverity: Record<SecurityEventSeverity, number>;
+  topSourceIPs: Array<{ ip: string; count: number; threatLevel: SecurityEventSeverity }>;
+  topTargetedUsers: Array<{ userId: string; userName: string; count: number }>;
+  topEventTypes: Array<{ type: SecurityEventType; count: number }>;
+  eventsTimeline: Array<{
+    date: string;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  }>;
+}
+
+export interface BackendSecurityHealthScore {
+  score: number;
+  factors: Array<{
+    name: string;
+    score: number;
+    weight: number;
+    description: string;
+  }>;
+  recommendations: string[];
 }
 
 export interface RetentionPolicy {
   id: string;
   name: string;
-  entityType: string;
+  entityType?: string;
+  category?: string;
+  description?: string | null;
   retentionDays: number;
   archiveAfterDays?: number;
+  deleteAfterArchiveDays?: number | null;
+  isGlobal?: boolean;
+  specificTenants?: string[] | null;
+  complianceFrameworks?: string[] | null;
   isActive: boolean;
+  createdBy?: string;
+  updatedBy?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
   lastRunAt?: string;
   nextRunAt?: string;
-}
-
-export interface ComplianceReport {
-  id: string;
-  type: 'gdpr' | 'hipaa' | 'soc2' | 'iso27001' | 'custom';
-  status: 'compliant' | 'non_compliant' | 'partial' | 'pending_review';
-  findings: Array<{ area: string; status: string; details: string }>;
-  score: number;
-  generatedAt: string;
-  validUntil: string;
-}
-
-export interface DataSubjectRequest {
-  id: string;
-  type: 'access' | 'rectification' | 'erasure' | 'portability' | 'restriction';
-  status: 'pending' | 'in_progress' | 'completed' | 'rejected';
-  subjectEmail: string;
-  subjectName?: string;
-  tenantId?: string;
-  requestedAt: string;
-  dueDate: string;
-  completedAt?: string;
-  handledBy?: string;
-  notes?: string;
-}
-
-export interface SecurityEvent {
-  id: string;
-  type: SecurityEventType;
-  severity: SecurityEventSeverity;
-  title: string;
-  description: string;
-  sourceIp?: string;
-  userId?: string;
-  tenantId?: string;
-  metadata?: Record<string, unknown>;
-  isResolved: boolean;
-  resolvedAt?: string;
-  resolvedBy?: string;
-  createdAt: string;
-}
-
-export interface SecurityIncident {
-  id: string;
-  title: string;
-  description: string;
-  severity: SecurityEventSeverity;
-  status: 'open' | 'investigating' | 'contained' | 'resolved' | 'closed';
-  affectedTenants: string[];
-  affectedUsers: number;
-  rootCause?: string;
-  resolution?: string;
-  timeline: Array<{ action: string; timestamp: string; performedBy: string }>;
-  assignedTo?: string;
-  createdAt: string;
-  resolvedAt?: string;
-}
-
-export interface ThreatIndicator {
-  id: string;
-  type: 'ip' | 'domain' | 'email' | 'hash';
-  value: string;
-  threatLevel: SecurityEventSeverity;
-  description?: string;
-  source: string;
-  lastSeenAt: string;
-  isBlocked: boolean;
-  createdAt: string;
 }

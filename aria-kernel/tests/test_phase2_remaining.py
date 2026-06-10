@@ -9,7 +9,7 @@ from pathlib import Path
 
 from aria_kernel.agent_satisfaction import agent_satisfaction_scan
 from aria_kernel.feedback import add_feedback, build_feedback_event
-from aria_kernel.ledger import append_jsonl, read_jsonl
+from aria_kernel.ledger import append_declared_jsonl, read_jsonl
 from aria_kernel.pressure import effective_workspace_pressures
 from aria_kernel.reverify import reverify_pressures
 from aria_kernel.telemetry import export_telemetry
@@ -41,8 +41,8 @@ class Phase2RemainingTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_git_trailer_closes_pressure_without_manual_threshold(self):
-        append_jsonl(self.tools_dir / "cycles.jsonl", {"schema_version": 2, "cycle_id": "cyc-prev", "event": "completed", "git_head_sha_at_cycle": self.initial_sha})
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-trailer"))
+        append_declared_jsonl(self.tools_dir / "cycles.jsonl", {"schema_version": 2, "cycle_id": "cyc-prev", "event": "completed", "git_head_sha_at_cycle": self.initial_sha}, expected_surface="cycles")
+        append_declared_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-trailer"), expected_surface="workspace_memory_pressure")
         (self.repo / "src" / "a.ts").write_text("two\n", encoding="utf-8")
         self._git("add", "src/a.ts")
         self._git("commit", "-m", "fix pressure", "-m", "Closes-Pressure: PE-trailer")
@@ -58,8 +58,8 @@ class Phase2RemainingTests(unittest.TestCase):
         self.assertIn("pressure_closed_via_trailer", kinds)
 
     def test_git_trailer_ignored_classification_for_unknown_and_comma(self):
-        append_jsonl(self.tools_dir / "cycles.jsonl", {"schema_version": 2, "cycle_id": "cyc-prev", "event": "completed", "git_head_sha_at_cycle": self.initial_sha})
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-known"))
+        append_declared_jsonl(self.tools_dir / "cycles.jsonl", {"schema_version": 2, "cycle_id": "cyc-prev", "event": "completed", "git_head_sha_at_cycle": self.initial_sha}, expected_surface="cycles")
+        append_declared_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-known"), expected_surface="workspace_memory_pressure")
         (self.repo / "src" / "a.ts").write_text("three\n", encoding="utf-8")
         self._git("add", "src/a.ts")
         self._git("commit", "-m", "bad trailers", "-m", "Closes-Pressure: PE-known, PE-other\nAddresses-Pressure: PE-missing")
@@ -71,7 +71,7 @@ class Phase2RemainingTests(unittest.TestCase):
         self.assertEqual({row["details"]["reason"] for row in ignored}, {"malformed_trailer", "unknown_pressure"})
 
     def test_agent_satisfaction_requires_address_evidence_and_tracks_removal(self):
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-agent"))
+        append_declared_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-agent"), expected_surface="workspace_memory_pressure")
         agent_path = self.repo / ".claude" / "agents" / "aria-test.md"
         agent_path.parent.mkdir(parents=True)
         agent_path.write_text("---\nname: aria-test\naddresses_pressure: [PE-agent]\n---\nbody\n", encoding="utf-8")
@@ -126,7 +126,7 @@ class Phase2RemainingTests(unittest.TestCase):
 
     def test_reverify_and_telemetry_export(self):
         old = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat().replace("+00:00", "Z")
-        append_jsonl(
+        append_declared_jsonl(
             self.paths.ledgers["missed_signals"],
             {
                 "$schema": "aria/feedback-event/v2",
@@ -145,8 +145,13 @@ class Phase2RemainingTests(unittest.TestCase):
                 "created_at": old,
                 "schema_version": 2,
             },
+            expected_surface="workspace_memory_missed_signals",
         )
-        append_jsonl(self.paths.ledgers["pressure"], self._pressure("PE-reverify", feedback_ids=["FB-old"], detected_at=datetime.now(timezone.utc) - timedelta(days=100)))
+        append_declared_jsonl(
+            self.paths.ledgers["pressure"],
+            self._pressure("PE-reverify", feedback_ids=["FB-old"], detected_at=datetime.now(timezone.utc) - timedelta(days=100)),
+            expected_surface="workspace_memory_pressure",
+        )
         record_workspace_governance(
             self.paths,
             "ref_stale_detected",

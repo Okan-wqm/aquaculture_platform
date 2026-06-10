@@ -7,14 +7,15 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
 
-from .ledger import append_jsonl, load_jsonl
+from .implementation_safety import is_gh_api_path_forbidden
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
 DEFAULT_POLICY: dict[str, Any] = {
     "schema_version": 1,
     "enabled": False,
-    "base_branch": "snowball",
+    "base_branch": "main",
     "merge_method": "squash",
     "allowed_low_risk_globs": [
         "docs/**",
@@ -73,7 +74,6 @@ DEFAULT_POLICY: dict[str, Any] = {
     "require_unresolved_conversations": True,
 }
 
-
 class GitHubAdapter(Protocol):
     def get_pr(self, number: int) -> dict[str, Any]:
         ...
@@ -117,8 +117,8 @@ def normalize_policy(policy: dict[str, Any] | None = None) -> dict[str, Any]:
             candidate[key] = value
     if candidate.get("merge_method") != "squash":
         raise GovernanceError("auto-merge policy supports only squash merge")
-    if candidate.get("base_branch") != "snowball":
-        raise GovernanceError("auto-merge policy supports only the snowball base branch")
+    if candidate.get("base_branch") != "main":
+        raise GovernanceError("auto-merge policy supports only the main base branch")
     return candidate
 
 
@@ -347,7 +347,10 @@ def change_for_pr(
     inputs (change_committed + change_validated + validation_runs)
     via change_id lookup.
     """
-    rows = load_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl")
+    rows = load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl",
+        expected_surface="pr_lifecycle",
+    )
     latest_change_id: str | None = None
     for row in rows:
         if row.get("pr_number") == pr_number and row.get("change_id"):
@@ -396,7 +399,11 @@ def record_pr_lifecycle(
     }
     if base_dir is None:
         return row
-    return append_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl", row)
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl",
+        row,
+        expected_surface="pr_lifecycle",
+    )
 
 
 def _evaluate_triple_gate(
@@ -474,7 +481,7 @@ def _evaluate_triple_gate(
     }
 
 
-def merge_if_green(
+def _merge_if_green_with_executor(
     *,
     adapter: GitHubAdapter,
     pr_number: int,
@@ -484,6 +491,11 @@ def merge_if_green(
     dry_run: bool = True,
     diff_text: str | None = None,
 ) -> dict[str, Any]:
+    if not dry_run:
+        raise GovernanceError(
+            "direct_real_merge_forbidden: call merge_authority.merge_pr_if_ready() "
+            "for dry_run=False"
+        )
     pr = adapter.get_pr(pr_number)
     record_pr_lifecycle(pr, event="observed", base_dir=base_dir, cycle_id=cycle_id)
     github = collect_github_snapshot(adapter, pr)
@@ -508,133 +520,28 @@ def merge_if_green(
         dry_run=dry_run,
         diff_text=diff_text,
     )
-    if not decision["eligible"] or dry_run:
-        return decision
+    return decision
 
-    # Plan 026R §D.4 — auto-merge triple-gate. The pre-§D.4 eligibility
-    # check (decision["eligible"]) covered branch protection / required
-    # reviewers / checks / conversation resolution. The triple-gate
-    # adds three change-ledger-bound assertions: head_sha == change's
-    # commit_sha, change_validated row exists, validation_runs verified.
-    # Pre-§D.4 a PR could pass GitHub-side eligibility but the change
-    # row was missing / a different commit_sha was committed / no
-    # validation run had recorded a passing log_hash. Now those three
-    # surfaces fail-closed BEFORE the merge subprocess runs.
-    head_sha_pre = str(decision["head_sha"])
-    triple = _evaluate_triple_gate(
+
+def merge_if_green(
+    *,
+    adapter: GitHubAdapter,
+    pr_number: int,
+    policy: dict[str, Any] | None = None,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+    dry_run: bool = True,
+    diff_text: str | None = None,
+) -> dict[str, Any]:
+    return _merge_if_green_with_executor(
+        adapter=adapter,
         pr_number=pr_number,
-        head_sha=head_sha_pre,
-        base_dir=base_dir,
-    )
-    if not triple["passed"]:
-        blocked_triple = dict(decision)
-        blocked_triple.update(
-            {
-                "recorded_at": utc_now(),
-                "decision": "blocked",
-                "eligible": False,
-                "reasons": [
-                    "auto_merge_triple_gate_blocked",
-                    *triple["reasons"],
-                ],
-                "stage": "triple_gate_pre_merge",
-                "change_id": triple.get("change_id"),
-            },
-        )
-        _append_decision(base_dir, blocked_triple)
-        return blocked_triple
-
-    # Plan 024 v3 §B-6 — pre-merge full re-evaluation. Pre-fix the
-    # window between snapshot construction and merge call only re-
-    # fetched the head SHA; reviews / checks / conversations / diff
-    # were not re-collected. A force-push between snapshot and merge
-    # only invalidated the head SHA branch, but a required reviewer
-    # could dismiss approval, a check could fail, an unresolved
-    # comment could be added — and the merge would still proceed.
-    # The fix re-runs the full snapshot collector and pipes a fresh
-    # evaluate_auto_merge so EVERY eligibility surface is re-checked
-    # at the merge boundary. expected_head_sha on the merge_pr call
-    # is the GitHub-side defense-in-depth; the API rejects 409 on
-    # SHA drift even after the local re-check passes.
-    head_sha = str(decision["head_sha"])
-    fresh_pr = adapter.get_pr(pr_number)
-    fresh_github = collect_github_snapshot(adapter, fresh_pr)
-    fresh_diff: str | None = None
-    if hasattr(adapter, "get_pr_diff"):
-        try:
-            fresh_diff = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
-        except Exception:
-            fresh_diff = None
-    if fresh_diff is None:
-        fresh_diff = fresh_pr.get("diff_text")
-    fresh_decision = evaluate_auto_merge(
-        pr=fresh_pr,
-        github=fresh_github,
         policy=policy,
-        base_dir=None,  # do not append the fresh-eval probe to the decision ledger
+        base_dir=base_dir,
         cycle_id=cycle_id,
-        dry_run=True,
-        diff_text=fresh_diff,
+        dry_run=dry_run,
+        diff_text=diff_text,
     )
-    if not fresh_decision.get("eligible"):
-        blocked = dict(decision)
-        blocked.update(
-            {
-                "recorded_at": utc_now(),
-                "decision": "blocked",
-                "eligible": False,
-                "latest_head_sha": fresh_decision.get("head_sha"),
-                "reasons": [
-                    "pre_merge_re_evaluation_blocked",
-                    *list(fresh_decision.get("reasons") or []),
-                ],
-                "stage": "pre_merge_re_evaluation",
-            },
-        )
-        _append_decision(base_dir, blocked)
-        return blocked
-    latest_head_sha = fresh_decision.get("head_sha")
-    if latest_head_sha != head_sha:
-        blocked = dict(decision)
-        blocked.update(
-            {
-                "recorded_at": utc_now(),
-                "decision": "blocked",
-                "eligible": False,
-                "latest_head_sha": latest_head_sha,
-                "reasons": ["PR head SHA changed after green evaluation"],
-            },
-        )
-        _append_decision(base_dir, blocked)
-        return blocked
-
-    try:
-        merge_result = adapter.merge_pr(pr_number, method="squash", expected_head_sha=head_sha)
-    except Exception as exc:  # pragma: no cover - exercised by adapter fakes in tests
-        failed = dict(decision)
-        failed.update(
-            {
-                "recorded_at": utc_now(),
-                "decision": "failed",
-                "eligible": False,
-                "reasons": [str(exc)],
-            },
-        )
-        _append_decision(base_dir, failed)
-        return failed
-
-    merged = dict(decision)
-    merged.update(
-        {
-            "recorded_at": utc_now(),
-            "decision": "merged",
-            "eligible": True,
-            "merge_result": merge_result,
-        },
-    )
-    _append_decision(base_dir, merged)
-    record_pr_lifecycle(pr, event="merged", base_dir=base_dir, cycle_id=cycle_id)
-    return merged
 
 
 def collect_github_snapshot(adapter: GitHubAdapter, pr: dict[str, Any]) -> dict[str, Any]:
@@ -723,12 +630,22 @@ class SnapshotGitHubAdapter:
 class GhCliGitHubAdapter:
     def __init__(self, *, cwd: str | Path = ".") -> None:
         self.cwd = Path(cwd)
+        self._merge_authority_token: str | None = None
         repo = self._gh_json(["repo", "view", "--json", "owner,name"])
         owner = repo.get("owner", {})
         self.owner = owner.get("login") if isinstance(owner, dict) else None
         self.repo = repo.get("name")
         if not self.owner or not self.repo:
             raise GovernanceError("unable to determine GitHub repository owner/name")
+
+    def arm_merge_authority(self, token: str) -> None:
+        if not isinstance(token, str) or not token.strip():
+            raise GovernanceError("merge_authority_token_required")
+        self._merge_authority_token = token
+
+    def clear_merge_authority(self, token: str) -> None:
+        if self._merge_authority_token == token:
+            self._merge_authority_token = None
 
     def get_pr(self, number: int) -> dict[str, Any]:
         payload = self._gh_json(
@@ -737,13 +654,20 @@ class GhCliGitHubAdapter:
                 "view",
                 str(number),
                 "--json",
-                "number,baseRefName,headRefOid,files,reviews,reviewDecision",
+                "number,baseRefName,headRefName,headRefOid,files,reviews,reviewDecision",
             ],
         )
         return {
             "number": payload.get("number"),
+            "repository": f"{self.owner}/{self.repo}",
+            "repo": f"{self.owner}/{self.repo}",
+            "target_ref": payload.get("baseRefName"),
             "base_branch": payload.get("baseRefName"),
+            "baseRefName": payload.get("baseRefName"),
+            "head_ref": payload.get("headRefName"),
+            "headRefName": payload.get("headRefName"),
             "head_sha": payload.get("headRefOid"),
+            "headRefOid": payload.get("headRefOid"),
             "changed_files": payload.get("files", []),
             "reviews": payload.get("reviews", []),
             "review_decision": payload.get("reviewDecision"),
@@ -841,7 +765,17 @@ class GhCliGitHubAdapter:
         diff = completed.stdout or ""
         return diff if diff.strip() else None
 
-    def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
+    def merge_pr(
+        self,
+        number: int,
+        *,
+        method: str,
+        expected_head_sha: str,
+        authority_token: str | None = None,
+    ) -> dict[str, Any]:
+        if not authority_token or authority_token != self._merge_authority_token:
+            raise GovernanceError("merge_pr_requires_merge_authority")
+        self._merge_authority_token = None
         if method != "squash":
             raise GovernanceError("only squash merge is allowed")
         completed = subprocess.run(
@@ -864,6 +798,8 @@ class GhCliGitHubAdapter:
         return {"merged": True, "method": "squash", "expected_head_sha": expected_head_sha}
 
     def _gh_api_json(self, args: list[str]) -> dict[str, Any]:
+        if args and is_gh_api_path_forbidden(str(args[0])):
+            raise GovernanceError(f"forbidden gh api path: {args[0]}")
         return self._gh_json(["api", *args])
 
     def _gh_json(self, args: list[str]) -> dict[str, Any]:
@@ -1000,7 +936,11 @@ def _check_success(run: dict[str, Any]) -> bool:
 def _append_decision(base_dir: str | Path | None, decision: dict[str, Any]) -> None:
     if base_dir is None:
         return
-    append_jsonl(ensure_tools_dir(base_dir) / "auto-merge-decisions.jsonl", decision)
+    append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "auto-merge-decisions.jsonl",
+        decision,
+        expected_surface="auto_merge_decisions",
+    )
 
 
 def _changed_file_path(item: str | dict[str, Any]) -> str:

@@ -77,7 +77,9 @@ class NextCycleQueueTests(unittest.TestCase):
             source_cycle_id="cyc-c",
             pressure_id="pe-overflow",
         )
-        self.assertIsNone(overflow)
+        self.assertIsNotNone(overflow)
+        self.assertEqual(overflow["state"], "blocked")
+        self.assertEqual(overflow["reason"], "queue_depth_exceeded")
         self.assertEqual(len(read_pending(self.base)), 3)
 
     def test_mark_consumed_excludes_from_pending(self) -> None:

@@ -1,3 +1,5 @@
+import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
+
 import { ClockMethod, GeoLocation } from '../entities/attendance-record.entity';
 
 export class ClockInCommand {
@@ -14,5 +16,6 @@ export class ClockInCommand {
      * Used to properly calculate shift times and store timezone context
      */
     public readonly timezone?: string,
+    public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

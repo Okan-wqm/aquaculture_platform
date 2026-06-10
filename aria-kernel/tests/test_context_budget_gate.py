@@ -359,6 +359,7 @@ class CreateAgentInvocationRequestOptInTests(unittest.TestCase):
         self.tools, self.repo = _seed_workspace()
         self.fake = _FakeRepo(self.repo)
         self.fake.write_agent("root", "tiny-agent", "---\nname: tiny\n---\nbody\n")
+        self.fake.write_agent("root", "aria-evidence-judge", "---\nname: judge\n---\nbody\n")
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tools.parent, ignore_errors=True)
@@ -380,7 +381,7 @@ class CreateAgentInvocationRequestOptInTests(unittest.TestCase):
         from aria_kernel.agent_invocations import create_agent_invocation_request
         with self.assertRaises(GovernanceError) as cm:
             create_agent_invocation_request(
-                target_agent="tiny-agent",
+                target_agent="aria-evidence-judge",
                 role="evidence_judgment",
                 suggested_prompt="x" * 100_000,
                 legacy_strict_fields_optional=True,

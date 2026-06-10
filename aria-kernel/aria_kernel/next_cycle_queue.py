@@ -37,8 +37,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
-from .tool_registry import ensure_tools_dir, utc_now
+from .ledger import load_declared_jsonl, state_transaction
+from .tool_registry import append_tools_governance, ensure_tools_dir, utc_now
 
 
 __all__ = [
@@ -82,54 +82,11 @@ def queue_path(base_dir: str | Path | None) -> Path:
     return root / "queues" / "next_cycle_queue.jsonl"
 
 
-def append_pending(
-    base_dir: str | Path | None,
-    *,
-    source_cycle_id: str,
-    pressure_id: str,
-    recommended_action: str | None = None,
-    candidate_tools: list[str] | None = None,
-) -> dict[str, Any] | None:
-    """Append a pending queue item.
-
-    Returns the persisted row on success, or ``None`` when the
-    queue is at depth — caller can treat ``None`` as "cap hit;
-    item dropped" and emit a governance event if desired.
-    """
-    path = queue_path(base_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pending = read_pending(base_dir)
-    if len(pending) >= queue_depth():
-        return None
-    queue_item_id = f"qi-{uuid.uuid4().hex[:12]}"
-    row: dict[str, Any] = {
-        "schema_version": 1,
-        "queue_item_id": queue_item_id,
-        "source_cycle_id": source_cycle_id,
-        "pressure_id": pressure_id,
-        "recommended_action": recommended_action,
-        "candidate_tools": list(candidate_tools or []),
-        "state": "pending",
-        "recorded_at": utc_now(),
-    }
-    return append_jsonl(path, row)
-
-
-def read_pending(
-    base_dir: str | Path | None,
+def _pending_from_rows(
+    rows: list[dict[str, Any]],
     *,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Return queue items whose latest state is ``pending``.
-
-    The ledger is append-only; this reducer folds rows by
-    ``queue_item_id`` and emits only those whose last recorded
-    state is ``pending`` (consumed rows are excluded). Optional
-    ``limit`` truncates to N oldest pending items — §F.1
-    orchestrator passes a per-cycle drain budget.
-    """
-    path = queue_path(base_dir)
-    rows = load_jsonl(path, verify=True)
     latest: dict[str, dict[str, Any]] = {}
     for row in rows:
         qid = str(row.get("queue_item_id") or "")
@@ -142,8 +99,6 @@ def read_pending(
         and latest[str(row["queue_item_id"])].get("state") == "pending"
         and row.get("state") == "pending"
     ]
-    # De-dup: only keep the first pending row per queue_item_id
-    # (insertion order = chronological).
     seen: set[str] = set()
     ordered: list[dict[str, Any]] = []
     for row in pending:
@@ -157,18 +112,98 @@ def read_pending(
     return ordered
 
 
+def append_pending(
+    base_dir: str | Path | None,
+    *,
+    source_cycle_id: str,
+    pressure_id: str,
+    recommended_action: str | None = None,
+    candidate_tools: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """Append a pending queue item under the queue transaction lock.
+
+    The depth check and append run in the same transaction so two cycle
+    starters cannot both observe spare capacity and overfill the queue.
+    """
+    path = queue_path(base_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    root = ensure_tools_dir(base_dir)
+    with state_transaction([path]) as txn:
+        pending = _pending_from_rows(
+            txn.load_declared_jsonl(
+                path,
+                expected_surface="next_cycle_queue",
+            ),
+        )
+        depth = queue_depth()
+        if len(pending) >= depth:
+            queue_item_id = f"qi-{uuid.uuid4().hex[:12]}"
+            row = {
+                "schema_version": 1,
+                "queue_item_id": queue_item_id,
+                "source_cycle_id": source_cycle_id,
+                "pressure_id": pressure_id,
+                "recommended_action": recommended_action,
+                "candidate_tools": list(candidate_tools or []),
+                "state": "blocked",
+                "reason": "queue_depth_exceeded",
+                "queue_depth": depth,
+                "pending_count": len(pending),
+                "recorded_at": utc_now(),
+            }
+            stored = txn.append_declared_jsonl(
+                path,
+                row,
+                expected_surface="next_cycle_queue",
+            )
+            append_tools_governance(
+                root,
+                "next_cycle_queue_overflow_blocked",
+                {
+                    "queue_item_id": queue_item_id,
+                    "source_cycle_id": source_cycle_id,
+                    "pressure_id": pressure_id,
+                    "queue_depth": depth,
+                    "pending_count": len(pending),
+                },
+            )
+            return stored
+        queue_item_id = f"qi-{uuid.uuid4().hex[:12]}"
+        row: dict[str, Any] = {
+            "schema_version": 1,
+            "queue_item_id": queue_item_id,
+            "source_cycle_id": source_cycle_id,
+            "pressure_id": pressure_id,
+            "recommended_action": recommended_action,
+            "candidate_tools": list(candidate_tools or []),
+            "state": "pending",
+            "recorded_at": utc_now(),
+        }
+        return txn.append_declared_jsonl(
+            path,
+            row,
+            expected_surface="next_cycle_queue",
+        )
+
+
+def read_pending(
+    base_dir: str | Path | None,
+    *,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Return queue items whose latest state is ``pending``."""
+    path = queue_path(base_dir)
+    rows = load_declared_jsonl(path, expected_surface="next_cycle_queue")
+    return _pending_from_rows(rows, limit=limit)
+
+
 def mark_consumed(
     base_dir: str | Path | None,
     *,
     queue_item_id: str,
     consumed_by: str,
 ) -> dict[str, Any]:
-    """Append a state=consumed transition row for ``queue_item_id``.
-
-    Idempotent: a second consume on the same id appends a second
-    consumed row but ``read_pending`` already excludes the id
-    after the first. No-op result is acceptable.
-    """
+    """Append a state=consumed transition row for ``queue_item_id``."""
     path = queue_path(base_dir)
     row: dict[str, Any] = {
         "schema_version": 1,
@@ -178,4 +213,9 @@ def mark_consumed(
         "consumed_at": utc_now(),
         "recorded_at": utc_now(),
     }
-    return append_jsonl(path, row)
+    with state_transaction([path]) as txn:
+        return txn.append_declared_jsonl(
+            path,
+            row,
+            expected_surface="next_cycle_queue",
+        )

@@ -3,7 +3,14 @@ name = "aria-kernel"
 version = "0.1.0"
 description = "Minimal ARIA Phase 0 kernel feedback surfaces"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    # Plan ARIA-V2 §Phase 1 CRITICAL-020 — pyyaml is required at
+    # test time by ``test_ci_workflow_invariants.py`` (Plan ARIA-V2
+    # I-25) and ``test_daily_report_anchor_invariant.py`` (I-26)
+    # for parsing GHA workflow files + daily-report front-matter.
+    # Light, single-purpose; runtime cost zero (only imported by tests).
+    "pyyaml>=6.0",
+]
 
 [project.scripts]
 aria-kernel = "aria_kernel.cli:main"

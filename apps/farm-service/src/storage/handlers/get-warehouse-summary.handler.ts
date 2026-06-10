@@ -79,17 +79,17 @@ export class GetWarehouseSummaryHandler
       this.getRecentMovements(tenantId),
     ]);
 
-    const lowStockItems: WarehouseLowStockItem[] = [
+    const allLowStockItems: WarehouseLowStockItem[] = [
       ...lowStockFeeds,
       ...lowStockChemicals,
       ...lowStockConsumables,
-    ].slice(0, MOBILE_LIST_CAP);
+    ];
 
     return {
       totalItems: feedCount + chemicalCount + consumableCount,
-      lowStockAlertCount: lowStockItems.length,
+      lowStockAlertCount: allLowStockItems.length,
       todaysMovementCount,
-      lowStockItems,
+      lowStockItems: allLowStockItems.slice(0, MOBILE_LIST_CAP),
       recentMovements,
     };
   }

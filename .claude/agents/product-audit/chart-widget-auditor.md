@@ -4,6 +4,7 @@ description: Reviews charts, KPI cards, widgets, dashboards, gauges, trend views
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Chart Widget Auditor -- Dashboard and Metric Truth Reviewer

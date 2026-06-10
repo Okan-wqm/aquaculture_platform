@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Sens Enterprise Validation Claims",
   "type": "object",
-  "required": ["version", "metadata", "claims"],
+  "required": ["version", "metadata", "claims", "release_profiles"],
   "additionalProperties": false,
   "properties": {
     "$schema": { "type": "string" },
@@ -80,6 +80,41 @@
           },
           "blocker": { "type": "string", "minLength": 1 },
           "linked_finding_id": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "release_profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "feature_tier",
+          "tag_pattern",
+          "blocking_claims",
+          "non_blocking_claims",
+          "non_blocking_rationale"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "title": { "type": "string", "minLength": 1 },
+          "feature_tier": { "type": "string", "minLength": 1 },
+          "tag_pattern": { "type": "string", "minLength": 1 },
+          "blocking_claims": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          },
+          "non_blocking_claims": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          },
+          "non_blocking_rationale": { "type": "string", "minLength": 1 }
         }
       }
     }

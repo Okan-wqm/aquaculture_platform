@@ -11,7 +11,6 @@ Target: aria_kernel.cycle._run_pr_lifecycle_phase.
 """
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 import unittest
@@ -20,14 +19,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.cycle import _run_extended_phases
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class PrLifecyclePhaseTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-pr-phase-"))
-        self.tools_root = self.tmp / "aria-tools"
-        self.tools_root.mkdir()
+        self.tools_root = ensure_tools_dir(self.tmp / "aria-tools")
         self._old_cwd = os.getcwd()
         os.chdir(self.tmp)
         self._env = patch.dict(os.environ, {
@@ -55,8 +54,11 @@ class PrLifecyclePhaseTests(unittest.TestCase):
                 "+00:00", "Z"
             ),
         }
-        with proposals_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+        append_declared_fixture(
+            proposals_path,
+            row,
+            expected_surface="proposals",
+        )
 
     def test_no_open_proposals_returns_no_op(self) -> None:
         # No seed; phase returns no_op.

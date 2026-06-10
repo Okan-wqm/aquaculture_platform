@@ -39,6 +39,8 @@
       "@platform/shared": ["libs/shared/src/index.ts"],
       "@platform/shared-ui": ["web/shared-ui/src/index.ts"],
       "@platform/shared-ui/*": ["web/shared-ui/src/*"],
+      "@aquaculture/shared-ui": ["web/shared-ui/src/index.ts"],
+      "@aquaculture/shared-ui/*": ["web/shared-ui/src/*"],
       "@platform/backend-common": ["libs/backend-common/src/index.ts"],
       "@aquaculture/backend-common": ["libs/backend-common/src/index.ts"],
       "@aquaculture/backend-common/auth": ["libs/backend-common/src/auth/index.ts"],
@@ -84,6 +86,9 @@
       ],
       "@aquaculture/backend-common/middleware": [
         "libs/backend-common/src/middleware/index.ts"
+      ],
+      "@aquaculture/backend-common/mobile-command": [
+        "libs/backend-common/src/mobile-command/index.ts"
       ],
       "@aquaculture/backend-common/monetary": [
         "libs/backend-common/src/monetary/index.ts"
@@ -135,6 +140,7 @@
       "@platform/event-bus": ["platform/libs/event-bus/src/index.ts"],
       "@platform/outbox": ["platform/libs/outbox/src/index.ts"],
       "@platform/cqrs": ["platform/libs/cqrs/src/index.ts"],
+      "@platform/service-catalog": ["platform/libs/service-catalog/src/index.ts"],
       "@web/shared-ui": ["web/shared-ui/src/index.ts"],
       "@aquaculture/node-components": ["libs/node-components/src/index.ts"],
       "@platform/aquaculture-engines": ["libs/aquaculture-engines/src/index.ts"],

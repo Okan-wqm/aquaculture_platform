@@ -1,45 +1,53 @@
 /**
  * Update Equipment Command Handler
- *
- * Handles updates for both Equipment and Tank entities.
- * When an equipment ID is found in the tanks table, the update is delegated
- * to update the Tank entity instead.
  */
-import { randomUUID } from 'crypto';
-
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Not, In } from 'typeorm';
-import { ConflictException, NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
-import { EquipmentUpdatedEvent , createBaseEvent } from '@platform/event-contracts';
-import { UpdateEquipmentCommand } from '../commands/update-equipment.command';
-import { Equipment, EquipmentStatus } from '../entities/equipment.entity';
-import { EquipmentSystem } from '../entities/equipment-system.entity';
+import { EquipmentUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  DataSource,
+  DeepPartial,
+  FindManyOptions,
+  FindOneOptions,
+  FindOptionsWhere,
+  In,
+  UpdateResult,
+} from 'typeorm';
+
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
 import { Department } from '../../department/entities/department.entity';
-import { System } from '../../system/entities/system.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
-import { Tank, TankType, TankMaterial, TankStatus, WaterType } from '../../tank/entities/tank.entity';
+import { System } from '../../system/entities/system.entity';
+import { Tank } from '../../tank/entities/tank.entity';
+import { UpdateEquipmentCommand } from '../commands/update-equipment.command';
+import { EquipmentSystem } from '../entities/equipment-system.entity';
+import { EquipmentCategory, EquipmentType } from '../entities/equipment-type.entity';
+import { Equipment } from '../entities/equipment.entity';
+import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.service';
+
+import { equipmentAuditSnapshot } from './equipment-audit.util';
+
+type ScopedEquipmentRepository = {
+  findOne: (options: FindOneOptions<Equipment>) => Promise<Equipment | null>;
+  count: (options?: FindManyOptions<Equipment>) => Promise<number>;
+  update: (
+    criteria: FindOptionsWhere<Equipment>,
+    partialEntity: DeepPartial<Equipment>,
+  ) => Promise<UpdateResult>;
+};
 
 @CommandHandler(UpdateEquipmentCommand)
 export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCommand, Equipment> {
   private readonly logger = new Logger(UpdateEquipmentHandler.name);
 
   constructor(
-    @InjectRepository(Equipment)
-    private readonly equipmentRepository: Repository<Equipment>,
-    @InjectRepository(EquipmentSystem)
-    private readonly equipmentSystemRepository: Repository<EquipmentSystem>,
-    @InjectRepository(Department)
-    private readonly departmentRepository: Repository<Department>,
-    @InjectRepository(System)
-    private readonly systemRepository: Repository<System>,
-    @InjectRepository(Supplier)
-    private readonly supplierRepository: Repository<Supplier>,
-    @InjectRepository(Tank)
-    private readonly tankRepository: Repository<Tank>,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
+    private readonly outboxPublisher: OutboxPublisher,
+    private readonly tankEquipmentAdapter: TankEquipmentAdapterService,
   ) {}
 
   async execute(command: UpdateEquipmentCommand): Promise<Equipment> {
@@ -47,532 +55,251 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
     this.logger.log(`Updating equipment ${equipmentId} for tenant ${tenantId}`);
 
-    // Check if this ID exists in the tanks table first
-    const tank = await this.tankRepository.findOne({
+    const tankRepository = tenantManagerRepo(this.dataSource.manager, Tank, tenantId);
+    const tank = await tankRepository.findOne({
       where: { id: equipmentId, tenantId },
     });
-
     if (tank) {
-      // This is a tank - delegate to tank update logic
-      this.logger.log(`Equipment ${equipmentId} is a tank, updating Tank entity`);
-      return this.updateTank(tank, input, tenantId, userId);
+      return this.tankEquipmentAdapter.updateFromEquipment(tank, tenantId, userId, input);
     }
 
-    // Find existing equipment with its systems
-    const equipment = await this.equipmentRepository.findOne({
-      where: { id: equipmentId, tenantId },
-      relations: ['equipmentSystems'],
-    });
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const equipmentRepository = tenantManagerRepo(queryRunner.manager, Equipment, tenantId);
+      const equipmentSystemRepository = tenantManagerRepo(queryRunner.manager, EquipmentSystem, tenantId);
+      const departmentRepository = tenantManagerRepo(queryRunner.manager, Department, tenantId);
+      const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
+      const supplierRepository = tenantManagerRepo(queryRunner.manager, Supplier, tenantId);
 
-    if (!equipment) {
-      throw new NotFoundException(`Equipment with ID "${equipmentId}" not found`);
-    }
-
-    // Validate departmentId change if provided
-    const hasDepartmentId = Object.prototype.hasOwnProperty.call(input, 'departmentId');
-    if (hasDepartmentId && input.departmentId) {
-      const newDept = await this.departmentRepository.findOne({
-        where: { id: input.departmentId, tenantId },
+      const equipment = await equipmentRepository.findOne({
+        where: { id: equipmentId, isDeleted: false, tenantId },
+        relations: ['equipmentSystems'],
       });
-      if (!newDept) {
-        throw new NotFoundException(`Department with ID "${input.departmentId}" not found`);
+      if (!equipment) {
+        throw new NotFoundException(`Equipment with ID "${equipmentId}" not found`);
       }
-    }
+      const before = equipmentAuditSnapshot(equipment);
 
-    // Validate systemIds change (many-to-many relationship)
-    const hasSystemIds = Object.prototype.hasOwnProperty.call(input, 'systemIds');
-    let newEquipmentSystems: EquipmentSystem[] | null = null;
-
-    if (hasSystemIds) {
-      if (!input.systemIds || input.systemIds.length === 0) {
-        throw new BadRequestException('At least one system must be specified');
-      }
-
-      // Verify all systems exist and belong to tenant
-      const systems = await this.systemRepository.find({
-        where: { id: In(input.systemIds), tenantId },
+      const currentEquipmentType = await queryRunner.manager.findOne(EquipmentType, {
+        where: { id: equipment.equipmentTypeId },
       });
-
-      if (systems.length !== input.systemIds.length) {
-        const foundIds = systems.map(s => s.id);
-        const missingIds = input.systemIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(`Systems not found: ${missingIds.join(', ')}`);
+      const nextEquipmentType = input.equipmentTypeId
+        ? await queryRunner.manager.findOne(EquipmentType, { where: { id: input.equipmentTypeId } })
+        : currentEquipmentType;
+      if (input.equipmentTypeId && !nextEquipmentType) {
+        throw new NotFoundException(`Equipment type with ID "${input.equipmentTypeId}" not found`);
+      }
+      if (nextEquipmentType && this.isTankLike(nextEquipmentType.category)) {
+        throw new BadRequestException(
+          'Cannot convert non-tank equipment into tank-like equipment through update; create a canonical tank-like row instead.',
+        );
       }
 
-      // Get department for validation (use new departmentId if provided, otherwise current)
-      const departmentId = (hasDepartmentId && input.departmentId) ? input.departmentId : equipment.departmentId;
+      const hasDepartmentId = Object.prototype.hasOwnProperty.call(input, 'departmentId');
+      const departmentId = hasDepartmentId ? input.departmentId : equipment.departmentId;
       let department: Department | null = null;
       if (departmentId) {
-        department = await this.departmentRepository.findOne({
-          where: { id: departmentId, tenantId },
-        });
+        department = await departmentRepository.findOne({ where: { id: departmentId, tenantId } });
+        if (!department) {
+          throw new NotFoundException(`Department with ID "${departmentId}" not found`);
+        }
+        if (department.isDeleted) {
+          throw new BadRequestException(`Department with ID "${departmentId}" is deleted`);
+        }
       }
 
-      // Validate all systems
-      for (const system of systems) {
-        if (system.isDeleted) {
-          throw new BadRequestException(`System with ID "${system.id}" is deleted`);
+      const hasSystemIds = Object.prototype.hasOwnProperty.call(input, 'systemIds');
+      let newEquipmentSystems: EquipmentSystem[] | null = null;
+      if (hasSystemIds) {
+        if (!input.systemIds || input.systemIds.length === 0) {
+          throw new BadRequestException('At least one system must be specified');
         }
-        // Systems can be from the same site but different departments (shared equipment like generators)
-        if (department && system.siteId !== department.siteId) {
-          throw new BadRequestException(
-            `System "${system.name}" (${system.id}) does not belong to the same site as Department "${department.name}"`
+        const systems = await systemRepository.find({ where: { id: In(input.systemIds), tenantId } });
+        if (systems.length !== input.systemIds.length) {
+          const foundIds = systems.map((system) => system.id);
+          const missingIds = input.systemIds.filter((id) => !foundIds.includes(id));
+          throw new NotFoundException(`Systems not found: ${missingIds.join(', ')}`);
+        }
+        for (const system of systems) {
+          if (system.isDeleted) {
+            throw new BadRequestException(`System with ID "${system.id}" is deleted`);
+          }
+          if (department && system.siteId !== department.siteId) {
+            throw new BadRequestException(
+              `System "${system.name}" (${system.id}) does not belong to the same site as Department "${department.name}"`,
+            );
+          }
+        }
+        newEquipmentSystems = input.systemIds.map((systemId, index) =>
+          equipmentSystemRepository.create({
+            equipmentId,
+            systemId,
+            isPrimary: index === 0,
+            criticalityLevel: 3,
+            createdBy: userId,
+          }),
+        );
+      }
+
+      if (Object.prototype.hasOwnProperty.call(input, 'supplierId') && input.supplierId) {
+        const supplier = await supplierRepository.findOne({ where: { id: input.supplierId, tenantId } });
+        if (!supplier) {
+          throw new NotFoundException(`Supplier with ID "${input.supplierId}" not found`);
+        }
+        if (supplier.isDeleted) {
+          throw new BadRequestException(`Supplier with ID "${input.supplierId}" is deleted`);
+        }
+      }
+
+      const hasParentEquipmentId = Object.prototype.hasOwnProperty.call(input, 'parentEquipmentId');
+      const oldParentEquipmentId = equipment.parentEquipmentId;
+      if (hasParentEquipmentId) {
+        if (input.parentEquipmentId === equipmentId) {
+          throw new BadRequestException('Equipment cannot be its own parent');
+        }
+        if (input.parentEquipmentId) {
+          await this.assertValidParentEquipment(
+            equipmentRepository,
+            departmentRepository,
+            equipmentId,
+            input.parentEquipmentId,
+            departmentId,
+            department?.siteId,
+            tenantId,
           );
         }
       }
 
-      // Prepare new equipment-system relationships
-      newEquipmentSystems = input.systemIds.map((systemId, index) =>
-        this.equipmentSystemRepository.create({
-          tenantId,
-          equipmentId,
-          systemId,
-          isPrimary: index === 0,
-          criticalityLevel: 3,
-          createdBy: userId,
-        })
-      );
-    }
-
-    // Validate supplierId change (if provided)
-    const hasSupplierId = Object.prototype.hasOwnProperty.call(input, 'supplierId');
-    if (hasSupplierId && input.supplierId) {
-      const supplier = await this.supplierRepository.findOne({
-        where: { id: input.supplierId, tenantId },
-      });
-      if (!supplier) {
-        throw new NotFoundException(`Supplier with ID "${input.supplierId}" not found`);
-      }
-      if (supplier.isDeleted) {
-        throw new BadRequestException(`Supplier with ID "${input.supplierId}" is deleted`);
-      }
-    }
-
-    // Handle parentEquipmentId changes
-    const hasParentEquipmentId = Object.prototype.hasOwnProperty.call(input, 'parentEquipmentId');
-    const oldParentEquipmentId = equipment.parentEquipmentId;
-    let newParentEquipment: Equipment | null = null;
-
-    if (hasParentEquipmentId) {
-      // Prevent circular reference - equipment cannot be its own parent
-      if (input.parentEquipmentId === equipmentId) {
-        throw new BadRequestException('Equipment cannot be its own parent');
-      }
-
-      // If setting a new parent, validate it exists
-      if (input.parentEquipmentId) {
-        newParentEquipment = await this.equipmentRepository.findOne({
-          where: { id: input.parentEquipmentId, tenantId },
-        });
-        if (!newParentEquipment) {
-          throw new NotFoundException(`Parent equipment with ID "${input.parentEquipmentId}" not found`);
-        }
-        // Prevent circular reference - new parent cannot be a child of this equipment
-        if (newParentEquipment.parentEquipmentId === equipmentId) {
-          throw new BadRequestException('Cannot set parent: would create circular reference');
-        }
-      }
-    }
-
-    // Check for duplicate code if changing
-    if (input.code) {
-      const normalizedCode = input.code.toUpperCase();
-      if (normalizedCode !== equipment.code) {
-        const existingByCode = await this.equipmentRepository.findOne({
-          where: { tenantId, code: normalizedCode, id: Not(equipmentId) },
-        });
-        if (existingByCode) {
-          throw new ConflictException(`Equipment with code "${normalizedCode}" already exists`);
-        }
-      }
-    }
-
-    // Check for duplicate serial number if changing
-    if (input.serialNumber && input.serialNumber !== equipment.serialNumber) {
-      const existingBySerial = await this.equipmentRepository.findOne({
-        where: { tenantId, serialNumber: input.serialNumber, id: Not(equipmentId) },
-      });
-      if (existingBySerial) {
-        throw new ConflictException(`Equipment with serial number "${input.serialNumber}" already exists`);
-      }
-    }
-
-    // Remove systemIds from input (handled via junction table)
-    const { systemIds, ...equipmentInput } = input;
-
-    // Update fields
-    Object.assign(equipment, {
-      ...equipmentInput,
-      code: equipmentInput.code ? equipmentInput.code.toUpperCase() : equipment.code,
-      updatedBy: userId,
-    });
-
-    const updatedEquipment = await this.equipmentRepository.save(equipment);
-
-    // Update subEquipmentCount for parent changes
-    if (hasParentEquipmentId && oldParentEquipmentId !== input.parentEquipmentId) {
-      // Decrement old parent's count
-      if (oldParentEquipmentId) {
-        await this.equipmentRepository.decrement(
-          { id: oldParentEquipmentId },
-          'subEquipmentCount',
-          1
-        );
-        this.logger.log(`Decremented subEquipmentCount for old parent equipment ${oldParentEquipmentId}`);
-      }
-
-      // Increment new parent's count
-      if (input.parentEquipmentId) {
-        await this.equipmentRepository.increment(
-          { id: input.parentEquipmentId },
-          'subEquipmentCount',
-          1
-        );
-        this.logger.log(`Incremented subEquipmentCount for new parent equipment ${input.parentEquipmentId}`);
-      }
-    }
-
-    // Update equipment-system relationships if systemIds was provided
-    if (newEquipmentSystems) {
-      // Remove existing relationships
-      await this.equipmentSystemRepository.delete({ equipmentId });
-
-      // Create new relationships
-      await this.equipmentSystemRepository.save(newEquipmentSystems);
-
-      // Attach to response
-      updatedEquipment.equipmentSystems = newEquipmentSystems;
-
-      this.logger.log(`Equipment ${equipmentId} systems updated: ${input.systemIds?.join(', ')}`);
-    }
-
-    this.logger.log(`Equipment ${equipmentId} updated successfully`);
-
-    // Publish domain event: EquipmentUpdated
-    if (this.eventBus) {
-      try {
-        const event: EquipmentUpdatedEvent = {
-          ...createBaseEvent<EquipmentUpdatedEvent>('EquipmentUpdated', tenantId),
-          equipmentId: updatedEquipment.id,
-          name: updatedEquipment.name,
-          status: updatedEquipment.status,
-        };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published EquipmentUpdatedEvent for equipment ${updatedEquipment.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish EquipmentUpdatedEvent: ${(eventError as Error).message}`);
-      }
-    }
-
-    return updatedEquipment;
-  }
-
-  /**
-   * Update Tank entity when accessed via equipment resolver
-   * Maps UpdateEquipmentInput fields to Tank fields
-   */
-  private async updateTank(
-    tank: Tank,
-    input: UpdateEquipmentCommand['input'],
-    tenantId: string,
-    userId: string,
-  ): Promise<Equipment> {
-    // Cannot update dimensions if tank has active batches
-    const specs = input.specifications as {
-      tankType?: string;
-      dimensions?: { diameter?: number; length?: number; width?: number; depth?: number };
-      material?: string;
-      waterType?: string;
-      maxBiomass?: number;
-      maxDensity?: number;
-      waterDepth?: number;
-      freeboard?: number;
-      waterFlow?: Record<string, unknown>;
-      aeration?: Record<string, unknown>;
-      location?: Record<string, unknown>;
-    } | undefined;
-
-    const hasDimensionChanges = specs?.dimensions && (
-      specs.dimensions.diameter !== undefined ||
-      specs.dimensions.length !== undefined ||
-      specs.dimensions.width !== undefined ||
-      specs.dimensions.depth !== undefined
-    );
-
-    if (tank.currentBiomass > 0 && hasDimensionChanges) {
-      throw new BadRequestException(
-        'Cannot update dimensions while tank has active biomass. Please transfer or harvest first.',
-      );
-    }
-
-    // Check for duplicate code if changing
-    if (input.code) {
-      const normalizedCode = input.code.toUpperCase();
-      if (normalizedCode !== tank.code) {
-        const existingByCode = await this.tankRepository.findOne({
-          where: { tenantId, code: normalizedCode, id: Not(tank.id) },
-        });
-        if (existingByCode) {
-          throw new ConflictException(`Tank with code "${normalizedCode}" already exists`);
-        }
-        tank.code = normalizedCode;
-      }
-    }
-
-    // Handle systemIds for tank (single FK, not many-to-many)
-    const hasSystemIds = Object.prototype.hasOwnProperty.call(input, 'systemIds');
-    if (hasSystemIds && input.systemIds) {
-      if (input.systemIds.length > 1) {
-        throw new BadRequestException('Tank can only be associated with one system');
-      }
-      if (input.systemIds.length === 1) {
-        const system = await this.systemRepository.findOne({
-          where: { id: input.systemIds[0], tenantId },
-        });
-        if (!system) {
-          throw new NotFoundException(`System with ID "${input.systemIds[0]}" not found`);
-        }
-        if (system.isDeleted) {
-          throw new BadRequestException(`System with ID "${input.systemIds[0]}" is deleted`);
-        }
-        // Validate same site as department
-        const deptId = input.departmentId ?? tank.departmentId;
-        if (deptId) {
-          const dept = await this.departmentRepository.findOne({ where: { id: deptId, tenantId } });
-          if (dept && system.siteId !== dept.siteId) {
-            throw new BadRequestException(
-              `System "${system.name}" does not belong to the same site as the department`,
-            );
+      if (input.code) {
+        const normalizedCode = input.code.toUpperCase();
+        if (normalizedCode !== equipment.code) {
+          const duplicate = await equipmentRepository.findOne({ where: { code: normalizedCode, tenantId } });
+          if (duplicate && duplicate.id !== equipmentId) {
+            throw new ConflictException(`Equipment with code "${normalizedCode}" already exists`);
           }
         }
-        tank.systemId = system.id;
-      } else {
-        // Empty array: clear system association
-        tank.systemId = undefined;
       }
-    }
 
-    // Handle departmentId change
-    if (input.departmentId !== undefined && input.departmentId !== tank.departmentId) {
-      const newDept = await this.departmentRepository.findOne({
-        where: { id: input.departmentId, tenantId },
+      if (input.serialNumber && input.serialNumber !== equipment.serialNumber) {
+        const duplicate = await equipmentRepository.findOne({
+          where: { serialNumber: input.serialNumber, tenantId },
+        });
+        if (duplicate && duplicate.id !== equipmentId) {
+          throw new ConflictException(
+            `Equipment with serial number "${input.serialNumber}" already exists`,
+          );
+        }
+      }
+
+      const { systemIds: _systemIds, id: _id, ...equipmentInput } = input;
+      Object.assign(equipment, {
+        ...equipmentInput,
+        code: equipmentInput.code ? equipmentInput.code.toUpperCase() : equipment.code,
+        updatedBy: userId,
       });
-      if (!newDept) {
-        throw new NotFoundException(`Department with ID "${input.departmentId}" not found`);
-      }
-      tank.departmentId = input.departmentId;
-    }
 
-    // Map UpdateEquipmentInput fields to Tank fields
-    if (input.name !== undefined) tank.name = input.name;
-    if (input.description !== undefined) tank.description = input.description;
-    if (input.notes !== undefined) tank.notes = input.notes;
-    if (input.installationDate !== undefined) {
-      tank.installationDate = input.installationDate;
-    }
-    if (input.isActive !== undefined) tank.isActive = input.isActive;
+      const persistedEquipment = await equipmentRepository.save(equipment);
 
-    // Map specifications to tank-specific fields
-    if (specs) {
-      // Tank type
-      if (specs.tankType !== undefined) {
-        const tankTypeValue = specs.tankType.toLowerCase();
-        if (Object.values(TankType).includes(tankTypeValue as TankType)) {
-          tank.tankType = tankTypeValue as TankType;
-        }
+      if (hasParentEquipmentId && oldParentEquipmentId !== input.parentEquipmentId) {
+        await this.recomputeSubEquipmentCount(equipmentRepository, oldParentEquipmentId);
+        await this.recomputeSubEquipmentCount(equipmentRepository, input.parentEquipmentId);
       }
 
-      // Material
-      if (specs.material !== undefined) {
-        const materialValue = specs.material.toLowerCase();
-        if (Object.values(TankMaterial).includes(materialValue as TankMaterial)) {
-          tank.material = materialValue as TankMaterial;
-        }
+      if (newEquipmentSystems) {
+        await equipmentSystemRepository.delete({ equipmentId });
+        persistedEquipment.equipmentSystems = await equipmentSystemRepository.saveMany(newEquipmentSystems);
       }
 
-      // Water type
-      if (specs.waterType !== undefined) {
-        const waterTypeValue = specs.waterType.toLowerCase();
-        if (Object.values(WaterType).includes(waterTypeValue as WaterType)) {
-          tank.waterType = waterTypeValue as WaterType;
-        }
-      }
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'Equipment',
+        entityId: persistedEquipment.id,
+        action: AuditAction.UPDATE,
+        userId,
+        changes: {
+          before,
+          after: equipmentAuditSnapshot(persistedEquipment),
+        },
+        metadata: { source: 'SITES_SETUP_EQUIPMENT' },
+        entityVersion: persistedEquipment.version,
+        summary: `Updated equipment ${persistedEquipment.code}`,
+      });
 
-      // Dimensions
-      if (specs.dimensions) {
-        if (specs.dimensions.diameter !== undefined) tank.diameter = specs.dimensions.diameter;
-        if (specs.dimensions.length !== undefined) tank.length = specs.dimensions.length;
-        if (specs.dimensions.width !== undefined) tank.width = specs.dimensions.width;
-        if (specs.dimensions.depth !== undefined) tank.depth = specs.dimensions.depth;
-      }
-
-      // Capacity settings
-      if (specs.maxBiomass !== undefined) tank.maxBiomass = specs.maxBiomass;
-      if (specs.maxDensity !== undefined) tank.maxDensity = specs.maxDensity;
-      if (specs.waterDepth !== undefined) tank.waterDepth = specs.waterDepth;
-      if (specs.freeboard !== undefined) tank.freeboard = specs.freeboard;
-
-      // JSONB fields
-      if (specs.waterFlow !== undefined) {
-        tank.waterFlow = specs.waterFlow as Tank['waterFlow'];
-      }
-      if (specs.aeration !== undefined) {
-        tank.aeration = specs.aeration as Tank['aeration'];
-      }
-      if (specs.location !== undefined) {
-        tank.location = specs.location as Tank['location'];
-      }
-    }
-
-    // Map equipment status to tank status if provided (complete mapping for all 12 values)
-    if (input.status !== undefined) {
-      const statusMapping: Record<string, TankStatus> = {
-        'operational': TankStatus.ACTIVE,
-        'active': TankStatus.ACTIVE,
-        'preparing': TankStatus.PREPARING,
-        'cleaning': TankStatus.CLEANING,
-        'maintenance': TankStatus.MAINTENANCE,
-        'repair': TankStatus.MAINTENANCE,
-        'harvesting': TankStatus.HARVESTING,
-        'fallow': TankStatus.FALLOW,
-        'standby': TankStatus.FALLOW,
-        'quarantine': TankStatus.QUARANTINE,
-        'out_of_service': TankStatus.INACTIVE,
-        'decommissioned': TankStatus.INACTIVE,
-        'inactive': TankStatus.INACTIVE,
+      const event: EquipmentUpdatedEvent = {
+        ...createBaseEvent<EquipmentUpdatedEvent>('EquipmentUpdated', tenantId, {
+          aggregateId: persistedEquipment.id,
+          aggregateType: 'Equipment',
+          userId,
+        }),
+        equipmentId: persistedEquipment.id,
+        siteId: department?.siteId,
+        name: persistedEquipment.name,
+        status: persistedEquipment.status,
       };
-      const mappedStatus = statusMapping[input.status.toLowerCase()];
-      if (mappedStatus) {
-        tank.status = mappedStatus;
-        tank.statusChangedAt = new Date();
-      }
-    }
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+        aggregateId: persistedEquipment.id,
+      });
 
-    // Handle location from equipment input
-    if (input.location) {
-      const equipmentLocation = input.location as {
-        building?: string;
-        floor?: string;
-        room?: string;
-        coordinates?: { x: number; y: number; z?: number };
-        notes?: string;
-      };
-      tank.location = {
-        ...tank.location,
-        building: equipmentLocation.building ?? tank.location?.building,
-        section: equipmentLocation.room ?? tank.location?.section,
-        floor: equipmentLocation.floor ?? tank.location?.floor,
-        coordinates: equipmentLocation.coordinates ?? tank.location?.coordinates,
-        notes: equipmentLocation.notes ?? tank.location?.notes,
-      };
-    }
-
-    tank.updatedBy = userId;
-
-    // Only recalculate and validate volume if dimensions were actually changed
-    if (hasDimensionChanges) {
-      tank.calculateVolume();
-
-      if (tank.volume <= 0) {
-        throw new BadRequestException(
-          'Invalid dimensions: calculated volume must be greater than 0',
-        );
-      }
-    }
-
-    // Save the tank
-    const savedTank = await this.tankRepository.save(tank);
-
-    this.logger.log(`Tank ${savedTank.id} updated successfully via equipment resolver`);
-
-    // Convert Tank to Equipment response format
-    return this.tankToEquipmentResponse(savedTank);
+      this.logger.log(`Equipment ${equipmentId} updated successfully`);
+      return persistedEquipment;
+    });
   }
 
-  /**
-   * Convert Tank entity to Equipment response format
-   * This allows the equipment resolver to return a consistent response
-   */
-  private tankToEquipmentResponse(tank: Tank): Equipment {
-    const equipment = new Equipment();
-    equipment.id = tank.id;
-    equipment.tenantId = tank.tenantId;
-    equipment.departmentId = tank.departmentId;
-    equipment.name = tank.name;
-    equipment.code = tank.code;
-    equipment.description = tank.description;
-    equipment.isActive = tank.isActive;
-    equipment.isTank = true;
-    equipment.volume = Number(tank.volume);
-    equipment.notes = tank.notes;
-    equipment.createdAt = tank.createdAt;
-    equipment.updatedAt = tank.updatedAt;
-    equipment.createdBy = tank.createdBy;
-    equipment.updatedBy = tank.updatedBy;
+  private isTankLike(category: EquipmentCategory): boolean {
+    return [
+      EquipmentCategory.TANK,
+      EquipmentCategory.POND,
+      EquipmentCategory.CAGE,
+    ].includes(category);
+  }
 
-    // Map tank status to equipment status (1:1 mapping, consistent with list handler)
-    const statusMapping: Record<TankStatus, EquipmentStatus> = {
-      [TankStatus.ACTIVE]: EquipmentStatus.ACTIVE,
-      [TankStatus.PREPARING]: EquipmentStatus.PREPARING,
-      [TankStatus.CLEANING]: EquipmentStatus.CLEANING,
-      [TankStatus.MAINTENANCE]: EquipmentStatus.MAINTENANCE,
-      [TankStatus.HARVESTING]: EquipmentStatus.HARVESTING,
-      [TankStatus.FALLOW]: EquipmentStatus.FALLOW,
-      [TankStatus.QUARANTINE]: EquipmentStatus.QUARANTINE,
-      [TankStatus.INACTIVE]: EquipmentStatus.OUT_OF_SERVICE,
-    };
-    equipment.status = statusMapping[tank.status] ?? EquipmentStatus.OPERATIONAL;
-
-    // Build specifications from tank fields
-    equipment.specifications = {
-      tankType: tank.tankType,
-      material: tank.material,
-      waterType: tank.waterType,
-      dimensions: {
-        diameter: tank.diameter,
-        length: tank.length,
-        width: tank.width,
-        depth: tank.depth,
-      },
-      volume: tank.volume,
-      waterVolume: tank.waterVolume,
-      maxBiomass: tank.maxBiomass,
-      currentBiomass: tank.currentBiomass,
-      maxDensity: tank.maxDensity,
-      currentCount: tank.currentCount,
-      waterDepth: tank.waterDepth,
-      freeboard: tank.freeboard,
-      waterFlow: tank.waterFlow,
-      aeration: tank.aeration,
-    };
-
-    // Map location
-    if (tank.location) {
-      equipment.location = {
-        building: tank.location.building,
-        floor: tank.location.floor,
-        room: tank.location.section,
-        coordinates: tank.location.coordinates,
-        notes: tank.location.notes,
-      };
+  private async assertValidParentEquipment(
+    equipmentRepository: ScopedEquipmentRepository,
+    departmentRepository: { findOne: (options: FindOneOptions<Department>) => Promise<Department | null> },
+    equipmentId: string,
+    parentEquipmentId: string,
+    childDepartmentId?: string,
+    childSiteId?: string,
+    tenantId?: string,
+  ): Promise<void> {
+    const parent = await equipmentRepository.findOne({ where: { id: parentEquipmentId, tenantId } });
+    if (!parent) {
+      throw new NotFoundException(`Parent equipment with ID "${parentEquipmentId}" not found`);
+    }
+    if (!parent.isActive || parent.isDeleted) {
+      throw new BadRequestException(`Parent equipment with ID "${parentEquipmentId}" is inactive or deleted`);
+    }
+    if (parent.departmentId && childDepartmentId && parent.departmentId !== childDepartmentId && childSiteId) {
+      const parentDepartment = await departmentRepository.findOne({
+        where: { id: parent.departmentId, tenantId },
+      });
+      if (parentDepartment?.siteId !== childSiteId) {
+        throw new BadRequestException('Parent equipment must belong to the same site');
+      }
     }
 
-    // Populate equipmentSystems from tank's systemId for consistent response
-    if (tank.systemId) {
-      equipment.equipmentSystems = [{
-        id: `${tank.id}-${tank.systemId}`,
-        tenantId: tank.tenantId,
-        equipmentId: tank.id,
-        systemId: tank.systemId,
-        isPrimary: true,
-        criticalityLevel: 3,
-        createdAt: tank.createdAt,
-        createdBy: tank.createdBy,
-      }] as EquipmentSystem[];
-    } else {
-      equipment.equipmentSystems = [];
+    let cursor = parent.parentEquipmentId;
+    let depth = 0;
+    while (cursor && depth < 20) {
+      if (cursor === equipmentId) {
+        throw new BadRequestException('Cannot set parent: would create circular reference');
+      }
+      const ancestor = await equipmentRepository.findOne({ where: { id: cursor, tenantId } });
+      cursor = ancestor?.parentEquipmentId;
+      depth += 1;
     }
+    if (depth >= 20) {
+      throw new BadRequestException('Equipment hierarchy depth limit exceeded');
+    }
+  }
 
-    return equipment;
+  private async recomputeSubEquipmentCount(
+    equipmentRepository: ScopedEquipmentRepository,
+    equipmentId?: string,
+  ): Promise<void> {
+    if (!equipmentId) return;
+    const childCount = await equipmentRepository.count({
+      where: { parentEquipmentId: equipmentId, isDeleted: false },
+    });
+    await equipmentRepository.update({ id: equipmentId }, { subEquipmentCount: childCount });
   }
 }

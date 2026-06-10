@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from .file_lock import with_exclusive_lock
-from .ledger import _append_jsonl_unlocked, append_jsonl, load_jsonl
+from .ledger import (
+    _append_jsonl_unlocked,
+    _assert_declared_surface,
+    append_declared_jsonl,
+    load_declared_jsonl,
+)
 from .agent_network import latest_agent_network_hash
 from .pressure import effective_workspace_pressures
 from .tool_registry import (
@@ -34,6 +39,54 @@ DEFAULT_AUTO_BATCH_LIMIT = 10
 # rows; the claim ledger lives at dispatch/claims.jsonl.
 DEFAULT_LEASE_SECONDS = 1800
 LEASE_TOKEN_BYTES = 24
+
+
+_DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
+    "triage/decisions.jsonl": "triage_decisions",
+    "dispatch/requests.jsonl": "dispatch_requests",
+    "dispatch/claims.jsonl": "dispatch_claims",
+    "dispatch/worker-results.jsonl": "dispatch_worker_results",
+    "dispatch/verification-results.jsonl": "dispatch_verification_results",
+    "governance.jsonl": "tools_governance",
+    "pr-lifecycle.jsonl": "pr_lifecycle",
+}
+
+
+def _declared_surface_name(path: str | Path) -> str | None:
+    concrete = Path(path)
+    if len(concrete.parts) >= 2:
+        suffix = "/".join(concrete.parts[-2:])
+        if suffix in _DECLARED_SURFACE_BY_JSONL_SUFFIX:
+            return _DECLARED_SURFACE_BY_JSONL_SUFFIX[suffix]
+    return _DECLARED_SURFACE_BY_JSONL_SUFFIX.get(concrete.name)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return append_declared_jsonl(path, record, expected_surface=surface)
+    raise GovernanceError(f"worker_dispatch_append_unknown_surface:{path.as_posix()}")
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return load_declared_jsonl(path, expected_surface=surface)
+    raise GovernanceError(f"worker_dispatch_load_unknown_surface:{path.as_posix()}")
+
+
+def _append_declared_jsonl_unlocked(
+    path: Path,
+    record: dict[str, Any],
+    *,
+    expected_surface: str,
+) -> dict[str, Any]:
+    _assert_declared_surface(
+        path,
+        expected_surface=expected_surface,
+        enforce_write_profile=True,
+    )
+    return _append_jsonl_unlocked(path.resolve(), record)
 
 
 def create_dispatch_request(
@@ -136,12 +189,12 @@ def list_dispatch_requests(
     target_agent: str | None = None,
     pressure_event_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    rows = load_jsonl(Path(tools_root) / "dispatch" / "requests.jsonl")
-    states = _latest_request_states(Path(tools_root))
+    root = Path(tools_root)
+    rows = load_jsonl(root / "dispatch" / "requests.jsonl")
+    states = _latest_assignment_states(root)
     enriched: list[dict[str, Any]] = []
     for row in rows:
-        pe = row.get("pressure_event_id")
-        current_state = states.get(pe, row.get("state", "pending")) if pe else row.get("state", "pending")
+        current_state = _current_assignment_state(row, states)
         view = dict(row)
         view["current_state"] = current_state
         enriched.append(view)
@@ -152,6 +205,13 @@ def list_dispatch_requests(
     if pressure_event_id is not None:
         enriched = [r for r in enriched if r.get("pressure_event_id") == pressure_event_id]
     return enriched
+
+
+def _current_assignment_state(row: dict[str, Any], states: dict[str, str]) -> str:
+    assignment_id = str(row.get("assignment_id") or "")
+    if assignment_id and assignment_id in states:
+        return states[assignment_id]
+    return str(row.get("state") or "pending")
 
 
 def mark_dispatch_picked_up(
@@ -168,8 +228,8 @@ def mark_dispatch_picked_up(
     if not matching:
         return {"schema_version": 1, "status": "not_found", "pressure_event_id": pressure_event_id}
     latest = matching[-1]
-    states = _latest_request_states(root)
-    current_state = states.get(pressure_event_id, latest.get("state", "pending"))
+    states = _latest_assignment_states(root)
+    current_state = _current_assignment_state(latest, states)
     if current_state in {"completed", "cancelled", "expired"}:
         return {
             "schema_version": 1,
@@ -214,8 +274,8 @@ def cancel_dispatch_request(
     if not matching:
         return {"schema_version": 1, "status": "not_found", "pressure_event_id": pressure_event_id}
     latest = matching[-1]
-    states = _latest_request_states(root)
-    current_state = states.get(pressure_event_id, latest.get("state", "pending"))
+    states = _latest_assignment_states(root)
+    current_state = _current_assignment_state(latest, states)
     if current_state == "cancelled":
         return {"schema_version": 1, "status": "already_cancelled", "pressure_event_id": pressure_event_id}
     if current_state == "completed":
@@ -258,7 +318,16 @@ def auto_batch_dispatch(
 ) -> dict[str, Any]:
     root = ensure_tools_binding(tools_root, workspace_root=paths.repo_root)
     decisions = load_jsonl(root / "triage" / "decisions.jsonl")
-    eligible_states = _latest_request_states(root)
+    request_rows = load_jsonl(root / "dispatch" / "requests.jsonl")
+    assignment_states = _latest_assignment_states(root)
+    states_by_pressure: dict[str, set[str]] = {}
+    for request in request_rows:
+        pe_id = str(request.get("pressure_event_id") or "")
+        if not pe_id:
+            continue
+        states_by_pressure.setdefault(pe_id, set()).add(
+            _current_assignment_state(request, assignment_states),
+        )
     seen: set[str] = set()
     candidates: list[dict[str, Any]] = []
     for row in reversed(decisions):
@@ -267,7 +336,7 @@ def auto_batch_dispatch(
         pe = str(row.get("pressure_event_id") or "")
         if not pe or pe in seen:
             continue
-        if eligible_states.get(pe) in {"pending", "prepared", "picked_up", "completed"}:
+        if states_by_pressure.get(pe, set()) & {"pending", "prepared", "picked_up", "submitted", "verified", "completed"}:
             continue
         seen.add(pe)
         candidates.append(row)
@@ -309,7 +378,7 @@ def prune_worktrees(
     repo = Path(repo_root)
     root = Path(tools_root)
     rows = load_jsonl(root / "dispatch" / "requests.jsonl")
-    states = _latest_request_states(root)
+    states = _latest_assignment_states(root)
     moment = now or datetime.now(timezone.utc)
     pruned: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -319,7 +388,7 @@ def prune_worktrees(
         assignment_id = row.get("assignment_id")
         if not pe or not worktree_rel or not assignment_id:
             continue
-        current_state = states.get(pe, row.get("state", "pending"))
+        current_state = _current_assignment_state(row, states)
         if current_state not in {"completed", "cancelled", "expired"}:
             continue
         created = _parse_iso(row.get("created_at"))
@@ -429,11 +498,7 @@ def _derive_assignment_state(root: Path, assignment_id: str) -> str:
     assignment = _find_assignment(root, assignment_id)
     if assignment is None:
         return "missing"
-    pe = assignment.get("pressure_event_id")
-    if not pe:
-        return str(assignment.get("state", "pending"))
-    states = _latest_request_states(root)
-    return states.get(str(pe), str(assignment.get("state", "pending")))
+    return _current_assignment_state(assignment, _latest_assignment_states(root))
 
 
 def next_pending_assignment(
@@ -451,15 +516,11 @@ def next_pending_assignment(
     """
     root = ensure_tools_dir(base_dir)
     rows = load_jsonl(root / "dispatch" / "requests.jsonl")
-    states = _latest_request_states(root)
+    states = _latest_assignment_states(root)
     for row in rows:
         if target_agent and row.get("target_agent") != target_agent:
             continue
-        pe = row.get("pressure_event_id")
-        current_state = (
-            states.get(str(pe), row.get("state", "pending"))
-            if pe else row.get("state", "pending")
-        )
+        current_state = _current_assignment_state(row, states)
         if current_state in {"pending", "prepared"}:
             return row
     return None
@@ -528,13 +589,18 @@ def claim_assignment(
             "agent_id": agent_id,
             "lease_token_hash": _hash_lease_token(lease_token),
             "lease_seconds": lease_seconds,
+            "recorded_at": _iso(now),
             "claimed_at": _iso(now),
             "lease_expires_at": _iso(expires),
         }
         # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
         # at the enclosing block; use the unlocked helper to avoid POSIX flock
         # re-acquisition.
-        _append_jsonl_unlocked(claims_path, row)
+        _append_declared_jsonl_unlocked(
+            claims_path,
+            row,
+            expected_surface="dispatch_claims",
+        )
     # Mirror dispatch_request_state_changed event so the existing
     # state-derivation reads pick the new picked_up state without
     # adding a second derivation source.
@@ -608,6 +674,7 @@ def release_claim_assignment(
                 f"claim {claim_id} already terminal "
                 f"({terminal[-1].get('event')})"
             )
+        released_at = _iso(_utc_now_dt())
         row = {
             "schema_version": 1,
             "event": "released",
@@ -616,12 +683,17 @@ def release_claim_assignment(
             "pressure_event_id": claim_event.get("pressure_event_id"),
             "agent_id": claim_event.get("agent_id"),
             "reason": reason,
-            "released_at": _iso(_utc_now_dt()),
+            "recorded_at": released_at,
+            "released_at": released_at,
         }
         # Plan 026R §A.1 — caller already holds with_exclusive_lock(claims_path)
         # at the enclosing block; use the unlocked helper to avoid POSIX flock
         # re-acquisition.
-        _append_jsonl_unlocked(claims_path, row)
+        _append_declared_jsonl_unlocked(
+            claims_path,
+            row,
+            expected_surface="dispatch_claims",
+        )
     pe_id = claim_event.get("pressure_event_id")
     if pe_id:
         # State derivation rolls back to pending so the next
@@ -751,15 +823,29 @@ def _latest_assignment_states(root: Path) -> dict[str, str]:
        the corruption signal rather than a derived state.
     """
     SOURCE_PRIORITY = {
+        "requests": 0,
         "verification-results": 3,
         "worker-results": 2,
         "claims": 1,
     }
-    TERMINAL_STATES = frozenset({"stale", "human_required", "verified"})
+    TERMINAL_STATES = frozenset({
+        "cancelled",
+        "completed",
+        "expired",
+        "human_required",
+        "multiple_active_claims_corruption",
+        "stale",
+        "verified",
+    })
 
     events: list[tuple[Any, int, int, str, dict[str, Any]]] = []
+    for seq, row in enumerate(load_jsonl(root / "dispatch" / "requests.jsonl")):
+        events.append((
+            row.get("created_at") or "",
+            SOURCE_PRIORITY["requests"], seq, "requests", row,
+        ))
     for seq, row in enumerate(load_jsonl(root / "dispatch" / "claims.jsonl")):
-        ts = row.get("claimed_at") or row.get("released_at") or row.get("at") or ""
+        ts = row.get("recorded_at") or row.get("claimed_at") or row.get("released_at") or row.get("at") or ""
         events.append((ts, SOURCE_PRIORITY["claims"], seq, "claims", row))
     for seq, row in enumerate(load_jsonl(root / "dispatch" / "worker-results.jsonl")):
         events.append((
@@ -781,7 +867,9 @@ def _latest_assignment_states(root: Path) -> dict[str, str]:
             continue
         if states.get(assignment_id) in TERMINAL_STATES:
             continue
-        if source == "claims":
+        if source == "requests":
+            states.setdefault(assignment_id, str(row.get("state") or "pending"))
+        elif source == "claims":
             event = row.get("event")
             claim_id = str(row.get("claim_id") or "")
             if event == "claimed" and claim_id:

@@ -1,16 +1,21 @@
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { Employee } from '../hr/entities/employee.entity';
 import { HrOutboxModule } from '../hr-outbox.module';
-import { LeaveType } from './entities/leave-type.entity';
+import { HrMobileCommandReceipt } from '../mobile-command/entities/hr-mobile-command-receipt.entity';
+
 import { LeaveBalance } from './entities/leave-balance.entity';
 import { LeaveRequest } from './entities/leave-request.entity';
-import { LeaveResolver } from './leave.resolver';
+import { LeaveType } from './entities/leave-type.entity';
 import { LeaveCommandHandlers } from './handlers';
-import { LeaveQueryHandlers } from './query-handlers';
 import { LeaveAccrualService } from './leave-accrual.service';
-import { Employee } from '../hr/entities/employee.entity';
+import { LeaveResolver } from './leave.resolver';
+import { LeaveQueryHandlers } from './query-handlers';
+
 
 @Module({
   imports: [
@@ -19,6 +24,7 @@ import { Employee } from '../hr/entities/employee.entity';
       LeaveBalance,
       LeaveRequest,
       Employee,
+      HrMobileCommandReceipt,
     ]),
     CqrsModule,
     ScheduleModule,
@@ -26,6 +32,7 @@ import { Employee } from '../hr/entities/employee.entity';
   ],
   providers: [
     LeaveResolver,
+    MobileCommandReceiptService,
     ...LeaveCommandHandlers,
     ...LeaveQueryHandlers,
     LeaveAccrualService,

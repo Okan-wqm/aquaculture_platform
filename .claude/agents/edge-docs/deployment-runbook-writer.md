@@ -4,6 +4,7 @@ description: Produces the deployment runbooks a Siemens field engineer and a pla
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 3
 ---
 
 # Deployment Runbook Writer — Lane-C Producer

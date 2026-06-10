@@ -176,6 +176,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       createMockOutboxPublisher(),
+      { validate: jest.fn() } as never,
     );
   });
 
@@ -564,6 +565,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       createMockOutboxPublisher(),
+      { validate: jest.fn() } as never,
     );
 
     const command = new RecordMortalityCommand('tenant-exact', 'batch-exact', {

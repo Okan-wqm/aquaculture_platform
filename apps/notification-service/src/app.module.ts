@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
+import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import {
@@ -13,8 +14,9 @@ import {
 } from '@aquaculture/backend-common/audit';
 import {
   AuditColumnsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
+  isSchemaDdlOwnedByDbMigrate,
   RlsModule,
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
@@ -42,7 +44,8 @@ import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
  * which point the search_path pin here puts them at the front of the
  * resolution chain.
  */
-const NotificationMigrationRunnerService = createMigrationRunnerService('notification');
+const NotificationMigrationRunnerService = createSchemaVersionGate('notification');
+const notificationSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventBusModule } from '@platform/event-bus';
 import { NotificationModule } from './notification/notification.module';
@@ -103,7 +106,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        autoSchemaFile: { federation: 2 },
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'dist/graphql/subgraphs/notification.graphql'),
+        },
         /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
          *  The gateway already blocks batching, but subgraphs must also enforce this as
          *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -216,7 +222,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      */
     RlsModule.forPoolService({
       serviceName: 'notification',
-      autoApply: true,
+      autoApply: !notificationSchemaDdlOwnedByDbMigrate,
     }),
     /**
      * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
@@ -227,7 +233,9 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      * same OnApplicationBootstrap lifecycle. Idempotent — re-runs are
      * no-ops at the discovery layer.
      */
-    AuditColumnsModule.forRoot({ serviceName: 'notification' }),
+    ...(notificationSchemaDdlOwnedByDbMigrate
+      ? []
+      : [AuditColumnsModule.forRoot({ serviceName: 'notification' })]),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'notification' }),
   ],
@@ -259,7 +267,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'notification-service'),
       inject: [ConfigService],
     },
     {

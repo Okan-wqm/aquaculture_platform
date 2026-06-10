@@ -5,24 +5,24 @@ import {
   Index,
   CreateDateColumn,
 } from 'typeorm';
-import { BigIntTransformer } from '../transformers/bigint.transformer';
+import { BigIntStringTransformer } from '../transformers/bigint.transformer';
 
 /**
  * Stored event entity for event sourcing
  * This is the core entity that stores all domain events
  */
 @Entity('stored_events', { schema: 'event_store' })
-@Index(['aggregateType', 'aggregateId', 'version'], { unique: true })
 @Index(['globalPosition'], { unique: true })
 @Index(['streamName'])
 @Index(['eventType'])
 @Index(['tenantId'])
 @Index(['occurredAt'])
 @Index(['correlationId'])
-@Index(['tenantId', 'streamName', 'version'])
+@Index('IDX_stored_events_tenant_stream_version', ['tenantId', 'streamName', 'version'], { unique: true })
 @Index(['tenantId', 'globalPosition'])
 @Index(['tenantId', 'eventType'])
 @Index(['tenantId', 'storedAt'])
+@Index(['tenantId', 'producer', 'producerEventId'], { unique: true })
 /**
  * Composite index for tenant-scoped aggregate event replay.
  * Event store queries filter by tenant_id + aggregate_id + version
@@ -32,7 +32,7 @@ import { BigIntTransformer } from '../transformers/bigint.transformer';
  * is part of the WHERE clause (common in multi-tenant queries).
  * @see DATA-MEDIUM-013
  */
-@Index('IDX_stored_events_tenant_aggregate_version', ['tenantId', 'aggregateId', 'version'])
+@Index('IDX_stored_events_tenant_aggregate_version', ['tenantId', 'aggregateType', 'aggregateId', 'version'], { unique: true })
 export class StoredEvent {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -46,14 +46,26 @@ export class StoredEvent {
   /**
    * Sequential position within the global event log
    */
-  @Column({ type: 'bigint', transformer: new BigIntTransformer() })
-  globalPosition!: number;
+  @Column({ type: 'bigint', transformer: new BigIntStringTransformer() })
+  globalPosition!: string;
 
   /**
    * Position within the specific stream
    */
-  @Column({ type: 'bigint', transformer: new BigIntTransformer() })
-  streamPosition!: number;
+  @Column({ type: 'bigint', transformer: new BigIntStringTransformer() })
+  streamPosition!: string;
+
+  /**
+   * Producer service that owns idempotency for this event.
+   */
+  @Column({ type: 'varchar', length: 100 })
+  producer!: string;
+
+  /**
+   * Producer-local immutable event id. Unique with tenant+producer.
+   */
+  @Column({ type: 'varchar', length: 255 })
+  producerEventId!: string;
 
   /**
    * Aggregate root type (e.g., 'Farm', 'Sensor', 'Alert')

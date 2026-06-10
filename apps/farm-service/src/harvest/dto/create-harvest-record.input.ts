@@ -5,25 +5,27 @@
  *
  * @module Harvest/DTO
  */
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { InputType, Field, Float, Int, ID } from '@nestjs/graphql';
 import {
-  IsNotEmpty,
-  IsUUID,
-  IsPositive,
-  IsOptional,
-  IsString,
   IsDateString,
-  IsNumber,
   IsEnum,
-  Min,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  IsUUID,
   Max,
   MaxLength,
+  Min,
 } from 'class-validator';
-import { QualityGrade } from '../entities/harvest-record.entity';
+
 import { HarvestMethod, ProductForm } from '../entities/harvest-plan.entity';
+import { QualityGrade } from '../entities/harvest-record.entity';
 
 @InputType()
-export class CreateHarvestRecordInput {
+export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @Field(() => ID, { description: 'Batch ID' })
   @IsNotEmpty()
   @IsUUID()

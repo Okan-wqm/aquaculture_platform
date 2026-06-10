@@ -2,7 +2,8 @@
  * Reports API
  */
 
-import { apiFetch, buildQueryString, ADMIN_API_URL } from '../http-client';
+import { apiFetchBlob } from '../blob-client';
+import { apiFetch, buildQueryString } from '../http-client';
 import type {
   PaginatedResult,
   PaginationParams,
@@ -10,6 +11,7 @@ import type {
   ReportExecution,
   ReportFormat,
   ReportStatus,
+  ReportType,
 } from '../types';
 
 export const reportsApi = {
@@ -20,20 +22,34 @@ export const reportsApi = {
     apiFetch<ReportDefinition>('/reports/definitions', { method: 'POST', body: JSON.stringify(data) }),
   updateReportDefinition: (id: string, data: Partial<ReportDefinition>) =>
     apiFetch<ReportDefinition>(`/reports/definitions/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteReportDefinition: (id: string) =>
-    apiFetch<void>(`/reports/definitions/${id}`, { method: 'DELETE' }),
+  deleteReportDefinition: async (id: string): Promise<void> => {
+    await apiFetch<unknown>(`/reports/definitions/${id}`, { method: 'DELETE' });
+  },
 
   // Report Execution
-  generateReport: (reportId: string, format: ReportFormat, filters?: Record<string, unknown>) =>
-    apiFetch<ReportExecution>('/reports/generate', {
+  executeReport: (data: {
+    definitionId?: string;
+    reportType?: ReportType;
+    reportName?: string;
+    format: ReportFormat;
+    filters?: Record<string, unknown>;
+    startDate?: string;
+    endDate?: string;
+  }) =>
+    apiFetch<ReportExecution>('/reports/executions', {
       method: 'POST',
-      body: JSON.stringify({ reportId, format, filters })
+      body: JSON.stringify(data),
     }),
-  getReportExecutions: (params?: { reportId?: string; status?: ReportStatus } & PaginationParams) =>
+  generateReport: (definitionId: string, format: ReportFormat, filters?: Record<string, unknown>) =>
+    apiFetch<ReportExecution>('/reports/executions', {
+      method: 'POST',
+      body: JSON.stringify({ definitionId, format, filters }),
+    }),
+  getReportExecutions: (params?: { definitionId?: string; reportId?: string; status?: ReportStatus; reportType?: ReportType } & PaginationParams) =>
     apiFetch<PaginatedResult<ReportExecution>>(`/reports/executions?${buildQueryString(params || {})}`),
   getReportExecution: (id: string) => apiFetch<ReportExecution>(`/reports/executions/${id}`),
   downloadReport: (executionId: string) =>
-    `${ADMIN_API_URL}/reports/executions/${executionId}/download`,
+    apiFetchBlob(`/reports/executions/${executionId}/download`),
 
   // Quick Reports
   getTenantsReport: (format: ReportFormat, filters?: Record<string, unknown>) =>
@@ -45,11 +61,9 @@ export const reportsApi = {
   getAuditReport: (format: ReportFormat, filters?: Record<string, unknown>) =>
     apiFetch<ReportExecution>('/reports/quick/audit', { method: 'POST', body: JSON.stringify({ format, filters }) }),
 
-  // Report Generation & Export
+  // Report Generation & Export (synchronous preview/ad-hoc compatibility only)
   generateCustomReport: (data: { type: string; format: string; startDate?: string; endDate?: string }) =>
     apiFetch<{ data: unknown[]; summary: Record<string, unknown>; metadata?: { generatedAt: string; reportType: string; format: string } }>('/reports/generate', { method: 'POST', body: JSON.stringify(data) }),
   getQuickReport: (endpoint: string, format?: string) =>
     apiFetch<{ data: unknown[]; summary: Record<string, unknown> }>(`${endpoint}${format ? `?format=${format}` : ''}`),
-  getExportUrl: (format: 'csv' | 'pdf', reportType?: string) =>
-    `${ADMIN_API_URL}/reports/export/${format}${reportType ? `/${reportType}` : ''}`,
 };

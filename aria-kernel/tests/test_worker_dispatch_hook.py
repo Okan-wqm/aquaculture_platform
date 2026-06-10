@@ -17,10 +17,16 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from aria_kernel.ledger import append_jsonl as _append_jsonl
+from aria_kernel.runtime_profile import set_profile
 from aria_kernel.worker_dispatch_hook import (
     LEASE_TOKEN_ENV_VAR,
     dispatch_one_pending_worker_assignment,
 )
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    return _append_jsonl(path, record, test_fixture=True)
 
 
 class _CapturedSubprocess:
@@ -53,6 +59,12 @@ class WorkerDispatchHookTests(unittest.TestCase):
         self._env.start()
         self.captured_argvs: list[list[str]] = []
         self.captured_envs: list[dict[str, str]] = []
+        # Plan ARIA-V3 §A2 — github_adapter is REQUIRED on the hook
+        # signature. A plain MagicMock satisfies the Protocol via
+        # duck-typing for the branches that do not exercise the
+        # merge path. Tests that need real adapter behaviour
+        # override this explicitly.
+        self.fake_github_adapter = MagicMock(name="github_adapter")
 
     def tearDown(self) -> None:
         import shutil
@@ -81,20 +93,21 @@ class WorkerDispatchHookTests(unittest.TestCase):
             "state": "pending",
             "created_at": "2026-05-10T00:00:00Z",
         }
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+        append_jsonl(path, row)
 
     def _seed_governance_failures(
         self, *, assignment_id: str, count: int,
     ) -> None:
         path = self.tools_root / "governance.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as f:
-            for _ in range(count):
-                f.write(json.dumps({
+        for _ in range(count):
+            append_jsonl(
+                path,
+                {
                     "kind": "verification_gate_failed",
                     "details": {"assignment_id": assignment_id},
-                }) + "\n")
+                },
+            )
 
     def _capturing_subprocess_run(self, returncode: int = 0, stderr: str = ""):
         outer = self
@@ -114,6 +127,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:1",
+                github_adapter=self.fake_github_adapter,
             )
         self.assertEqual(result["status"], "no_pending")
         self.assertEqual(result["governance_event_count"], 0)
@@ -131,6 +145,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:2",
+                github_adapter=self.fake_github_adapter,
                 max_retries=3,
             )
         self.assertEqual(result["status"], "max_retries_exceeded")
@@ -150,6 +165,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:3",
+                github_adapter=self.fake_github_adapter,
             )
         self.assertEqual(result["status"], "executor_failed")
         self.assertEqual(result["exit_code"], 1)
@@ -173,6 +189,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:4",
+                github_adapter=self.fake_github_adapter,
             )
         self.assertEqual(result["status"], "verified_pending_merge")
         self.assertIsNone(result["merge_result"])
@@ -181,16 +198,16 @@ class WorkerDispatchHookTests(unittest.TestCase):
         )
         self.assertIn("worker_dispatch_verified_pending_merge", gov)
 
-    def test_verified_passed_with_pr_and_adapter_routes_to_merge(self) -> None:
+    def test_verified_passed_with_pr_requires_enterprise_readiness_claim(self) -> None:
         # Seed pr-lifecycle.jsonl with assignment_id bridge.
         self._seed_dispatch_row(assignment_id="A-MERGE")
         pr_path = self.tools_root / "pr-lifecycle.jsonl"
-        pr_path.write_text(
-            json.dumps({
+        append_jsonl(
+            pr_path,
+            {
                 "schema_version": 1, "event": "opened",
                 "pr_number": 555, "assignment_id": "A-MERGE",
-            }) + "\n",
-            encoding="utf-8",
+            },
         )
         adapter = MagicMock()
         with patch(
@@ -199,8 +216,14 @@ class WorkerDispatchHookTests(unittest.TestCase):
         ), patch(
             "aria_kernel.verification_gate.verify_worker_result"
         ) as mock_verify, patch(
-            "aria_kernel.auto_merge.merge_if_green"
+            "aria_kernel.merge_authority.merge_pr_if_ready"
         ) as mock_merge:
+            set_profile(
+                "autonomous",
+                operator_approval_ref="test:worker-merge",
+                base_dir=self.tools_root,
+                set_by="test",
+            )
             mock_verify.return_value = {"status": "passed", "failures": []}
             mock_merge.return_value = {"decision": "merged", "eligible": True}
             result = dispatch_one_pending_worker_assignment(
@@ -208,12 +231,13 @@ class WorkerDispatchHookTests(unittest.TestCase):
                 agent_id="daemon:test:5",
                 github_adapter=adapter,
             )
-        self.assertEqual(result["status"], "merged")
-        self.assertEqual(result["merge_result"]["decision"], "merged")
-        merge_kwargs = mock_merge.call_args.kwargs
-        self.assertEqual(merge_kwargs["pr_number"], 555)
-        self.assertIs(merge_kwargs["adapter"], adapter)
-        self.assertEqual(merge_kwargs["dry_run"], False)
+        self.assertEqual(result["status"], "verified_pending_merge")
+        self.assertEqual(result["merge_result"]["decision"], "blocked")
+        self.assertIn(
+            "enterprise_readiness_claim_id_required",
+            result["merge_result"]["reasons"],
+        )
+        mock_merge.assert_not_called()
 
     def test_verification_failed_retry_scheduled_releases_claim(self) -> None:
         self._seed_dispatch_row(assignment_id="A-FAIL")
@@ -228,6 +252,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:6",
+                github_adapter=self.fake_github_adapter,
                 max_retries=3,
             )
         self.assertEqual(result["status"], "retry_scheduled")
@@ -260,6 +285,7 @@ class WorkerDispatchHookTests(unittest.TestCase):
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
                 agent_id="daemon:test:7",
+                github_adapter=self.fake_github_adapter,
             )
         self.assertTrue(captured_lease["token"])
         for arg in self.captured_argvs[0]:

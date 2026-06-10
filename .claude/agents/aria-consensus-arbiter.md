@@ -4,6 +4,7 @@ description: Read-only arbiter that combines independent ARIA judge verdicts and
 model: opus
 effort: xhigh
 tools: Read
+pedagogy-tier: 1
 ---
 
 # ARIA Consensus Arbiter

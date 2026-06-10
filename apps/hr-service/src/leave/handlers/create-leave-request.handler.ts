@@ -1,12 +1,15 @@
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler, EventBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
-import { BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+
+import { Employee } from '../../hr/entities/employee.entity';
 import { CreateLeaveRequestCommand } from '../commands/create-leave-request.command';
+import { LeaveBalance } from '../entities/leave-balance.entity';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveType } from '../entities/leave-type.entity';
-import { LeaveBalance } from '../entities/leave-balance.entity';
-import { Employee } from '../../hr/entities/employee.entity';
+
 
 @CommandHandler(CreateLeaveRequestCommand)
 export class CreateLeaveRequestHandler
@@ -25,6 +28,7 @@ export class CreateLeaveRequestHandler
     private readonly employeeRepository: Repository<Employee>,
     private readonly dataSource: DataSource,
     private readonly eventBus: EventBus,
+    private readonly mobileCommandReceipts: MobileCommandReceiptService,
   ) {}
 
   async execute(command: CreateLeaveRequestCommand): Promise<LeaveRequest> {
@@ -87,6 +91,26 @@ export class CreateLeaveRequestHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'hr_mobile_command_receipts',
+        tenantId,
+        envelope: command.mobileCommand,
+        operationType: 'createLeaveRequest',
+        responseType: 'LeaveRequest',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(LeaveRequest, {
+              where: { id: receipt.responseId, tenantId, isDeleted: false },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
       // Check for overlapping leave requests (within transaction)
       const overlappingRequest = await queryRunner.manager
         .createQueryBuilder(LeaveRequest, 'lr')
@@ -169,6 +193,13 @@ export class CreateLeaveRequestHandler
       });
 
       const savedRequest = await queryRunner.manager.save(leaveRequest);
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'hr_mobile_command_receipts',
+        receipt,
+        responseType: 'LeaveRequest',
+        responseId: savedRequest.id,
+        responsePayload: { id: savedRequest.id },
+      });
 
       await queryRunner.commitTransaction();
 

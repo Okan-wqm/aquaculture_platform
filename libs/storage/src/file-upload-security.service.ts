@@ -91,7 +91,7 @@ export const FILE_UPLOAD_POLICIES = Symbol('FILE_UPLOAD_POLICIES');
  * unless an env override narrows them. The caller passes
  * `documentType`; the service looks up the policy or rejects.
  */
-const DEFAULT_POLICIES: readonly UploadPolicy[] = [
+export const DEFAULT_UPLOAD_POLICIES: readonly UploadPolicy[] = [
   {
     documentType: 'HEALTH_CERTIFICATE',
     maxBytes: 5 * 1024 * 1024, // 5 MB — Mattilsynet stamped PDF is ~200KB–1MB
@@ -249,7 +249,7 @@ export class FileUploadSecurityService {
     @Inject(FILE_UPLOAD_POLICIES)
     policies: readonly UploadPolicy[] | undefined = undefined,
   ) {
-    const effective = policies ?? DEFAULT_POLICIES;
+    const effective = policies ?? DEFAULT_UPLOAD_POLICIES;
     this.policies = new Map(
       effective.map((p) => [p.documentType.toUpperCase(), p]),
     );

@@ -1,6 +1,9 @@
 # ADR-022: Edge Feature Schema Placement — Dedicated `edge` Schema with RLS + Partitioning + Canonical Role Names
 
-**Status:** Proposed (opened 2026-04-19; revised post-audit 2026-04-19 — 3 CRITICAL + 6 HIGH + 7 MEDIUM + 3 LOW closed in §11 closure table; target Accepted 2026-05-03)
+**Status:** ⚠️ **SUPERSEDED by ADR-034 (2026-05-18).**
+The dedicated `edge` schema + admin-api-service ownership decision in this ADR is replaced by per-tenant placement under sensor-service ownership. See `docs/adr/034-edge-schema-sensor-per-tenant-ownership.md` for the rationale (migration owner ≠ runtime owner ADR-011 violation; per-tenant access pattern matches the row shape). The DDL constraint set (BYTEA hash columns, EXCLUDE USING gist, is_current trigger, partition policy, RESTRICT FKs) carries forward verbatim into ADR-034 — only the schema placement and ownership change.
+
+**Original status:** Proposed (opened 2026-04-19; revised post-audit 2026-04-19 — 3 CRITICAL + 6 HIGH + 7 MEDIUM + 3 LOW closed in §11 closure table; target Accepted 2026-05-03)
 **Date:** 2026-04-19
 **Deciders:** Okan (platform owner) + data-expert + database-reviewer + multi-tenant-saas-expert + compliance-expert
 **Owner:** Okan (temp — PROC-001)

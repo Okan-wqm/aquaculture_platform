@@ -27,6 +27,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .agent_surface import JUDGE_ROLES, SUPPORTING_ROLES
 from .feedback_store import (
     CONSENSUS_MIN_CONFIDENCE,
     FEEDBACK_SEVERITIES,
@@ -35,10 +36,6 @@ from .feedback_store import (
     record_operator_feedback,
 )
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
-
-
-JUDGE_ROLES = ("evidence_judgment", "adversarial_judgment", "consensus_arbitration")
-SUPPORTING_ROLES = ("change_intelligence", "goldset_curation")
 
 
 def is_judge_role(role: str | None) -> bool:

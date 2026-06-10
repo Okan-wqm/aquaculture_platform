@@ -27,7 +27,7 @@ def _gh_json_stub(checks_payload: list[dict]):
         if "pr" in argv and "view" in argv:
             return {
                 "number": 42,
-                "baseRefName": "snowball",
+                "baseRefName": "main",
                 "headRefOid": "abc1234",
                 "files": [],
             }
@@ -39,7 +39,31 @@ def _gh_json_stub(checks_payload: list[dict]):
 
 class GhPrSnapshotChecksRunsTests(unittest.TestCase):
     def _snapshot(self, checks_payload):
-        with patch("aria_kernel.ci._gh_json", side_effect=_gh_json_stub(checks_payload)):
+        # Plan ARIA-V10.3-B prereq fix — also mock
+        # `_fetch_branch_protection_contexts` so the test does not
+        # depend on the main branch's live protection state. Pre-
+        # V10.3-B prereq the branch was unprotected (404), the helper
+        # returned (None, "branch_protection_disabled_on_base"), and
+        # `_gh_pr_snapshot` fell back to the `required` list derived
+        # from the checks payload. Post-V10.3-B prereq the branch IS
+        # protected and the helper returns ([], None) because the
+        # operator-acknowledged Tier-1 rules deliberately leave
+        # `required_status_checks.contexts=[]` (Free-plan public repo;
+        # main is the ARIA experimental branch — see
+        # aria-tools/preflight/main-branch-protection-v4.json
+        # compatibility_decision=compatible_without_push_restrictions).
+        # That empty list shrank `required_runs` to zero + every
+        # checks-payload-derived assertion broke. Mocking the helper
+        # restores the pre-V10.3-B environment-independent contract:
+        # the test exercises the checks-state mapping logic, NOT the
+        # branch-protection-discovery logic.
+        with patch(
+            "aria_kernel.ci._gh_json",
+            side_effect=_gh_json_stub(checks_payload),
+        ), patch(
+            "aria_kernel.ci._fetch_branch_protection_contexts",
+            return_value=(None, "branch_protection_disabled_on_base"),
+        ):
             return _gh_pr_snapshot(pr_number=42, workspace_root=".")
 
     def test_pending_check_surfaces_as_in_progress(self) -> None:
@@ -75,7 +99,7 @@ class GhPrSnapshotChecksRunsTests(unittest.TestCase):
         # gh state) -> must NOT default to success.
         with patch("aria_kernel.ci._gh_json") as mock_gh:
             mock_gh.side_effect = lambda root, argv: (
-                {"number": 1, "baseRefName": "snowball", "headRefOid": "abc", "files": []}
+                {"number": 1, "baseRefName": "main", "headRefOid": "abc", "files": []}
                 if "view" in argv else
                 # Empty checks: required_checks list will be empty too.
                 []

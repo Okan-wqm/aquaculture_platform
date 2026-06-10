@@ -21,10 +21,22 @@ const createMockResponse = () => {
   return res;
 };
 
+const restoreEnv = (key: string, value: string | undefined) => {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+};
+
 describe('HealthController (Auth Service)', () => {
   let controller: HealthController;
   let queryMock: jest.Mock;
   let isInitialized: boolean;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAquaEnv = process.env.AQUA_ENV;
+  const originalDeployEnv = process.env.DEPLOY_ENV;
+  const originalMfaKey = process.env.MFA_ENCRYPTION_KEY;
 
   const createMockDataSource = () => ({
     get isInitialized() {
@@ -34,6 +46,10 @@ describe('HealthController (Auth Service)', () => {
   });
 
   beforeEach(async () => {
+    process.env.NODE_ENV = 'test';
+    delete process.env.AQUA_ENV;
+    delete process.env.DEPLOY_ENV;
+    delete process.env.MFA_ENCRYPTION_KEY;
     isInitialized = true;
     queryMock = jest.fn().mockResolvedValue([{ '?column?': 1 }]);
 
@@ -48,6 +64,13 @@ describe('HealthController (Auth Service)', () => {
     }).compile();
 
     controller = module.get<HealthController>(HealthController);
+  });
+
+  afterEach(() => {
+    restoreEnv('NODE_ENV', originalNodeEnv);
+    restoreEnv('AQUA_ENV', originalAquaEnv);
+    restoreEnv('DEPLOY_ENV', originalDeployEnv);
+    restoreEnv('MFA_ENCRYPTION_KEY', originalMfaKey);
   });
 
   describe('liveness', () => {
@@ -102,6 +125,48 @@ describe('HealthController (Auth Service)', () => {
       expect(res.json).toHaveBeenCalledWith({
         status: 'not_ready',
         checks: { database: 'error' },
+      });
+    });
+
+    it('should return 503 when production MFA encryption key is missing', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.MFA_ENCRYPTION_KEY;
+      const res = createMockResponse();
+
+      await controller.readiness(res);
+
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith({
+        status: 'not_ready',
+        checks: { database: 'ok', mfaEncryptionKey: 'error' },
+      });
+    });
+
+    it('should return 503 when production MFA encryption key is malformed', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.MFA_ENCRYPTION_KEY = 'not-a-hex-key';
+      const res = createMockResponse();
+
+      await controller.readiness(res);
+
+      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.json).toHaveBeenCalledWith({
+        status: 'not_ready',
+        checks: { database: 'ok', mfaEncryptionKey: 'error' },
+      });
+    });
+
+    it('should return ok when production MFA encryption key is valid', async () => {
+      process.env.NODE_ENV = 'production';
+      process.env.MFA_ENCRYPTION_KEY = 'a'.repeat(64);
+      const res = createMockResponse();
+
+      await controller.readiness(res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({
+        status: 'ok',
+        checks: { database: 'ok', mfaEncryptionKey: 'ok' },
       });
     });
   });

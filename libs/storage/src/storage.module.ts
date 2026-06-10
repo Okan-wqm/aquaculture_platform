@@ -5,7 +5,12 @@
  */
 import { Module, DynamicModule, Global, Logger } from '@nestjs/common';
 import { MinioClientService, STORAGE_CONFIG } from './minio-client.service';
-import { FileUploadSecurityService } from './file-upload-security.service';
+import {
+  DEFAULT_UPLOAD_POLICIES,
+  FILE_UPLOAD_POLICIES,
+  FileUploadSecurityService,
+  type UploadPolicy,
+} from './file-upload-security.service';
 import { StorageOrphanCleanupService } from './orphan-cleanup.service';
 import { StorageConfig, StorageModuleAsyncOptions } from './interfaces/storage.interfaces';
 
@@ -28,7 +33,10 @@ export class StorageModule {
    * Configure storage module with static configuration.
    * Must be registered exactly once in the root AppModule (module is @Global).
    */
-  static forRoot(config: StorageConfig): DynamicModule {
+  static forRoot(
+    config: StorageConfig,
+    uploadPolicies?: readonly UploadPolicy[],
+  ): DynamicModule {
     StorageModule.guardDoubleRegistration();
     return {
       module: StorageModule,
@@ -36,6 +44,10 @@ export class StorageModule {
         {
           provide: STORAGE_CONFIG,
           useValue: config,
+        },
+        {
+          provide: FILE_UPLOAD_POLICIES,
+          useValue: uploadPolicies ?? DEFAULT_UPLOAD_POLICIES,
         },
         MinioClientService,
         FileUploadSecurityService,
@@ -46,6 +58,7 @@ export class StorageModule {
         FileUploadSecurityService,
         StorageOrphanCleanupService,
         STORAGE_CONFIG,
+        FILE_UPLOAD_POLICIES,
       ],
     };
   }
@@ -66,6 +79,10 @@ export class StorageModule {
           useFactory: options.useFactory,
           inject: options.inject || [],
         },
+        {
+          provide: FILE_UPLOAD_POLICIES,
+          useValue: options.uploadPolicies ?? DEFAULT_UPLOAD_POLICIES,
+        },
         MinioClientService,
         FileUploadSecurityService,
         StorageOrphanCleanupService,
@@ -75,6 +92,7 @@ export class StorageModule {
         FileUploadSecurityService,
         StorageOrphanCleanupService,
         STORAGE_CONFIG,
+        FILE_UPLOAD_POLICIES,
       ],
     };
   }

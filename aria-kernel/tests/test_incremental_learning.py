@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import base64
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,9 +22,12 @@ from aria_kernel.memory import list_memory
 from aria_kernel.pr_tracking import observe_pr_event, plan_pr_impact
 from aria_kernel.tool_health import evaluate_health
 
+FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
+
 
 def fake_tool_argv(output):
-    return [sys.executable, "-c", f"import json; print({json.dumps(json.dumps(output))})"]
+    encoded = base64.b64encode(json.dumps(output, separators=(",", ":")).encode("utf-8")).decode("ascii")
+    return ["python3", FAKE_RUNNER.as_posix(), "--output-b64", encoded]
 
 
 def tool_definition(**overrides):
@@ -73,7 +76,7 @@ def run_envelope(**overrides):
         "read_paths": ["src/app.ts"],
         "emitted_observations": [],
         "emitted_findings": [],
-        "evidence_validation": {"evidence_sources": ["src/app.ts"]},
+        "evidence_validation": {"valid": True, "evidence_sources": ["src/app.ts"]},
         "operator_feedback_refs": [],
         "duration_ms": 10,
         "cost_units": 1,

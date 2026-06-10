@@ -4,6 +4,7 @@ description: Produces commercial and legal chapters — license model (proprieta
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, Edit, Write, Bash
+pedagogy-tier: 3
 ---
 
 # Commercial & Legal Writer — Lane-C Producer

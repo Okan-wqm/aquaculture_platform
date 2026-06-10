@@ -25,7 +25,7 @@ export interface PermissionOverrides {
  * Links users to tenant-specific roles with optional permission overrides
  * Stored in tenant-specific schema (tenant_XXXX)
  */
-@Entity({ schema: 'admin', name: 'user_role_assignments', synchronize: false })
+@Entity({ schema: 'auth', name: 'user_role_assignments', synchronize: false })
 @Index(['userId'], { unique: true })
 @Index(['roleId'])
 @Index(['isActive'])

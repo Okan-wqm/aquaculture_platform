@@ -365,15 +365,23 @@ const RULES: readonly Rule[] = [
   {
     id: 'R11-add-constraint-without-do-block',
     severity: 'MEDIUM',
-    // ADD CONSTRAINT <name> (FOREIGN KEY|UNIQUE|CHECK) outside a DO $$
-    // EXCEPTION wrap. PG has no IF NOT EXISTS for ADD CONSTRAINT, so the
-    // wrap is the canonical idempotency shape.
+    // ADD CONSTRAINT <name> (FOREIGN KEY|UNIQUE|CHECK) outside an
+    // idempotency guard. PG has no IF NOT EXISTS for ADD CONSTRAINT, so
+    // either a DO $$ EXCEPTION wrap or an explicit pg_constraint/conname
+    // existence probe is required.
     scan: (sql) => {
       const hits = collectMatches(
         sql,
         /\bADD\s+CONSTRAINT\s+["\w]+\s+(FOREIGN\s+KEY|UNIQUE|CHECK)\b/i,
       );
       return hits.filter(({ start }) => {
+        const guardWindow = sql.slice(Math.max(0, start - 800), start);
+        if (
+          /\bpg_constraint\b/i.test(guardWindow) &&
+          /\bconname\b/i.test(guardWindow)
+        ) {
+          return false;
+        }
         const window = sql.slice(Math.max(0, start - 400), start);
         const doOpens = (window.match(/\bDO\s*\$\$\s*BEGIN\b/gi) ?? []).length;
         const doCloses = (window.match(/\bEND\s*\$\$/gi) ?? []).length;
@@ -381,11 +389,11 @@ const RULES: readonly Rule[] = [
       });
     },
     message:
-      'ADD CONSTRAINT (FOREIGN KEY | UNIQUE | CHECK) outside `DO $$ BEGIN ' +
-      '... EXCEPTION WHEN duplicate_object THEN NULL; END $$;` block. PG has ' +
-      'no IF NOT EXISTS form for ADD CONSTRAINT — the DO/EXCEPTION wrap is ' +
-      'the canonical idempotency idiom. Bare ADD CONSTRAINT crashes on ' +
-      'replay with `42710` duplicate-object.',
+      'ADD CONSTRAINT (FOREIGN KEY | UNIQUE | CHECK) outside an idempotency ' +
+      'guard. PG has no IF NOT EXISTS form for ADD CONSTRAINT — use a ' +
+      '`DO $$ BEGIN ... EXCEPTION WHEN duplicate_object THEN NULL; END $$;` ' +
+      'block or an explicit pg_constraint/conname existence probe. Bare ' +
+      'ADD CONSTRAINT crashes on replay with `42710` duplicate-object.',
   },
   {
     id: 'R12-drop-table-without-if-exists',

@@ -40,7 +40,7 @@ import secrets
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -143,13 +143,20 @@ def record_validation_run(
         "completed_at": completed_at,
         "recorded_at": utc_now(),
     }
-    return append_jsonl(_runs_path(ensure_tools_dir(base_dir)), row)
+    return append_declared_jsonl(
+        _runs_path(ensure_tools_dir(base_dir)),
+        row,
+        expected_surface="validation_runs",
+    )
 
 
 def list_validation_runs(
     *, base_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:
-    return load_jsonl(_runs_path(ensure_tools_dir(base_dir)))
+    return load_declared_jsonl(
+        _runs_path(ensure_tools_dir(base_dir)),
+        expected_surface="validation_runs",
+    )
 
 
 def find_validation_run_by_id(

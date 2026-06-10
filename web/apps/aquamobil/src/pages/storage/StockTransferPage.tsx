@@ -51,14 +51,24 @@ interface StorageLocation {
   code: string;
 }
 
+interface StorageInventoryItem {
+  itemId: string;
+  itemName?: string | null;
+  unit: string;
+  itemType: StorageItemType;
+}
+
 // ============================================================================
 // GRAPHQL
 // ============================================================================
 
 const STORAGE_ITEMS_QUERY = `
-  query StorageItems($filter: StorageItemFilterInput) {
-    storageItems(filter: $filter) {
-      items { id name code unit itemType }
+  query StorageInventoryItems($itemType: StorageItemType) {
+    storageInventory(itemType: $itemType, limit: 100) {
+      itemId
+      itemName
+      unit
+      itemType
     }
   }
 `;
@@ -92,6 +102,22 @@ const ITEM_TYPES: Array<{ type: StorageItemType; label: string; emoji: string }>
 
 const TOTAL_STEPS = 5;
 
+function toStorageItems(inventory: StorageInventoryItem[]): StorageItem[] {
+  const byItemId = new Map<string, StorageItem>();
+  for (const item of inventory) {
+    if (!byItemId.has(item.itemId)) {
+      byItemId.set(item.itemId, {
+        id: item.itemId,
+        name: item.itemName || item.itemId,
+        code: item.itemId.slice(0, 8),
+        unit: item.unit,
+        itemType: item.itemType,
+      });
+    }
+  }
+  return Array.from(byItemId.values());
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -120,11 +146,11 @@ export function StockTransferPage() {
   const { data: itemsData, isLoading: itemsLoading } = useQuery<StorageItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-items', selectedItemType, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ storageItems: { items: StorageItem[] } }>(
+      const result = await graphqlRequest<{ storageInventory: StorageInventoryItem[] }>(
         STORAGE_ITEMS_QUERY,
-        { filter: { itemType: selectedItemType } },
+        { itemType: selectedItemType },
       );
-      return result.storageItems?.items ?? [];
+      return toStorageItems(result.storageInventory ?? []);
     },
     // Data fetches when online; when offline, React Query serves the stale cache
     // from gcTime (1h). Workers at remote sites can still browse cached items.
@@ -201,13 +227,16 @@ export function StockTransferPage() {
     setIsSubmitting(true);
     setSubmitError(null);
 
-    // Matches backend TransferStockInput exactly: no 'unit' or 'idempotencyKey'
+    // Generate once for this submit attempt. The offline queue adds a command
+    // envelope when queued; online direct submissions still need server-side
+    // idempotency for timeout/retry safety.
     const input: StockTransferInput = {
       itemType: selectedItemType!,
       itemId: selectedItemId,
       fromLocationId,
       toLocationId,
       quantity: parseFloat(quantity),
+      idempotencyKey: crypto.randomUUID(),
     };
 
     try {

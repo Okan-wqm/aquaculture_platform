@@ -3573,3 +3573,184 @@ Fix (Tier-1 Make-Impossible): REMOVE the sensor-ingestion entry from service-cri
 The retained doc comment block documents the restore path so the entry is not added back accidentally with the wrong level (the previous comment said level: optional which would still fail).
 
 Status: RESOLVED on chore/sensor-ingestion-manifest-cleanup.
+
+## ORPHAN-CRITICAL-075 — postgres docker-entrypoint init-scripts cannot re-evaluate after PGDATA non-empty; restart + DROP SCHEMA wipes platform DDL contract
+
+Severity: CRITICAL. Every postgres container restart with a non-empty PGDATA volume leaves the platform's schemas / roles / functions / shared.* tables in whatever state they were last manipulated, with no automatic recovery path. After any `DROP SCHEMA … CASCADE` operation (day-one reset, schema-recovery hand-run, blue-green migration testing) the postgres container's docker-entrypoint silently SKIPS `/docker-entrypoint-initdb.d/*.{sh,sql}` because PGDATA is detected as pre-initialized — the upstream Postgres image's documented contract is "init-scripts run ONCE on initdb, never again."
+
+Discovered: 2026-05-18, during Faz 6 cutover #1. Operator dropped every per-service schema via psql, restarted postgres, manual init-script re-run partially completed, service boot found `auth` schema present but `farm` schema absent. Vault `pg_dump` rollback path also corrupt (stderr stream contaminated the dump file).
+
+Failure surface includes:
+
+  1. **2026-05-18 Faz 6 cutover #1**: postgres restart wiped the DROP-then-recreate state; init-scripts didn't fire; manual psql re-run was racey + partial; 13 schemas baseline-pending after deploy.
+  2. **2026-04-19 timescaledb-ha image swap (INFRA-CRITICAL-018)**: image-family PGDATA default divergence triggered the same class — new image's docker-entrypoint detected existing volume as pre-initialized, skipped init-scripts, SHARED_SCHEMA_TABLES freshly-added to `10-shared-schema.sql` never landed.
+  3. **2026-04-14 SHARED_SCHEMA_TABLES partial install**: init-scripts ran successfully against empty PGDATA but didn't include `access_logs` in the canonical list at the time. Adding the table later in `10-shared-schema.sql` meant existing environments never picked it up — there was no re-evaluation path.
+
+Root cause: the platform's DDL contract (extensions / roles / schemas / grants / functions / shared.* tables) was placed in `/docker-entrypoint-initdb.d/`, a single-shot mechanism owned by the postgres upstream contract. Mixing one-shot infrastructure (initdb) with restart-survive concerns (the platform DDL) was an architectural type error — the lifetimes were never compatible.
+
+Fix (Tier-1 Make-Impossible): platform DDL is now owned by the **Platform Bootstrap Atom** — Phase 0 of `aqua-db-migrate` (ADR-031). Every aqua-db-migrate container start runs the atom idempotently:
+
+  - 6 extensions (CREATE EXTENSION IF NOT EXISTS)
+  - 15 service roles (env-aware password sync, idempotent CREATE/ALTER ROLE)
+  - 16 schemas (CREATE SCHEMA IF NOT EXISTS + AUTHORIZATION)
+  - schema-level GRANT + ALTER DEFAULT PRIVILEGES (idempotent re-issue)
+  - 4 platform functions (CREATE OR REPLACE FUNCTION public.*)
+  - 5 SHARED_SCHEMA_TABLES + RLS + immutability triggers
+  - `platform.bootstrap_signal` boot-time precondition emitted
+
+`tests/invariants/init-scripts-no-schema-ddl.spec.ts` blocks any future regression — `CREATE SCHEMA / CREATE ROLE / CREATE TABLE / CREATE FUNCTION / CREATE POLICY / GRANT ... ON SCHEMA / ALTER SCHEMA / ALTER DEFAULT PRIVILEGES / ALTER TABLE` anywhere under `infrastructure/docker/init-scripts/*.{sh,sql}` fails CI. `SchemaVersionGate.probePlatformBootstrap()` refuses service boot if the signal row is missing or counts indicate partial-apply state.
+
+Status: RESOLVED on platform-bootstrap-atom branch (this commit).
+
+## ORPHAN-CRITICAL-076 — Phase 0 platform-bootstrap atom silently generates random passwords for missing service-role env vars; downstream services crash-loop with opaque "auth failed"
+
+Severity: CRITICAL. The Phase 0 atom (ADR-031) ships its first prod deploy at run #1113 (SHA `984eb61`) and the aqua-db-migrate container exits non-zero before service containers can start. The droplet log surfaced `aqua-db-migrate failed during full deploy — aborting BEFORE service containers start.` (`scripts/deploy/droplet-up.sh:80–85`). Two architectural gaps surface together:
+
+  1. **Silent random-password fallback.** `apps/db-migrate/src/platform-bootstrap.service.ts:191–207` (pre-fix) caught a missing/empty service-role password env var, generated a random 256-bit password, logged a warning, and continued. Phase 0 reported success but the random secret was NEVER shared with the service container that connects as that role — Phase 1+ services entered `password authentication failed` crash-loop, the criticality-gate dropped them, and the deploy rolled back. The smoking-gun symptom (db-migrate non-zero exit at the next attempt) hides the real cause (missing env var on the host).
+  2. **No early-exit diagnostic at Stage 004 GRANT.** `apps/db-migrate/src/sql/platform-bootstrap/004-schema-grants.sql` carries 45+ bare `GRANT … TO <role>` statements. If Stage 002 silently failed to create one of the 15 roles, Stage 004 surfaced an opaque single-line `role "<x>" does not exist` mid-file with no pointer at the upstream stage.
+
+Discovered: 2026-05-18, after deploy run #1113 (manual `workflow_dispatch` against main HEAD `984eb61`). PR #290's commit body explicitly noted "NOT done in this commit: aqua-db-migrate image rebuild + production deploy (separate ops step)" — this finding is the prod-readiness work that gap implicitly tracks.
+
+Root cause: the atom's password-resolution contract was lax-on-write (random fallback) rather than strict-on-write (fail-fast). A single-shot deploy infrastructure component whose preconditions are silently relaxed produces opaque downstream failures far from the cause. The Stage 004 surface compounded the diagnostic loss.
+
+Fix (Tier-1 Make-Impossible + Tier-3 Make-Detectable):
+
+  1. **`buildRolesSql` collects every missing/empty env and throws** with a structured diagnostic that names every offending env var, points at the host file (`/var/aqua-saas/.env`) and the provisioning script (`scripts/deploy/droplet-up.sh:421–424` for full deploy, `:564–570` for selective). Phase 0 now refuses to ship random passwords that no service can ever know.
+  2. **Stage 004 carries a role-existence pre-check** — a `DO $platform_bootstrap_stage_004_precheck$` block scans `pg_catalog.pg_roles` for every expected service role BEFORE issuing the first GRANT, and `RAISE EXCEPTION` with a structured message identifying the missing role + the upstream stage to inspect. Wrapping each GRANT in `EXECUTE … EXCEPTION WHEN undefined_object` was rejected as 200+ statement EXECUTE bodies break the SQL-level audit shape ADR-011 reviewers expect.
+  3. **Integration spec gains two new contexts:** `platform-bootstrap.integration.spec.ts` now exercises (a) Phase 0 against a database pre-populated with the archived `10-shared-schema.sql` artifacts (the actual prod state at deploy run #1113) and (b) the fail-fast path for missing/empty env vars. The two pre-existing tests had only covered clean apply, idempotent re-run, and `DROP SCHEMA` round-trip.
+
+Status: RESOLVED on `claude/fix-digitalocean-deploy-kL46A` branch (this commit).
+
+## ORPHAN-CRITICAL-077 — `deploy-digitalocean.yml` is a workflow_call subworkflow with no upstream caller; every prod deploy is manual `workflow_dispatch`, breaking the staging-gate audit chain
+
+Severity: CRITICAL. `.github/workflows/deploy-digitalocean.yml`'s `on:` block declares only `workflow_call` + `workflow_dispatch`. The file's header comment (l.27–34) documents the intended trigger model: "invoked from `.github/workflows/ci-affected.yml` as the final job after lint/type-check/test/build all pass on push to main." That invocation never landed in `ci-affected.yml`. The 800-line workflow file has no `deploy:` job, no `uses: ./.github/workflows/deploy-digitalocean.yml` step, and no path that drives the deploy chain on a push event.
+
+Discovered: 2026-05-18, during root-cause investigation of deploy run #1113. The GitHub Actions UI surfaced that EVERY one of the last 10 deploy runs (`#1104` through `#1113`) is tagged "Manually run by Okan-wqm" — the workflow is exclusively operator-triggered. Staging-gate enforcement, the staged-rollout audit trail, and the "main is always deployable" architectural property documented in ADR-016 are all defeated by this gap.
+
+Three concrete consequences:
+
+  1. **Staging-gate by-pass is the default**, not the exception. Operators dispatch prod deploy without waiting for the `deployed/staging-<sha>` tag because there is no automated path that would enforce the gate. The `staging-gate` job's `bypass_staging_gate` input is the safety valve for the rare emergency — without an automated trigger, the safety valve becomes the only path.
+  2. **The 2026-04-14 cascade failure mode is reachable again** even though the workflow's staging-gate job would catch it: a manual operator dispatch on a SHA where staging is broken would route the gate's "skip on Topology B" path (operator forgot to set STAGING_ENABLED) or trip the bypass path (operator paste-types `true` to clear a stuck gate).
+  3. **The deploy-workflow's own change validation is broken.** A workflow author who pushes a fix to `scripts/deploy/droplet-up.sh` or to `deploy-digitalocean.yml` itself cannot exercise the fix through the merge-driven chain — the chain physically does not exist. PR-level CI green is the only signal until an operator manually dispatches the deploy, by which point the broken commit is already on main.
+
+Root cause: the workflow_call invocation was authored as a comment of intent at file creation (commit `4d87539`) but the matching `ci-affected.yml` `deploy:` job that would call it never landed in any subsequent commit. The header comment claim and the actual trigger graph drifted from day one. Subsequent fixes (workflow_run → workflow_call refactor, staging-gate topology, criticality manifest gate) all assumed the chain existed and patched their own corners of it; nobody re-checked the caller side.
+
+Fix (Tier-1 Make-Impossible): `ci-affected.yml` gets a `deploy:` job that invokes `deploy-digitalocean.yml` via `uses: ./.github/workflows/deploy-digitalocean.yml` + `secrets: inherit`, gated on `github.event_name == 'push' && github.ref == 'refs/heads/main'` and on the upstream `detect-changes` + `install` jobs. `lint/type-check/test/build` are PR-side gates (ARCH-CI-009) so they are NOT in the `needs:` list — that is the documented merge-gate architecture, where PR review is the quality gate before main accepts a commit. Operator `workflow_dispatch` paths are unchanged; only the automation gap closes.
+
+Status: RESOLVED on `claude/fix-digitalocean-deploy-kL46A` branch (this commit).
+
+## ORPHAN-HIGH-078 — `.github/workflows/deploy-digitalocean.yml` has no retry policy on `docker/login-action`; single GHCR network flake aborts the entire deploy matrix
+
+Severity: HIGH. A transient timeout between the GitHub Actions runner and `ghcr.io` during the `docker/login-action` step causes whichever matrix shard hit the flake to fail outright, and because `build-{backend,frontend}-images` runs as a matrix, even a single shard failure blocks the downstream `deploy` job. Two production deploys in the 2026-05-18 → 2026-05-19 window aborted at exactly this point — both with the same root error:
+
+```
+Error response from daemon: Get "https://ghcr.io/v2/": ... net/http: request canceled
+(Client.Timeout exceeded while awaiting headers)
+```
+
+Both attempts had successfully built and pushed every OTHER matrix shard (14 backend + 7 of 8 frontend images); only one frontend image build (`tenant-admin` on 2026-05-18, deploy run 26081565625) hit the GHCR rate limiter or transient TCP-reset and dragged the whole deploy down. Operator workaround was identical both times: re-trigger `deploy-digitalocean.yml --ref main` from a fresh dispatch.
+
+Root cause: `docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772` is invoked with no `retries` parameter and no surrounding retry wrapper. The action's default behavior on TCP/HTTP timeout is a single attempt → exit non-zero → step fails. GHA `jobs.<name>.continue-on-error: true` is also absent so the failing matrix shard cancels its peers (`fail-fast` defaults to true). Two control surfaces (`fail-fast: false` + retry-on-transient-class) are both missing.
+
+Fix (Tier 1 Make-Automatic):
+
+  1. Set `strategy.fail-fast: false` on `build-backend-images` + `build-frontend-images` so a single shard's transient failure does NOT abort the entire matrix. (The matrix already has `max-parallel: 6`; fail-fast is the orthogonal toggle.) Already present on `build-backend-images` per the source — verify presence on the frontend matrix.
+  2. Wrap the `docker/login-action` invocation in a retry loop or step-level retry. Easiest implementation: use `nick-fields/retry@*` SHA-pinned (already used elsewhere in the workflow per the SHA-pinning audit) with `max_attempts: 3` and `retry_on: error` against the login step. GHA does not have a native step-retry primitive yet (only job-retry via `continue-on-error`), so a wrapper action is the load-bearing path.
+  3. Optional Tier-2 add-on: alert on consecutive GHCR-login failures so operators see the class is escalating before it blocks a real deploy.
+
+Status: RESOLVED — `.github/workflows/deploy-digitalocean.yml` now wraps `docker login` in a 3-attempt shell retry loop with 5s/10s/15s backoff. The third-party `docker/login-action` dependency was removed in the same change; the supply-chain surface narrowed by one action. Tier 1 property: single-flake transient is absorbed inside the build step; sustained outage still fails loud with the rc of the third attempt.
+
+Numbering note: this entry was authored as ORPHAN-HIGH-076 on the `fix/ghcr-login-retry` branch before PR #293 introduced ORPHAN-CRITICAL-076 + ORPHAN-CRITICAL-077 on the same numbering line. Renumbered to 078 at rebase time to preserve the monotonic registry contract.
+
+## ORPHAN-HIGH-079 — `cache-to: type=registry` aborts entire build matrix on transient GHCR cache-write 5xx
+
+Severity: HIGH. Deploy run 26084727277 (2026-05-19 main HEAD `f20465b9`) failed at `build-backend-images (billing-service)` with:
+
+```
+#20 ERROR: error writing manifest blob: failed to open writer: unexpected status from
+HEAD request to https://ghcr.io/v2/okan-wqm/aquaculture_platform/billing-service/manifests/buildcache-main-v2: 502 Bad Gateway
+ERROR: failed to build: failed to solve: error writing manifest blob: ...
+buildx failed with: ERROR: ...
+```
+
+The image had already built + pushed successfully (`docker/build-push-action`'s `--push true` step completed). The error was raised AFTER push, during the `cache-to: type=registry,ref=…:buildcache-main-v2,mode=max` post-build cache-write step. A single GHCR 5xx on a manifest HEAD/PUT during cache write aborted the entire matrix shard and dragged the deploy down.
+
+ORPHAN-HIGH-078's GHCR-login retry wrapper does NOT cover this surface — the login step succeeded; the failure is inside `docker/build-push-action`'s buildkit cache-write phase, which is internal to the action and not externally wrappable with a shell retry.
+
+Root cause: `cache-to: type=registry,...,mode=max` treats cache-write as a build correctness gate. It is not — the buildcache layer is an optimization that accelerates subsequent builds with shared layers. A failed cache-write means the next build runs with one less cached layer (slower); it does NOT mean the current build is invalid (the image is already pushed). Coupling the two surfaces conflates an optimization-class failure with a correctness-class failure.
+
+Fix (Tier 1 Make-Automatic): append `,ignore-error=true` to every `cache-to: type=registry,...` invocation. The flag is supported by `docker/build-push-action` v6 (current SHA `471d1dc4e07e5cdedd4c2171150001c434f0b7a4`) and downgrades cache-write transients from build-fatal to warning. Image push succeeds, matrix shard succeeds, deploy proceeds.
+
+Two call sites in `.github/workflows/deploy-digitalocean.yml`: `build-backend-images` (line 835) + `build-frontend-images` (line ~933). Both updated in the same commit.
+
+Status: RESOLVED on `fix/ghcr-cache-write-ignore-error` branch.
+
+## ORPHAN-HIGH-080 — Service command surfaces had no durable idempotent receipt path across auth, billing, event-store, and notification
+
+Severity: HIGH. Tenant/admin command contracts existed, but the receiving service runtimes did not all share a durable command receipt ledger, v2 service-identity enforcement, and replay-safe notification delivery semantics. A duplicate or retried command could run twice, trust a bare tenant header, or acknowledge an in-flight notification as delivered while the only receipt status was `STARTED`.
+
+Root cause: service commands were added as protocol concepts before the receiving services had the same idempotency and identity spine as gateway calls. Event-store also had a query-hash canonicalization mismatch (`?` stripped from `observedQuery`), and notification command receipts treated every existing `STARTED` row as a successful replay.
+
+Fix: add auth, billing, and notification command receipt ledgers and handlers; require v2 event-store service identity with tenant context from verified signatures; harden event-store ledger/projection surfaces; and make notification command receipts distinguish `SUCCEEDED` replay, `FAILED` retry, fresh `STARTED` in-progress, and stale `STARTED` lease reclaim. Targeted unit specs cover event-store query hash / tenant context / projection FSM and notification receipt lease behavior.
+
+Status: RESOLVED on `feat/service-command-surfaces-20260606`.
+
+## ORPHAN-HIGH-081 — Tenant/admin provisioning still mixed admin-owned runtime writes with owner-service command ownership
+
+Severity: HIGH. Tenant creation, password reset, module catalog mutations, billing admin operations, schema provisioning, and lifecycle rollback paths were not aligned on one admin orchestration contract. Admin-api could still carry raw token material, write or assume ownership of auth/billing state, or proceed before db-migrate/onboarding/billing receipt evidence completed. Rollback and destructive cleanup boundaries were especially risky because create paths and delete paths did not distinguish normal provisioning from cleanup proof.
+
+Root cause: tenant provisioning had been split across admin-api handlers, direct database helpers, UI polling surfaces, NATS subjects, and migration helpers without a single invariant tying the ownership model together. The newer service command receipts existed downstream, but admin orchestration had not been updated to treat auth, billing, db-migrate, notification, and farm onboarding as owner-confirmed steps.
+
+Fix: route tenant creation through operation-based admin provisioning with idempotency, db-migrate wait evidence, owner-service command receipts, onboarding acknowledgement ordering, and tokenless admin surfaces. Admin-api password reset and module catalog mutations become facades over auth-service commands, billing operations require billing receipt evidence, schema cleanup stays behind cleanup proof, and the admin panel polls/retries provisioning operations instead of assuming immediate creation.
+
+Status: RESOLVED on `feat/tenant-admin-orchestration-20260606`.
+
+## ORPHAN-HIGH-082 — Config runtime responses exposed raw storage semantics instead of effective tenant-safe configuration
+
+Severity: HIGH. Config-service public GraphQL responses could expose raw `Configuration` storage rows and did not make tombstone, fallback, cache, and secret-redaction behavior explicit. Tenant runtime callers needed the effective configuration for their tenant, but the API shape could leak whether a value came from system fallback storage, return secret values, or treat deleted tenant overrides as ordinary missing rows.
+
+Root cause: the resolver contract and DTO boundary were coupled to persistence entities. The service had command/query handlers for raw configuration rows, but no public effective DTO that encoded source, requested tenant, tombstone state, and redacted values as runtime behavior.
+
+Fix: add an effective runtime configuration DTO and public resolver contract tests, introduce config tombstone lifecycle columns/migration, and update handlers/query paths to respect tombstones while keeping fallback and redaction explicit. The app module now registers the effective resolver path without exposing raw configuration entities as public runtime output.
+
+Status: RESOLVED on `feat/config-service-runtime-behavior-20260606`.
+
+## ORPHAN-HIGH-083 — Farm setup writes, documents, and batch policies were not bound to tenant transaction, audit, and outbox invariants
+
+Severity: HIGH. Farm setup and batch write paths still had gaps where REST controllers or handlers could bypass CQRS/tenant transaction boundaries, emit events outside the canonical outbox, or rely on runtime schema repair for existing tenants. Document metadata also lacked a canonical tenant table and cleanup provider, and Sentinel proxy access policy was not guarded by focused tests.
+
+Root cause: farm enterprise hardening had been implemented in pieces: batch lifecycle rules, site/system/equipment/tank setup writes, outbox/inbox migrations, document records, metrics, and realtime propagation were not tied together by one invariant-backed contract. That left setup migration status dependent on narrative docs and manual review rather than executable gates.
+
+Fix: add farm outbox/inbox/document/tank setup migrations, CQRS-backed batch write adapters, setup handler transaction/audit/outbox utilities, farm document cleanup registration, Sentinel proxy policy tests, farm event registry/realtime bridge parity, and farm invariants for identity, REST/CQRS, batch policy, and setup eventing. Existing-tenant schema repair remains fail-closed outside explicit e2e bootstrap.
+
+Status: RESOLVED on `feat/farm-service-enterprise-train-20260606`.
+
+## ORPHAN-HIGH-084 — Sensor DDL/RBAC/trust train lacked flat Agent I/O v2 and tenant-bound edge proof
+
+Severity: HIGH. Sensor DDL, edge-device I/O config, PLC control, and Rust gateway trust changes were present as separate hardening pieces, but the executable contract still allowed unsafe gaps: edge I/O mutations had role checks without the tenant permission gate, Agent I/O config could be serialized in a flat v2 shape that the Rust gateway did not parse, orphaned or ambiguous I/O tags could be skipped rather than rejected, and ping responses could complete against the wrong device identifier.
+
+Root cause: the train had runtime and schema changes without one cross-boundary proof tying service-side validation, GraphQL authorization metadata, MQTT payload shape, gateway parsing, and provisioning/trust behavior together. The flat `tags[]` schema was documented by fixtures and tests, but the Rust command parser still only accepted grouped legacy arrays.
+
+Fix: add tenant permission metadata to all edge I/O mutation surfaces, make Agent I/O v2 serialization fail closed for orphaned or ambiguous tags, bind pending pings to both device UUID and device code, add focused sensor-service permission/config/PLC tests, and teach the Rust gateway `update_io_config` parser to accept flat v2 `tags[]` while preserving legacy grouped payload support.
+
+Status: RESOLVED on `feat/sensor-train-ddl-rbac-trust-20260606`.
+
+## ORPHAN-HIGH-085 — Water chemistry leaf train lacked one end-to-end pH-domain and report proof
+
+Severity: HIGH. The Deffeyes DIC/pH engine, farm UI, MCP/AI tool surfaces, report export, and Playwright smoke were split across layers without one leaf-train proof that the visible chart domain, H₂S measurement pH semantics, report export overlays, and MCP schema stayed aligned.
+
+Root cause: chart and solver pH domains were duplicated, `currentPH` and H₂S measured-at-pH semantics were not stabilized as an explicit compatibility boundary, farm-module tests depended on a prebuilt shared-ui package, and the standalone farm module could not run the water smoke because its entrypoint lacked the React Query provider supplied by the shell.
+
+Fix: add shared Deffeyes pH-domain constants, introduce `h2sMeasuredAtPH` while preserving `currentPH` as a deprecated alias, extend engine/UI/report/MCP coverage, add a test-only shared-ui source alias, wrap farm-module standalone startup in a `QueryClientProvider`, and add the Playwright water chemistry release smoke for chart mode, report print, and CSP safety.
+
+Status: RESOLVED on `feat/water-chemistry-leaf-train-20260606`.
+
+## ORPHAN-HIGH-086 — ARIA control-plane proof lacked workflow preflight, evidence trust, and isolated burn-in
+
+Severity: HIGH. ARIA docs, workflows, and runtime helpers described enterprise autonomy proof surfaces, but the control plane did not consistently bind workflow write authority, token provenance, artifact trust, merge authority, and observe-mode burn-in evidence to executable gates. A workflow could claim authority without a real YAML contract, docs could drift from runtime SSoT, and operational proof could run outside an isolated, hash-bound evidence bundle.
+
+Root cause: ARIA hardening had evolved across kernel code, GitHub workflows, runbooks, and docs without one proof slice that made ARIA explicitly non-authoritative for production while still proving its own control-plane preconditions. Existing tests covered pieces of the kernel but not the workflow contract, evidence bundle integrity, genesis lifecycle boundaries, merge authority, and clean burn-in acceptance as one chain.
+
+Fix: add workflow contract/preflight verification, evidence trust and ledger-reference checks, merge authority invariants, enterprise readiness/genesis lifecycle guards, observe burn-in artifact schema and verifier, ARIA operational proof workflow, docs/runtime SSoT cleanup, and hardened automation-report PR helpers. The SSoT invariant now verifies the documented authority target as a reachable ancestor instead of requiring an impossible self-referential commit hash.
+
+Status: RESOLVED on `feat/aria-control-plane-proof-20260606`.

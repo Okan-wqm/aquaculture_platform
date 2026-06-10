@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .ledger import file_hash, load_jsonl, load_index, verify_jsonl
+from .ledger import LedgerIntegrityError, file_hash, load_jsonl, load_index, verify_jsonl
+from .runtime_artifacts import verify_runtime_artifacts
 from .tool_registry import covered_tool_ledgers, ensure_tools_dir, tools_contract_version, tools_dir
 from .workspace import ensure_workspace, workspace_contract_version, workspace_paths, repo_hash
 
@@ -24,9 +25,13 @@ def verify_integrity(
         else {"index_path": None, "ledgers": [], "issues": []}
     )
     lifecycle = _verify_cycle_lifecycle(root)
+    artifact_integrity = verify_runtime_artifacts(base_dir=root, workspace_root=workspace_root)
     issues = list(workspace.get("issues", [])) + list(tools.get("issues", []))
     if not lifecycle["valid"]:
         issues.append({"code": "cycle_lifecycle_incomplete", "details": lifecycle})
+    if artifact_integrity.get("valid") is not True:
+        for issue in artifact_integrity.get("issues", []):
+            issues.append({"code": "runtime_artifact_invalid", "details": issue})
     status = "ok" if not issues else "drift"
     return {
         "schema_version": 2,
@@ -37,6 +42,7 @@ def verify_integrity(
         "ledger_count": len(workspace.get("ledgers", [])) + len(tools.get("ledgers", [])),
         "ledgers": list(workspace.get("ledgers", [])) + list(tools.get("ledgers", [])),
         "cycle_lifecycle": lifecycle,
+        "runtime_artifacts": artifact_integrity,
     }
 
 
@@ -52,7 +58,16 @@ def _verify_cycle_lifecycle(root: Path) -> dict[str, Any]:
     terminal_events = {"completed", "failed", "stopped", "aborted"}
     open_cycles: dict[str, dict[str, Any]] = {}
     terminals: dict[str, dict[str, Any]] = {}
-    for row in load_jsonl(root / "cycles.jsonl"):
+    try:
+        cycle_rows = load_jsonl(root / "cycles.jsonl")
+    except LedgerIntegrityError as exc:
+        return {
+            "valid": False,
+            "incomplete_count": 0,
+            "incomplete_cycles": [],
+            "ledger_integrity_error": str(exc),
+        }
+    for row in cycle_rows:
         cycle_id = str(row.get("cycle_id") or "")
         event = str(row.get("event") or "")
         if not cycle_id:

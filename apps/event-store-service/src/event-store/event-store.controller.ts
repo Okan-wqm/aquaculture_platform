@@ -1,3 +1,4 @@
+import type { TenantRequest } from '@aquaculture/backend-common/types';
 import {
   Controller,
   Get,
@@ -9,14 +10,14 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
-  Headers,
+  Req,
   NotFoundException,
   UnauthorizedException,
   BadRequestException,
 } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsNumber, IsOptional, Min } from 'class-validator';
-import { EventStoreService } from './services/event-store.service';
+
 import {
   AppendEventsDto,
   ReadStreamDto,
@@ -34,6 +35,7 @@ import {
   SnapshotData,
   ConcurrencyCheckResult,
 } from './interfaces/event-store.interfaces';
+import { EventStoreService } from './services/event-store.service';
 
 // UUID v4 regex for tenant ID validation (shared with projections controller)
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -59,12 +61,12 @@ export class EventStoreController {
   @Post('streams/:aggregateType/:aggregateId')
   @HttpCode(HttpStatus.CREATED)
   async appendEvents(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
     @Param('aggregateType') aggregateType: string,
     @Param('aggregateId', ParseUUIDPipe) aggregateId: string,
     @Body() dto: AppendEventsDto,
   ): Promise<AppendResult> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
     this.validateAggregateType(aggregateType);
 
     // Use URL path parameters exclusively — ignore body overrides
@@ -73,6 +75,8 @@ export class EventStoreController {
       aggregateType,
       aggregateId,
       dto.events.map((e) => ({
+        producer: e.producer,
+        producerEventId: e.producerEventId,
         eventType: e.eventType,
         payload: e.payload,
         metadata: e.metadata,
@@ -91,12 +95,12 @@ export class EventStoreController {
    */
   @Get('streams/:aggregateType/:aggregateId')
   async readStream(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
     @Param('aggregateType') aggregateType: string,
     @Param('aggregateId', ParseUUIDPipe) aggregateId: string,
     @Query() query: ReadStreamDto,
   ): Promise<EventStreamSlice> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
     this.validateAggregateType(aggregateType);
 
     return this.eventStoreService.readStream(validatedTenantId, aggregateType, aggregateId, {
@@ -111,11 +115,11 @@ export class EventStoreController {
    */
   @Get('streams/:aggregateType/:aggregateId/info')
   async getStreamInfo(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
     @Param('aggregateType') aggregateType: string,
     @Param('aggregateId', ParseUUIDPipe) aggregateId: string,
   ): Promise<StreamInfoDto> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
     this.validateAggregateType(aggregateType);
 
     const stream = await this.eventStoreService.getStreamInfo(
@@ -152,12 +156,12 @@ export class EventStoreController {
    */
   @Get('streams/:aggregateType/:aggregateId/concurrency')
   async checkConcurrency(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
     @Param('aggregateType') aggregateType: string,
     @Param('aggregateId', ParseUUIDPipe) aggregateId: string,
     @Query() query: CheckConcurrencyDto,
   ): Promise<ConcurrencyCheckResult> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
     this.validateAggregateType(aggregateType);
 
     return this.eventStoreService.checkConcurrency(
@@ -174,11 +178,11 @@ export class EventStoreController {
   @Delete('streams/:aggregateType/:aggregateId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteStream(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
     @Param('aggregateType') aggregateType: string,
     @Param('aggregateId', ParseUUIDPipe) aggregateId: string,
   ): Promise<void> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
     this.validateAggregateType(aggregateType);
 
     await this.eventStoreService.deleteStream(validatedTenantId, aggregateType, aggregateId);
@@ -189,10 +193,10 @@ export class EventStoreController {
    */
   @Get()
   async readAllEvents(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
     @Query() query: ReadAllEventsDto,
   ): Promise<AllEventsSlice> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
 
     return this.eventStoreService.readAllEvents(validatedTenantId, {
       fromPosition: query.fromPosition,
@@ -210,7 +214,7 @@ export class EventStoreController {
    */
   @Get('search')
   async searchEvents(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
     @Query() query: SearchEventsDto,
   ): Promise<{
     events: PersistedEvent[];
@@ -219,7 +223,7 @@ export class EventStoreController {
     limit: number;
     totalPages: number;
   }> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
 
     return this.eventStoreService.searchEvents(
       validatedTenantId,
@@ -248,9 +252,9 @@ export class EventStoreController {
    */
   @Get('stats')
   async getStatistics(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
   ): Promise<EventStoreStatsDto> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
 
     const stats = await this.eventStoreService.getStatistics(validatedTenantId);
     return {
@@ -265,10 +269,10 @@ export class EventStoreController {
   @Post('snapshots')
   @HttpCode(HttpStatus.CREATED)
   async createSnapshot(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
     @Body() dto: CreateSnapshotDto,
   ): Promise<SnapshotData> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
 
     const snapshot = await this.eventStoreService.createSnapshot(
       validatedTenantId,
@@ -295,11 +299,11 @@ export class EventStoreController {
    */
   @Get('snapshots/:aggregateType/:aggregateId')
   async getSnapshot(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
     @Param('aggregateType') aggregateType: string,
     @Param('aggregateId', ParseUUIDPipe) aggregateId: string,
   ): Promise<SnapshotData> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
     this.validateAggregateType(aggregateType);
 
     const snapshot = await this.eventStoreService.getSnapshot(
@@ -320,7 +324,7 @@ export class EventStoreController {
    */
   @Get('aggregates/:aggregateType/:aggregateId')
   async loadAggregate(
-    @Headers('x-tenant-id') tenantId: string,
+    @Req() request: TenantRequest,
     @Param('aggregateType') aggregateType: string,
     @Param('aggregateId', ParseUUIDPipe) aggregateId: string,
   ): Promise<{
@@ -328,7 +332,7 @@ export class EventStoreController {
     events: PersistedEvent[];
     currentVersion: number;
   }> {
-    const validatedTenantId = this.validateTenantId(tenantId);
+    const validatedTenantId = this.getVerifiedTenantId(request);
     this.validateAggregateType(aggregateType);
 
     return this.eventStoreService.loadAggregate(validatedTenantId, aggregateType, aggregateId);
@@ -347,17 +351,18 @@ export class EventStoreController {
   }
 
   /**
-   * Validate tenant ID as UUID v4 format.
-   * Matches the validation pattern used by ProjectionsController.
+   * Read tenant ID from the service-identity guard result.
+   * Raw request headers are intentionally not a controller trust source.
    */
-  private validateTenantId(tenantId: string): string {
+  private getVerifiedTenantId(request: TenantRequest): string {
+    const tenantId = request.verifiedIdentity?.effectiveTenantId ?? request.tenantId;
     if (!tenantId || typeof tenantId !== 'string') {
-      throw new UnauthorizedException('X-Tenant-Id header is required');
+      throw new UnauthorizedException('Verified tenant context is required');
     }
 
     const trimmed = tenantId.trim();
     if (trimmed.length === 0) {
-      throw new UnauthorizedException('X-Tenant-Id header cannot be empty');
+      throw new UnauthorizedException('Verified tenant context cannot be empty');
     }
 
     if (!UUID_REGEX.test(trimmed)) {

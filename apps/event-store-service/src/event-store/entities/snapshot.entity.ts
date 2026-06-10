@@ -11,7 +11,7 @@ import {
  * Used to optimize event replay by storing periodic aggregate states
  */
 @Entity('snapshots', { schema: 'event_store' })
-@Index(['aggregateType', 'aggregateId', 'tenantId'], { unique: true })
+@Index(['aggregateType', 'aggregateId', 'tenantId', 'version'], { unique: true })
 @Index(['tenantId'])
 export class Snapshot {
   @PrimaryGeneratedColumn('uuid')
@@ -40,6 +40,12 @@ export class Snapshot {
    */
   @Column({ type: 'jsonb' })
   state!: Record<string, unknown>;
+
+  /**
+   * SHA-256 hash of the snapshot state payload.
+   */
+  @Column({ type: 'char', length: 64 })
+  stateHash!: string;
 
   /**
    * Multi-tenant isolation

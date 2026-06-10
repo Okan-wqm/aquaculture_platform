@@ -5,12 +5,12 @@ under a mock gh API factory. Asserts:
 
 - PR body carries the seven required sections (Problem, Evidence, Solution,
   Validation, Baseline Comparison, Rollback, Provenance).
-- gh subprocess is invoked with `--base snowball` (hardcoded in
+- gh subprocess is invoked with `--base main` (hardcoded in
   pr_manager); a different base never appears.
 - Action without `ready_for_pr` status cannot open a PR.
 - gh API failure surfaces as `GovernanceError`.
-- push_prepared_branch refuses to push the snowball / main / master
-  base branches.
+- push_prepared_branch refuses to push protected base branches.
+
 
 Plus the apply_engine.gate_apply_action `diff_text` extension:
 - Diff containing a banned suppression (e.g. `// @ts-ignore`) flips the
@@ -25,7 +25,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.apply_engine import gate_apply_action
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.pr_manager import (
     build_pr_body,
     open_pr_for_action,
@@ -34,6 +33,7 @@ from aria_kernel.pr_manager import (
 from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._gh_mock import (
     gh_create_failure,
     gh_create_success,
@@ -116,7 +116,11 @@ def _seed_apply_action(
         "status": status,
         "blocked_by": [],
     }
-    append_jsonl(tools / "apply" / "actions.jsonl", row)
+    append_declared_fixture(
+        tools / "apply" / "actions.jsonl",
+        row,
+        expected_surface="apply_actions",
+    )
     return row
 
 
@@ -189,7 +193,7 @@ class OpenPRForActionTests(unittest.TestCase):
             base_dir=self.tools,
             dry_run=True,
         )
-        self.assertEqual(result["base_branch"], "snowball")
+        self.assertEqual(result["base_branch"], "main")
         self.assertIn("## Problem", result["body"])
         self.assertIn("## Provenance", result["body"])
 
@@ -204,7 +208,7 @@ class OpenPRForActionTests(unittest.TestCase):
                 dry_run=True,
             )
 
-    def test_open_pr_invokes_gh_with_base_snowball(self) -> None:
+    def test_open_pr_invokes_gh_with_base_main(self) -> None:
         proposal = _seed_proposal(tools=self.tools)
         _seed_apply_action(tools=self.tools, proposal_id=proposal["proposal_id"], status="ready_for_pr")
         with patch("aria_kernel.pr_manager.subprocess.run", side_effect=gh_create_success):
@@ -214,7 +218,7 @@ class OpenPRForActionTests(unittest.TestCase):
                 base_dir=self.tools,
                 change_id="ch-test", dry_run=False,
             )
-        self.assertEqual(result["base_branch"], "snowball")
+        self.assertEqual(result["base_branch"], "main")
         # Plan 022 §C-4 — open_pr_for_action now also calls
         # `git rev-parse <branch>` to resolve the real head_sha; the
         # call log captures BOTH that git call AND the gh pr create call.
@@ -239,23 +243,23 @@ class OpenPRForActionTests(unittest.TestCase):
                     change_id="ch-test", dry_run=False,
                 )
 
-    def test_explicit_base_main_is_rejected_at_function_entry(self) -> None:
+    def test_explicit_base_develop_is_rejected_at_function_entry(self) -> None:
         # Plan 018 Phase 6.2 (G7) — open_pr_for_action MUST surface the
-        # snowball-only invariant at the function boundary, not just at
+        # main-only invariant at the function boundary, not just at
         # the gh argv hardcoded value. The explicit base parameter
         # rejection runs BEFORE proposal lookup so a misconfigured
         # caller cannot leak any state through the call.
-        with self.assertRaisesRegex(GovernanceError, "ARIA PRs MUST target 'snowball'; got base='main'"):
+        with self.assertRaisesRegex(GovernanceError, "ARIA PRs MUST target 'main'; got base='develop'"):
             open_pr_for_action(
                 proposal_id="PROP-NONEXISTENT",  # unreachable — base check fires first
                 workspace_root=self.repo,
                 base_dir=self.tools,
                 dry_run=True,
-                base="main",
+                base="develop",
             )
 
-    def test_explicit_base_snowball_passes_through(self) -> None:
-        # The default value is snowball; explicit base="snowball" must
+    def test_explicit_base_main_passes_through(self) -> None:
+        # The default value is main; explicit base="main" must
         # behave identically to no-arg.
         proposal = _seed_proposal(tools=self.tools)
         _seed_apply_action(tools=self.tools, proposal_id=proposal["proposal_id"], status="ready_for_pr")
@@ -264,9 +268,9 @@ class OpenPRForActionTests(unittest.TestCase):
             workspace_root=self.repo,
             base_dir=self.tools,
             dry_run=True,
-            base="snowball",
+            base="main",
         )
-        self.assertEqual(result["base_branch"], "snowball")
+        self.assertEqual(result["base_branch"], "main")
 
 
 class PushBaseBranchProtectionTests(unittest.TestCase):
@@ -279,7 +283,7 @@ class PushBaseBranchProtectionTests(unittest.TestCase):
         shutil.rmtree(self.repo, ignore_errors=True)
 
     def test_push_rejects_snowball_branch(self) -> None:
-        # Seed a commit row whose branch is snowball — push must refuse.
+        # Historical ARIA work branch remains protected from direct push.
         commit_row = {
             "schema_version": 1,
             "proposal_id": "PROP-Z",
@@ -287,7 +291,11 @@ class PushBaseBranchProtectionTests(unittest.TestCase):
             "action": "commit",
             "status": "committed",
         }
-        append_jsonl(self.tools / "pr-actions.jsonl", commit_row)
+        append_declared_fixture(
+            self.tools / "pr-actions.jsonl",
+            commit_row,
+            expected_surface="pr_actions",
+        )
         with self.assertRaisesRegex(GovernanceError, "base branch push is forbidden|aria/\\.\\.\\. branches"):
             push_prepared_branch(
                 proposal_id="PROP-Z",
@@ -304,7 +312,11 @@ class PushBaseBranchProtectionTests(unittest.TestCase):
             "action": "commit",
             "status": "committed",
         }
-        append_jsonl(self.tools / "pr-actions.jsonl", commit_row)
+        append_declared_fixture(
+            self.tools / "pr-actions.jsonl",
+            commit_row,
+            expected_surface="pr_actions",
+        )
         with self.assertRaisesRegex(GovernanceError, "base branch push is forbidden|aria/\\.\\.\\. branches"):
             push_prepared_branch(
                 proposal_id="PROP-Z",
@@ -335,7 +347,11 @@ class ApplyGateSuppressionScanTests(unittest.TestCase):
             "ledger_hash": "sha256:gate-ledger-hash",
             "previous_ledger_hash": None,
         }
-        append_jsonl(self.tools / "validation" / "gates.jsonl", gate_row)
+        append_declared_fixture(
+            self.tools / "validation" / "validation-gates.jsonl",
+            gate_row,
+            expected_surface="validation_gates",
+        )
         return comparison_ref
 
     def _seed_proposal_and_action(self) -> str:

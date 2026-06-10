@@ -6,6 +6,10 @@
  *
  * @module Batch/Resolvers
  */
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
+import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
+import { UseGuards, Logger } from '@nestjs/common';
 import {
   Resolver,
   Query,
@@ -18,13 +22,47 @@ import {
   Parent,
   registerEnumType,
 } from '@nestjs/graphql';
-import { UseGuards, Logger } from '@nestjs/common';
-import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
+import { InjectRepository } from '@nestjs/typeorm';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
-import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
+import { Repository } from 'typeorm';
+
 import { Cacheable } from '../../common/cache/cacheable.decorator';
-import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
+import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
+import { AllocateToTankCommand } from '../commands/allocate-to-tank.command';
+import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
+import { CreateBatchCommand, CreateBatchPayload } from '../commands/create-batch.command';
+import { RecordCullCommand, CullReason } from '../commands/record-cull.command';
+import { RecordMortalityCommand, MortalityReason } from '../commands/record-mortality.command';
+import { TransferBatchCommand } from '../commands/transfer-batch.command';
+import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
+import { UpdateBatchCommand } from '../commands/update-batch.command';
+import { BatchDocumentDataLoader } from '../dataloaders/batch-document.dataloader';
+import { BatchFeedAssignmentDataLoader } from '../dataloaders/batch-feed-assignment.dataloader';
+import { BatchLocationDataLoader } from '../dataloaders/batch-location.dataloader';
+import {
+  UpdateBatchInput,
+  RecordMortalityInput,
+  RecordCullInput,
+  AllocateToTankInput,
+  TransferBatchInput,
+  BatchFilterInput,
+  BatchDocumentResponse,
+  BatchListResponse,
+  BatchPerformanceResponse,
+  BatchHistoryEntryResponse,
+  AvailableTankResponse,
+} from '../dto/batch-resolver.dto';
+import { CreateBatchInput as CreateBatchInputDTO } from '../dto/create-batch.dto';
+import { BatchDocument, BatchDocumentType } from '../entities/batch-document.entity';
+import { BatchFeedAssignment } from '../entities/batch-feed-assignment.entity';
+import { BatchLocation } from '../entities/batch-location.entity';
+import { Batch, BatchStatus } from '../entities/batch.entity';
+import { GenerateBatchNumberQuery } from '../queries/generate-batch-number.query';
+import { GetBatchHistoryQuery, BatchHistoryEventType } from '../queries/get-batch-history.query';
+import { GetBatchPerformanceQuery } from '../queries/get-batch-performance.query';
+import { GetBatchQuery } from '../queries/get-batch.query';
+import { ListAvailableTanksQuery } from '../queries/list-available-tanks.query';
+import { ListBatchesQuery } from '../queries/list-batches.query';
 
 /**
  * User context interface for CurrentUser decorator
@@ -40,52 +78,6 @@ interface UserContext {
   tenantId: string;
   roles: Role[];
 }
-
-// Commands
-import { CreateBatchCommand, CreateBatchPayload } from '../commands/create-batch.command';
-import { UpdateBatchCommand, UpdateBatchPayload } from '../commands/update-batch.command';
-import { UpdateBatchStatusCommand } from '../commands/update-batch-status.command';
-import { RecordMortalityCommand, RecordMortalityPayload, MortalityReason } from '../commands/record-mortality.command';
-import { RecordCullCommand, RecordCullPayload, CullReason } from '../commands/record-cull.command';
-import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
-import { AllocateToTankCommand, AllocateToTankPayload } from '../commands/allocate-to-tank.command';
-import { TransferBatchCommand, TransferBatchPayload } from '../commands/transfer-batch.command';
-
-// Queries
-import { GetBatchQuery } from '../queries/get-batch.query';
-import { ListBatchesQuery, BatchFilterInput as BatchFilter } from '../queries/list-batches.query';
-import { ListAvailableTanksQuery, AvailableTank } from '../queries/list-available-tanks.query';
-import { GenerateBatchNumberQuery } from '../queries/generate-batch-number.query';
-import { GetBatchPerformanceQuery, BatchPerformanceResult } from '../queries/get-batch-performance.query';
-import { GetBatchHistoryQuery, BatchHistoryEntry, BatchHistoryEventType } from '../queries/get-batch-history.query';
-
-// Entities
-import { BatchDocument, BatchDocumentType } from '../entities/batch-document.entity';
-
-// DTOs — IP-3: extracted to dedicated file to keep resolver under 500 lines
-import { CreateBatchInput as CreateBatchInputDTO } from '../dto/create-batch.dto';
-import {
-  UpdateBatchInput,
-  RecordMortalityInput,
-  RecordCullInput,
-  AllocateToTankInput,
-  TransferBatchInput,
-  BatchFilterInput,
-  BatchDocumentResponse,
-  BatchListResponse,
-  BatchPerformanceResponse,
-  BatchHistoryEntryResponse,
-  AvailableTankResponse,
-} from '../dto/batch-resolver.dto';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { BatchDocumentDataLoader } from '../dataloaders/batch-document.dataloader';
-import { BatchLocationDataLoader } from '../dataloaders/batch-location.dataloader';
-import { BatchFeedAssignmentDataLoader } from '../dataloaders/batch-feed-assignment.dataloader';
-
-// Entities for field resolvers
-import { BatchLocation } from '../entities/batch-location.entity';
-import { BatchFeedAssignment } from '../entities/batch-feed-assignment.entity';
 
 // Register enums (only those not already registered in their entity/types files)
 // ArrivalMethod → registered in batch.types.ts
@@ -303,9 +295,18 @@ export class BatchResolver {
     @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Recording mortality for batch: ${input.batchId}`);
-    const { batchId, ...payload } = input;
+    const {
+      batchId,
+      clientCommandId: _clientCommandId,
+      clientCreatedAt: _clientCreatedAt,
+      deviceId: _deviceId,
+      operationType: _operationType,
+      payloadHash: _payloadHash,
+      schemaVersion: _schemaVersion,
+      ...payload
+    } = input;
     return this.commandBus.execute(
-      new RecordMortalityCommand(tenantId, batchId, payload, user.sub),
+      new RecordMortalityCommand(tenantId, batchId, payload, user.sub, mobileCommandEnvelopeFromInput(input)),
     );
   }
 
@@ -317,9 +318,18 @@ export class BatchResolver {
     @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Recording cull for batch: ${input.batchId}`);
-    const { batchId, ...payload } = input;
+    const {
+      batchId,
+      clientCommandId: _clientCommandId,
+      clientCreatedAt: _clientCreatedAt,
+      deviceId: _deviceId,
+      operationType: _operationType,
+      payloadHash: _payloadHash,
+      schemaVersion: _schemaVersion,
+      ...payload
+    } = input;
     return this.commandBus.execute(
-      new RecordCullCommand(tenantId, batchId, payload, user.sub),
+      new RecordCullCommand(tenantId, batchId, payload, user.sub, mobileCommandEnvelopeFromInput(input)),
     );
   }
 
@@ -331,10 +341,19 @@ export class BatchResolver {
     @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Allocating batch ${input.batchId} to tank ${input.tankId}`);
-    const { batchId, ...rest } = input;
+    const {
+      batchId,
+      clientCommandId: _clientCommandId,
+      clientCreatedAt: _clientCreatedAt,
+      deviceId: _deviceId,
+      operationType: _operationType,
+      payloadHash: _payloadHash,
+      schemaVersion: _schemaVersion,
+      ...rest
+    } = input;
     const payload = { ...rest, allocatedAt: rest.allocatedAt || new Date() };
     return this.commandBus.execute(
-      new AllocateToTankCommand(tenantId, batchId, payload, user.sub, user.roles),
+      new AllocateToTankCommand(tenantId, batchId, payload, user.sub, user.roles, mobileCommandEnvelopeFromInput(input)),
     );
   }
 
@@ -346,10 +365,19 @@ export class BatchResolver {
     @CurrentUser() user: UserContext,
   ): Promise<Batch> {
     this.logger.log(`Transferring batch ${input.batchId} from ${input.sourceTankId} to ${input.destinationTankId}`);
-    const { batchId, ...rest } = input;
+    const {
+      batchId,
+      clientCommandId: _clientCommandId,
+      clientCreatedAt: _clientCreatedAt,
+      deviceId: _deviceId,
+      operationType: _operationType,
+      payloadHash: _payloadHash,
+      schemaVersion: _schemaVersion,
+      ...rest
+    } = input;
     const payload = { ...rest, transferredAt: rest.transferredAt || new Date() };
     return this.commandBus.execute(
-      new TransferBatchCommand(tenantId, batchId, payload, user.sub),
+      new TransferBatchCommand(tenantId, batchId, payload, user.sub, mobileCommandEnvelopeFromInput(input)),
     );
   }
 

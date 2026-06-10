@@ -5,7 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { GraphQLError } from 'graphql';
+import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
@@ -16,9 +16,10 @@ import {
 } from '@aquaculture/backend-common/audit';
 import {
   AuditColumnsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
+  isSchemaDdlOwnedByDbMigrate,
   RlsModule,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
@@ -45,16 +46,24 @@ const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
 
 /**
- * AiMigrationRunnerService — runs pending TypeORM migrations in the ai
- * source schema at OnApplicationBootstrap. Wired in P2d of the 2026-04-14
- * teardown plan to close the RlsSchemaBootstrap docblock gap (lines
- * 14-27).
+ * AiMigrationRunnerService — schema-version gate for the ai source schema
+ * (Faz 1.5 of the day-one baseline reset).
+ *
+ * Was `createMigrationRunnerService('ai')`. Now uses
+ * `createSchemaVersionGate('ai')`:
+ *
+ *   • production (`DB_MIGRATE_AUTHORITATIVE=true`) — read-only ledger
+ *     probe; refuses boot if aqua-db-migrate has not finalised `ai`.
+ *   • development (default)                       — delegates to the
+ *     runner verbatim, preserving dev/test ergonomics.
  *
  * migrations/ starts empty — ai-service currently relies on
- * SourceSchemaBootstrapService + TenantSchemaSyncService. Runner is wired
- * so future migrations can land deterministically.
+ * SourceSchemaBootstrapService + TenantSchemaSyncService. The gate is
+ * wired so future migrations land deterministically through
+ * aqua-db-migrate.
  */
-const AiMigrationRunnerService = createMigrationRunnerService('ai');
+const AiMigrationRunnerService = createSchemaVersionGate('ai');
+const aiSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { EventBusModule } from '@platform/event-bus';
 import { HealthModule } from './health/health.module';
 import { ToolRegistryModule } from './tools/tool-registry.module';
@@ -74,6 +83,16 @@ import { ToolExecutionAudit } from './audit/tool-execution-audit.entity';
 // Per-process cache for GraphQL complexity results keyed by document hash.
 // This avoids recomputing complexity for identical operations on every request.
 const complexityCache = new Map<string, number>();
+
+type QueryComplexityOperationContext = {
+  request: {
+    query?: string;
+    operationName?: string;
+    variables?: Record<string, unknown>;
+  };
+  document: DocumentNode;
+  schema: GraphQLSchema;
+};
 
 @Module({
   imports: [
@@ -143,7 +162,11 @@ const complexityCache = new Map<string, number>();
           plugins: [
             {
               requestDidStart: async () => ({
-                async didResolveOperation({ request, document, schema }) {
+                async didResolveOperation({
+                  request,
+                  document,
+                  schema,
+                }: QueryComplexityOperationContext) {
                   // Cache complexity by document hash to avoid re-computation for
                   // identical operations. The hash key incorporates the operation name
                   // so distinct named operations in the same document are treated separately.
@@ -239,7 +262,7 @@ const complexityCache = new Map<string, number>();
      */
     RlsModule.forPoolService({
       serviceName: 'ai',
-      syncTenantSchemas: true,
+      syncTenantSchemas: !aiSchemaDdlOwnedByDbMigrate,
       excludeTables: ['ai_outbox'],
     }),
     /**
@@ -251,7 +274,7 @@ const complexityCache = new Map<string, number>();
      * tenant-sync services. The audit-column bootstrap follows the same
      * lifecycle and is idempotent.
      */
-    AuditColumnsModule.forRoot({ serviceName: 'ai' }),
+    ...(aiSchemaDdlOwnedByDbMigrate ? [] : [AuditColumnsModule.forRoot({ serviceName: 'ai' })]),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'ai' }),
   ],

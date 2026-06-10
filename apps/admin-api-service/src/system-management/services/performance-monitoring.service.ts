@@ -91,14 +91,39 @@ export interface MetricThreshold {
 // ============================================================================
 
 const DEFAULT_THRESHOLDS: MetricThreshold[] = [
-  { metric: MetricType.RESPONSE_TIME, warningThreshold: 500, criticalThreshold: 1000, comparison: 'gt' },
+  {
+    metric: MetricType.RESPONSE_TIME,
+    warningThreshold: 500,
+    criticalThreshold: 1000,
+    comparison: 'gt',
+  },
   { metric: MetricType.ERROR_RATE, warningThreshold: 1, criticalThreshold: 5, comparison: 'gt' },
   { metric: MetricType.CPU_USAGE, warningThreshold: 70, criticalThreshold: 90, comparison: 'gt' },
-  { metric: MetricType.MEMORY_USAGE, warningThreshold: 80, criticalThreshold: 95, comparison: 'gt' },
+  {
+    metric: MetricType.MEMORY_USAGE,
+    warningThreshold: 80,
+    criticalThreshold: 95,
+    comparison: 'gt',
+  },
   { metric: MetricType.DISK_USAGE, warningThreshold: 80, criticalThreshold: 95, comparison: 'gt' },
-  { metric: MetricType.DB_CONNECTION_POOL, warningThreshold: 80, criticalThreshold: 95, comparison: 'gt' },
-  { metric: MetricType.DB_QUERY_TIME, warningThreshold: 100, criticalThreshold: 500, comparison: 'gt' },
-  { metric: MetricType.DB_CACHE_HIT_RATIO, warningThreshold: 80, criticalThreshold: 60, comparison: 'lt' },
+  {
+    metric: MetricType.DB_CONNECTION_POOL,
+    warningThreshold: 80,
+    criticalThreshold: 95,
+    comparison: 'gt',
+  },
+  {
+    metric: MetricType.DB_QUERY_TIME,
+    warningThreshold: 100,
+    criticalThreshold: 500,
+    comparison: 'gt',
+  },
+  {
+    metric: MetricType.DB_CACHE_HIT_RATIO,
+    warningThreshold: 80,
+    criticalThreshold: 60,
+    comparison: 'lt',
+  },
   { metric: MetricType.APDEX, warningThreshold: 0.85, criticalThreshold: 0.7, comparison: 'lt' },
 ];
 
@@ -114,7 +139,8 @@ export class PerformanceMonitoringService {
   private thresholds: MetricThreshold[] = DEFAULT_THRESHOLDS;
 
   // In-memory metrics for real-time calculations
-  private requestMetrics: Map<string, { count: number; totalTime: number; errors: number }> = new Map();
+  private requestMetrics: Map<string, { count: number; totalTime: number; errors: number }> =
+    new Map();
   private lastFlush: Date = new Date();
 
   constructor(
@@ -199,7 +225,10 @@ export class PerformanceMonitoringService {
   // Application Performance
   // ============================================================================
 
-  async getApplicationMetrics(service?: string, timeRange?: { start?: Date; end?: Date }): Promise<ApplicationMetrics> {
+  async getApplicationMetrics(
+    service?: string,
+    timeRange?: { start?: Date; end?: Date },
+  ): Promise<ApplicationMetrics> {
     const end = timeRange?.end || new Date();
     const start = timeRange?.start || new Date(end.getTime() - 5 * 60 * 1000); // Last 5 minutes
 
@@ -229,8 +258,14 @@ export class PerformanceMonitoringService {
     const apdexMetrics = metrics.filter((m) => m.metricType === MetricType.APDEX);
 
     const avgResponseTime = this.calculateAverage(responseTimeMetrics.map((m) => m.value));
-    const p95ResponseTime = this.calculatePercentile(responseTimeMetrics.map((m) => m.percentiles?.p95 || m.value), 95);
-    const p99ResponseTime = this.calculatePercentile(responseTimeMetrics.map((m) => m.percentiles?.p99 || m.value), 99);
+    const p95ResponseTime = this.calculatePercentile(
+      responseTimeMetrics.map((m) => m.percentiles?.p95 || m.value),
+      95,
+    );
+    const p99ResponseTime = this.calculatePercentile(
+      responseTimeMetrics.map((m) => m.percentiles?.p99 || m.value),
+      99,
+    );
     const errorRate = this.calculateAverage(errorRateMetrics.map((m) => m.value));
     const throughput = this.calculateSum(throughputMetrics.map((m) => m.value));
     const apdexScore = this.calculateAverage(apdexMetrics.map((m) => m.value));
@@ -243,7 +278,9 @@ export class PerformanceMonitoringService {
       errorRate,
       apdexScore: apdexScore || 1,
       activeRequests: 0, // Would come from real-time monitoring
-      totalRequests: this.calculateSum(metrics.filter((m) => m.metricType === MetricType.REQUEST_COUNT).map((m) => m.value)),
+      totalRequests: this.calculateSum(
+        metrics.filter((m) => m.metricType === MetricType.REQUEST_COUNT).map((m) => m.value),
+      ),
     };
   }
 
@@ -293,7 +330,10 @@ export class PerformanceMonitoringService {
   // Database Performance
   // ============================================================================
 
-  async getDatabaseMetrics(database?: string, timeRange?: { start?: Date; end?: Date }): Promise<DatabaseMetrics> {
+  async getDatabaseMetrics(
+    database?: string,
+    timeRange?: { start?: Date; end?: Date },
+  ): Promise<DatabaseMetrics> {
     try {
       const queryRunner = this.dataSource.createQueryRunner();
       await queryRunner.connect();
@@ -301,7 +341,7 @@ export class PerformanceMonitoringService {
       try {
         // Active connections
         const connResult = await queryRunner.query(
-          `SELECT count(*) as active FROM pg_stat_activity WHERE state = 'active'`
+          `SELECT count(*) as active FROM pg_stat_activity WHERE state = 'active'`,
         );
         const activeConnections = parseInt(connResult[0]?.active || '0', 10);
 
@@ -324,7 +364,7 @@ export class PerformanceMonitoringService {
 
         // Total connections
         const totalConnResult = await queryRunner.query(
-          `SELECT count(*) as total FROM pg_stat_activity`
+          `SELECT count(*) as total FROM pg_stat_activity`,
         );
         const totalConnections = parseInt(totalConnResult[0]?.total || '0', 10);
 
@@ -388,14 +428,18 @@ export class PerformanceMonitoringService {
   // Infrastructure Performance
   // ============================================================================
 
-  async getInfrastructureMetrics(host?: string, timeRange?: { start?: Date; end?: Date }): Promise<InfrastructureMetrics> {
+  async getInfrastructureMetrics(
+    host?: string,
+    timeRange?: { start?: Date; end?: Date },
+  ): Promise<InfrastructureMetrics> {
     // Real OS metrics
     const cpus = os.cpus();
-    const cpuUsage = cpus.reduce((acc, cpu) => {
-      const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
-      const idle = cpu.times.idle;
-      return acc + ((total - idle) / total) * 100;
-    }, 0) / cpus.length;
+    const cpuUsage =
+      cpus.reduce((acc, cpu) => {
+        const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
+        const idle = cpu.times.idle;
+        return acc + ((total - idle) / total) * 100;
+      }, 0) / cpus.length;
 
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
@@ -460,10 +504,11 @@ export class PerformanceMonitoringService {
                 const response = await fetch(endpoint.url, {
                   signal: controller.signal,
                   headers: buildSignedInternalHeaders({
-                    serviceName: 'admin-api',
+                    serviceName: 'admin-api-service',
                     tenantId: '',
                     method: 'GET',
                     path: new URL(endpoint.url).pathname,
+                    audience: endpoint.name,
                     body: '',
                   }),
                 });
@@ -498,9 +543,8 @@ export class PerformanceMonitoringService {
       }
 
       if (latencies.length > 0) {
-        networkLatency = Math.round(
-          latencies.reduce((sum, l) => sum + l, 0) / latencies.length * 100,
-        ) / 100;
+        networkLatency =
+          Math.round((latencies.reduce((sum, l) => sum + l, 0) / latencies.length) * 100) / 100;
       }
     } catch (error) {
       this.logger.warn('Failed to check container health', error);
@@ -594,7 +638,9 @@ export class PerformanceMonitoringService {
   async getServiceBreakdown(
     start: Date,
     end: Date,
-  ): Promise<Array<{ service: string; avgResponseTime: number; errorRate: number; requestCount: number }>> {
+  ): Promise<
+    Array<{ service: string; avgResponseTime: number; errorRate: number; requestCount: number }>
+  > {
     const result = await this.metricRepo
       .createQueryBuilder('m')
       .select('m.service', 'service')
@@ -623,10 +669,20 @@ export class PerformanceMonitoringService {
   // Threshold & Alert Management
   // ============================================================================
 
-  async checkThresholds(
-    service?: string,
-  ): Promise<Array<{ metric: string; threshold: number; currentValue: number; severity: 'warning' | 'critical' }>> {
-    const alerts: Array<{ metric: string; threshold: number; currentValue: number; severity: 'warning' | 'critical' }> = [];
+  async checkThresholds(service?: string): Promise<
+    Array<{
+      metric: string;
+      threshold: number;
+      currentValue: number;
+      severity: 'warning' | 'critical';
+    }>
+  > {
+    const alerts: Array<{
+      metric: string;
+      threshold: number;
+      currentValue: number;
+      severity: 'warning' | 'critical';
+    }> = [];
 
     const [appMetrics, dbMetrics, infraMetrics] = await Promise.all([
       this.getApplicationMetrics(service),
@@ -650,7 +706,11 @@ export class PerformanceMonitoringService {
       const value = metricValues[threshold.metric];
       if (value === undefined) continue;
 
-      const isCritical = this.compareValue(value, threshold.criticalThreshold, threshold.comparison);
+      const isCritical = this.compareValue(
+        value,
+        threshold.criticalThreshold,
+        threshold.comparison,
+      );
       const isWarning = this.compareValue(value, threshold.warningThreshold, threshold.comparison);
 
       if (isCritical) {
@@ -673,13 +733,22 @@ export class PerformanceMonitoringService {
     return alerts;
   }
 
-  private compareValue(value: number, threshold: number, comparison: 'gt' | 'lt' | 'gte' | 'lte'): boolean {
+  private compareValue(
+    value: number,
+    threshold: number,
+    comparison: 'gt' | 'lt' | 'gte' | 'lte',
+  ): boolean {
     switch (comparison) {
-      case 'gt': return value > threshold;
-      case 'lt': return value < threshold;
-      case 'gte': return value >= threshold;
-      case 'lte': return value <= threshold;
-      default: return false;
+      case 'gt':
+        return value > threshold;
+      case 'lt':
+        return value < threshold;
+      case 'gte':
+        return value >= threshold;
+      case 'lte':
+        return value <= threshold;
+      default:
+        return false;
     }
   }
 

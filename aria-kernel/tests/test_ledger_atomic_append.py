@@ -101,6 +101,28 @@ class AtomicAppendTests(unittest.TestCase):
         self.assertTrue(result["valid"], result)
         self.assertEqual(result["row_count"], 25)
 
+    def test_runtime_artifact_ledger_stays_in_tools_index_group(self) -> None:
+        tools = self.tmp / "aria-tools"
+        tools.mkdir()
+        idx_path = tools / "integrity_index.json"
+        idx_path.write_text(
+            json.dumps({"ledger_hashes": {}, "schema_version": 2}),
+            encoding="utf-8",
+        )
+        artifact_index = tools / "run-artifacts" / "artifact-index.jsonl"
+
+        req = _lock_requirements_for_path(artifact_index)
+        self.assertEqual(req.index_group_lock_path, idx_path)
+        append_jsonl(artifact_index, {"artifact_id": "a1"})
+        append_jsonl(tools / "governance.jsonl", {"event": "after-artifact"})
+
+        idx = json.loads(idx_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            idx["ledger_hashes"]["runtime_artifact_index"],
+            file_hash(artifact_index),
+        )
+        self.assertIn("governance", idx["ledger_hashes"])
+
     def test_concurrent_append_indexed_ledger_index_consistent(self) -> None:
         tools = self.tmp / "aria-tools"
         tools.mkdir()
@@ -274,7 +296,7 @@ class RefreshGroupHeldLockAwareTests(unittest.TestCase):
     def test_governance_routing_disambiguation(self) -> None:
         # Tools-side governance.jsonl
         tools_gov = self.tools / "governance.jsonl"
-        append_jsonl(tools_gov, {"event": "tools-side"})
+        append_jsonl(tools_gov, {"event": "tools-side"}, test_fixture=True)
 
         # aria-memory-side governance.jsonl
         memory = self.tmp / "aria-memory"
@@ -286,7 +308,7 @@ class RefreshGroupHeldLockAwareTests(unittest.TestCase):
             encoding="utf-8",
         )
         memory_gov = memory / "governance.jsonl"
-        append_jsonl(memory_gov, {"event": "memory-side"})
+        append_jsonl(memory_gov, {"event": "memory-side"}, test_fixture=True)
 
         tools_idx = json.loads(
             (self.tools / "integrity_index.json").read_text(encoding="utf-8")

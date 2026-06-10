@@ -4,6 +4,7 @@ description: Reviews Rust edge gateway, PLC and SCADA command paths, offline que
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # Edge Industrial Auditor -- Rust Gateway and Field Command Review Authority

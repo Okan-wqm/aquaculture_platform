@@ -1,0 +1,395 @@
+#!/usr/bin/env bash
+# Canonical droplet capacity preflight + image-only garbage collection.
+#
+# This script is intentionally conservative. It never removes volumes,
+# containers, networks, or build cache. Deploy-time cleanup is limited to
+# dangling images and unused old application SHA tags under IMAGE_PREFIX.
+
+set -euo pipefail
+
+IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
+DEPLOY_SHA="${DEPLOY_SHA:-}"
+FULL_DEPLOY="${FULL_DEPLOY:-false}"
+DEPLOY_SERVICES="${DEPLOY_SERVICES:-}"
+ROLLBACK_MANIFEST="${ROLLBACK_MANIFEST:-}"
+DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-}"
+CAPACITY_GC_MODE="${CAPACITY_GC_MODE:-auto}" # auto | off
+
+GIB=$((1024 * 1024 * 1024))
+FULL_HARD_FREE_GIB="${FULL_HARD_FREE_GIB:-35}"
+FULL_WARN_FREE_GIB="${FULL_WARN_FREE_GIB:-50}"
+FULL_HARD_FREE_PERCENT="${FULL_HARD_FREE_PERCENT:-20}"
+SELECTIVE_HARD_FREE_GIB="${SELECTIVE_HARD_FREE_GIB:-15}"
+SELECTIVE_WARN_FREE_GIB="${SELECTIVE_WARN_FREE_GIB:-25}"
+SELECTIVE_HARD_FREE_PERCENT="${SELECTIVE_HARD_FREE_PERCENT:-10}"
+HARD_INODE_FREE_PERCENT="${HARD_INODE_FREE_PERCENT:-5}"
+WARN_INODE_FREE_PERCENT="${WARN_INODE_FREE_PERCENT:-10}"
+FULL_PULL_ESTIMATE_GIB="${FULL_PULL_ESTIMATE_GIB:-20}"
+SERVICE_PULL_ESTIMATE_GIB="${SERVICE_PULL_ESTIMATE_GIB:-2}"
+FULL_PROJECTED_RESERVE_GIB="${FULL_PROJECTED_RESERVE_GIB:-20}"
+SELECTIVE_PROJECTED_RESERVE_GIB="${SELECTIVE_PROJECTED_RESERVE_GIB:-10}"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/deploy/droplet-capacity.sh report
+  scripts/deploy/droplet-capacity.sh gate
+  scripts/deploy/droplet-capacity.sh gc
+
+Environment:
+  FULL_DEPLOY=true|false
+  DEPLOY_SERVICES="svc-a svc-b"
+  DEPLOY_SHA=<40-char sha>
+  IMAGE_PREFIX=ghcr.io/owner/repo
+  CAPACITY_GC_MODE=auto|off
+EOF
+}
+
+command="${1:-}"
+if [ -z "${command}" ]; then
+  usage
+  exit 2
+fi
+
+unique_paths() {
+  local seen=" "
+  local p
+  for p in "$@"; do
+    [ -n "${p}" ] || continue
+    [ -e "${p}" ] || continue
+    case "${seen}" in
+      *" ${p} "*) ;;
+      *)
+        printf '%s\n' "${p}"
+        seen="${seen}${p} "
+        ;;
+    esac
+  done
+}
+
+docker_root() {
+  docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "/var/lib/docker"
+}
+
+runtime_paths() {
+  local droot
+  droot="$(docker_root)"
+  unique_paths "/" "${droot}" "/var/lib/containerd"
+}
+
+df_bytes_row() {
+  local path="$1"
+  df -PB1 "${path}" 2>/dev/null | awk 'NR==2 {print $1 "\t" $2 "\t" $4 "\t" $6}'
+}
+
+df_inode_row() {
+  local path="$1"
+  df -Pi "${path}" 2>/dev/null | awk 'NR==2 {print $2 "\t" $4}'
+}
+
+service_count() {
+  if [ "${FULL_DEPLOY}" = "true" ]; then
+    echo 0
+    return 0
+  fi
+  if [ -z "${DEPLOY_SERVICES}" ]; then
+    echo 0
+    return 0
+  fi
+  # shellcheck disable=SC2086
+  set -- ${DEPLOY_SERVICES}
+  echo "$#"
+}
+
+projected_pull_bytes() {
+  if [ -n "${DEPLOY_PROJECTED_PULL_BYTES:-}" ]; then
+    echo "${DEPLOY_PROJECTED_PULL_BYTES}"
+    return 0
+  fi
+
+  if [ "${FULL_DEPLOY}" = "true" ]; then
+    echo $((FULL_PULL_ESTIMATE_GIB * GIB))
+  else
+    local count
+    count="$(service_count)"
+    if [ "${count}" -eq 0 ]; then
+      echo 0
+    else
+      echo $((count * SERVICE_PULL_ESTIMATE_GIB * GIB))
+    fi
+  fi
+}
+
+thresholds() {
+  if [ "${FULL_DEPLOY}" = "true" ]; then
+    echo "$((FULL_HARD_FREE_GIB * GIB)) $((FULL_WARN_FREE_GIB * GIB)) ${FULL_HARD_FREE_PERCENT} $((FULL_PROJECTED_RESERVE_GIB * GIB))"
+  else
+    echo "$((SELECTIVE_HARD_FREE_GIB * GIB)) $((SELECTIVE_WARN_FREE_GIB * GIB)) ${SELECTIVE_HARD_FREE_PERCENT} $((SELECTIVE_PROJECTED_RESERVE_GIB * GIB))"
+  fi
+}
+
+capacity_snapshot() {
+  local pull_estimate
+  pull_estimate="$(projected_pull_bytes)"
+
+  echo "=== Droplet capacity snapshot ==="
+  echo "mode=$([ "${FULL_DEPLOY}" = "true" ] && echo full || echo selective)"
+  echo "deploy_services=${DEPLOY_SERVICES:-none}"
+  echo "image_prefix=${IMAGE_PREFIX}"
+  echo "deploy_sha=${DEPLOY_SHA:-unknown}"
+  echo "docker_root=$(docker_root)"
+  echo "projected_pull_bytes=${pull_estimate}"
+  echo ""
+  echo "Filesystem bytes:"
+  local path fs size avail mount used_pct free_pct
+  while IFS= read -r path; do
+    [ -n "${path}" ] || continue
+    IFS="$(printf '\t')" read -r fs size avail mount < <(df_bytes_row "${path}")
+    if [ -z "${size:-}" ] || [ "${size}" -eq 0 ]; then
+      continue
+    fi
+    used_pct=$((100 - (avail * 100 / size)))
+    free_pct=$((avail * 100 / size))
+    printf '  path=%s mount=%s fs=%s size_bytes=%s free_bytes=%s used_pct=%s free_pct=%s\n' \
+      "${path}" "${mount}" "${fs}" "${size}" "${avail}" "${used_pct}" "${free_pct}"
+  done < <(runtime_paths)
+
+  echo ""
+  echo "Filesystem inodes:"
+  local inodes_free inodes_total inode_free_pct
+  while IFS= read -r path; do
+    [ -n "${path}" ] || continue
+    IFS="$(printf '\t')" read -r inodes_total inodes_free < <(df_inode_row "${path}")
+    if [ -z "${inodes_total:-}" ] || [ "${inodes_total}" -eq 0 ]; then
+      continue
+    fi
+    inode_free_pct=$((inodes_free * 100 / inodes_total))
+    printf '  path=%s inodes_total=%s inodes_free=%s inode_free_pct=%s\n' \
+      "${path}" "${inodes_total}" "${inodes_free}" "${inode_free_pct}"
+  done < <(runtime_paths)
+
+  echo ""
+  docker system df 2>/dev/null || true
+}
+
+write_capacity_json() {
+  [ -n "${DEPLOY_STATE_DIR}" ] || return 0
+  mkdir -p "${DEPLOY_STATE_DIR}"
+  local out="${DEPLOY_STATE_DIR}/capacity-snapshot.json"
+  local pull_estimate
+  pull_estimate="$(projected_pull_bytes)"
+  local docker_root_dir
+  docker_root_dir="$(docker_root)"
+  local min_free=""
+  local min_inode=""
+  local path size avail inodes_total inodes_free pct inode_pct
+
+  while IFS= read -r path; do
+    [ -n "${path}" ] || continue
+    IFS="$(printf '\t')" read -r _ size avail _ < <(df_bytes_row "${path}")
+    if [ -n "${avail:-}" ]; then
+      if [ -z "${min_free}" ] || [ "${avail}" -lt "${min_free}" ]; then
+        min_free="${avail}"
+      fi
+    fi
+    IFS="$(printf '\t')" read -r inodes_total inodes_free < <(df_inode_row "${path}")
+    if [ -n "${inodes_total:-}" ] && [ "${inodes_total}" -gt 0 ]; then
+      inode_pct=$((inodes_free * 100 / inodes_total))
+      if [ -z "${min_inode}" ] || [ "${inode_pct}" -lt "${min_inode}" ]; then
+        min_inode="${inode_pct}"
+      fi
+    fi
+  done < <(runtime_paths)
+
+  cat > "${out}" <<EOF
+{"dockerRoot":"${docker_root_dir}","fullDeploy":$([ "${FULL_DEPLOY}" = "true" ] && echo true || echo false),"deployServices":"${DEPLOY_SERVICES:-}","projectedPullBytes":${pull_estimate},"minRuntimeFreeBytes":${min_free:-0},"minRuntimeInodeFreePercent":${min_inode:-0}}
+EOF
+}
+
+capacity_failures() {
+  local hard_free warn_free hard_free_pct projected_reserve
+  read -r hard_free warn_free hard_free_pct projected_reserve < <(thresholds)
+  local pull_estimate
+  pull_estimate="$(projected_pull_bytes)"
+  local failures=0
+  local warnings=0
+  local path fs size avail mount free_pct projected_free
+  local inodes_total inodes_free inode_free_pct
+
+  while IFS= read -r path; do
+    [ -n "${path}" ] || continue
+    IFS="$(printf '\t')" read -r fs size avail mount < <(df_bytes_row "${path}")
+    if [ -z "${size:-}" ] || [ "${size}" -eq 0 ]; then
+      continue
+    fi
+    free_pct=$((avail * 100 / size))
+    projected_free=$((avail - pull_estimate))
+
+    if [ "${avail}" -lt "${hard_free}" ]; then
+      echo "::error::disk_preflight_low_bytes path=${path} free_bytes=${avail} hard_free_bytes=${hard_free}"
+      failures=$((failures + 1))
+    elif [ "${avail}" -lt "${warn_free}" ]; then
+      echo "::warning::disk_preflight_warn_bytes path=${path} free_bytes=${avail} warn_free_bytes=${warn_free}"
+      warnings=$((warnings + 1))
+    fi
+
+    if [ "${free_pct}" -lt "${hard_free_pct}" ]; then
+      echo "::error::disk_preflight_low_percent path=${path} free_pct=${free_pct} hard_free_pct=${hard_free_pct}"
+      failures=$((failures + 1))
+    fi
+
+    if [ "${projected_free}" -lt "${projected_reserve}" ]; then
+      echo "::error::disk_preflight_projected_low path=${path} projected_free_bytes=${projected_free} reserve_bytes=${projected_reserve}"
+      failures=$((failures + 1))
+    fi
+
+    IFS="$(printf '\t')" read -r inodes_total inodes_free < <(df_inode_row "${path}")
+    if [ -n "${inodes_total:-}" ] && [ "${inodes_total}" -gt 0 ]; then
+      inode_free_pct=$((inodes_free * 100 / inodes_total))
+      if [ "${inode_free_pct}" -lt "${HARD_INODE_FREE_PERCENT}" ]; then
+        echo "::error::disk_preflight_low_inodes path=${path} inode_free_pct=${inode_free_pct} hard_inode_free_pct=${HARD_INODE_FREE_PERCENT}"
+        failures=$((failures + 1))
+      elif [ "${inode_free_pct}" -lt "${WARN_INODE_FREE_PERCENT}" ]; then
+        echo "::warning::disk_preflight_warn_inodes path=${path} inode_free_pct=${inode_free_pct} warn_inode_free_pct=${WARN_INODE_FREE_PERCENT}"
+        warnings=$((warnings + 1))
+      fi
+    fi
+  done < <(runtime_paths)
+
+  if [ "${failures}" -gt 0 ]; then
+    return 2
+  fi
+  if [ "${warnings}" -gt 0 ]; then
+    return 1
+  fi
+  return 0
+}
+
+protected_image_ids_file() {
+  local file="$1"
+  : > "${file}"
+
+  docker ps -aq 2>/dev/null | while IFS= read -r cid; do
+    [ -n "${cid}" ] || continue
+    docker inspect --format='{{.Image}}' "${cid}" 2>/dev/null || true
+  done >> "${file}"
+
+  if [ -n "${ROLLBACK_MANIFEST}" ] && [ -s "${ROLLBACK_MANIFEST}" ]; then
+    awk -F '\t' 'NF >= 2 {print $2}' "${ROLLBACK_MANIFEST}" >> "${file}" || true
+  fi
+
+  if [ -n "${DEPLOY_SHA}" ]; then
+    docker image ls --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null |
+      awk -v sha="${DEPLOY_SHA}" '$1 ~ ":" sha "$" {print $2}' >> "${file}" || true
+  fi
+
+  sort -u "${file}" -o "${file}"
+}
+
+is_protected_id() {
+  local id="$1"
+  local file="$2"
+  grep -qx "${id}" "${file}" 2>/dev/null
+}
+
+safe_image_gc() {
+  echo "=== Safe image-only GC ==="
+  echo "Policy: dangling images + unused old app SHA tags only; volumes/containers/networks/build-cache untouched."
+  local before after reclaimed
+  before=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
+
+  docker image prune -f --filter "dangling=true" 2>&1 || true
+
+  local protected
+  protected="$(mktemp)"
+  protected_image_ids_file "${protected}"
+
+  local repo tag id ref removed=0 skipped=0
+  while read -r repo tag id; do
+      [ -n "${repo:-}" ] || continue
+      case "${repo}" in
+        "${IMAGE_PREFIX}"/*) ;;
+        *) continue ;;
+      esac
+
+      case "${tag}" in
+        latest|staging|buildcache-*|"<none>") continue ;;
+      esac
+      if [ -n "${DEPLOY_SHA}" ] && [ "${tag}" = "${DEPLOY_SHA}" ]; then
+        continue
+      fi
+      if ! printf '%s' "${tag}" | grep -Eq '^[0-9a-f]{40}$'; then
+        continue
+      fi
+      if is_protected_id "${id}" "${protected}"; then
+        echo "  keep protected ${repo}:${tag} ${id}"
+        skipped=$((skipped + 1))
+        continue
+      fi
+
+      ref="${repo}:${tag}"
+      echo "  remove unused old app tag ${ref} ${id}"
+      docker rmi "${ref}" 2>&1 || true
+      removed=$((removed + 1))
+  done < <(docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' 2>/dev/null)
+
+  rm -f "${protected}"
+  after=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
+  echo "Safe GC complete; removed_tags=${removed:-0} skipped_protected=${skipped:-0} before=${before:-unknown} after=${after:-unknown}"
+}
+
+run_gate() {
+  capacity_snapshot
+  write_capacity_json
+
+  set +e
+  capacity_failures
+  local rc=$?
+  set -e
+
+  if [ "${rc}" -eq 0 ]; then
+    echo "Capacity preflight: PASS"
+    return 0
+  fi
+
+  if [ "${CAPACITY_GC_MODE}" = "auto" ]; then
+    echo "Capacity preflight: warning/failure before GC; running one safe image-only GC pass."
+    safe_image_gc
+    capacity_snapshot
+    write_capacity_json
+    set +e
+    capacity_failures
+    rc=$?
+    set -e
+  fi
+
+  if [ "${rc}" -eq 0 ]; then
+    echo "Capacity preflight: PASS after safe GC"
+    return 0
+  fi
+
+  if [ "${rc}" -eq 1 ]; then
+    echo "Capacity preflight: PASS with warnings"
+    return 0
+  fi
+
+  echo "::error::Capacity preflight failed. No production containers, data volumes, migrations, or image pulls should be touched after this failure."
+  return 1
+}
+
+case "${command}" in
+  report)
+    capacity_snapshot
+    write_capacity_json
+    ;;
+  gate)
+    run_gate
+    ;;
+  gc)
+    safe_image_gc
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

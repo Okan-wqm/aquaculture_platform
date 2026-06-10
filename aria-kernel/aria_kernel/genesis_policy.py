@@ -11,7 +11,133 @@ POLICY_KEYS = {
     "max_requests_per_cycle",
     "materialization_requires_acknowledge",
     "fitness_staleness_threshold_days",
+    # Plan ARIA-V3 §B0 + INFRA-CRITICAL-001 — cost caps consumed by
+    # ``cost_budget.assert_within_budget`` to gate autonomous spawns.
+    "cost_caps_usd",
+    # Plan ARIA-V3 §B2 — circuit-breaker failure threshold.
+    "circuit_breaker",
+    # Plan ARIA-V6 §2e v2 — convergent_skill_authoring loop config
+    # (max_authoring_rounds, sandbox_min_fixtures, recall_floor).
+    "convergent_authoring",
+    # Plan ARIA-V6 §2e v2 — narrow auto-promotion exception under
+    # autonomous-profile + precision/FP/clean-cycles thresholds.
+    # Default disabled; operator opt-in via override.
+    "auto_promote",
+    # Plan ARIA-V7 §2h v2 — V7.4 skill_genesis_drainer policy block
+    # (enabled + max_authorings_per_cycle + max_tokens_per_cycle +
+    # estimated_tokens_per_authoring). Closes V6 CONCERN #19
+    # (pre-cycle budget audit via max_tokens_per_cycle cap).
+    "skill_genesis_drainer",
+    "genesis_lifecycle",
 }
+
+
+GENESIS_LIFECYCLE_DEFAULTS: dict[str, Any] = {
+    "pressure_min_score": 70,
+    "min_evidence_refs": 3,
+    "existing_capability_coverage_threshold": 0.80,
+    "request_requires_signed_operator_feedback": True,
+    "real_sandbox_min_fixture_results": 3,
+    "real_sandbox_required_lanes": [
+        "real_repo_baseline",
+        "semantic_regression",
+        "scope_violation_guard",
+    ],
+    "shadow_min_days": 14,
+    "shadow_min_clean_cycles": 5,
+    "shadow_min_eval_runs": 10,
+    "min_precision": 0.95,
+    "min_recall": 0.90,
+    "max_critical_false_positives": 0,
+    "max_noncritical_false_positives_30d": 3,
+    "max_result_rejection_rate": 0.05,
+    "max_bridge_permanent_failures": 0,
+}
+
+
+def genesis_lifecycle_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(GENESIS_LIFECYCLE_DEFAULTS)
+    raw_block = merged.get("genesis_lifecycle")
+    if isinstance(raw_block, dict):
+        for key, default in GENESIS_LIFECYCLE_DEFAULTS.items():
+            if key in raw_block:
+                block[key] = raw_block[key]
+    return block
+
+
+SKILL_GENESIS_DRAINER_DEFAULTS: dict[str, Any] = {
+    "enabled": True,
+    "max_authorings_per_cycle": 3,
+    "max_tokens_per_cycle": 50_000,
+    "estimated_tokens_per_authoring": 30_000,
+}
+
+
+def skill_genesis_drainer_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """Plan ARIA-V7 §2h v2 (U-2 resolution) — V7.4 drainer policy accessor.
+
+    Returns the skill_genesis_drainer block with defaults filled in
+    for any missing fields. Mirrors V6's ``auto_promote_policy`` pattern.
+    """
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        from pathlib import Path as _P
+        import json as _json
+        raw = _json.loads(
+            (_P(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(SKILL_GENESIS_DRAINER_DEFAULTS)
+    raw_block = merged.get("skill_genesis_drainer")
+    if isinstance(raw_block, dict):
+        for key, default in SKILL_GENESIS_DRAINER_DEFAULTS.items():
+            if key in raw_block:
+                block[key] = raw_block[key]
+    return block
+
+
+AUTO_PROMOTE_DEFAULTS: dict[str, Any] = {
+    "enabled": False,
+    "min_precision": 0.95,
+    "min_clean_cycles": 5,
+    "profiles": ["autonomous"],
+}
+
+
+def auto_promote_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """Plan ARIA-V6 §2e v2 — resolve auto_promote settings with defaults.
+
+    Returns the auto_promote block from the merged policy, falling
+    back to ``AUTO_PROMOTE_DEFAULTS`` for any missing fields. Always
+    returns a dict with the four required keys so callers can do
+    ``if policy['enabled']:`` without ``.get`` plumbing.
+    """
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        # Use default policy when no repo_root supplied — auto_promote
+        # block is read from the package-shipped default JSON file.
+        from pathlib import Path as _P
+        import json as _json
+        raw = _json.loads(
+            (_P(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(AUTO_PROMOTE_DEFAULTS)
+    raw_block = merged.get("auto_promote")
+    if isinstance(raw_block, dict):
+        for key, default in AUTO_PROMOTE_DEFAULTS.items():
+            if key in raw_block:
+                block[key] = raw_block[key]
+    return block
 
 DEFAULT_FILENAME = "genesis_policy_default.json"
 OVERRIDE_RELPATH = "aria-config/genesis_policy.json"

@@ -1,3 +1,4 @@
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import {
   InputType,
   Field,
@@ -8,7 +9,6 @@ import {
 } from '@nestjs/graphql';
 import { IsUUID, IsBoolean, IsOptional, IsString, IsHexadecimal, Length, IsEnum, Matches, Min, Max } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
-import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 
 import {
   DeviceIoConfig,
@@ -363,7 +363,7 @@ export class DeviceInstallCommands {
   @Field({ description: 'curl command to uninstall the agent' })
   uninstallCommand!: string;
 
-  @Field({ description: 'curl command to update the agent to latest version' })
+  @Field({ description: 'curl command to update the agent to the configured explicit release version' })
   updateCommand!: string;
 
   @Field({ description: 'Direct URL to the install script' })

@@ -17,24 +17,30 @@
  *
  * @module Batch/Handlers
  */
-import { randomUUID } from 'crypto';
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, EntityManager } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { OutboxPublisher } from '@platform/outbox';
 import type { BatchTransferredEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { Repository, DataSource, EntityManager } from 'typeorm';
+
+import {
+  defaultFarmStockProjectionForDirectHandlerConstruction,
+  defaultMobileCommandReceiptsForDirectHandlerConstruction,
+} from '../../common/services/direct-handler-dependency-defaults';
+import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
+import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { Tank, TankStatus } from '../../tank/entities/tank.entity';
+import { TankCapacityService } from '../../tank/services/tank-capacity.service';
 import { TransferBatchCommand } from '../commands/transfer-batch.command';
 import { Batch } from '../entities/batch.entity';
 import { TankAllocation, AllocationType } from '../entities/tank-allocation.entity';
-import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
-import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
-import { Tank, TankStatus } from '../../tank/entities/tank.entity';
-import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
-import { findTankOrEquipmentWithManager, TankLookupResult } from '../utils/tank-lookup.util';
-import { TankCapacityService } from '../../tank/services/tank-capacity.service';
+import { TankOperation, OperationType } from '../entities/tank-operation.entity';
+import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
 
 // Note: TransferResult interface kept for internal tracking but handler returns Batch for GraphQL compatibility
 export interface TransferResult {
@@ -67,6 +73,10 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankCapacityService: TankCapacityService,
+    private readonly farmStockProjection: FarmStockProjectionService =
+      defaultFarmStockProjectionForDirectHandlerConstruction(),
+    private readonly mobileCommandReceipts: MobileCommandReceiptService =
+      defaultMobileCommandReceiptsForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: TransferBatchCommand): Promise<Batch> {
@@ -82,6 +92,26 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     await queryRunner.startTransaction();
 
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope: command.mobileCommand,
+        operationType: 'transferBatch',
+        responseType: 'Batch',
+      });
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(Batch, {
+              where: { id: receipt.responseId, tenantId, isActive: true },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
       // Batch bul with pessimistic lock
       const batch = await queryRunner.manager.findOne(Batch, {
         where: { id: batchId, tenantId, isActive: true },
@@ -295,7 +325,9 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       if (destLookup.isFromTanksTable && destLookup.originalTank) {
         const destOriginalTank = destLookup.originalTank;
         // Activate tank if it was preparing/fallow
-        const shouldActivate = destOriginalTank.status === 'preparing' || destOriginalTank.status === 'fallow';
+        const shouldActivate =
+          destOriginalTank.status === TankStatus.PREPARING ||
+          destOriginalTank.status === TankStatus.FALLOW;
         await queryRunner.manager
           .createQueryBuilder()
           .update(Tank)
@@ -341,6 +373,12 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         await queryRunner.manager.save(TankOperation, savedDestOp);
       }
 
+      await this.farmStockProjection.refreshContainers(
+        queryRunner.manager,
+        tenantId,
+        [payload.sourceTankId, payload.destinationTankId],
+      );
+
       // Enqueue BatchTransferredEvent into the transactional outbox BEFORE commit.
       // Event field names match the contract exactly: `transferDate` is set
       // (was previously missing), `transferReason` is mapped to the contract's
@@ -358,6 +396,13 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         reason: payload.transferReason,
       };
       await this.outboxPublisher.enqueue(transferEvent, queryRunner.manager);
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'Batch',
+        responseId: batch.id,
+        responsePayload: { id: batch.id },
+      });
 
       // Commit transaction (domain writes + outbox row are atomic)
       await queryRunner.commitTransaction();

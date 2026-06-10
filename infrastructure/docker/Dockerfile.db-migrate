@@ -61,6 +61,14 @@ RUN --mount=type=cache,target=/root/.npm,sharing=shared \
 # that every service uses — see tools/build/build-service.sh.
 COPY --chown=nestjs:nodejs dist/apps/db-migrate ./dist
 
+# ADR-031: platform-bootstrap SQL files travel with the binary.
+# resolvePlatformBootstrapSqlDir() in platform-bootstrap.service.ts
+# expects them at dist/apps/db-migrate/src/sql/platform-bootstrap/.
+# The host build copies the .ts compilation output but NOT the .sql
+# siblings, so the COPY below brings them in directly from source.
+# Source-of-truth: apps/db-migrate/src/sql/platform-bootstrap/*.sql.
+COPY --chown=nestjs:nodejs apps/db-migrate/src/sql ./dist/apps/db-migrate/src/sql
+
 ENV NODE_ENV=production
 
 # No HEALTHCHECK — this is a one-shot container. The deploy workflow

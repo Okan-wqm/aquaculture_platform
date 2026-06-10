@@ -6,9 +6,10 @@
  * Uses real API data from backend reports service.
  */
 
-import React, { useState, useCallback } from 'react';
 import { Card, Button, Badge, Modal, Input } from '@aquaculture/shared-ui';
-import { reportsApi } from '../services/adminApi';
+import React, { useCallback, useEffect, useState } from 'react';
+
+import { reportsApi, type ReportExecution as ApiReportExecution } from '../services/adminApi';
 
 // ============================================================================
 // Types
@@ -23,7 +24,7 @@ type ReportType =
   | 'usage_features'
   | 'system_performance';
 
-type ReportFormat = 'json' | 'csv' | 'excel' | 'pdf';
+type ReportFormat = 'json' | 'csv' | 'pdf';
 
 interface ReportDefinition {
   type: ReportType;
@@ -31,7 +32,6 @@ interface ReportDefinition {
   description: string;
   category: string;
   icon: React.ReactNode;
-  endpoint: string;
 }
 
 interface GeneratedReport {
@@ -41,28 +41,29 @@ interface GeneratedReport {
   title: string;
   generatedAt: string;
   status: 'pending' | 'ready' | 'failed';
-  downloadUrl?: string;
   data?: unknown;
   summary?: Record<string, unknown>;
+  rowCount?: number;
+  fileSizeBytes?: number;
 }
 
-// Helper function to convert report type to CSV export type
-const getReportTypeForExport = (reportType: ReportType): string => {
-  switch (reportType) {
-    case 'tenant_overview':
-    case 'tenant_churn':
-      return 'tenants';
-    case 'financial_revenue':
-      return 'revenue';
-    case 'financial_payments':
-      return 'payments';
-    case 'usage_modules':
-    case 'usage_features':
-      return 'users';
-    default:
-      return 'tenants';
-  }
+const mapExecutionStatus = (status: ApiReportExecution['status']): GeneratedReport['status'] => {
+  if (status === 'completed') return 'ready';
+  if (status === 'failed') return 'failed';
+  return 'pending';
 };
+
+const mapExecutionToReport = (execution: ApiReportExecution): GeneratedReport => ({
+  id: execution.id,
+  type: execution.reportType,
+  format: execution.format,
+  title: execution.reportName,
+  generatedAt: execution.createdAt,
+  status: mapExecutionStatus(execution.status),
+  summary: execution.summary,
+  rowCount: execution.rowCount,
+  fileSizeBytes: execution.fileSizeBytes,
+});
 
 // ============================================================================
 // Column Header & Value Formatting
@@ -165,7 +166,9 @@ const renderReportValue = (value: unknown): string => {
       .map(([k, v]) => `${formatColumnHeader(k)}: ${renderReportValue(v)}`)
       .join(', ');
   }
-  return String(value);
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'symbol') return value.description ?? 'Symbol()';
+  return '[unrenderable]';
 };
 
 // ============================================================================
@@ -178,7 +181,6 @@ const reportDefinitions: ReportDefinition[] = [
     name: 'Tenant Overview',
     description: 'Status, plans, and metrics for all tenants',
     category: 'Tenant',
-    endpoint: '/reports/tenant-overview',
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -190,7 +192,6 @@ const reportDefinitions: ReportDefinition[] = [
     name: 'Churn Analizi',
     description: 'Iptal eden tenant\'lar ve nedenleri',
     category: 'Tenant',
-    endpoint: '/reports/churn-analysis',
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
@@ -202,7 +203,6 @@ const reportDefinitions: ReportDefinition[] = [
     name: 'Gelir Raporu',
     description: 'Gunluk gelir, abonelik ve iadeler',
     category: 'Financial',
-    endpoint: '/reports/revenue',
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -214,7 +214,6 @@ const reportDefinitions: ReportDefinition[] = [
     name: 'Odeme Raporu',
     description: 'Fatura ve odeme durumlari',
     category: 'Financial',
-    endpoint: '/reports/payments',
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
@@ -226,7 +225,6 @@ const reportDefinitions: ReportDefinition[] = [
     name: 'Modul Kullanimi',
     description: 'Her modulun kullanim istatistikleri',
     category: 'Usage',
-    endpoint: '/reports/module-usage',
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -238,7 +236,6 @@ const reportDefinitions: ReportDefinition[] = [
     name: 'Feature Adoption',
     description: 'Ozellik benimseme oranlari',
     category: 'Usage',
-    endpoint: '/reports/feature-usage',
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -250,7 +247,6 @@ const reportDefinitions: ReportDefinition[] = [
     name: 'Sistem Performansi',
     description: 'API performansi, uptime ve hata oranlari',
     category: 'System',
-    endpoint: '/reports/system-performance',
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -305,7 +301,7 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, onGenerate }) => {
 
 interface ReportHistoryItemProps {
   report: GeneratedReport;
-  onDownload: (report: GeneratedReport, format: ReportFormat) => void;
+  onDownload: (report: GeneratedReport) => void;
   onView: (report: GeneratedReport) => void;
 }
 
@@ -327,6 +323,7 @@ const ReportHistoryItem: React.FC<ReportHistoryItemProps> = ({ report, onDownloa
         </div>
         <p className="text-sm text-gray-500">
           {new Date(report.generatedAt).toLocaleString()}
+          {report.rowCount !== undefined ? ` - ${report.rowCount.toLocaleString()} rows` : ''}
         </p>
       </div>
       {report.status === 'ready' && (
@@ -334,14 +331,8 @@ const ReportHistoryItem: React.FC<ReportHistoryItemProps> = ({ report, onDownloa
           <Button variant="ghost" size="sm" onClick={() => onView(report)}>
             View
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => onDownload(report, 'csv')}>
-            CSV
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onDownload(report, 'excel')}>
-            Excel
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onDownload(report, 'pdf')}>
-            PDF
+          <Button variant="ghost" size="sm" onClick={() => onDownload(report)}>
+            {report.format.toUpperCase()}
           </Button>
         </div>
       )}
@@ -367,7 +358,6 @@ const ReportsPage: React.FC = () => {
   const [selectedFormat, setSelectedFormat] = useState<ReportFormat>('json');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   const categories = ['all', 'Tenant', 'Financial', 'Usage', 'System'];
 
@@ -375,11 +365,24 @@ const ReportsPage: React.FC = () => {
     ? reportDefinitions
     : reportDefinitions.filter(r => r.category === activeCategory);
 
-  const handleOpenGenerateModal = (type: ReportType) => {
+  const handleOpenGenerateModal = (type: ReportType): void => {
     setSelectedReportType(type);
     setShowGenerateModal(true);
     setError(null);
   };
+
+  const loadReportHistory = useCallback(async () => {
+    try {
+      const response = await reportsApi.getReportExecutions({ page: 1, limit: 20 });
+      setGeneratedReports(response.data.map(mapExecutionToReport));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load report history');
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadReportHistory();
+  }, [loadReportHistory]);
 
   const handleGenerateReport = useCallback(async () => {
     if (!selectedReportType) return;
@@ -391,30 +394,20 @@ const ReportsPage: React.FC = () => {
       const reportDef = reportDefinitions.find(r => r.type === selectedReportType);
       if (!reportDef) throw new Error('Report definition not found');
 
-      // Call the backend API to generate the report
-      const response = await reportsApi.generateCustomReport({
-        type: selectedReportType,
+      const execution = await reportsApi.executeReport({
+        reportType: selectedReportType,
+        reportName: reportDef.name,
         format: selectedFormat,
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
       });
 
-      const newReport: GeneratedReport = {
-        id: `rpt_${Date.now()}`,
-        type: selectedReportType,
-        format: selectedFormat,
-        title: reportDef.name,
-        generatedAt: new Date().toISOString(),
-        status: 'ready',
-        data: response.data,
-        summary: response.summary,
-      };
+      const newReport = mapExecutionToReport(execution);
 
-      setGeneratedReports(prev => [newReport, ...prev]);
+      setGeneratedReports(prev => [newReport, ...prev.filter(r => r.id !== newReport.id)]);
       setShowGenerateModal(false);
       setSelectedReportType(null);
     } catch (err) {
-      console.error('Failed to generate report:', err);
       setError(err instanceof Error ? err.message : 'Failed to generate report');
     } finally {
       setGenerating(false);
@@ -426,90 +419,45 @@ const ReportsPage: React.FC = () => {
     if (!reportDef) return;
 
     try {
-      const response = await reportsApi.getQuickReport(reportDef.endpoint, format);
+      const endDate = new Date();
+      const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-      const newReport: GeneratedReport = {
-        id: `rpt_${Date.now()}`,
-        type,
+      const execution = await reportsApi.executeReport({
+        reportType: type,
+        reportName: reportDef.name,
         format,
-        title: reportDef.name,
-        generatedAt: new Date().toISOString(),
-        status: 'ready',
-        data: response.data,
-        summary: response.summary,
-      };
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0],
+      });
 
-      setGeneratedReports(prev => [newReport, ...prev]);
+      const newReport = mapExecutionToReport(execution);
+
+      setGeneratedReports(prev => [newReport, ...prev.filter(r => r.id !== newReport.id)]);
     } catch (err) {
-      console.error('Failed to generate quick report:', err);
       setError(`Failed to generate report: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, []);
 
-  const handleDownload = async (report: GeneratedReport, format: ReportFormat) => {
-    const data = report.data as unknown[];
-    let content: string;
-    let mimeType: string;
-    let extension: string;
+  const handleDownload = async (report: GeneratedReport): Promise<void> => {
+    try {
+      const { blob, filename } = await reportsApi.downloadReport(report.id);
+      const extension = report.format === 'pdf' ? 'pdf' : report.format === 'csv' ? 'csv' : 'json';
+      const downloadName = filename || `${report.title.replace(/\s+/g, '_')}_${report.id}.${extension}`;
 
-    switch (format) {
-      case 'csv':
-        if (data && data.length > 0) {
-          const firstRow = data[0] as Record<string, unknown>;
-          const headers = Object.keys(firstRow);
-          const rows = data.map(row => {
-            const r = row as Record<string, unknown>;
-            return headers.map(h => renderReportValue(r[h])).join(',');
-          });
-          content = [headers.map(formatColumnHeader).join(','), ...rows].join('\n');
-        } else {
-          content = '';
-        }
-        mimeType = 'text/csv';
-        extension = 'csv';
-        break;
-      case 'json':
-        content = JSON.stringify({ data: report.data, summary: report.summary }, null, 2);
-        mimeType = 'application/json';
-        extension = 'json';
-        break;
-      case 'excel':
-        // Excel format - use CSV export as fallback (backend doesn't support excel natively)
-        try {
-          const csvExportUrl = `${reportsApi.getExportUrl('csv')}?type=${getReportTypeForExport(report.type)}`;
-          window.open(csvExportUrl, '_blank');
-          setInfoMessage('Downloading as CSV (Excel export not natively supported).');
-          return;
-        } catch {
-          setError('Failed to initiate CSV download for Excel format.');
-          return;
-        }
-      case 'pdf':
-        // For PDF, use the correct backend endpoint with reportType as path param
-        try {
-          const pdfExportUrl = reportsApi.getExportUrl('pdf', report.type);
-          window.open(pdfExportUrl, '_blank');
-          return;
-        } catch {
-          setError('PDF export requires server-side processing. Please try again later.');
-          return;
-        }
-      default:
-        return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = downloadName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to download report');
     }
-
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${report.title.replace(/\s+/g, '_')}_${Date.now()}.${extension}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
 
-  const handleViewReport = (report: GeneratedReport) => {
+  const handleViewReport = (report: GeneratedReport): void => {
     setSelectedReport(report);
     setShowPreviewModal(true);
   };
@@ -523,21 +471,6 @@ const ReportsPage: React.FC = () => {
           <p className="text-gray-500 mt-1">Generate and download detailed reports</p>
         </div>
       </div>
-
-      {/* Info message */}
-      {infoMessage && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
-          <svg className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-          </svg>
-          <p className="text-sm text-blue-700 flex-1">{infoMessage}</p>
-          <button onClick={() => setInfoMessage(null)} className="text-blue-400 hover:text-blue-600">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </div>
-      )}
 
       {/* Error message */}
       {error && (
@@ -590,7 +523,9 @@ const ReportsPage: React.FC = () => {
               <ReportHistoryItem
                 key={report.id}
                 report={report}
-                onDownload={handleDownload}
+                onDownload={(report) => {
+                  void handleDownload(report);
+                }}
                 onView={handleViewReport}
               />
             ))}
@@ -602,7 +537,9 @@ const ReportsPage: React.FC = () => {
       <Card title="Quick Export">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <button
-            onClick={() => handleQuickReport('tenant_overview', 'csv')}
+            onClick={() => {
+              void handleQuickReport('tenant_overview', 'csv');
+            }}
             className="p-4 border-2 border-dashed border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors text-center"
           >
             <svg className="w-8 h-8 mx-auto text-gray-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -611,7 +548,9 @@ const ReportsPage: React.FC = () => {
             <p className="text-sm font-medium text-gray-700">Tenant CSV</p>
           </button>
           <button
-            onClick={() => handleQuickReport('financial_revenue', 'csv')}
+            onClick={() => {
+              void handleQuickReport('financial_revenue', 'csv');
+            }}
             className="p-4 border-2 border-dashed border-gray-200 rounded-lg hover:border-green-400 hover:bg-green-50 transition-colors text-center"
           >
             <svg className="w-8 h-8 mx-auto text-gray-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -620,7 +559,9 @@ const ReportsPage: React.FC = () => {
             <p className="text-sm font-medium text-gray-700">Revenue CSV</p>
           </button>
           <button
-            onClick={() => handleQuickReport('usage_modules', 'csv')}
+            onClick={() => {
+              void handleQuickReport('usage_modules', 'csv');
+            }}
             className="p-4 border-2 border-dashed border-gray-200 rounded-lg hover:border-purple-400 hover:bg-purple-50 transition-colors text-center"
           >
             <svg className="w-8 h-8 mx-auto text-gray-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -629,7 +570,9 @@ const ReportsPage: React.FC = () => {
             <p className="text-sm font-medium text-gray-700">Usage CSV</p>
           </button>
           <button
-            onClick={() => handleQuickReport('system_performance', 'csv')}
+            onClick={() => {
+              void handleQuickReport('system_performance', 'csv');
+            }}
             className="p-4 border-2 border-dashed border-gray-200 rounded-lg hover:border-orange-400 hover:bg-orange-50 transition-colors text-center"
           >
             <svg className="w-8 h-8 mx-auto text-gray-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -655,9 +598,9 @@ const ReportsPage: React.FC = () => {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <p className="block text-sm font-medium text-gray-700 mb-2">
                 Report Type
-              </label>
+              </p>
               <p className="text-gray-900 font-medium">
                 {reportDefinitions.find(r => r.type === selectedReportType)?.name}
               </p>
@@ -668,33 +611,39 @@ const ReportsPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="report-start-date" className="block text-sm font-medium text-gray-700 mb-2">
                   Start Date
                 </label>
                 <Input
+                  id="report-start-date"
                   type="date"
                   value={dateRange.startDate}
-                  onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                    setDateRange(prev => ({ ...prev, startDate: event.currentTarget.value }))
+                  }
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="report-end-date" className="block text-sm font-medium text-gray-700 mb-2">
                   End Date
                 </label>
                 <Input
+                  id="report-end-date"
                   type="date"
                   value={dateRange.endDate}
-                  onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                    setDateRange(prev => ({ ...prev, endDate: event.currentTarget.value }))
+                  }
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <p className="block text-sm font-medium text-gray-700 mb-2">
                 Format
-              </label>
+              </p>
               <div className="flex gap-2">
-                {(['json', 'csv', 'excel', 'pdf'] as ReportFormat[]).map((format) => (
+                {(['json', 'csv', 'pdf'] as ReportFormat[]).map((format) => (
                   <button
                     key={format}
                     onClick={() => setSelectedFormat(format)}
@@ -714,7 +663,13 @@ const ReportsPage: React.FC = () => {
               <Button variant="secondary" onClick={() => setShowGenerateModal(false)}>
                 Cancel
               </Button>
-              <Button variant="primary" onClick={handleGenerateReport} disabled={generating}>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  void handleGenerateReport();
+                }}
+                disabled={generating}
+              >
                 {generating ? 'Generating...' : 'Generate Report'}
               </Button>
             </div>
@@ -793,8 +748,10 @@ const ReportsPage: React.FC = () => {
               <Button variant="secondary" onClick={() => setShowPreviewModal(false)}>
                 Close
               </Button>
-              <Button variant="primary" onClick={() => handleDownload(selectedReport, 'csv')}>
-                Download CSV
+              <Button variant="primary" onClick={() => {
+                void handleDownload(selectedReport);
+              }}>
+                Download Report
               </Button>
             </div>
           </div>

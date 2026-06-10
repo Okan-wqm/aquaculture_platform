@@ -13,6 +13,59 @@ export interface TenantCreatedEvent extends BaseEvent {
 }
 
 /**
+ * Tenant Provisioning Requested Event
+ * Published when the admin-api tenant workflow has durably accepted a
+ * provisioning operation and is beginning owner-service setup.
+ */
+export interface TenantProvisioningRequestedEvent extends BaseEvent {
+  eventType: 'TenantProvisioningRequested';
+  operationId: string;
+  name: string;
+  slug: string;
+  moduleIds: string[];
+}
+
+/**
+ * Tenant Onboarding Requested Event
+ * Published by the tenant workflow after owner services are ready and before
+ * final TenantProvisioned. Domain services must durably ack or fail.
+ */
+export interface TenantOnboardingRequestedEvent extends BaseEvent {
+  eventType: 'TenantOnboardingRequested';
+  operationId: string;
+  name: string;
+  slug: string;
+  moduleIds: string[];
+}
+
+export interface TenantOnboardingAckEvent extends BaseEvent {
+  eventType: 'TenantOnboardingAck';
+  operationId: string;
+  service: string;
+  acknowledgedAt: string;
+}
+
+export interface TenantOnboardingFailedEvent extends BaseEvent {
+  eventType: 'TenantOnboardingFailed';
+  operationId: string;
+  service: string;
+  error: string;
+}
+
+/**
+ * Tenant Provisioned Event
+ * Published after tenant schema, RLS, auth setup, billing request, audit, and
+ * activation have all completed. TenantCreated remains a final compatibility
+ * alias for legacy consumers.
+ */
+export interface TenantProvisionedEvent extends BaseEvent {
+  eventType: 'TenantProvisioned';
+  operationId: string;
+  name: string;
+  slug: string;
+}
+
+/**
  * Tenant Updated Event
  * Published when tenant information is modified
  */
@@ -156,6 +209,12 @@ export interface ModuleQuantityConfig {
   ponds?: number;
   sensors?: number;
   employees?: number;
+  devices?: number;
+  storageGb?: number;
+  apiCalls?: number;
+  alerts?: number;
+  reports?: number;
+  integrations?: number;
 }
 
 /**
@@ -224,6 +283,11 @@ export interface ModuleRemovedFromTenantEvent extends BaseEvent {
  */
 export type TenantEvent =
   | TenantCreatedEvent
+  | TenantProvisioningRequestedEvent
+  | TenantOnboardingRequestedEvent
+  | TenantOnboardingAckEvent
+  | TenantOnboardingFailedEvent
+  | TenantProvisionedEvent
   | TenantUpdatedEvent
   | TenantStatusChangedEvent
   | TenantSuspendedEvent

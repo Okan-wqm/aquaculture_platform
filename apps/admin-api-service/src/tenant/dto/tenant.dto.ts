@@ -180,6 +180,36 @@ export class ModuleQuantityDto {
   @IsNumber()
   @Min(0)
   employees?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  devices?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  storageGb?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  apiCalls?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  alerts?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  reports?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  integrations?: number;
 }
 
 export class CreateTenantDto {
@@ -269,6 +299,21 @@ export class CreateTenantDto {
   maxUsers?: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(-1)
+  maxStorage?: number;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TenantLimitsDto)
+  limits?: TenantLimitsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TenantSettingsDto)
+  settings?: TenantSettingsDto;
+
+  @IsOptional()
   @IsEnum(TenantPlan)
   plan?: TenantPlan;
 
@@ -297,6 +342,56 @@ export class CreateTenantDto {
   @IsOptional()
   @IsEnum(['monthly', 'quarterly', 'semi_annual', 'annual'])
   billingCycle?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
+
+  @IsOptional()
+  @IsUUID('4')
+  catalogVersionId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  quoteId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  customPlanId?: string;
+}
+
+export enum TenantProvisioningState {
+  QUEUED = 'QUEUED',
+  RESERVING = 'RESERVING',
+  RUNNING = 'RUNNING',
+  SUCCEEDED = 'SUCCEEDED',
+  FAILED = 'FAILED',
+}
+
+export class TenantProvisioningStepDto {
+  name!: string;
+  state!: TenantProvisioningState;
+  attempts!: number;
+  lastError?: string;
+  startedAt?: Date;
+  completedAt?: Date;
+}
+
+export class CreateTenantAcceptedResponse {
+  /**
+   * Operation state. Public clients must make decisions from this field only.
+   */
+  status!: TenantProvisioningState;
+
+  /**
+   * Tenant lifecycle status from the approved admin projection, when known.
+   */
+  tenantStatus?: TenantStatus;
+
+  /**
+   * Canonical relative polling URL. Legacy /api, /api/v1, and /v1 aliases are
+   * intentionally not part of the contract.
+   */
+  statusUrl!: string;
+
+  retryAfterMs!: number;
+  availableActions!: string[];
 }
 
 export class UpdateTenantDto {
@@ -383,6 +478,7 @@ export class SuspendTenantDto {
 
 export class ListTenantsQueryDto {
   @IsOptional()
+  @Transform(({ value }) => typeof value === 'string' ? value.toUpperCase() : value)
   @IsEnum(TenantStatus)
   status?: TenantStatus;
 

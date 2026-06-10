@@ -4,9 +4,12 @@ import type { QueuedOperation, OperationType, OperationPayload } from '@/types';
 // Separate stores for queue and cache to avoid full-store scans (PERF-08)
 const queueStore = createStore('aquamobil-queue', 'queue');
 const cacheStore = createStore('aquamobil-cache', 'cache');
+const keyStore = createStore('aquamobil-keys', 'keys');
 
 const QUEUE_PREFIX = 'pending_';
 const CACHE_PREFIX = 'cache_';
+const DURABLE_QUEUE_KEY = 'queue-key-v1';
+const DEVICE_ID_KEY = 'device-id-v1';
 
 /** Maximum number of operations that can be queued offline before requiring a sync. */
 export const MAX_QUEUE_SIZE = 200;
@@ -14,24 +17,74 @@ export const MAX_QUEUE_SIZE = 200;
 export const QUEUE_WARNING_THRESHOLD = 180;
 
 // ============================================================================
-// SEC-03: Payload Encryption — AES-GCM with a per-session in-memory key
+// SEC-03: Payload Encryption — AES-GCM with an IndexedDB-persisted non-extractable key
 // ============================================================================
-// The encryption key lives only in memory (never persisted) and is regenerated
-// each session. This prevents trivial extraction of sensitive agribusiness data
-// (harvest prices, buyer names, biomass figures) from IndexedDB via DevTools or
-// mobile forensic tools. On the next app launch the encrypted blobs are unreadable
-// and clearAllOperations() is called on logout to remove them anyway.
+// The queue key is stored as a non-extractable CryptoKey in IndexedDB so queued
+// commands survive full app restarts without persisting raw key material. Logout
+// still clears queued data and cache entries through clearAllOperations().
 
 let _sessionKey: CryptoKey | null = null;
 
 async function getSessionKey(): Promise<CryptoKey> {
   if (_sessionKey) return _sessionKey;
+  const persisted = await get<CryptoKey>(DURABLE_QUEUE_KEY, keyStore);
+  if (persisted) {
+    _sessionKey = persisted;
+    return _sessionKey;
+  }
   _sessionKey = await crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 },
     false, // not extractable — key cannot be exported from the browser
     ['encrypt', 'decrypt'],
   );
+  await set(DURABLE_QUEUE_KEY, _sessionKey, keyStore);
   return _sessionKey;
+}
+
+async function getDeviceId(): Promise<string> {
+  const existing = await get<string>(DEVICE_ID_KEY, keyStore);
+  if (existing) return existing;
+  const deviceId = crypto.randomUUID();
+  await set(DEVICE_ID_KEY, deviceId, keyStore);
+  return deviceId;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function attachCommandEnvelope(
+  type: OperationType,
+  payload: OperationPayload,
+  clientCommandId: string,
+): Promise<OperationPayload> {
+  const payloadHash = await sha256Hex(stableStringify(payload));
+  return {
+    ...(payload as unknown as Record<string, unknown>),
+    clientCommandId,
+    clientCreatedAt: new Date().toISOString(),
+    deviceId: await getDeviceId(),
+    operationType: type,
+    payloadHash,
+    schemaVersion: 'mobile-command-v1',
+  } as OperationPayload;
 }
 
 async function encryptPayload(payload: OperationPayload): Promise<{ iv: string; ciphertext: string }> {
@@ -99,7 +152,7 @@ const DEDUP_WINDOW_MS = 5_000;
  * Uses batchId+tankId for farm operations, employeeId for HR, or task id.
  */
 function extractResourceId(type: OperationType, payload: OperationPayload): string {
-  const p = payload as Record<string, unknown>;
+  const p = payload as unknown as Record<string, unknown>;
   // Water quality operations identify by equipmentId (H7)
   if (type === 'createWaterQuality') {
     return String(p['equipmentId'] || '');
@@ -123,7 +176,23 @@ function extractResourceId(type: OperationType, payload: OperationPayload): stri
   if (p['batchId'] && p['tankId']) {
     return `${p['batchId']}:${p['tankId']}`;
   }
-  // HR operations identify by employeeId
+  // Self-service leave requests no longer carry employeeId; use the natural
+  // request fingerprint so double-taps cannot create duplicate queued submits.
+  if (type === 'createLeaveRequest' && p['leaveTypeId'] && p['startDate'] && p['endDate']) {
+    return [
+      p['leaveTypeId'],
+      p['startDate'],
+      p['endDate'],
+      p['isHalfDayStart'] ?? false,
+      p['isHalfDayEnd'] ?? false,
+    ].join(':');
+  }
+  // Self-service attendance requests identify the current authenticated employee
+  // on the server. The operation type is already part of the dedup comparison.
+  if (type === 'clockIn' || type === 'clockOut') {
+    return String(p['employeeId'] || 'self');
+  }
+  // Legacy HR payloads may still carry employeeId.
   if (p['employeeId']) {
     return String(p['employeeId']);
   }
@@ -194,9 +263,10 @@ export async function queueOperation(
   }
 
   const id = crypto.randomUUID();
+  const payloadWithEnvelope = await attachCommandEnvelope(type, payload, id);
 
   // SEC-03: Encrypt sensitive payload before writing to IndexedDB.
-  const _enc = await encryptPayload(payload);
+  const _enc = await encryptPayload(payloadWithEnvelope);
 
   const stored: StoredOperation = {
     id,
@@ -361,6 +431,10 @@ export async function clearAllOperations(tenantId?: string): Promise<void> {
     : QUEUE_PREFIX;
   const queueKeys = allKeys.filter((k) => String(k).startsWith(prefix));
   await Promise.all(queueKeys.map((k) => del(k, queueStore)));
+  if (!tenantId) {
+    _sessionKey = null;
+    await del(DURABLE_QUEUE_KEY, keyStore);
+  }
 }
 
 // ============================================================================

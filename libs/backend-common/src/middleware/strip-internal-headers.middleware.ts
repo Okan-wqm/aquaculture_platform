@@ -24,7 +24,7 @@
  * # What it does
  *
  *   1. Reads x-service-identity + x-service-signature.
- *   2. Verifies the signature is `HMAC-SHA256(identity, INTERNAL_SERVICE_SECRET)`.
+ *   2. Verifies the signature against the v2 service-identity keyring.
  *   3. If signature is valid → request is from a trusted internal source,
  *      headers are forwarded as-is.
  *   4. If signature is missing OR invalid → strips the four spoofable
@@ -51,10 +51,20 @@
  * Closes: docs/reviews/security-reviewer/2026-04-28-core-platform-review.md#SECREV-CRITICAL-002
  */
 
+import { createHash } from 'crypto';
+
 import { Injectable, NestMiddleware, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request, Response, NextFunction } from 'express';
-import { createHmac, timingSafeEqual } from 'crypto';
+
+import { serviceIdentityAudiencesForService } from '../../../../platform/libs/service-catalog/src/index';
+import type { TenantRequest, VerifiedServiceIdentity } from '../types/tenant-request.interface';
+import {
+  getServiceIdentityHeader,
+  parseServiceIdentityKeyring,
+  verifyServiceIdentityRequest,
+} from '../utils/service-identity.util';
+import type { ServiceIdentityKeyringEntry } from '../utils/service-identity.util';
 
 /**
  * The four request headers we treat as INTERNAL trust anchors. Any of
@@ -67,21 +77,35 @@ const INTERNAL_HEADERS_TO_STRIP = [
   'x-user-id',
   'x-user-roles',
   'x-tenant-id',
+  'x-act-as-tenant',
+  'x-verified-user-assertion',
 ] as const;
 
 @Injectable()
 export class StripInternalHeadersMiddleware implements NestMiddleware {
   private readonly logger = new Logger(StripInternalHeadersMiddleware.name);
   private readonly serviceSecret: string | undefined;
+  private readonly keyring: ServiceIdentityKeyringEntry[];
+  private readonly expectedAudiences: readonly string[];
 
-  constructor(
-    @Inject(ConfigService) private readonly configService: ConfigService,
-  ) {
-    this.serviceSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET');
+  constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
+    this.keyring = parseServiceIdentityKeyring(
+      this.configService.get<string>('SERVICE_IDENTITY_KEYRING') ??
+        process.env['SERVICE_IDENTITY_KEYRING'],
+    );
+    this.serviceSecret =
+      process.env['NODE_ENV'] === 'production'
+        ? undefined
+        : (this.configService.get<string>('SERVICE_IDENTITY_SIGNING_SECRET') ??
+          this.configService.get<string>('INTERNAL_SERVICE_SECRET'));
+    this.expectedAudiences = this.resolveExpectedAudiences();
   }
 
-  use(req: Request, _res: Response, next: NextFunction): void {
-    if (!this.isValidInternalRequest(req)) {
+  use(req: TenantRequest, _res: Response, next: NextFunction): void {
+    const verifiedIdentity = this.verifyInternalRequest(req);
+    if (verifiedIdentity) {
+      req.verifiedIdentity = verifiedIdentity;
+    } else {
       for (const header of INTERNAL_HEADERS_TO_STRIP) {
         if (req.headers[header]) {
           this.logger.warn(
@@ -100,33 +124,97 @@ export class StripInternalHeadersMiddleware implements NestMiddleware {
    *
    * # Contract
    *
-   * Requires both `x-service-identity` and `x-service-signature` headers.
-   * The signature MUST be `HMAC-SHA256(identity, INTERNAL_SERVICE_SECRET)`.
-   *
-   * # Why this is a NARROWER check than the W0.A v2 service-identity
-   *
-   * The full v2 signature contract (libs/.../service-identity.util.ts)
-   * binds method + path + body + tenantId. THIS middleware uses a
-   * lighter `HMAC(identity)` because it runs on EVERY request — the
-   * additional verification cost would dominate hot-path latency. Its
-   * job is the strip-or-trust decision, not full request authentication.
-   * The full v2 verification still fires AFTER this middleware in the
-   * `ServiceIdentityGuard` (or each service's equivalent) before any
-   * privileged action is taken.
+   * Requires a strict v2 service-identity signature. Legacy proof-of-secret
+   * possession is no longer accepted for the strip-or-trust decision because
+   * it does not bind path/body/query/audience and could preserve spoofed
+   * user headers on a tampered request.
    */
-  private isValidInternalRequest(req: Request): boolean {
-    if (!this.serviceSecret) return false;
+  private verifyInternalRequest(req: Request): VerifiedServiceIdentity | undefined {
+    const headers = req.headers as Record<string, string | string[] | undefined>;
+    const identity = getServiceIdentityHeader(headers, 'x-service-identity');
+    const signature = getServiceIdentityHeader(headers, 'x-service-signature');
+    if (!identity || !signature) return undefined;
 
-    const identity = req.headers['x-service-identity'];
-    const signature = req.headers['x-service-signature'];
-    if (typeof identity !== 'string' || typeof signature !== 'string') return false;
+    const tenantHeader = getServiceIdentityHeader(headers, 'x-tenant-id') ?? '';
+    const outcome = verifyServiceIdentityRequest({
+      headers,
+      observedMethod: req.method ?? 'GET',
+      observedPath: this.canonicalisePath(req),
+      observedQuery: this.canonicaliseQuery(req),
+      observedContentType: getServiceIdentityHeader(headers, 'content-type') ?? '',
+      observedAssertionHash: this.assertionHash(headers),
+      observedBody: this.serializeBodyForHash(req.body),
+      secret: this.serviceSecret,
+      keyring: this.keyring,
+      allowUnscopedDevKey: process.env['NODE_ENV'] !== 'production',
+      expectedTenantId: tenantHeader,
+      expectedAudiences: this.expectedAudiences,
+    });
+    if (!outcome.valid) return undefined;
+    return {
+      serviceName: outcome.serviceName,
+      tenantId: tenantHeader,
+      effectiveTenantId: outcome.effectiveTenantId,
+      keyId: outcome.keyId,
+      audience: outcome.audience,
+      nonce: outcome.nonce,
+      version: 'v2',
+    };
+  }
 
-    try {
-      const expected = createHmac('sha256', this.serviceSecret).update(identity).digest('hex');
-      if (expected.length !== signature.length) return false;
-      return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
-    } catch {
-      return false;
+  private canonicaliseQuery(req: { originalUrl?: string; url?: string }): string {
+    const raw = req.originalUrl ?? req.url ?? '';
+    const qIdx = raw.indexOf('?');
+    return qIdx === -1 ? '' : raw.slice(qIdx);
+  }
+
+  private assertionHash(
+    headers: Record<string, string | string[] | undefined>,
+  ): string | undefined {
+    const assertion = getServiceIdentityHeader(headers, 'x-verified-user-assertion');
+    return assertion ? createHash('sha256').update(assertion).digest('hex') : undefined;
+  }
+
+  private serializeBodyForHash(body: unknown): string | Buffer {
+    if (body === undefined || body === null) return '';
+    if (typeof body === 'string') return body;
+    if (Buffer.isBuffer(body)) return body;
+    return JSON.stringify(body);
+  }
+
+  private canonicalisePath(req: { path?: string; originalUrl?: string; url?: string }): string {
+    // Use the full wire path when Express has mounted a route and `path`
+    // becomes mount-relative. This must match ServiceIdentityGuard.
+    const raw = req.originalUrl ?? req.url ?? req.path ?? '/';
+    const qIdx = raw.indexOf('?');
+    return qIdx === -1 ? raw : raw.slice(0, qIdx);
+  }
+
+  private resolveExpectedAudiences(): readonly string[] {
+    const configured =
+      this.configService.get<string>('SERVICE_IDENTITY_AUDIENCE') ??
+      process.env['SERVICE_IDENTITY_AUDIENCE'];
+    if (configured && configured.trim().length > 0) {
+      return [configured.trim()];
     }
+
+    const serviceId =
+      this.configService.get<string>('SERVICE_IDENTITY_SERVICE_ID') ??
+      this.configService.get<string>('SERVICE_NAME') ??
+      process.env['SERVICE_IDENTITY_SERVICE_ID'] ??
+      process.env['SERVICE_NAME'];
+    const catalogAudiences = serviceId ? serviceIdentityAudiencesForService(serviceId) : [];
+    if (catalogAudiences.length > 0) {
+      return catalogAudiences;
+    }
+
+    if (process.env['NODE_ENV'] === 'production') {
+      throw new Error(
+        'SERVICE_IDENTITY_AUDIENCE or catalog-backed SERVICE_NAME is required in production. ' +
+          'Internal-header trust must not infer receiver audience from SERVICE_IDENTITY_KEYRING.',
+      );
+    }
+
+    return [];
   }
 }

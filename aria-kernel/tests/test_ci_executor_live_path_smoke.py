@@ -28,6 +28,7 @@ asserted not to be invoked from main().
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import sys
 import tempfile
@@ -37,10 +38,14 @@ from unittest.mock import MagicMock, patch
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _POC_DIR = _REPO_ROOT / "tools" / "aria-poc"
+_KERNEL_DIR = _REPO_ROOT / "aria-kernel"
 if str(_POC_DIR) not in sys.path:
     sys.path.insert(0, str(_POC_DIR))
+if str(_KERNEL_DIR) not in sys.path:
+    sys.path.insert(0, str(_KERNEL_DIR))
 
 import ci_executor  # noqa: E402
+from aria_kernel.agent_invocations import render_invocation_prompt  # noqa: E402
 
 
 def _make_fake_run_sequence(*responses):
@@ -64,6 +69,24 @@ def _make_fake_run_sequence(*responses):
     return fake_run
 
 
+def _bind_prompt_context(payload: dict) -> dict:
+    bound = dict(payload)
+    bound.setdefault("target_agent", "aria-evidence-judge")
+    bound.setdefault("convergence_id", None)
+    bound.setdefault("suggested_prompt", None)
+    bound.setdefault("forbidden_scope", [])
+    bound.setdefault("impact_graph_refs", [])
+    bound.setdefault("validation_commands", [])
+    rendered = render_invocation_prompt(bound)
+    bound["prompt_hash"] = (
+        "sha256:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+    )
+    bound.setdefault("context_hash", "sha256:" + "c" * 64)
+    bound.setdefault("context_ledger_hash", "sha256:" + "d" * 64)
+    bound.setdefault("prompt_ledger_hash", "sha256:" + "e" * 64)
+    return bound
+
+
 class LivePathFetchTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-ci-live-"))
@@ -82,23 +105,25 @@ class LivePathFetchTests(unittest.TestCase):
         # The pre-§B.3 separate list_response_ok mock is consumed by the
         # claim_response shape itself; the executor no longer subprocesses
         # a second time for envelope load.
+        claim_payload = _bind_prompt_context({
+            "lease_token": self.lease_token,
+            "claim_id": self.claim_id,
+            "request_id": self.request_id,
+            "agent_id": "ci-executor:gha-test",
+            # §B.3 fused-envelope fields:
+            "role": "evidence_judgment",
+            "target_agent": "aria-evidence-judge",
+            "expected_output_path": str(self.expected_output),
+            "must_satisfy": [{"id": "S1", "description": "test"}],
+            "evidence_refs": ["aria-kernel/src"],
+            "allowed_scope": ["aria-kernel/**"],
+            # §B.5 ledger-hash anchors (populated by §B.3):
+            "claim_ledger_hash": "sha256:" + "a" * 64,
+            "request_ledger_hash": "sha256:" + "b" * 64,
+        })
         self.claim_response = MagicMock(
             returncode=0,
-            stdout=json.dumps({
-                "lease_token": self.lease_token,
-                "claim_id": self.claim_id,
-                "request_id": self.request_id,
-                "agent_id": "ci-executor:gha-test",
-                # §B.3 fused-envelope fields:
-                "role": "evidence_judgment",
-                "expected_output_path": str(self.expected_output),
-                "must_satisfy": [{"id": "S1", "description": "test"}],
-                "evidence_refs": ["aria-kernel/src"],
-                "allowed_scope": ["aria-kernel/**"],
-                # §B.5 ledger-hash anchors (populated by §B.3):
-                "claim_ledger_hash": "sha256:" + "a" * 64,
-                "request_ledger_hash": "sha256:" + "b" * 64,
-            }),
+            stdout=json.dumps(claim_payload),
             stderr="",
         )
         self.submit_response_ok = MagicMock(
@@ -237,8 +262,8 @@ class LivePathFetchTests(unittest.TestCase):
             "request_envelope_missing_role",
         )
 
-    def test_invoke_claude_code_mock_empty_role_raises_no_string_mangle(self) -> None:
-        # Plan 025 §B latent-bug-2 closure — invoke_claude_code mock
+    def test_invoke_codex_cli_mock_empty_role_raises_no_string_mangle(self) -> None:
+        # Plan 025 §B latent-bug-2 closure — invoke_codex_cli mock
         # branch refuses empty role. Pre-fix ``role or subagent_type
         # .replace("aria-", "").replace("-judge", "_judgment")``
         # silently fabricated "evidence_judgment" from "aria-evidence-
@@ -247,7 +272,7 @@ class LivePathFetchTests(unittest.TestCase):
             prompt = self.tmp / "prompt.md"
             prompt.write_text("test", encoding="utf-8")
             with self.assertRaises(ValueError) as ctx:
-                ci_executor.invoke_claude_code(
+                ci_executor.invoke_codex_cli(
                     request_id="REQ-bad",
                     subagent_type="aria-evidence-judge",
                     prompt_file=prompt,

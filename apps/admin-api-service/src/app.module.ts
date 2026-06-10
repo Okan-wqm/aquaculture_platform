@@ -2,6 +2,7 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import {
   AdminBypassRlsInterceptor,
   buildDatabaseSslConfig,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
   RlsModule,
   SchemaDriftModule,
@@ -9,8 +10,8 @@ import {
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
-import { ThrottlerModule } from '@aquaculture/backend-common/security';
-import { Module, Logger } from '@nestjs/common';
+import { ThrottlerGuard, ThrottlerModule } from '@aquaculture/backend-common/security';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { CqrsModule } from '@nestjs/cqrs';
@@ -21,32 +22,10 @@ import { JwtService } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
+import { StorageModule } from '@platform/storage';
 
-import { CreateInitialSchema1780000000000 } from './migrations/1780000000000-CreateInitialSchema';
-import { ConvertTimestampToTimestamptz1781500000000 } from './migrations/1781500000000-ConvertTimestampToTimestamptz';
-import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
-import { AuditLogImmutability1782000000000 } from './migrations/1782000000000-AuditLogImmutability';
-import { AddMfaCompletedToImpersonationSessions1782100000000 } from './migrations/1782100000000-AddMfaCompletedToImpersonationSessions';
-import { MoveSharedTablesFromAdminToShared1782200000000 } from './migrations/1782200000000-MoveSharedTablesFromAdminToShared';
-import { MoveUserPermissionsToShared1786900000000 } from './migrations/1786900000000-MoveUserPermissionsToShared';
-import { GrantSharedSchemaPrivileges1787000000000 } from './migrations/1787000000000-GrantSharedSchemaPrivileges';
-import { CreateAdminAuditLogsTable1787100000000 } from './migrations/1787100000000-CreateAdminAuditLogsTable';
-import { RealignSharedAuditLogsSchema1787200000000 } from './migrations/1787200000000-RealignSharedAuditLogsSchema';
-import { CreateIngestBackendPolicyState1787300000000 } from './migrations/1787300000000-CreateIngestBackendPolicyState';
-import { RestoreSharedAuditLogsImmutability1787400000000 } from './migrations/1787400000000-RestoreSharedAuditLogsImmutability';
-import { CreateComplianceLegalHolds1787500000000 } from './migrations/1787500000000-CreateComplianceLegalHolds';
-import { AddGdprDataRequestsCheckConstraints1787600000000 } from './migrations/1787600000000-AddGdprDataRequestsCheckConstraints';
-import { AddUserConsentsNaturalKeyUnique1787700000000 } from './migrations/1787700000000-AddUserConsentsNaturalKeyUnique';
-import { AddAdminAuditLogsImmutability1787800000000 } from './migrations/1787800000000-AddAdminAuditLogsImmutability';
-import { AddUserPermissionsUserFk1787900000000 } from './migrations/1787900000000-AddUserPermissionsUserFk';
-import { ConvertAuditIpColumnsToInet1788000000000 } from './migrations/1788000000000-ConvertAuditIpColumnsToInet';
-import { AddAuditLogShapeExtension1788100000000 } from './migrations/1788100000000-AddAuditLogShapeExtension';
-import { CreateSharedAccessLogs1788400000000 } from './migrations/1788400000000-CreateSharedAccessLogs';
-import { AlignAdminEntitySurface1789000000000 } from './migrations/1789000000000-AlignAdminEntitySurface';
-import { AlignAdminEntitySurfaceExt1789100000000 } from './migrations/1789100000000-AlignAdminEntitySurfaceExt';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
-import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { BillingModule } from './billing/billing.module';
 import { DatabaseManagementModule } from './database-management/database-management.module';
@@ -58,17 +37,55 @@ import { PlatformAdminGuard } from './guards/platform-admin.guard';
 import { HealthModule } from './health/health.module';
 import { ImpersonationModule } from './impersonation/impersonation.module';
 import { GracefulShutdownService } from './lifecycle/graceful-shutdown.service';
-import { ResponseInterceptor } from './shared/response.interceptor';
+import { MessagingAdminModule } from './messaging/messaging-admin.module';
 import { SystemMetricsModule } from './metrics/system-metrics.module';
 import { SystemModulesModule } from './modules/modules.module';
-import { SecurityModule } from './security/security.module';
 import { IngestBackendPolicyModule } from './policy/policy.module';
+import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
+import { SecurityModule } from './security/security.module';
 import { SettingsModule } from './settings/settings.module';
+import { ResponseInterceptor } from './shared/response.interceptor';
 import { SupportModule } from './support/support.module';
 import { SystemManagementModule } from './system-management/system-management.module';
 import { TenantManagementModule } from './tenant/tenant.module';
-import { MessagingAdminModule } from './messaging/messaging-admin.module';
 import { UsersModule } from './users/users.module';
+
+const AdminSchemaVersionGate = createSchemaVersionGate('admin');
+
+const getRequiredStorageConfig = (
+  configService: ConfigService,
+  key: string,
+): string => {
+  const value = configService.get<string>(key);
+  if (value === undefined || value.trim().length === 0) {
+    throw new Error(`Missing required object storage configuration: ${key}`);
+  }
+
+  return value;
+};
+
+const getAdminStorageConfigValue = (
+  configService: ConfigService,
+  key: string,
+  fallback: string,
+): string => {
+  if (configService.get<string>('NODE_ENV') === 'production') {
+    return getRequiredStorageConfig(configService, key);
+  }
+
+  return configService.get<string>(key, fallback);
+};
+
+const getAdminStoragePort = (configService: ConfigService): number => {
+  const rawPort = configService.get<string>('MINIO_PORT', '9000');
+  const port = Number.parseInt(rawPort, 10);
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid object storage port: ${rawPort}`);
+  }
+
+  return port;
+};
 
 @Module({
   imports: [
@@ -96,35 +113,11 @@ import { UsersModule } from './users/users.module';
           // traffic. 40 was validated under concurrent superadmin sessions
           // in 2026-Q1. Operators may further raise via DATABASE_POOL_SIZE.
           defaultPoolSize: 40,
-          migrations: [
-            CreateInitialSchema1780000000000,
-            ConvertTimestampToTimestamptz1781500000000,
-            ConvertAuditColumnsToTimestamptz1781900000000,
-            AuditLogImmutability1782000000000,
-            AddMfaCompletedToImpersonationSessions1782100000000,
-            MoveSharedTablesFromAdminToShared1782200000000,
-            MoveUserPermissionsToShared1786900000000,
-            GrantSharedSchemaPrivileges1787000000000,
-            CreateAdminAuditLogsTable1787100000000,
-            RealignSharedAuditLogsSchema1787200000000,
-            CreateIngestBackendPolicyState1787300000000,
-            RestoreSharedAuditLogsImmutability1787400000000,
-            CreateComplianceLegalHolds1787500000000,
-            AddGdprDataRequestsCheckConstraints1787600000000,
-            AddUserConsentsNaturalKeyUnique1787700000000,
-            AddAdminAuditLogsImmutability1787800000000,
-            AddUserPermissionsUserFk1787900000000,
-            ConvertAuditIpColumnsToInet1788000000000,
-            AddAuditLogShapeExtension1788100000000,
-            CreateSharedAccessLogs1788400000000,
-            AlignAdminEntitySurface1789000000000,
-            AlignAdminEntitySurfaceExt1789100000000,
-          ],
-          // admin-api opts in to TypeORM's built-in migration runner via the
-          // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other
-          // services use MigrationRunnerService factory pattern instead.
+          migrations: [__dirname + '/migrations/[0-9]*{.ts,.js}'],
+          // Single-writer deploy contract: aqua-db-migrate owns production
+          // migrations. Local/E2E can still opt in explicitly.
           migrationsRunFromEnv: (cfg) =>
-            cfg.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
+            cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     /**
@@ -205,6 +198,19 @@ import { UsersModule } from './users/users.module';
         keyPrefix: 'admin:',
       }),
     }),
+    StorageModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        endpoint: getAdminStorageConfigValue(configService, 'MINIO_ENDPOINT', 'localhost'),
+        port: getAdminStoragePort(configService),
+        useSSL: configService.get<string>('MINIO_USE_SSL', 'false') === 'true',
+        accessKey: getAdminStorageConfigValue(configService, 'MINIO_ACCESS_KEY', 'minioadmin'),
+        secretKey: getAdminStorageConfigValue(configService, 'MINIO_SECRET_KEY', 'minioadmin'),
+        bucket: configService.get<string>('MINIO_BUCKET', 'aquaculture'),
+        region: configService.get<string>('MINIO_REGION', 'us-east-1'),
+      }),
+    }),
     TenantManagementModule,
     AuditLogModule,
     // COMPLIANCE-MEDIUM-001 cure: register retention policies for
@@ -262,6 +268,7 @@ import { UsersModule } from './users/users.module';
     SchemaDriftModule.forRoot({ serviceName: 'admin-api' }),
   ],
   providers: [
+    AdminSchemaVersionGate,
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
@@ -280,10 +287,10 @@ import { UsersModule } from './users/users.module';
       provide: APP_GUARD,
       useExisting: PlatformAdminGuard,
     },
-    // ThrottlerGuard removed: admin-api is super-admin-only (PlatformAdminGuard).
-    // Rate limiting an authenticated admin panel with ~15 concurrent dashboard
-    // requests causes 429 floods. Individual sensitive endpoints (login, password
-    // reset) still use per-route @Throttle() decorators via backend-common.
+    {
+      provide: APP_GUARD,
+      useExisting: ThrottlerGuard,
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: ResponseInterceptor,
@@ -301,4 +308,6 @@ import { UsersModule } from './users/users.module';
     GracefulShutdownService,
   ],
 })
-export class AppModule {}
+export class AppModule {
+  readonly moduleName = AppModule.name;
+}

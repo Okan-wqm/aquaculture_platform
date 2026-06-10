@@ -13,13 +13,17 @@ export * from './farm-events';
 export * from './sensor-events';
 export * from './alert-events';
 export * from './notification-events';
+export * from './notification-commands';
 export * from './hr-events';
 export * from './billing-events';
+export * from './billing-admin-commands';
 export * from './ai-events';
 export * from './task-events';
 export * from './edge-device-events';
 export * from './water-quality-events';
 export * from './messaging-events';
+export * from './messaging-event-registry';
+export * from './platform-event-registry';
 export * from './storage-events';
 
 // Automation domain events (sensor-service compiler / programming).
@@ -49,23 +53,23 @@ export * from './upcasters';
 export * from './schemas';
 
 // Re-export all domain union types for convenience
-import type { AuthEvent } from './auth-events';
-import type { TenantEvent } from './tenant-events';
-import type { FarmEvent } from './farm-events';
-import type { SensorEvent } from './sensor-events';
-import type { AlertEvent } from './alert-events';
-import type { NotificationEvent } from './notification-events';
-import type { HREvent } from './hr-events';
-import type { BillingEvent } from './billing-events';
 import type { AIEvent } from './ai-events';
-import type { TaskEvent } from './task-events';
-import type { EdgeDeviceEvent } from './edge-device-events';
-import type { WaterQualityEvent } from './water-quality-events';
-import type { MessagingEvent } from './messaging-events';
-import type { StorageEvent } from './storage-events';
-import type { SecurityEvent } from './security';
-import type { ComplianceEvent } from './compliance-events';
+import type { AlertEvent } from './alert-events';
+import type { AuthEvent } from './auth-events';
 import type { AutomationEvent } from './automation-events';
+import type { BillingEvent } from './billing-events';
+import type { ComplianceEvent } from './compliance-events';
+import type { EdgeDeviceEvent } from './edge-device-events';
+import type { FarmEvent } from './farm-events';
+import type { HREvent } from './hr-events';
+import type { MessagingEvent } from './messaging-events';
+import type { NotificationEvent } from './notification-events';
+import type { SecurityEvent } from './security';
+import type { SensorEvent } from './sensor-events';
+import type { StorageEvent } from './storage-events';
+import type { TaskEvent } from './task-events';
+import type { TenantEvent } from './tenant-events';
+import type { WaterQualityEvent } from './water-quality-events';
 
 /**
  * Union type for all platform events.

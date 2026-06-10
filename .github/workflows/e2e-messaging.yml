@@ -146,7 +146,9 @@ jobs:
 
       # ── Run E2E Tests ────────────────────────────────────────────────
       # Tests bootstrap the full NestJS application via Test.createTestingModule().
-      # Migrations run automatically on app init (migrationsRun: true).
+      # In CI the TypeORM DataSource runner stays disabled; the platform
+      # MessagingMigrationRunnerService applies the bundled baseline before
+      # SourceSchemaBootstrapService verifies the populated source schema.
       # Tenant schemas are created dynamically by the test setup.
       - name: Run E2E tests
         run: |
@@ -172,15 +174,13 @@ jobs:
           DATABASE_USER: postgres
           DATABASE_PASSWORD: postgres
           DATABASE_NAME: aquaculture_e2e
-          # Converge with production: MessagingMigrationRunnerService
-          # (provider in app.module.ts) executes migrations at
-          # OnApplicationBootstrap with transaction='each', honouring per-
-          # migration `transaction = 'none'` opt-outs (e.g.
-          # 1782800000000-AddMessageAttachmentIsDeletedIndex's CREATE
-          # INDEX CONCURRENTLY). TypeORM's built-in DataSource-init runner
-          # defaults to transaction='all' and would throw
-          # ForbiddenTransactionModeOverrideError.
+          # Keep TypeORM's built-in DataSource runner disabled. E2E explicitly
+          # enables the platform migration runner below so it owns migration
+          # execution with the same transaction semantics production gates
+          # require.
           DATABASE_MIGRATIONS_RUN: 'false'
+          MIGRATION_RUNNER_ENABLED: 'true'
+          DB_MIGRATE_AUTHORITATIVE: 'false'
           # ── Redis ──
           REDIS_HOST: localhost
           REDIS_PORT: 6379
@@ -198,7 +198,7 @@ jobs:
       # ── Test Results ─────────────────────────────────────────────────
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-messaging-results-${{ github.run_number }}
           path: |

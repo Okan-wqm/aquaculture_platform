@@ -7,11 +7,13 @@
 // ============================================================================
 
 export enum TenantStatus {
-  PENDING = 'pending',
-  ACTIVE = 'active',
-  SUSPENDED = 'suspended',
-  DEACTIVATED = 'deactivated',
-  ARCHIVED = 'archived',
+  PENDING = 'PENDING',
+  PROVISIONING = 'PROVISIONING',
+  PROVISIONING_FAILED = 'PROVISIONING_FAILED',
+  ACTIVE = 'ACTIVE',
+  SUSPENDED = 'SUSPENDED',
+  DEACTIVATED = 'DEACTIVATED',
+  ARCHIVED = 'ARCHIVED',
 }
 
 export enum TenantTier {
@@ -88,14 +90,18 @@ export interface Tenant {
   createdAt: string;
   updatedAt: string;
   version?: number;
+  availableActions?: Array<'activate' | 'suspend' | 'deactivate' | 'archive' | 'retryProvisioning'>;
 }
 
 export interface TenantStats {
-  total: number;
-  active: number;
-  suspended: number;
-  pending: number;
-  byTier: Record<TenantTier, number>;
+  totalTenants: number;
+  activeTenants: number;
+  suspendedTenants: number;
+  pendingTenants: number;
+  byTier?: Record<TenantTier, number>;
+  byPlan?: Record<string, number>;
+  newTenantsLast30Days: number;
+  churnedTenantsLast30Days: number;
 }
 
 export interface TenantActivity {
@@ -170,6 +176,12 @@ export interface ModuleQuantityConfig {
   ponds?: number;
   sensors?: number;
   employees?: number;
+  devices?: number;
+  storageGb?: number;
+  apiCalls?: number;
+  alerts?: number;
+  reports?: number;
+  integrations?: number;
 }
 
 export interface CreateTenantDto {
@@ -201,6 +213,34 @@ export interface CreateTenantDto {
    * Billing cycle preference: monthly, quarterly, semi_annual, annual
    */
   billingCycle?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
+  catalogVersionId?: string;
+  quoteId?: string;
+  customPlanId?: string;
+}
+
+export enum TenantProvisioningState {
+  QUEUED = 'QUEUED',
+  RESERVING = 'RESERVING',
+  RUNNING = 'RUNNING',
+  SUCCEEDED = 'SUCCEEDED',
+  FAILED = 'FAILED',
+}
+
+export interface TenantProvisioningStep {
+  name: string;
+  state: TenantProvisioningState;
+  attempts: number;
+  lastError?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface CreateTenantAcceptedResponse {
+  status: TenantProvisioningState;
+  tenantStatus?: TenantStatus;
+  statusUrl: string;
+  retryAfterMs: number;
+  availableActions: Array<'retryProvisioning'>;
 }
 
 export interface UpdateTenantDto {

@@ -1,9 +1,9 @@
 """Plan 026R §G.3 — submit_worker_result lease-bound + active-claim +
 lease-expiry + multi-active corruption + provenance.
 
-13 tests:
+14 tests:
 
-* lease_token=None preserves legacy path (backward compat).
+* lease_token=None is rejected.
 * lease_token="" → reject "lease_token_required".
 * wrong lease_token → reject "lease_token_mismatch".
 * no active claim → reject "no_active_claim".
@@ -15,6 +15,7 @@ lease-expiry + multi-active corruption + provenance.
 * accepted result row carries claim_id + agent_id provenance.
 * accepted result row does NOT carry lease_token or lease_token_hash.
 * correct active-claim with non-expired lease + valid token → accept.
+* missing lease_expires_at is rejected fail-closed.
 * recorded_at field present on the accepted row.
 """
 from __future__ import annotations
@@ -26,10 +27,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import append_declared_jsonl, load_jsonl
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import utc_now
 from aria_kernel.verification_gate import _hash_lease_token, submit_worker_result
+
+_TEST_LEASE_TOKEN = "secret-lease-" + "12345678"
 
 
 def _git(workdir: Path, *args: str) -> None:
@@ -38,16 +41,20 @@ def _git(workdir: Path, *args: str) -> None:
 
 def _seed_request(base: Path, *, assignment_id: str, worktree: Path,
                   base_sha: str, head_sha: str) -> None:
-    append_jsonl(base / "dispatch" / "requests.jsonl", {
-        "schema_version": 1,
-        "assignment_id": assignment_id,
-        "pressure_event_id": "PE-G3",
-        "target_agent": "agent-test",
-        "worktree_path": str(worktree),
-        "base_sha": base_sha,
-        "required_tests": [],
-        "triage_tier": "auto_fix_safe",
-    })
+    append_declared_jsonl(
+        base / "dispatch" / "requests.jsonl",
+        {
+            "schema_version": 1,
+            "assignment_id": assignment_id,
+            "pressure_event_id": "PE-G3",
+            "target_agent": "agent-test",
+            "worktree_path": str(worktree),
+            "base_sha": base_sha,
+            "required_tests": [],
+            "triage_tier": "auto_fix_safe",
+        },
+        expected_surface="dispatch_requests",
+    )
 
 
 def _seed_claim(base: Path, *, assignment_id: str, claim_id: str,
@@ -63,9 +70,15 @@ def _seed_claim(base: Path, *, assignment_id: str, claim_id: str,
         "claimed_at": utc_now(),
         "lease_token_hash": _hash_lease_token(lease_token),
     }
-    if lease_expires_at:
+    if lease_expires_at is None:
+        row["lease_expires_at"] = "2099-12-31T00:00:00+00:00"
+    elif lease_expires_at:
         row["lease_expires_at"] = lease_expires_at
-    append_jsonl(base / "dispatch" / "claims.jsonl", row)
+    append_declared_jsonl(
+        base / "dispatch" / "claims.jsonl",
+        row,
+        expected_surface="dispatch_claims",
+    )
 
 
 def _setup_git_worktree(tmp: Path) -> tuple[Path, str, str]:
@@ -107,7 +120,7 @@ class SubmitWorkerLeaseBoundTests(unittest.TestCase):
         *,
         assignment_id: str = "A-1",
         claim_id: str = "C-1",
-        lease_token: str = "secret-lease-12345678",
+        lease_token: str = _TEST_LEASE_TOKEN,
         claim_event: str = "claimed",
         lease_expires_at: str | None = None,
     ) -> None:
@@ -121,13 +134,14 @@ class SubmitWorkerLeaseBoundTests(unittest.TestCase):
             lease_expires_at=lease_expires_at,
         )
 
-    def test_lease_token_none_preserves_legacy_path(self) -> None:
+    def test_lease_token_none_rejects(self) -> None:
         self._seed_request_and_claim()
         result = submit_worker_result(
             from_worktree=self.worktree, assignment_id="A-1",
             tools_root=self.base, lease_token=None,
         )
-        self.assertEqual(result["state"], "accepted")
+        self.assertEqual(result["state"], "rejected")
+        self.assertEqual(result["reason"], "submit_worker_result_lease_token_required")
 
     def test_empty_lease_token_rejects(self) -> None:
         self._seed_request_and_claim()
@@ -183,7 +197,16 @@ class SubmitWorkerLeaseBoundTests(unittest.TestCase):
         )
         result = submit_worker_result(
             from_worktree=self.worktree, assignment_id="A-1",
-            tools_root=self.base, lease_token="secret-lease-12345678",
+            tools_root=self.base, lease_token=_TEST_LEASE_TOKEN,
+        )
+        self.assertEqual(result["state"], "rejected")
+        self.assertEqual(result["reason"], "submit_worker_result_lease_expired")
+
+    def test_missing_lease_expiry_rejects_fail_closed(self) -> None:
+        self._seed_request_and_claim(lease_expires_at="")
+        result = submit_worker_result(
+            from_worktree=self.worktree, assignment_id="A-1",
+            tools_root=self.base, lease_token=_TEST_LEASE_TOKEN,
         )
         self.assertEqual(result["state"], "rejected")
         self.assertEqual(result["reason"], "submit_worker_result_lease_expired")
@@ -262,7 +285,7 @@ class SubmitWorkerLeaseBoundTests(unittest.TestCase):
         self._seed_request_and_claim()
         result = submit_worker_result(
             from_worktree=self.worktree, assignment_id="A-1",
-            tools_root=self.base, lease_token="secret-lease-12345678",
+            tools_root=self.base, lease_token=_TEST_LEASE_TOKEN,
         )
         self.assertEqual(result["state"], "accepted")
         self.assertEqual(result["claim_id"], "C-1")
@@ -272,7 +295,7 @@ class SubmitWorkerLeaseBoundTests(unittest.TestCase):
         self._seed_request_and_claim()
         result = submit_worker_result(
             from_worktree=self.worktree, assignment_id="A-1",
-            tools_root=self.base, lease_token="secret-lease-12345678",
+            tools_root=self.base, lease_token=_TEST_LEASE_TOKEN,
         )
         self.assertNotIn("lease_token", result)
         self.assertNotIn("lease_token_hash", result)
@@ -282,7 +305,7 @@ class SubmitWorkerLeaseBoundTests(unittest.TestCase):
         self._seed_request_and_claim(lease_expires_at=future)
         result = submit_worker_result(
             from_worktree=self.worktree, assignment_id="A-1",
-            tools_root=self.base, lease_token="secret-lease-12345678",
+            tools_root=self.base, lease_token=_TEST_LEASE_TOKEN,
         )
         self.assertEqual(result["state"], "accepted")
 
@@ -290,7 +313,7 @@ class SubmitWorkerLeaseBoundTests(unittest.TestCase):
         self._seed_request_and_claim()
         result = submit_worker_result(
             from_worktree=self.worktree, assignment_id="A-1",
-            tools_root=self.base, lease_token="secret-lease-12345678",
+            tools_root=self.base, lease_token=_TEST_LEASE_TOKEN,
         )
         self.assertIn("recorded_at", result)
 

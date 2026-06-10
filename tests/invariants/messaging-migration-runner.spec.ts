@@ -43,7 +43,8 @@
  *      switch can keep the runner as the SSoT in both prod and E2E.
  *   4. The E2E workflow (`.github/workflows/e2e-messaging.yml`) sets
  *      `DATABASE_MIGRATIONS_RUN: 'false'` so `migrationsRunFromEnv`
- *      evaluates to false and the custom runner owns migration execution.
+ *      evaluates to false, and sets `MIGRATION_RUNNER_ENABLED: 'true'`
+ *      so the custom runner owns migration execution.
  *
  * # When this spec fails
  *
@@ -111,12 +112,21 @@ describe('INVARIANT (e2e-messaging convergence): messaging-service uses Messagin
     workflowSrc = readFileSync(E2E_WORKFLOW_PATH, 'utf8');
   });
 
-  it('app.module.ts calls createMigrationRunnerService(\'messaging\')', () => {
-    if (!/createMigrationRunnerService\(\s*['"]messaging['"]\s*\)/.test(appModuleSrc)) {
+  it('app.module.ts calls createMigrationRunnerService(\'messaging\') or createSchemaVersionGate(\'messaging\')', () => {
+    // Faz 1.5 of the day-one baseline reset migrated the per-service
+    // factory from `createMigrationRunnerService` to the read-only
+    // `createSchemaVersionGate` (ADR-021). Both satisfy the SSoT
+    // contract: gate-mode wraps the legacy runner verbatim when
+    // DB_MIGRATE_AUTHORITATIVE is unset, and runs the production-side
+    // ledger probe when it is set. The spec accepts either factory name.
+    const legacyFactoryRe = /createMigrationRunnerService\(\s*['"]messaging['"]\s*\)/;
+    const gateFactoryRe = /createSchemaVersionGate\(\s*['"]messaging['"]\s*\)/;
+    if (!legacyFactoryRe.test(appModuleSrc) && !gateFactoryRe.test(appModuleSrc)) {
       throw new Error(
-        `${APP_MODULE_PATH}: missing \`createMigrationRunnerService('messaging')\` factory call. ` +
-          'The messaging-service migration runner is the SSoT for messaging schema migrations ' +
-          '— removing it brings back TypeORM\'s built-in runner which crashes on `transaction = \'none\'` migrations ' +
+        `${APP_MODULE_PATH}: missing both \`createMigrationRunnerService('messaging')\` ` +
+          `AND \`createSchemaVersionGate('messaging')\` factory calls. ` +
+          'The messaging-service migration runner / gate is the SSoT for messaging schema migrations ' +
+          '— removing both brings back TypeORM\'s built-in runner which crashes on `transaction = \'none\'` migrations ' +
           '(ForbiddenTransactionModeOverrideError).',
       );
     }
@@ -166,11 +176,12 @@ describe('INVARIANT (e2e-messaging convergence): messaging-service uses Messagin
     }
   });
 
-  it('e2e-messaging workflow sets DATABASE_MIGRATIONS_RUN=false (custom runner is the SSoT in CI)', () => {
+  it('e2e-messaging workflow keeps TypeORM runner off and custom runner on in CI', () => {
     // The E2E workflow MUST set DATABASE_MIGRATIONS_RUN=false to keep
     // migrationsRunFromEnv returning false → TypeORM does not run
-    // migrations at DataSource init → MessagingMigrationRunnerService
-    // applies them at OnApplicationBootstrap with transaction='each'.
+    // migrations at DataSource init. MIGRATION_RUNNER_ENABLED=true then
+    // explicitly lets MessagingMigrationRunnerService apply them at
+    // OnApplicationBootstrap with transaction='each'.
     //
     // If DATABASE_MIGRATIONS_RUN=true reappears here, the dual-runner
     // architecture returns and the next `transaction = 'none'` migration
@@ -189,6 +200,18 @@ describe('INVARIANT (e2e-messaging convergence): messaging-service uses Messagin
       throw new Error(
         `${E2E_WORKFLOW_PATH}: missing \`DATABASE_MIGRATIONS_RUN: 'false'\` in E2E workflow env. ` +
           'Without an explicit setting, the env may be inherited from a default that flips the convergence contract.',
+      );
+    }
+
+    const runnerEnabledMatch = workflowSrc.match(
+      /MIGRATION_RUNNER_ENABLED:\s*['"]?true['"]?/,
+    );
+    if (!runnerEnabledMatch) {
+      throw new Error(
+        `${E2E_WORKFLOW_PATH}: missing \`MIGRATION_RUNNER_ENABLED: 'true'\` in E2E workflow env. ` +
+          'E2E keeps TypeORM\'s built-in runner disabled, so the platform migration runner ' +
+          'must be explicitly enabled ' +
+          'or SourceSchemaBootstrapService will see an empty messaging source schema.',
       );
     }
   });

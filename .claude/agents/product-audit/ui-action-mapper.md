@@ -4,6 +4,7 @@ description: Inventories forms, buttons, inputs, grids, modals, and user-trigger
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 2
 ---
 
 # UI Action Mapper -- Product Surface Inventory Reviewer

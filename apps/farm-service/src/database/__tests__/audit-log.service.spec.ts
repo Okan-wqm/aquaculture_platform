@@ -17,6 +17,17 @@ describe('AuditLogService', () => {
     createQueryBuilder: jest.fn(),
   };
 
+  function mockDeleteQueryBuilder(affected: number) {
+    const qb = {
+      delete: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected }),
+    };
+    mockRepository.createQueryBuilder.mockReturnValue(qb);
+    return qb;
+  }
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -96,14 +107,7 @@ describe('AuditLogService', () => {
       mockRepository.create.mockImplementation((data) => data);
       mockRepository.save.mockImplementation((data) => Promise.resolve({ id: 'log-1', ...data }));
 
-      await service.logCreate(
-        'tenant-1',
-        'Site',
-        'entity-1',
-        entity,
-        'user-1',
-        'Admin',
-      );
+      await service.logCreate('tenant-1', 'Site', 'entity-1', entity, 'user-1', 'Admin');
 
       expect(mockRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -124,14 +128,7 @@ describe('AuditLogService', () => {
       mockRepository.create.mockImplementation((data) => data);
       mockRepository.save.mockImplementation((data) => Promise.resolve({ id: 'log-1', ...data }));
 
-      await service.logUpdate(
-        'tenant-1',
-        'Site',
-        'entity-1',
-        before,
-        after,
-        'user-1',
-      );
+      await service.logUpdate('tenant-1', 'Site', 'entity-1', before, after, 'user-1');
 
       expect(mockRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -244,20 +241,22 @@ describe('AuditLogService', () => {
 
   describe('cleanupOldLogs', () => {
     it('should delete logs older than retention period', async () => {
-      mockRepository.delete.mockResolvedValue({ affected: 150 });
+      const qb = mockDeleteQueryBuilder(150);
 
       const result = await service.cleanupOldLogs(90);
 
-      expect(mockRepository.delete).toHaveBeenCalled();
+      expect(qb.delete).toHaveBeenCalled();
+      expect(qb.where).toHaveBeenCalled();
+      expect(qb.andWhere).toHaveBeenCalledWith('"legalHold" = false');
       expect(result).toBe(150);
     });
 
     it('should use default retention of 90 days', async () => {
-      mockRepository.delete.mockResolvedValue({ affected: 50 });
+      const qb = mockDeleteQueryBuilder(50);
 
       await service.cleanupOldLogs();
 
-      expect(mockRepository.delete).toHaveBeenCalled();
+      expect(qb.delete).toHaveBeenCalled();
     });
   });
 
@@ -273,12 +272,7 @@ describe('AuditLogService', () => {
       mockRepository.create.mockImplementation((data) => data);
       mockRepository.save.mockImplementation((data) => Promise.resolve({ id: 'log-1', ...data }));
 
-      await service.logCreate(
-        'tenant-1',
-        'User',
-        'entity-1',
-        entityWithSensitiveData,
-      );
+      await service.logCreate('tenant-1', 'User', 'entity-1', entityWithSensitiveData);
 
       expect(mockRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({

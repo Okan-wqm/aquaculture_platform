@@ -1,25 +1,31 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { CqrsModule } from '@nestjs/cqrs';
-import { ScheduleModule } from '@nestjs/schedule';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { TenantExecutionContextInterceptor } from '@aquaculture/backend-common/context';
 import {
   RlsModule,
   SchemaDriftModule,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
-import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { CqrsModule } from '@nestjs/cqrs';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { EventStoreModule } from './event-store/event-store.module';
-import { ProjectionsModule } from './projections/projections.module';
-import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { EventStoreServiceIdentityGuard } from './guards/event-store-service-identity.guard';
+import { HealthModule } from './health/health.module';
+import { ProjectionsModule } from './projections/projections.module';
+
 // Migration class imports removed — TypeOrmModule now uses the glob
 // pattern '/migrations/[0-9]*.{js,ts}' to load every timestamped migration
 // on disk while excluding support files from TypeORM's migration loader
 // (ORPHAN-HIGH-001 cure). Pre-fix the explicit array missed
 // 1781000000000-CreateEventStoreTables and 1800000000000-AddFindingsTable.
+
+const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
 
 @Module({
   imports: [
@@ -44,10 +50,9 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
           serviceName: 'event-store',
           schema: 'event_store',
           migrations: [__dirname + '/migrations/[0-9]*.{js,ts}'],
-          // event-store opts in to TypeORM's built-in migration runner via
-          // DATABASE_MIGRATIONS_RUN (default true). No MigrationRunnerService
-          // for this service yet.
-          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true',
+          // Single-writer deploy contract: aqua-db-migrate owns production
+          // migrations. Local/E2E can still opt in explicitly.
+          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     CqrsModule.forRoot(),
@@ -57,15 +62,13 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     ProjectionsModule,
     HealthModule,
     /**
-     * SECURITY (HIGH-004): Tenant RLS on event-store projections.
-     * stored_events and projection tables carry tenant_id; autoApply runs
-     * the helper at OnApplicationBootstrap so policies are idempotently
-     * installed on every cold start.
+     * SECURITY (HIGH-004): Tenant RLS on event-store ledger tables.
+     * EventLedgerHardening1800100000000 owns policy installation and FORCE RLS.
+     * Runtime boot only wires the pool GUC bridge; readiness asserts the DB state.
      */
     RlsModule.forPoolService({
       serviceName: 'event-store',
-      autoApply: true,
-      excludeTables: ['stored_events', 'projection_checkpoint'],
+      autoApply: false,
     }),
     /**
      * ADR-012: runtime schema-drift validator. Schema owner is `event_store`;
@@ -75,19 +78,23 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     SchemaDriftModule.forRoot({ serviceName: 'event-store' }),
   ],
   providers: [
+    EventStoreSchemaVersionGate,
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
     },
     /**
      * Global authentication guard for event-store-service.
-     * InternalApiKeyGuard ensures only authenticated internal services
-     * can access event streams. This prevents unauthorized containers
-     * from reading or writing tenant event data.
+     * EventStoreServiceIdentityGuard validates canonical v2 service identity
+     * before any tenant-scoped event stream access.
      */
     {
       provide: APP_GUARD,
-      useClass: InternalApiKeyGuard,
+      useClass: EventStoreServiceIdentityGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TenantExecutionContextInterceptor,
     },
   ],
 })

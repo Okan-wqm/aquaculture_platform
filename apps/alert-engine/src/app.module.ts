@@ -13,7 +13,7 @@ import {
   TenantSchemaSyncService,
   SourceSchemaWriteGuardService,
   RlsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
@@ -47,7 +47,7 @@ const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
  * RLS-installing migrations land as deterministic commits without
  * reviving the hand-applied-psql anti-pattern.
  */
-const AlertMigrationRunnerService = createMigrationRunnerService('alert');
+const AlertMigrationRunnerService = createSchemaVersionGate('alert');
 import { EventBusModule } from '@platform/event-bus';
 import { AlertModule } from './alert/alert.module';
 import { HealthModule } from './health/health.module';
@@ -103,7 +103,10 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'dist/graphql/subgraphs/alert.graphql'),
+        },
         /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
          *  The gateway already blocks batching, but subgraphs must also enforce this as
          *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -193,7 +196,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'alert-engine'),
       inject: [ConfigService],
     },
     // Tenant guard

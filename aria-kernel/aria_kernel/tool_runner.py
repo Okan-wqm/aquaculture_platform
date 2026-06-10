@@ -10,14 +10,17 @@ from pathlib import Path
 from typing import Any
 
 from .evidence_validator import validate_tool_output_evidence
+from .implementation_safety import BashAllowlistMiss, BashDenylistHit, verify_bash_command_allowed
 from .runtime_profile import enforce_profile_for_write
 from .snapshot import build_repo_snapshot, ignored_dirty_path, normalize_path, snapshot_allowed_set
+from .artifact_safety import scrub_text
 from .tool_health import can_emit_operator_facing, find_scope_violations, record_run
-from .tool_registry import GovernanceError, get_tool
+from .tool_registry import GovernanceError, ensure_tools_binding, get_tool
 
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
 RAW_SAMPLE_LIMIT = 50
+STDOUT_PARSE_MAX_BYTES = 5 * 1024 * 1024
 
 
 def run_tool(
@@ -36,8 +39,10 @@ def run_tool(
     # top of run_tool is the single chokepoint that covers Phase 4 spine
     # orchestrator + Phase 10 agent-harness-security adapter + every
     # backend adapter without each call site having to remember the gate.
-    enforce_profile_for_write("tool_runs", base_dir=base_dir)
-    tool = get_tool(tool_id, base_dir)
+    root = Path(workspace_root or os.getcwd()).resolve()
+    tools_root = ensure_tools_binding(base_dir, workspace_root=root)
+    enforce_profile_for_write("tool_runs", base_dir=tools_root)
+    tool = get_tool(tool_id, tools_root)
     if tool["status"] == "QUARANTINED":
         raise GovernanceError("QUARANTINED tool cannot be run by the normal runner")
     runner = tool.get("runner")
@@ -45,8 +50,14 @@ def run_tool(
         raise GovernanceError(f"tool has no runner configuration: {tool_id}")
     if runner.get("type") != "subprocess":
         raise GovernanceError(f"unsupported runner type: {runner.get('type')}")
+    try:
+        verify_bash_command_allowed(
+            list(runner.get("argv") or []),
+            cwd=str(runner.get("cwd") or "."),
+        )
+    except (BashAllowlistMiss, BashDenylistHit) as exc:
+        raise GovernanceError(f"runner_argv_policy_rejected:{exc}") from exc
 
-    root = Path(workspace_root or os.getcwd()).resolve()
     repo_snapshot = _input_repo_snapshot(input_payload)
     if repo_snapshot is None:
         repo_snapshot = build_repo_snapshot(workspace_root=root, mode="working-tree", enforce_clean=False)
@@ -104,7 +115,11 @@ def run_tool(
             stdout = completed.stdout or ""
             stderr = completed.stderr or ""
             exit_code = completed.returncode
-            if completed.returncode != 0:
+            if len(stdout.encode("utf-8")) > STDOUT_PARSE_MAX_BYTES:
+                status = "budget_exceeded"
+                parse_error = "output_too_large"
+                output = {}
+            elif completed.returncode != 0:
                 status = "crash"
             else:
                 output, parse_error = _parse_tool_output(stdout, tool)
@@ -148,7 +163,7 @@ def run_tool(
     raw_observations = output.get("observations", [])
     raw_findings = output.get("findings", [])
     memory_candidates = _array_or_empty(output.get("belief_candidates"))
-    can_emit = can_emit_operator_facing(tool_id, base_dir=base_dir)
+    can_emit = can_emit_operator_facing(tool_id, base_dir=tools_root)
     envelope = {
         "schema_version": 1,
         "run_id": run_id or str(uuid.uuid4()),
@@ -171,7 +186,7 @@ def run_tool(
             "exit_code": exit_code,
             "timed_out": timed_out,
             "stderr_hash": _sha256(stderr.encode("utf-8")),
-            "stderr_sample": stderr[:4096],
+            "stderr_sample": scrub_text(stderr[:4096]),
             "raw_observations_count": len(_array_or_empty(raw_observations)),
             "raw_findings_count": len(_array_or_empty(raw_findings)),
             "raw_findings_sample": _raw_finding_sample(_array_or_empty(raw_findings)),
@@ -191,8 +206,15 @@ def run_tool(
             "parse_error": parse_error,
         },
         "repo_snapshot": _compact_snapshot(repo_snapshot),
+        "_runtime_artifact_payload": {
+            "stdout": stdout,
+            "stderr": stderr,
+            "parsed_output": output,
+            "raw_observations": _array_or_empty(raw_observations),
+            "raw_findings": _array_or_empty(raw_findings),
+        },
     }
-    decision = record_run(envelope, base_dir=base_dir)
+    decision = record_run(envelope, base_dir=tools_root)
     # Plan 024 v3 §B-7 — return contract split. Pre-fix run_tool returned
     # ONLY the registry-side health_decision (decision dict from
     # record_run); the runner envelope (with the canonical 'ok|crash|
@@ -349,6 +371,17 @@ def _workspace_snapshot_raw(root: Path) -> Any:
     filter. The raw view is the load-bearing input for scope-out
     mutation detection: comparing before_raw vs after_raw catches
     every mutation regardless of declared scope.
+
+    Plan ARIA-V2 §3.4 + I-24 — once ``aria-tools/`` runtime ledgers
+    are gitignored, ``git status --porcelain`` reports them as
+    nothing-to-see. Scope-out detection would then go blind to
+    ledger mutations, defeating the load-bearing audit contract.
+    Augmenting the git output with a content-hashed directory
+    snapshot of ``aria-tools/`` keeps the contract: ANY mutation
+    under ``aria-tools/`` (tracked or ignored) shows up in the
+    before/after delta. The augmentation runs alongside git status,
+    not instead — tracked-file mutations elsewhere remain visible
+    via the porcelain channel.
     """
     git_dir = root / ".git"
     if git_dir.exists():
@@ -359,8 +392,45 @@ def _workspace_snapshot_raw(root: Path) -> Any:
             check=False,
         )
         if completed.returncode == 0:
-            return ("git", _normalized_git_status_raw(completed.stdout))
+            # Plan ARIA-V2 §3.4 + I-24 — augment with content-hashed
+            # aria-tools/ overlay so gitignored runtime mutations stay
+            # visible. Overlay rows use a synthetic ``--`` status code
+            # (non-conflicting with git's two-letter porcelain codes),
+            # carry size + sha256, and join the git status rows in a
+            # SINGLE flat string tuple to preserve the load-bearing
+            # shape ``("git", tuple_of_strings)`` consumed by
+            # ``_partition_mutations`` and downstream scope-out audit.
+            combined: list[str] = list(_normalized_git_status_raw(completed.stdout))
+            for rel, size, content_hash in _aria_tools_dir_overlay(root):
+                combined.append(f"-- {rel} size={size} {content_hash}")
+            return ("git", tuple(sorted(combined)))
     return ("dir", _directory_snapshot(root))
+
+
+def _aria_tools_dir_overlay(root: Path) -> tuple[tuple[str, int, str], ...]:
+    """Plan ARIA-V2 §3.4 + I-24 — content-hashed view of aria-tools/.
+
+    Returns a stable, sorted tuple of (relative_path, size_bytes,
+    sha256). Used to augment the git-mode workspace snapshot so
+    gitignored runtime writes (governance.jsonl append, runs.jsonl
+    append, …) still produce a before/after delta and stay audit-
+    visible to scope-out detection.
+    """
+    base = root / "aria-tools"
+    if not base.exists() or not base.is_dir():
+        return ()
+    rows: list[tuple[str, int, str]] = []
+    for path in base.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            stat = path.stat()
+            rel = path.relative_to(root).as_posix()
+            rows.append((rel, stat.st_size, _sha256(path.read_bytes())))
+        except OSError:
+            continue
+    rows.sort()
+    return tuple(rows)
 
 
 def _normalized_git_status_raw(stdout: bytes) -> tuple[str, ...]:

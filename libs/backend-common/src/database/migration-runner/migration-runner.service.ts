@@ -1,6 +1,80 @@
 import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
+import { DataSource, Migration, MigrationExecutor, MigrationInterface, QueryRunner } from 'typeorm';
+
+import { assertExpandContractDependency } from '../assert-expand-contract-dependency';
+import {
+  NoopMigrationEventSink,
+  type MigrationEventSink,
+  type MigrationSinkEventType,
+} from '../migration-event-sink';
+import {
+  MIGRATION_LEDGER_TABLE,
+  tenantMigrationLedgerTable,
+} from '../migration-ledger';
+import {
+  TENANT_AWARE_SCHEMAS,
+  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
+} from '../tenant-aware-schemas';
+import { isSourceOnlyMigration } from '../tenant-fanout.decorator';
+
+/**
+ * Optional post-condition probe contract for TypeORM migrations.
+ *
+ * # Why this exists (Faz 1.1 of the day-one baseline reset)
+ *
+ * The 2026-04 HR drift incident (`apps/hr-service/src/database/migrations/
+ * 1786900000000-HealHrEnumTypeDrift.ts:14` — "SAVEPOINT-per-statement
+ * band-aid swallowed the ALTER") demonstrated that TypeORM's
+ * `MigrationExecutor.executeMigration()` will INSERT a row into
+ * `_migrations` (ledger says applied) even when the DDL never actually
+ * landed — most commonly when:
+ *
+ *   - the migration body uses SAVEPOINT/ROLLBACK TO SAVEPOINT internally;
+ *   - a `transaction = false` CONCURRENTLY DDL fails partially after the
+ *     ledger row is already committed in a separate tx;
+ *   - a swallowed-exception PL/pgSQL block silently no-ops.
+ *
+ * The architectural fix is a **post-condition barrier**: every migration
+ * MAY declare `postCondition(qr)` returning a boolean. The runner calls
+ * it AFTER `executeMigration()` returns but BEFORE the wrapper transaction
+ * commits. If the probe returns `false` or throws, the runner rolls back
+ * AND propagates the failure — the ledger row never commits and the
+ * deploy aborts cleanly. The drift cannot enter the ledger silently.
+ *
+ * # Adoption
+ *
+ * The method is OPTIONAL — backwards-compatible with every existing
+ * migration. New migrations that touch high-blast-radius surfaces
+ * (audit immutability triggers, RLS policies, enum type drift, FK
+ * additions, NOT NULL transitions on populated tables) SHOULD declare
+ * a `postCondition` that asserts the DDL really landed via an
+ * `information_schema` lookup.
+ *
+ * Banned-SAVEPOINT invariant (`tests/invariants/no-savepoint-in-migrations.spec.ts`)
+ * already requires an `-- ALLOWS-SAVEPOINT: <reason>` marker to use
+ * SAVEPOINT — reviewers MUST also require a `postCondition` on any such
+ * migration.
+ *
+ * # Contract
+ *
+ *   - Returns `true` / `undefined` / void → success, runner commits.
+ *   - Returns `false` → runner rolls back with a structured error.
+ *   - Throws → runner rolls back and re-throws (error chained via `cause`).
+ *
+ * The probe runs INSIDE the wrapper transaction, so any SELECTs against
+ * the in-flight DDL see the uncommitted state — the standard
+ * `information_schema` lookup against post-DDL shape works without
+ * extra coordination.
+ */
+export interface PostConditionAwareMigration {
+  /**
+   * Optional post-condition probe. Called by `MigrationRunnerService`
+   * after `executeMigration()` returns successfully but before the
+   * wrapper transaction commits. Return `false` or throw to abort.
+   */
+  postCondition?(queryRunner: QueryRunner): Promise<unknown>;
+}
 
 /**
  * createMigrationRunnerService
@@ -43,8 +117,10 @@ import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
  *
  * This runner closes the gap architecturally: after the source schema is
  * migrated, it lists every `tenant_*` schema and runs the same migration
- * set against each. The per-tenant `typeorm_migrations` table makes the
- * fan-out idempotent — already-applied migrations on a tenant are skipped
+ * set against each. Source schemas use the canonical `migrations` ledger;
+ * tenant schemas use `migrations_<sourceSchema>` so multiple tenant-aware
+ * services can each record `Baseline1800000000000` without colliding. The
+ * fan-out is idempotent — already-applied migrations on a tenant are skipped
  * by `MigrationExecutor.getPendingMigrations()` on the next boot, so the
  * cost is near-zero after the first deploy.
  *
@@ -87,17 +163,6 @@ import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
 // (MA6). Local duplicates here, in the orchestrator, and in the
 // schema-propagation invariant test were prone to drift; the SSoT
 // export makes them impossible to diverge.
-import {
-  TENANT_AWARE_SCHEMAS,
-  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
-} from '../tenant-aware-schemas';
-import {
-  NoopMigrationEventSink,
-  type MigrationEventSink,
-  type MigrationSinkEventType,
-} from '../migration-event-sink';
-import { assertExpandContractDependency } from '../assert-expand-contract-dependency';
-
 export interface MigrationRunnerOptions {
   /**
    * Explicit override for tenant fan-out. When omitted, defaults to
@@ -117,6 +182,40 @@ export interface MigrationRunnerOptions {
    * fire-and-forget contract.
    */
   eventSink?: MigrationEventSink;
+}
+
+type MigrationTarget =
+  Parameters<typeof assertExpandContractDependency>[0]['migrationClass'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function rowsFromQueryResult(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function booleanColumn(
+  rows: readonly Record<string, unknown>[],
+  column: string,
+): boolean {
+  return rows[0]?.[column] === true;
+}
+
+function stringColumn(
+  row: Record<string, unknown> | undefined,
+  column: string,
+): string | null {
+  const value = row?.[column];
+  return typeof value === 'string' ? value : null;
+}
+
+const migrationRunnerCompletions = new Map<string, Promise<unknown>>();
+
+export function getMigrationRunnerCompletion(
+  sourceSchema: string,
+): Promise<unknown> | undefined {
+  return migrationRunnerCompletions.get(sourceSchema);
 }
 
 export function createMigrationRunnerService(
@@ -151,8 +250,20 @@ export function createMigrationRunnerService(
     ) {}
 
     async onApplicationBootstrap(): Promise<void> {
+      const completion = this.runMigrations();
+      migrationRunnerCompletions.set(sourceSchema, completion);
+      await completion;
+    }
+
+    private async runMigrations(): Promise<void> {
+      const runnerEnabledOverride = this.configService.get<string>(
+        'MIGRATION_RUNNER_ENABLED',
+      );
       const enabled =
-        this.configService.get('DATABASE_MIGRATIONS_RUN', 'true') === 'true';
+        runnerEnabledOverride !== undefined
+          ? runnerEnabledOverride === 'true'
+          : this.configService.get('DATABASE_MIGRATIONS_RUN', 'true') ===
+            'true';
       const isProduction = this.configService.get('NODE_ENV') === 'production';
 
       if (!enabled && isProduction) {
@@ -165,7 +276,8 @@ export function createMigrationRunnerService(
 
       if (!enabled) {
         this.logger.warn(
-          'Skipping migrations because DATABASE_MIGRATIONS_RUN=false (non-production only)',
+          'Skipping migrations because MIGRATION_RUNNER_ENABLED=false or ' +
+            'DATABASE_MIGRATIONS_RUN=false (non-production only)',
         );
         return;
       }
@@ -174,7 +286,7 @@ export function createMigrationRunnerService(
       this.logger.log(
         `Phase 1: migrating source schema "${sourceSchema}" (tenantAware=${tenantAware})`,
       );
-      await this.runForSchema(sourceSchema);
+      await this.runForSchema(sourceSchema, MIGRATION_LEDGER_TABLE);
 
       // ── Phase 2 — tenant schemas (only for tenant-aware services) ──
       let tenantCount = 0;
@@ -198,7 +310,10 @@ export function createMigrationRunnerService(
                   `schema name "${tenantSchema}" — expected /${TENANT_SCHEMA_RE.source}/.`,
               );
             }
-            await this.runForSchema(tenantSchema);
+            await this.runForSchema(
+              tenantSchema,
+              tenantMigrationLedgerTable(sourceSchema),
+            );
           }
         }
       }
@@ -273,7 +388,10 @@ export function createMigrationRunnerService(
      * keeping connection pressure bounded — matches the per-schema
      * isolation pattern used by aqua-db-migrate's orchestrator.
      */
-    private async runForSchema(schema: string): Promise<void> {
+    private async runForSchema(
+      schema: string,
+      migrationsTableName: string,
+    ): Promise<void> {
       const queryRunner = this.dataSource.createQueryRunner();
       try {
         await queryRunner.connect();
@@ -312,9 +430,13 @@ export function createMigrationRunnerService(
             `SET search_path TO "${schema}", public`,
           );
 
-          const schemaRow: Array<{ current_schema: string }> =
+          const schemaRowsResult: unknown =
             await queryRunner.query(`SELECT current_schema()`);
-          const observedSchema = schemaRow[0]?.current_schema ?? '<unknown>';
+          const observedSchema =
+            stringColumn(
+              rowsFromQueryResult(schemaRowsResult)[0],
+              'current_schema',
+            ) ?? '<unknown>';
 
           if (observedSchema !== schema) {
             throw new Error(
@@ -328,10 +450,36 @@ export function createMigrationRunnerService(
             `QueryRunner pinned on "${schema}" (current_schema() verified)`,
           );
 
-          const executor = new MigrationExecutor(
-            this.dataSource,
-            queryRunner,
-          );
+          const dataSourceOptions = this.dataSource.options as {
+            migrationsTableName?: string;
+          };
+          const previousMigrationsTableName = dataSourceOptions.migrationsTableName;
+          const executor = (() => {
+            dataSourceOptions.migrationsTableName = migrationsTableName;
+            try {
+              const migrationExecutor = new MigrationExecutor(
+                this.dataSource,
+                queryRunner,
+              );
+              const schemaScopedExecutor = migrationExecutor as unknown as {
+                migrationsSchema?: string;
+                migrationsTable: string;
+              };
+              // TypeORM caches the driver default schema from the first
+              // connection's search_path. Tenant fan-out must not let that
+              // default point every ledger probe at the source schema; make
+              // the ledger table explicit for this schema instead.
+              schemaScopedExecutor.migrationsSchema = schema;
+              schemaScopedExecutor.migrationsTable =
+                this.dataSource.driver.buildTableName(
+                  migrationsTableName,
+                  schema,
+                );
+              return migrationExecutor;
+            } finally {
+              dataSourceOptions.migrationsTableName = previousMigrationsTableName;
+            }
+          })();
           executor.transaction = 'each';
 
           const pending = await executor.getPendingMigrations();
@@ -366,17 +514,42 @@ export function createMigrationRunnerService(
             const migrationCtor =
               typeof migration.instance === 'object' &&
               migration.instance !== null
-                ? (migration.instance as { constructor: Function }).constructor
+                ? (migration.instance as { constructor: MigrationTarget })
+                    .constructor
                 : undefined;
             if (migrationCtor !== undefined) {
               const env =
                 this.configService.get<string>('AQUA_ENV') ??
-                this.configService.get<string>('NODE_ENV', 'development')!;
+                this.configService.get<string>('NODE_ENV') ??
+                'development';
               await assertExpandContractDependency({
                 dataSource: this.dataSource,
                 migrationClass: migrationCtor,
                 environment: env,
               });
+
+              if (
+                schema !== sourceSchema &&
+                isSourceOnlyMigration(migrationCtor)
+              ) {
+                await this.recordSourceOnlySkip(
+                  queryRunner,
+                  schema,
+                  migrationsTableName,
+                  migration,
+                );
+                appliedNames.push(`${migration.name} (source-only skipped)`);
+                this.logger.log(
+                  `Migration "${migration.name}" recorded as source-only skipped on "${schema}"`,
+                );
+                this.emit(
+                  schema,
+                  migration.name,
+                  'applied',
+                  Date.now() - migrationStartedAt,
+                );
+                continue;
+              }
             }
 
             // Per-migration transaction so a partial failure in migration
@@ -384,6 +557,22 @@ export function createMigrationRunnerService(
             await queryRunner.startTransaction();
             try {
               await executor.executeMigration(migration);
+
+              // Faz 1.1 — post-condition probe barrier.
+              //
+              // If the migration class declared `postCondition(qr)`, run
+              // it now (inside the wrapper tx, after executeMigration
+              // returned, before commit). A `false` return value or
+              // thrown exception rolls back the wrapper tx so the ledger
+              // row never commits and the silent-applied class
+              // (HR HealHrEnumTypeDrift 1786900 docblock: "SAVEPOINT
+              // band-aid swallowed the ALTER") becomes impossible.
+              await this.runPostConditionProbe(
+                migration,
+                queryRunner,
+                schema,
+              );
+
               await queryRunner.commitTransaction();
               appliedNames.push(migration.name);
               this.logger.log(
@@ -447,6 +636,97 @@ export function createMigrationRunnerService(
     }
 
     /**
+     * Faz 1.1 — Post-condition probe barrier.
+     *
+     * Called inside the wrapper transaction after `executeMigration()`
+     * returned successfully, before `commitTransaction()`. A `false` /
+     * throw rolls back the wrapper tx — the migration's ledger row
+     * never commits and the deploy aborts.
+     *
+     * The probe is OPTIONAL: migrations that do not declare
+     * `postCondition` are committed unchanged (backwards-compatible).
+     * The contract is documented on the `PostConditionAwareMigration`
+     * interface near the top of this file.
+     *
+     * Defence-in-depth:
+     *   - We narrow the instance shape locally and detect the method
+     *     via `typeof` — no `any`, no unsafe casts.
+     *   - Probe errors are wrapped with `cause` so the original stack
+     *     remains attached.
+     *   - The probe runs against the SAME `queryRunner` that holds the
+     *     in-flight tx, so any `information_schema` lookup the migration
+     *     wants to perform sees its own uncommitted DDL — no separate
+     *     connection needed.
+     */
+    private async runPostConditionProbe(
+      migration: { name: string; instance?: unknown },
+      queryRunner: QueryRunner,
+      schema: string,
+    ): Promise<void> {
+      const instance = migration.instance;
+      if (instance === null || typeof instance !== 'object') {
+        return;
+      }
+      const candidate = instance as PostConditionAwareMigration &
+        MigrationInterface;
+      if (typeof candidate.postCondition !== 'function') {
+        return; // optional method
+      }
+
+      let result: unknown;
+      try {
+        result = await candidate.postCondition(queryRunner);
+      } catch (probeErr) {
+        const msg =
+          probeErr instanceof Error ? probeErr.message : String(probeErr);
+        this.logger.error(
+          `[postCondition] Migration "${migration.name}" probe threw on "${schema}": ${msg}`,
+          probeErr instanceof Error ? probeErr.stack : undefined,
+        );
+        const probeErrInstance = new Error(
+          `Migration "${migration.name}" postCondition() threw on "${schema}" — ` +
+            `DDL did not satisfy declared invariant. Rolling back.`,
+        );
+        // Attach cause without depending on Error options (lib.es2022.error.d.ts);
+        // this stays compatible with older TS lib targets while preserving the chain.
+        (probeErrInstance as Error & { cause?: unknown }).cause = probeErr;
+        throw probeErrInstance;
+      }
+
+      if (result === false) {
+        this.logger.error(
+          `[postCondition] Migration "${migration.name}" returned false on "${schema}"`,
+        );
+        throw new Error(
+          `Migration "${migration.name}" postCondition() returned false on "${schema}" — ` +
+            `DDL did not satisfy declared invariant. Rolling back.`,
+        );
+      }
+
+      // `undefined` / `void` / `true` all pass — runner proceeds to commit.
+      this.logger.debug?.(
+        `[postCondition] Migration "${migration.name}" passed on "${schema}"`,
+      );
+    }
+
+    private async recordSourceOnlySkip(
+      queryRunner: QueryRunner,
+      schema: string,
+      migrationsTableName: string,
+      migration: Migration,
+    ): Promise<void> {
+      await queryRunner.query(
+        `INSERT INTO "${schema}"."${migrationsTableName}" ("timestamp", "name")
+         SELECT $1::bigint, $2::varchar
+         WHERE NOT EXISTS (
+           SELECT 1 FROM "${schema}"."${migrationsTableName}"
+            WHERE "timestamp" = $1::bigint AND "name" = $2::varchar
+         )`,
+        [migration.timestamp, migration.name],
+      );
+    }
+
+    /**
      * Acquire `pg_try_advisory_lock` with polling + timeout. Key matches
      * aqua-db-migrate orchestrator so both runners coordinate.
      */
@@ -456,11 +736,11 @@ export function createMigrationRunnerService(
     ): Promise<boolean> {
       const deadline = Date.now() + lockTimeoutSeconds * 1000;
       while (Date.now() < deadline) {
-        const rows: Array<{ locked: boolean }> = await queryRunner.query(
+        const rowsResult: unknown = await queryRunner.query(
           `SELECT pg_try_advisory_lock(hashtext('aqua-db-migrate:' || $1)) AS locked`,
           [schema],
         );
-        if (rows[0]?.locked) {
+        if (booleanColumn(rowsFromQueryResult(rowsResult), 'locked')) {
           return true;
         }
         this.logger.warn(

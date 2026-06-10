@@ -117,7 +117,7 @@ const MUTATIONS: Record<OperationType | 'submitLeaveRequest', string> = {
     }
   `,
   completeTask: `
-    mutation CompleteTask($id: String!) {
+    mutation CompleteTask($id: ID!) {
       completeTask(id: $id) {
         id
         status
@@ -127,7 +127,7 @@ const MUTATIONS: Record<OperationType | 'submitLeaveRequest', string> = {
     }
   `,
   startTask: `
-    mutation StartTask($id: String!) {
+    mutation StartTask($id: ID!) {
       startTask(id: $id) {
         id
         status
@@ -283,10 +283,10 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
       let variables: Record<string, unknown>;
       if (isEditMessage) {
-        const { id: msgId, content, ...rest } = payload as Record<string, unknown>;
+        const { id: msgId, content, ...rest } = payload as unknown as Record<string, unknown>;
         variables = { id: msgId, input: { content, ...rest } };
       } else if (isIdMutation) {
-        variables = payload as Record<string, unknown>;
+        variables = payload as unknown as Record<string, unknown>;
       } else {
         variables = { input: payload };
       }

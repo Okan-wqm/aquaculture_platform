@@ -2,9 +2,16 @@
  * Reports domain types
  */
 
-export type ReportType = 'tenants' | 'users' | 'revenue' | 'usage' | 'audit' | 'compliance' | 'custom';
-export type ReportFormat = 'pdf' | 'xlsx' | 'csv' | 'json';
-export type ReportStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type ReportType =
+  | 'tenant_overview'
+  | 'tenant_churn'
+  | 'financial_revenue'
+  | 'financial_payments'
+  | 'usage_modules'
+  | 'usage_features'
+  | 'system_performance';
+export type ReportFormat = 'pdf' | 'csv' | 'json';
+export type ReportStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export interface ReportDefinition {
   id: string;
@@ -23,17 +30,24 @@ export interface ReportDefinition {
 
 export interface ReportExecution {
   id: string;
-  reportId: string;
+  definitionId?: string;
   reportName: string;
+  reportType: ReportType;
   status: ReportStatus;
   format: ReportFormat;
-  fileUrl?: string;
-  fileSize?: number;
+  downloadUrl?: string;
+  downloadExpiresAt?: string;
+  fileSizeBytes?: number;
   rowCount?: number;
-  error?: string;
-  startedAt: string;
+  summary?: Record<string, unknown>;
+  errorMessage?: string;
+  durationMs?: number;
+  createdAt: string;
+  startDate?: string;
+  endDate?: string;
   completedAt?: string;
-  requestedBy: string;
+  executedBy?: string;
+  executedByEmail?: string;
 }
 
 export interface ReportData {

@@ -8,8 +8,8 @@ README for deeper detail.
 
 | Path | Purpose |
 |---|---|
-| `agents/` | Lane-A (code-quality) agent roster — <!-- cardinality:lane-a-agents -->39<!-- /cardinality --> domain + cross-cutting experts. Claude Code auto-discovers these. |
-| `agents/_maintenance/` | Out-of-runtime maintenance tooling — <!-- cardinality:lane-a-maintenance -->6<!-- /cardinality --> agents (prompt-writer, implementation-planner, gdpr-erasure-executor, aria-primary-planner, aria-challenger-planner, aria-prompt-writer). Auto-discovered by loader but excluded from runtime dispatch by the `maintenance-isolation` invariant. |
+| `agents/` | Lane-A (code-quality) agent roster — <!-- cardinality:lane-a-agents -->45<!-- /cardinality --> domain + cross-cutting experts. Claude Code auto-discovers these. |
+| `agents/_maintenance/` | Out-of-runtime maintenance tooling — <!-- cardinality:lane-a-maintenance -->5<!-- /cardinality --> agents (prompt-writer, implementation-planner, gdpr-erasure-executor, aria-drafter, aria-prompt-writer). Auto-discovered by loader but excluded from runtime dispatch by the `maintenance-isolation` invariant. |
 | `agents/product-audit/` | Lane-B (product-quality) roster — <!-- cardinality:lane-b-active-agents -->22<!-- /cardinality --> active UI/E2E/tenant-surface auditors. <!-- cardinality:lane-b-legacy -->4<!-- /cardinality --> deprecated files retired to `agents.legacy/product-audit/` on 2026-04-18. Meta-agents carry a `product-audit-*` name prefix to stay globally unique vs Lane-A. |
 | `agents.legacy/` | Archived pre-2026-04-16 agent set — <!-- cardinality:lane-a-legacy -->20<!-- /cardinality --> Lane-A files (`platform-services.md` added 2026-04-18) + 4 Lane-B deprecated files under `product-audit/`. Retained for historical review traceability. Loader does NOT scan this directory. |
 | `shared/` | Shared fragments consumed by agents via `@`-reference: `operating-modes.md`, `tier-claim-syntax.md`, `handoff-protocol.md`, `output-format.md`, `orchestrator-phases.md`, `orchestrator-routing-table.md`, `_conversion-template.md`. |

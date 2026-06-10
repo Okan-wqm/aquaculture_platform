@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
 import yaml from 'js-yaml';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -52,12 +53,9 @@ describe('service criticality profile contract', () => {
     expect(mismatches).toEqual([]);
   });
 
-  it('keeps sensor-ingestion required only when rust-sidecar profile is active', () => {
+  it('keeps sensor-ingestion out of active droplet criticality until sidecar deploy evidence exists', () => {
     const entry = manifestByName.get('sensor-ingestion');
 
-    expect(entry).toMatchObject({
-      level: 'required',
-      profiles: ['rust-sidecar'],
-    });
+    expect(entry).toBeUndefined();
   });
 });

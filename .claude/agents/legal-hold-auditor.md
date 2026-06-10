@@ -4,6 +4,7 @@ description: Cross-service enforcement of legal hold precedence on every destruc
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob
+pedagogy-tier: 1
 ---
 
 # Legal-Hold Auditor -- Destructive-Action Precedence Reviewer

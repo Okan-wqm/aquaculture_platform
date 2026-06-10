@@ -16,8 +16,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { EventBus } from '@nestjs/cqrs';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { OutboxPublisher } from '@platform/outbox';
 
 import { ClockInHandler } from '../handlers/clock-in.handler';
 import { GetTodaysAttendanceHandler } from '../query-handlers/get-todays-attendance.handler';
@@ -34,6 +34,8 @@ import {
 import { Schedule, ScheduleStatus } from '../entities/schedule.entity';
 import { Shift, ShiftType, WeekDay } from '../entities/shift.entity';
 import { Employee, EmployeeStatus } from '../../hr/entities/employee.entity';
+import { LeaveRequest } from '../../leave/entities/leave-request.entity';
+import { WorkArea } from '../../aquaculture/entities/work-area.entity';
 import { EmployeeClockedInEvent } from '../events/attendance.events';
 
 // ============================================================================
@@ -131,7 +133,9 @@ describe('Attendance Clock-In Integration Tests', () => {
   let attendanceRepository: jest.Mocked<Repository<AttendanceRecord>>;
   let scheduleRepository: jest.Mocked<Repository<Schedule>>;
   let employeeRepository: jest.Mocked<Repository<Employee>>;
-  let eventBus: jest.Mocked<EventBus>;
+  let leaveRequestRepository: jest.Mocked<Repository<LeaveRequest>>;
+  let workAreaRepository: jest.Mocked<Repository<WorkArea>>;
+  let outboxPublisher: { enqueue: jest.Mock };
   let mockQueryRunner: any;
   let mockDataSource: any;
 
@@ -152,9 +156,17 @@ describe('Attendance Clock-In Integration Tests', () => {
       findOne: jest.fn(),
     } as unknown as jest.Mocked<Repository<Employee>>;
 
-    eventBus = {
-      publish: jest.fn().mockReturnValue(Promise.resolve()),
-    } as unknown as jest.Mocked<EventBus>;
+    leaveRequestRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+    } as unknown as jest.Mocked<Repository<LeaveRequest>>;
+
+    workAreaRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+    } as unknown as jest.Mocked<Repository<WorkArea>>;
+
+    outboxPublisher = {
+      enqueue: jest.fn().mockResolvedValue(undefined),
+    };
 
     mockQueryRunner = {
       connect: jest.fn(),
@@ -185,7 +197,9 @@ describe('Attendance Clock-In Integration Tests', () => {
         { provide: getRepositoryToken(AttendanceRecord), useValue: attendanceRepository },
         { provide: getRepositoryToken(Schedule), useValue: scheduleRepository },
         { provide: getRepositoryToken(Employee), useValue: employeeRepository },
-        { provide: EventBus, useValue: eventBus },
+        { provide: getRepositoryToken(LeaveRequest), useValue: leaveRequestRepository },
+        { provide: getRepositoryToken(WorkArea), useValue: workAreaRepository },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
         { provide: DataSource, useValue: mockDataSource },
       ],
     }).compile();
@@ -230,7 +244,7 @@ describe('Attendance Clock-In Integration Tests', () => {
       expect(result.employeeId).toBe(employeeId);
       expect(result.tenantId).toBe(tenantId);
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
-      expect(eventBus.publish).toHaveBeenCalled();
+      expect(outboxPublisher.enqueue).toHaveBeenCalled();
 
       jest.restoreAllMocks();
     });
@@ -573,7 +587,7 @@ describe('Attendance Clock-In Integration Tests', () => {
 
       await handler.execute(command);
 
-      expect(eventBus.publish).toHaveBeenCalledTimes(1);
+      expect(outboxPublisher.enqueue).toHaveBeenCalledTimes(1);
     });
 
     it('should not publish event on failed clock-in', async () => {
@@ -588,7 +602,7 @@ describe('Attendance Clock-In Integration Tests', () => {
       );
 
       await expect(handler.execute(command)).rejects.toThrow();
-      expect(eventBus.publish).not.toHaveBeenCalled();
+      expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
     });
   });
 
@@ -635,6 +649,7 @@ describe('Today\'s Attendance Query Tests', () => {
 
   beforeEach(async () => {
     const mockQueryBuilder = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),

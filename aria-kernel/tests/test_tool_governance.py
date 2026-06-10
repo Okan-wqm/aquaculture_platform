@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import base64
 import json
-import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -23,6 +23,8 @@ from aria_kernel import (
 )
 from aria_kernel.cli import main
 from aria_kernel.feedback_store import record_operator_feedback
+
+FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
 
 def runner(argv=None, **overrides):
@@ -119,7 +121,7 @@ def valid_run(**overrides):
         "read_paths": ["apps/farm-service/src/app.module.ts"],
         "emitted_observations": [],
         "emitted_findings": [],
-        "evidence_validation": {"evidence_sources": ["apps/farm-service/src/app.module.ts"]},
+        "evidence_validation": {"valid": True, "evidence_sources": ["apps/farm-service/src/app.module.ts"]},
         "operator_feedback_refs": [],
         "duration_ms": 25,
         "cost_units": 1,
@@ -148,20 +150,19 @@ def valid_tool_output(**overrides):
 
 
 def fake_tool_argv(output, *, exit_code=0, mutate=False, sleep_seconds=0):
-    statements = ["import json, pathlib, sys, time"]
-    if sleep_seconds:
-        statements.append(f"time.sleep({sleep_seconds})")
+    encoded = base64.b64encode(json.dumps(output, separators=(",", ":")).encode("utf-8")).decode("ascii")
+    argv = ["python3", FAKE_RUNNER.as_posix(), "--output-b64", encoded]
     if mutate:
-        statements.append("pathlib.Path('apps/farm-service/src/mutated.ts').parent.mkdir(parents=True, exist_ok=True)")
-        statements.append("pathlib.Path('apps/farm-service/src/mutated.ts').write_text('changed', encoding='utf-8')")
-    statements.append(f"print({json.dumps(json.dumps(output))})")
+        argv.extend(["--mutate", "apps/farm-service/src/mutated.ts"])
+    if sleep_seconds:
+        argv.extend(["--sleep-seconds", str(sleep_seconds)])
     if exit_code:
-        statements.append(f"sys.exit({exit_code})")
-    return [sys.executable, "-c", "; ".join(statements)]
+        argv.extend(["--exit-code", str(exit_code)])
+    return argv
 
 
 def invalid_json_argv():
-    return [sys.executable, "-c", "print('not json')"]
+    return ["python3", FAKE_RUNNER.as_posix(), "--invalid-json"]
 
 
 class ToolGovernanceTests(unittest.TestCase):
@@ -228,6 +229,18 @@ class ToolGovernanceTests(unittest.TestCase):
             register_active_for_test(valid_tool(runner=runner(cwd="../escape")), base_dir=self.tools_dir)
         with self.assertRaisesRegex(GovernanceError, "runner.timeout_ms"):
             register_active_for_test(valid_tool(runner=runner(timeout_ms=-1)), base_dir=self.tools_dir)
+
+    def test_registry_rejects_runner_argv_by_command_policy(self):
+        with self.assertRaisesRegex(GovernanceError, "runner.argv_rejected_by_command_policy"):
+            register_active_for_test(
+                valid_tool(runner=runner(argv=["gh", "api", "/repos/x/y/pulls/42/merge"])),
+                base_dir=self.tools_dir,
+            )
+        with self.assertRaisesRegex(GovernanceError, "runner.argv_rejected_by_command_policy"):
+            register_active_for_test(
+                valid_tool(runner=runner(argv=["bash", "-c", "gh api /repos/x/y/pulls/42/merge"])),
+                base_dir=self.tools_dir,
+            )
 
     def test_run_ledger_records_valid_run_envelopes(self):
         register_active_for_test(valid_tool(), base_dir=self.tools_dir)

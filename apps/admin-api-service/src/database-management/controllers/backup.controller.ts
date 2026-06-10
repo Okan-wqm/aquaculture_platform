@@ -91,9 +91,6 @@ class RestoreBackupDto {
   @Matches(/^[a-z_][a-z0-9_]*$/i, { each: true, message: 'Invalid table name' })
   tablesToRestore?: string[];
 
-  @IsOptional()
-  @IsBoolean()
-  skipValidation?: boolean;
 }
 
 class PointInTimeRecoveryDto {
@@ -200,7 +197,6 @@ export class BackupController {
       backupId: dto.backupId,
       targetSchemaName: dto.targetSchemaName,
       tablesToRestore: dto.tablesToRestore,
-      skipValidation: dto.skipValidation,
     });
   }
 

@@ -1,4 +1,4 @@
-// TODO: SchemaManagerService is ~1,400 lines and should be split into smaller focused services.
+// Refactor note: SchemaManagerService is ~1,400 lines and should be split into smaller focused services.
 // Recommended decomposition:
 //   - SchemaProvisioningService  (createTenantSchema, dropTenantSchema, schemaExists)
 //   - SchemaSearchPathService    (setTenantSearchPath, setTenantSearchPathInTransaction, resetSearchPath)
@@ -7,9 +7,13 @@
 //   - SchemaIntrospectionService (listTenantSchemas, getSchemaTableCount, validateModuleSchemas)
 // Keep MODULE_SCHEMAS and ModuleSchema interface in a separate schemas.constants.ts file.
 
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
 import * as crypto from 'crypto';
+
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+
+import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
+import { SchemaLRUCache } from './schema-lru-cache';
 
 /**
  * Module schema definitions - tables for each module
@@ -62,6 +66,113 @@ export interface ModuleSchema {
   strictOwnership?: boolean;
 }
 
+export interface SyncTenantSchemaOptions {
+  /**
+   * Existing tenant repair is disabled by default. Runtime DDL drift repair
+   * must be handled by authored migrations/fan-out, not best-effort
+   * CREATE TABLE LIKE from application code.
+   */
+  allowExistingTenantRepair?: boolean;
+  reason?: string;
+}
+
+const cleanupDropProofBrand: unique symbol = Symbol('CleanupDropProof');
+
+export type CleanupDropProofPurpose = 'provisioning_rollback' | 'tenant_deprovision';
+
+export interface CleanupDropProofBackupEvidence {
+  id?: string;
+  checksum: string;
+  sizeBytes: number;
+  isEncrypted: true;
+  uri?: string;
+  createdAt?: string | Date;
+  retentionDays?: number;
+  algorithm?: string;
+  keyId?: string;
+}
+
+export interface CleanupDropProof {
+  readonly [cleanupDropProofBrand]: true;
+  readonly operationId: string;
+  readonly tenantId: string;
+  readonly purpose: CleanupDropProofPurpose;
+  readonly actorId: string;
+  readonly approverId?: string;
+  readonly reason: string;
+  readonly legalHoldCheckedAt?: string;
+  readonly backup?: CleanupDropProofBackupEvidence;
+  readonly preCounts?: Record<string, unknown>;
+  readonly postCounts?: Record<string, unknown>;
+  readonly createdAt: string;
+}
+
+export function createCleanupDropProof(input: {
+  operationId: string;
+  tenantId: string;
+  purpose: CleanupDropProofPurpose;
+  actorId: string;
+  approverId?: string;
+  reason: string;
+  legalHoldCheckedAt?: string | Date;
+  backup?: CleanupDropProofBackupEvidence;
+  preCounts?: Record<string, unknown>;
+  postCounts?: Record<string, unknown>;
+  createdAt?: string | Date;
+}): CleanupDropProof {
+  const proof = Object.freeze({
+    [cleanupDropProofBrand]: true as const,
+    operationId: input.operationId,
+    tenantId: input.tenantId,
+    purpose: input.purpose,
+    actorId: input.actorId,
+    approverId: input.approverId,
+    reason: input.reason,
+    legalHoldCheckedAt: normalizeOptionalTimestamp(input.legalHoldCheckedAt),
+    backup: input.backup,
+    preCounts: input.preCounts,
+    postCounts: input.postCounts,
+    createdAt: normalizeTimestamp(input.createdAt ?? new Date()),
+  }) as CleanupDropProof;
+
+  return assertCleanupDropProof(proof, input.tenantId);
+}
+
+function normalizeTimestamp(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function normalizeOptionalTimestamp(value: string | Date | undefined): string | undefined {
+  return value === undefined ? undefined : normalizeTimestamp(value);
+}
+
+function assertCleanupDropProof(proof: CleanupDropProof | undefined, tenantId: string): CleanupDropProof {
+  if (!proof || proof[cleanupDropProofBrand] !== true) {
+    throw new BadRequestException('CleanupDropProof is required before tenant schema removal can run');
+  }
+  if (proof.tenantId !== tenantId) {
+    throw new BadRequestException('CleanupDropProof tenant does not match target tenant');
+  }
+  if (!proof.operationId || !proof.actorId || !proof.reason || !proof.purpose) {
+    throw new BadRequestException('CleanupDropProof is incomplete');
+  }
+  if (proof.purpose === 'tenant_deprovision') {
+    if (!proof.legalHoldCheckedAt) {
+      throw new BadRequestException('CleanupDropProof requires legal-hold evidence');
+    }
+    if (
+      !proof.backup
+      || !proof.backup.checksum
+      || Number(proof.backup.sizeBytes) <= 0
+      || proof.backup.isEncrypted !== true
+    ) {
+      throw new BadRequestException('CleanupDropProof requires encrypted backup evidence');
+    }
+  }
+
+  return proof;
+}
+
 /**
  * Supported modules and their table definitions.
  *
@@ -81,6 +192,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'sensor',
     sourceSchema: 'sensor', // Tables are in sensor schema, will be copied to tenant schema
+    infrastructureTables: ['migrations', 'sensor_audit_logs'],
     referenceDataTables: ['sensor_protocols', 'sensor_type_definitions', 'industry_templates'],
     tables: [
       // Core sensor entities
@@ -95,6 +207,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'vfd_devices',
       'vfd_readings',
       'vfd_register_mappings',
+      'vfd_parameter_definitions',
+      'vfd_change_sets',
+      'vfd_change_set_items',
+      'vfd_automation_rules',
+      'vfd_parameter_audit_logs',
 
       // Dashboard & Edge devices
       'dashboard_layouts',
@@ -134,8 +251,16 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'device_groups',
       'device_group_members',
 
-      // Audit
-      'sensor_audit_logs',
+      // Edge Platform v2 (per ADR-025 — sensor-service per-tenant ownership;
+      // supersedes ADR-022's standalone `edge` schema under admin-api).
+      // 7 entities under apps/sensor-service/src/edge-device/entities/v2/.
+      'devices',
+      'policies',
+      'licenses',
+      'firmware_releases',
+      'provisioning_records',
+      'witnesses',
+      'audit_archive_v1',
     ],
   },
   {
@@ -158,9 +283,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // per-tenant copied. The `tables` array drives tenant provisioning
     // via CREATE TABLE LIKE INCLUDING ALL, and these must be excluded:
     //   - `migrations`        — TypeORM's migration metadata ledger.
-    //   - `farm_outbox`       — Phase D transactional outbox pattern.
-    //                           Shared across tenants, partitioned
-    //                           internally by tenantId; never copied.
+    //   - `outbox_events`     — canonical transactional outbox queue.
+    //                           `farm_outbox` remains migration/compatibility
+    //                           infrastructure only; neither table is cloned.
+    //   - `inbox_messages`, `event_dlq`
+    //                         — event delivery infrastructure ledgers.
     //   - `tenant_erasure_audit`
     //                         — GDPR erasure idempotency ledger. It is a
     //                           farm-owned source-schema table keyed by
@@ -171,7 +298,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     infrastructureTables: [
       'migrations',
       'farm_outbox',
+      'outbox_events',
+      'inbox_messages',
+      'event_dlq',
       'tenant_erasure_audit',
+      'farm_audit_logs',
     ],
     // Reference tables are exempt from SourceSchemaWriteGuardService so that
     // seed services (FarmSeedService) can write global/template rows that
@@ -195,6 +326,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     tables: [
       // Core entities
       'farms',
+      'code_sequences',
       'sites',
       'departments',
       'ponds',
@@ -209,6 +341,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // `batches_v2` is the current canonical batches table.
       'batches_v2',
       'batch_documents',
+      'farm_documents',
       'batch_feed_assignments',
       'batch_locations',
       'species',
@@ -269,10 +402,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'supplier_sites',
       'site_contacts',
 
-      // Supporting tables
-      'code_sequences',
-      'farm_audit_logs',
-
       // Storage & Stock Management
       'storage_locations',
       'consumables',
@@ -283,6 +412,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'inventory_counts',
       'inventory_count_items',
       'storage_lot_mixes',
+      'farm_stock_container_snapshots',
+      'farm_stock_batch_snapshots',
+      'farm_mobile_command_receipts',
 
       // Regulatory settings (Maskinporten credentials, company info)
       'regulatory_settings',
@@ -317,10 +449,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     //                    never replicated per-tenant. Table is created
     //                    by infrastructure/docker/init-scripts/09-hr-outbox.sql
     //                    until the migration runner path replaces it.
-    infrastructureTables: [
-      'migrations',
-      'hr_outbox',
-    ],
+    infrastructureTables: ['migrations', 'hr_outbox', 'payroll_audit'],
     referenceDataTables: ['leave_types', 'certification_types', 'shifts'],
     tables: [
       // Core Employee & Payroll
@@ -364,6 +493,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'work_areas',
       'work_rotations',
       'safety_training_records',
+      'hr_mobile_command_receipts',
     ],
   },
   {
@@ -382,21 +512,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // outside the standard `migrations` table managed by TypeORM).
     infrastructureTables: ['migrations'],
     referenceDataTables: [],
-    tables: [
-      'hydroponics_config',
-    ],
+    tables: ['hydroponics_config'],
   },
   {
     moduleName: 'alert',
     sourceSchema: 'alert',
+    infrastructureTables: ['migrations', 'alert_audit_log'],
     referenceDataTables: [],
-    tables: [
-      'alert_rules',
-      'alert_incidents',
-      'escalation_policies',
-      'alert_history',
-      'alert_audit_log',
-    ],
+    tables: ['alert_rules', 'alert_incidents', 'escalation_policies', 'alert_history'],
   },
   {
     moduleName: 'ai',
@@ -427,11 +550,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     //                                 for operator analytics. Lives in
     //                                 `ai.tool_execution_audit` only — NOT
     //                                 cloned into tenant_<uuid> schemas.
-    infrastructureTables: [
-      'migrations',
-      'ai_outbox',
-      'tool_execution_audit',
-    ],
+    infrastructureTables: ['migrations', 'ai_outbox', 'tool_execution_audit'],
     referenceDataTables: [],
     tables: [
       // Per-tenant template tables. Each is created as an unqualified
@@ -445,6 +564,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'messaging',
     sourceSchema: 'messaging',
+    infrastructureTables: ['migrations', 'messaging_outbox', 'embeddings_metadata'],
     referenceDataTables: [],
     tables: [
       // Core messaging tables (migration 1711800000000)
@@ -455,12 +575,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'message_receipts',
       'message_reactions',
       'pinned_messages',
-      'messaging_outbox',
       // AI tables (migration 1711800000001)
       'message_analysis',
       'message_entity_references',
       'knowledge_entries',
-      'embeddings_metadata',
       // Compliance tables (migration 1711800000003)
       'retention_policies',
       'legal_holds',
@@ -473,11 +591,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     moduleName: 'auth',
     sourceSchema: 'auth',
     referenceDataTables: [],
-    tables: [
-      'tenant_roles',
-      'tenant_role_permissions',
-      'user_role_assignments',
-    ],
+    tables: ['tenant_roles', 'tenant_role_permissions', 'user_role_assignments'],
   },
   {
     // notification-service is global-schema (no per-tenant copies). These
@@ -488,10 +602,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     moduleName: 'notification',
     sourceSchema: 'notification',
     referenceDataTables: [],
-    tables: [
-      'device_tokens',
-      'notification_logs',
-    ],
+    tables: ['device_tokens', 'notification_logs'],
   },
 ];
 
@@ -503,16 +614,34 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
  */
 /**
  * Default module names for tenant provisioning.
- * Derived from MODULE_SCHEMAS to prevent drift when new modules are added.
+ *
+ * This list is deliberately narrower than MODULE_SCHEMAS: MODULE_SCHEMAS is the
+ * complete registry of schemas known to SchemaManagerService, including
+ * platform-level schemas such as auth and notification. DEFAULT_TENANT_MODULES
+ * is the schema-per-tenant fan-out set only.
  *
  * Usage:
  *   import { DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
  *   await schemaManager.createTenantSchema(tenantId, DEFAULT_TENANT_MODULES);
  */
-export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.map(m => m.moduleName);
+export const TENANT_SCOPED_MODULES: ReadonlySet<string> = new Set([
+  'sensor',
+  'farm',
+  'hr',
+  'hydroponics',
+  'alert',
+  'ai',
+  'messaging',
+]);
+
+export const PLATFORM_LEVEL_MODULES: ReadonlySet<string> = new Set(['auth', 'notification']);
+
+export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.filter((m) =>
+  TENANT_SCOPED_MODULES.has(m.moduleName),
+).map((m) => m.moduleName);
 
 export const REFERENCE_DATA_TABLES: Record<string, string[]> = Object.fromEntries(
-  MODULE_SCHEMAS.map(m => [m.moduleName, m.referenceDataTables || []]),
+  MODULE_SCHEMAS.map((m) => [m.moduleName, m.referenceDataTables || []]),
 );
 
 /**
@@ -549,9 +678,6 @@ export interface SchemaCreationResult {
   partialSuccess?: boolean;
 }
 
-// SchemaLRUCache is imported from ./schema-lru-cache (shared across all services)
-import { SchemaLRUCache } from './schema-lru-cache';
-
 /**
  * SEC-M13: Validate tenant schema name format to prevent SQL injection.
  * Only allows the pattern 'public' or 'tenant_{16 hex chars}' which is the
@@ -580,7 +706,7 @@ function validateSqlIdentifier(identifier: string, type: 'schema' | 'table'): st
   const identifierRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
   if (!identifierRegex.test(identifier) || identifier.length > 63) {
     throw new BadRequestException(
-      `SECURITY: Invalid ${type} identifier: ${identifier}. Only alphanumeric and underscore allowed.`
+      `SECURITY: Invalid ${type} identifier: ${identifier}. Only alphanumeric and underscore allowed.`,
     );
   }
   return identifier;
@@ -606,6 +732,43 @@ export class SchemaManagerService {
 
   constructor(private readonly dataSource: DataSource) {}
 
+  private static isQueryRow(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+  }
+
+  private static countFromRow(row: Record<string, unknown> | undefined): number {
+    const value = row?.['count'];
+    if (typeof value === 'number') {
+      return value;
+    }
+    if (typeof value === 'bigint') {
+      return Number(value);
+    }
+    if (typeof value === 'string') {
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  }
+
+  private async queryRows(
+    sql: string,
+    parameters?: unknown[],
+  ): Promise<Array<Record<string, unknown>>> {
+    const rows: unknown = await this.dataSource.query(sql, parameters);
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+    return rows.filter((row) => SchemaManagerService.isQueryRow(row));
+  }
+
+  private async queryExists(sql: string, parameters?: unknown[]): Promise<boolean> {
+    return (await this.queryRows(sql, parameters)).length > 0;
+  }
+
+  private async queryCount(sql: string, parameters?: unknown[]): Promise<number> {
+    return SchemaManagerService.countFromRow((await this.queryRows(sql, parameters))[0]);
+  }
   /**
    * Generate tenant schema name from tenant ID
    * Format: tenant_{first16chars_of_uuid} (uses 16 chars to avoid collisions)
@@ -642,46 +805,6 @@ export class SchemaManagerService {
     // Use absolute value to avoid negative lock keys
     // readInt32LE can return negative values due to signed integer representation
     return Math.abs(hash.readInt32LE(0));
-  }
-
-  /**
-   * Get the application database role for GRANT statements.
-   *
-   * Resolution order:
-   * 1. `DB_APPLICATION_ROLE` environment variable — allows explicit configuration of the
-   *    runtime database role when it differs from the provisioning/migration user.
-   * 2. `current_user` from the active session — safe fallback that works in most deployments.
-   * 3. Literal `CURRENT_USER` SQL keyword — last-resort fallback if the query fails.
-   *
-   * Set `DB_APPLICATION_ROLE=app_user` in production to ensure the runtime application role
-   * always receives schema grants regardless of which user runs the provisioning.
-   */
-  private async getApplicationRole(): Promise<string> {
-    // 1. Check explicit env-var configuration
-    const envRole = process.env['DB_APPLICATION_ROLE'];
-    if (envRole) {
-      // Validate role name to prevent injection
-      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(envRole)) {
-        this.logger.debug(`Using DB_APPLICATION_ROLE for grants: "${envRole}"`);
-        return `"${envRole}"`;
-      }
-      this.logger.warn(
-        `DB_APPLICATION_ROLE value "${envRole}" is not a valid SQL identifier. Falling back to current_user.`,
-      );
-    }
-
-    // 2. Fall back to current session user
-    const result = await this.dataSource.query(`SELECT current_user AS role`);
-    const role = result[0]?.role;
-    if (role) {
-      // Validate role name to prevent injection
-      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(role)) {
-        return `"${role}"`;
-      }
-    }
-
-    // 3. Last resort: SQL CURRENT_USER keyword
-    return 'CURRENT_USER';
   }
 
   /**
@@ -729,6 +852,33 @@ export class SchemaManagerService {
       };
     }
 
+    if (modules.length === 0) {
+      return {
+        success: false,
+        status: ProvisioningStatus.FAILED,
+        schemaName,
+        tablesCreated: [],
+        referenceDataCopied: [],
+        errors: ['No tenant modules requested for schema provisioning'],
+        duration: Date.now() - startTime,
+      };
+    }
+
+    const unknownModules = modules.filter(
+      (moduleName) => !MODULE_SCHEMAS.some((m) => m.moduleName === moduleName),
+    );
+    if (unknownModules.length > 0) {
+      return {
+        success: false,
+        status: ProvisioningStatus.FAILED,
+        schemaName,
+        tablesCreated: [],
+        referenceDataCopied: [],
+        errors: [`Unknown tenant module(s): ${unknownModules.join(', ')}`],
+        duration: Date.now() - startTime,
+      };
+    }
+
     this.logger.log(`Acquiring advisory lock for tenant ${tenantId} (key: ${lockKey})`);
 
     // Acquire advisory lock - blocks if another process is creating same schema
@@ -738,7 +888,23 @@ export class SchemaManagerService {
       // Check if schema already exists (idempotent operation)
       const exists = await this.schemaExistsNoCache(schemaName);
       if (exists) {
-        this.logger.log(`Schema ${schemaName} already exists, skipping creation`);
+        this.logger.log(`Schema ${schemaName} already exists, verifying completeness`);
+        const completenessErrors = await this.validateTenantSchemaComplete(schemaName, modules);
+        if (completenessErrors.length > 0) {
+          this.schemaCache.invalidate(schemaName);
+          return {
+            success: false,
+            status: ProvisioningStatus.PARTIAL,
+            schemaName,
+            tablesCreated: [],
+            referenceDataCopied: [],
+            errors: completenessErrors,
+            duration: Date.now() - startTime,
+            alreadyExists: true,
+            partialSuccess: true,
+          };
+        }
+
         this.schemaCache.set(schemaName, true);
         return {
           success: true,
@@ -752,155 +918,18 @@ export class SchemaManagerService {
         };
       }
 
-      this.logger.log(`Creating tenant schema: ${schemaName} for tenant ${tenantId}`);
-
-      // 1. Create the schema (with SQL injection protection)
-      const safeSchemaName = validateSqlIdentifier(schemaName, 'schema');
-      await this.dataSource.query(`CREATE SCHEMA "${safeSchemaName}"`);
-      this.logger.debug(`Schema ${safeSchemaName} created`);
-
-      // 2. Create tables for requested modules (uses the modules parameter)
-      for (const moduleName of modules) {
-        const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
-        if (!moduleSchema) {
-          this.logger.warn(`Module ${moduleName} not found in schema definitions`);
-          continue;
-        }
-
-        for (const tableName of moduleSchema.tables) {
-          try {
-            // Check if source table exists
-            const sourceTableExists = await this.tableExists(
-              moduleSchema.sourceSchema,
-              tableName,
-            );
-
-            if (sourceTableExists) {
-              // Create table structure from source (including indexes and constraints)
-              // SECURITY: Validate all identifiers before using in SQL
-              const safeTargetSchema = validateSqlIdentifier(schemaName, 'schema');
-              const safeTableName = validateSqlIdentifier(tableName, 'table');
-              const safeSourceSchema = validateSqlIdentifier(moduleSchema.sourceSchema, 'schema');
-
-              await this.dataSource.query(`
-                CREATE TABLE "${safeTargetSchema}"."${safeTableName}"
-                (LIKE "${safeSourceSchema}"."${safeTableName}" INCLUDING ALL)
-              `);
-              tablesCreated.push(`${safeTargetSchema}.${safeTableName}`);
-              this.logger.debug(`Table ${schemaName}.${tableName} created`);
-
-              // Convert time-series tables to TimescaleDB hypertable
-              if (tableName === 'sensor_readings') {
-                await this.createHypertable(schemaName, tableName);
-              }
-
-              // Convert sensor_metrics to hypertable with new narrow table format
-              if (tableName === 'sensor_metrics') {
-                await this.createSensorMetricsHypertable(schemaName);
-              }
-            } else {
-              this.logger.warn(
-                `Source table ${moduleSchema.sourceSchema}.${tableName} does not exist`,
-              );
-            }
-          } catch (tableError) {
-            const errorMsg = `Failed to create table ${tableName}: ${(tableError as Error).message}`;
-            errors.push(errorMsg);
-            this.logger.error(errorMsg);
-          }
-        }
-      }
-
-      // 3. Copy reference data for requested modules
-      for (const moduleName of modules) {
-        const refTables = REFERENCE_DATA_TABLES[moduleName];
-        if (!refTables) continue;
-
-        const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
-        if (!moduleSchema) continue;
-
-        for (const tableName of refTables) {
-          try {
-            const rows = await this.copyReferenceDataTable(
-              schemaName,
-              moduleSchema.sourceSchema,
-              tableName,
-            );
-            if (rows > 0) {
-              referenceDataCopied.push({ table: tableName, rows });
-            }
-          } catch (copyError) {
-            const errorMsg = `Failed to copy reference data ${tableName}: ${(copyError as Error).message}`;
-            errors.push(errorMsg);
-            this.logger.warn(errorMsg);
-          }
-        }
-      }
-
-      // 4. Grant permissions to the application role (or current user as fallback)
-      // Using parameterized role name to ensure the runtime user has access
-      // even when the migration user differs from the application user
-      const appRole = await this.getApplicationRole();
-      await this.dataSource.query(`
-        GRANT USAGE ON SCHEMA "${schemaName}" TO ${appRole}
-      `);
-
-      await this.dataSource.query(`
-        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA "${schemaName}" TO ${appRole}
-      `);
-
-      await this.dataSource.query(`
-        GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "${schemaName}" TO ${appRole}
-      `);
-
-      // 5. Seed typeorm_migrations history from each module's source schema.
-      //
-      // Without this, a schema-per-tenant service's MigrationRunnerService on
-      // its next boot (see libs/backend-common migration-runner tenant fan-out)
-      // would see tenant_<uuid>.typeorm_migrations as empty and try to re-apply
-      // every migration against the new tenant schema. Those migrations would
-      // then collide with the tables just cloned via `CREATE TABLE LIKE
-      // INCLUDING ALL` above — "relation already exists" errors block boot.
-      //
-      // Seeding the migration-history rows (timestamp, name) from source puts
-      // the tenant in the "every existing migration already applied" state, so
-      // only FUTURE migrations (ones added after the tenant was provisioned)
-      // run against it on subsequent boots. That's exactly the semantic the
-      // runner needs.
-      const seenSourceSchemas = new Set<string>();
-      for (const moduleName of modules) {
-        const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
-        if (!moduleSchema) continue;
-        if (seenSourceSchemas.has(moduleSchema.sourceSchema)) continue;
-        seenSourceSchemas.add(moduleSchema.sourceSchema);
-        try {
-          await this.seedMigrationsHistory(schemaName, moduleSchema.sourceSchema);
-        } catch (historyErr) {
-          const msg = `Failed to seed migrations history from "${moduleSchema.sourceSchema}" into "${schemaName}": ${(historyErr as Error).message}`;
-          this.logger.warn(msg);
-          errors.push(msg);
-        }
-      }
-
-      // Update cache
-      this.schemaCache.set(schemaName, true);
-
-      const totalRefRows = referenceDataCopied.reduce((sum, r) => sum + r.rows, 0);
-      this.logger.log(
-        `Tenant schema ${schemaName} created: ${tablesCreated.length} tables, ${totalRefRows} reference rows in ${Date.now() - startTime}ms`,
-      );
-
-      const hasErrors = errors.length > 0;
-      const isPartial = hasErrors && tablesCreated.length > 0;
+      const authorityError =
+        `Tenant schema provisioning for ${schemaName} is owned by aqua-db-migrate; ` +
+        `runtime services must write a provisioning request ledger entry instead.`;
+      this.logger.warn(authorityError);
       return {
-        success: !hasErrors,
-        status: hasErrors ? ProvisioningStatus.PARTIAL : ProvisioningStatus.COMPLETE,
+        success: false,
+        status: ProvisioningStatus.FAILED,
         schemaName,
-        tablesCreated,
-        referenceDataCopied,
-        errors,
+        tablesCreated: [],
+        referenceDataCopied: [],
+        errors: [authorityError],
         duration: Date.now() - startTime,
-        partialSuccess: isPartial || undefined,
       };
     } catch (error) {
       const errorMsg = `Failed to create tenant schema: ${(error as Error).message}`;
@@ -910,7 +939,14 @@ export class SchemaManagerService {
       // CLEANUP: Drop partial schema on failure
       this.logger.warn(`Cleaning up partial schema ${schemaName} after failure`);
       try {
-        await this.dataSource.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+        this.dropTenantSchema(
+          schemaName,
+          tenantId,
+          this.createProvisioningRollbackDropProof(
+            tenantId,
+            'partial tenant schema provisioning failed',
+          ),
+        );
         this.logger.log(`Cleaned up partial schema ${schemaName}`);
       } catch (cleanupError) {
         this.logger.error(`Cleanup failed for ${schemaName}: ${(cleanupError as Error).message}`);
@@ -932,151 +968,73 @@ export class SchemaManagerService {
     }
   }
 
-  /**
-   * Seed the new tenant schema's `typeorm_migrations` history from the
-   * source schema's history. Called once at tenant-schema creation so
-   * the tenant starts in the "every existing migration already applied"
-   * state, matching the table shape that `CREATE TABLE LIKE INCLUDING ALL`
-   * just cloned.
-   *
-   * WITHOUT this, the MigrationRunnerService tenant fan-out would see the
-   * tenant as "no migrations applied" and try to re-run every migration,
-   * colliding with the already-present tables ("relation already exists").
-   *
-   * After this runs, only MIGRATIONS ADDED AFTER PROVISIONING will execute
-   * against the tenant on subsequent boots — which is exactly the semantic
-   * the runner needs.
-   *
-   * SECURITY: All schema identifiers are validated before SQL interpolation.
-   */
-  private async seedMigrationsHistory(
-    targetSchema: string,
-    sourceSchema: string,
-  ): Promise<void> {
-    const safeTarget = validateSqlIdentifier(targetSchema, 'schema');
-    const safeSource = validateSqlIdentifier(sourceSchema, 'schema');
+  private async validateTenantSchemaComplete(
+    schemaName: string,
+    modules: string[],
+  ): Promise<string[]> {
+    const errors: string[] = [];
+    const safeSchema = validateSqlIdentifier(schemaName, 'schema');
+    const seenSourceSchemas = new Set<string>();
 
-    const sourceHasHistory = await this.tableExists(
-      safeSource,
-      'typeorm_migrations',
-    );
-    if (!sourceHasHistory) {
-      // Source hasn't run any migrations yet — no history to seed.
-      this.logger.debug(
-        `Source schema ${safeSource} has no typeorm_migrations table; nothing to seed.`,
+    for (const moduleName of modules) {
+      const moduleSchema = MODULE_SCHEMAS.find((m) => m.moduleName === moduleName);
+      if (!moduleSchema) {
+        errors.push(`Unknown module ${moduleName}; cannot validate tenant schema completeness`);
+        continue;
+      }
+
+      for (const tableName of moduleSchema.tables) {
+        const sourceExists = await this.tableExists(moduleSchema.sourceSchema, tableName);
+        if (!sourceExists) {
+          errors.push(`Source schema ${moduleSchema.sourceSchema} missing table ${tableName}`);
+          continue;
+        }
+
+        const targetExists = await this.tableExists(safeSchema, tableName);
+        if (!targetExists) {
+          errors.push(`Tenant schema ${safeSchema} missing table ${tableName}`);
+        }
+      }
+
+      if (seenSourceSchemas.has(moduleSchema.sourceSchema)) continue;
+      seenSourceSchemas.add(moduleSchema.sourceSchema);
+      const safeSource = validateSqlIdentifier(moduleSchema.sourceSchema, 'schema');
+      const sourceHasLedger = await this.tableExists(safeSource, MIGRATION_LEDGER_TABLE);
+      if (!sourceHasLedger) continue;
+
+      const sourceRows: Array<{ count: string }> = await this.dataSource.query(
+        `SELECT COUNT(*)::text AS count
+           FROM "${safeSource}"."${MIGRATION_LEDGER_TABLE}"`,
       );
-      return;
-    }
+      if (parseInt(sourceRows[0]?.count ?? '0', 10) === 0) continue;
 
-    // Create the tenant's history table with TypeORM's exact shape. We
-    // don't use `CREATE TABLE LIKE source.typeorm_migrations INCLUDING ALL`
-    // because LIKE pulls in the source's PRIMARY KEY constraint name and
-    // `id` sequence — both are global objects that would collide if the
-    // constraint is dropped/recreated later.
-    await this.dataSource.query(`
-      CREATE TABLE IF NOT EXISTS "${safeTarget}"."typeorm_migrations" (
-        "id" SERIAL PRIMARY KEY,
-        "timestamp" bigint NOT NULL,
-        "name" varchar NOT NULL
-      )
-    `);
+      const tenantLedger = tenantMigrationLedgerTable(safeSource);
+      const tenantHasLedger = await this.tableExists(safeSchema, tenantLedger);
+      if (!tenantHasLedger) {
+        errors.push(`Tenant schema ${safeSchema} missing ledger ${tenantLedger}`);
+        continue;
+      }
 
-    // Skip the copy if the tenant already has rows (idempotent re-invocation).
-    const existing: Array<{ count: string }> = await this.dataSource.query(
-      `SELECT COUNT(*)::text AS count FROM "${safeTarget}"."typeorm_migrations"`,
-    );
-    if (parseInt(existing[0]?.count ?? '0', 10) > 0) {
-      this.logger.debug(
-        `Tenant ${safeTarget} already has typeorm_migrations rows; not re-seeding.`,
+      const tenantRows: Array<{ count: string }> = await this.dataSource.query(
+        `SELECT COUNT(*)::text AS count FROM "${safeSchema}"."${tenantLedger}"`,
       );
-      return;
+      if (parseInt(tenantRows[0]?.count ?? '0', 10) === 0) {
+        errors.push(`Tenant schema ${safeSchema} has empty ledger ${tenantLedger}`);
+      }
     }
 
-    await this.dataSource.query(`
-      INSERT INTO "${safeTarget}"."typeorm_migrations" ("timestamp", "name")
-      SELECT "timestamp", "name" FROM "${safeSource}"."typeorm_migrations"
-    `);
-
-    const sync: Array<{ count: string }> = await this.dataSource.query(
-      `SELECT COUNT(*)::text AS count FROM "${safeTarget}"."typeorm_migrations"`,
-    );
-    this.logger.log(
-      `Seeded ${sync[0]?.count ?? '0'} migration-history row(s) into ${safeTarget} from ${safeSource}`,
-    );
-  }
-
-  /**
-   * Copy reference data from source schema to tenant schema
-   * Used for lookup/configuration tables like equipment_types
-   *
-   * SECURITY: All schema and table names are validated before use in SQL
-   * to prevent SQL injection attacks.
-   */
-  private async copyReferenceDataTable(
-    targetSchema: string,
-    sourceSchema: string,
-    tableName: string,
-  ): Promise<number> {
-    // SECURITY: Validate all identifiers before using in SQL queries
-    const safeTargetSchema = validateSqlIdentifier(targetSchema, 'schema');
-    const safeSourceSchema = validateSqlIdentifier(sourceSchema, 'schema');
-    const safeTableName = validateSqlIdentifier(tableName, 'table');
-
-    // Check if target table exists
-    const targetExists = await this.tableExists(safeTargetSchema, safeTableName);
-    if (!targetExists) {
-      this.logger.debug(`Target table ${safeTargetSchema}.${safeTableName} does not exist, skipping copy`);
-      return 0;
-    }
-
-    // Check if source table exists and has data
-    const sourceExists = await this.tableExists(safeSourceSchema, safeTableName);
-    if (!sourceExists) {
-      this.logger.debug(`Source table ${safeSourceSchema}.${safeTableName} does not exist, skipping copy`);
-      return 0;
-    }
-
-    // Check if target already has data (avoid duplicate copies)
-    const existingCount = await this.dataSource.query(
-      `SELECT COUNT(*) as count FROM "${safeTargetSchema}"."${safeTableName}"`,
-    );
-    if (parseInt(existingCount[0]?.count || '0', 10) > 0) {
-      this.logger.debug(`Target table ${safeTargetSchema}.${safeTableName} already has data, skipping copy`);
-      return 0;
-    }
-
-    // Get source row count first
-    const sourceCountResult = await this.dataSource.query(
-      `SELECT COUNT(*) as count FROM "${safeSourceSchema}"."${safeTableName}"`,
-    );
-    const sourceCount = parseInt(sourceCountResult[0]?.count || '0', 10);
-
-    if (sourceCount === 0) {
-      this.logger.debug(`Source table ${safeSourceSchema}.${safeTableName} is empty, skipping copy`);
-      return 0;
-    }
-
-    // Copy data from source to target
-    await this.dataSource.query(`
-      INSERT INTO "${safeTargetSchema}"."${safeTableName}"
-      SELECT * FROM "${safeSourceSchema}"."${safeTableName}"
-    `);
-
-    // Verify rows were copied by counting target
-    const targetCountResult = await this.dataSource.query(
-      `SELECT COUNT(*) as count FROM "${safeTargetSchema}"."${safeTableName}"`,
-    );
-    const rowsCopied = parseInt(targetCountResult[0]?.count || '0', 10);
-
-    this.logger.debug(`Copied ${rowsCopied} rows to ${safeTargetSchema}.${safeTableName}`);
-    return rowsCopied;
+    return errors;
   }
 
   /**
    * Delete a tenant schema and all its data
    * Uses advisory lock to prevent race conditions with concurrent operations
    */
-  async deleteTenantSchema(tenantId: string): Promise<{ success: boolean; error?: string }> {
+  async deleteTenantSchema(
+    tenantId: string,
+    proof: CleanupDropProof,
+  ): Promise<{ success: boolean; error?: string }> {
+    const dropProof = assertCleanupDropProof(proof, tenantId);
     const schemaName = this.getTenantSchemaName(tenantId);
     const lockKey = this.getAdvisoryLockKey(tenantId);
 
@@ -1086,10 +1044,10 @@ export class SchemaManagerService {
     await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
 
     try {
-      this.logger.log(`Deleting tenant schema: ${schemaName}`);
-
-      // CASCADE drops all objects in the schema
-      await this.dataSource.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
+      this.logger.log(
+        `Deleting tenant schema ${schemaName} with cleanup proof ${dropProof.operationId} (${dropProof.purpose})`,
+      );
+      this.dropTenantSchema(schemaName, tenantId, dropProof);
 
       // Invalidate cache entry for deleted schema
       this.schemaCache.invalidate(schemaName);
@@ -1105,6 +1063,29 @@ export class SchemaManagerService {
       await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
       this.logger.debug(`Released advisory lock for tenant deletion ${tenantId}`);
     }
+  }
+
+  private createProvisioningRollbackDropProof(tenantId: string, reason: string): CleanupDropProof {
+    return createCleanupDropProof({
+      operationId: crypto.randomUUID(),
+      tenantId,
+      purpose: 'provisioning_rollback',
+      actorId: 'schema-manager',
+      reason,
+    });
+  }
+
+  private dropTenantSchema(
+    schemaName: string,
+    tenantId: string,
+    proof: CleanupDropProof,
+  ): void {
+    assertCleanupDropProof(proof, tenantId);
+    validateSqlIdentifier(schemaName, 'schema');
+    throw new Error(
+      `Tenant schema deletion for ${schemaName} is owned by aqua-db-migrate; ` +
+        `runtime services must write a cleanup request ledger entry instead.`,
+    );
   }
 
   /**
@@ -1129,11 +1110,9 @@ export class SchemaManagerService {
    * Use this when you need guaranteed fresh result
    */
   async schemaExistsNoCache(schemaName: string): Promise<boolean> {
-    const result = await this.dataSource.query(
-      `SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`,
-      [schemaName],
-    );
-    return result.length > 0;
+    return this.queryExists(`SELECT 1 FROM information_schema.schemata WHERE schema_name = $1`, [
+      schemaName,
+    ]);
   }
 
   /**
@@ -1164,236 +1143,11 @@ export class SchemaManagerService {
    * Check if a table exists in a schema
    */
   async tableExists(schemaName: string, tableName: string): Promise<boolean> {
-    const result = await this.dataSource.query(
+    return this.queryExists(
       `SELECT 1 FROM information_schema.tables
        WHERE table_schema = $1 AND table_name = $2`,
       [schemaName, tableName],
     );
-    return result.length > 0;
-  }
-
-  /**
-   * Convert a table to TimescaleDB hypertable
-   * Used for time-series tables like sensor_readings
-   */
-  private async createHypertable(schemaName: string, tableName: string): Promise<void> {
-    try {
-      // Check if TimescaleDB extension is available
-      const extensionCheck = await this.dataSource.query(
-        `SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'`,
-      );
-
-      if (extensionCheck.length === 0) {
-        this.logger.warn('TimescaleDB extension not installed, skipping hypertable creation');
-        return;
-      }
-
-      // Check if table is already a hypertable
-      const isHypertable = await this.dataSource.query(
-        `SELECT 1 FROM timescaledb_information.hypertables
-         WHERE hypertable_schema = $1 AND hypertable_name = $2`,
-        [schemaName, tableName],
-      );
-
-      if (isHypertable.length > 0) {
-        this.logger.debug(`${schemaName}.${tableName} is already a hypertable`);
-        return;
-      }
-
-      // Convert to hypertable with timestamp column partitioning
-      await this.dataSource.query(`
-        SELECT create_hypertable(
-          '"${schemaName}"."${tableName}"',
-          'timestamp',
-          if_not_exists => TRUE,
-          migrate_data => TRUE
-        )
-      `);
-
-      this.logger.log(`Created hypertable: ${schemaName}.${tableName}`);
-
-      // Add TimescaleDB data management policies
-      await this.addRetentionPolicy(schemaName, tableName);
-      await this.addCompressionPolicy(schemaName, tableName);
-      await this.createContinuousAggregates(schemaName);
-    } catch (error) {
-      // Log but don't fail - hypertable is an optimization, not a requirement
-      this.logger.warn(
-        `Failed to create hypertable ${schemaName}.${tableName}: ${(error as Error).message}`,
-      );
-    }
-  }
-
-  /**
-   * Add retention policy - automatically drop data older than 90 days
-   * This prevents the table from growing indefinitely
-   */
-  private async addRetentionPolicy(schemaName: string, tableName: string): Promise<void> {
-    try {
-      // Check if policy already exists
-      const existingPolicy = await this.dataSource.query(`
-        SELECT 1 FROM timescaledb_information.jobs
-        WHERE proc_schema = '_timescaledb_functions'
-          AND proc_name = 'policy_retention_check'
-          AND hypertable_schema = $1
-          AND hypertable_name = $2
-      `, [schemaName, tableName]);
-
-      if (existingPolicy.length > 0) {
-        this.logger.debug(`Retention policy already exists for ${schemaName}.${tableName}`);
-        return;
-      }
-
-      await this.dataSource.query(`
-        SELECT add_retention_policy(
-          '"${schemaName}"."${tableName}"',
-          INTERVAL '90 days',
-          if_not_exists => TRUE
-        )
-      `);
-
-      this.logger.log(`Added 90-day retention policy for ${schemaName}.${tableName}`);
-    } catch (error) {
-      this.logger.warn(
-        `Failed to add retention policy for ${schemaName}.${tableName}: ${(error as Error).message}`,
-      );
-    }
-  }
-
-  /**
-   * Add compression policy - compress data older than 7 days
-   * Reduces storage by ~90% for historical data
-   */
-  private async addCompressionPolicy(schemaName: string, tableName: string): Promise<void> {
-    try {
-      // First enable compression on the hypertable
-      // Note: tenant_id excluded from segmentby because in tenant-isolated schema
-      // all rows have same tenant_id (would waste space)
-      await this.dataSource.query(`
-        ALTER TABLE "${schemaName}"."${tableName}" SET (
-          timescaledb.compress,
-          timescaledb.compress_segmentby = 'sensor_id',
-          timescaledb.compress_orderby = 'timestamp DESC'
-        )
-      `);
-
-      // Add compression policy
-      await this.dataSource.query(`
-        SELECT add_compression_policy(
-          '"${schemaName}"."${tableName}"',
-          INTERVAL '7 days',
-          if_not_exists => TRUE
-        )
-      `);
-
-      this.logger.log(`Added 7-day compression policy for ${schemaName}.${tableName}`);
-    } catch (error) {
-      this.logger.warn(
-        `Failed to add compression policy for ${schemaName}.${tableName}: ${(error as Error).message}`,
-      );
-    }
-  }
-
-  /**
-   * Create continuous aggregates for efficient charting.
-   * Pre-aggregates data at hourly and daily intervals.
-   *
-   * JSONB KEY CONVENTION: The `sensor_readings.readings` column stores sensor data as a
-   * JSONB object with camelCase keys as produced by the sensor-service TypeORM entity
-   * (e.g., "dissolvedOxygen", "ph", "temperature", "salinity"). These key names must
-   * exactly match what sensor-service writes. If sensor-service ever changes these key
-   * names, update the aggregate expressions below and rebuild the continuous aggregates
-   * (DROP the view and re-run this method).
-   */
-  private async createContinuousAggregates(schemaName: string): Promise<void> {
-    try {
-      // Check if hourly aggregate already exists
-      const hourlyExists = await this.dataSource.query(`
-        SELECT 1 FROM timescaledb_information.continuous_aggregates
-        WHERE view_schema = $1 AND view_name = 'sensor_hourly'
-      `, [schemaName]);
-
-      if (hourlyExists.length === 0) {
-        // Create hourly aggregate
-        // JSONB keys: camelCase ('temperature', 'ph', 'dissolvedOxygen', 'salinity')
-        await this.dataSource.query(`
-          CREATE MATERIALIZED VIEW "${schemaName}"."sensor_hourly"
-          WITH (timescaledb.continuous) AS
-          SELECT
-            time_bucket('1 hour', timestamp) AS bucket,
-            sensor_id,
-            tenant_id,
-            AVG((readings->>'temperature')::numeric) as avg_temperature,
-            AVG((readings->>'ph')::numeric) as avg_ph,
-            AVG((readings->>'dissolvedOxygen')::numeric) as avg_dissolved_oxygen,
-            AVG((readings->>'salinity')::numeric) as avg_salinity,
-            MIN((readings->>'temperature')::numeric) as min_temperature,
-            MAX((readings->>'temperature')::numeric) as max_temperature,
-            COUNT(*) as reading_count
-          FROM "${schemaName}"."sensor_readings"
-          GROUP BY bucket, sensor_id, tenant_id
-          WITH NO DATA
-        `);
-
-        // Add refresh policy for hourly aggregate
-        await this.dataSource.query(`
-          SELECT add_continuous_aggregate_policy(
-            '"${schemaName}"."sensor_hourly"',
-            start_offset => INTERVAL '3 hours',
-            end_offset => INTERVAL '1 hour',
-            schedule_interval => INTERVAL '1 hour',
-            if_not_exists => TRUE
-          )
-        `);
-
-        this.logger.log(`Created hourly continuous aggregate for ${schemaName}`);
-      }
-
-      // Check if daily aggregate already exists
-      const dailyExists = await this.dataSource.query(`
-        SELECT 1 FROM timescaledb_information.continuous_aggregates
-        WHERE view_schema = $1 AND view_name = 'sensor_daily'
-      `, [schemaName]);
-
-      if (dailyExists.length === 0) {
-        // Create daily aggregate
-        await this.dataSource.query(`
-          CREATE MATERIALIZED VIEW "${schemaName}"."sensor_daily"
-          WITH (timescaledb.continuous) AS
-          SELECT
-            time_bucket('1 day', timestamp) AS bucket,
-            sensor_id,
-            tenant_id,
-            AVG((readings->>'temperature')::numeric) as avg_temperature,
-            AVG((readings->>'ph')::numeric) as avg_ph,
-            AVG((readings->>'dissolvedOxygen')::numeric) as avg_dissolved_oxygen,
-            AVG((readings->>'salinity')::numeric) as avg_salinity,
-            MIN((readings->>'temperature')::numeric) as min_temperature,
-            MAX((readings->>'temperature')::numeric) as max_temperature,
-            COUNT(*) as reading_count
-          FROM "${schemaName}"."sensor_readings"
-          GROUP BY bucket, sensor_id, tenant_id
-          WITH NO DATA
-        `);
-
-        // Add refresh policy for daily aggregate
-        await this.dataSource.query(`
-          SELECT add_continuous_aggregate_policy(
-            '"${schemaName}"."sensor_daily"',
-            start_offset => INTERVAL '3 days',
-            end_offset => INTERVAL '1 day',
-            schedule_interval => INTERVAL '1 day',
-            if_not_exists => TRUE
-          )
-        `);
-
-        this.logger.log(`Created daily continuous aggregate for ${schemaName}`);
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Failed to create continuous aggregates for ${schemaName}: ${(error as Error).message}`,
-      );
-    }
   }
 
   /**
@@ -1420,35 +1174,44 @@ export class SchemaManagerService {
       );
 
       // Count rows before migration
-      const beforeCountResult = await this.dataSource.query(
+      const beforeCount = await this.queryCount(
         `SELECT COUNT(*) as count FROM "${safeSchemaName}"."${safeTableName}"`,
       );
-      const beforeCount = parseInt(beforeCountResult[0]?.count || '0', 10);
 
       // Insert data with tenant filter
       // Note: tenant column name varies by table (tenant_id for sensor/new tables, tenantId for legacy farm/hr)
       // Try tenant_id first (snake_case), fall back to "tenantId" (camelCase)
       try {
-        await this.dataSource.query(`
+        await this.dataSource.query(
+          `
           INSERT INTO "${safeSchemaName}"."${safeTableName}"
           SELECT * FROM "${safeSourceSchema}"."${safeTableName}"
           WHERE tenant_id = $1
           ON CONFLICT DO NOTHING
-        `, [tenantId]);
-      } catch {
-        await this.dataSource.query(`
+        `,
+          [tenantId],
+        );
+      } catch (insertError) {
+        const err = insertError as Error & { code?: string };
+        const message = err.message ?? '';
+        if (err.code !== '42703' && !message.includes('column "tenant_id" does not exist')) {
+          throw insertError;
+        }
+        await this.dataSource.query(
+          `
           INSERT INTO "${safeSchemaName}"."${safeTableName}"
           SELECT * FROM "${safeSourceSchema}"."${safeTableName}"
           WHERE "tenantId" = $1
           ON CONFLICT DO NOTHING
-        `, [tenantId]);
+        `,
+          [tenantId],
+        );
       }
 
       // Count rows after migration to get actual migrated count
-      const afterCountResult = await this.dataSource.query(
+      const afterCount = await this.queryCount(
         `SELECT COUNT(*) as count FROM "${safeSchemaName}"."${safeTableName}"`,
       );
-      const afterCount = parseInt(afterCountResult[0]?.count || '0', 10);
       const rowsMigrated = afterCount - beforeCount;
 
       this.logger.log(`Migrated ${rowsMigrated} rows to ${safeSchemaName}.${safeTableName}`);
@@ -1465,26 +1228,27 @@ export class SchemaManagerService {
    * Get all tenant schemas
    */
   async listTenantSchemas(): Promise<string[]> {
-    const result = await this.dataSource.query(`
+    const result = await this.queryRows(`
       SELECT schema_name
       FROM information_schema.schemata
       WHERE schema_name LIKE 'tenant_%'
       ORDER BY schema_name
     `);
-    return result.map((r: { schema_name: string }) => r.schema_name);
+    return result
+      .map((row) => row['schema_name'])
+      .filter((schemaName): schemaName is string => typeof schemaName === 'string');
   }
 
   /**
    * Get table count for a schema
    */
   async getSchemaTableCount(schemaName: string): Promise<number> {
-    const result = await this.dataSource.query(
+    return this.queryCount(
       `SELECT COUNT(*) as count
        FROM information_schema.tables
        WHERE table_schema = $1`,
       [schemaName],
     );
-    return parseInt(result[0]?.count || '0', 10);
   }
 
   /**
@@ -1523,7 +1287,7 @@ export class SchemaManagerService {
           missing.push(entry);
           this.logger.warn(
             `MODULE_SCHEMAS validation: table "${moduleSchema.sourceSchema}"."${tableName}" ` +
-            `registered for module "${moduleSchema.moduleName}" does not exist in the database.`,
+              `registered for module "${moduleSchema.moduleName}" does not exist in the database.`,
           );
         }
       }
@@ -1599,10 +1363,9 @@ export class SchemaManagerService {
 
     // SECURITY: Use parameterized query with pg_catalog.set_config for safe schema setting
     // The 'true' parameter makes it LOCAL (transaction-scoped)
-    await manager.query(
-      `SELECT pg_catalog.set_config('search_path', $1 || ', public', true)`,
-      [schemaName],
-    );
+    await manager.query(`SELECT pg_catalog.set_config('search_path', $1 || ', public', true)`, [
+      schemaName,
+    ]);
   }
 
   /**
@@ -1612,95 +1375,7 @@ export class SchemaManagerService {
    */
   async resetSearchPath(): Promise<void> {
     // SECURITY: No user input involved, safe to use directly
-    await this.dataSource.query(
-      `SELECT pg_catalog.set_config('search_path', 'public', false)`,
-    );
-  }
-
-  /**
-   * Create sensor_metrics hypertable with narrow table optimizations
-   * Includes compression, retention, and continuous aggregates
-   */
-  private async createSensorMetricsHypertable(schemaName: string): Promise<void> {
-    const tableName = 'sensor_metrics';
-
-    try {
-      // Check if TimescaleDB extension is available
-      const extensionCheck = await this.dataSource.query(
-        `SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'`,
-      );
-
-      if (extensionCheck.length === 0) {
-        this.logger.warn('TimescaleDB extension not installed, skipping sensor_metrics hypertable');
-        return;
-      }
-
-      // Check if table is already a hypertable
-      const isHypertable = await this.dataSource.query(
-        `SELECT 1 FROM timescaledb_information.hypertables
-         WHERE hypertable_schema = $1 AND hypertable_name = $2`,
-        [schemaName, tableName],
-      );
-
-      if (isHypertable.length > 0) {
-        this.logger.debug(`${schemaName}.${tableName} is already a hypertable`);
-        return;
-      }
-
-      // Convert to hypertable with 'time' column partitioning
-      await this.dataSource.query(`
-        SELECT create_hypertable(
-          '"${schemaName}"."${tableName}"',
-          'time',
-          chunk_time_interval => INTERVAL '1 day',
-          if_not_exists => TRUE,
-          migrate_data => TRUE
-        )
-      `);
-
-      this.logger.log(`Created hypertable: ${schemaName}.${tableName}`);
-
-      // Enable compression
-      // Note: tenant_id excluded from segmentby because in tenant-isolated schema
-      // all rows have same tenant_id (would waste space)
-      await this.dataSource.query(`
-        ALTER TABLE "${schemaName}"."${tableName}" SET (
-          timescaledb.compress,
-          timescaledb.compress_segmentby = 'sensor_id, channel_id',
-          timescaledb.compress_orderby = 'time DESC'
-        )
-      `);
-
-      // Add compression policy (7 days)
-      await this.dataSource.query(`
-        SELECT add_compression_policy(
-          '"${schemaName}"."${tableName}"',
-          INTERVAL '7 days',
-          if_not_exists => TRUE
-        )
-      `);
-
-      this.logger.log(`Added compression policy for ${schemaName}.${tableName}`);
-
-      // Add retention policy (90 days for raw data)
-      await this.dataSource.query(`
-        SELECT add_retention_policy(
-          '"${schemaName}"."${tableName}"',
-          INTERVAL '90 days',
-          if_not_exists => TRUE
-        )
-      `);
-
-      this.logger.log(`Added retention policy for ${schemaName}.${tableName}`);
-
-      // Create continuous aggregates for the narrow table
-      await this.createNarrowTableAggregates(schemaName);
-
-    } catch (error) {
-      this.logger.warn(
-        `Failed to create sensor_metrics hypertable for ${schemaName}: ${(error as Error).message}`,
-      );
-    }
+    await this.dataSource.query(`SELECT pg_catalog.set_config('search_path', 'public', false)`);
   }
 
   /**
@@ -1717,6 +1392,7 @@ export class SchemaManagerService {
   async syncTenantSchema(
     tenantId: string,
     modules: string[] = DEFAULT_TENANT_MODULES,
+    options: SyncTenantSchemaOptions = {},
   ): Promise<{ created: string[]; skipped: string[]; errors: string[] }> {
     const schemaName = this.getTenantSchemaName(tenantId);
     const created: string[] = [];
@@ -1730,258 +1406,13 @@ export class SchemaManagerService {
       return { created, skipped, errors };
     }
 
-    this.logger.log(`Syncing tenant schema ${schemaName} for modules: ${modules.join(', ')}`);
-
-    for (const moduleName of modules) {
-      const moduleSchema = MODULE_SCHEMAS.find(m => m.moduleName === moduleName);
-      if (!moduleSchema) {
-        this.logger.warn(`Module ${moduleName} not found in MODULE_SCHEMAS`);
-        continue;
-      }
-
-      for (const tableName of moduleSchema.tables) {
-        try {
-          // Check if table already exists in tenant schema
-          const alreadyExists = await this.tableExists(schemaName, tableName);
-          if (alreadyExists) {
-            skipped.push(tableName);
-            continue;
-          }
-
-          // Check if source table exists
-          const sourceExists = await this.tableExists(moduleSchema.sourceSchema, tableName);
-          if (!sourceExists) {
-            errors.push(`Source table ${moduleSchema.sourceSchema}.${tableName} does not exist`);
-            continue;
-          }
-
-          // Create table from source
-          const safeTargetSchema = validateSqlIdentifier(schemaName, 'schema');
-          const safeTableName = validateSqlIdentifier(tableName, 'table');
-          const safeSourceSchema = validateSqlIdentifier(moduleSchema.sourceSchema, 'schema');
-
-          await this.dataSource.query(`
-            CREATE TABLE "${safeTargetSchema}"."${safeTableName}"
-            (LIKE "${safeSourceSchema}"."${safeTableName}" INCLUDING ALL)
-          `);
-
-          created.push(tableName);
-          this.logger.debug(`Created missing table ${schemaName}.${tableName}`);
-
-          // Handle hypertables
-          if (tableName === 'sensor_readings') {
-            await this.createHypertable(schemaName, tableName);
-          }
-          if (tableName === 'sensor_metrics') {
-            await this.createSensorMetricsHypertable(schemaName);
-          }
-        } catch (tableError) {
-          const msg = `Failed to create ${tableName}: ${(tableError as Error).message}`;
-          errors.push(msg);
-          this.logger.error(msg);
-        }
-      }
-
-      // Copy missing reference data
-      const refTables = moduleSchema.referenceDataTables || [];
-      for (const refTable of refTables) {
-        try {
-          const rows = await this.copyReferenceDataTable(
-            schemaName,
-            moduleSchema.sourceSchema,
-            refTable,
-          );
-          if (rows > 0) {
-            this.logger.debug(`Copied ${rows} reference rows to ${schemaName}.${refTable}`);
-          }
-        } catch (copyError) {
-          errors.push(`Failed to copy ref data ${refTable}: ${(copyError as Error).message}`);
-        }
-      }
-    }
-
-    // Grant permissions on any newly created tables
-    if (created.length > 0) {
-      try {
-        const appRole = await this.getApplicationRole();
-        await this.dataSource.query(
-          `GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA "${schemaName}" TO ${appRole}`,
-        );
-        await this.dataSource.query(
-          `GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA "${schemaName}" TO ${appRole}`,
-        );
-      } catch (grantError) {
-        errors.push(`Failed to grant permissions: ${(grantError as Error).message}`);
-      }
-    }
-
-    this.logger.log(
-      `Sync ${schemaName}: ${created.length} created, ${skipped.length} skipped, ${errors.length} errors`,
-    );
-
+    const msg =
+      `Runtime tenant schema repair is disabled for existing tenant schema ${schemaName}. ` +
+      `Requested modules=${modules.join(', ')} reason=${options.reason ?? 'unspecified'}. ` +
+      'Tenant schema creation and repair are owned by the db-migrate tenant provisioner.';
+    this.logger.error(msg);
+    errors.push(msg);
     return { created, skipped, errors };
   }
 
-  /**
-   * Create continuous aggregates for narrow table format (sensor_metrics)
-   * Creates 1-minute, 1-hour, and 1-day aggregates
-   */
-  private async createNarrowTableAggregates(schemaName: string): Promise<void> {
-    try {
-      // 1. Create 1-minute aggregate
-      const min1Exists = await this.dataSource.query(`
-        SELECT 1 FROM timescaledb_information.continuous_aggregates
-        WHERE view_schema = $1 AND view_name = 'metrics_1min'
-      `, [schemaName]);
-
-      if (min1Exists.length === 0) {
-        await this.dataSource.query(`
-          CREATE MATERIALIZED VIEW "${schemaName}"."metrics_1min"
-          WITH (timescaledb.continuous) AS
-          SELECT
-            time_bucket('1 minute', time) AS bucket,
-            tenant_id,
-            sensor_id,
-            channel_id,
-            tank_id,
-            AVG(value) AS avg_value,
-            MIN(value) AS min_value,
-            MAX(value) AS max_value,
-            STDDEV(value) AS stddev_value,
-            FIRST(value, time) AS first_value,
-            LAST(value, time) AS last_value,
-            COUNT(*) AS sample_count,
-            COUNT(*) FILTER (WHERE quality_code >= 192) AS good_count,
-            COUNT(*) FILTER (WHERE quality_code < 192) AS bad_count,
-            AVG(ingestion_latency_ms) AS avg_latency_ms,
-            MAX(ingestion_latency_ms) AS max_latency_ms
-          FROM "${schemaName}"."sensor_metrics"
-          GROUP BY bucket, tenant_id, sensor_id, channel_id, tank_id
-          WITH NO DATA
-        `);
-
-        await this.dataSource.query(`
-          SELECT add_continuous_aggregate_policy(
-            '"${schemaName}"."metrics_1min"',
-            start_offset => INTERVAL '3 minutes',
-            end_offset => INTERVAL '1 minute',
-            schedule_interval => INTERVAL '1 minute',
-            if_not_exists => TRUE
-          )
-        `);
-
-        await this.dataSource.query(`
-          SELECT add_retention_policy(
-            '"${schemaName}"."metrics_1min"',
-            INTERVAL '1 year',
-            if_not_exists => TRUE
-          )
-        `);
-
-        this.logger.log(`Created metrics_1min aggregate for ${schemaName}`);
-      }
-
-      // 2. Create 1-hour aggregate
-      const hour1Exists = await this.dataSource.query(`
-        SELECT 1 FROM timescaledb_information.continuous_aggregates
-        WHERE view_schema = $1 AND view_name = 'metrics_1hour'
-      `, [schemaName]);
-
-      if (hour1Exists.length === 0) {
-        await this.dataSource.query(`
-          CREATE MATERIALIZED VIEW "${schemaName}"."metrics_1hour"
-          WITH (timescaledb.continuous) AS
-          SELECT
-            time_bucket('1 hour', bucket) AS bucket,
-            tenant_id,
-            sensor_id,
-            channel_id,
-            tank_id,
-            AVG(avg_value) AS avg_value,
-            MIN(min_value) AS min_value,
-            MAX(max_value) AS max_value,
-            SQRT(AVG(POWER(COALESCE(stddev_value, 0), 2))) AS stddev_value,
-            FIRST(first_value, bucket) AS first_value,
-            LAST(last_value, bucket) AS last_value,
-            SUM(sample_count) AS sample_count,
-            SUM(good_count) AS good_count,
-            SUM(bad_count) AS bad_count,
-            (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count), 0) * 100) AS quality_pct
-          FROM "${schemaName}"."metrics_1min"
-          GROUP BY time_bucket('1 hour', bucket), tenant_id, sensor_id, channel_id, tank_id
-          WITH NO DATA
-        `);
-
-        await this.dataSource.query(`
-          SELECT add_continuous_aggregate_policy(
-            '"${schemaName}"."metrics_1hour"',
-            start_offset => INTERVAL '3 hours',
-            end_offset => INTERVAL '1 hour',
-            schedule_interval => INTERVAL '1 hour',
-            if_not_exists => TRUE
-          )
-        `);
-
-        await this.dataSource.query(`
-          SELECT add_retention_policy(
-            '"${schemaName}"."metrics_1hour"',
-            INTERVAL '5 years',
-            if_not_exists => TRUE
-          )
-        `);
-
-        this.logger.log(`Created metrics_1hour aggregate for ${schemaName}`);
-      }
-
-      // 3. Create 1-day aggregate
-      const day1Exists = await this.dataSource.query(`
-        SELECT 1 FROM timescaledb_information.continuous_aggregates
-        WHERE view_schema = $1 AND view_name = 'metrics_1day'
-      `, [schemaName]);
-
-      if (day1Exists.length === 0) {
-        await this.dataSource.query(`
-          CREATE MATERIALIZED VIEW "${schemaName}"."metrics_1day"
-          WITH (timescaledb.continuous) AS
-          SELECT
-            time_bucket('1 day', bucket) AS bucket,
-            tenant_id,
-            sensor_id,
-            channel_id,
-            tank_id,
-            AVG(avg_value) AS avg_value,
-            MIN(min_value) AS min_value,
-            MAX(max_value) AS max_value,
-            SQRT(AVG(POWER(COALESCE(stddev_value, 0), 2))) AS stddev_value,
-            FIRST(first_value, bucket) AS open_value,
-            LAST(last_value, bucket) AS close_value,
-            SUM(sample_count) AS sample_count,
-            SUM(good_count) AS good_count,
-            SUM(bad_count) AS bad_count,
-            (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count), 0) * 100) AS quality_pct
-          FROM "${schemaName}"."metrics_1hour"
-          GROUP BY time_bucket('1 day', bucket), tenant_id, sensor_id, channel_id, tank_id
-          WITH NO DATA
-        `);
-
-        await this.dataSource.query(`
-          SELECT add_continuous_aggregate_policy(
-            '"${schemaName}"."metrics_1day"',
-            start_offset => INTERVAL '3 days',
-            end_offset => INTERVAL '1 day',
-            schedule_interval => INTERVAL '1 day',
-            if_not_exists => TRUE
-          )
-        `);
-
-        // No retention for daily - keep forever
-        this.logger.log(`Created metrics_1day aggregate for ${schemaName}`);
-      }
-
-    } catch (error) {
-      this.logger.warn(
-        `Failed to create narrow table aggregates for ${schemaName}: ${(error as Error).message}`,
-      );
-    }
-  }
 }

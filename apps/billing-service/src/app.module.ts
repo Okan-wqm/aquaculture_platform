@@ -1,19 +1,17 @@
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { GraphQLModule } from '@nestjs/graphql';
 import { join } from 'path';
-import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { ScheduleModule } from '@nestjs/schedule';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import depthLimit from 'graphql-depth-limit';
+
+import {
+  AuditLogModule,
+  AuditLogInterceptor,
+  AuditedOperationModule,
+} from '@aquaculture/backend-common/audit';
 import {
   RlsModule,
   AuditColumnsModule,
-  createMigrationRunnerService,
+  createSchemaVersionGate,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
+  isSchemaDdlOwnedByDbMigrate,
 } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
@@ -23,41 +21,39 @@ import {
   StripInternalHeadersMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
-import {
-  AuditLogModule,
-  AuditLogInterceptor,
-  AuditedOperationModule,
-} from '@aquaculture/backend-common/audit';
-
-/**
- * BillingMigrationRunnerService — runs pending TypeORM migrations in the
- * billing schema at OnApplicationBootstrap. Closes the architectural gap
- * documented in RlsSchemaBootstrap's docblock
- * (libs/backend-common/src/database/rls/rls-schema-bootstrap.service.ts
- * lines 14-27: *"a replacement migration system has not yet been added"*).
- *
- * billing-service previously had no migration runner — synchronize was
- * removed in commit 5ce2b127 for production safety, leaving any column
- * drift between entity and DB uncorrectable (see 2026-04-14 log audit
- * G5: "column Plan.deleted_at does not exist" crash). Migrations now
- * live in apps/billing-service/src/database/migrations/ and the runner
- * enforces them on every cold start.
- */
-const BillingMigrationRunnerService = createMigrationRunnerService('billing');
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { GraphQLModule } from '@nestjs/graphql';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
-import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
-import { BillingModule } from './billing/billing.module';
-import { HealthModule } from './health/health.module';
-import { MeteringModule } from './modules/metering/metering.module';
+import depthLimit from 'graphql-depth-limit';
 
-// Nested ObjectTypes for orphanedTypes registration
+import { BillingModule } from './billing/billing.module';
 import { InvoiceLineItem, TaxInfo, BillingAddress } from './billing/entities/invoice.entity';
 import { PaymentMethodDetails, RefundInfo } from './billing/entities/payment.entity';
-import { PlanLimits, PlanPricing } from './billing/entities/subscription.entity';
 import {
   ModuleQuantities,
   ModuleLineItem,
 } from './billing/entities/subscription-module-item.entity';
+import { PlanLimits, PlanPricing } from './billing/entities/subscription.entity';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { HealthModule } from './health/health.module';
+import { MeteringModule } from './modules/metering/metering.module';
+
+/**
+ * BillingMigrationRunnerService — production schema-version gate for the
+ * billing schema. In DB_MIGRATE_AUTHORITATIVE=true deployments, the
+ * one-shot aqua-db-migrate container is the DDL writer and this provider
+ * verifies the migration ledger before billing-service serves traffic.
+ * Local/E2E can still opt into TypeORM migration execution through the
+ * standard DATABASE_MIGRATIONS_RUN flow below.
+ */
+const BillingMigrationRunnerService = createSchemaVersionGate('billing');
+const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 
 @Module({
   imports: [
@@ -101,7 +97,10 @@ import {
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: { federation: 2, path: join('/tmp', 'schema.graphql') },
+      autoSchemaFile: {
+        federation: 2,
+        path: join(process.cwd(), 'dist/graphql/subgraphs/billing.graphql'),
+      },
       /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
        *  The gateway already blocks batching, but subgraphs must also enforce this as
        *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -157,8 +156,8 @@ import {
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        natsUrl: configService.get('NATS_URL', 'nats://localhost:4222'),
-        streamName: configService.get('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
+        natsUrl: configService.get<string>('NATS_URL', 'nats://localhost:4222'),
+        streamName: configService.get<string>('NATS_STREAM_NAME', 'AQUACULTURE_EVENTS'),
       }),
     }),
     // Schedule module — single forRoot() for the entire service
@@ -185,32 +184,31 @@ import {
     /**
      * SEC-DB: Tenant Row-Level Security.
      *
-     * - serviceName: 'billing' — log prefix for RlsConnectionBootstrap and
-     *   RlsSchemaBootstrap so RLS-related lines are easy to grep.
-     * - autoApply: true — billing-service has no TypeORM migration runner
-     *   (synchronize was removed in commit 5ce2b127), so policies are
-     *   installed at OnApplicationBootstrap by RlsSchemaBootstrap. The
-     *   helper is idempotent — cold restarts re-install the canonical
-     *   predicate without manual intervention.
+     * In production-like deployments DB_MIGRATE_AUTHORITATIVE=true means
+     * aqua-db-migrate is the only schema writer. billing-service still patches
+     * the connection pool and sets the RLS GUCs per request, but it must not
+     * attempt table-level DDL at startup. Local/dev can keep autoApply as a
+     * bootstrap convenience when the central migration container is not the
+     * active schema owner.
      */
     RlsModule.forPoolService({
       serviceName: 'billing',
-      autoApply: true,
+      autoApply: !billingSchemaDdlOwnedByDbMigrate,
     }),
     /**
-     * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
+     * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ.
      *
-     * billing-service has no TypeORM migration runner — synchronize was
-     * removed in commit 5ce2b127 to lock the schema down. The bootstrap
-     * path closes the audit-column blind spot via OnApplicationBootstrap,
-     * mirroring how RlsSchemaBootstrap above installs RLS policies on
-     * the same lifecycle hook. Idempotent at the discovery layer.
+     * Production DDL is owned by aqua-db-migrate. The runtime bootstrap is
+     * kept only for local/dev environments where the authoritative migration
+     * container is not active.
      *
      * No excludeTables — all billing-service tables should use TIMESTAMPTZ
      * for audit-trail integrity (financial timestamps are compliance-
      * sensitive and must not drift across DST).
      */
-    AuditColumnsModule.forRoot({ serviceName: 'billing' }),
+    ...(billingSchemaDdlOwnedByDbMigrate
+      ? []
+      : [AuditColumnsModule.forRoot({ serviceName: 'billing' })]),
     /**
      * P11 of 2026-04-14 teardown — runtime schema-drift validator.
      * Compares entity metadata to information_schema at every cold start;
@@ -227,7 +225,7 @@ import {
     // OnApplicationBootstrap order beyond module dependency graph, but
     // declaration order is a reliable tiebreaker for same-module
     // providers). The runner itself uses search_path pinning and a
-    // dedicated QueryRunner — see createMigrationRunnerService for the
+    // dedicated QueryRunner — see createSchemaVersionGate for the
     // full architectural rationale.
     BillingMigrationRunnerService,
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers
@@ -236,7 +234,7 @@ import {
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'billing-service'),
       inject: [ConfigService],
     },
     // SECURITY: Global JWT auth guard - requires authentication on all resolvers
@@ -266,7 +264,7 @@ import {
   ],
 })
 export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
+  configure(consumer: MiddlewareConsumer): void {
     // Middleware execution order:
     // 0. StripInternalHeadersMiddleware (SECREV-CRITICAL-002): MUST run
     //    BEFORE UserContextMiddleware. Verifies the request carries a

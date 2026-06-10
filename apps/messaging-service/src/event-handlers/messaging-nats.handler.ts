@@ -1,11 +1,14 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller, Inject, Logger } from '@nestjs/common';
 import { MessagePattern, EventPattern, Payload } from '@nestjs/microservices';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import Redis from 'ioredis';
 import { Repository, DataSource, In, IsNull } from 'typeorm';
+
 import { ChannelMember } from '../channel/entities/channel-member.entity';
+import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { Message } from '../message/entities/message.entity';
 import { PartitionManagerService } from '../partition/partition-manager.service';
-import { LegalHoldService } from '../compliance/services/legal-hold.service';
+import { REDIS_CLIENT } from '../shared/redis.provider';
 
 /** UUID representing an anonymised / deleted user. */
 const ANONYMOUS_USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -26,6 +29,28 @@ const TENANT_SCHEMA_REGEX =
  */
 const TENANT_ID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const NOTIFICATION_REF_REGEX = TENANT_ID_REGEX;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function booleanColumn(rows: unknown, column: string): boolean {
+  if (!Array.isArray(rows) || !isRecord(rows[0])) {
+    return false;
+  }
+  return rows[0][column] === true;
+}
+
+function isMessageChannelRow(
+  value: unknown,
+): value is { id: string; channelId: string } {
+  return (
+    isRecord(value) &&
+    typeof value['id'] === 'string' &&
+    typeof value['channelId'] === 'string'
+  );
+}
 
 interface VerifyMembershipPayload {
   channelId: string;
@@ -44,8 +69,28 @@ interface GetMessageBatchPayload {
 }
 
 interface UserDeletedPayload {
-  userId: string;
+  deletedUserId: string;
   tenantId: string;
+}
+
+interface ResolveNotificationRefPayload {
+  notificationRef: string;
+  tenantId: string;
+  userId: string;
+}
+
+interface NotificationRefRecord {
+  tenantId: string;
+  userId: string;
+  channelId: string;
+  messageId: string;
+  messageCreatedAt: string;
+}
+
+interface ResolveNotificationRefResult {
+  channelId: string;
+  messageId: string;
+  messageCreatedAt: string;
 }
 
 interface TenantProvisionedPayload {
@@ -94,6 +139,8 @@ export class MessagingNatsHandler {
     // BEFORE: handleUserDeleted anonymized all messages with no hold check —
     // messages in litigation-held channels had their content wiped, destroying evidence.
     private readonly legalHoldService: LegalHoldService,
+    @Inject(REDIS_CLIENT)
+    private readonly redis: Redis,
   ) {}
 
   /**
@@ -205,13 +252,115 @@ export class MessagingNatsHandler {
   }
 
   /**
+   * Resolve an opaque push notification ref after the mobile client is authenticated.
+   *
+   * Push payloads never carry channelId/messageId. The ref is stored under
+   * tenant+recipient scope and consumed atomically, so wrong tenant/user lookups
+   * miss without burning the real recipient's ref while valid double-click
+   * replays fail after the first successful resolution.
+   */
+  @MessagePattern('request.messaging.resolveNotificationRef')
+  async resolveNotificationRef(
+    @Payload() data: ResolveNotificationRefPayload,
+  ): Promise<ResolveNotificationRefResult | null> {
+    if (
+      !TENANT_ID_REGEX.test(data.tenantId) ||
+      !TENANT_ID_REGEX.test(data.userId) ||
+      !NOTIFICATION_REF_REGEX.test(data.notificationRef)
+    ) {
+      this.logger.warn('Rejected resolveNotificationRef with invalid tenant/user/ref format');
+      return null;
+    }
+
+    const key = `msg:push:ref:${data.tenantId}:${data.userId}:${data.notificationRef}`;
+    const raw = await this.consumeRedisKey(key);
+    if (!raw) {
+      return null;
+    }
+
+    let record: NotificationRefRecord;
+    try {
+      record = JSON.parse(raw) as NotificationRefRecord;
+    } catch {
+      this.logger.warn('Rejected malformed notificationRef record');
+      return null;
+    }
+
+    if (
+      record.tenantId !== data.tenantId ||
+      record.userId !== data.userId ||
+      !TENANT_ID_REGEX.test(record.channelId) ||
+      !TENANT_ID_REGEX.test(record.messageId)
+    ) {
+      this.logger.warn('Rejected notificationRef with mismatched tenant/user or invalid target IDs');
+      return null;
+    }
+
+    const messageCreatedAt = new Date(record.messageCreatedAt);
+    if (Number.isNaN(messageCreatedAt.getTime())) {
+      this.logger.warn('Rejected notificationRef with invalid messageCreatedAt');
+      return null;
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    try {
+      await this.setTenantSchema(queryRunner, data.tenantId);
+
+      const member = await queryRunner.manager.findOne(ChannelMember, {
+        where: {
+          channelId: record.channelId,
+          userId: data.userId,
+          leftAt: IsNull(),
+        },
+      });
+      if (!member) {
+        return null;
+      }
+
+      const messageRows: unknown = await queryRunner.query(
+        `SELECT EXISTS(
+           SELECT 1
+           FROM messages
+           WHERE id = $1
+             AND "channelId" = $2
+             AND "createdAt" = $3::timestamptz
+             AND "isDeleted" = false
+        ) AS exists`,
+        [record.messageId, record.channelId, record.messageCreatedAt],
+      );
+      if (!booleanColumn(messageRows, 'exists')) {
+        return null;
+      }
+
+      return {
+        channelId: record.channelId,
+        messageId: record.messageId,
+        messageCreatedAt: record.messageCreatedAt,
+      };
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
    * Handles user deletion: anonymises messages, removes channel memberships,
    * and cleans up reactions/receipts in a single transaction.
    * Sets tenant schema before executing any queries.
    */
   @EventPattern('events.*.UserDeleted')
   async handleUserDeleted(@Payload() data: UserDeletedPayload): Promise<void> {
-    this.logger.log(`Processing UserDeleted for user ${data.userId} in tenant ${data.tenantId}`);
+    const deletedUserId = data.deletedUserId;
+    if (!TENANT_ID_REGEX.test(data.tenantId) || !TENANT_ID_REGEX.test(deletedUserId)) {
+      this.logger.error(
+        'Rejected UserDeleted event missing canonical deletedUserId or valid tenantId',
+      );
+      return;
+    }
+
+    this.logger.log(
+      `Processing UserDeleted for deletedUserId ${deletedUserId} in tenant ${data.tenantId}`,
+    );
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -221,18 +370,21 @@ export class MessagingNatsHandler {
       await this.setTenantSchema(queryRunner, data.tenantId);
 
       // SECURITY: Verify user has actual presence in claimed tenant before destructive cascade
-      const userMessages = await queryRunner.query(
+      const userMessages: unknown = await queryRunner.query(
         `SELECT EXISTS(SELECT 1 FROM messages WHERE "senderId" = $1 LIMIT 1) AS has_messages`,
-        [data.userId],
+        [deletedUserId],
       );
-      const userMemberships = await queryRunner.query(
+      const userMemberships: unknown = await queryRunner.query(
         `SELECT EXISTS(SELECT 1 FROM channel_members WHERE "userId" = $1 LIMIT 1) AS has_memberships`,
-        [data.userId],
+        [deletedUserId],
       );
 
-      if (!userMessages[0]?.has_messages && !userMemberships[0]?.has_memberships) {
+      if (
+        !booleanColumn(userMessages, 'has_messages') &&
+        !booleanColumn(userMemberships, 'has_memberships')
+      ) {
         this.logger.log(
-          `UserDeleted: userId=${data.userId} has no messaging footprint in tenant ${data.tenantId}, skipping cascade`,
+          `UserDeleted: deletedUserId=${deletedUserId} has no messaging footprint in tenant ${data.tenantId}, skipping cascade`,
         );
         await queryRunner.commitTransaction();
         return;
@@ -242,11 +394,14 @@ export class MessagingNatsHandler {
       // WHY: after we set senderId=ANONYMOUS_USER_ID, we can no longer identify
       // which messages belonged to this specific user — ANONYMOUS_USER_ID is shared
       // across all deleted users. We need the IDs up front to clean AI-derived tables.
-      const userMsgRows: Array<{ id: string; channelId: string }> = await queryRunner.query(
+      const userMsgRowsResult: unknown = await queryRunner.query(
         `SELECT id, "channelId" FROM messages WHERE "senderId" = $1`,
-        [data.userId],
+        [deletedUserId],
       );
-      const userMessageIds = userMsgRows.map(r => r.id);
+      const userMsgRows = Array.isArray(userMsgRowsResult)
+        ? userMsgRowsResult.filter(isMessageChannelRow)
+        : [];
+      const userMessageIds = userMsgRows.map((r) => r.id);
 
       // Determine which channels the user has messages in
       const channelRows = userMsgRows.reduce<Array<{ channelId: string }>>((acc, r) => {
@@ -267,7 +422,7 @@ export class MessagingNatsHandler {
           // Held channel: anonymize sender identity only, preserve content
           await queryRunner.query(
             `UPDATE messages SET "senderId" = $1 WHERE "senderId" = $2 AND "channelId" = $3`,
-            [ANONYMOUS_USER_ID, data.userId, channelId],
+            [ANONYMOUS_USER_ID, deletedUserId, channelId],
           );
         }
       }
@@ -283,8 +438,8 @@ export class MessagingNatsHandler {
           ? `"senderId" = $2 AND "channelId" != ALL($3::uuid[])`
           : `"senderId" = $2`;
         const params = heldIds.length > 0
-          ? [ANONYMOUS_USER_ID, data.userId, heldIds]
-          : [ANONYMOUS_USER_ID, data.userId];
+          ? [ANONYMOUS_USER_ID, deletedUserId, heldIds]
+          : [ANONYMOUS_USER_ID, deletedUserId];
 
         await queryRunner.query(
           `UPDATE messages
@@ -315,27 +470,27 @@ export class MessagingNatsHandler {
       // Remove reactions
       await queryRunner.query(
         `DELETE FROM message_reactions WHERE "userId" = $1`,
-        [data.userId],
+        [deletedUserId],
       );
 
       // Remove receipts
       await queryRunner.query(
         `DELETE FROM message_receipts WHERE "userId" = $1`,
-        [data.userId],
+        [deletedUserId],
       );
 
       // Mark channel memberships as left
       await queryRunner.query(
         `UPDATE channel_members SET "leftAt" = NOW() WHERE "userId" = $1 AND "leftAt" IS NULL`,
-        [data.userId],
+        [deletedUserId],
       );
 
       await queryRunner.commitTransaction();
-      this.logger.log(`UserDeleted cascade completed for user ${data.userId}`);
+      this.logger.log(`UserDeleted cascade completed for deletedUserId ${deletedUserId}`);
     } catch (err) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
-        `UserDeleted cascade failed for ${data.userId}: ${(err as Error).message}`,
+        `UserDeleted cascade failed for ${deletedUserId}: ${(err as Error).message}`,
       );
     } finally {
       await queryRunner.release();
@@ -385,5 +540,17 @@ export class MessagingNatsHandler {
         `Partition creation failed for ${data.schemaName}: ${(err as Error).message}`,
       );
     }
+  }
+
+  private async consumeRedisKey(key: string): Promise<string | null> {
+    const result = await this.redis.multi().get(key).del(key).exec();
+    if (!result) return null;
+
+    const [getResult] = result;
+    const [err, value] = getResult ?? [];
+    if (err) {
+      throw err;
+    }
+    return typeof value === 'string' ? value : null;
   }
 }

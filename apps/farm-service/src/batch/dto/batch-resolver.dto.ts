@@ -5,27 +5,20 @@
  * that were defined inline in the resolver. Extracted to reduce resolver
  * file size below the 500-line limit.
  */
-import {
-  ObjectType,
-  Field,
-  Int,
-  Float,
-  InputType,
-  ID,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
+import { ID, Float, Field, InputType, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
+import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { GraphQLJSON } from 'graphql-type-json';
-import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsEnum } from 'class-validator';
-import { BatchStatus, BatchInputType } from '../entities/batch.entity';
-import { BatchDocumentType } from '../entities/batch-document.entity';
-import { UpdateBatchPayload } from '../commands/update-batch.command';
-import { MortalityReason } from '../commands/record-mortality.command';
-import { CullReason } from '../commands/record-cull.command';
+
 import { AllocationType } from '../commands/allocate-to-tank.command';
+import { CullReason } from '../commands/record-cull.command';
+import { MortalityReason } from '../commands/record-mortality.command';
+import { UpdateBatchPayload } from '../commands/update-batch.command';
+import { BatchDocumentType } from '../entities/batch-document.entity';
+import { Batch, BatchInputType, BatchStatus } from '../entities/batch.entity';
 import { BatchHistoryEntry, BatchHistoryEventType } from '../queries/get-batch-history.query';
 import { AvailableTank } from '../queries/list-available-tanks.query';
 import { BatchFilterInput as BatchFilter } from '../queries/list-batches.query';
-import { Batch } from '../entities/batch.entity';
 
 // ============================================================================
 // INPUT TYPES
@@ -59,7 +52,7 @@ export class UpdateBatchInput implements UpdateBatchPayload {
 }
 
 @InputType()
-export class RecordMortalityInput {
+export class RecordMortalityInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity: number;
@@ -72,7 +65,7 @@ export class RecordMortalityInput {
 }
 
 @InputType()
-export class RecordCullInput {
+export class RecordCullInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity: number;
@@ -84,7 +77,7 @@ export class RecordCullInput {
 }
 
 @InputType()
-export class AllocateToTankInput {
+export class AllocateToTankInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity: number;
@@ -95,7 +88,7 @@ export class AllocateToTankInput {
 }
 
 @InputType()
-export class TransferBatchInput {
+export class TransferBatchInput extends MobileCommandEnvelopeInput {
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() sourceTankId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() destinationTankId: string;

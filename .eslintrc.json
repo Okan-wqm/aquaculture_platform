@@ -23,7 +23,7 @@
           "error",
           {
             "enforceBuildableLibDependency": true,
-            "allow": [],
+            "allow": ["@aquaculture/shared-ui", "@aquaculture/shared-ui/*"],
             "depConstraints": [
               {
                 "sourceTag": "*",
@@ -41,7 +41,7 @@
         "plugin:@typescript-eslint/strict"
       ],
       "parserOptions": {
-        "project": ["tsconfig.base.json", "apps/*/tsconfig.json", "libs/*/tsconfig.json", "platform/libs/*/tsconfig.json", "web/*/tsconfig.json", "web/modules/*/tsconfig.json", "e2e/tsconfig.json"]
+        "project": ["tsconfig.base.json", "apps/*/tsconfig.json", "libs/*/tsconfig.json", "platform/libs/*/tsconfig.json", "web/*/tsconfig.json", "web/apps/*/tsconfig.json", "web/apps/*/tsconfig.*.json", "web/modules/*/tsconfig.json", "web/modules/*/tsconfig.node.json", "e2e/tsconfig.json"]
       },
       "rules": {
         "@typescript-eslint/no-explicit-any": "error",
@@ -78,6 +78,12 @@
               "order": "asc",
               "caseInsensitive": true
             }
+          }
+        ],
+        "@typescript-eslint/no-extraneous-class": [
+          "error",
+          {
+            "allowWithDecorator": true
           }
         ],
         "no-console": [
@@ -128,9 +134,42 @@
       }
     },
     {
+      "files": ["web/apps/**/*.ts", "web/apps/**/*.tsx"],
+      "parserOptions": {
+        "project": ["web/apps/*/tsconfig.json", "web/apps/*/tsconfig.*.json"]
+      }
+    },
+    {
+      "files": ["web/apps/aquamobil/**/*.ts", "web/apps/aquamobil/**/*.tsx"],
+      "parserOptions": {
+        "project": ["web/apps/aquamobil/tsconfig.eslint.json"]
+      }
+    },
+    {
       "files": ["apps/**/src/**/*.entity.ts"],
       "rules": {
         "aquaculture/require-entity-schema": "warn"
+      }
+    },
+    {
+      "files": ["apps/farm-service/src/**/*.entity.ts"],
+      "excludedFiles": [
+        "apps/farm-service/src/compliance/entities/tenant-erasure-audit.entity.ts",
+        "apps/farm-service/src/database/entities/audit-log.entity.ts",
+        "apps/farm-service/src/outbox/farm-outbox.entity.ts"
+      ],
+      "rules": {
+        "aquaculture/require-entity-schema": "off"
+      }
+    },
+    {
+      "files": ["apps/hr-service/src/**/*.entity.ts"],
+      "excludedFiles": [
+        "apps/hr-service/src/hr/entities/hr-outbox.entity.ts",
+        "apps/hr-service/src/hr/entities/payroll-audit.entity.ts"
+      ],
+      "rules": {
+        "aquaculture/require-entity-schema": "off"
       }
     },
     {

@@ -1,3 +1,5 @@
+<!-- ARIA-HISTORICAL: Historical plan document. Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
+
 # 005 Adapter Skill Health Governance
 
 ## Status
@@ -10,7 +12,7 @@ ARIA can run adapters and skills that inspect repository state and emit observat
 
 ## Decision
 
-Govern adapters and skills together through a registry, run ledger, health evaluator, quarantine gate, and calibration recovery path.
+Govern adapters and skills together through a registry, run ledger, health evaluator, health-hold decision point, and calibration recovery path.
 
 The v1 implementation is intentionally local and file-backed:
 

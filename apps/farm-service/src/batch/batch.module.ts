@@ -13,81 +13,57 @@
  *
  * @module Batch
  */
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
-import { Batch } from './entities/batch.entity';
+import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
+import { RestoreModule } from '../common/services/restore.module';
+import { EquipmentType } from '../equipment/entities/equipment-type.entity';
+import { Equipment } from '../equipment/entities/equipment.entity';
+import { FarmStockModule } from '../farm-stock/farm-stock.module';
+import { Feed } from '../feed/entities/feed.entity';
+import { HealthEvent } from '../fish-health/entities/health-event.entity';
+import { FishHealthModule } from '../fish-health/fish-health.module';
+import { GrowthMeasurement } from '../growth/entities/growth-measurement.entity';
+import { WorkOrder } from '../maintenance/entities/work-order.entity';
+import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile-command-receipt.entity';
+import { Species } from '../species/entities/species.entity';
+import { Tank } from '../tank/entities/tank.entity';
+import { TankModule } from '../tank/tank.module';
+
+import { BatchController, TankOperationsController } from './controllers/batch.controller';
+import { BatchDocumentDataLoader } from './dataloaders/batch-document.dataloader';
+import { BatchFeedAssignmentDataLoader } from './dataloaders/batch-feed-assignment.dataloader';
+import { BatchLocationDataLoader } from './dataloaders/batch-location.dataloader';
 import { BatchDocument } from './entities/batch-document.entity';
 import { BatchFeedAssignment } from './entities/batch-feed-assignment.entity';
 import { BatchLocation } from './entities/batch-location.entity';
+import { Batch } from './entities/batch.entity';
 import { MortalityRecord } from './entities/mortality-record.entity';
 import { TankAllocation } from './entities/tank-allocation.entity';
 import { TankBatch } from './entities/tank-batch.entity';
 import { TankOperation } from './entities/tank-operation.entity';
-
-// Related entities
-import { Species } from '../species/entities/species.entity';
-import { Tank } from '../tank/entities/tank.entity';
-import { Equipment } from '../equipment/entities/equipment.entity';
-import { EquipmentType } from '../equipment/entities/equipment-type.entity';
-import { Feed } from '../feed/entities/feed.entity';
-
-// Services
-import { BatchService } from './services/batch.service';
-import { BatchDomainService } from './services/batch-domain.service';
-import { SGRCalculatorService } from './services/sgr-calculator.service';
-import { BiomassCalculatorService } from './services/biomass-calculator.service';
-import { BatchCostCalculatorService } from './services/batch-cost-calculator.service';
-import { BatchDocumentDataLoader } from './dataloaders/batch-document.dataloader';
-import { BatchLocationDataLoader } from './dataloaders/batch-location.dataloader';
-import { BatchFeedAssignmentDataLoader } from './dataloaders/batch-feed-assignment.dataloader';
-
-// Growth entities for calculators
-import { GrowthMeasurement } from '../growth/entities/growth-measurement.entity';
-
-// Cross-module entities consumed by BatchCostCalculatorService.
-// TypeORM allows the same entity to be re-registered via forFeature in
-// multiple modules — the repository is a shared singleton so this
-// does NOT create two TypeORM connections. We prefer this over a
-// full MaintenanceModule import because the calculator only needs
-// read access to the relevant columns.
-import { HealthEvent } from '../fish-health/entities/health-event.entity';
-import { WorkOrder } from '../maintenance/entities/work-order.entity';
-
-// Controllers
-import { BatchController, TankOperationsController } from './controllers/batch.controller';
-
-// Command Handlers
 import { BatchCommandHandlers } from './handlers';
-
-// Query Handlers
 import { BatchQueryHandlers } from './query-handlers';
-
-// Resolvers
 import { BatchResolvers } from './resolvers';
-
-// Cross-module: tank density/capacity invariant is owned by TankModule
-// and shared here so every handler that places fish in a tank
-// (create, allocate, transfer, cleaner-fish deploy) runs the same check.
-import { TankModule } from '../tank/tank.module';
-
-// Cross-module: medicine-withdrawal enforcement lives in the fish-health
-// module. close-batch and (eventually) other batch lifecycle handlers
-// need to reject closures that would mask an active treatment window.
-import { FishHealthModule } from '../fish-health/fish-health.module';
+import { BatchCostCalculatorService } from './services/batch-cost-calculator.service';
+import { BatchDomainService } from './services/batch-domain.service';
+import { BatchLifecyclePolicyService } from './services/batch-lifecycle-policy.service';
+import { BatchService } from './services/batch.service';
+import { BiomassCalculatorService } from './services/biomass-calculator.service';
+import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
+import { SGRCalculatorService } from './services/sgr-calculator.service';
 
 // Cross-cutting: backdate policy for mortality observations
 // (MORTALITY_BACKDATE_LIMIT_DAYS, default 14).
-import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
 
 // Cross-cutting: restoreBatchFeedAssignment mutation delegates to
 // RestoreService — closes FARM-MEDIUM-002's last entity gap (5/5 of
 // the Phase 4.2 restorable surface) and FARM-MEDIUM-003 (the resolver
 // converged onto TypeORM repos so RestoreService.restore() can run
 // against it uniformly with the other restorable entities).
-import { RestoreModule } from '../common/services/restore.module';
 
 @Module({
   imports: [
@@ -105,6 +81,7 @@ import { RestoreModule } from '../common/services/restore.module';
       Equipment,
       EquipmentType,
       Feed,
+      FarmMobileCommandReceipt,
       GrowthMeasurement,
       HealthEvent,
       WorkOrder,
@@ -113,6 +90,7 @@ import { RestoreModule } from '../common/services/restore.module';
     FishHealthModule,
     BackdatePolicyModule,
     RestoreModule,
+    FarmStockModule,
     ConfigModule,
   ],
   controllers: [
@@ -122,12 +100,15 @@ import { RestoreModule } from '../common/services/restore.module';
   providers: [
     BatchService,
     BatchDomainService,
+    BatchLifecyclePolicyService,
+    MortalityCullPolicyService,
     SGRCalculatorService,
     BiomassCalculatorService,
     BatchCostCalculatorService,
     BatchDocumentDataLoader,  // REQUEST-scoped: one instance per GraphQL request
     BatchLocationDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.locations
     BatchFeedAssignmentDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.feedAssignments
+    MobileCommandReceiptService,
     ...BatchCommandHandlers,
     ...BatchQueryHandlers,
     ...BatchResolvers,

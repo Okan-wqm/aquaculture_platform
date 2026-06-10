@@ -10,6 +10,7 @@ from aria_kernel.genesis_policy import (
     OVERRIDE_RELPATH,
     POLICY_KEYS,
     default_policy,
+    genesis_lifecycle_policy,
     load_policy,
     merge_with_override,
 )
@@ -23,6 +24,7 @@ class GenesisPolicyTests(unittest.TestCase):
         self.assertEqual(policy["max_requests_per_cycle"], 5)
         self.assertEqual(policy["materialization_requires_acknowledge"], True)
         self.assertEqual(policy["fitness_staleness_threshold_days"], 7)
+        self.assertIn("genesis_lifecycle", policy)
 
     def test_load_policy_returns_defaults_when_override_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -81,7 +83,18 @@ class GenesisPolicyTests(unittest.TestCase):
         self.assertNotIn("_garbage", merged)
 
     def test_policy_keys_contract(self):
-        # Locked contract — adding/removing a known key requires explicit code review.
+        # Locked contract — adding/removing a known key requires
+        # explicit code review. Extended over the V3-V7 arc:
+        #   * V3 §B0 — cost_caps_usd (cost circuit breaker)
+        #   * V3 §B2 — circuit_breaker (failure breaker, primitive
+        #     added so override-merge stays forward-compatible)
+        #   * V6 §2d — convergent_authoring (loop config block:
+        #     max_authoring_rounds + sandbox_min_fixtures + recall_floor)
+        #   * V6 §2e — auto_promote (narrow auto-promotion exception
+        #     under autonomous-profile-only safe conditions)
+        #   * V7 §2h — skill_genesis_drainer (V7.4 drainer config:
+        #     enabled + max_authorings_per_cycle + max_tokens_per_cycle +
+        #     estimated_tokens_per_authoring). Closes V6 CONCERN #19.
         self.assertEqual(
             POLICY_KEYS,
             {
@@ -90,8 +103,21 @@ class GenesisPolicyTests(unittest.TestCase):
                 "max_requests_per_cycle",
                 "materialization_requires_acknowledge",
                 "fitness_staleness_threshold_days",
+                "cost_caps_usd",
+                "circuit_breaker",
+                "convergent_authoring",
+                "auto_promote",
+                "skill_genesis_drainer",
+                "genesis_lifecycle",
             },
         )
+
+    def test_genesis_lifecycle_policy_defaults(self):
+        policy = genesis_lifecycle_policy()
+        self.assertEqual(policy["pressure_min_score"], 70)
+        self.assertEqual(policy["shadow_min_clean_cycles"], 5)
+        self.assertEqual(policy["max_critical_false_positives"], 0)
+        self.assertTrue(policy["request_requires_signed_operator_feedback"])
 
 
 if __name__ == "__main__":

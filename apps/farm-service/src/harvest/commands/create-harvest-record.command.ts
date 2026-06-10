@@ -6,6 +6,8 @@
  *
  * @module Harvest/Commands
  */
+import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
+
 import { QualityGrade } from '../entities/harvest-record.entity';
 
 export interface CreateHarvestRecordInput {
@@ -34,5 +36,6 @@ export class CreateHarvestRecordCommand {
     public readonly tenantId: string,
     public readonly input: CreateHarvestRecordInput,
     public readonly recordedBy: string,
+    public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

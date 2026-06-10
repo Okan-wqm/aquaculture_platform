@@ -3,8 +3,8 @@
  *
  * INFRA-CRITICAL-009 lock:  this service must NEVER call dataSource.synchronize()
  * at runtime. Migrations are the SSoT (per CLAUDE.md). Verification:
- *   1. The service implements OnApplicationBootstrap (NOT OnModuleInit) — runs
- *      AFTER MigrationRunnerService instances complete.
+ *   1. The service implements OnApplicationBootstrap (NOT OnModuleInit) and
+ *      waits on any in-process MigrationRunnerService completion promise.
  *   2. The service throws on missing tables instead of falling back to
  *      synchronize. The legacy "log and continue" contract is reversed.
  *   3. No code path in the service calls dataSource.synchronize.
@@ -45,6 +45,8 @@ describe('SourceSchemaBootstrapService — INFRA-CRITICAL-009 contract', () => {
       // SHOW search_path
       mockDataSource.query
         .mockResolvedValueOnce([{ search_path: 'farm,public' }])
+        // strict-ownership orphan-table scan for the farm schema
+        .mockResolvedValueOnce([])
         // SELECT table_name from information_schema.tables (returns empty = empty schema)
         .mockResolvedValueOnce([]);
 

@@ -7,6 +7,8 @@ import {
   Matches,
 } from 'class-validator';
 
+import { PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_REGEX } from './password-policy';
+
 @InputType()
 export class AcceptInvitationInput {
   @Field()
@@ -17,10 +19,7 @@ export class AcceptInvitationInput {
   @IsString()
   @MinLength(8, { message: 'Password must be at least 8 characters' })
   @MaxLength(128)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,128}$/, {
-    message:
-      'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
-  })
+  @Matches(PASSWORD_POLICY_REGEX, { message: PASSWORD_POLICY_MESSAGE })
   password!: string;
 
   @Field(() => String, { nullable: true })

@@ -14,7 +14,8 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
+import { AuditLogModule } from '../audit/audit.module';
+
 import { ActivityLogController } from './controllers/activity-log.controller';
 import { AuditTrailController } from './controllers/audit-trail.controller';
 import { ComplianceController } from './controllers/compliance.controller';
@@ -31,18 +32,15 @@ import {
   ApiUsageLog,
   UserSession,
 } from './entities/security.entity';
-
-// Services
 import { ActivityLoggingService } from './services/activity-logging.service';
 import { AuditTrailService } from './services/audit-trail.service';
 import { ComplianceService } from './services/compliance.service';
 import { SecurityMonitoringService } from './services/security-monitoring.service';
 
-// Controllers
-
 @Module({
   imports: [
     ScheduleModule,
+    AuditLogModule,
     TypeOrmModule.forFeature([
       // Activity & Audit
       ActivityLog,
@@ -79,4 +77,6 @@ import { SecurityMonitoringService } from './services/security-monitoring.servic
     SecurityMonitoringService,
   ],
 })
-export class SecurityModule {}
+export class SecurityModule {
+  readonly moduleName = 'SecurityModule';
+}

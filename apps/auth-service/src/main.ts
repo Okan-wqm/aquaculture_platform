@@ -1,7 +1,9 @@
 // WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
 import 'reflect-metadata';
+
 import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
 import cookieParser from 'cookie-parser';
+
 import { AppModule } from './app.module';
 
 bootstrapService(AppModule, {
@@ -19,4 +21,10 @@ bootstrapService(AppModule, {
   // admin-api-service → raw SQL INSERT/UPDATE path against `auth.users`
   // (CRITICAL-001), making column drift structurally impossible.
   natsTransport: { queue: 'auth-service' },
+  secrets: [
+    'JWT_PRIVATE_KEY',
+    'PASSWORD_PEPPER',
+    'MFA_ENCRYPTION_KEY',
+    'SUPER_ADMIN_PASSWORD',
+  ],
 });

@@ -6,6 +6,25 @@ const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const ENCRYPTION_PREFIX_V1 = 'ENC_V1:';
 const ENCRYPTION_PREFIX_V2 = 'ENC_V2:';
 
+export interface EncryptionAadContext {
+  tenantId: string;
+  service: string;
+  key: string;
+  environment: string;
+  classification: string;
+  contextVersion?: number;
+}
+
+interface LegacyEncryptionPayload {
+  salt: string;
+  iv: string;
+  tag: string;
+  data: string;
+  aadTenantId?: string;
+  aadConfigKey?: string;
+  aadContext?: EncryptionAadContext;
+}
+
 /**
  * NIST SP 800-38D compliant AES-256-GCM encryption service.
  *
@@ -86,7 +105,11 @@ export class EncryptionService implements OnModuleInit {
    * @param configKey - Config key for AAD binding
    * @returns Prefixed string: ENC_V2:{base64_payload}
    */
-  encrypt(plaintext: string, tenantId?: string, configKey?: string): string {
+  encrypt(
+    plaintext: string,
+    contextOrTenantId?: EncryptionAadContext | string,
+    configKey?: string,
+  ): string {
     if (!this.available) {
       throw new Error('Encryption is not available - CONFIG_ENCRYPTION_KEY not configured');
     }
@@ -100,8 +123,8 @@ export class EncryptionService implements OnModuleInit {
     // PLAT-HIGH-002: 12-byte IV (96-bit) per NIST SP 800-38D
     const iv = crypto.randomBytes(12);
 
-    // PLAT-HIGH-003: AAD binding to tenant context
-    const aad = this.buildAad(tenantId, configKey);
+    const aadContext = this.normalizeContext(contextOrTenantId, configKey);
+    const aad = this.buildAad(aadContext);
 
     const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, derivedKey, iv);
     if (aad.length > 0) {
@@ -117,9 +140,9 @@ export class EncryptionService implements OnModuleInit {
       iv: iv.toString('hex'),
       tag: authTag.toString('hex'),
       data: encrypted,
-      // Store AAD components so decrypt can reconstruct without caller supplying them
-      aadTenantId: tenantId || '',
-      aadConfigKey: configKey || '',
+      aadTenantId: aadContext?.tenantId || '',
+      aadConfigKey: aadContext?.key || '',
+      aadContext,
     });
 
     return ENCRYPTION_PREFIX_V2 + Buffer.from(payload).toString('base64');
@@ -137,13 +160,20 @@ export class EncryptionService implements OnModuleInit {
    * @param tenantId - Optional: validate AAD tenant binding
    * @param configKey - Optional: validate AAD config key binding
    */
-  decrypt(encryptedValue: string, tenantId?: string, configKey?: string): string {
+  decrypt(
+    encryptedValue: string,
+    contextOrTenantId?: EncryptionAadContext | string,
+    configKey?: string,
+  ): string {
     if (!this.available) {
       throw new Error('Encryption is not available - CONFIG_ENCRYPTION_KEY not configured');
     }
 
     if (encryptedValue.startsWith(ENCRYPTION_PREFIX_V2)) {
-      return this.decryptV2(encryptedValue, tenantId, configKey);
+      return this.decryptV2(
+        encryptedValue,
+        this.normalizeContext(contextOrTenantId, configKey),
+      );
     }
 
     if (encryptedValue.startsWith(ENCRYPTION_PREFIX_V1)) {
@@ -155,23 +185,18 @@ export class EncryptionService implements OnModuleInit {
 
   // ── V2 Decrypt ────────────────────────────────────────────────────────
 
-  private decryptV2(encryptedValue: string, tenantId?: string, configKey?: string): string {
+  private decryptV2(
+    encryptedValue: string,
+    callerContext?: EncryptionAadContext,
+  ): string {
     try {
       const payloadBase64 = encryptedValue.slice(ENCRYPTION_PREFIX_V2.length);
-      const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+      const payload = JSON.parse(
+        Buffer.from(payloadBase64, 'base64').toString('utf8'),
+      ) as LegacyEncryptionPayload;
 
       // SECURITY: Validate AAD context if caller provides it
-      if (tenantId && payload.aadTenantId && tenantId !== payload.aadTenantId) {
-        throw new Error(
-          'AAD mismatch: ciphertext was encrypted for a different tenant. ' +
-          'This indicates a ciphertext relocation attack or data corruption.',
-        );
-      }
-      if (configKey && payload.aadConfigKey && configKey !== payload.aadConfigKey) {
-        throw new Error(
-          'AAD mismatch: ciphertext was encrypted for a different config key.',
-        );
-      }
+      this.validateAadContext(payload, callerContext);
 
       const salt = Buffer.from(payload.salt, 'hex');
       const iv = Buffer.from(payload.iv, 'hex');
@@ -180,8 +205,7 @@ export class EncryptionService implements OnModuleInit {
       // Derive key using stored salt
       const derivedKey = crypto.scryptSync(this.masterKey, salt, 32);
 
-      // Reconstruct AAD from stored values
-      const aad = this.buildAad(payload.aadTenantId, payload.aadConfigKey);
+      const aad = this.buildAad(this.payloadContext(payload));
 
       const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, derivedKey, iv);
       decipher.setAuthTag(authTag);
@@ -234,12 +258,67 @@ export class EncryptionService implements OnModuleInit {
    * Build Additional Authenticated Data buffer from tenant context.
    * AAD ensures ciphertext cannot be moved between tenants/keys without detection.
    */
-  private buildAad(tenantId?: string, configKey?: string): Buffer {
-    const aadString = `${tenantId || ''}:${configKey || ''}`;
-    // Only create non-empty AAD if at least one component is present
-    if (!tenantId && !configKey) {
+  private normalizeContext(
+    contextOrTenantId?: EncryptionAadContext | string,
+    configKey?: string,
+  ): EncryptionAadContext | undefined {
+    if (!contextOrTenantId) return undefined;
+    if (typeof contextOrTenantId !== 'string') {
+      return {
+        contextVersion: 2,
+        ...contextOrTenantId,
+      };
+    }
+    return {
+      contextVersion: 1,
+      tenantId: contextOrTenantId,
+      service: '',
+      key: configKey ?? '',
+      environment: '',
+      classification: '',
+    };
+  }
+
+  private payloadContext(payload: LegacyEncryptionPayload): EncryptionAadContext | undefined {
+    if (payload.aadContext) return payload.aadContext;
+    return this.normalizeContext(payload.aadTenantId, payload.aadConfigKey);
+  }
+
+  private validateAadContext(
+    payload: LegacyEncryptionPayload,
+    callerContext?: EncryptionAadContext,
+  ): void {
+    if (!callerContext) return;
+
+    const storedContext = this.payloadContext(payload);
+    if (!storedContext) return;
+
+    for (const key of ['tenantId', 'service', 'key', 'environment', 'classification'] as const) {
+      const expected = storedContext[key];
+      const actual = callerContext[key];
+      if (expected && actual && expected !== actual) {
+        throw new Error(
+          `AAD mismatch: ciphertext was encrypted for a different ${key}.`,
+        );
+      }
+    }
+  }
+
+  private buildAad(context?: EncryptionAadContext): Buffer {
+    if (!context) {
       return Buffer.alloc(0);
     }
+    if ((context.contextVersion ?? 1) === 1) {
+      return Buffer.from(`${context.tenantId || ''}:${context.key || ''}`, 'utf8');
+    }
+    const aadString = [
+      context.contextVersion ?? 1,
+      context.tenantId || '',
+      context.service || '',
+      context.key || '',
+      context.environment || '',
+      context.classification || '',
+    ].join(':');
     return Buffer.from(aadString, 'utf8');
   }
 }

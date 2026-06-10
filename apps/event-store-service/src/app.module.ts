@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
@@ -10,7 +10,7 @@ import {
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
-import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { LoggingModule, RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
 import { EventStoreModule } from './event-store/event-store.module';
 import { ProjectionsModule } from './projections/projections.module';
@@ -60,14 +60,12 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     HealthModule,
     /**
      * SECURITY (HIGH-004): Tenant RLS on event-store projections.
-     * stored_events and projection tables carry tenant_id; autoApply runs
-     * the helper at OnApplicationBootstrap so policies are idempotently
-     * installed on every cold start.
+     * Policy DDL is migration-owned and applied by aqua-db-migrate. Runtime
+     * wiring here only syncs AsyncLocalStorage tenant context into the
+     * PostgreSQL session.
      */
     RlsModule.forPoolService({
       serviceName: 'event-store',
-      autoApply: true,
-      excludeTables: ['stored_events', 'projection_checkpoint'],
     }),
     /**
      * ADR-012: runtime schema-drift validator. Schema owner is `event_store`;
@@ -94,4 +92,8 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RequestContextMiddleware).forRoutes('*');
+  }
+}

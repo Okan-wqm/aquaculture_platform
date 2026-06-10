@@ -53,7 +53,12 @@ export class DeleteConfigurationHandler
 
       await queryRunner.commitTransaction();
 
-      this.configurationService.invalidateCache(tenantId, configuration.service, configuration.key);
+      this.configurationService.invalidateCache(
+        tenantId,
+        configuration.service,
+        configuration.key,
+        configuration.environment,
+      );
 
       return true;
     } catch (error) {

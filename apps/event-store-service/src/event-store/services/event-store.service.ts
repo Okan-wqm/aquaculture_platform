@@ -6,7 +6,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, MoreThan, FindOptionsWhere } from 'typeorm';
+import { createHash } from 'node:crypto';
+import { Repository, DataSource, MoreThan, FindOptionsWhere, QueryRunner } from 'typeorm';
 import { StoredEvent } from '../entities/stored-event.entity';
 import { EventStream } from '../entities/event-stream.entity';
 import { Snapshot } from '../entities/snapshot.entity';
@@ -25,6 +26,32 @@ import {
 const ALLOWED_SORT_FIELDS = new Set(['occurredAt', 'storedAt', 'globalPosition']);
 const AGGREGATE_TYPE_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
 const MAX_LOAD_AGGREGATE_EVENTS = 1000;
+const MAX_APPEND_EVENTS = 100;
+const MAX_PAYLOAD_BYTES = 256 * 1024;
+const MAX_METADATA_BYTES = 64 * 1024;
+const MAX_JSON_DEPTH = 32;
+
+interface AppendIdempotencyOptions {
+  producer?: string;
+  idempotencyKey?: string;
+}
+
+function stableJson(value: unknown): string {
+  if (value instanceof Date) {
+    return JSON.stringify(value.toISOString());
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort((a, b) => a.localeCompare(b))
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
 
 @Injectable()
 export class EventStoreService {
@@ -51,18 +78,34 @@ export class EventStoreService {
     aggregateId: string,
     events: DomainEvent[],
     expectedVersion: number,
+    idempotency: AppendIdempotencyOptions = {},
   ): Promise<AppendResult> {
     this.validateAggregateType(aggregateType);
-    if (events.length === 0) {
-      throw new BadRequestException('appendToStream requires at least one event');
-    }
+    this.validateAppendBatch(events, idempotency);
     const streamName = this.buildStreamName(aggregateType, aggregateId);
+    const requestHash = this.appendRequestHash(
+      tenantId,
+      streamName,
+      expectedVersion,
+      events,
+    );
     const queryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      const replay = await this.reserveAppendIdempotency(
+        queryRunner,
+        tenantId,
+        idempotency,
+        requestHash,
+      );
+      if (replay) {
+        await queryRunner.commitTransaction();
+        return replay;
+      }
+
       // Get or create stream with lock
       let stream = await queryRunner.manager.findOne(EventStream, {
         where: { streamName, tenantId },
@@ -99,14 +142,9 @@ export class EventStoreService {
       const globalPositions: number[] = [];
       let newVersion = currentVersion;
 
-      // Use PostgreSQL sequence for atomic global position assignment
-      const positionResults = await queryRunner.manager.query(
-        `SELECT nextval('"event_store"."stored_events_global_position_seq"') as pos FROM generate_series(1, $1)`,
-        [events.length],
-      );
-
-      const positions: number[] = positionResults.map((r: { pos: string }) =>
-        parseInt(r.pos, 10),
+      const positions = await this.allocateCommitSafeGlobalPositions(
+        queryRunner,
+        events.length,
       );
 
       // Build all events for bulk insert
@@ -117,6 +155,8 @@ export class EventStoreService {
         const globalPosition = positions[i]!;
 
         storedEvents.push({
+          producer: idempotency.producer ?? null,
+          producerEventId: event.producerEventId ?? null,
           streamName,
           globalPosition,
           streamPosition: newVersion,
@@ -149,19 +189,29 @@ export class EventStoreService {
       stream.lastEventAt = new Date();
       await queryRunner.manager.save(stream);
 
-      await queryRunner.commitTransaction();
-
-      this.logger.log(
-        `Appended ${events.length} events to stream ${streamName}, new version: ${newVersion}`,
-      );
-
-      return {
+      const appendResult = {
         success: true,
         streamName,
         newVersion,
         eventIds,
         globalPositions,
       };
+
+      await this.completeAppendIdempotency(
+        queryRunner,
+        tenantId,
+        idempotency,
+        requestHash,
+        appendResult,
+      );
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `Appended ${events.length} events to stream ${streamName}, new version: ${newVersion}`,
+      );
+
+      return appendResult;
     } catch (error) {
       await queryRunner.rollbackTransaction();
 
@@ -388,15 +438,33 @@ export class EventStoreService {
       );
     }
 
-    // Atomic upsert instead of delete+insert
-    // TypeORM's QueryDeepPartialEntity doesn't handle Record<string, unknown> for JSONB columns
-    const upsertData = { aggregateType, aggregateId, tenantId, version, state, schemaVersion };
-    await this.snapshotRepository.upsert(
-      upsertData as Parameters<typeof this.snapshotRepository.upsert>[0],
-      {
-        conflictPaths: ['aggregateType', 'aggregateId', 'tenantId'],
-      },
-    );
+    const currentSnapshot = await this.snapshotRepository.findOne({
+      where: { aggregateType, aggregateId, tenantId },
+    });
+
+    if (currentSnapshot && version < currentSnapshot.version) {
+      throw new ConflictException(
+        `Snapshot version ${version} is older than current snapshot version ${currentSnapshot.version}`,
+      );
+    }
+
+    if (currentSnapshot) {
+      currentSnapshot.version = version;
+      currentSnapshot.state = state;
+      currentSnapshot.schemaVersion = schemaVersion;
+      await this.snapshotRepository.save(currentSnapshot);
+    } else {
+      await this.snapshotRepository.save(
+        this.snapshotRepository.create({
+          aggregateType,
+          aggregateId,
+          tenantId,
+          version,
+          state,
+          schemaVersion,
+        }),
+      );
+    }
 
     const snapshot = await this.snapshotRepository.findOneOrFail({
       where: { aggregateType, aggregateId, tenantId },
@@ -455,10 +523,10 @@ export class EventStoreService {
       maxCount: MAX_LOAD_AGGREGATE_EVENTS,
     });
 
-    if (slice.events.length === MAX_LOAD_AGGREGATE_EVENTS) {
-      this.logger.warn(
-        `loadAggregate for ${aggregateType}/${aggregateId} hit the ${MAX_LOAD_AGGREGATE_EVENTS} event ceiling. ` +
-          `Consider creating a snapshot to reduce replay size.`,
+    if (!slice.isEndOfStream) {
+      throw new BadRequestException(
+        `loadAggregate for ${aggregateType}/${aggregateId} is incomplete after ` +
+          `${MAX_LOAD_AGGREGATE_EVENTS} events. Create a newer snapshot or use a paginated replay API.`,
       );
     }
 
@@ -656,6 +724,206 @@ export class EventStoreService {
     };
   }
 
+  private validateAppendBatch(
+    events: DomainEvent[],
+    idempotency: AppendIdempotencyOptions,
+  ): void {
+    if (events.length === 0) {
+      throw new BadRequestException('appendToStream requires at least one event');
+    }
+    if (events.length > MAX_APPEND_EVENTS) {
+      throw new BadRequestException(
+        `appendToStream accepts at most ${MAX_APPEND_EVENTS} events per request`,
+      );
+    }
+
+    const hasProducer = !!idempotency.producer;
+    for (const event of events) {
+      if (hasProducer && !event.producerEventId) {
+        throw new BadRequestException(
+          'producerEventId is required for every event when producer is provided',
+        );
+      }
+      if (!hasProducer && event.producerEventId) {
+        throw new BadRequestException(
+          'producerEventId requires producer on the append request',
+        );
+      }
+      this.validateJsonPayload('payload', event.payload, MAX_PAYLOAD_BYTES);
+      if (event.metadata) {
+        this.validateJsonPayload('metadata', event.metadata, MAX_METADATA_BYTES);
+      }
+    }
+  }
+
+  private validateJsonPayload(
+    label: string,
+    value: Record<string, unknown>,
+    maxBytes: number,
+  ): void {
+    const encoded = JSON.stringify(value);
+    if (Buffer.byteLength(encoded, 'utf8') > maxBytes) {
+      throw new BadRequestException(`${label} exceeds ${maxBytes} bytes`);
+    }
+    if (this.jsonDepth(value) > MAX_JSON_DEPTH) {
+      throw new BadRequestException(
+        `${label} exceeds maximum JSON depth ${MAX_JSON_DEPTH}`,
+      );
+    }
+  }
+
+  private jsonDepth(value: unknown): number {
+    if (value === null || typeof value !== 'object') return 0;
+    if (Array.isArray(value)) {
+      return 1 + Math.max(0, ...value.map((item) => this.jsonDepth(item)));
+    }
+    return (
+      1 +
+      Math.max(
+        0,
+        ...Object.values(value as Record<string, unknown>).map((item) =>
+          this.jsonDepth(item),
+        ),
+      )
+    );
+  }
+
+  private appendRequestHash(
+    tenantId: string,
+    streamName: string,
+    expectedVersion: number,
+    events: DomainEvent[],
+  ): string {
+    return createHash('sha256')
+      .update(stableJson({ tenantId, streamName, expectedVersion, events }))
+      .digest('hex');
+  }
+
+  private async reserveAppendIdempotency(
+    queryRunner: QueryRunner,
+    tenantId: string,
+    idempotency: AppendIdempotencyOptions,
+    requestHash: string,
+  ): Promise<AppendResult | null> {
+    const { producer, idempotencyKey } = idempotency;
+    if (!producer && !idempotencyKey) return null;
+    if (!producer || !idempotencyKey) {
+      throw new BadRequestException(
+        'producer and idempotencyKey must be provided together',
+      );
+    }
+
+    const inserted = await queryRunner.manager.query(
+      `
+        INSERT INTO "event_store"."append_idempotency"
+          ("tenantId", "producer", "idempotencyKey", "requestHash", "status")
+        VALUES ($1, $2, $3, $4, 'started')
+        ON CONFLICT ("tenantId", "producer", "idempotencyKey") DO NOTHING
+        RETURNING "id"
+      `,
+      [tenantId, producer, idempotencyKey, requestHash],
+    );
+
+    if (inserted.length > 0) return null;
+
+    const rows = await queryRunner.manager.query(
+      `
+        SELECT "requestHash", "status", "result"
+        FROM "event_store"."append_idempotency"
+        WHERE "tenantId" = $1
+          AND "producer" = $2
+          AND "idempotencyKey" = $3
+        FOR UPDATE
+      `,
+      [tenantId, producer, idempotencyKey],
+    );
+    const row = rows[0] as
+      | { requestHash: string; status: string; result: AppendResult | null }
+      | undefined;
+
+    if (!row) {
+      throw new ConflictException('Idempotency reservation disappeared');
+    }
+    if (row.requestHash !== requestHash) {
+      throw new ConflictException(
+        'Idempotency key was reused with a different append request',
+      );
+    }
+    if (row.status === 'completed' && row.result) {
+      return row.result;
+    }
+
+    throw new ConflictException(
+      'Idempotent append request is already in progress',
+    );
+  }
+
+  private async completeAppendIdempotency(
+    queryRunner: QueryRunner,
+    tenantId: string,
+    idempotency: AppendIdempotencyOptions,
+    requestHash: string,
+    result: AppendResult,
+  ): Promise<void> {
+    if (!idempotency.producer || !idempotency.idempotencyKey) return;
+
+    await queryRunner.manager.query(
+      `
+        UPDATE "event_store"."append_idempotency"
+        SET "status" = 'completed',
+            "result" = $5::jsonb,
+            "updatedAt" = now()
+        WHERE "tenantId" = $1
+          AND "producer" = $2
+          AND "idempotencyKey" = $3
+          AND "requestHash" = $4
+      `,
+      [
+        tenantId,
+        idempotency.producer,
+        idempotency.idempotencyKey,
+        requestHash,
+        JSON.stringify(result),
+      ],
+    );
+  }
+
+  private async allocateCommitSafeGlobalPositions(
+    queryRunner: QueryRunner,
+    count: number,
+  ): Promise<number[]> {
+    await queryRunner.manager.query(
+      `
+        INSERT INTO "event_store"."ledger_cursors" ("name", "nextPosition")
+        VALUES ('global', COALESCE((SELECT max("globalPosition") FROM "event_store"."stored_events"), 0))
+        ON CONFLICT ("name") DO NOTHING
+      `,
+    );
+
+    const rows = await queryRunner.manager.query(
+      `
+        SELECT "nextPosition"
+        FROM "event_store"."ledger_cursors"
+        WHERE "name" = 'global'
+        FOR UPDATE
+      `,
+    );
+    const current = Number(rows[0]?.nextPosition ?? 0);
+    const next = current + count;
+
+    await queryRunner.manager.query(
+      `
+        UPDATE "event_store"."ledger_cursors"
+        SET "nextPosition" = $1,
+            "updatedAt" = now()
+        WHERE "name" = 'global'
+      `,
+      [next],
+    );
+
+    return Array.from({ length: count }, (_, index) => current + index + 1);
+  }
+
   /**
    * Validate aggregate type against an allowlist pattern
    */
@@ -680,6 +948,8 @@ export class EventStoreService {
   private toPersistedEvent(event: StoredEvent): PersistedEvent {
     return {
       id: event.id,
+      producer: event.producer ?? undefined,
+      producerEventId: event.producerEventId ?? undefined,
       streamName: event.streamName,
       globalPosition: event.globalPosition,
       streamPosition: event.streamPosition,

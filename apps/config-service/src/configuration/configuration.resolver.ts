@@ -11,8 +11,8 @@ import {
 } from '@nestjs/graphql';
 import {
   UnauthorizedException,
-  ForbiddenException,
 } from '@nestjs/common';
+import { RequireTenantPermission } from '@aquaculture/backend-common/decorators';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import {
   Configuration,
@@ -40,6 +40,7 @@ import {
 
 interface GraphQLContext {
   req: {
+    tenantId?: string;
     user?: {
       sub: string;
       tenantId: string;
@@ -56,13 +57,12 @@ export class ConfigurationResolver {
   ) {}
 
   /**
-   * Extract tenant ID exclusively from verified JWT payload.
-   * SECURITY: Never fall back to headers - JWT is the only trusted source.
+   * Extract tenant ID from the canonical guard-resolved request field.
    */
   private getTenantId(context: GraphQLContext): string {
-    const tenantId = context.req.user?.tenantId;
+    const tenantId = context.req.tenantId ?? context.req.user?.tenantId;
     if (!tenantId) {
-      throw new UnauthorizedException('Authentication required - tenant ID must come from JWT');
+      throw new UnauthorizedException('Authentication required - tenant ID must be guard-resolved');
     }
     return tenantId;
   }
@@ -80,16 +80,6 @@ export class ConfigurationResolver {
   }
 
   /**
-   * Check admin access from verified JWT roles.
-   */
-  private checkAdminAccess(context: GraphQLContext): void {
-    const roles = context.req.user?.roles ?? [];
-    if (!roles.includes('admin') && !roles.includes('platform_admin') && !roles.includes('SUPER_ADMIN')) {
-      throw new ForbiddenException('Admin access required for this operation');
-    }
-  }
-
-  /**
    * Mask secret values in GraphQL responses.
    * SECURITY: Never expose encrypted blobs or plaintext secrets.
    */
@@ -104,6 +94,7 @@ export class ConfigurationResolver {
   // ─── Queries ──────────────────────────────────────────────────
 
   @Query(() => Configuration, { name: 'configuration' })
+  @RequireTenantPermission('config:read')
   async getConfiguration(
     @Args('service') service: string,
     @Args('key') key: string,
@@ -118,6 +109,7 @@ export class ConfigurationResolver {
   }
 
   @Query(() => Configuration, { name: 'configurationById' })
+  @RequireTenantPermission('config:read')
   async getConfigurationById(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -127,6 +119,7 @@ export class ConfigurationResolver {
   }
 
   @Query(() => [Configuration], { name: 'configurations' })
+  @RequireTenantPermission('config:read')
   async getConfigurations(
     @Args('filter', { nullable: true }) filter: ConfigurationFilterInput,
     @Context() context: GraphQLContext,
@@ -136,6 +129,7 @@ export class ConfigurationResolver {
   }
 
   @Query(() => [Configuration], { name: 'configurationsByService' })
+  @RequireTenantPermission('config:read')
   async getConfigurationsByService(
     @Args('service') service: string,
     @Args('environment', { type: () => ConfigEnvironment, nullable: true })
@@ -149,13 +143,13 @@ export class ConfigurationResolver {
   }
 
   @Query(() => [ConfigurationHistory], { name: 'configurationHistory' })
+  @RequireTenantPermission('config:read')
   async getConfigurationHistory(
     @Args('configurationId', { type: () => ID }) configurationId: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 50 }) limit: number,
     @Context() context: GraphQLContext,
   ): Promise<ConfigurationHistory[]> {
     const tenantId = this.getTenantId(context);
-    this.checkAdminAccess(context);
     // Cap limit to prevent abuse
     const cappedLimit = Math.min(Math.max(limit, 1), 500);
     return this.queryBus.execute(
@@ -166,13 +160,13 @@ export class ConfigurationResolver {
   // ─── Mutations ────────────────────────────────────────────────
 
   @Mutation(() => Configuration)
+  @RequireTenantPermission('config:write')
   async createConfiguration(
     @Args('input') input: CreateConfigurationInput,
     @Context() context: GraphQLContext,
   ): Promise<Configuration> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    this.checkAdminAccess(context);
 
     return this.commandBus.execute(
       new CreateConfigurationCommand(tenantId, input, userId),
@@ -180,13 +174,13 @@ export class ConfigurationResolver {
   }
 
   @Mutation(() => Configuration)
+  @RequireTenantPermission('config:write')
   async updateConfiguration(
     @Args('input') input: UpdateConfigurationInput,
     @Context() context: GraphQLContext,
   ): Promise<Configuration> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    this.checkAdminAccess(context);
 
     return this.commandBus.execute(
       new UpdateConfigurationCommand(tenantId, input, userId),
@@ -194,6 +188,7 @@ export class ConfigurationResolver {
   }
 
   @Mutation(() => Boolean)
+  @RequireTenantPermission('config:delete')
   async deleteConfiguration(
     @Args('id', { type: () => ID }) id: string,
     @Args('hardDelete', { defaultValue: false }) hardDelete: boolean,
@@ -201,7 +196,6 @@ export class ConfigurationResolver {
   ): Promise<boolean> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    this.checkAdminAccess(context);
 
     return this.commandBus.execute(
       new DeleteConfigurationCommand(tenantId, id, userId, hardDelete),
@@ -212,6 +206,7 @@ export class ConfigurationResolver {
    * Atomic upsert - uses INSERT ... ON CONFLICT DO UPDATE under the hood.
    */
   @Mutation(() => Configuration)
+  @RequireTenantPermission('config:write')
   async setConfiguration(
     @Args('service') service: string,
     @Args('key') key: string,
@@ -228,7 +223,6 @@ export class ConfigurationResolver {
   ): Promise<Configuration> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    this.checkAdminAccess(context);
 
     return this.commandBus.execute(
       new UpsertConfigurationCommand(tenantId, service, key, value, environment, userId, isSecret, reason),

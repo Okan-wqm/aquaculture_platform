@@ -374,7 +374,7 @@ jobs:
           # NOT a subgraph (gateway federation / CORS unaffected). Listed
           # first so the deploy workflow's selective-deploy logic pulls
           # the latest migration image before restarting service containers.
-          ALL_BACKEND=(db-migrate gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service)
+          ALL_BACKEND=(db-migrate gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service event-store-service messaging-service)
           ALL_FRONTEND=(shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil)
           ALL_INFRA_IMAGES=(mosquitto)
           NX_FRONTEND=(shell dashboard farm-module admin-panel tenant-admin)

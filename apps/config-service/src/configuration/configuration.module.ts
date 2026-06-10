@@ -11,6 +11,7 @@ import { ConfigurationResolver } from './configuration.resolver';
 import { ConfigurationService } from './services/configuration.service';
 import { EncryptionService } from './services/encryption.service';
 import { ConfigurationValidationService } from './services/configuration-validation.service';
+import { ConfigurationResolutionService } from './services/configuration-resolution.service';
 
 // Command Handlers
 import { CreateConfigurationHandler } from './handlers/create-configuration.handler';
@@ -50,6 +51,7 @@ const QueryHandlers = [
   ],
   providers: [
     ConfigurationResolver,
+    ConfigurationResolutionService,
     ConfigurationService,
     EncryptionService,
     ConfigurationValidationService,

@@ -32,7 +32,7 @@ IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
 TAG="${TAG:-${DEPLOY_SHA:-}}"
 export TAG
 GATEWAY_IMAGE_REF="${IMAGE_PREFIX}/gateway-api:latest"
-APPLICATION_IMAGE_SERVICES="db-migrate mosquitto gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil"
+APPLICATION_IMAGE_SERVICES="db-migrate mosquitto gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service event-store-service messaging-service shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil"
 DEPLOY_RELEASE_ID="${DEPLOY_RELEASE_ID:-${DEPLOY_SHA:-unknown}-$(date -u +%Y%m%dT%H%M%SZ)}"
 export DEPLOY_RELEASE_ID
 DEPLOY_STATE_ROOT="${DEPLOY_STATE_ROOT:-/var/lib/aqua/deploy/releases}"
@@ -650,6 +650,7 @@ run_readiness_sweep() {
     "auth-service:3000" \
     "farm-service:3000" \
     "sensor-service:3000" \
+    "event-store-service:3000" \
     "messaging-service:3000"; do
     local svc="${spec%%:*}"
     local port="${spec##*:}"
@@ -1204,7 +1205,7 @@ else
   # ARCH-GW-006: Force gateway schema recomposition when backend services change.
   # Only restart gateway when a backend subgraph service was deployed, since
   # frontend-only deploys don't affect the supergraph schema.
-  BACKEND_PATTERN="gateway-api|auth-service|farm-service|sensor-service|alert-engine|billing-service|hr-service|hydroponics-service|notification-service|config-service|messaging-service"
+  BACKEND_PATTERN="gateway-api|auth-service|farm-service|sensor-service|alert-engine|billing-service|hr-service|hydroponics-service|notification-service|config-service|event-store-service|messaging-service"
   if echo "${DEPLOY_SERVICES}" | grep -qE "${BACKEND_PATTERN}"; then
     echo "=== Backend subgraph changed — restarting gateway for schema recomposition ==="
     docker compose -f docker-compose.droplet.yml restart gateway-api 2>&1

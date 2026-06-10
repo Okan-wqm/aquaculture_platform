@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere } from 'typeorm';
+import { Repository } from 'typeorm';
 import {
   GetConfigurationsQuery,
   GetConfigurationsByServiceQuery,
@@ -12,6 +12,7 @@ import {
   ConfigurationHistory,
   ConfigEnvironment,
 } from '../entities/configuration.entity';
+import { ConfigurationService } from '../services/configuration.service';
 
 @Injectable()
 @QueryHandler(GetConfigurationsQuery)
@@ -77,53 +78,16 @@ export class GetConfigurationsHandler
 export class GetConfigurationsByServiceHandler
   implements IQueryHandler<GetConfigurationsByServiceQuery, Configuration[]>
 {
-  constructor(
-    @InjectRepository(Configuration)
-    private readonly configRepository: Repository<Configuration>,
-  ) {}
+  constructor(private readonly configurationService: ConfigurationService) {}
 
   async execute(query: GetConfigurationsByServiceQuery): Promise<Configuration[]> {
     const { tenantId, service, environment } = query;
 
-    const where: FindOptionsWhere<Configuration>[] = [
-      {
-        tenantId,
-        service,
-        isActive: true,
-        ...(environment && { environment: environment as ConfigEnvironment }),
-      },
-    ];
-
-    // Also include global configs
-    if (tenantId !== 'global') {
-      where.push({
-        tenantId: 'global',
-        service,
-        isActive: true,
-        ...(environment && { environment: environment as ConfigEnvironment }),
-      });
-    }
-
-    const configurations = await this.configRepository.find({
-      where,
-      order: { key: 'ASC' },
-      take: 500,
-    });
-
-    // Merge: tenant-specific overrides global
-    const configMap = new Map<string, Configuration>();
-
-    // First add global configs
-    configurations
-      .filter((c) => c.tenantId === 'global')
-      .forEach((c) => configMap.set(`${c.key}-${c.environment}`, c));
-
-    // Then override with tenant-specific
-    configurations
-      .filter((c) => c.tenantId !== 'global')
-      .forEach((c) => configMap.set(`${c.key}-${c.environment}`, c));
-
-    return Array.from(configMap.values());
+    return this.configurationService.resolveConfigurationsByService(
+      tenantId,
+      service,
+      (environment as ConfigEnvironment) || ConfigEnvironment.ALL,
+    );
   }
 }
 

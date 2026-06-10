@@ -12,6 +12,7 @@ import {
   IsDateString,
   IsArray,
   ArrayMinSize,
+  ArrayMaxSize,
   ValidateNested,
   registerDecorator,
   ValidationOptions,
@@ -30,6 +31,7 @@ const OCCURRED_AT_MAX_PAST_DAYS = 30;
  * A small tolerance accommodates legitimate clock skew between services.
  */
 const OCCURRED_AT_MAX_FUTURE_MINUTES = 5;
+export const MAX_APPEND_EVENTS = 100;
 
 /**
  * Custom validator that rejects occurredAt timestamps outside a safe window:
@@ -72,6 +74,10 @@ function IsOccurredAtWithinBounds(validationOptions?: ValidationOptions) {
  * DTO for appending a single event to a stream
  */
 export class AppendEventDto {
+  @IsOptional()
+  @IsUUID()
+  producerEventId?: string;
+
   @IsString()
   @MaxLength(255)
   @IsNotEmpty()
@@ -128,8 +134,19 @@ export class AppendEventsDto {
   @Min(-1)
   expectedVersion!: number; // -1 for any, 0 for new stream
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  producer?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  idempotencyKey?: string;
+
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_APPEND_EVENTS)
   @ValidateNested({ each: true })
   @Type(() => AppendEventDto)
   events!: AppendEventDto[];

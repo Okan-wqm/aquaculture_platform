@@ -2,6 +2,7 @@
  * Domain event interface
  */
 export interface DomainEvent {
+  producerEventId?: string;
   eventType: string;
   payload: Record<string, unknown>;
   metadata?: Record<string, unknown>;
@@ -17,6 +18,7 @@ export interface DomainEvent {
  */
 export interface PersistedEvent extends DomainEvent {
   id: string;
+  producer?: string;
   streamName: string;
   globalPosition: number;
   streamPosition: number;

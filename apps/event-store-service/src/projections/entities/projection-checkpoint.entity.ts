@@ -45,6 +45,9 @@ export class ProjectionCheckpoint {
   @Column({ type: 'bigint', default: 0, transformer: new BigIntTransformer() })
   position!: number;
 
+  @Column({ type: 'int', default: 1 })
+  generation!: number;
+
   /**
    * Current status of the projection
    */
@@ -60,6 +63,18 @@ export class ProjectionCheckpoint {
    */
   @Column({ type: 'uuid' })
   tenantId!: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  leaseOwner?: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  leaseToken?: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  leaseExpiresAt?: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  heartbeatAt?: Date | null;
 
   /**
    * Consumer group for shared subscriptions

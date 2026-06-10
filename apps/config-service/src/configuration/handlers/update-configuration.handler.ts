@@ -8,7 +8,11 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { UpdateConfigurationCommand } from '../commands/update-configuration.command';
-import { Configuration, ConfigurationHistory } from '../entities/configuration.entity';
+import {
+  Configuration,
+  ConfigurationHistory,
+  ConfigValueType,
+} from '../entities/configuration.entity';
 import { ConfigurationService } from '../services/configuration.service';
 import { ConfigurationValidationService } from '../services/configuration-validation.service';
 import { EncryptionService } from '../services/encryption.service';
@@ -48,23 +52,61 @@ export class UpdateConfigurationHandler
       }
 
       const previousValue = configuration.value;
+      const previousService = configuration.service;
+      const previousKey = configuration.key;
+      const previousEnvironment = configuration.environment;
+      const explicitlySecret = input.valueType === ConfigValueType.SECRET;
+      const explicitlyNonSecret =
+        input.valueType !== undefined && input.valueType !== ConfigValueType.SECRET;
+      const nextIsSecret = explicitlySecret
+        ? true
+        : explicitlyNonSecret
+          ? false
+          : configuration.isSecret;
+      const nextValueType = nextIsSecret
+        ? ConfigValueType.SECRET
+        : input.valueType ??
+          (configuration.valueType === ConfigValueType.SECRET
+            ? ConfigValueType.STRING
+            : configuration.valueType);
       const valueChanged = input.value !== undefined && input.value !== previousValue;
 
       if (input.value !== undefined) {
-        const valueType = input.valueType || configuration.valueType;
-        this.validationService.validateValue(input.value, valueType);
+        this.validationService.validateValue(input.value, nextValueType);
       }
 
-      // Encrypt new value if this is a secret config
-      // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
       if (input.value !== undefined) {
-        if (configuration.isSecret && this.encryptionService.isAvailable()) {
-          configuration.value = this.encryptionService.encrypt(input.value, configuration.tenantId, configuration.key);
+        if (nextIsSecret && this.encryptionService.isAvailable()) {
+          configuration.value = this.encryptionService.encrypt(input.value, {
+            tenantId: configuration.tenantId,
+            service: configuration.service,
+            key: configuration.key,
+            environment: input.environment ?? configuration.environment,
+            classification: nextValueType,
+          });
         } else {
           configuration.value = input.value;
         }
+      } else if (nextIsSecret && this.encryptionService.isAvailable()) {
+        const plaintext = this.encryptionService.isEncrypted(configuration.value)
+          ? this.encryptionService.decrypt(configuration.value, {
+              tenantId: configuration.tenantId,
+              service: configuration.service,
+              key: configuration.key,
+              environment: configuration.environment,
+              classification: configuration.valueType,
+            })
+          : configuration.value;
+        configuration.value = this.encryptionService.encrypt(plaintext, {
+          tenantId: configuration.tenantId,
+          service: configuration.service,
+          key: configuration.key,
+          environment: input.environment ?? configuration.environment,
+          classification: nextValueType,
+        });
       }
-      if (input.valueType !== undefined) configuration.valueType = input.valueType;
+      configuration.valueType = nextValueType;
+      configuration.isSecret = nextIsSecret;
       if (input.environment !== undefined) configuration.environment = input.environment;
       if (input.description !== undefined) configuration.description = input.description;
       if (input.isActive !== undefined) configuration.isActive = input.isActive;
@@ -86,8 +128,8 @@ export class UpdateConfigurationHandler
           tenantId,
           service: configuration.service,
           key: configuration.key,
-          previousValue: configuration.isSecret ? '[REDACTED]' : previousValue,
-          newValue: configuration.isSecret ? '[REDACTED]' : input.value!,
+          previousValue: nextIsSecret ? '[REDACTED]' : previousValue,
+          newValue: nextIsSecret ? '[REDACTED]' : input.value!,
           changedBy: userId,
           changedAt: new Date(),
           changeReason: input.changeReason,
@@ -98,7 +140,24 @@ export class UpdateConfigurationHandler
 
       await queryRunner.commitTransaction();
 
-      this.configurationService.invalidateCache(tenantId, savedConfig.service, savedConfig.key);
+      this.configurationService.invalidateCache(
+        tenantId,
+        savedConfig.service,
+        savedConfig.key,
+        savedConfig.environment,
+      );
+      if (
+        previousService !== savedConfig.service ||
+        previousKey !== savedConfig.key ||
+        previousEnvironment !== savedConfig.environment
+      ) {
+        this.configurationService.invalidateCache(
+          tenantId,
+          previousService,
+          previousKey,
+          previousEnvironment,
+        );
+      }
 
       this.logger.log(
         `Configuration updated: ${savedConfig.id} (${configuration.service}/${configuration.key})`,

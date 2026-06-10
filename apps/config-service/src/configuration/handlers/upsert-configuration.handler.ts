@@ -4,8 +4,8 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { DataSource } from 'typeorm';
-import { TenantScopedRepository } from '@aquaculture/backend-common/database';
+import { DataSource, QueryRunner } from 'typeorm';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { UpsertConfigurationCommand } from '../commands/upsert-configuration.command';
 import { Configuration, ConfigurationHistory, ConfigValueType } from '../entities/configuration.entity';
 import { ConfigurationService } from '../services/configuration.service';
@@ -26,24 +26,35 @@ export class UpsertConfigurationHandler
 
   async execute(command: UpsertConfigurationCommand): Promise<Configuration> {
     const { tenantId, service, key, value, environment, userId, isSecret } = command;
+    const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
+    await queryRunner.connect();
+    await queryRunner.startTransaction('READ COMMITTED');
     try {
-      const repo = TenantScopedRepository.create(this.dataSource, Configuration, tenantId);
+      const repo = tenantManagerRepo(queryRunner.manager, Configuration, tenantId);
+      const historyRepo = tenantManagerRepo(
+        queryRunner.manager,
+        ConfigurationHistory,
+        tenantId,
+      );
 
-      // Fetch existing config before upsert (for history tracking)
       const existingConfig = await repo.findOne({
         where: { tenantId, service, key, environment },
       });
 
-      // Encrypt secret values before storing
-      // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
+      const valueType = isSecret ? ConfigValueType.SECRET : ConfigValueType.STRING;
       let valueToStore = value;
       if (isSecret && this.encryptionService.isAvailable()) {
-        valueToStore = this.encryptionService.encrypt(value, tenantId, key);
+        valueToStore = this.encryptionService.encrypt(value, {
+          tenantId,
+          service,
+          key,
+          environment,
+          classification: valueType,
+        });
       }
 
-      // Atomic upsert using INSERT ... ON CONFLICT DO UPDATE
-      const result = await repo
+      await repo
         .createQueryBuilder()
         .insert()
         .into(Configuration)
@@ -53,75 +64,66 @@ export class UpsertConfigurationHandler
           key,
           value: valueToStore,
           environment,
-          valueType: isSecret ? ConfigValueType.SECRET : ConfigValueType.STRING,
+          valueType,
           isSecret,
           isActive: true,
           createdBy: userId,
           updatedBy: userId,
         })
         .orUpdate(
-          ['value', 'updated_by', 'updated_at', 'is_active'],
+          [
+            'value',
+            'value_type',
+            'is_secret',
+            'updated_by',
+            'updated_at',
+            'is_active',
+          ],
           ['tenant_id', 'service', 'key', 'environment'],
         )
         .returning('*')
         .execute();
 
-      const upsertedConfig = result.generatedMaps[0] as Configuration;
-
-      this.configurationService.invalidateCache(tenantId, service, key);
-
-      this.logger.log(`Configuration upserted: ${service}/${key} for tenant ${tenantId}`);
-
-      // Fetch the full entity to return with proper type
       const saved = await repo.findOneOrFail({
         where: { tenantId, service, key, environment },
       });
 
-      // Record history if value changed (update case, not insert)
       if (existingConfig && existingConfig.value !== valueToStore) {
-        try {
-          const historyRepo = TenantScopedRepository.create(this.dataSource, ConfigurationHistory, tenantId);
+        const history = historyRepo.create({
+          configurationId: saved.id,
+          tenantId,
+          service,
+          key,
+          previousValue:
+            existingConfig.valueType === ConfigValueType.SECRET || existingConfig.isSecret
+              ? '[REDACTED]'
+              : existingConfig.value,
+          newValue: isSecret ? '[REDACTED]' : value,
+          changedBy: userId || 'system',
+          changedAt: new Date(),
+          changeReason: command.reason || 'Upsert operation',
+        });
 
-          // SECURITY: Redact secret values in history records
-          const previousDisplayValue = existingConfig.isSecret
-            ? '[REDACTED]'
-            : existingConfig.value;
-          const newDisplayValue = isSecret ? '[REDACTED]' : value;
-
-          const history = historyRepo.create({
-            configurationId: saved.id,
-            tenantId,
-            service,
-            key,
-            previousValue: previousDisplayValue,
-            newValue: newDisplayValue,
-            changedBy: userId || 'system',
-            changedAt: new Date(),
-            changeReason: command.reason || 'Upsert operation',
-          });
-
-          await historyRepo.save(history);
-
-          this.logger.debug(
-            `Configuration history recorded for upsert: ${service}/${key}`,
-          );
-        } catch (historyError) {
-          // History recording failure must not block the main upsert operation
-          this.logger.warn(
-            `Failed to record configuration history for ${service}/${key}: ${historyError instanceof Error ? historyError.message : 'Unknown error'}`,
-            historyError instanceof Error ? historyError.stack : undefined,
-          );
-        }
+        await historyRepo.save(history);
       }
+
+      await queryRunner.commitTransaction();
+
+      this.configurationService.invalidateCache(tenantId, service, key, environment);
+
+      this.logger.log(`Configuration upserted: ${service}/${key} for tenant ${tenantId}`);
 
       return saved;
     } catch (error) {
+      await queryRunner.rollbackTransaction();
       this.logger.error(
         `Failed to upsert configuration: ${error instanceof Error ? error.message : 'Unknown error'}`,
         error instanceof Error ? error.stack : undefined,
       );
 
       throw new InternalServerErrorException('Failed to upsert configuration');
+    } finally {
+      await queryRunner.release();
     }
   }
 }

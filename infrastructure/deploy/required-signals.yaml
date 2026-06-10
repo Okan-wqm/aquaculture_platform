@@ -177,6 +177,10 @@ services:
     signals:
       - schema_drift_clean
 
+  - name: event-store-service
+    signals:
+      - schema_drift_clean
+
   - name: observability-service
     signals:
       - nats_auth_mode_mtls

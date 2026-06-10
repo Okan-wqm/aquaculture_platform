@@ -8,7 +8,7 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { CreateConfigurationCommand } from '../commands/create-configuration.command';
-import { Configuration } from '../entities/configuration.entity';
+import { Configuration, ConfigValueType } from '../entities/configuration.entity';
 import { ConfigurationService } from '../services/configuration.service';
 import { ConfigurationValidationService } from '../services/configuration-validation.service';
 import { EncryptionService } from '../services/encryption.service';
@@ -59,11 +59,18 @@ export class CreateConfigurationHandler
         );
       }
 
-      // Encrypt secret values before saving
-      // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
+      const isSecret = input.valueType === ConfigValueType.SECRET || input.isSecret;
+      const valueType = isSecret ? ConfigValueType.SECRET : input.valueType;
+
       let valueToStore = input.value;
-      if (input.isSecret && this.encryptionService.isAvailable()) {
-        valueToStore = this.encryptionService.encrypt(input.value, tenantId, input.key);
+      if (isSecret && this.encryptionService.isAvailable()) {
+        valueToStore = this.encryptionService.encrypt(input.value, {
+          tenantId,
+          service: input.service,
+          key: input.key,
+          environment: input.environment,
+          classification: valueType,
+        });
       }
 
       const configuration = configRepo.create({
@@ -71,10 +78,10 @@ export class CreateConfigurationHandler
         service: input.service,
         key: input.key,
         value: valueToStore,
-        valueType: input.valueType,
+        valueType,
         environment: input.environment,
         description: input.description,
-        isSecret: input.isSecret,
+        isSecret,
         defaultValue: input.defaultValue,
         validationRules: input.validationRules as Record<string, unknown>,
         category: input.category,
@@ -87,7 +94,12 @@ export class CreateConfigurationHandler
       const savedConfig = await configRepo.save(configuration);
       await queryRunner.commitTransaction();
 
-      this.configurationService.invalidateCache(tenantId, savedConfig.service, savedConfig.key);
+      this.configurationService.invalidateCache(
+        tenantId,
+        savedConfig.service,
+        savedConfig.key,
+        savedConfig.environment,
+      );
 
       this.logger.log(
         `Configuration created: ${savedConfig.id} (${input.service}/${input.key}) for tenant ${tenantId}`,

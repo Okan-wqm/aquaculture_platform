@@ -118,6 +118,10 @@ services:
     level: warning
     reason: dynamic config; services default to static values on miss
 
+  - name: event-store-service
+    level: critical
+    reason: canonical event ledger; readiness reports projection fault and lag state
+
   # ------------------------------------------------------------------
   # Frontend microfrontends — served by nginx, not docker health-
   # gated. Warning tier so a Module Federation bundling error fails

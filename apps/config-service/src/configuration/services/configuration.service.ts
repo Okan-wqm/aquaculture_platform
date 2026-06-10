@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere } from 'typeorm';
+import { Repository } from 'typeorm';
 import {
   Configuration,
   ConfigValueType,
@@ -8,6 +8,8 @@ import {
 } from '../entities/configuration.entity';
 import { EncryptionService } from './encryption.service';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { GLOBAL_TENANT_UUID } from '@aquaculture/backend-common/tenant';
+import { ConfigurationResolutionService } from './configuration-resolution.service';
 
 interface CacheEntry {
   value: Configuration;
@@ -17,8 +19,12 @@ interface CacheEntry {
 
 const MAX_CACHE_SIZE = 1000;
 const CACHE_TTL_MS = 60_000; // 1 minute
-/** Redis cache TTL in seconds — longer than in-memory because Redis is shared across pods */
+/** Redis cache TTL in seconds. Redis is optional; DB remains the SSOT. */
 const REDIS_CACHE_TTL_SECONDS = 120;
+
+function isSecretConfiguration(config: Pick<Configuration, 'isSecret' | 'valueType'>): boolean {
+  return config.valueType === ConfigValueType.SECRET || config.isSecret;
+}
 
 @Injectable()
 export class ConfigurationService implements OnModuleInit {
@@ -30,6 +36,7 @@ export class ConfigurationService implements OnModuleInit {
     @InjectRepository(Configuration)
     private readonly configRepository: Repository<Configuration>,
     private readonly encryptionService: EncryptionService,
+    private readonly resolutionService: ConfigurationResolutionService,
     /** L2 Redis cache (shared across pods). @Optional to allow graceful degradation. */
     @Optional() private readonly redisService?: RedisService,
   ) {}
@@ -47,51 +54,14 @@ export class ConfigurationService implements OnModuleInit {
     service: string,
     key: string,
     defaultValue?: T,
+    environment: ConfigEnvironment = ConfigEnvironment.ALL,
   ): Promise<T> {
-    const cacheKey = `${tenantId}:${service}:${key}`;
-
-    // ── L1: in-memory cache ──
-    const cached = this.cache.get(cacheKey);
-    if (cached && cached.expiry > Date.now()) {
-      cached.lastAccessed = Date.now();
-      return this.getDecryptedTypedValue<T>(cached.value);
-    }
-
-    // ── L2: Redis cache (cross-pod) ──
-    if (this.redisService) {
-      try {
-        const redisKey = `config:${cacheKey}`;
-        const redisValue = await this.redisService.get(redisKey);
-        if (redisValue) {
-          const config = JSON.parse(redisValue) as Configuration;
-          // Promote to L1
-          this.setCacheEntry(cacheKey, config);
-          return this.getDecryptedTypedValue<T>(config);
-        }
-      } catch (err) {
-        // Redis unavailable: fall through to DB — graceful degradation
-        this.logger.debug(`Redis cache miss/error for ${cacheKey}: ${err}`);
-      }
-    }
-
-    // ── L3: Database ──
-    // Single query with tenant + global fallback
-    const whereConditions: FindOptionsWhere<Configuration>[] = [
-      { tenantId, service, key, isActive: true },
-      ...(tenantId !== 'global'
-        ? [{ tenantId: 'global', service, key, isActive: true }]
-        : []),
-    ];
-
-    const configs = await this.configRepository.find({
-      where: whereConditions,
-      take: 2,
-    });
-
-    // Prefer tenant-specific over global
-    const config =
-      configs.find((c) => c.tenantId === tenantId) ||
-      configs.find((c) => c.tenantId === 'global');
+    const config = await this.resolveConfiguration(
+      tenantId,
+      service,
+      key,
+      environment,
+    );
 
     if (!config) {
       if (defaultValue !== undefined) {
@@ -100,10 +70,50 @@ export class ConfigurationService implements OnModuleInit {
       throw new Error(`Configuration not found: ${service}/${key}`);
     }
 
-    // Update cache with LRU eviction
-    this.setCacheEntry(cacheKey, config);
-
     return this.getDecryptedTypedValue<T>(config);
+  }
+
+  async resolveConfiguration(
+    tenantId: string,
+    service: string,
+    key: string,
+    environment: ConfigEnvironment = ConfigEnvironment.ALL,
+  ): Promise<Configuration | null> {
+    const cacheKey = this.cacheKey(tenantId, service, key, environment);
+
+    const cached = this.cache.get(cacheKey);
+    if (cached && cached.expiry > Date.now()) {
+      cached.lastAccessed = Date.now();
+      return cached.value;
+    }
+
+    if (this.redisService) {
+      try {
+        const redisKey = `config:${cacheKey}`;
+        const redisValue = await this.redisService.get(redisKey);
+        if (redisValue) {
+          const config = JSON.parse(redisValue) as Configuration;
+          this.setCacheEntry(cacheKey, config);
+          return config;
+        }
+      } catch (err) {
+        // Redis unavailable: fall through to DB. Redis is not the config SSOT.
+        this.logger.debug(`Redis cache miss/error for ${cacheKey}: ${err}`);
+      }
+    }
+
+    const config = await this.resolutionService.resolveConfiguration(
+      tenantId,
+      service,
+      key,
+      environment,
+    );
+
+    if (config) {
+      this.setCacheEntry(cacheKey, config);
+    }
+
+    return config ?? null;
   }
 
   /**
@@ -115,47 +125,33 @@ export class ConfigurationService implements OnModuleInit {
     service: string,
     environment?: ConfigEnvironment,
   ): Promise<Record<string, unknown>> {
-    const whereConditions: any[] = [
-      {
-        tenantId,
-        service,
-        isActive: true,
-        ...(environment && { environment }),
-      },
-      ...(tenantId !== 'global'
-        ? [{
-            tenantId: 'global',
-            service,
-            isActive: true,
-            ...(environment && { environment }),
-          }]
-        : []),
-    ];
-
-    const configs = await this.configRepository.find({
-      where: whereConditions,
-      take: 500,
-    });
+    const configs = await this.resolveConfigurationsByService(
+      tenantId,
+      service,
+      environment ?? ConfigEnvironment.ALL,
+    );
 
     const result: Record<string, unknown> = {};
 
-    // First add global configs — secrets masked to prevent bulk plaintext exposure.
-    // Single-key get() decrypts for authorized callers; getAll() is a bulk operation
-    // used for config bootstrapping where plaintext secrets must not appear.
-    configs
-      .filter((c) => c.tenantId === 'global')
-      .forEach((c) => {
-        result[c.key] = c.isSecret ? '[ENCRYPTED]' : this.getDecryptedTypedValue(c);
-      });
-
-    // Then override with tenant-specific
-    configs
-      .filter((c) => c.tenantId !== 'global')
-      .forEach((c) => {
-        result[c.key] = c.isSecret ? '[ENCRYPTED]' : this.getDecryptedTypedValue(c);
-      });
+    for (const config of configs) {
+      result[config.key] = isSecretConfiguration(config)
+        ? '[ENCRYPTED]'
+        : this.getDecryptedTypedValue(config);
+    }
 
     return result;
+  }
+
+  async resolveConfigurationsByService(
+    tenantId: string,
+    service: string,
+    environment: ConfigEnvironment = ConfigEnvironment.ALL,
+  ): Promise<Configuration[]> {
+    return this.resolutionService.resolveConfigurationsByService(
+      tenantId,
+      service,
+      environment,
+    );
   }
 
   /**
@@ -168,42 +164,30 @@ export class ConfigurationService implements OnModuleInit {
    * config updates on one pod are visible to other pods immediately.
    * @see PLAT-MEDIUM-007 (config cache is local-only per-pod)
    */
-  invalidateCache(tenantId: string, service: string, key: string): void {
-    const cacheKey = `${tenantId}:${service}:${key}`;
-
-    // ── L1: in-memory ──
-    this.cache.delete(cacheKey);
-
-    if (tenantId === 'global') {
-      // Global update: purge all per-tenant cache entries that may hold this fallback value
-      const suffix = `:${service}:${key}`;
-      for (const k of this.cache.keys()) {
-        if (k.endsWith(suffix)) {
+  invalidateCache(
+    tenantId: string,
+    service: string,
+    key: string,
+    environment?: ConfigEnvironment,
+  ): void {
+    for (const k of this.cache.keys()) {
+      const [cachedTenant, cachedService, cachedKey, cachedEnvironment] = k.split(':');
+      if (
+        cachedService === service &&
+        cachedKey === key &&
+        (!environment || cachedEnvironment === environment)
+      ) {
+        if (tenantId === GLOBAL_TENANT_UUID || cachedTenant === tenantId) {
           this.cache.delete(k);
         }
       }
-    } else {
-      // Tenant-specific update: also purge the global cache entry
-      this.cache.delete(`global:${service}:${key}`);
     }
 
-    // ── L2: Redis (cross-pod) ──
     if (this.redisService) {
-      const redisKey = `config:${cacheKey}`;
-      this.redisService.del(redisKey).catch((err) => {
-        this.logger.warn(`Failed to invalidate Redis cache for ${redisKey}: ${err}`);
+      const envPattern = environment ? `:${environment}` : ':*';
+      this.redisService.deletePattern(`config:*:${service}:${key}${envPattern}`).catch((err) => {
+        this.logger.warn(`Failed to invalidate Redis pattern for ${service}:${key}: ${err}`);
       });
-
-      if (tenantId === 'global') {
-        // Purge all tenant-specific Redis entries for this service:key
-        this.redisService.deletePattern(`config:*:${service}:${key}`).catch((err) => {
-          this.logger.warn(`Failed to invalidate Redis pattern for ${service}:${key}: ${err}`);
-        });
-      } else {
-        this.redisService.del(`config:global:${service}:${key}`).catch((err) => {
-          this.logger.warn(`Failed to invalidate Redis global cache for ${service}:${key}: ${err}`);
-        });
-      }
     }
   }
 
@@ -237,7 +221,7 @@ export class ConfigurationService implements OnModuleInit {
         .into(Configuration)
         .values(
           defaults.map((def) => ({
-            tenantId: 'global',
+            tenantId: GLOBAL_TENANT_UUID,
             service: def.service,
             key: def.key,
             value: def.value,
@@ -246,7 +230,7 @@ export class ConfigurationService implements OnModuleInit {
             category: def.category,
             environment: ConfigEnvironment.ALL,
             isActive: true,
-            isSecret: false,
+            isSecret: def.valueType === ConfigValueType.SECRET,
             createdBy: 'system',
             updatedBy: 'system',
           })),
@@ -275,10 +259,15 @@ export class ConfigurationService implements OnModuleInit {
     let rawValue = config.value;
 
     // Decrypt if secret and encryption is available
-    if (config.isSecret && this.encryptionService.isAvailable() && this.encryptionService.isEncrypted(rawValue)) {
+    if (isSecretConfiguration(config) && this.encryptionService.isAvailable() && this.encryptionService.isEncrypted(rawValue)) {
       try {
-        // PLAT-HIGH-003: AAD binding validates tenant + key context
-        rawValue = this.encryptionService.decrypt(rawValue, config.tenantId, config.key);
+        rawValue = this.encryptionService.decrypt(rawValue, {
+          tenantId: config.tenantId,
+          service: config.service,
+          key: config.key,
+          environment: config.environment,
+          classification: config.valueType,
+        });
       } catch (error) {
         this.logger.error(`Failed to decrypt config ${config.service}/${config.key}: ${error}`);
         throw new Error(`Failed to decrypt configuration: ${config.service}/${config.key}`);
@@ -337,7 +326,7 @@ export class ConfigurationService implements OnModuleInit {
       const redisKey = `config:${key}`;
       // SECURITY: Do not cache secret values in Redis — they are decrypted on read
       // and should not be stored in a shared cache in plaintext.
-      if (!value.isSecret) {
+      if (!isSecretConfiguration(value)) {
         this.redisService
           .set(redisKey, JSON.stringify(value), REDIS_CACHE_TTL_SECONDS)
           .catch((err) => {
@@ -345,5 +334,14 @@ export class ConfigurationService implements OnModuleInit {
           });
       }
     }
+  }
+
+  private cacheKey(
+    tenantId: string,
+    service: string,
+    key: string,
+    environment: ConfigEnvironment,
+  ): string {
+    return `${tenantId}:${service}:${key}:${environment}`;
   }
 }

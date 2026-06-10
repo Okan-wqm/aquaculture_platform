@@ -10,14 +10,19 @@ import depthLimit from 'graphql-depth-limit';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 import {
-  AuditColumnsModule,
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
   RlsModule,
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
-import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
+import {
+  RolesGuard,
+  ServiceIdentityGuard,
+  TenantGuard,
+  TenantPermissionGuard,
+} from '@aquaculture/backend-common/guards';
 import { LoggingModule, RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { TenantExecutionContextInterceptor } from '@aquaculture/backend-common/context';
 import {
   StripInternalHeadersMiddleware,
   TenantContextMiddleware,
@@ -151,28 +156,13 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
      * config-service stores per-tenant configuration in a single global
      * table — RLS is the only DB-level isolation guard for it.
      *
-     * autoApply runs the helper at OnApplicationBootstrap to install /
-     * verify the RLS policy alongside the schema migrations applied by
-     * ConfigMigrationRunnerService (declared at the top of this file).
-     * The two lifecycle hooks are independent: the migration runner
-     * shapes the table surface, the RLS bootstrap pins the policy on
-     * top of it. Idempotent in both directions.
+     * RLS policy DDL is owned by config-service migrations and applied by
+     * aqua-db-migrate. Runtime wiring here only syncs AsyncLocalStorage
+     * tenant context into the PostgreSQL session.
      */
     RlsModule.forPoolService({
       serviceName: 'config',
-      autoApply: true,
     }),
-    /**
-     * NEW-H1: Convert TIMESTAMP audit columns to TIMESTAMPTZ at cold start.
-     *
-     * Works alongside ConfigMigrationRunnerService (above) — the runner
-     * applies any pending DDL via the migration ledger; this bootstrap
-     * normalises the audit column type independently of migration order
-     * (idempotent ALTER TYPE that is a no-op once the columns are
-     * TIMESTAMPTZ). Closes NEW-H1 on the same OnApplicationBootstrap
-     * hook.
-     */
-    AuditColumnsModule.forRoot({ serviceName: 'config' }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'config' }),
   ],
@@ -207,7 +197,17 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       useFactory: (reflector: Reflector): RolesGuard => new RolesGuard(reflector),
       inject: [Reflector],
     },
+    {
+      provide: APP_GUARD,
+      useFactory: (reflector: Reflector): TenantPermissionGuard =>
+        new TenantPermissionGuard(reflector),
+      inject: [Reflector],
+    },
     /** SEC-M22: Register global audit logging for compliance — all mutations are tracked. */
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TenantExecutionContextInterceptor,
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: AuditLogInterceptor,

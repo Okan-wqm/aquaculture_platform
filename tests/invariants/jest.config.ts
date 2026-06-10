@@ -115,6 +115,8 @@ export default {
         '<rootDir>/restore-mutation-tenant-admin.spec.ts',
         '<rootDir>/backup-production-secrets.spec.ts',
         '<rootDir>/deploy-ssot-contract.spec.ts',
+        '<rootDir>/platform-service-catalog.spec.ts',
+        '<rootDir>/config-event-store-ssot-contract.spec.ts',
         '<rootDir>/admin-billing-runtime-contract.spec.ts',
         '<rootDir>/admin-security-runtime-contract.spec.ts',
         '<rootDir>/auth-token-issuer-ssot.spec.ts',

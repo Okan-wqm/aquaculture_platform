@@ -1,21 +1,28 @@
 // WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
 import 'reflect-metadata';
+import { json } from 'express';
 import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
 import { AppModule } from './app.module';
-import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
+
+const EVENT_STORE_APPEND_BODY_LIMIT = '32mb';
 
 bootstrapService(AppModule, {
   serviceName: 'event-store-service',
   portEnvVar: 'EVENT_STORE_SERVICE_PORT',
   // Internal-only service: every endpoint is gated by InternalApiKeyGuard
   // and the only consumers are other backend services using the
-  // X-Internal-Api-Key header. No browser ever talks to this service —
+  // signed X-Service-* identity headers. No browser ever talks to this service —
   // CORS preflight is impossible by design — so the shared bootstrap skips
   // configureCors() entirely instead of requiring a synthetic CORS_ORIGINS
   // env var to bypass the production hard-fail.
   serviceVisibility: 'internal',
-  globalGuards: [new InternalApiKeyGuard()],
+  nestFactoryOptions: { bodyParser: false },
+  earlyMiddleware: [json({ limit: EVENT_STORE_APPEND_BODY_LIMIT })],
   // Header retained for documentation/discovery; ignored when CORS is skipped
   // but kept so the field stays visible during a future visibility audit.
-  additionalCorsHeaders: ['X-Internal-Api-Key'],
+  additionalCorsHeaders: [
+    'X-Service-Identity',
+    'X-Service-Timestamp',
+    'X-Service-Signature',
+  ],
 });

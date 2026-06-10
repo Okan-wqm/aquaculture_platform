@@ -1,7 +1,9 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'node:crypto';
 import { DataSource, MoreThan, Repository } from 'typeorm';
 import { SchedulerRegistry } from '@nestjs/schedule';
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import { ProjectionCheckpoint, ProjectionStatus } from './entities/projection-checkpoint.entity';
 import { ProjectionInbox } from './entities/projection-inbox.entity';
 import { StoredEvent } from '../event-store/entities/stored-event.entity';
@@ -13,6 +15,7 @@ import {
 
 const MAX_ERROR_LENGTH = 500;
 const EMA_ALPHA = 0.1;
+const PROJECTION_LEASE_MS = 60_000;
 
 /**
  * Number of idle batches (no events returned) between full checkpoint DB re-reads.
@@ -247,6 +250,11 @@ export class ProjectionsService {
     }
 
     checkpoint.position = position;
+    checkpoint.generation += 1;
+    checkpoint.leaseOwner = null;
+    checkpoint.leaseToken = null;
+    checkpoint.leaseExpiresAt = null;
+    checkpoint.heartbeatAt = null;
     checkpoint.eventsProcessed = 0;
     checkpoint.eventsFailed = 0;
     checkpoint.lastError = undefined;
@@ -323,7 +331,23 @@ export class ProjectionsService {
     failed: number;
     newPosition: number;
   }> {
+    return withTenantContext(tenantId, () =>
+      this.processBatchInTenantContext(name, tenantId),
+    );
+  }
+
+  private async processBatchInTenantContext(
+    name: string,
+    tenantId: string,
+  ): Promise<{
+    processed: number;
+    failed: number;
+    newPosition: number;
+  }> {
     const projectionKey = this.getProjectionKey(tenantId, name);
+    const leaseToken = randomUUID();
+    const leaseOwner = `${process.pid}:${projectionKey}`;
+    let leasedCheckpointId: string | undefined;
 
     // Check if already processing
     if (this.processingLocks.get(projectionKey)) {
@@ -368,7 +392,23 @@ export class ProjectionsService {
         checkpoint = registration.cachedCheckpoint!;
       }
 
-      // Build query for events starting after the cached checkpoint position
+      const leasedCheckpoint = await this.acquireProjectionLease(
+        checkpoint.id,
+        tenantId,
+        name,
+        checkpoint.generation,
+        leaseOwner,
+        leaseToken,
+      );
+      if (!leasedCheckpoint) {
+        registration.cachedCheckpoint = undefined;
+        return { processed: 0, failed: 0, newPosition: 0 };
+      }
+      checkpoint = leasedCheckpoint;
+      leasedCheckpointId = checkpoint.id;
+      registration.cachedCheckpoint = checkpoint;
+
+      // Build query for events starting after the leased checkpoint position
       const queryBuilder = this.eventRepository
         .createQueryBuilder('e')
         .where('e.globalPosition > :position', { position: checkpoint.position })
@@ -417,6 +457,8 @@ export class ProjectionsService {
             tenantId,
             registration,
             checkpoint.id,
+            leaseToken,
+            checkpoint.generation,
             event,
           );
 
@@ -447,7 +489,13 @@ export class ProjectionsService {
           // Any event that exhausts retries faults the projection
           if (failed >= 1) {
             checkpoint.status = ProjectionStatus.FAULTED;
-            await this.markProjectionFaulted(checkpoint.id, errorMsg);
+            await this.markProjectionFaulted(
+              checkpoint.id,
+              tenantId,
+              name,
+              checkpoint.generation,
+              errorMsg,
+            );
             // Stop the interval when transitioning to FAULTED
             this.clearProjectionInterval(name, tenantId);
             registration.cachedCheckpoint = undefined;
@@ -481,8 +529,80 @@ export class ProjectionsService {
         newPosition: lastPosition,
       };
     } finally {
+      if (leasedCheckpointId) {
+        await this.releaseProjectionLease(
+          leasedCheckpointId,
+          tenantId,
+          name,
+          leaseToken,
+        );
+      }
       this.processingLocks.set(projectionKey, false);
     }
+  }
+
+  private async acquireProjectionLease(
+    checkpointId: string,
+    tenantId: string,
+    projectionName: string,
+    generation: number,
+    leaseOwner: string,
+    leaseToken: string,
+  ): Promise<ProjectionCheckpoint | null> {
+    const rows = await this.dataSource.query(
+      `
+        UPDATE "event_store"."projection_checkpoints"
+        SET "leaseOwner" = $2,
+            "leaseToken" = $3,
+            "leaseExpiresAt" = now() + ($4::int * interval '1 millisecond'),
+            "heartbeatAt" = now(),
+            "updatedAt" = now()
+        WHERE "id" = $1
+          AND "tenantId" = $5
+          AND "projectionName" = $6
+          AND "generation" = $7
+          AND "status" = 'running'
+          AND (
+            "leaseExpiresAt" IS NULL
+            OR "leaseExpiresAt" < now()
+            OR "leaseToken" = $3
+          )
+        RETURNING *
+      `,
+      [
+        checkpointId,
+        leaseOwner,
+        leaseToken,
+        PROJECTION_LEASE_MS,
+        tenantId,
+        projectionName,
+        generation,
+      ],
+    );
+
+    return (rows[0] as ProjectionCheckpoint | undefined) ?? null;
+  }
+
+  private async releaseProjectionLease(
+    checkpointId: string,
+    tenantId: string,
+    projectionName: string,
+    leaseToken: string,
+  ): Promise<void> {
+    await this.dataSource.query(
+      `
+        UPDATE "event_store"."projection_checkpoints"
+        SET "leaseOwner" = NULL,
+            "leaseToken" = NULL,
+            "leaseExpiresAt" = NULL,
+            "updatedAt" = now()
+        WHERE "id" = $1
+          AND "tenantId" = $2
+          AND "projectionName" = $3
+          AND "leaseToken" = $4
+      `,
+      [checkpointId, tenantId, projectionName, leaseToken],
+    );
   }
 
   private async processEventInTransaction(
@@ -490,6 +610,8 @@ export class ProjectionsService {
     tenantId: string,
     registration: ProjectionRegistration,
     checkpointId: string,
+    leaseToken: string,
+    generation: number,
     event: StoredEvent,
   ): Promise<{
     applied: boolean;
@@ -513,6 +635,19 @@ export class ProjectionsService {
           applied: false,
           advanced: false,
           position: lockedCheckpoint?.position ?? 0,
+          stopped: true,
+        };
+      }
+
+      if (
+        lockedCheckpoint.leaseToken !== leaseToken ||
+        lockedCheckpoint.generation !== generation
+      ) {
+        await queryRunner.commitTransaction();
+        return {
+          applied: false,
+          advanced: false,
+          position: lockedCheckpoint.position,
           stopped: true,
         };
       }
@@ -543,15 +678,43 @@ export class ProjectionsService {
         });
       }
 
-      await queryRunner.manager.query(
+      const advancedRows = await queryRunner.manager.query(
         `UPDATE "event_store"."projection_checkpoints"
             SET "position" = $1,
                 "eventsProcessed" = "eventsProcessed" + $2,
                 "lastProcessedAt" = NOW(),
+                "heartbeatAt" = NOW(),
+                "leaseExpiresAt" = NOW() + ($6::int * interval '1 millisecond'),
                 "updatedAt" = NOW()
-          WHERE "id" = $3`,
-        [event.globalPosition, applied ? 1 : 0, checkpointId],
+          WHERE "id" = $3
+            AND "leaseToken" = $4
+            AND "generation" = $5
+            AND "tenantId" = $7
+            AND "projectionName" = $8
+            AND "position" = $9
+          RETURNING "position"`,
+        [
+          event.globalPosition,
+          applied ? 1 : 0,
+          checkpointId,
+          leaseToken,
+          generation,
+          PROJECTION_LEASE_MS,
+          tenantId,
+          name,
+          lockedCheckpoint.position,
+        ],
       );
+
+      if (advancedRows.length === 0) {
+        await queryRunner.rollbackTransaction();
+        return {
+          applied,
+          advanced: false,
+          position: lockedCheckpoint.position,
+          stopped: true,
+        };
+      }
 
       await queryRunner.commitTransaction();
       return {
@@ -573,6 +736,8 @@ export class ProjectionsService {
     tenantId: string,
     registration: ProjectionRegistration,
     checkpointId: string,
+    leaseToken: string,
+    generation: number,
     event: StoredEvent,
   ): Promise<{
     applied: boolean;
@@ -590,6 +755,8 @@ export class ProjectionsService {
           tenantId,
           registration,
           checkpointId,
+          leaseToken,
+          generation,
           event,
         );
       } catch (error) {
@@ -629,7 +796,13 @@ export class ProjectionsService {
     };
   }
 
-  private async markProjectionFaulted(checkpointId: string, errorMessage: string): Promise<void> {
+  private async markProjectionFaulted(
+    checkpointId: string,
+    tenantId: string,
+    projectionName: string,
+    generation: number,
+    errorMessage: string,
+  ): Promise<void> {
     const lastError =
       errorMessage.length > MAX_ERROR_LENGTH
         ? errorMessage.substring(0, MAX_ERROR_LENGTH)
@@ -642,8 +815,11 @@ export class ProjectionsService {
               "lastError" = $2,
               "lastErrorAt" = NOW(),
               "updatedAt" = NOW()
-        WHERE "id" = $3`,
-      [ProjectionStatus.FAULTED, lastError, checkpointId],
+        WHERE "id" = $3
+        AND "tenantId" = $4
+        AND "projectionName" = $5
+        AND "generation" = $6`,
+      [ProjectionStatus.FAULTED, lastError, checkpointId, tenantId, projectionName, generation],
     );
   }
 

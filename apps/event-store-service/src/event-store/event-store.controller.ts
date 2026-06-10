@@ -67,12 +67,19 @@ export class EventStoreController {
     const validatedTenantId = this.validateTenantId(tenantId);
     this.validateAggregateType(aggregateType);
 
+    if ((dto.producer || dto.idempotencyKey) && dto.events.some((event) => !event.occurredAt)) {
+      throw new BadRequestException(
+        'Idempotent append requires explicit occurredAt on every event',
+      );
+    }
+
     // Use URL path parameters exclusively — ignore body overrides
     return this.eventStoreService.appendToStream(
       validatedTenantId,
       aggregateType,
       aggregateId,
       dto.events.map((e) => ({
+        producerEventId: e.producerEventId,
         eventType: e.eventType,
         payload: e.payload,
         metadata: e.metadata,
@@ -83,6 +90,10 @@ export class EventStoreController {
         schemaVersion: e.schemaVersion,
       })),
       dto.expectedVersion,
+      {
+        producer: dto.producer,
+        idempotencyKey: dto.idempotencyKey,
+      },
     );
   }
 

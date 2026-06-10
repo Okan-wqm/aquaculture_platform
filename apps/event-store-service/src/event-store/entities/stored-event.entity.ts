@@ -27,6 +27,11 @@ import { BigIntTransformer } from '../transformers/bigint.transformer';
 @Index(['tenantId', 'globalPosition'])
 @Index(['tenantId', 'eventType'])
 @Index(['tenantId', 'storedAt'])
+@Index(
+  'IDX_stored_events_tenant_producer_event',
+  ['tenantId', 'producer', 'producerEventId'],
+  { unique: true },
+)
 /**
  * Composite index for tenant-scoped aggregate event replay.
  * Event store queries filter by tenant_id + aggregate_id + version
@@ -40,6 +45,19 @@ import { BigIntTransformer } from '../transformers/bigint.transformer';
 export class StoredEvent {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  /**
+   * Calling service that produced the event. Nullable for historical rows.
+   */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  producer?: string | null;
+
+  /**
+   * Producer-owned immutable event identity. Distinct from request-level
+   * idempotencyKey so a batch retry cannot hide per-event identity drift.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  producerEventId?: string | null;
 
   /**
    * Stream identification for event grouping

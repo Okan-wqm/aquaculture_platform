@@ -2,7 +2,7 @@
 
 Date: 2026-06-06
 Target ref: `aria/context-proof-20260605`
-Last verified ARIA authority hash: `bff594efbae521a31f05cf481b701a6c161b2b459260fe14d2674303228c9e45`
+Last verified ARIA authority hash: `5382b5f3490dd725f3b1cc7ddb8e15ca1c088f2d846483b7a595da9ea0890ea2`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain

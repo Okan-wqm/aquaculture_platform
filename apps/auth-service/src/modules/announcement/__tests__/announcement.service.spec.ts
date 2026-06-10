@@ -5,10 +5,10 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/no-floating-promises */
+import { Role } from '@aquaculture/backend-common/decorators';
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Role } from '@aquaculture/backend-common/decorators';
 import { Repository } from 'typeorm';
 
 import { User } from '../../authentication/entities/user.entity';
@@ -105,25 +105,49 @@ const createMockAcknowledgment = (
 // Mock Repository Factory
 // ============================================================================
 
-const createMockRepository = () => ({
-  find: jest.fn(),
-  findOne: jest.fn(),
-  findAndCount: jest.fn(),
-  save: jest.fn(),
-  create: jest.fn((data) => data),
-  update: jest.fn(),
-  delete: jest.fn(),
-  remove: jest.fn(),
-  increment: jest.fn(),
-  createQueryBuilder: jest.fn(() => ({
+const createMockRepository = () => {
+  // WHY: the service chains ONE QueryBuilder instance and the specs prime it
+  // via repository.createQueryBuilder().getMany — the factory must therefore
+  // return a single shared builder per repository. A fresh object per call
+  // means the spec primes one instance while the service reads another,
+  // silently yielding [] for every query.
+  const queryBuilder = {
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    addSelect: jest.fn().mockReturnThis(),
+    setParameter: jest.fn().mockReturnThis(),
+    setParameters: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
+    addOrderBy: jest.fn().mockReturnThis(),
     leftJoinAndSelect: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
+    groupBy: jest.fn().mockReturnThis(),
+    update: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    execute: jest.fn().mockResolvedValue({ affected: 1 }),
     getMany: jest.fn().mockResolvedValue([]),
     getOne: jest.fn().mockResolvedValue(null),
-  })),
-});
+    getCount: jest.fn().mockResolvedValue(0),
+    getRawOne: jest.fn().mockResolvedValue({}),
+    getRawMany: jest.fn().mockResolvedValue([]),
+    getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+  };
+  return {
+    find: jest.fn(),
+    findOne: jest.fn(),
+    findAndCount: jest.fn(),
+    save: jest.fn(),
+    create: jest.fn((data) => data),
+    update: jest.fn(),
+    delete: jest.fn(),
+    remove: jest.fn(),
+    count: jest.fn().mockResolvedValue(0),
+    increment: jest.fn().mockResolvedValue({ affected: 1 }),
+    createQueryBuilder: jest.fn(() => queryBuilder),
+  };
+};
 
 // ============================================================================
 // Tests
@@ -573,20 +597,21 @@ describe('AnnouncementService', () => {
   describe('getStats', () => {
     it('should return platform statistics for SuperAdmin', async () => {
       const superAdmin = createMockUser({ role: Role.SUPER_ADMIN, tenantId: undefined });
-      const announcements = [
-        createMockAnnouncement({
-          status: AnnouncementStatus.PUBLISHED,
-          viewCount: 100,
-          acknowledgmentCount: 50,
-        }),
-        createMockAnnouncement({ status: AnnouncementStatus.DRAFT }),
-        createMockAnnouncement({ status: AnnouncementStatus.SCHEDULED }),
-      ];
 
       userRepository.findOne.mockResolvedValue(superAdmin);
-      (announcementRepository.createQueryBuilder().getMany as jest.Mock).mockResolvedValue(
-        announcements,
-      );
+      // WHY: getStats aggregates in SQL (COUNT FILTER / SUM) and reads ONE
+      // raw row via getRawOne — prime the aggregate row the database would
+      // return for 3 announcements (1 published with 100 views / 50 acks,
+      // 1 draft, 1 scheduled).
+      (announcementRepository.createQueryBuilder().getRawOne as jest.Mock).mockResolvedValue({
+        total: '3',
+        published: '1',
+        scheduled: '1',
+        draft: '1',
+        expired: '0',
+        totalViews: '100',
+        totalAcknowledgments: '50',
+      });
 
       const stats = await service.getStats(superAdmin.id);
 
@@ -651,6 +676,14 @@ describe('SuperAdmin-TenantAdmin Announcement Integration', () => {
         lastName: 'Admin',
       });
       const tenant = createMockTenant({ id: 'tenant-1', name: 'Farm Co' });
+
+      // WHY: view/acknowledge flows resolve the caller more than once per
+      // step. Per-step mockResolvedValueOnce chains desynchronise from the
+      // real lookup count — resolve by id as the base implementation;
+      // Once-primings below stack on top harmlessly.
+      userRepository.findOne.mockImplementation((opts: { where: { id: string } }) =>
+        Promise.resolve([superAdmin, tenantAdmin].find((u) => u.id === opts.where.id) ?? null),
+      );
 
       // Step 1: SuperAdmin creates a platform announcement
       userRepository.findOne.mockResolvedValueOnce(superAdmin);
@@ -728,9 +761,12 @@ describe('SuperAdmin-TenantAdmin Announcement Integration', () => {
       );
 
       // Step 4: TenantAdmin acknowledges announcement
+      // WHY non-Once primings: acknowledgeAnnouncement re-resolves the
+      // announcement inside its internal viewAnnouncement call (2 lookups),
+      // and the ack row is read in both methods — Once-chains exhaust mid-flow.
       userRepository.findOne.mockResolvedValueOnce(tenantAdmin);
-      announcementRepository.findOne.mockResolvedValueOnce(publishedAnnouncement);
-      acknowledgmentRepository.findOne.mockResolvedValueOnce(viewAck);
+      announcementRepository.findOne.mockResolvedValue(publishedAnnouncement);
+      acknowledgmentRepository.findOne.mockResolvedValue(viewAck);
       acknowledgmentRepository.save.mockImplementation((a: unknown) => Promise.resolve(a));
       announcementRepository.increment.mockResolvedValue({ affected: 1 });
 

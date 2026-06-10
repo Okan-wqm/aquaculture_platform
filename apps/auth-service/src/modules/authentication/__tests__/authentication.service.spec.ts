@@ -26,24 +26,36 @@
 // Aligning to bcryptjs makes the spies intercept the real call
 // path AND silences the missing-types error. Surfaced by PR-31
 // (PROC-MEDIUM-007 ratchet).
-import * as bcrypt from 'bcryptjs';
-import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
+import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BypassRlsService } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
+import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
-import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { AuthenticationService } from '../services/authentication.service';
+import { MfaService } from '../services/mfa.service';
+import { TokenService } from '../services/token.service';
+
+// WHY: bcryptjs publishes a sealed module namespace under the current
+// toolchain — jest.spyOn(bcrypt, 'compare') throws "Cannot redefine
+// property". Re-exporting compare/hash as plain jest.fn wrappers (default
+// behaviour = the real implementation) restores spy-ability while keeping
+// production-equivalent hashing for tests that don't stub.
+jest.mock('bcryptjs', () => {
+  const actual = jest.requireActual('bcryptjs');
+  return { ...actual, compare: jest.fn(actual.compare), hash: jest.fn(actual.hash) };
+});
 
 // ============================================================================
 // Mock Helpers
@@ -148,9 +160,83 @@ const mockAuditLogService = {
   log: jest.fn().mockResolvedValue(undefined),
 };
 
+// WHY: token minting moved out of AuthenticationService into TokenService
+// (refresh-token persistence + session bookkeeping live there now). The unit
+// boundary for these specs is therefore the AuthPayload contract returned by
+// generateTokens, not the JWT/bcrypt internals — those are TokenService's own
+// spec's responsibility.
+const mockTokenService = {
+  generateTokens: jest.fn().mockImplementation((user: User) =>
+    Promise.resolve({
+      accessToken: 'mock-access-token',
+      refreshToken: 'mock-refresh-token',
+      user,
+      expiresIn: 900,
+      tokenType: 'Bearer',
+      redirectUrl: '/dashboard',
+    }),
+  ),
+  getUserModules: jest.fn().mockResolvedValue([]),
+};
+
+// WHAT: login() consults MfaService for the MFA branch
+// (user.mfaEnabled && isMfaAvailable() → generateMfaChallenge().mfaToken).
+// Default user fixtures have mfaEnabled=false, so only the explicit MFA
+// tests exercise these stubs.
+const mockMfaService = {
+  isMfaAvailable: jest.fn().mockReturnValue(true),
+  generateMfaChallenge: jest.fn().mockReturnValue({ mfaToken: 'mock-mfa-token' }),
+};
+
 const mockDataSource = {
-  transaction: jest.fn(),
-  query: jest.fn(),
+  // WHY: refreshToken() (non-hashed path) runs inside dataSource.transaction
+  // with manager-scoped repositories and a pessimistic-lock query builder.
+  // The mock manager mirrors the SQL acceptance rules (isRevoked = false,
+  // expiresAt > now) so the spec exercises the same semantics the WHERE
+  // clause enforces in production — a passthrough mock would let expired or
+  // revoked tokens through and the negative-path tests would assert nothing.
+  transaction: jest.fn().mockImplementation(async (cb: (manager: unknown) => Promise<unknown>) => {
+    const refreshTokenQueryBuilder = {
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockImplementation(async () => {
+        const token = (await mockRefreshTokenRepository.findOne()) as
+          | { isRevoked?: boolean; expiresAt?: Date }
+          | null;
+        if (
+          !token ||
+          token.isRevoked === true ||
+          !(token.expiresAt instanceof Date) ||
+          token.expiresAt.getTime() <= Date.now()
+        ) {
+          return null;
+        }
+        return token;
+      }),
+    };
+    const manager = {
+      getRepository: jest.fn().mockImplementation((entity: unknown) => {
+        if (entity === RefreshToken) {
+          return {
+            ...mockRefreshTokenRepository,
+            createQueryBuilder: jest.fn(() => refreshTokenQueryBuilder),
+          };
+        }
+        if (entity === User) {
+          return mockUserRepository;
+        }
+        return {};
+      }),
+      query: jest.fn(),
+    };
+    return cb(manager);
+  }),
+  // WHAT: handleFailedLogin() runs an atomic UPDATE ... RETURNING and reads
+  // result[0].failedLoginAttempts — the default reply mirrors one failed
+  // attempt on an unlocked account so negative-path login tests exercise the
+  // real post-update branch instead of crashing on undefined.
+  query: jest.fn().mockResolvedValue([{ failedLoginAttempts: 1, lockedUntil: null }]),
 };
 
 const mockTimingSafe = {
@@ -162,6 +248,8 @@ const mockSessionManager = {
   createSession: jest.fn().mockResolvedValue(undefined),
   invalidateSession: jest.fn().mockResolvedValue(undefined),
   invalidateAllSessions: jest.fn().mockResolvedValue(0),
+  enforceSessionLimit: jest.fn().mockResolvedValue(undefined),
+  revokeAllSessions: jest.fn().mockResolvedValue(undefined),
 };
 
 const mockTokenBlacklist = {
@@ -199,6 +287,8 @@ describe('AuthenticationService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: TokenService, useValue: mockTokenService },
+        { provide: MfaService, useValue: mockMfaService },
         { provide: TimingSafeService, useValue: mockTimingSafe },
         { provide: SESSION_MANAGER, useValue: mockSessionManager },
         { provide: TOKEN_BLACKLIST, useValue: mockTokenBlacklist },
@@ -253,16 +343,20 @@ describe('AuthenticationService', () => {
       expect(compareSpy).toHaveBeenCalled();
     });
 
-    it('throws UnauthorizedException on wrong password and increments failedLoginAttempts', async () => {
+    it('throws UnauthorizedException on wrong password and increments failedLoginAttempts atomically', async () => {
       const user = createMockUser({ failedLoginAttempts: 2 });
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
-      mockUserRepository.save.mockResolvedValue({ ...user, failedLoginAttempts: 3 });
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
-      expect(mockUserRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ failedLoginAttempts: 3 }),
+      // WHY: failed-attempt accounting moved to a single atomic
+      // UPDATE ... RETURNING (race-safe under concurrent login failures) —
+      // assert the SQL contract instead of the read-modify-write save that
+      // production no longer performs. Params: [userId, maxAttempts, lockout].
+      expect(mockDataSource.query).toHaveBeenCalledWith(
+        expect.stringContaining('"failedLoginAttempts" = "failedLoginAttempts" + 1'),
+        ['user-uuid-123', 5, expect.any(Date)],
       );
     });
 
@@ -314,17 +408,23 @@ describe('AuthenticationService', () => {
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
     });
 
-    it('enforces session limit — throws when maxSessionsPerUser reached', async () => {
+    it('delegates session-limit enforcement to TokenService on login', async () => {
       const user = createMockUser();
       const tenant = createMockTenant();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(tenant);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
-      // maxSessionsPerUser = 5 (from mockConfigService), simulate 5 active sessions
-      mockSessionManager.countActiveSessions.mockResolvedValue(5);
       mockUserRepository.save.mockResolvedValue(user);
 
-      await expect(service.login(validInput)).rejects.toThrow();
+      const result = await service.login(validInput, '127.0.0.1', 'test-agent');
+
+      // WHY: concurrent-session control moved into TokenService.generateTokens
+      // (sessionManager.enforceSessionLimit evicts the oldest session instead
+      // of rejecting the login). The login-level contract is therefore
+      // delegation; the eviction behaviour itself is asserted in
+      // token.service.spec.ts where the collaborator lives.
+      expect(result.accessToken).toBe('mock-access-token');
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(user, '127.0.0.1', 'test-agent');
     });
 
     it('records audit log entry on successful login', async () => {
@@ -406,7 +506,9 @@ describe('AuthenticationService', () => {
 
       await service.logout('user-uuid-123', 'jti-123', accessExpiry);
 
-      expect(mockTokenBlacklist.add).toHaveBeenCalledWith('jti-123', accessExpiry);
+      // WHAT: third argument is the blacklist reason — logout() always tags
+      // entries with 'user_logout' for incident-triage attribution.
+      expect(mockTokenBlacklist.add).toHaveBeenCalledWith('jti-123', accessExpiry, 'user_logout');
     });
   });
 });

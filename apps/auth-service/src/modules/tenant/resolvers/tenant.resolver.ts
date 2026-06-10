@@ -1,13 +1,13 @@
+import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@aquaculture/backend-common/decorators';
 import { ForbiddenException, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
-import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@aquaculture/backend-common/decorators';
 
+import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';
 import { CreateTenantInput, UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
-import { AuditLogService } from '../../../audit/audit-log.service';
 
 /**
  * Minimal public tenant info exposed by the unauthenticated tenantBySlug query.
@@ -96,8 +96,10 @@ export class TenantResolver {
     if (role !== Role.SUPER_ADMIN && userTenantId !== id) {
       throw new ForbiddenException('Access denied: You can only update your own tenant');
     }
-    // SECURITY: Role-based field filtering is handled inside TenantService.update()
-    return this.tenantService.update(id, input);
+    // SECURITY: Role-based field filtering enforced inside
+    // TenantService.update(id, input, role) — TENANT_ADMIN is limited to
+    // profile fields; status/plan/maxUsers writes are rejected there.
+    return this.tenantService.update(id, input, role);
   }
 
   @SuperAdminOnly()

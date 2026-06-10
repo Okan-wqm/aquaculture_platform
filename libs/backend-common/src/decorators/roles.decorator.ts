@@ -99,6 +99,18 @@ export const TenantAdminOrHigher = () => Roles(Role.SUPER_ADMIN, Role.TENANT_ADM
 export const ModuleManagerOrHigher = () => Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.MODULE_MANAGER);
 
 /**
+ * ModuleUser or higher decorator — every authenticated platform role.
+ *
+ * WHY: self-scoped endpoints (a user reading their OWN modules/settings)
+ * must be explicitly role-gated for defense-in-depth (ADR-008) instead of
+ * relying on the bare JWT guard. This names the full role set so the
+ * intent "any authenticated tenant member" is visible in metadata and
+ * testable via ROLES_KEY reflection.
+ */
+export const ModuleUserOrHigher = () =>
+  Roles(Role.SUPER_ADMIN, Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER);
+
+/**
  * Skip tenant guard decorator - for endpoints that don't require tenant context
  */
 export const SKIP_TENANT_GUARD_KEY = 'skipTenantGuard';
@@ -114,8 +126,8 @@ export const Public = (): MethodDecorator & ClassDecorator => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (target: any, propertyKey?: string | symbol, descriptor?: any): any => {
     // Apply both isPublic and skipTenantGuard metadata
-    SetMetadata(IS_PUBLIC_KEY, true)(target, propertyKey!, descriptor!);
-    SetMetadata(SKIP_TENANT_GUARD_KEY, true)(target, propertyKey!, descriptor!);
+    SetMetadata(IS_PUBLIC_KEY, true)(target, propertyKey!, descriptor);
+    SetMetadata(SKIP_TENANT_GUARD_KEY, true)(target, propertyKey!, descriptor);
     return descriptor ?? target;
   };
 };

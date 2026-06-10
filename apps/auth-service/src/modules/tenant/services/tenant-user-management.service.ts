@@ -1,3 +1,5 @@
+import { SchemaManagerService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
 import {
   Injectable,
   Logger,
@@ -8,21 +10,20 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import * as crypto from 'crypto';
-import { Repository, DataSource } from 'typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
 import { IEventBus } from '@platform/event-bus';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
+import { Repository, DataSource } from 'typeorm';
 
-import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { AuditLogService } from '../../../audit/audit-log.service';
 // WHY: Import AccessType so createTenantUser and updateTenantUser can accept and
 // persist the platform access level chosen by the tenant admin.
 import { User, AccessType } from '../../authentication/entities/user.entity';
-import { Tenant } from '../entities/tenant.entity';
 import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
+import { Tenant } from '../entities/tenant.entity';
+
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
+import { UserLifecycleService } from './user-lifecycle.service';
 
 /**
  * Created tenant user result
@@ -98,10 +99,21 @@ export class TenantUserManagementService {
     private readonly tenantRoleService: TenantRoleService,
     @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
     private readonly auditLogService: AuditLogService,
+    // WHY: UserLifecycleService is the single owner of the user-creation
+    // pipeline (tenant validation, email uniqueness, invitation-token
+    // hashing, mobile-settings provisioning, role assignment, invitation
+    // delivery). This service previously carried a line-for-line duplicate
+    // of that pipeline, which drifted — createTenantUser is a delegation
+    // facade so exactly one creation path exists (SSoT).
+    private readonly userLifecycleService: UserLifecycleService,
   ) {}
 
   /**
-   * Create a new user within a tenant schema and assign initial role
+   * Create a new user within a tenant schema and assign initial role.
+   *
+   * WHAT: thin facade over UserLifecycleService.createUser — see constructor
+   * note. Tenant existence is validated up front so callers of this facade
+   * get the same guard regardless of lifecycle-internal ordering.
    */
   async createTenantUser(
     tenantId: string,
@@ -120,113 +132,15 @@ export class TenantUserManagementService {
       };
     },
     createdBy: string,
-    sendInvitation: boolean = true,
+    sendInvitation = true,
   ): Promise<CreatedTenantUser> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
-    // Validate tenant exists and is active
+    // Validate tenant exists before delegating
     const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
     if (!tenant) {
       throw new NotFoundException(`Tenant with ID "${tenantId}" not found`);
     }
 
-    // Check for existing user with same email (globally unique)
-    const existingUser = await this.userRepository.findOne({
-      where: { email: input.email.toLowerCase() },
-    });
-    if (existingUser) {
-      throw new ConflictException(`User with email "${input.email}" already exists`);
-    }
-
-    // Validate role exists in tenant
-    const role = await this.tenantRoleService.getRoleById(tenantId, input.roleId);
-    if (!role) {
-      throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
-    }
-
-    // Generate invitation token if not providing password
-    // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
-    const plainInvitationToken = sendInvitation && !input.password
-      ? crypto.randomBytes(32).toString('hex')
-      : null;
-    // SECURITY: Hash invitation token with SHA-256 before storage (SEC-005)
-    // Plain token is sent to user via email, hash is stored in DB for verification
-    const invitationTokenHash = plainInvitationToken
-      ? crypto.createHash('sha256').update(plainInvitationToken).digest('hex')
-      : null;
-    const invitationExpiry = plainInvitationToken
-      ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
-      : null;
-
-    // WHY: Resolve accessType with BOTH as default for backward compatibility.
-    // Tenant admin can override to PANEL_ONLY or MOBILE_ONLY per user.
-    const userAccessType = input.accessType ?? AccessType.BOTH;
-
-    // Create user in auth.users table
-    const newUser = this.userRepository.create({
-      email: input.email.toLowerCase(),
-      firstName: input.firstName,
-      lastName: input.lastName,
-      password: input.password || undefined,
-      role: Role.MODULE_USER, // Default global role; tenant role is separate
-      accessType: userAccessType,
-      tenantId,
-      isActive: true,
-      isEmailVerified: false,
-      invitationToken: invitationTokenHash, // Store hash, not plain token
-      invitationExpiresAt: invitationExpiry,
-      invitedBy: createdBy,
-    });
-
-    const savedUser = await this.userRepository.save(newUser);
-    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Created user userId=${savedUser.id} for tenant ${tenantId}`);
-
-    // WHY: Auto-provision mobile_user_settings when user has mobile access.
-    // Without this, mobile app would show "no settings" for new mobile users.
-    if (userAccessType === AccessType.MOBILE_ONLY || userAccessType === AccessType.BOTH) {
-      try {
-        const mobileSettings = this.mobileSettingsRepository.create({
-          userId: savedUser.id,
-          tenantId,
-          allowedFeatures: { ...DEFAULT_MOBILE_FEATURES },
-          isMobileEnabled: true,
-        });
-        await this.mobileSettingsRepository.save(mobileSettings);
-        this.logger.debug(`Auto-provisioned mobile settings for user ${savedUser.id}`);
-      } catch (mobileErr) {
-        // Non-fatal: mobile settings can be created on-demand when user first opens the app
-        this.logger.warn(`Failed to auto-provision mobile settings for ${savedUser.id}: ${(mobileErr as Error).message}`);
-      }
-    }
-
-    // Create role assignment in tenant schema
-    const roleAssignment = await this.createRoleAssignment(
-      schemaName,
-      savedUser.id,
-      input.roleId,
-      role,
-      input.permissionOverrides || { grants: [], revokes: [] },
-      createdBy,
-    );
-
-    // Send invitation email if requested — use plain token (not hash) for user link
-    let invitationSent = false;
-    if (sendInvitation && plainInvitationToken) {
-      try {
-        await this.sendInvitationEmail(tenant, savedUser, plainInvitationToken);
-        invitationSent = true;
-      } catch (error) {
-        // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
-        this.logger.error(`Failed to send invitation email for userId=${savedUser.id}: ${(error as Error).message}`);
-      }
-    }
-
-    return {
-      user: savedUser,
-      roleAssignment,
-      invitationSent,
-    };
+    return this.userLifecycleService.createUser(tenantId, input, createdBy, sendInvitation);
   }
 
   /**
@@ -642,7 +556,7 @@ export class TenantUserManagementService {
   async revokeUserRole(
     tenantId: string,
     userId: string,
-    hardDelete: boolean = false,
+    hardDelete = false,
     revokedBy: string,
   ): Promise<boolean> {
     const schemaName = this.schemaManager.getTenantSchemaName(tenantId);

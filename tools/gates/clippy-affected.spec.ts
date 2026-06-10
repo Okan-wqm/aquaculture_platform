@@ -91,13 +91,13 @@ void test('isPreservationRef: integration-bound refs stay gated', () => {
 // parsePrePushStdin
 // ---------------------------------------------------------
 
-test('parsePrePushStdin: empty input returns empty array', () => {
+void test('parsePrePushStdin: empty input returns empty array', () => {
   assert.deepStrictEqual(parsePrePushStdin(''), []);
   assert.deepStrictEqual(parsePrePushStdin('\n'), []);
   assert.deepStrictEqual(parsePrePushStdin('   \n  \t\n'), []);
 });
 
-test('parsePrePushStdin: single ref parses 4 fields', () => {
+void test('parsePrePushStdin: single ref parses 4 fields', () => {
   const refs = parsePrePushStdin(
     'refs/heads/main abc123 refs/heads/main def456',
   );
@@ -110,7 +110,7 @@ test('parsePrePushStdin: single ref parses 4 fields', () => {
   });
 });
 
-test('parsePrePushStdin: multiple refs parsed independently', () => {
+void test('parsePrePushStdin: multiple refs parsed independently', () => {
   const refs = parsePrePushStdin(
     [
       'refs/heads/main aaa111 refs/heads/main bbb222',
@@ -122,7 +122,7 @@ test('parsePrePushStdin: multiple refs parsed independently', () => {
   assert.strictEqual(refs[1]?.localSha, 'ccc333');
 });
 
-test('parsePrePushStdin: malformed lines skipped', () => {
+void test('parsePrePushStdin: malformed lines skipped', () => {
   const refs = parsePrePushStdin(
     [
       'refs/heads/main abc123 refs/heads/main def456', // valid
@@ -138,7 +138,7 @@ test('parsePrePushStdin: malformed lines skipped', () => {
   assert.strictEqual(refs[1]?.localRef, 'refs/heads/feature');
 });
 
-test('parsePrePushStdin: tabs + multiple spaces tolerated', () => {
+void test('parsePrePushStdin: tabs + multiple spaces tolerated', () => {
   const refs = parsePrePushStdin(
     'refs/heads/main\tabc123    refs/heads/main\t\tdef456',
   );
@@ -155,7 +155,7 @@ test('parsePrePushStdin: tabs + multiple spaces tolerated', () => {
 // rangeForPrePushRef
 // ---------------------------------------------------------
 
-test('rangeForPrePushRef: branch deletion returns null', () => {
+void test('rangeForPrePushRef: branch deletion returns null', () => {
   const ref: PrePushRef = {
     localRef: '(delete)',
     localSha: '0000000000000000000000000000000000000000',
@@ -165,7 +165,7 @@ test('rangeForPrePushRef: branch deletion returns null', () => {
   assert.strictEqual(rangeForPrePushRef(ref), null);
 });
 
-test('rangeForPrePushRef: 40-zero local SHA detected as deletion', () => {
+void test('rangeForPrePushRef: 40-zero local SHA detected as deletion', () => {
   // Git always emits 40-char SHAs; pin both the short
   // and full forms via the regex.
   const refShort: PrePushRef = {
@@ -185,7 +185,7 @@ test('rangeForPrePushRef: 40-zero local SHA detected as deletion', () => {
   assert.strictEqual(rangeForPrePushRef(refFull), null);
 });
 
-test('rangeForPrePushRef: existing-branch update returns remote→local range', () => {
+void test('rangeForPrePushRef: existing-branch update returns remote→local range', () => {
   const ref: PrePushRef = {
     localRef: 'refs/heads/main',
     localSha: 'newcommit',
@@ -198,7 +198,7 @@ test('rangeForPrePushRef: existing-branch update returns remote→local range', 
   assert.strictEqual(range?.head, 'newcommit');
 });
 
-test('rangeForPrePushRef: deletion takes precedence over new-branch check', () => {
+void test('rangeForPrePushRef: deletion takes precedence over new-branch check', () => {
   // Pathological case: BOTH localSha and remoteSha are
   // zeros. This shouldn't happen in practice (git emits
   // one or the other but not both for a normal ref) but
@@ -216,12 +216,12 @@ test('rangeForPrePushRef: deletion takes precedence over new-branch check', () =
 // parseDiffHunkLines (Batch #350 — extracted hunk parser)
 // ---------------------------------------------------------
 
-test('parseDiffHunkLines: empty input returns empty set', () => {
+void test('parseDiffHunkLines: empty input returns empty set', () => {
   assert.strictEqual(parseDiffHunkLines('').size, 0);
   assert.strictEqual(parseDiffHunkLines('\n\n').size, 0);
 });
 
-test('parseDiffHunkLines: single-line addition with default count', () => {
+void test('parseDiffHunkLines: single-line addition with default count', () => {
   // `@@ -X +Y @@` (no `,N`) defaults to count=1 per
   // git diff convention.
   const raw = '@@ -10 +20 @@\n+the new line';
@@ -230,7 +230,7 @@ test('parseDiffHunkLines: single-line addition with default count', () => {
   assert.ok(lines.has(20));
 });
 
-test('parseDiffHunkLines: multi-line addition with explicit count', () => {
+void test('parseDiffHunkLines: multi-line addition with explicit count', () => {
   // `@@ -10,0 +20,3 @@` adds 3 lines starting at NEW-side line 20.
   const raw = '@@ -10,0 +20,3 @@\n+line 20\n+line 21\n+line 22';
   const lines = parseDiffHunkLines(raw);
@@ -240,7 +240,7 @@ test('parseDiffHunkLines: multi-line addition with explicit count', () => {
   );
 });
 
-test('parseDiffHunkLines: pure deletion hunk skipped', () => {
+void test('parseDiffHunkLines: pure deletion hunk skipped', () => {
   // `@@ -10,3 +12,0 @@` deletes 3 lines on the OLD side
   // and adds 0 on the NEW side — no new-side lines to
   // gate. Skip.
@@ -249,7 +249,7 @@ test('parseDiffHunkLines: pure deletion hunk skipped', () => {
   assert.strictEqual(lines.size, 0);
 });
 
-test('parseDiffHunkLines: multiple hunks union into single set', () => {
+void test('parseDiffHunkLines: multiple hunks union into single set', () => {
   const raw = [
     '@@ -1,1 +1,1 @@',
     '+modified line 1',
@@ -270,7 +270,7 @@ test('parseDiffHunkLines: multiple hunks union into single set', () => {
   );
 });
 
-test('parseDiffHunkLines: ignores non-hunk-header lines starting with @@', () => {
+void test('parseDiffHunkLines: ignores non-hunk-header lines starting with @@', () => {
   // A diff line that happens to start with `@@` but
   // isn't a hunk header (e.g., a code line containing
   // `@@`) shouldn't false-positive. The regex anchors
@@ -286,7 +286,7 @@ test('parseDiffHunkLines: ignores non-hunk-header lines starting with @@', () =>
   assert.ok(lines.has(20));
 });
 
-test('parseDiffHunkLines: large new_count yields large range', () => {
+void test('parseDiffHunkLines: large new_count yields large range', () => {
   // Pin the range arithmetic for a 100-line addition.
   const raw = '@@ -0,0 +1,100 @@';
   const lines = parseDiffHunkLines(raw);
@@ -304,7 +304,7 @@ test('parseDiffHunkLines: large new_count yields large range', () => {
 // function untested before this commit)
 // ---------------------------------------------------------
 
-test('repoRelativeFromClippyPath: prefixes crate-relative paths', () => {
+void test('repoRelativeFromClippyPath: prefixes crate-relative paths', () => {
   // cargo clippy emits paths relative to the crate root
   // (e.g., `src/foo.rs`); the gate compares against
   // repo-relative paths (`sens-api-gateway/src/foo.rs`).
@@ -315,7 +315,7 @@ test('repoRelativeFromClippyPath: prefixes crate-relative paths', () => {
   );
 });
 
-test('repoRelativeFromClippyPath: returns paths unchanged when already prefixed', () => {
+void test('repoRelativeFromClippyPath: returns paths unchanged when already prefixed', () => {
   // Idempotent on already-prefixed paths so a future
   // refactor that emits repo-relative paths from clippy
   // doesn't double-prefix.
@@ -325,7 +325,7 @@ test('repoRelativeFromClippyPath: returns paths unchanged when already prefixed'
   );
 });
 
-test('repoRelativeFromClippyPath: handles deep nested paths', () => {
+void test('repoRelativeFromClippyPath: handles deep nested paths', () => {
   assert.strictEqual(
     repoRelativeFromClippyPath('src/a/b/c/d/e.rs'),
     'sens-api-gateway/src/a/b/c/d/e.rs',
@@ -336,14 +336,14 @@ test('repoRelativeFromClippyPath: handles deep nested paths', () => {
 // parseArgs (Batch #353)
 // ---------------------------------------------------------
 
-test('parseArgs: --mode=range with base + head', () => {
+void test('parseArgs: --mode=range with base + head', () => {
   const opts = parseArgs(['--mode=range', 'origin/main', 'HEAD']);
   assert.strictEqual(opts.mode, 'range');
   assert.strictEqual(opts.base, 'origin/main');
   assert.strictEqual(opts.head, 'HEAD');
 });
 
-test('parseArgs: --mode=range without refs leaves them undefined for main() to validate', () => {
+void test('parseArgs: --mode=range without refs leaves them undefined for main() to validate', () => {
   // parseArgs accepts the mode + leaves base/head
   // undefined; the caller (main) validates that range
   // mode requires both refs. This split keeps parseArgs
@@ -355,14 +355,14 @@ test('parseArgs: --mode=range without refs leaves them undefined for main() to v
   assert.strictEqual(opts.head, undefined);
 });
 
-test('parseArgs: --mode=staged returns staged with no refs', () => {
+void test('parseArgs: --mode=staged returns staged with no refs', () => {
   const opts = parseArgs(['--mode=staged']);
   assert.strictEqual(opts.mode, 'staged');
   assert.strictEqual(opts.base, undefined);
   assert.strictEqual(opts.head, undefined);
 });
 
-test('parseArgs: --mode=prepush returns prepush mode', () => {
+void test('parseArgs: --mode=prepush returns prepush mode', () => {
   const opts = parseArgs(['--mode=prepush']);
   assert.strictEqual(opts.mode, 'prepush');
 });

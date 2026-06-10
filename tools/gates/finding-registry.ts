@@ -58,6 +58,15 @@ import { fileURLToPath } from 'node:url';
 // test uses the same module via ts-jest with different interop and
 // omits the extension there.
 import Ajv2020Mod, { type ValidateFunction } from 'ajv/dist/2020.js';
+// PROC-HIGH-001 structural guard — close ceremony refuses branch-local
+// SHAs (see cmdClose). Same SSOT helper is import-safe for node:test.
+// Explicit .ts extension: this CLI executes under ts-node's ESM loader
+// (import.meta.url above forces ESM), whose resolver takes the literal
+// on-disk specifier — extensionless and .js forms both fail
+// ERR_MODULE_NOT_FOUND here, verified empirically. The CJS-mode specs
+// (git-reachability.spec.ts) import the same module extensionless;
+// both forms point at the single git-reachability.ts source.
+import { commitReachableFrom } from './git-reachability.ts';
 const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -308,6 +317,24 @@ function cmdClose(id: string, shortSha: string): number {
     console.error(`Invalid SHA: ${shortSha} (expected 7-40 hex chars).`);
     return 2;
   }
+
+  // PROC-HIGH-001 structural guard (Round-2 cluster-0): the three-store
+  // invariant requires every closing_commits SHA to exist in fetchable
+  // history. A feature-branch SHA is GUARANTEED to be invalidated by the
+  // squash-merge + branch-delete flow (2026-06-10: 7 rows orphaned by
+  // #378, repaired in #384; SEC-CRITICAL-002 / AUDIT-CRITICAL-006
+  // recurrences repaired in #380 / cluster-0). The ceremony therefore
+  // runs ONLY post-merge, with the squash SHA from
+  // `gh pr view <N> --json mergeCommit`. Fail-closed — an unresolvable
+  // origin/main (stale fetch, shallow clone) refuses with instructions
+  // rather than certifying blind.
+  // tier-1: runtime guard commitReachableFrom (git-reachability.ts) refuses branch-local closing SHAs at the only write path; CI invariant finding-registry-integrity.spec.ts enforces the stored chain
+  const reachability = commitReachableFrom(REPO_ROOT, shortSha, 'origin/main');
+  if (!reachability.ok) {
+    console.error(`close refused: ${reachability.reason}`);
+    return 1;
+  }
+
   const entries = loadRegistry();
   const index = entries.findIndex((e) => e.id === id);
   if (index === -1) {

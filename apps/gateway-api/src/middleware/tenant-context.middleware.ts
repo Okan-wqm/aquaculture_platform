@@ -253,7 +253,7 @@ export class TenantContextMiddleware implements NestMiddleware {
     // SECURITY: /graphql must be public to allow login mutation via GraphQL.
     // AuthGuard handles authentication for individual GraphQL operations.
     this.publicPaths = this.configService
-      .get<string>('TENANT_PUBLIC_PATHS', '/health,/graphql,/api/v1/auth/login,/api/v1/auth/register')
+      .get<string>('TENANT_PUBLIC_PATHS', '/health,/graphql,/api/v1/auth/login')
       .split(',')
       .map((p) => p.trim());
   }

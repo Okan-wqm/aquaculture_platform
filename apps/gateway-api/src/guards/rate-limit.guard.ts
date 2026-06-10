@@ -89,41 +89,47 @@ class InMemoryRateLimitStore implements RateLimitStore {
     this.cleanupInterval = setInterval(() => this.cleanup(), 60000);
   }
 
-  async get(key: string): Promise<RateLimitEntry | null> {
+  // WHY non-async + Promise.resolve: this in-memory store implements the
+  // same Promise-returning contract as the Redis-backed store, but its
+  // operations are synchronous — async-without-await is exactly what the
+  // require-await lint exists to flag, and the synchronous body is also
+  // what makes incrementOrCreate atomic (no yield points).
+  get(key: string): Promise<RateLimitEntry | null> {
     const entry = this.store.get(key);
-    if (!entry) return null;
+    if (!entry) return Promise.resolve(null);
     if (Date.now() > entry.resetTime) {
       this.store.delete(key);
-      return null;
+      return Promise.resolve(null);
     }
-    return { ...entry }; // Return copy to prevent external mutation
+    return Promise.resolve({ ...entry }); // Return copy to prevent external mutation
   }
 
-  async set(key: string, entry: RateLimitEntry, _ttlMs: number): Promise<void> {
+  set(key: string, entry: RateLimitEntry, _ttlMs: number): Promise<void> {
     this.store.set(key, { ...entry }); // Store copy
+    return Promise.resolve();
   }
 
-  async increment(key: string): Promise<number> {
+  increment(key: string): Promise<number> {
     const entry = this.store.get(key);
     if (entry && Date.now() <= entry.resetTime) {
       entry.count++;
-      return entry.count;
+      return Promise.resolve(entry.count);
     }
-    return 1;
+    return Promise.resolve(1);
   }
 
   /**
    * Atomic increment-or-create operation
    * SECURITY: This is atomic in single-threaded Node.js since we don't yield
    */
-  async incrementOrCreate(key: string, windowMs: number): Promise<{ entry: RateLimitEntry; isNew: boolean }> {
+  incrementOrCreate(key: string, windowMs: number): Promise<{ entry: RateLimitEntry; isNew: boolean }> {
     const now = Date.now();
     const existing = this.store.get(key);
 
     // Check if entry exists and is still valid
     if (existing && now <= existing.resetTime) {
       existing.count++;
-      return { entry: { ...existing }, isNew: false };
+      return Promise.resolve({ entry: { ...existing }, isNew: false });
     }
 
     // Create new entry (atomically replaces expired entry)
@@ -132,11 +138,11 @@ class InMemoryRateLimitStore implements RateLimitStore {
       resetTime: now + windowMs,
     };
     this.store.set(key, newEntry);
-    return { entry: { ...newEntry }, isNew: true };
+    return Promise.resolve({ entry: { ...newEntry }, isNew: true });
   }
 
-  async isHealthy(): Promise<boolean> {
-    return this.healthy;
+  isHealthy(): Promise<boolean> {
+    return Promise.resolve(this.healthy);
   }
 
   private cleanup(): void {
@@ -184,8 +190,6 @@ export class RateLimitGuard implements CanActivate {
   // Per-endpoint limits from rate-limit.config.ts
   private readonly loginLimit: number;
   private readonly loginWindowMs: number;
-  private readonly registerLimit: number;
-  private readonly registerWindowMs: number;
   private readonly uploadLimit: number;
   private readonly uploadWindowMs: number;
 
@@ -220,8 +224,6 @@ export class RateLimitGuard implements CanActivate {
     // Per-endpoint limits (wired from rate-limit.config.ts env vars)
     this.loginLimit = this.configService.get<number>('RATE_LIMIT_LOGIN_MAX', 5);
     this.loginWindowMs = this.configService.get<number>('RATE_LIMIT_LOGIN_WINDOW_MS', 900000);
-    this.registerLimit = this.configService.get<number>('RATE_LIMIT_REGISTER_MAX', 3);
-    this.registerWindowMs = this.configService.get<number>('RATE_LIMIT_REGISTER_WINDOW_MS', 900000);
     this.uploadLimit = this.configService.get<number>('RATE_LIMIT_UPLOAD_MAX', 10);
     this.uploadWindowMs = this.configService.get<number>('RATE_LIMIT_UPLOAD_WINDOW_MS', 60000);
 
@@ -343,7 +345,7 @@ export class RateLimitGuard implements CanActivate {
     if (contextType === 'graphql') {
       const gqlContext = GqlExecutionContext.create(context);
       const ctx = gqlContext.getContext<GqlContext>();
-      return ctx.req as RateLimitRequest;
+      return ctx.req;
     }
 
     return context.switchToHttp().getRequest<RateLimitRequest>();
@@ -403,10 +405,6 @@ export class RateLimitGuard implements CanActivate {
       {
         bucket: 'login',
         paths: ['/api/auth/login', '/auth/login'],
-      },
-      {
-        bucket: 'register',
-        paths: ['/api/auth/register', '/auth/register'],
       },
       {
         bucket: 'upload',
@@ -515,9 +513,6 @@ export class RateLimitGuard implements CanActivate {
     const url = request.url || '';
     if (url === '/api/auth/login' || url.endsWith('/auth/login')) {
       return { limit: this.loginLimit, windowMs: this.loginWindowMs };
-    }
-    if (url === '/api/auth/register' || url.endsWith('/auth/register')) {
-      return { limit: this.registerLimit, windowMs: this.registerWindowMs };
     }
     if (url.includes('/upload')) {
       return { limit: this.uploadLimit, windowMs: this.uploadWindowMs };

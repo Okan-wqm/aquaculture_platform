@@ -1,3 +1,5 @@
+import { SchemaManagerService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
 import {
   BadRequestException,
   ForbiddenException,
@@ -6,7 +8,6 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Role, SchemaManagerService } from '@platform/backend-common';
 import type { UserInvitedEvent } from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';
 
@@ -149,6 +150,11 @@ describe('UserLifecycleService', () => {
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
     const mockRefreshTokenRepo = createMockRepository();
+    // WHY: UserLifecycleService grew four repositories — MobileUserSettings
+    // (accessType-driven mobile provisioning), Invitation and
+    // UserModuleAssignment (atomic invite + module assignment), and
+    // ActionToken (opaque invitation token ledger) — so the testing
+    // module must mirror the production constructor exactly.
     const mockMobileSettingsRepo = createMockRepository();
     const mockInvitationRepo = createMockRepository();
     const mockActionTokenRepo = createMockRepository();
@@ -446,7 +452,7 @@ describe('UserLifecycleService', () => {
         { userId: USER_ID, isRevoked: false },
         expect.objectContaining({
           isRevoked: true,
-          revokedReason: expect.stringContaining('deleted'),
+          revokedReason: expect.stringContaining('deleted') as string,
         }),
       );
     });

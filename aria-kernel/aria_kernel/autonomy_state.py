@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import ensure_tools_dir, utc_now
 
 
@@ -238,7 +238,11 @@ class AutonomyStateReducer:
             "details": details or {},
             "recorded_at": utc_now(),
         }
-        return append_jsonl(path, row)
+        return append_declared_jsonl(
+            path,
+            row,
+            expected_surface="autonomy_state",
+        )
 
     @staticmethod
     def derive_current(
@@ -252,7 +256,11 @@ class AutonomyStateReducer:
         recent ``cycle_started`` row (or no ``cycle_started`` exists).
         """
         path = autonomy_state_path(base_dir)
-        rows = load_jsonl(path, verify=True)
+        rows = load_declared_jsonl(
+            path,
+            expected_surface="autonomy_state",
+            verify=True,
+        )
         if not rows:
             return AutonomyState()
         cycles_completed = 0

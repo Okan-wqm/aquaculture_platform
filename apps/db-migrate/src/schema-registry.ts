@@ -140,6 +140,14 @@ export interface SchemaPostMigrationHardening {
   reason: string;
 }
 
+const TENANT_SCHEMA_POST_MIGRATION_HARDENING: SchemaPostMigrationHardening = {
+  tenantRls: true,
+  auditColumns: true,
+  reason:
+    'Tenant-aware schemas are cloned into tenant_<uuid> schemas by aqua-db-migrate. ' +
+    'RLS and audit hardening must run in the db-migrate provisioner, not from runtime services.',
+};
+
 /**
  * The ordered list. Edit here and ONLY here when adding a new service
  * with a new schema. Adding a schema out-of-order is reviewable in the
@@ -162,6 +170,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'farm-service',
     schema: 'farm',
     migrationsGlob: ['apps/farm-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: TENANT_SCHEMA_POST_MIGRATION_HARDENING,
     reason:
       'Primary aquaculture domain — highest fan-out of downstream ' +
       'consumers (alert-engine, billing, sensor aggregates).',
@@ -170,6 +179,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'sensor-service',
     schema: 'sensor',
     migrationsGlob: ['apps/sensor-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: TENANT_SCHEMA_POST_MIGRATION_HARDENING,
     reason:
       'Feeds telemetry into farm-service batch/harvest pipelines. ' +
       'Installs TimescaleDB hypertables + continuous aggregates — ' +
@@ -181,6 +191,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     schema: 'hr',
     migrationsGlob: ['apps/hr-service/src/database/migrations/[0-9]*{.ts,.js}'],
     entitiesGlob: ['apps/hr-service/src/**/*.entity.{ts,js}'],
+    postMigrationHardening: TENANT_SCHEMA_POST_MIGRATION_HARDENING,
     reason:
       'Schema-per-tenant service. Source-schema migrations clone into ' +
       'every tenant_<uuid> schema at tenant onboarding — running before ' +
@@ -193,6 +204,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
       'apps/messaging-service/src/migrations/[0-9]*{.ts,.js}',
       'apps/messaging-service/src/database/migrations/[0-9]*{.ts,.js}',
     ],
+    postMigrationHardening: TENANT_SCHEMA_POST_MIGRATION_HARDENING,
     reason:
       'Schema-per-tenant. RLS policies reference auth.tenants (ADR-011/014); ' +
       'must migrate after auth and before cross-service audit triggers.',
@@ -201,6 +213,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'hydroponics-service',
     schema: 'hydroponics',
     migrationsGlob: ['apps/hydroponics-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: TENANT_SCHEMA_POST_MIGRATION_HARDENING,
     reason:
       'Schema-per-tenant, farm-adjacent domain. No migration files yet — ' +
       'entry kept as forward declaration so the first migration addition ' +
@@ -212,6 +225,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'alert-engine',
     schema: 'alert',
     migrationsGlob: ['apps/alert-engine/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: TENANT_SCHEMA_POST_MIGRATION_HARDENING,
     reason:
       'Consumes sensor + farm events. Alert rule definitions reference ' +
       'metric column names — must migrate after sensor/farm to avoid ' +
@@ -239,6 +253,13 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'notification-service',
     schema: 'notification',
     migrationsGlob: ['apps/notification-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      tenantRls: true,
+      auditColumns: true,
+      reason:
+        'notification is a global tenant-scoped schema. Runtime services set tenant GUCs, ' +
+        'but production RLS DDL and audit-column rewrites must run in aqua-db-migrate.',
+    },
     reason:
       'Cross-domain event sink. Notification log references tenantId; ' +
       'runs after auth + domain schemas.',
@@ -247,6 +268,7 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'ai-service',
     schema: 'ai',
     migrationsGlob: ['apps/ai-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: TENANT_SCHEMA_POST_MIGRATION_HARDENING,
     reason:
       'Schema-per-tenant AI context. Reads across domains for conversation ' +
       'context — last in the consumer tier to see all upstream columns.',
@@ -265,6 +287,13 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'config-service',
     schema: 'config',
     migrationsGlob: ['apps/config-service/src/database/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      tenantRls: true,
+      auditColumns: true,
+      reason:
+        'config stores tenant-scoped configuration in a global schema. RLS policy install ' +
+        'and audit-column hardening are production DDL and belong to aqua-db-migrate.',
+    },
     reason:
       'Dynamic configuration keys. Wave 4-A.2 (2026-05-08) canonicalized ' +
       'the dedicated `config` schema + `config_service` role per ADR-011 ' +

@@ -1,0 +1,202 @@
+import { BadRequestException, Injectable, Logger, NestMiddleware } from '@nestjs/common';
+import type { NextFunction, Request, Response } from 'express';
+
+import type { FarmVerifiedIdentity, TenantRequest } from '../types/tenant-request.interface';
+
+const ASSERTION_HEADER = 'x-verified-user-assertion';
+const LEGACY_IDENTITY_HEADERS = [
+  'x-user-payload',
+  'x-user-id',
+  'x-user-roles',
+  'x-act-as-tenant',
+] as const;
+
+const ASSERTION_MAX_AGE_MS = 5 * 60 * 1000;
+const TENANT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Parses the gateway-minted farm identity assertion after service HMAC
+ * verification and quarantines legacy raw identity headers.
+ */
+@Injectable()
+export class VerifiedUserAssertionMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(VerifiedUserAssertionMiddleware.name);
+
+  use(req: TenantRequest, _res: Response, next: NextFunction): void {
+    try {
+      const assertionHeader = this.getHeader(req, ASSERTION_HEADER);
+
+      if (!req.verifiedIdentity && this.requiresServiceIdentity(req)) {
+        throw new BadRequestException('Farm request requires service identity');
+      }
+
+      if (!assertionHeader && this.requiresGatewayAssertion(req)) {
+        throw new BadRequestException(
+          'Verified user assertion is required for gateway farm requests',
+        );
+      }
+
+      if (assertionHeader) {
+        if (!req.verifiedIdentity) {
+          throw new BadRequestException('Verified user assertion requires service identity');
+        }
+        if (req.verifiedIdentity.serviceName !== 'gateway-api') {
+          throw new BadRequestException('Verified user assertion issuer must match gateway service identity');
+        }
+
+        const assertion = this.parseAssertion(assertionHeader);
+        if (!assertion.subject) {
+          throw new BadRequestException('Verified user assertion is missing subject');
+        }
+        if (
+          req.verifiedIdentity.tenantId &&
+          assertion.effectiveTenantId !== req.verifiedIdentity.tenantId
+        ) {
+          throw new BadRequestException('Verified user assertion tenant does not match signed service tenant');
+        }
+
+        req.verifiedUserAssertion = assertion;
+        req.tenantId = assertion.effectiveTenantId ?? assertion.tenantId ?? undefined;
+        req.user = {
+          sub: assertion.subject,
+          tenantId: req.tenantId,
+          roles: assertion.roles,
+          email: assertion.email ?? undefined,
+          mfaVerified: assertion.mfaVerified,
+        };
+      }
+
+      for (const header of LEGACY_IDENTITY_HEADERS) {
+        if (req.headers[header]) {
+          Reflect.deleteProperty(req.headers, header);
+        }
+      }
+
+      next();
+    } catch (error) {
+      this.logger.warn(
+        `Rejected verified user assertion on ${req.method} ${req.originalUrl ?? req.url}: ${(error as Error).message}`,
+      );
+      next(error);
+    }
+  }
+
+  private parseAssertion(value: string): FarmVerifiedIdentity {
+    let decoded: string;
+    try {
+      decoded = Buffer.from(value, 'base64url').toString('utf8');
+    } catch {
+      throw new BadRequestException('Verified user assertion is not valid base64url');
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(decoded);
+    } catch {
+      throw new BadRequestException('Verified user assertion is not valid JSON');
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+      throw new BadRequestException('Verified user assertion must be an object');
+    }
+
+    const candidate = parsed as Partial<FarmVerifiedIdentity>;
+    if (candidate.issuer !== 'gateway-api' || typeof candidate.subject !== 'string') {
+      throw new BadRequestException('Verified user assertion has invalid issuer or subject');
+    }
+    if (
+      !Array.isArray(candidate.roles) ||
+      candidate.roles.some((role) => typeof role !== 'string')
+    ) {
+      throw new BadRequestException('Verified user assertion roles must be strings');
+    }
+    if (typeof candidate.issuedAt !== 'string') {
+      throw new BadRequestException('Verified user assertion has invalid issuedAt');
+    }
+    const issuedAtMs = Date.parse(candidate.issuedAt);
+    if (Number.isNaN(issuedAtMs) || Math.abs(Date.now() - issuedAtMs) > ASSERTION_MAX_AGE_MS) {
+      throw new BadRequestException('Verified user assertion is expired or not yet valid');
+    }
+    if (
+      !this.isOptionalTenant(candidate.tenantId) ||
+      !this.isOptionalTenant(candidate.effectiveTenantId)
+    ) {
+      throw new BadRequestException('Verified user assertion has invalid tenant');
+    }
+    if (candidate.assertionId !== undefined && typeof candidate.assertionId !== 'string') {
+      throw new BadRequestException('Verified user assertion has invalid assertionId');
+    }
+
+    return {
+      issuer: candidate.issuer,
+      subject: candidate.subject,
+      tenantId: candidate.tenantId ?? null,
+      effectiveTenantId: candidate.effectiveTenantId ?? candidate.tenantId ?? null,
+      roles: candidate.roles,
+      email: candidate.email ?? null,
+      mfaVerified: candidate.mfaVerified ?? false,
+      issuedAt: candidate.issuedAt,
+      assertionId: candidate.assertionId,
+    };
+  }
+
+  private requiresGatewayAssertion(req: TenantRequest): boolean {
+    return (
+      this.requiresServiceIdentity(req) &&
+      req.verifiedIdentity?.serviceName === 'gateway-api'
+    );
+  }
+
+  private requiresServiceIdentity(req: TenantRequest): boolean {
+    return (
+      process.env['NODE_ENV'] === 'production' &&
+      !this.isProbePath(req) &&
+      !this.isIntrospectionQuery(req.body as { query?: string; operationName?: string } | undefined)
+    );
+  }
+
+  private isProbePath(req: Request): boolean {
+    const rawPath = req.originalUrl ?? req.url ?? req.path ?? '/';
+    const path = rawPath.split('?')[0] || '/';
+    return (
+      path === '/metrics' ||
+      path === '/health' ||
+      path.startsWith('/health/') ||
+      path === '/api/metrics' ||
+      path === '/api/health' ||
+      path.startsWith('/api/health/')
+    );
+  }
+
+  private isOptionalTenant(value: unknown): boolean {
+    return (
+      value === undefined ||
+      value === null ||
+      (typeof value === 'string' && TENANT_UUID_RE.test(value))
+    );
+  }
+
+  private isIntrospectionQuery(
+    body: { query?: string; operationName?: string } | undefined,
+  ): boolean {
+    if (!body) {
+      return false;
+    }
+    if (body.operationName === 'IntrospectionQuery') {
+      return true;
+    }
+    const query = body.query;
+    if (typeof query !== 'string') {
+      return false;
+    }
+    const compact = query.replace(/\s+/g, ' ');
+    return (
+      compact.includes('__schema') || compact.includes('__type') || compact.includes('_service')
+    );
+  }
+
+  private getHeader(req: Request, name: string): string | undefined {
+    const value = req.headers[name.toLowerCase()] ?? req.headers[name];
+    return Array.isArray(value) ? value[0] : value;
+  }
+}

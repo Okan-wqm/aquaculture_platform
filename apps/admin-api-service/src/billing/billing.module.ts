@@ -13,7 +13,6 @@ import { PlanDefinition } from './entities/plan-definition.entity';
 import { PlanModuleAssignment } from './entities/plan-module-assignment.entity';
 import { TenantUsageMetricsReadOnly } from './entities/tenant-usage-metrics-readonly.entity';
 import { UsageAggregationReadOnly } from './entities/usage-aggregation-readonly.entity';
-import { SeedModulePricingService } from './seed-module-pricing.service';
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
 import { CustomPlanService } from './services/custom-plan.service';
 import { DiscountCodeService } from './services/discount-code.service';
@@ -68,12 +67,6 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
     PaymentManagementService,
     BillingAdminCommandClientService,
     UsageMeteringManagementService,
-    // Seed admin.module_pricing on startup. Replaces the legacy
-    // 05-seed-module-pricing.sql init script (deleted in W4-A) with a
-    // NestJS-context-aware, idempotent, non-fatal seeder. See
-    // seed-module-pricing.service.ts for the full architectural
-    // rationale.
-    SeedModulePricingService,
   ],
   exports: [
     PlanDefinitionService,
@@ -93,5 +86,4 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
     UsageMeteringManagementService,
   ],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class BillingModule {}

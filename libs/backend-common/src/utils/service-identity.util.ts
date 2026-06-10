@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 
 /**
  * Service Identity Headers — HMAC-signed headers for inter-service authentication.
@@ -87,6 +87,7 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto';
  * and matches our deploy-window jitter tolerance.
  */
 export const SERVICE_IDENTITY_MAX_AGE_MS = 5 * 60 * 1000;
+export const SERVICE_IDENTITY_MAX_FUTURE_SKEW_MS = 60 * 1000;
 
 /**
  * Newline-delimited canonical-string field separator.
@@ -142,6 +143,22 @@ export interface ServiceIdentityHeadersV2 {
   'X-Service-Method': string;
   'X-Service-Path': string;
   'X-Service-Body-Hash': string;
+  'X-Service-Key-Id': string;
+  'X-Service-Audience': string;
+  'X-Service-Query-Hash': string;
+  'X-Service-Content-Type': string;
+  'X-Service-Assertion-Hash': string;
+  'X-Service-Nonce': string;
+  'X-Service-Effective-Tenant-ID': string;
+}
+
+export interface ServiceIdentityKeyringEntry {
+  kid: string;
+  secret: string;
+  status?: 'active' | 'previous' | 'disabled';
+  callers?: string[];
+  audiences?: string[];
+  tenantScopePolicy?: 'tenant-bound' | 'all-tenants';
 }
 
 // ─── v2 generator + verifier (primary path) ────────────────────────────────
@@ -178,6 +195,13 @@ function buildCanonicalV2(input: {
   path: string;
   bodyHash: string;
   tenantId: string;
+  keyId: string;
+  audience: string;
+  queryHash: string;
+  contentType: string;
+  effectiveTenantId: string;
+  assertionHash: string;
+  nonce: string;
 }): string {
   return [
     SIG_VERSION_V2,
@@ -187,6 +211,13 @@ function buildCanonicalV2(input: {
     input.path,
     input.bodyHash,
     input.tenantId,
+    input.keyId,
+    input.audience,
+    input.queryHash,
+    input.contentType,
+    input.effectiveTenantId,
+    input.assertionHash,
+    input.nonce,
   ].join(CANONICAL_DELIM);
 }
 
@@ -204,7 +235,7 @@ function buildCanonicalV2(input: {
  * tamperer append a body to a "empty" GET and pass verification.
  *
  * @param args.serviceName - Calling service identifier (e.g. 'gateway-api')
- * @param args.secret      - Shared HMAC secret (INTERNAL_SERVICE_SECRET)
+ * @param args.secret      - Shared HMAC signing secret from the selected keyring entry
  * @param args.tenantId    - Tenant UUID; pass empty string only for proven
  *                            non-tenant paths (health, cross-tenant admin)
  * @param args.method      - HTTP verb (GET, POST, ...). Case-insensitive
@@ -220,9 +251,23 @@ export function generateServiceIdentityHeadersV2(args: {
   method: string;
   path: string;
   body: string | Buffer;
+  keyId?: string;
+  audience?: string;
+  query?: string;
+  contentType?: string;
+  effectiveTenantId?: string;
+  assertionHash?: string;
+  nonce?: string;
 }): ServiceIdentityHeadersV2 {
   const timestamp = new Date().toISOString();
   const bodyHash = sha256Hex(args.body);
+  const keyId = args.keyId ?? 'local-dev';
+  const audience = args.audience ?? '';
+  const queryHash = sha256Hex(args.query ?? '');
+  const contentType = args.contentType ?? '';
+  const effectiveTenantId = args.effectiveTenantId ?? args.tenantId;
+  const assertionHash = args.assertionHash ?? '';
+  const nonce = args.nonce ?? randomUUID();
   const canonical = buildCanonicalV2({
     timestamp,
     serviceName: args.serviceName,
@@ -230,9 +275,16 @@ export function generateServiceIdentityHeadersV2(args: {
     path: args.path,
     bodyHash,
     tenantId: args.tenantId,
+    keyId,
+    audience,
+    queryHash,
+    contentType,
+    effectiveTenantId,
+    assertionHash,
+    nonce,
   });
   const signature = createHmac('sha256', args.secret).update(canonical).digest('hex');
-  return {
+  const headers: ServiceIdentityHeadersV2 = {
     'X-Service-Identity': args.serviceName,
     'X-Service-Timestamp': timestamp,
     'X-Service-Signature': signature,
@@ -240,7 +292,16 @@ export function generateServiceIdentityHeadersV2(args: {
     'X-Service-Method': args.method.toUpperCase(),
     'X-Service-Path': args.path,
     'X-Service-Body-Hash': bodyHash,
+    'X-Service-Key-Id': keyId,
+    'X-Service-Audience': audience,
+    'X-Service-Query-Hash': queryHash,
+    'X-Service-Content-Type': contentType,
+    'X-Service-Assertion-Hash': assertionHash,
+    'X-Service-Nonce': nonce,
+    'X-Service-Effective-Tenant-ID': effectiveTenantId,
   };
+
+  return headers;
 }
 
 /**
@@ -264,20 +325,37 @@ export function verifyServiceIdentityV2(args: {
   method: string;
   path: string;
   bodyHash: string;
+  keyId?: string;
+  audience?: string;
+  queryHash?: string;
+  contentType?: string;
+  assertionHash?: string;
+  nonce?: string;
+  effectiveTenantId?: string;
   // What the receiver actually observes (for cross-check)
   observedMethod: string;
   observedPath: string;
   observedBody: string | Buffer;
+  observedQuery?: string;
+  observedContentType?: string;
+  observedAssertionHash?: string;
   // Trust inputs
   secret: string;
   expectedTenantId: string;
+  expectedAudience?: string;
+  expectedAudiences?: readonly string[];
   maxAgeMs?: number;
+  maxFutureSkewMs?: number;
 }): boolean {
   // Step 1: timestamp freshness (replay window)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(args.timestamp)) {
+    return false;
+  }
   const ts = Date.parse(args.timestamp);
   if (Number.isNaN(ts)) return false;
-  const ageMs = Math.abs(Date.now() - ts);
-  if (ageMs > (args.maxAgeMs ?? SERVICE_IDENTITY_MAX_AGE_MS)) return false;
+  const now = Date.now();
+  if (ts - now > (args.maxFutureSkewMs ?? SERVICE_IDENTITY_MAX_FUTURE_SKEW_MS)) return false;
+  if (now - ts > (args.maxAgeMs ?? SERVICE_IDENTITY_MAX_AGE_MS)) return false;
 
   // Step 2: signed claims must match observed wire values. A tamperer who
   // rewrote method/path/body on the wire has not touched the signature,
@@ -287,6 +365,12 @@ export function verifyServiceIdentityV2(args: {
   if (args.path !== args.observedPath) return false;
   const observedBodyHash = sha256Hex(args.observedBody);
   if (args.bodyHash !== observedBodyHash) return false;
+  if (args.queryHash !== sha256Hex(args.observedQuery ?? '')) return false;
+  if (args.contentType !== (args.observedContentType ?? '')) return false;
+  if (args.assertionHash !== (args.observedAssertionHash ?? '')) return false;
+  if (!matchesExpectedAudience(args.audience, args.expectedAudience, args.expectedAudiences)) {
+    return false;
+  }
 
   // Step 3: HMAC. Re-derive canonical from the SIGNED claims (not the
   // observed values — equivalent here since they matched) and compare.
@@ -299,15 +383,19 @@ export function verifyServiceIdentityV2(args: {
         path: args.path,
         bodyHash: args.bodyHash,
         tenantId: args.expectedTenantId,
+        keyId: args.keyId ?? '',
+        audience: args.audience ?? '',
+        queryHash: args.queryHash ?? '',
+        contentType: args.contentType ?? '',
+        effectiveTenantId: args.effectiveTenantId ?? args.expectedTenantId,
+        assertionHash: args.assertionHash ?? '',
+        nonce: args.nonce ?? '',
       }),
     )
     .digest('hex');
 
   if (expected.length !== args.signature.length) return false;
-  return timingSafeEqual(
-    Buffer.from(expected, 'utf8'),
-    Buffer.from(args.signature, 'utf8'),
-  );
+  return timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(args.signature, 'utf8'));
 }
 
 // ─── v1 generator + verifier (deprecated, kept for one release) ────────────
@@ -365,10 +453,7 @@ export function verifyServiceIdentity(
     .digest('hex');
 
   if (expected.length !== signature.length) return false;
-  return timingSafeEqual(
-    Buffer.from(expected, 'utf8'),
-    Buffer.from(signature, 'utf8'),
-  );
+  return timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(signature, 'utf8'));
 }
 
 // ─── Unified request verifier (dispatches v1 vs v2) ─────────────────────────
@@ -379,8 +464,27 @@ export function verifyServiceIdentity(
  * to remove v1 acceptance entirely.
  */
 export type VerificationOutcome =
-  | { valid: true; version: 'v1' | 'v2' }
-  | { valid: false; reason: 'missing-headers' | 'unknown-version' | 'expired' | 'method-mismatch' | 'path-mismatch' | 'body-mismatch' | 'invalid-hmac' };
+  | {
+      valid: true;
+      version: 'v2';
+      serviceName: string;
+      keyId: string;
+      audience: string;
+      effectiveTenantId: string;
+      nonce: string;
+      key: ServiceIdentityKeyringEntry;
+    }
+  | {
+      valid: false;
+      reason:
+        | 'missing-headers'
+        | 'unknown-version'
+        | 'key-not-found'
+        | 'key-not-active'
+        | 'caller-not-allowed'
+        | 'audience-not-allowed'
+        | 'invalid-hmac';
+    };
 
 /**
  * One-stop verifier for an inbound request.
@@ -403,14 +507,20 @@ export function verifyServiceIdentityRequest(args: {
   observedMethod: string;
   observedPath: string;
   observedBody: string | Buffer;
-  secret: string;
+  observedQuery?: string;
+  observedContentType?: string;
+  observedAssertionHash?: string;
+  secret?: string;
+  keyLookup?: (kid: string) => string | undefined;
+  keyring?: readonly ServiceIdentityKeyringEntry[];
+  allowUnscopedDevKey?: boolean;
   expectedTenantId: string;
+  expectedAudience?: string;
+  expectedAudiences?: readonly string[];
   maxAgeMs?: number;
+  maxFutureSkewMs?: number;
 }): VerificationOutcome {
-  const get = (name: string): string | undefined => {
-    const v = args.headers[name.toLowerCase()] ?? args.headers[name];
-    return Array.isArray(v) ? v[0] : v;
-  };
+  const get = (name: string): string | undefined => getServiceIdentityHeader(args.headers, name);
 
   const serviceName = get('x-service-identity');
   const timestamp = get('x-service-timestamp');
@@ -425,9 +535,42 @@ export function verifyServiceIdentityRequest(args: {
     const method = get('x-service-method');
     const path = get('x-service-path');
     const bodyHash = get('x-service-body-hash');
-    if (!method || !path || bodyHash === undefined) {
+    const keyId = get('x-service-key-id');
+    const audience = get('x-service-audience');
+    const queryHash = get('x-service-query-hash');
+    const contentType = get('x-service-content-type');
+    const assertionHash = get('x-service-assertion-hash');
+    const nonce = get('x-service-nonce');
+    const effectiveTenantId = get('x-service-effective-tenant-id');
+    if (
+      !method ||
+      !path ||
+      bodyHash === undefined ||
+      !keyId ||
+      audience === undefined ||
+      queryHash === undefined ||
+      contentType === undefined ||
+      assertionHash === undefined ||
+      !nonce ||
+      effectiveTenantId === undefined
+    ) {
       return { valid: false, reason: 'missing-headers' };
     }
+
+    const key = resolveVerificationKey({
+      keyId,
+      serviceName,
+      audience,
+      keyring: args.keyring,
+      secret: args.secret,
+      keyLookup: args.keyLookup,
+      allowUnscopedDevKey: args.allowUnscopedDevKey,
+    });
+    if (!key.valid) return { valid: false, reason: key.reason };
+    if (!matchesExpectedAudience(audience, args.expectedAudience, args.expectedAudiences)) {
+      return { valid: false, reason: 'audience-not-allowed' };
+    }
+
     const ok = verifyServiceIdentityV2({
       serviceName,
       timestamp,
@@ -435,29 +578,190 @@ export function verifyServiceIdentityRequest(args: {
       method,
       path,
       bodyHash,
+      keyId,
+      audience,
+      queryHash,
+      contentType,
+      assertionHash,
+      nonce,
+      effectiveTenantId,
       observedMethod: args.observedMethod,
       observedPath: args.observedPath,
       observedBody: args.observedBody,
-      secret: args.secret,
+      observedQuery: args.observedQuery,
+      observedContentType: args.observedContentType,
+      observedAssertionHash: args.observedAssertionHash,
+      secret: key.entry.secret,
       expectedTenantId: args.expectedTenantId,
+      expectedAudience: args.expectedAudience,
+      expectedAudiences: args.expectedAudiences,
       maxAgeMs: args.maxAgeMs,
+      maxFutureSkewMs: args.maxFutureSkewMs,
     });
-    return ok ? { valid: true, version: 'v2' } : { valid: false, reason: 'invalid-hmac' };
+    return ok
+      ? {
+          valid: true,
+          version: 'v2',
+          serviceName,
+          keyId,
+          audience,
+          effectiveTenantId,
+          nonce,
+          key: key.entry,
+        }
+      : { valid: false, reason: 'invalid-hmac' };
   }
 
   if (sigVersion === undefined) {
-    // v1 fallback — deprecated. Caller is expected to log this and
-    // treat the count as the metric for "safe to remove v1".
-    const ok = verifyServiceIdentity(
-      serviceName,
-      timestamp,
-      signature,
-      args.secret,
-      args.expectedTenantId,
-      args.maxAgeMs,
-    );
-    return ok ? { valid: true, version: 'v1' } : { valid: false, reason: 'invalid-hmac' };
+    return { valid: false, reason: 'unknown-version' };
   }
 
   return { valid: false, reason: 'unknown-version' };
+}
+
+function resolveVerificationKey(args: {
+  keyId: string;
+  serviceName: string;
+  audience: string;
+  keyring?: readonly ServiceIdentityKeyringEntry[];
+  secret?: string;
+  keyLookup?: (kid: string) => string | undefined;
+  allowUnscopedDevKey?: boolean;
+}):
+  | { valid: true; entry: ServiceIdentityKeyringEntry }
+  | {
+      valid: false;
+      reason: 'key-not-found' | 'key-not-active' | 'caller-not-allowed' | 'audience-not-allowed';
+    } {
+  const entry = args.keyring?.find((candidate) => candidate.kid === args.keyId);
+  if (entry) {
+    const status = entry.status ?? 'active';
+    if (status !== 'active' && status !== 'previous') {
+      return { valid: false, reason: 'key-not-active' };
+    }
+    if (!entry.callers || !entry.callers.includes(args.serviceName)) {
+      return { valid: false, reason: 'caller-not-allowed' };
+    }
+    if (!entry.audiences || !entry.audiences.includes(args.audience)) {
+      return { valid: false, reason: 'audience-not-allowed' };
+    }
+    return { valid: true, entry };
+  }
+
+  const lookupSecret = args.keyLookup?.(args.keyId);
+  if (lookupSecret) {
+    return {
+      valid: true,
+      entry: {
+        kid: args.keyId,
+        secret: lookupSecret,
+        status: 'active',
+        callers: [args.serviceName],
+        audiences: [args.audience],
+      },
+    };
+  }
+
+  if (args.allowUnscopedDevKey && args.secret) {
+    return {
+      valid: true,
+      entry: {
+        kid: args.keyId,
+        secret: args.secret,
+        status: 'active',
+        callers: [args.serviceName],
+        audiences: [args.audience],
+      },
+    };
+  }
+
+  return { valid: false, reason: 'key-not-found' };
+}
+
+export function parseServiceIdentityKeyring(
+  raw: string | undefined,
+): ServiceIdentityKeyringEntry[] {
+  if (!raw || raw.trim().length === 0) {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`SERVICE_IDENTITY_KEYRING must be valid JSON: ${(error as Error).message}`);
+  }
+
+  const entries = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object' && Array.isArray((parsed as { keys?: unknown }).keys)
+      ? (parsed as { keys: unknown[] }).keys
+      : [];
+
+  return entries.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') {
+      throw new Error(`SERVICE_IDENTITY_KEYRING entry ${index} must be an object`);
+    }
+    const candidate = entry as Partial<ServiceIdentityKeyringEntry>;
+    if (!candidate.kid || !candidate.secret) {
+      throw new Error(`SERVICE_IDENTITY_KEYRING entry ${index} requires kid and secret`);
+    }
+    if (
+      candidate.status !== undefined &&
+      candidate.status !== 'active' &&
+      candidate.status !== 'previous' &&
+      candidate.status !== 'disabled'
+    ) {
+      throw new Error(`SERVICE_IDENTITY_KEYRING entry ${index} has invalid status`);
+    }
+    if (
+      candidate.tenantScopePolicy !== undefined &&
+      candidate.tenantScopePolicy !== 'tenant-bound' &&
+      candidate.tenantScopePolicy !== 'all-tenants'
+    ) {
+      throw new Error(`SERVICE_IDENTITY_KEYRING entry ${index} has invalid tenantScopePolicy`);
+    }
+    return {
+      kid: candidate.kid,
+      secret: candidate.secret,
+      status: candidate.status,
+      callers: Array.isArray(candidate.callers) ? candidate.callers : undefined,
+      audiences: Array.isArray(candidate.audiences) ? candidate.audiences : undefined,
+      tenantScopePolicy: candidate.tenantScopePolicy,
+    };
+  });
+}
+
+function matchesExpectedAudience(
+  audience: string | undefined,
+  expectedAudience?: string,
+  expectedAudiences?: readonly string[],
+): boolean {
+  const allowed = [expectedAudience, ...(expectedAudiences ?? [])].filter(
+    (candidate): candidate is string => Boolean(candidate),
+  );
+
+  if (allowed.length === 0) {
+    return true;
+  }
+
+  return audience !== undefined && allowed.includes(audience);
+}
+
+export function serviceIdentityKeyIdFromHeaders(
+  headers: Record<string, string | string[] | undefined>,
+): string | undefined {
+  return getServiceIdentityHeader(headers, 'x-service-key-id');
+}
+
+export function getServiceIdentityHeader(
+  headers: Record<string, string | string[] | undefined>,
+  name: string,
+): string | undefined {
+  const lower = name.toLowerCase();
+  const direct = headers[lower] ?? headers[name];
+  if (direct !== undefined) return Array.isArray(direct) ? direct[0] : direct;
+  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === lower);
+  const value = key ? headers[key] : undefined;
+  return Array.isArray(value) ? value[0] : value;
 }

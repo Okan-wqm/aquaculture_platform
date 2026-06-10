@@ -6,15 +6,16 @@ import { getMigrationRunnerCompletion } from './migration-runner';
  * Bootstraps source schema tables on service startup.
  *
  * In multi-tenant architecture, each service owns a "source schema" (e.g. `sensor`, `farm`, `hr`)
- * that holds the template table structures. Tenant provisioning copies tables from these source
- * schemas into per-tenant schemas via `CREATE TABLE ... (LIKE source.table ...)`.
+ * that holds the template table structures. Tenant provisioning is owned by
+ * db-migrate, which creates per-tenant schema objects from this catalogued
+ * source-schema surface.
  *
  * # Architectural contract (post INFRA-CRITICAL-009)
  *
  * Migrations are the SINGLE SOURCE OF TRUTH for source-schema DDL. Per CLAUDE.md,
  * `dataSource.synchronize()` is FORBIDDEN at runtime. This service VERIFIES that
- * the source schema is healthy after migrations have run, and enforces strict
- * module-ownership (drops cross-module orphan tables). It NEVER creates tables.
+ * the source schema is healthy after migrations have run, and verifies strict
+ * module-ownership. It never mutates schema objects.
  *
  * # Lifecycle ordering
  *
@@ -63,7 +64,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
         `Source schema bootstrap failed — service WILL crash so the deploy gate catches the regression: ${msg}`,
         stack,
       );
-      // Re-throw: a missing-table or orphan-drop failure is a deploy-blocking
+      // Re-throw: a missing-table or orphan-table failure is a deploy-blocking
       // signal, not a "log and continue" condition. The legacy try/catch
       // swallowed the error and let downstream tenant provisioning fail
       // mysteriously; that contract is reversed here.
@@ -103,18 +104,15 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
     }
 
     // ── Phase 14: strict module ownership enforcement ──────────────────
-    // Before any sync, drop any table in this source schema that is
-    // not declared as owned by the module. See `dropOrphanTables` for
-    // the enforcement logic and `MODULE_SCHEMAS[mod].strictOwnership`
-    // for the opt-in flag. This is an architectural fix for the
-    // cross-module contamination failure mode — tables belonging to
-    // OTHER services (e.g. backend-common's AuditLogEntity leaking
-    // into farm schema via transitive imports) are detected and
-    // removed deterministically on every startup.
+    // Before missing-table verification, detect any table in this source
+    // schema that is not declared as owned by the module. This is an
+    // architectural fix for the cross-module contamination failure mode:
+    // tables belonging to other services are reported deterministically
+    // on every startup.
     //
     // Runs BEFORE the missing-table verification path so orphans with
-    // FK references are gone before any RLS discovery query ever runs.
-    await this.dropOrphanTables(sourceSchema);
+    // FK references are surfaced before any RLS discovery query can run.
+    await this.assertNoOrphanTables(sourceSchema);
 
     // Check the post-migration table set
     const tables = await this.dataSource.query(
@@ -204,7 +202,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
    * Phase 14: strict module ownership enforcement.
    *
    * Discover every table currently present in the source schema and
-   * DROP any table that is NOT in the module's declared ownership set
+   * fail when any table is NOT in the module's declared ownership set
    * (`tables` ∪ `referenceDataTables` ∪ `infrastructureTables`). This
    * closes the cross-module contamination failure mode where historical
    * transitive entity imports synchronized foreign-service tables into
@@ -240,24 +238,17 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
    * modules can opt in as their source schemas are audited and the
    * corresponding MODULE_SCHEMAS entries are verified complete.
    *
-   * ## Idempotence and safety
+   * ## Safety
    *
-   * - `DROP TABLE IF EXISTS … CASCADE` is idempotent; a second run
-   *   after a successful first run is a no-op (no orphans to find).
-   * - `CASCADE` removes any dependent FKs, RLS policies, indexes,
-   *   and views, so the drop is terminal and doesn't leave loose
-   *   constraint references.
-   * - DDL (`DROP TABLE`) is not subject to row-level BEFORE-INSERT
-   *   triggers installed by `SourceSchemaWriteGuardService`, so
-   *   enforcement can run at any point in the bootstrap lifecycle
-   *   without conflicting with the write-guard invariant.
-   * - Errors are fatal: strict enforcement MUST be complete, and a
-   *   partial drop could leave the RLS migration crashing on the
-   *   half-cleaned schema. The single `try` wrapper in
-   *   `onApplicationBootstrap` re-throws the fatal error so the
-   *   deploy gate catches the regression.
+   * - Runtime DDL is deliberately absent. Orphan cleanup belongs in
+   *   db-migrate, where cleanup can be reviewed, versioned, and paired
+   *   with rollback and compliance evidence.
+   * - Errors are fatal: strict verification MUST be complete before the
+   *   service can serve traffic. The single `try` wrapper in
+   *   `onApplicationBootstrap` re-throws the fatal error so the deploy
+   *   gate catches the regression.
    */
-  private async dropOrphanTables(sourceSchema: string): Promise<void> {
+  private async assertNoOrphanTables(sourceSchema: string): Promise<void> {
     // Dynamic import to avoid circular dependency between
     // source-schema-bootstrap.service and schema-manager.service.
     const { MODULE_SCHEMAS } = await import('./schema-manager.service');
@@ -270,7 +261,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
     }
     if (mod.strictOwnership !== true) {
       this.logger.debug(
-        `Module "${mod.moduleName}" does not opt into strict ownership — skipping orphan drop for "${sourceSchema}".`,
+        `Module "${mod.moduleName}" does not opt into strict ownership — skipping orphan verification for "${sourceSchema}".`,
       );
       return;
     }
@@ -286,7 +277,7 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
 
     // Query actual tables present in the schema. Excludes views,
     // materialized views, and foreign tables — those are managed
-    // differently and the orphan-drop policy does not apply to them.
+    // differently and the orphan verification policy does not apply to them.
     const rows: Array<{ table_name: string }> = await this.dataSource.query(
       `
       SELECT table_name
@@ -312,31 +303,13 @@ export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
     this.logger.warn(
       `Source schema "${sourceSchema}" has ${orphans.length} orphan table(s) from cross-module contamination: ${orphans.join(', ')}. ` +
         `These tables are NOT declared in MODULE_SCHEMAS[${mod.moduleName}] (tables | referenceDataTables | infrastructureTables) ` +
-        `and belong to a different module or a removed transitive import. Dropping with CASCADE to enforce strict module ownership.`,
+        `and belong to a different module or a removed transitive import.`,
     );
 
-    for (const orphan of orphans) {
-      try {
-        await this.dataSource.query(
-          `DROP TABLE IF EXISTS "${sourceSchema}"."${orphan}" CASCADE`,
-        );
-        this.logger.log(
-          `Dropped orphan table "${sourceSchema}"."${orphan}" (CASCADE removed any attached FKs, RLS policies, and indexes).`,
-        );
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        this.logger.error(
-          `Failed to drop orphan table "${sourceSchema}"."${orphan}": ${msg}. ` +
-            `Strict-ownership enforcement cannot complete — fail loud so the deploy stops here ` +
-            `rather than proceeding to the RLS migration on a half-cleaned schema.`,
-        );
-        throw error;
-      }
-    }
-
-    this.logger.log(
-      `Strict-ownership enforcement complete for "${sourceSchema}": dropped ${orphans.length} orphan table(s). ` +
-        `The schema now contains only tables declared by MODULE_SCHEMAS[${mod.moduleName}].`,
+    throw new Error(
+      `Source schema "${sourceSchema}" has ${orphans.length} orphan table(s): ${orphans.join(', ')}. ` +
+        `Runtime services cannot clean this with DDL. Add a db-migrate cleanup migration or declare ` +
+        `legitimate tables in MODULE_SCHEMAS[${mod.moduleName}] before deploy.`,
     );
   }
 }

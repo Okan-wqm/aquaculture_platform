@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .evidence_validator import validate_tool_output_evidence
+from .implementation_safety import BashAllowlistMiss, BashDenylistHit, verify_bash_command_allowed
 from .runtime_profile import enforce_profile_for_write
 from .snapshot import build_repo_snapshot, ignored_dirty_path, normalize_path, snapshot_allowed_set
 from .artifact_safety import scrub_text
@@ -49,6 +50,13 @@ def run_tool(
         raise GovernanceError(f"tool has no runner configuration: {tool_id}")
     if runner.get("type") != "subprocess":
         raise GovernanceError(f"unsupported runner type: {runner.get('type')}")
+    try:
+        verify_bash_command_allowed(
+            list(runner.get("argv") or []),
+            cwd=str(runner.get("cwd") or "."),
+        )
+    except (BashAllowlistMiss, BashDenylistHit) as exc:
+        raise GovernanceError(f"runner_argv_policy_rejected:{exc}") from exc
 
     repo_snapshot = _input_repo_snapshot(input_payload)
     if repo_snapshot is None:

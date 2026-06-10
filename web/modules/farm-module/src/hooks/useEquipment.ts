@@ -323,6 +323,10 @@ const EQUIPMENT_DELETE_PREVIEW_QUERY = `
 
 // graphqlClient from shared-ui handles token/tenantId automatically
 
+function isTenantEquipmentQuery(queryKey: readonly unknown[], tenantId?: string | null): boolean {
+  return queryKey[0] === 'tenant' && queryKey[1] === tenantId && queryKey[2] === 'equipment';
+}
+
 /**
  * Hook to fetch equipment list
  */
@@ -342,7 +346,7 @@ export function useEquipmentList(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ equipmentList: PaginatedResponse }>(
         EQUIPMENT_LIST_QUERY,
-        { filter, pagination: { page: 1, limit: 100 } }
+        { filter, pagination: { page: 1, limit: 100 } },
       );
       return data.equipmentList;
     },
@@ -363,7 +367,7 @@ export function useEquipmentTypes() {
     queryFn: async () => {
       const data = await graphqlClient.request<{ equipmentTypes: EquipmentType[] }>(
         EQUIPMENT_TYPES_QUERY,
-        {}
+        {},
       );
       return data.equipmentTypes;
     },
@@ -389,7 +393,7 @@ export function useCreateEquipment() {
       }
       const data = await graphqlClient.request<{ createEquipment: Equipment }>(
         CREATE_EQUIPMENT_MUTATION,
-        { input }
+        { input },
       );
       return data.createEquipment;
     },
@@ -397,9 +401,7 @@ export function useCreateEquipment() {
       // Use predicate to match all equipment list queries regardless of filter
       queryClient.invalidateQueries({
         predicate: (query) =>
-          Array.isArray(query.queryKey) &&
-          query.queryKey[0] === 'equipment' &&
-          query.queryKey[1] === 'list',
+          Array.isArray(query.queryKey) && isTenantEquipmentQuery(query.queryKey, tenantId),
       });
     },
   });
@@ -422,7 +424,7 @@ export function useUpdateEquipment() {
       }
       const data = await graphqlClient.request<{ updateEquipment: Equipment }>(
         UPDATE_EQUIPMENT_MUTATION,
-        { input }
+        { input },
       );
       return data.updateEquipment;
     },
@@ -430,9 +432,7 @@ export function useUpdateEquipment() {
       // Use predicate to match all equipment list queries regardless of filter
       queryClient.invalidateQueries({
         predicate: (query) =>
-          Array.isArray(query.queryKey) &&
-          query.queryKey[0] === 'equipment' &&
-          query.queryKey[1] === 'list',
+          Array.isArray(query.queryKey) && isTenantEquipmentQuery(query.queryKey, tenantId),
       });
     },
   });
@@ -459,10 +459,9 @@ export function useEquipmentDeletePreview(id: string | null) {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'equipment', 'deletePreview', id),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ equipmentDeletePreview: EquipmentDeletePreviewResult }>(
-        EQUIPMENT_DELETE_PREVIEW_QUERY,
-        { id }
-      );
+      const data = await graphqlClient.request<{
+        equipmentDeletePreview: EquipmentDeletePreviewResult;
+      }>(EQUIPMENT_DELETE_PREVIEW_QUERY, { id });
       return data.equipmentDeletePreview;
     },
     staleTime: 0, // Always fetch fresh data for delete preview
@@ -488,7 +487,7 @@ export function useDeleteEquipment() {
       }
       const data = await graphqlClient.request<{ deleteEquipment: boolean }>(
         DELETE_EQUIPMENT_MUTATION,
-        { id, cascade }
+        { id, cascade },
       );
       return data.deleteEquipment;
     },
@@ -496,9 +495,7 @@ export function useDeleteEquipment() {
       // Use predicate to match all equipment list queries regardless of filter
       queryClient.invalidateQueries({
         predicate: (query) =>
-          Array.isArray(query.queryKey) &&
-          query.queryKey[0] === 'equipment' &&
-          query.queryKey[1] === 'list',
+          Array.isArray(query.queryKey) && isTenantEquipmentQuery(query.queryKey, tenantId),
       });
     },
   });

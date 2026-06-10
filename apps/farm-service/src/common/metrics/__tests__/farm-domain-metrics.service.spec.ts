@@ -86,12 +86,8 @@ describe('FarmDomainMetricsService', () => {
     service.incWithdrawalBlock({ surface: 'harvest_record' });
     const dump = await service.getMetrics();
     expect(dump).toContain('farm_withdrawal_block_total');
-    expect(dump).toMatch(
-      /farm_withdrawal_block_total\{[^}]*surface="close_batch"[^}]*} 1/,
-    );
-    expect(dump).toMatch(
-      /farm_withdrawal_block_total\{[^}]*surface="harvest_record"[^}]*} 2/,
-    );
+    expect(dump).toMatch(/farm_withdrawal_block_total\{[^}]*surface="close_batch"[^}]*} 1/);
+    expect(dump).toMatch(/farm_withdrawal_block_total\{[^}]*surface="harvest_record"[^}]*} 2/);
   });
 
   it('records backdate rejections by context', async () => {
@@ -100,11 +96,32 @@ describe('FarmDomainMetricsService', () => {
     service.incBackdateRejection({ context: 'feeding' });
     const dump = await service.getMetrics();
     expect(dump).toContain('farm_backdate_rejected_total');
+    expect(dump).toMatch(/farm_backdate_rejected_total\{[^}]*context="feeding"[^}]*} 2/);
+    expect(dump).toMatch(/farm_backdate_rejected_total\{[^}]*context="mortality"[^}]*} 1/);
+  });
+
+  it('records setup legacy write and read usage for removal gates', async () => {
+    service.recordSetupLegacyWrite({
+      surface: 'site',
+      operation: 'createSite',
+      contract: 'graphql',
+      tenantId: '22222222-2222-4222-8222-222222222222',
+    });
+    service.recordSetupLegacyRead({
+      surface: 'farm_workers',
+      operation: 'workers',
+      contract: 'graphql',
+      tenantId: '22222222-2222-4222-8222-222222222222',
+    });
+
+    const dump = await service.getMetrics();
+    expect(dump).toContain('farm_setup_legacy_write_total');
+    expect(dump).toContain('farm_setup_legacy_read_total');
     expect(dump).toMatch(
-      /farm_backdate_rejected_total\{[^}]*context="feeding"[^}]*} 2/,
+      /farm_setup_legacy_write_total\{surface="site",operation="createSite",contract="graphql",tenant="22222222"} 1/,
     );
     expect(dump).toMatch(
-      /farm_backdate_rejected_total\{[^}]*context="mortality"[^}]*} 1/,
+      /farm_setup_legacy_read_total\{surface="farm_workers",operation="workers",contract="graphql",tenant="22222222"} 1/,
     );
   });
 

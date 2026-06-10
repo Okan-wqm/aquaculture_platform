@@ -23,11 +23,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.pr_manager import open_pr_for_action
 from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class _GhResult:
@@ -94,7 +94,11 @@ def _seed_action_and_proposal(*, tools: Path, repo: Path, base_sha: str, proposa
         "status": "ready_for_pr",
         "blocked_by": [],
     }
-    append_jsonl(tools / "apply" / "actions.jsonl", action_row)
+    append_declared_fixture(
+        tools / "apply" / "actions.jsonl",
+        action_row,
+        expected_surface="apply_actions",
+    )
     return proposal
 
 

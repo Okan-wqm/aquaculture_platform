@@ -1,13 +1,13 @@
 /**
  * EdgeLicenseV2 — compact Ed25519 JWS license issued by billing-service.
  *
- * Per ADR-025. Per-tenant under sensor schema. Supersedes ADR-022's
+ * Per ADR-034. Per-tenant under sensor schema. Supersedes ADR-022's
  * `edge.licenses`. billing-service is the WRITER (compact Ed25519 JWS
  * minting); sensor-service is the CONSUMER (cache + verify by the Rust
  * edge agent). Cross-service write is the only place where a non-sensor
  * role writes to a sensor-schema table — granted by per-table GRANT
- * INSERT,UPDATE on `licenses` to `billing_service` in the baseline
- * migration.
+ * INSERT,UPDATE on `licenses` to `billing_service` in
+ * `SensorV2TenantFkAndLicenseGrant1800300000000` when that role exists.
  *
  * # DDL contract (ADR-022 §2.3 carried forward)
  *

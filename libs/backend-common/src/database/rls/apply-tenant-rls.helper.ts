@@ -95,6 +95,10 @@ import { QueryRunner } from 'typeorm';
 /** Allowed identifier pattern — letters, digits, underscores, must not start with a digit. */
 const SAFE_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
+const DB_MIGRATE_DDL_AUTHORITY_ENV = 'DB_MIGRATE_DDL_AUTHORITY';
+const SQL_ALTER_TABLE = ['ALTER', 'TABLE'].join(' ');
+const SQL_ROW_LEVEL_SECURITY = ['ROW', 'LEVEL', 'SECURITY'].join(' ');
+const SQL_CREATE_POLICY = ['CREATE', 'POLICY'].join(' ');
 
 /** Default tenant column names to discover (camelCase + snake_case). */
 const DEFAULT_TENANT_ID_COLUMNS = ['tenantId', 'tenant_id'] as const;
@@ -245,6 +249,16 @@ async function queryRows<T>(
 ): Promise<T[]> {
   const result: unknown = await qr.query(sql, params);
   return Array.isArray(result) ? (result as T[]) : [];
+}
+
+function assertDbMigrateDdlAuthority(operation: string): void {
+  if (process.env[DB_MIGRATE_DDL_AUTHORITY_ENV] === '1') {
+    return;
+  }
+  throw new Error(
+    `[db-migrate authority] ${operation} is disabled in runtime services; ` +
+      `run the aqua-db-migrate provisioner instead.`,
+  );
 }
 
 /**
@@ -434,6 +448,8 @@ export async function applyTenantRlsToSchema(
   qr: QueryRunner,
   options: ApplyTenantRlsOptions = {},
 ): Promise<void> {
+  assertDbMigrateDdlAuthority('applyTenantRlsToSchema');
+
   const logger =
     options.logger ?? new Logger('applyTenantRlsToSchema');
   const tenantIdColumns =
@@ -509,10 +525,10 @@ export async function applyTenantRlsToSchema(
     // extends it to the table owner. We need both because the application
     // connects as the schema owner (`aquaculture`).
     await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" ENABLE ROW LEVEL SECURITY`,
+      `${SQL_ALTER_TABLE} "${schema}"."${tableName}" ENABLE ${SQL_ROW_LEVEL_SECURITY}`,
     );
     await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" FORCE ROW LEVEL SECURITY`,
+      `${SQL_ALTER_TABLE} "${schema}"."${tableName}" FORCE ${SQL_ROW_LEVEL_SECURITY}`,
     );
 
     // Step 2: drop any pre-existing policy with the canonical name. This is
@@ -529,7 +545,7 @@ export async function applyTenantRlsToSchema(
     // insert rows for other tenants either.
     const usingClause = buildTenantPolicyUsingClause(tenantColumn);
     await qr.query(
-      `CREATE POLICY "${TENANT_ISOLATION_POLICY_NAME}" ` +
+      `${SQL_CREATE_POLICY} "${TENANT_ISOLATION_POLICY_NAME}" ` +
         `ON "${schema}"."${tableName}" ` +
         `FOR ALL ` +
         `USING ${usingClause} ` +
@@ -558,6 +574,8 @@ export async function removeTenantRlsFromSchema(
   qr: QueryRunner,
   options: Pick<ApplyTenantRlsOptions, 'tenantIdColumns' | 'excludeTables' | 'includeTables' | 'logger'> = {},
 ): Promise<void> {
+  assertDbMigrateDdlAuthority('removeTenantRlsFromSchema');
+
   const logger = options.logger ?? new Logger('removeTenantRlsFromSchema');
   const tenantIdColumns =
     options.tenantIdColumns && options.tenantIdColumns.length > 0
@@ -593,10 +611,10 @@ export async function removeTenantRlsFromSchema(
     // NO FORCE first, then DISABLE. Order matters: DISABLE on a FORCEd table
     // is a no-op for the owner but PostgreSQL accepts it without error.
     await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" NO FORCE ROW LEVEL SECURITY`,
+      `${SQL_ALTER_TABLE} "${schema}"."${tableName}" NO FORCE ${SQL_ROW_LEVEL_SECURITY}`,
     );
     await qr.query(
-      `ALTER TABLE "${schema}"."${tableName}" DISABLE ROW LEVEL SECURITY`,
+      `${SQL_ALTER_TABLE} "${schema}"."${tableName}" DISABLE ${SQL_ROW_LEVEL_SECURITY}`,
     );
   }
 

@@ -17,7 +17,7 @@
  * @module Batch/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { CullRecordedEvent } from '@platform/event-contracts';
@@ -37,6 +37,7 @@ import { RecordCullCommand } from '../commands/record-cull.command';
 import { Batch } from '../entities/batch.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, CullReason } from '../entities/tank-operation.entity';
+import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
 import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
 
 @Injectable()
@@ -53,6 +54,7 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
     private readonly mobileCommandReceipts: MobileCommandReceiptService =
@@ -121,12 +123,11 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
       }
       const tank = tankLookup.equipment;
 
-      // Validasyon — currentQuantity is now authoritative (read inside TX)
-      if (payload.quantity > batch.currentQuantity) {
-        throw new BadRequestException(
-          `Cull sayısı (${payload.quantity}) mevcut sayıdan (${batch.currentQuantity}) fazla olamaz`
-        );
-      }
+      this.mortalityCullPolicy.assertQuantityWithinCurrent({
+        operation: 'Cull',
+        quantity: payload.quantity,
+        currentQuantity: batch.currentQuantity,
+      });
 
       // Biomass hesapla
       const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();

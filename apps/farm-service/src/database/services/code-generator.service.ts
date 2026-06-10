@@ -12,7 +12,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { CodeSequence } from '../entities/code-sequence.entity';
 
@@ -29,6 +29,10 @@ export interface GeneratedCode {
   code: string;
   sequence: number;
   year: number;
+}
+
+interface QueryExecutor {
+  query<T = unknown>(query: string, parameters?: unknown[]): Promise<T>;
 }
 
 @Injectable()
@@ -98,8 +102,49 @@ export class CodeGeneratorService {
     }
   }
 
+  /**
+   * Generate a code using the caller's active tenant transaction.
+   *
+   * Setup write paths use this variant so the code sequence increment rolls
+   * back with the aggregate/audit/outbox write. The caller is responsible for
+   * using a manager whose query runner already has the tenant search_path set.
+   */
+  async generateCodeWithManager(
+    manager: EntityManager,
+    options: CodeGeneratorOptions,
+  ): Promise<GeneratedCode> {
+    if (!manager.queryRunner?.isTransactionActive) {
+      throw new Error('generateCodeWithManager requires an active transaction manager');
+    }
+    if (!isValidUUID(options.tenantId)) {
+      throw new Error(`Invalid tenantId format: ${options.tenantId}`);
+    }
+
+    const year = options.year || new Date().getFullYear();
+    const padding = options.padding || this.DEFAULT_PADDING;
+    const separator = options.separator || this.DEFAULT_SEPARATOR;
+
+    const sequence = await this.incrementSequenceAtomically(manager, {
+      tenantId: options.tenantId,
+      entityType: options.entityType,
+      prefix: options.prefix,
+      year,
+    });
+
+    const paddedSequence = String(sequence.lastSequence).padStart(padding, '0');
+    const code = `${options.prefix}${separator}${year}${separator}${paddedSequence}`;
+
+    this.logger.debug(`Generated code: ${code} for ${options.entityType}`);
+
+    return {
+      code,
+      sequence: sequence.lastSequence,
+      year,
+    };
+  }
+
   private async incrementSequenceAtomically(
-    queryRunner: ReturnType<DataSource['createQueryRunner']>,
+    queryRunner: QueryExecutor,
     input: {
       tenantId: string;
       entityType: string;
@@ -107,11 +152,11 @@ export class CodeGeneratorService {
       year: number;
     },
   ): Promise<CodeSequence> {
-    const table = this.quoteIdentifier(this.sequenceRepository.metadata?.tableName ?? 'code_sequences');
+    const table = this.quoteIdentifier(
+      this.sequenceRepository.metadata?.tableName ?? 'code_sequences',
+    );
     const columns = this.sequenceColumnNames();
-    const setUpdatedAt = columns.updatedAt
-      ? `, ${columns.updatedAt} = NOW()`
-      : '';
+    const setUpdatedAt = columns.updatedAt ? `, ${columns.updatedAt} = NOW()` : '';
 
     // WHY: `findOne(... lock)` only locks an existing row. For the first code
     // in a tenant/entity/year, concurrent requests would both see no row and
@@ -177,7 +222,9 @@ export class CodeGeneratorService {
   }
 
   private optionalSequenceColumn(propertyName: keyof CodeSequence): string | undefined {
-    const databaseName = this.sequenceRepository.metadata?.findColumnWithPropertyName(String(propertyName))?.databaseName;
+    const databaseName = this.sequenceRepository.metadata?.findColumnWithPropertyName(
+      String(propertyName),
+    )?.databaseName;
     return databaseName ? this.quoteIdentifier(databaseName) : undefined;
   }
 
@@ -202,6 +249,15 @@ export class CodeGeneratorService {
    */
   async generateTankCode(tenantId: string): Promise<string> {
     const result = await this.generateCode({
+      prefix: 'TNK',
+      tenantId,
+      entityType: 'Tank',
+    });
+    return result.code;
+  }
+
+  async generateTankCodeWithManager(manager: EntityManager, tenantId: string): Promise<string> {
+    const result = await this.generateCodeWithManager(manager, {
       prefix: 'TNK',
       tenantId,
       entityType: 'Tank',
@@ -308,11 +364,7 @@ export class CodeGeneratorService {
   /**
    * Mevcut sequence bilgisini al
    */
-  async getCurrentSequence(
-    tenantId: string,
-    entityType: string,
-    year?: number,
-  ): Promise<number> {
+  async getCurrentSequence(tenantId: string, entityType: string, year?: number): Promise<number> {
     const currentYear = year || new Date().getFullYear();
 
     const sequence = await this.sequenceRepository.findOne({
@@ -361,9 +413,7 @@ export class CodeGeneratorService {
     sequence.lastGeneratedAt = new Date();
     await this.sequenceRepository.save(sequence);
 
-    this.logger.log(
-      `Sequence set for ${entityType} in tenant ${tenantId}: ${sequenceNumber}`,
-    );
+    this.logger.log(`Sequence set for ${entityType} in tenant ${tenantId}: ${sequenceNumber}`);
   }
 
   /**

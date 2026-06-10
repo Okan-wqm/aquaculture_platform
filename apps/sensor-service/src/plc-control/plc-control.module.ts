@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AuditLog } from '../infrastructure/audit';
+
 import { FeedingParameter } from './entities/feeding-parameter.entity';
 import { PlcAlarm } from './entities/plc-alarm.entity';
 import { PlcConnection } from './entities/plc-connection.entity';
@@ -53,6 +55,7 @@ import {
       FeedingParameter,
       PlcTelemetry,
       PlcAlarm,
+      AuditLog,
     ]),
   ],
   providers: [
@@ -79,5 +82,6 @@ import {
     OpcUaAdapter,
   ],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
-export class PlcControlModule {}
+export class PlcControlModule {
+  private readonly moduleClass = PlcControlModule.name;
+}

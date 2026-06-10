@@ -27,7 +27,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import append_declared_jsonl, load_jsonl
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import utc_now
 from aria_kernel.verification_gate import _hash_lease_token, submit_worker_result
@@ -41,16 +41,20 @@ def _git(workdir: Path, *args: str) -> None:
 
 def _seed_request(base: Path, *, assignment_id: str, worktree: Path,
                   base_sha: str, head_sha: str) -> None:
-    append_jsonl(base / "dispatch" / "requests.jsonl", {
-        "schema_version": 1,
-        "assignment_id": assignment_id,
-        "pressure_event_id": "PE-G3",
-        "target_agent": "agent-test",
-        "worktree_path": str(worktree),
-        "base_sha": base_sha,
-        "required_tests": [],
-        "triage_tier": "auto_fix_safe",
-    })
+    append_declared_jsonl(
+        base / "dispatch" / "requests.jsonl",
+        {
+            "schema_version": 1,
+            "assignment_id": assignment_id,
+            "pressure_event_id": "PE-G3",
+            "target_agent": "agent-test",
+            "worktree_path": str(worktree),
+            "base_sha": base_sha,
+            "required_tests": [],
+            "triage_tier": "auto_fix_safe",
+        },
+        expected_surface="dispatch_requests",
+    )
 
 
 def _seed_claim(base: Path, *, assignment_id: str, claim_id: str,
@@ -70,7 +74,11 @@ def _seed_claim(base: Path, *, assignment_id: str, claim_id: str,
         row["lease_expires_at"] = "2099-12-31T00:00:00+00:00"
     elif lease_expires_at:
         row["lease_expires_at"] = lease_expires_at
-    append_jsonl(base / "dispatch" / "claims.jsonl", row)
+    append_declared_jsonl(
+        base / "dispatch" / "claims.jsonl",
+        row,
+        expected_surface="dispatch_claims",
+    )
 
 
 def _setup_git_worktree(tmp: Path) -> tuple[Path, str, str]:

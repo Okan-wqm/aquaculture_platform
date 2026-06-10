@@ -133,7 +133,7 @@ export interface ServiceBootstrapOptions {
   onBeforeListen?: (app: INestApplication) => Promise<void> | void;
 
   /**
-   * Pre-NestFactory environment checks (e.g., INTERNAL_SERVICE_SECRET guard).
+ * Pre-NestFactory environment checks (e.g., service identity keyring guard).
    * Each function is called before NestFactory.create() — throw to abort startup.
    */
   environmentGuards?: Array<() => void>;
@@ -525,7 +525,7 @@ function resolvePort(
 const PLATFORM_SECRET_ENV_VARS: readonly string[] = [
   'JWT_PUBLIC_KEY',
   'JWT_SECRET',
-  'INTERNAL_SERVICE_SECRET',
+  'SERVICE_IDENTITY_KEYRING',
   'POSTGRES_PASSWORD',
   'REDIS_PASSWORD',
   // NATS per-service passwords REMOVED (ADR-015).
@@ -543,7 +543,7 @@ const PLATFORM_SECRET_ENV_VARS: readonly string[] = [
   'ENCRYPTION_KEY',
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',
-  'SMTP_PASS',
+  'SMTP_PASSWORD',
   'OBSERVABILITY_INTERNAL_API_KEY',
 ];
 

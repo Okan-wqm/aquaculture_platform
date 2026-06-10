@@ -10,7 +10,7 @@ import {
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
-import { ThrottlerModule } from '@aquaculture/backend-common/security';
+import { ThrottlerGuard, ThrottlerModule } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
@@ -287,10 +287,10 @@ const getAdminStoragePort = (configService: ConfigService): number => {
       provide: APP_GUARD,
       useExisting: PlatformAdminGuard,
     },
-    // ThrottlerGuard removed: admin-api is super-admin-only (PlatformAdminGuard).
-    // Rate limiting an authenticated admin panel with ~15 concurrent dashboard
-    // requests causes 429 floods. Individual sensitive endpoints (login, password
-    // reset) still use per-route @Throttle() decorators via backend-common.
+    {
+      provide: APP_GUARD,
+      useExisting: ThrottlerGuard,
+    },
     {
       provide: APP_INTERCEPTOR,
       useClass: ResponseInterceptor,

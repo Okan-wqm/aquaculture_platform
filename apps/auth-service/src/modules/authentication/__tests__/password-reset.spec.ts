@@ -1,10 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/require-await */
-/* eslint-disable @typescript-eslint/no-floating-promises */
 import * as crypto from 'crypto';
 
 import { BypassRlsService } from '@aquaculture/backend-common/database';
@@ -19,6 +12,10 @@ import { DataSource, SelectQueryBuilder } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { Tenant } from '../../tenant/entities/tenant.entity';
+<<<<<<< HEAD
+=======
+import { ActionToken } from '../entities/action-token.entity';
+>>>>>>> origin/main
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
@@ -27,6 +24,19 @@ import { AuthenticationService } from '../services/authentication.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
 
+interface PasswordResetRequestedEvent {
+  eventType: string;
+  userId: string;
+  actionTokenId: string;
+  cryptoShredKeyId: string;
+  email?: unknown;
+  resetToken?: unknown;
+}
+
+interface PasswordResetCompletedEvent {
+  eventType: string;
+  userId: string;
+}
 
 // ============================================================================
 // Mock Helpers
@@ -77,6 +87,15 @@ const mockInvitationRepository = {
   findOne: jest.fn(),
 };
 
+const mockActionTokenRepository = {
+  create: jest.fn((data: Record<string, unknown>) => ({ ...data })),
+  save: jest.fn((entity: Record<string, unknown>) => Promise.resolve({
+    id: 'action-token-id',
+    ...entity,
+  })),
+  findOne: jest.fn(),
+};
+
 const mockUserModuleAssignmentRepository = {
   find: jest.fn(),
 };
@@ -90,8 +109,8 @@ const mockJwtService = {
 };
 
 const mockConfigService = {
-  get: jest.fn((key: string, defaultValue?: any) => {
-    const config: Record<string, any> = {
+  get: jest.fn((key: string, defaultValue?: unknown): unknown => {
+    const config: Record<string, string | number | boolean> = {
       JWT_EXPIRES_IN: '15m',
       JWT_AUDIENCE: 'test-audience',
       MIN_LOGIN_DURATION_MS: 0, // Disable timing delays for tests
@@ -142,11 +161,32 @@ const mockTimingSafe = {
   ensureMinDuration: jest.fn().mockResolvedValue(undefined),
 };
 
+const mockTokenService = {
+  generateTokens: jest.fn().mockResolvedValue({
+    accessToken: 'mock-access-token',
+    refreshToken: 'mock-refresh-token',
+    user: null,
+  }),
+};
+
+const mockMfaService = {};
+
 describe('AuthenticationService - Password Reset Flow', () => {
   let service: AuthenticationService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockActionTokenRepository.create.mockImplementation((data: Record<string, unknown>) => ({ ...data }));
+    mockActionTokenRepository.save.mockImplementation((entity: Record<string, unknown>) => Promise.resolve({
+      id: 'action-token-id',
+      ...entity,
+    }));
+    mockActionTokenRepository.findOne.mockResolvedValue(null);
+    mockTokenService.generateTokens.mockImplementation((user: User) => Promise.resolve({
+      accessToken: 'mock-access-token',
+      refreshToken: 'mock-refresh-token',
+      user,
+    }));
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -154,6 +194,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
         { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepository },
         { provide: getRepositoryToken(Invitation), useValue: mockInvitationRepository },
+        { provide: getRepositoryToken(ActionToken), useValue: mockActionTokenRepository },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepository },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepository },
         { provide: DataSource, useValue: mockDataSource },
@@ -163,6 +204,16 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
         { provide: MfaService, useValue: mockMfaService },
+<<<<<<< HEAD
+=======
+        {
+          provide: BypassRlsService,
+          useValue: {
+            withBypass: async <T>(_op: string, cb: () => Promise<T> | T): Promise<T> => cb(),
+            withBypassSync: <T>(_op: string, cb: () => T): T => cb(),
+          },
+        },
+>>>>>>> origin/main
         { provide: TimingSafeService, useValue: mockTimingSafe },
         { provide: SESSION_MANAGER, useValue: null },
         { provide: TOKEN_BLACKLIST, useValue: null },
@@ -195,14 +246,21 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       // Verify save was called with hashed token (SHA-256 hex = 64 chars)
       expect(mockUserRepository.save).toHaveBeenCalledTimes(1);
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.passwordResetToken).toBeDefined();
       expect(savedUser.passwordResetToken).toHaveLength(64); // SHA-256 hex digest
+<<<<<<< HEAD
       const resetExpires = savedUser.passwordResetExpires;
       if (!(resetExpires instanceof Date)) {
         throw new Error('passwordResetExpires was not persisted as a Date');
       }
       expect(resetExpires.getTime()).toBeGreaterThan(Date.now());
+=======
+      expect(savedUser.passwordResetExpires).toBeInstanceOf(Date);
+      const expiresAt = savedUser.passwordResetExpires?.getTime();
+      expect(expiresAt).toBeDefined();
+      expect(expiresAt ?? 0).toBeGreaterThan(Date.now());
+>>>>>>> origin/main
     });
 
     it('should set token expiry to 1 hour from now', async () => {
@@ -214,18 +272,28 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
       const after = Date.now();
 
+<<<<<<< HEAD
       const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
       const resetExpires = savedUser.passwordResetExpires;
       if (!(resetExpires instanceof Date)) {
         throw new Error('passwordResetExpires was not persisted as a Date');
       }
       const expiresAt = resetExpires.getTime();
+=======
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
+      const expiresAt = savedUser.passwordResetExpires?.getTime();
+      expect(expiresAt).toBeDefined();
+>>>>>>> origin/main
       // Expiry should be approximately 1 hour from now (within 5 second tolerance)
-      expect(expiresAt).toBeGreaterThanOrEqual(before + 60 * 60 * 1000 - 5000);
-      expect(expiresAt).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
+      expect(expiresAt ?? 0).toBeGreaterThanOrEqual(before + 60 * 60 * 1000 - 5000);
+      expect(expiresAt ?? 0).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
     });
 
+<<<<<<< HEAD
     it('should publish a PII-free PasswordResetRequested event (opaque references only)', async () => {
+=======
+    it('should publish PasswordResetRequested event with opaque action token id', async () => {
+>>>>>>> origin/main
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockUserRepository.save.mockResolvedValue(user);
@@ -233,6 +301,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
 
       expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
+<<<<<<< HEAD
       const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
       const event = mockEventBus.publish.mock.calls[0][0];
       expect(event.eventType).toBe('PasswordResetRequested');
@@ -248,6 +317,13 @@ describe('AuthenticationService - Password Reset Flow', () => {
       // WHY: PII and secrets must never be placed on the immutable event bus
       // (GDPR erasure + token-leak surface). Assert structural absence so a
       // regression reintroducing them fails loudly.
+=======
+      const [event] = mockEventBus.publish.mock.calls[0] as [PasswordResetRequestedEvent];
+      expect(event.eventType).toBe('PasswordResetRequested');
+      expect(event.userId).toBe('user-uuid-123');
+      expect(event.actionTokenId).toBe('action-token-id');
+      expect(event.cryptoShredKeyId).toBe('user-uuid-123');
+>>>>>>> origin/main
       expect(event.email).toBeUndefined();
       expect(event.resetToken).toBeUndefined();
     });
@@ -367,13 +443,14 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.resetPassword(plainToken, 'NewPass123!');
 
       // Verify createQueryBuilder was used with the hashed token
+      const dateMatcher: unknown = expect.any(Date);
       expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'user.passwordResetToken = :tokenHash',
-        { tokenHash },
+        'user.passwordResetExpires > :now',
+        expect.objectContaining({ now: dateMatcher }),
       );
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'user.passwordResetExpires > :now',
-        expect.objectContaining({ now: expect.any(Date) }),
+        'user.passwordResetToken = :tokenHash',
+        { tokenHash },
       );
     });
 
@@ -391,7 +468,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.passwordResetToken).toBeNull();
       expect(savedUser.passwordResetExpires).toBeNull();
     });
@@ -412,7 +489,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.failedLoginAttempts).toBe(0);
       expect(savedUser.lockedUntil).toBeNull();
     });
@@ -485,6 +562,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
+<<<<<<< HEAD
       const publishCalls = mockEventBus.publish.mock.calls as readonly (readonly unknown[])[];
       const resetCompletedEvent = publishCalls.find((call) => {
         const payload = call[0];
@@ -498,6 +576,16 @@ describe('AuthenticationService - Password Reset Flow', () => {
         throw new Error('PasswordResetCompleted event was not published');
       }
       expect((resetCompletedEvent[0] as { userId?: unknown }).userId).toBe('user-uuid-123');
+=======
+      const publishCalls = mockEventBus.publish.mock.calls as Array<
+        [PasswordResetRequestedEvent | PasswordResetCompletedEvent]
+      >;
+      const resetCompletedEvent = publishCalls.find(
+        (call) => call[0].eventType === 'PasswordResetCompleted',
+      );
+      expect(resetCompletedEvent).toBeDefined();
+      expect(resetCompletedEvent?.[0].userId).toBe('user-uuid-123');
+>>>>>>> origin/main
     });
 
     it('should log PASSWORD_RESET_SUCCESS audit event', async () => {
@@ -537,7 +625,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.password).toBe('NewPass123!');
     });
   });

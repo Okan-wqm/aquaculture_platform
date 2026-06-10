@@ -1,15 +1,12 @@
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
-import { Logger } from '@nestjs/common';
 import {
-  Resolver,
-  Query,
-  Mutation,
-  Args,
-  Int,
-  ID,
-  ResolveField,
-  Parent,
-} from '@nestjs/graphql';
+  Tenant,
+  CurrentUser,
+  Roles,
+  Role,
+  RequireTenantPermission,
+} from '@aquaculture/backend-common/decorators';
+import { Logger } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, Int, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -123,9 +120,7 @@ export class EdgeDeviceResolver {
    * Get edge device statistics for dashboard
    */
   @Query(() => EdgeDeviceStats, { name: 'edgeDeviceStats' })
-  async getEdgeDeviceStats(
-    @Tenant() tenantId: string,
-  ): Promise<EdgeDeviceStats> {
+  async getEdgeDeviceStats(@Tenant() tenantId: string): Promise<EdgeDeviceStats> {
     return await this.edgeDeviceService.getStats(tenantId);
   }
 
@@ -253,11 +248,7 @@ export class EdgeDeviceResolver {
     @CurrentUser() user: UserContext,
   ): Promise<ProvisionedDeviceResponse> {
     this.logger.log(`Creating provisioned device for tenant: ${tenantId}`);
-    return await this.provisioningService.createProvisionedDevice(
-      tenantId,
-      input,
-      user.sub,
-    );
+    return await this.provisioningService.createProvisionedDevice(tenantId, input, user.sub);
   }
 
   /**
@@ -323,9 +314,7 @@ export class EdgeDeviceResolver {
    */
   @Query(() => [TenantProvisioningKey], { name: 'tenantProvisioningKeys' })
   @Roles(Role.TENANT_ADMIN)
-  async listTenantProvisioningKeys(
-    @Tenant() tenantId: string,
-  ): Promise<TenantProvisioningKey[]> {
+  async listTenantProvisioningKeys(@Tenant() tenantId: string): Promise<TenantProvisioningKey[]> {
     return await this.provisioningService.listTenantKeys(tenantId);
   }
 
@@ -340,13 +329,7 @@ export class EdgeDeviceResolver {
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
   ): Promise<DeviceEventConnection> {
-    return this.provisioningService.getDeviceEvents(
-      tenantId,
-      deviceId,
-      eventType,
-      page,
-      limit,
-    );
+    return this.provisioningService.getDeviceEvents(tenantId, deviceId, eventType, page, limit);
   }
 
   // ==================== I/O Configuration Mutations ====================
@@ -356,6 +339,7 @@ export class EdgeDeviceResolver {
    */
   @Mutation(() => DeviceIoConfig, { name: 'addDeviceIoConfig' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @RequireTenantPermission('edge:manage-io-config')
   async addDeviceIoConfig(
     @Args('deviceId', { type: () => ID }) deviceId: string,
     @Args('input') input: AddIoConfigInput,
@@ -369,6 +353,7 @@ export class EdgeDeviceResolver {
    */
   @Mutation(() => DeviceIoConfig, { name: 'updateDeviceIoConfig' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @RequireTenantPermission('edge:manage-io-config')
   async updateDeviceIoConfig(
     @Args('id', { type: () => ID }) id: string,
     @Args('deviceId', { type: () => ID }) deviceId: string,
@@ -383,6 +368,7 @@ export class EdgeDeviceResolver {
    */
   @Mutation(() => Boolean, { name: 'removeDeviceIoConfig' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @RequireTenantPermission('edge:manage-io-config')
   async removeDeviceIoConfig(
     @Args('id', { type: () => ID }) id: string,
     @Args('deviceId', { type: () => ID }) deviceId: string,
@@ -397,6 +383,7 @@ export class EdgeDeviceResolver {
    */
   @Mutation(() => PushIoConfigResult, { name: 'pushIoConfigToDevice' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @RequireTenantPermission('edge:manage-io-config')
   async pushIoConfigToDevice(
     @Args('deviceId', { type: () => ID }) deviceId: string,
     @Tenant() tenantId: string,
@@ -424,7 +411,9 @@ export class EdgeDeviceResolver {
     @Tenant() tenantId: string,
     @CurrentUser() userId: string,
   ): Promise<SetDigitalOutputResult> {
-    this.logger.log(`Setting digital output: device=${input.deviceId}, io=${input.ioConfigId}, value=${input.value}, user=${userId}`);
+    this.logger.log(
+      `Setting digital output: device=${input.deviceId}, io=${input.ioConfigId}, value=${input.value}, user=${userId}`,
+    );
     return await this.edgeDeviceService.setDigitalOutput(
       input.deviceId,
       input.ioConfigId,
@@ -466,6 +455,7 @@ export class EdgeDeviceResolver {
    */
   @Mutation(() => BulkAddIoConfigResult, { name: 'bulkAddDeviceIoConfigs' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @RequireTenantPermission('edge:manage-io-config')
   async bulkAddDeviceIoConfigs(
     @Args('deviceId', { type: () => ID }) deviceId: string,
     @Args('inputs', { type: () => [AddIoConfigInput] }) inputs: AddIoConfigInput[],
@@ -500,7 +490,9 @@ export class EdgeDeviceResolver {
     @Args('input') input: AddLoRaDeviceInput,
     @Tenant() tenantId: string,
   ): Promise<LoRaDevice> {
-    this.logger.log(`Adding LoRa device: ${input.name} (DevEUI: ${input.devEui}) to edge ${edgeDeviceId}`);
+    this.logger.log(
+      `Adding LoRa device: ${input.name} (DevEUI: ${input.devEui}) to edge ${edgeDeviceId}`,
+    );
     return await this.edgeDeviceService.addLoRaDevice(edgeDeviceId, tenantId, input);
   }
 
@@ -533,7 +525,9 @@ export class EdgeDeviceResolver {
     @Args('input') input: SendLoRaDownlinkInput,
     @Tenant() tenantId: string,
   ): Promise<SendLoRaDownlinkResult> {
-    this.logger.log(`Sending LoRa downlink to device: ${loraDeviceId} via edge ${edgeDeviceId}, fPort: ${input.fPort}`);
+    this.logger.log(
+      `Sending LoRa downlink to device: ${loraDeviceId} via edge ${edgeDeviceId}, fPort: ${input.fPort}`,
+    );
     return await this.edgeDeviceService.sendLoRaDownlink(
       edgeDeviceId,
       loraDeviceId,
@@ -550,9 +544,7 @@ export class EdgeDeviceResolver {
    * List firmware versions approved by the signed Edge release registry.
    */
   @Query(() => [FirmwareVersionInfo], { name: 'availableFirmwareVersions' })
-  getAvailableFirmwareVersions(
-    @Tenant() _tenantId: string,
-  ): FirmwareVersionInfo[] {
+  getAvailableFirmwareVersions(@Tenant() _tenantId: string): FirmwareVersionInfo[] {
     return this.edgeDeviceService.getAvailableFirmwareVersions();
   }
 
@@ -566,7 +558,9 @@ export class EdgeDeviceResolver {
     @Tenant() tenantId: string,
     @Args('targetVersion', { nullable: true }) targetVersion?: string,
   ): Promise<boolean> {
-    this.logger.log(`Legacy firmware update requested for device: ${id}, version: ${targetVersion ?? 'explicit-version-required'}`);
+    this.logger.log(
+      `Legacy firmware update requested for device: ${id}, version: ${targetVersion ?? 'explicit-version-required'}`,
+    );
     await this.edgeDeviceService.updateDeviceFirmware(id, tenantId, targetVersion);
     return true;
   }
@@ -581,8 +575,14 @@ export class EdgeDeviceResolver {
     @Tenant() tenantId: string,
     @Args('targetVersion', { nullable: true }) targetVersion?: string,
   ): Promise<BulkFirmwareUpdateResult> {
-    this.logger.log(`Bulk legacy firmware update requested for ${deviceIds.length} devices, version: ${targetVersion ?? 'explicit-version-required'}`);
-    return await this.edgeDeviceService.bulkUpdateDeviceFirmware(deviceIds, tenantId, targetVersion);
+    this.logger.log(
+      `Bulk legacy firmware update requested for ${deviceIds.length} devices, version: ${targetVersion ?? 'explicit-version-required'}`,
+    );
+    return await this.edgeDeviceService.bulkUpdateDeviceFirmware(
+      deviceIds,
+      tenantId,
+      targetVersion,
+    );
   }
 
   // ==================== Field Resolvers ====================
@@ -604,9 +604,7 @@ export class EdgeDeviceResolver {
    * (Direct device-sensor relation can be added in future if needed)
    */
   @ResolveField(() => Int, { name: 'sensorCount', nullable: true })
-  async resolveSensorCount(
-    @Parent() device: EdgeDevice,
-  ): Promise<number> {
+  async resolveSensorCount(@Parent() device: EdgeDevice): Promise<number> {
     // If device has no siteId, return 0
     if (!device.siteId) {
       return 0;
@@ -622,7 +620,9 @@ export class EdgeDeviceResolver {
         },
       });
     } catch (error) {
-      this.logger.warn(`Failed to count sensors for device ${device.id}: ${(error as Error).message}`);
+      this.logger.warn(
+        `Failed to count sensors for device ${device.id}: ${(error as Error).message}`,
+      );
       return 0;
     }
   }
@@ -632,9 +632,7 @@ export class EdgeDeviceResolver {
    * Counts automation programs deployed to or targeting this device
    */
   @ResolveField(() => Int, { name: 'programCount', nullable: true })
-  async resolveProgramCount(
-    @Parent() device: EdgeDevice,
-  ): Promise<number> {
+  async resolveProgramCount(@Parent() device: EdgeDevice): Promise<number> {
     try {
       // Count programs assigned to this device (deployed or approved)
       return await this.automationProgramRepo.count({
@@ -645,7 +643,9 @@ export class EdgeDeviceResolver {
         },
       });
     } catch (error) {
-      this.logger.warn(`Failed to count programs for device ${device.id}: ${(error as Error).message}`);
+      this.logger.warn(
+        `Failed to count programs for device ${device.id}: ${(error as Error).message}`,
+      );
       return 0;
     }
   }
@@ -655,9 +655,7 @@ export class EdgeDeviceResolver {
    * Counts unacknowledged alarms from sensors/PLCs on the same site
    */
   @ResolveField(() => Int, { name: 'activeAlarmCount', nullable: true })
-  async resolveActiveAlarmCount(
-    @Parent() device: EdgeDevice,
-  ): Promise<number> {
+  async resolveActiveAlarmCount(@Parent() device: EdgeDevice): Promise<number> {
     try {
       // Count unacknowledged alarms for this tenant
       // Note: When PLC-EdgeDevice relation is established, filter by device
@@ -668,7 +666,9 @@ export class EdgeDeviceResolver {
         },
       });
     } catch (error) {
-      this.logger.warn(`Failed to count alarms for device ${device.id}: ${(error as Error).message}`);
+      this.logger.warn(
+        `Failed to count alarms for device ${device.id}: ${(error as Error).message}`,
+      );
       return 0;
     }
   }

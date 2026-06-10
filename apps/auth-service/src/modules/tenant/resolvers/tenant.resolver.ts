@@ -1,14 +1,24 @@
 import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@aquaculture/backend-common/decorators';
+<<<<<<< HEAD
 import { ForbiddenException, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+=======
+import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
+
+>>>>>>> origin/main
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';
-import { CreateTenantInput, UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
+import { UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
+<<<<<<< HEAD
 import { Tenant } from '../entities/tenant.entity';
+=======
+import { Tenant, TenantStatus } from '../entities/tenant.entity';
+>>>>>>> origin/main
 import { TenantService } from '../services/tenant.service';
 
 /**
@@ -40,15 +50,6 @@ export class TenantResolver {
     private readonly tenantService: TenantService,
     private readonly auditLogService: AuditLogService,
   ) {}
-
-  @SuperAdminOnly()
-  @Mutation(() => Tenant)
-  async createTenant(
-    @Args('input') input: CreateTenantInput,
-    @Context() ctx: { req: { user: { id: string } } },
-  ): Promise<Tenant> {
-    return this.tenantService.create(input, ctx.req.user.id);
-  }
 
   @SuperAdminOnly()
   @Query(() => [Tenant])
@@ -85,44 +86,60 @@ export class TenantResolver {
 
   @TenantAdminOrHigher()
   @Mutation(() => Tenant)
-  async updateTenant(
+  updateTenant(
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateTenantInput,
     @CurrentUser('role') role: Role,
     @CurrentUser('tenantId') userTenantId: string | null,
-  ): Promise<Tenant> {
+  ): Tenant {
     // SECURITY: Tenant isolation - TENANT_ADMIN can only update their own tenant
     if (role !== Role.SUPER_ADMIN && userTenantId !== id) {
       throw new ForbiddenException('Access denied: You can only update your own tenant');
     }
+<<<<<<< HEAD
     // SECURITY: Role-based field filtering enforced inside
     // TenantService.update(id, input, role) — TENANT_ADMIN is limited to
     // profile fields; status/plan/maxUsers writes are rejected there.
     return this.tenantService.update(id, input, role);
+=======
+    void input;
+    throw new BadRequestException(
+      'Tenant updates are command-receipt owned. Use the auth tenant command/FSM path.',
+    );
+>>>>>>> origin/main
   }
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  async suspendTenant(
+  suspendTenant(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<Tenant> {
-    return this.tenantService.suspend(id);
+  ): Tenant {
+    void id;
+    throw new BadRequestException(
+      'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  async activateTenant(
+  activateTenant(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<Tenant> {
-    return this.tenantService.activate(id);
+  ): Tenant {
+    void id;
+    throw new BadRequestException(
+      'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  async cancelTenant(
+  cancelTenant(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<Tenant> {
-    return this.tenantService.cancel(id);
+  ): Tenant {
+    void id;
+    throw new BadRequestException(
+      'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
+    );
   }
 
   // ============================================================================

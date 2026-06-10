@@ -20,9 +20,9 @@ from aria_kernel import (
     run_validation_commands,
     verify_integrity,
 )
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class EnterpriseRoadmapFoundationTests(unittest.TestCase):
@@ -120,7 +120,7 @@ class EnterpriseRoadmapFoundationTests(unittest.TestCase):
         self.assertEqual(regression["status"], "regression")
 
     def test_fitness_report_is_separate_from_recommendation_evidence_gate(self):
-        append_jsonl(
+        append_declared_fixture(
             runs_path(self.tools_dir),
             {
                 "schema_version": 1,
@@ -130,6 +130,7 @@ class EnterpriseRoadmapFoundationTests(unittest.TestCase):
                 "status": "ok",
                 "runner": {"raw_findings_count": 0},
             },
+            expected_surface="runs",
         )
         report = generate_fitness_report(cycle_id="cycle-fitness", base_dir=self.tools_dir)
         self.assertIn("event_contracts", report["dimensions"])

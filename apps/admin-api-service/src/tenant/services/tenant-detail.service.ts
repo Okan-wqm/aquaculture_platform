@@ -1,9 +1,12 @@
+import * as crypto from 'crypto';
+
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import {
   TenantDetailDto,
+  TenantAvailableAction,
   UserStatsByRole,
   ModuleUsageStats,
   ResourceUsage,
@@ -11,11 +14,11 @@ import {
 } from '../dto/tenant-detail.dto';
 import {
   TenantActivity,
-  TenantNote,
   TenantBillingInfo,
 } from '../entities/tenant-activity.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
+import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
 import { TenantActivityService } from './tenant-activity.service';
 
 @Injectable()
@@ -30,6 +33,7 @@ export class TenantDetailService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly activityService: TenantActivityService,
+    private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
   /**
@@ -43,6 +47,7 @@ export class TenantDetailService {
     if (!tenant) {
       throw new NotFoundException(`Tenant with ID '${tenantId}' not found`);
     }
+    tenant.hydrateCompatibilityFields();
 
     // Fetch all related data in parallel
     const [userStats, modules, activities, notes, billing, resourceUsage] =
@@ -66,9 +71,11 @@ export class TenantDetailService {
       // Status & Tier
       status: tenant.status,
       tier: tenant.tier,
+      plan: tenant.plan,
       trialEndsAt: tenant.trialEndsAt,
       suspendedAt: tenant.suspendedAt,
       suspendedReason: tenant.suspendedReason,
+      availableActions: this.getAvailableActions(tenant),
 
       // Contact Info
       primaryContact: tenant.primaryContact,
@@ -81,7 +88,12 @@ export class TenantDetailService {
 
       // Settings & Limits
       settings: tenant.settings as TenantDetailDto['settings'],
-      limits: tenant.limits as TenantDetailDto['limits'],
+      limits: tenant.limits,
+      userCount: tenant.userCount,
+      farmCount: tenant.farmCount,
+      sensorCount: tenant.sensorCount,
+      maxStorage: tenant.maxStorage,
+      isTrialActive: tenant.isTrialActive,
 
       // Statistics
       userStats,
@@ -103,6 +115,26 @@ export class TenantDetailService {
       createdBy: tenant.createdBy,
       lastActivityAt: tenant.lastActivityAt,
     };
+  }
+
+  private getAvailableActions(tenant: Tenant): TenantAvailableAction[] {
+    const status = this.toTenantStatus(tenant.status);
+    switch (status) {
+      case TenantStatus.ACTIVE:
+        return ['suspend', 'deactivate'];
+      case TenantStatus.SUSPENDED:
+        return ['activate', 'deactivate'];
+      case TenantStatus.DEACTIVATED:
+        return ['archive'];
+      case TenantStatus.PROVISIONING_FAILED:
+        return ['retryProvisioning'];
+      default:
+        return [];
+    }
+  }
+
+  private toTenantStatus(status: string): TenantStatus | undefined {
+    return Object.values(TenantStatus).find((candidate) => String(candidate) === status);
   }
 
   /**
@@ -291,7 +323,7 @@ export class TenantDetailService {
       paymentStatus: billing.paymentStatus,
       nextBillingDate: billing.nextBillingDate || null,
       lastPaymentDate: billing.lastPaymentDate || null,
-      lastPaymentAmount: billing.lastPaymentAmount
+      lastPaymentAmount: billing.lastPaymentAmount !== null && billing.lastPaymentAmount !== undefined
         ? Number(billing.lastPaymentAmount)
         : null,
     };
@@ -341,34 +373,49 @@ export class TenantDetailService {
         .getMany();
 
       const foundIds = new Set(existingTenants.map(t => t.id));
-      const failed  = tenantIds.filter(id => !foundIds.has(id));
-      const success = tenantIds.filter(id =>  foundIds.has(id));
+      const activeIds = new Set(
+        existingTenants
+          .filter(t => t.status === 'ACTIVE')
+          .map(t => t.id),
+      );
+      const failed  = tenantIds.filter(id => !foundIds.has(id) || !activeIds.has(id));
+      const success = tenantIds.filter(id => activeIds.has(id));
 
       if (success.length === 0) return { success: [], failed };
 
-      // Single bulk UPDATE
-      const now = new Date();
-      await this.dataSource.query(
-        `UPDATE tenants
-         SET    status            = 'SUSPENDED',
-                "suspendedAt"     = $1,
-                "suspendedReason" = $2,
-                "suspendedBy"     = $3,
-                "updatedAt"       = $1
-         WHERE  id = ANY($4::uuid[])`,
-        [now, reason, performedBy, success],
-      );
+      const commandSucceeded: string[] = [];
+      for (const tenantId of success) {
+        try {
+          await this.authProvisioningClient.suspendTenant({
+            ...buildTenantDetailLifecycleCommandMetadata(
+              'SuspendTenant',
+              tenantId,
+              performedBy,
+              { reason, bulk: true },
+            ),
+            reason,
+          });
+          commandSucceeded.push(tenantId);
+        } catch (error) {
+          this.logger.warn(
+            `bulkSuspend auth command failed for tenant ${tenantId}: ${(error as Error).message}`,
+          );
+          failed.push(tenantId);
+        }
+      }
+      success.splice(0, success.length, ...commandSucceeded);
 
       // Batch-create activity log entries (single INSERT … VALUES …)
-      const activityRows = existingTenants.filter(t => foundIds.has(t.id));
+      const successIds = new Set(success);
+      const activityRows = existingTenants.filter(t => successIds.has(t.id));
       if (activityRows.length > 0) {
         await this.dataSource.query(
-          `INSERT INTO tenant_activities
+          `INSERT INTO admin.tenant_activities
              ("tenantId", "activityType", title, description,
               "previousValue", "newValue", "performedBy", "createdAt", "updatedAt")
            SELECT
              unnest($1::uuid[]),
-             'SUSPENDED'::varchar,
+             'suspended'::admin.tenant_activities_activitytype_enum,
              'Status changed: suspended',
              $2,
              jsonb_build_object('status', prev_status),
@@ -412,34 +459,48 @@ export class TenantDetailService {
         .getMany();
 
       const foundIds = new Set(existingTenants.map(t => t.id));
-      const failed  = tenantIds.filter(id => !foundIds.has(id));
-      const success = tenantIds.filter(id =>  foundIds.has(id));
+      const suspendedIds = new Set(
+        existingTenants
+          .filter(t => t.status === 'SUSPENDED')
+          .map(t => t.id),
+      );
+      const failed  = tenantIds.filter(id => !foundIds.has(id) || !suspendedIds.has(id));
+      const success = tenantIds.filter(id => suspendedIds.has(id));
 
       if (success.length === 0) return { success: [], failed };
 
-      // Single bulk UPDATE
-      const now = new Date();
-      await this.dataSource.query(
-        `UPDATE tenants
-         SET    status            = 'ACTIVE',
-                "suspendedAt"     = NULL,
-                "suspendedReason" = NULL,
-                "suspendedBy"     = NULL,
-                "updatedAt"       = $1
-         WHERE  id = ANY($2::uuid[])`,
-        [now, success],
-      );
+      const commandSucceeded: string[] = [];
+      for (const tenantId of success) {
+        try {
+          await this.authProvisioningClient.activateTenant({
+            ...buildTenantDetailLifecycleCommandMetadata(
+              'ActivateTenant',
+              tenantId,
+              performedBy,
+              { bulk: true },
+            ),
+          });
+          commandSucceeded.push(tenantId);
+        } catch (error) {
+          this.logger.warn(
+            `bulkActivate auth command failed for tenant ${tenantId}: ${(error as Error).message}`,
+          );
+          failed.push(tenantId);
+        }
+      }
+      success.splice(0, success.length, ...commandSucceeded);
 
       // Batch-create activity log entries
-      const activityRows = existingTenants.filter(t => foundIds.has(t.id));
+      const successIds = new Set(success);
+      const activityRows = existingTenants.filter(t => successIds.has(t.id));
       if (activityRows.length > 0) {
         await this.dataSource.query(
-          `INSERT INTO tenant_activities
+          `INSERT INTO admin.tenant_activities
              ("tenantId", "activityType", title, description,
               "previousValue", "newValue", "performedBy", "createdAt", "updatedAt")
            SELECT
              unnest($1::uuid[]),
-             'ACTIVATED'::varchar,
+             'activated'::admin.tenant_activities_activitytype_enum,
              'Status changed: active',
              'Bulk activated',
              jsonb_build_object('status', prev_status),
@@ -461,4 +522,28 @@ export class TenantDetailService {
       return { success: [], failed: tenantIds };
     }
   }
+}
+
+function buildTenantDetailLifecycleCommandMetadata(
+  commandType: string,
+  tenantId: string,
+  actorId: string,
+  _payload: unknown,
+): {
+  operationId: string;
+  tenantId: string;
+  actor: { id: string; type: 'user' };
+  requestReference: string;
+  auditMetadata: Record<string, unknown>;
+} {
+  return {
+    operationId: crypto.randomUUID(),
+    tenantId,
+    actor: { id: actorId, type: 'user' },
+    requestReference: `${commandType}:${tenantId}:${actorId}`,
+    auditMetadata: {
+      source: 'admin-api-service',
+      commandType,
+    },
+  };
 }

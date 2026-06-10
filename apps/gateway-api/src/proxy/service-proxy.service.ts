@@ -6,10 +6,12 @@
  * Supports HTTP, WebSocket, and SSE proxying.
  */
 
+import { createHash } from 'crypto';
+
+import { buildGatewayVerifiedUserAssertion, buildSignedInternalHeaders, resolveTenantIdFromRequest } from '@aquaculture/backend-common/http';
 import { Injectable, Logger, BadGatewayException, GatewayTimeoutException, BadRequestException, NotImplementedException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { buildSignedInternalHeaders, resolveTenantIdFromRequest } from '@aquaculture/backend-common/http';
 
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { LoadBalancerService, ServiceInstanceStats, LoadBalancerContext } from './load-balancer.service';
@@ -31,6 +33,26 @@ const BLOCKED_FORWARDED_HEADERS = [
   // Prevent cache poisoning
   'x-http-method-override',
   'x-method-override',
+  // Identity and service-proof headers are minted by this gateway only.
+  'x-user-payload',
+  'x-user-id',
+  'x-user-roles',
+  'x-act-as-tenant',
+  'x-verified-user-assertion',
+  'x-service-identity',
+  'x-service-timestamp',
+  'x-service-signature',
+  'x-service-sig-version',
+  'x-service-key-id',
+  'x-service-audience',
+  'x-service-method',
+  'x-service-path',
+  'x-service-query-hash',
+  'x-service-body-hash',
+  'x-service-content-type',
+  'x-service-assertion-hash',
+  'x-service-nonce',
+  'x-service-effective-tenant-id',
 ];
 
 /**
@@ -269,7 +291,7 @@ export class ServiceProxyService {
       // fails downstream verification.
       tenantId: resolveTenantIdFromRequest(req),
       method: req.method,
-      headers: this.extractHeaders(req),
+      headers: this.attachVerifiedAssertion(this.extractHeaders(req), req),
       body: req.body,
       query: req.query as Record<string, string>,
       ...options,
@@ -353,13 +375,18 @@ export class ServiceProxyService {
       // SECURITY (HIGH-003): sign the SSE proxy request with HMAC + tenant
       // binding so the downstream subgraph guard rejects any forged
       // x-tenant-id header tampered with in flight.
+      const forwardedSseHeaders = this.attachVerifiedAssertion(this.extractHeaders(req), req);
       const sseHeaders: Record<string, string> = {
-        ...this.extractHeaders(req),
+        ...forwardedSseHeaders,
         ...buildSignedInternalHeaders({
           serviceName: 'gateway-api',
           tenantId: resolveTenantIdFromRequest(req),
           method: req.method,
           path: req.path,
+          query: new URL(targetUrl).search,
+          contentType: '',
+          assertionHash: this.assertionHash(forwardedSseHeaders),
+          audience: serviceName,
           body: '',
         }),
       };
@@ -570,15 +597,24 @@ export class ServiceProxyService {
       // on top of caller-supplied headers. signedFetch-style merge: the
       // X-Service-* + X-Tenant-ID values come from buildSignedInternalHeaders
       // and override any pre-existing keys so the wire matches the signature.
+      const upstreamUrl = new URL(proxyRequest.url);
+      const requestContentType = this.headerValue(proxyRequest.headers, 'content-type') ?? '';
+      const bodyForSigning =
+        proxyRequest.body === undefined || proxyRequest.body === null
+          ? ''
+          : typeof proxyRequest.body === 'string'
+            ? proxyRequest.body
+            : JSON.stringify(proxyRequest.body);
       const signedHeaders = buildSignedInternalHeaders({
         serviceName: 'gateway-api',
         tenantId: config.tenantId,
         method: proxyRequest.method,
-        path: new URL(proxyRequest.url).pathname,
-        body:
-          typeof proxyRequest.body === 'string'
-            ? proxyRequest.body
-            : JSON.stringify(proxyRequest.body ?? ''),
+        path: upstreamUrl.pathname,
+        query: upstreamUrl.search,
+        contentType: requestContentType,
+        assertionHash: this.assertionHash(proxyRequest.headers),
+        audience: config.serviceName,
+        body: bodyForSigning,
       });
       const fetchOptions: RequestInit = {
         method: proxyRequest.method,
@@ -694,6 +730,46 @@ export class ServiceProxyService {
     }
 
     return headers;
+  }
+
+
+  private attachVerifiedAssertion(headers: Record<string, string>, req: Request): Record<string, string> {
+    const user = (req as Request & {
+      user?: {
+        sub?: string;
+        tenantId?: string;
+        roles?: string[];
+        email?: string;
+        mfaVerified?: boolean;
+      };
+    }).user;
+
+    if (!user?.sub) {
+      return headers;
+    }
+
+    return {
+      ...headers,
+      'x-verified-user-assertion': buildGatewayVerifiedUserAssertion({
+        subject: user.sub,
+        tenantId: user.tenantId,
+        effectiveTenantId: user.tenantId,
+        roles: user.roles ?? [],
+        email: user.email,
+        mfaVerified: user.mfaVerified,
+      }),
+    };
+  }
+
+  private assertionHash(headers: Record<string, string>): string | undefined {
+    const assertion = this.headerValue(headers, 'x-verified-user-assertion');
+    return assertion ? createHash('sha256').update(assertion).digest('hex') : undefined;
+  }
+
+  private headerValue(headers: Record<string, string>, name: string): string | undefined {
+    const lower = name.toLowerCase();
+    const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === lower);
+    return key ? headers[key] : undefined;
   }
 
   private isHopByHopHeader(header: string): boolean {

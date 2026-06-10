@@ -15,6 +15,7 @@ import { SentinelHubSettings } from './entities/sentinel-hub-settings.entity';
 import { SentinelHubService } from './sentinel-hub.service';
 import { SentinelHubResolver } from './sentinel-hub.resolver';
 import { SentinelHubProxyController } from './sentinel-hub-proxy.controller';
+import { SentinelProxyPolicy } from './sentinel-proxy.policy';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { SentinelHubProxyController } from './sentinel-hub-proxy.controller';
     TypeOrmModule.forFeature([SentinelHubSettings]),
   ],
   controllers: [SentinelHubProxyController],
-  providers: [SentinelHubService, SentinelHubResolver],
+  providers: [SentinelHubService, SentinelHubResolver, SentinelProxyPolicy],
   exports: [SentinelHubService],
 })
 export class SentinelHubModule {}

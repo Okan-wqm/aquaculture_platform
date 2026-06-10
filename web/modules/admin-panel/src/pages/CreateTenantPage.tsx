@@ -7,7 +7,7 @@
  * - Custom pricing per tenant (no fixed plans)
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -142,6 +142,50 @@ const getMetricLabel = (metricType: string | PricingMetricType): string =>
 const getQuantityField = (metricType: string | PricingMetricType): keyof ModuleQuantities | null =>
   metricToQuantityField[metricType as PricingMetricType] ?? null;
 
+const TENANT_CREATE_IDEMPOTENCY_PREFIX = 'admin-panel:tenant-create:idempotency:';
+
+const stableStringify = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+      .join(',')}}`;
+  }
+
+  return JSON.stringify(value);
+};
+
+const hashString = (value: string): string => {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+};
+
+const getTenantCreateIdempotency = (payload: CreateTenantDto): { key: string; storageKey?: string } => {
+  const storageKey = `${TENANT_CREATE_IDEMPOTENCY_PREFIX}${hashString(stableStringify(payload))}`;
+
+  if (typeof window === 'undefined') {
+    return { key: crypto.randomUUID() };
+  }
+
+  const existing = window.sessionStorage.getItem(storageKey);
+  if (existing) {
+    return { key: existing, storageKey };
+  }
+
+  const key = crypto.randomUUID();
+  window.sessionStorage.setItem(storageKey, key);
+  return { key, storageKey };
+};
+
 // ============================================================================
 // Step Indicator Component
 // ============================================================================
@@ -262,9 +306,9 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
 
             if (!quantityField) return null;
 
-            const includedQty = metric.includedQuantity || 0;
-            const minQty = Math.max(includedQty, metric.minQuantity || 1);
-            const currentValue = Math.max(config.quantities[quantityField] || minQty, minQty);
+            const includedQty = metric.includedQuantity ?? 0;
+            const minQty = Math.max(metric.minQuantity ?? 0, 0);
+            const currentValue = Math.max(config.quantities[quantityField] ?? minQty, minQty);
             const unitPrice = metric.price || 0;
             const extraQty = Math.max(0, currentValue - includedQty);
 
@@ -286,7 +330,8 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
                     max={metric.maxQuantity || 9999}
                     value={currentValue}
                     onChange={(e) => {
-                      const newValue = parseInt(e.target.value) || minQty;
+                      const parsedValue = Number.parseInt(e.target.value, 10);
+                      const newValue = Number.isNaN(parsedValue) ? minQty : parsedValue;
                       onQuantityChange(quantityField, Math.max(newValue, minQty));
                     }}
                     className="w-24 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -318,6 +363,9 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
 // Create Tenant Page
 // ============================================================================
 
+const isTerminalProvisioningStatus = (status: TenantProvisioningState): boolean =>
+  status === TenantProvisioningState.SUCCEEDED || status === TenantProvisioningState.FAILED;
+
 const CreateTenantPage: React.FC = () => {
   const navigate = useNavigate();
 
@@ -331,8 +379,12 @@ const CreateTenantPage: React.FC = () => {
   const [calculatingPrice, setCalculatingPrice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [createdTenantId, setCreatedTenantId] = useState<string | null>(null);
   const [provisioningOperation, setProvisioningOperation] = useState<CreateTenantAcceptedResponse | null>(null);
+  const [pollNonce, setPollNonce] = useState(0);
+  const quoteRequestSeq = useRef(0);
+  const pollFailureCount = useRef(0);
+  const pollAbortRef = useRef<AbortController | null>(null);
+  const idempotencyStorageKeyRef = useRef<string | null>(null);
 
   const steps = [
     { label: 'Basic Info', description: 'Company details' },
@@ -431,10 +483,13 @@ const CreateTenantPage: React.FC = () => {
   const calculatePrice = useCallback(async () => {
     const enabledModules = formData.moduleConfigs.filter((c) => c.enabled);
     if (enabledModules.length === 0) {
+      quoteRequestSeq.current += 1;
       setPriceCalculation(null);
       return;
     }
 
+    const requestId = quoteRequestSeq.current + 1;
+    quoteRequestSeq.current = requestId;
     setCalculatingPrice(true);
 
     // Calculate locally first (most reliable) — use the same logic as calculatedTotal useMemo
@@ -448,8 +503,8 @@ const CreateTenantPage: React.FC = () => {
           } else {
             const field = getQuantityField(metric.type);
             if (field) {
-              const qty = config.quantities[field] || 0;
-              const included = metric.includedQuantity || 0;
+              const qty = config.quantities[field] ?? 0;
+              const included = metric.includedQuantity ?? 0;
               const billable = Math.max(0, qty - included);
               localTotal += billable * (metric.price || 0);
             }
@@ -492,10 +547,13 @@ const CreateTenantPage: React.FC = () => {
       };
 
       const calculation = await billingApi.calculatePricing(request);
+      if (quoteRequestSeq.current !== requestId) {
+        return;
+      }
 
       // Only use API result if it has valid totals
-      const apiTotal = calculation.monthlyTotal || calculation.total || calculation.subtotal;
-      if (apiTotal && apiTotal > 0) {
+      const apiTotal = calculation.monthlyTotal ?? calculation.total ?? calculation.subtotal;
+      if (apiTotal !== undefined && apiTotal >= 0) {
         const normalizedCalculation = {
           ...calculation,
           monthlyTotal: apiTotal,
@@ -507,7 +565,9 @@ const CreateTenantPage: React.FC = () => {
       // API failed, local calculation already set - that's fine
       console.debug('API pricing calculation not available, using local calculation');
     } finally {
-      setCalculatingPrice(false);
+      if (quoteRequestSeq.current === requestId) {
+        setCalculatingPrice(false);
+      }
     }
   }, [formData.moduleConfigs, formData.pricingTier, modulePricings]);
 
@@ -684,11 +744,15 @@ const CreateTenantPage: React.FC = () => {
         billingCycle: BillingCycle.MONTHLY,
       };
 
-      const operation = await tenantsApi.create(createData, crypto.randomUUID());
+      const idempotency = getTenantCreateIdempotency(createData);
+      idempotencyStorageKeyRef.current = idempotency.storageKey ?? null;
+      const operation = await tenantsApi.create(createData, idempotency.key);
       setProvisioningOperation(operation);
-      setCreatedTenantId(operation.tenantId);
 
-      if (operation.provisioningState === TenantProvisioningState.SUCCEEDED) {
+      if (operation.status === TenantProvisioningState.SUCCEEDED) {
+        if (idempotency.storageKey) {
+          window.sessionStorage.removeItem(idempotency.storageKey);
+        }
         setSuccess(true);
       }
     } catch (err) {
@@ -701,44 +765,70 @@ const CreateTenantPage: React.FC = () => {
   useEffect(() => {
     if (!provisioningOperation || success) return;
 
-    if (provisioningOperation.provisioningState === TenantProvisioningState.SUCCEEDED) {
+    if (provisioningOperation.status === TenantProvisioningState.SUCCEEDED) {
+      if (idempotencyStorageKeyRef.current && typeof window !== 'undefined') {
+        window.sessionStorage.removeItem(idempotencyStorageKeyRef.current);
+        idempotencyStorageKeyRef.current = null;
+      }
       setSuccess(true);
-      setCreatedTenantId(provisioningOperation.tenantId);
       return;
     }
 
-    if (provisioningOperation.provisioningState === TenantProvisioningState.FAILED) {
-      setError(provisioningOperation.error || 'Tenant provisioning failed');
+    if (provisioningOperation.status === TenantProvisioningState.FAILED) {
+      setError('Tenant provisioning failed');
+      return;
+    }
+
+    if (
+      !isTerminalProvisioningStatus(provisioningOperation.status) &&
+      (!Number.isFinite(provisioningOperation.retryAfterMs) || provisioningOperation.retryAfterMs <= 0)
+    ) {
+      setError('Tenant provisioning status contract error: retryAfterMs must be positive while operation is running');
       return;
     }
 
     let cancelled = false;
+    const controller = new AbortController();
+    pollAbortRef.current?.abort();
+    pollAbortRef.current = controller;
+    const retryAfterMs = provisioningOperation.retryAfterMs;
+    const pollDelay = Math.min(30_000, retryAfterMs * 2 ** pollFailureCount.current);
     const timer = window.setTimeout(async () => {
       try {
-        const latest = await tenantsApi.getProvisioningOperation(provisioningOperation.operationId);
+        const latest = await tenantsApi.getProvisioningOperationByStatusUrl(
+          provisioningOperation.statusUrl,
+          { signal: controller.signal },
+        );
         if (!cancelled) {
+          pollFailureCount.current = 0;
           setProvisioningOperation(latest);
-          setCreatedTenantId(latest.tenantId);
         }
       } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
         if (!cancelled) {
+          pollFailureCount.current += 1;
           setError(err instanceof Error ? err.message : 'Failed to refresh provisioning status');
+          setPollNonce((value) => value + 1);
         }
       }
-    }, 2000);
+    }, pollDelay);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      controller.abort();
+      if (pollAbortRef.current === controller) {
+        pollAbortRef.current = null;
+      }
     };
-  }, [provisioningOperation, success]);
+  }, [provisioningOperation, success, pollNonce]);
 
   const handleRetryProvisioning = async () => {
     if (!provisioningOperation) return;
     setLoading(true);
     setError(null);
     try {
-      const retried = await tenantsApi.retryProvisioningOperation(provisioningOperation.operationId);
+      const retried = await tenantsApi.retryProvisioningOperation(provisioningOperation.statusUrl);
       setProvisioningOperation(retried);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to retry provisioning');
@@ -767,9 +857,9 @@ const CreateTenantPage: React.FC = () => {
           } else {
             const field = getQuantityField(metric.type);
             if (field) {
-              const includedQty = metric.includedQuantity || 0;
-              const minQty = Math.max(includedQty, 1);
-              const qty = Math.max(config.quantities[field] || minQty, minQty);
+              const includedQty = metric.includedQuantity ?? 0;
+              const minQty = Math.max(metric.minQuantity ?? 0, 0);
+              const qty = Math.max(config.quantities[field] ?? minQty, minQty);
               const billableQty = Math.max(0, qty - includedQty);
               total += billableQty * (metric.price || 0);
             }
@@ -781,7 +871,8 @@ const CreateTenantPage: React.FC = () => {
   }, [enabledModules, modulePricings]);
 
   if (provisioningOperation && !success) {
-    const isFailed = provisioningOperation.provisioningState === TenantProvisioningState.FAILED;
+    const isFailed = provisioningOperation.status === TenantProvisioningState.FAILED;
+    const canRetry = provisioningOperation.availableActions?.includes('retryProvisioning') === true;
 
     return (
       <div className="max-w-2xl mx-auto">
@@ -794,7 +885,7 @@ const CreateTenantPage: React.FC = () => {
               </p>
             </div>
             <Badge variant={isFailed ? 'error' : 'warning'}>
-              {provisioningOperation.provisioningState}
+              {provisioningOperation.status}
             </Badge>
           </div>
 
@@ -806,43 +897,29 @@ const CreateTenantPage: React.FC = () => {
 
           <div className="space-y-3 mb-6">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Operation</span>
-              <span className="font-mono text-gray-700">{provisioningOperation.operationId}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Current step</span>
-              <span className="font-medium text-gray-900">{provisioningOperation.currentStep || '-'}</span>
+              <span className="text-gray-500">Status URL</span>
+              <span className="font-mono text-gray-700">{provisioningOperation.statusUrl}</span>
             </div>
           </div>
-
-          {provisioningOperation.steps && provisioningOperation.steps.length > 0 && (
-            <div className="border rounded-lg divide-y mb-6">
-              {provisioningOperation.steps.map((step) => (
-                <div key={step.name} className="flex items-center justify-between px-4 py-3 text-sm">
-                  <div>
-                    <p className="font-medium text-gray-900">{step.name}</p>
-                    {step.lastError && <p className="text-red-600 mt-1">{step.lastError}</p>}
-                  </div>
-                  <Badge variant={step.state === TenantProvisioningState.SUCCEEDED ? 'success' : step.state === TenantProvisioningState.FAILED ? 'error' : 'warning'}>
-                    {step.state}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          )}
 
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => navigate('/admin/tenants')}>
               Tenant List
             </Button>
-            {isFailed ? (
+            {canRetry ? (
               <Button onClick={handleRetryProvisioning} loading={loading}>
                 Retry
               </Button>
             ) : (
               <Button variant="outline" onClick={async () => {
-                const latest = await tenantsApi.getProvisioningOperation(provisioningOperation.operationId);
-                setProvisioningOperation(latest);
+                setError(null);
+                try {
+                  const latest = await tenantsApi.getProvisioningOperationByStatusUrl(provisioningOperation.statusUrl);
+                  pollFailureCount.current = 0;
+                  setProvisioningOperation(latest);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Failed to refresh provisioning status');
+                }
               }}>
                 Refresh
               </Button>
@@ -854,7 +931,7 @@ const CreateTenantPage: React.FC = () => {
   }
 
   // Success view
-  if (success && createdTenantId) {
+  if (success) {
     return (
       <div className="max-w-2xl mx-auto">
         <Card className="p-8 text-center">
@@ -886,8 +963,8 @@ const CreateTenantPage: React.FC = () => {
             <Button variant="outline" onClick={() => navigate('/admin/tenants')}>
               Tenant List
             </Button>
-            <Button onClick={() => navigate(`/admin/tenants/${createdTenantId}`)}>
-              Tenant Details
+            <Button onClick={() => window.location.reload()}>
+              Create Another
             </Button>
           </div>
         </Card>

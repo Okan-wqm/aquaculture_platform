@@ -1,5 +1,4 @@
 import {
-  Entity,
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
@@ -53,7 +52,6 @@ export interface ConfigHistory {
   reason?: string;
 }
 
-@Entity('global_configs', { schema: 'admin' })
 @Index(['key'], { unique: true })
 @Index(['category'])
 @Index(['isSecret'])

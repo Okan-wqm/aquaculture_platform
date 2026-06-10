@@ -1,5 +1,5 @@
 -- ============================================================================
--- Platform Bootstrap — Stage 3 of 7: Service Schemas
+-- Platform Bootstrap — Stage 3 of 9: Service Schemas
 --
 -- Idempotent CREATE SCHEMA for every per-service schema + the `shared` schema
 -- and the `gateway` reserved schema. Owner assignment uses AUTHORIZATION at
@@ -32,6 +32,7 @@ CREATE SCHEMA IF NOT EXISTS observability AUTHORIZATION observability_service;
 CREATE SCHEMA IF NOT EXISTS event_store   AUTHORIZATION event_store_service;
 CREATE SCHEMA IF NOT EXISTS config        AUTHORIZATION config_service;
 CREATE SCHEMA IF NOT EXISTS gateway       AUTHORIZATION gateway_service;
+CREATE SCHEMA IF NOT EXISTS compliance;
 
 -- Idempotent ownership fix — re-asserts owner on each run, in case the
 -- schema already existed (IF NOT EXISTS skips AUTHORIZATION) or was
@@ -73,7 +74,7 @@ DECLARE
   required_schemas TEXT[] := ARRAY[
     'auth','farm','sensor','hr','messaging','hydroponics','alert',
     'billing','notification','ai','admin','observability','event_store',
-    'config','gateway','shared'
+    'config','gateway','shared','compliance'
   ];
 BEGIN
   FOREACH required_schema IN ARRAY required_schemas
@@ -82,6 +83,6 @@ BEGIN
       RAISE EXCEPTION '[platform-bootstrap] Required schema % MISSING after CREATE attempt', required_schema;
     END IF;
   END LOOP;
-  RAISE NOTICE '[platform-bootstrap] All 16 platform schemas verified';
+  RAISE NOTICE '[platform-bootstrap] All 17 platform schemas verified';
 END
 $$;

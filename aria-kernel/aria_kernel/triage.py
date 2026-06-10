@@ -7,7 +7,12 @@ from typing import Any
 
 from .fitness import latest_agent_fitness
 from .agent_network import latest_agent_network_hash
-from .ledger import append_jsonl, load_jsonl
+from .ledger import (
+    append_declared_jsonl,
+    append_jsonl as _append_jsonl,
+    load_declared_jsonl,
+    load_jsonl as _load_jsonl,
+)
 from .pressure import effective_workspace_pressures
 from .tool_registry import append_tools_governance, update_tools_index
 from .workspace import WorkspacePaths
@@ -15,6 +20,23 @@ from .workspace import WorkspacePaths
 
 TIERS = {"auto_fix_safe", "needs_review", "human_only", "observe", "blocked"}
 FITNESS_STALENESS_DAYS = 7
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    if Path(path).name == "decisions.jsonl" and Path(path).parent.name == "triage":
+        return append_declared_jsonl(
+            path,
+            record,
+            expected_surface="triage_decisions",
+        )
+    return _append_jsonl(path, record)
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    if Path(path).name == "decisions.jsonl" and Path(path).parent.name == "triage":
+        return load_declared_jsonl(path, expected_surface="triage_decisions")
+    return _load_jsonl(path)
+
 
 # Plan 022 §H-6 — strictness order from most permissive (low rank) to
 # most restrictive (high rank). Used by _enforce_max_triage_tier to

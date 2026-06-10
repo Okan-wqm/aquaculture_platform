@@ -3,6 +3,7 @@ import {
   NotFoundException,
   Logger,
   InternalServerErrorException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
@@ -42,10 +43,15 @@ export class DeleteConfigurationHandler
       }
 
       if (hardDelete) {
-        await configRepo.remove(configuration);
-        this.logger.log(`Configuration hard deleted: ${configurationId} by user ${userId}`);
+        throw new ForbiddenException(
+          'Hard delete is disabled for config runtime; use the audited purge lifecycle',
+        );
       } else {
         configuration.isActive = false;
+        configuration.deletedAt = new Date();
+        configuration.deletedBy = userId;
+        configuration.deleteReason = 'runtime-delete';
+        configuration.suppressFallback = true;
         configuration.updatedBy = userId;
         await configRepo.save(configuration);
         this.logger.log(`Configuration soft deleted: ${configurationId} by user ${userId}`);
@@ -59,7 +65,7 @@ export class DeleteConfigurationHandler
     } catch (error) {
       await queryRunner.rollbackTransaction();
 
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
       }
 

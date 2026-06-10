@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -78,11 +78,18 @@ def record_budget_usage(
         "estimated_usd": estimated_usd,
         "soft_stop": decision["soft_stop"],
     }
-    return append_jsonl(_budget_ledger(base_dir), row)
+    return append_declared_jsonl(
+        _budget_ledger(base_dir),
+        row,
+        expected_surface="cost_budget",
+    )
 
 
 def list_budget_usage(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(_budget_ledger(base_dir))
+    return load_declared_jsonl(
+        _budget_ledger(base_dir),
+        expected_surface="cost_budget",
+    )
 
 
 def _usage(base_dir: str | Path | None) -> dict[str, float]:
@@ -91,7 +98,10 @@ def _usage(base_dir: str | Path | None) -> dict[str, float]:
     month = day[:7]
     daily = 0.0
     monthly = 0.0
-    for row in load_jsonl(_budget_ledger(base_dir)):
+    for row in load_declared_jsonl(
+        _budget_ledger(base_dir),
+        expected_surface="cost_budget",
+    ):
         recorded_at = str(row.get("recorded_at", ""))
         amount = row.get("estimated_usd", 0)
         if not isinstance(amount, (int, float)):
@@ -482,7 +492,11 @@ def record_cost_attribution(
     # Plan ARIA-V3.1-D-3 — write row FIRST so ensure_tools_dir
     # bootstraps repo_identity.json before the drift governance event
     # lands (preserves ambiguous_tools_root invariant in tool_registry).
-    written = append_jsonl(_cost_attribution_shard(base_dir), row)
+    written = append_declared_jsonl(
+        _cost_attribution_shard(base_dir),
+        row,
+        expected_surface="cost_attribution",
+    )
     if drift_flag is not None:
         # Best-effort governance event AFTER the row write. The row
         # is still recorded so operator audit captures both the
@@ -534,7 +548,10 @@ def read_cost_attribution(
         shard_month = shard.stem  # YYYY-MM
         if shard_month < since_month:
             continue
-        for row in load_jsonl(shard):
+        for row in load_declared_jsonl(
+            shard,
+            expected_surface="cost_attribution",
+        ):
             if since_iso and str(row.get("recorded_at", "")) < since_iso:
                 continue
             rows.append(row)

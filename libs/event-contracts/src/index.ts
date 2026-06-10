@@ -13,6 +13,7 @@ export * from './farm-events';
 export * from './sensor-events';
 export * from './alert-events';
 export * from './notification-events';
+export * from './notification-commands';
 export * from './hr-events';
 export * from './billing-events';
 export * from './billing-admin-commands';
@@ -22,6 +23,7 @@ export * from './edge-device-events';
 export * from './water-quality-events';
 export * from './messaging-events';
 export * from './messaging-event-registry';
+export * from './platform-event-registry';
 export * from './storage-events';
 
 // Automation domain events (sensor-service compiler / programming).

@@ -1,21 +1,21 @@
-import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { CqrsModule, CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
-import { TypeOrmModule, getRepositoryToken } from '@nestjs/typeorm';
-import * as request from 'supertest';
-import { Repository, DataSource } from 'typeorm';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
 import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
 import { SystemSettingService } from '../../settings/services/system-setting.service';
-import { CreateTenantCommand } from '../commands/tenant.commands';
 import {
-  TenantActivity,
-  TenantNote,
-  TenantBillingInfo,
-} from '../entities/tenant-activity.entity';
+  ActivateTenantCommand,
+  ArchiveTenantCommand,
+  DeactivateTenantCommand,
+  SuspendTenantCommand,
+} from '../commands/tenant.commands';
+import { SuspendTenantDto } from '../dto/tenant.dto';
+import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
 import { Tenant, TenantInvitation, TenantStatus, TenantTier } from '../entities/tenant.entity';
-import { CreateTenantHandler } from '../handlers/create-tenant.handler';
 import {
   SuspendTenantHandler,
   ActivateTenantHandler,
@@ -34,10 +34,11 @@ import {
   GetExpiringTrialsHandler,
   SearchTenantsHandler,
 } from '../query-handlers/tenant-query.handlers';
+import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 import { TenantActivityService } from '../services/tenant-activity.service';
 import { TenantDetailService } from '../services/tenant-detail.service';
 import { TenantProvisioningService } from '../services/tenant-provisioning.service';
-import { TenantController } from '../tenant.controller';
+import { TenantAdminController } from '../tenant.controller';
 
 // Mock services
 const mockAuditLogService = {
@@ -82,8 +83,86 @@ const mockModuleAssignmentService = {
   }),
 };
 
+const mockEventBus = {
+  publish: jest.fn(),
+};
+
+const mockAuthProvisioningClient = {
+  suspendTenant: jest.fn().mockResolvedValue({ success: true }),
+  activateTenant: jest.fn().mockResolvedValue({ success: true }),
+  deprovisionTenant: jest.fn().mockResolvedValue({ success: true }),
+  archiveTenant: jest.fn().mockResolvedValue({ success: true }),
+};
+
+interface MockTenantQueryBuilder {
+  where: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  andWhere: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  orderBy: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  skip: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  take: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  getManyAndCount: jest.MockedFunction<() => Promise<[Tenant[], number]>>;
+  getMany: jest.MockedFunction<() => Promise<Tenant[]>>;
+  getOne: jest.MockedFunction<() => Promise<Tenant | null>>;
+  getRawMany: jest.MockedFunction<() => Promise<Array<Record<string, unknown>>>>;
+  select: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  addSelect: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  leftJoin: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  leftJoinAndSelect: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  groupBy: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  addGroupBy: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+  limit: jest.MockedFunction<(...args: unknown[]) => MockTenantQueryBuilder>;
+}
+
+interface MockRepository {
+  find: jest.MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
+  findOne: jest.MockedFunction<(...args: unknown[]) => Promise<unknown>>;
+  findAndCount: jest.MockedFunction<(...args: unknown[]) => Promise<[unknown[], number]>>;
+  save: jest.MockedFunction<(...args: unknown[]) => Promise<unknown>>;
+  create: jest.MockedFunction<(...args: unknown[]) => unknown>;
+  update: jest.MockedFunction<(...args: unknown[]) => Promise<unknown>>;
+  delete: jest.MockedFunction<(...args: unknown[]) => Promise<unknown>>;
+  count: jest.MockedFunction<(...args: unknown[]) => Promise<number>>;
+  createQueryBuilder: jest.MockedFunction<() => MockTenantQueryBuilder>;
+}
+
+const createMockQueryBuilder = (): MockTenantQueryBuilder => {
+  const queryBuilder = {
+    where: jest.fn(),
+    andWhere: jest.fn(),
+    orderBy: jest.fn(),
+    skip: jest.fn(),
+    take: jest.fn(),
+    getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    getMany: jest.fn().mockResolvedValue([]),
+    getOne: jest.fn().mockResolvedValue(null),
+    getRawMany: jest.fn().mockResolvedValue([]),
+    select: jest.fn(),
+    addSelect: jest.fn(),
+    leftJoin: jest.fn(),
+    leftJoinAndSelect: jest.fn(),
+    groupBy: jest.fn(),
+    addGroupBy: jest.fn(),
+    limit: jest.fn(),
+  } as MockTenantQueryBuilder;
+
+  queryBuilder.where.mockReturnValue(queryBuilder);
+  queryBuilder.andWhere.mockReturnValue(queryBuilder);
+  queryBuilder.orderBy.mockReturnValue(queryBuilder);
+  queryBuilder.skip.mockReturnValue(queryBuilder);
+  queryBuilder.take.mockReturnValue(queryBuilder);
+  queryBuilder.select.mockReturnValue(queryBuilder);
+  queryBuilder.addSelect.mockReturnValue(queryBuilder);
+  queryBuilder.leftJoin.mockReturnValue(queryBuilder);
+  queryBuilder.leftJoinAndSelect.mockReturnValue(queryBuilder);
+  queryBuilder.groupBy.mockReturnValue(queryBuilder);
+  queryBuilder.addGroupBy.mockReturnValue(queryBuilder);
+  queryBuilder.limit.mockReturnValue(queryBuilder);
+
+  return queryBuilder;
+};
+
 // Mock repository
-const createMockRepository = () => ({
+const createMockRepository = (): MockRepository => ({
   find: jest.fn(),
   findOne: jest.fn(),
   findAndCount: jest.fn(),
@@ -92,24 +171,7 @@ const createMockRepository = () => ({
   update: jest.fn(),
   delete: jest.fn(),
   count: jest.fn(),
-  createQueryBuilder: jest.fn(() => ({
-    where: jest.fn().mockReturnThis(),
-    andWhere: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockReturnThis(),
-    skip: jest.fn().mockReturnThis(),
-    take: jest.fn().mockReturnThis(),
-    getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
-    getMany: jest.fn().mockResolvedValue([]),
-    getOne: jest.fn().mockResolvedValue(null),
-    getRawMany: jest.fn().mockResolvedValue([]),
-    select: jest.fn().mockReturnThis(),
-    addSelect: jest.fn().mockReturnThis(),
-    leftJoin: jest.fn().mockReturnThis(),
-    leftJoinAndSelect: jest.fn().mockReturnThis(),
-    groupBy: jest.fn().mockReturnThis(),
-    addGroupBy: jest.fn().mockReturnThis(),
-    limit: jest.fn().mockReturnThis(),
-  })),
+  createQueryBuilder: jest.fn(createMockQueryBuilder),
 });
 
 const mockTenantRepository = createMockRepository();
@@ -129,11 +191,15 @@ const mockQueryRunner = {
     findOne: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
-    create: jest.fn((entityClass: any, data: any) => {
+    create: jest.fn(<TEntity extends object>(
+      entityClass: new () => TEntity,
+      data: Partial<TEntity>,
+    ): TEntity => {
       const instance = new entityClass();
       Object.assign(instance, data);
       return instance;
     }),
+    query: jest.fn().mockResolvedValue([]),
   },
 };
 
@@ -177,7 +243,7 @@ describe('Tenant Integration Tests', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [CqrsModule],
-      controllers: [TenantController],
+      controllers: [TenantAdminController],
       providers: [
         {
           provide: getRepositoryToken(Tenant),
@@ -227,8 +293,15 @@ describe('Tenant Integration Tests', () => {
           provide: ModuleAssignmentService,
           useValue: mockModuleAssignmentService,
         },
+        {
+          provide: AuthTenantProvisioningClientService,
+          useValue: mockAuthProvisioningClient,
+        },
+        {
+          provide: 'EVENT_BUS',
+          useValue: mockEventBus,
+        },
         // Command Handlers
-        CreateTenantHandler,
         UpdateTenantHandler,
         SuspendTenantHandler,
         ActivateTenantHandler,
@@ -263,45 +336,40 @@ describe('Tenant Integration Tests', () => {
   });
 
   describe('Tenant Lifecycle Integration', () => {
-    describe('Create -> Update -> Suspend -> Activate -> Archive Flow', () => {
-      it('should complete full tenant lifecycle', async () => {
+    describe('Suspend -> Activate -> Deactivate -> Archive Flow', () => {
+      it('should complete owner-command backed tenant lifecycle transitions', async () => {
         const tenant = createMockTenant();
         const queryRunner = mockDataSource.createQueryRunner();
+        const suspendDto: SuspendTenantDto = { reason: 'Policy violation' };
 
-        // 1. Create Tenant
-        mockTenantRepository.findOne.mockResolvedValueOnce(null); // No existing slug
-        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
-        mockTenantRepository.findOne.mockResolvedValueOnce(tenant);
+        queryRunner.manager.findOne.mockResolvedValue(tenant);
 
-        const createResult = await commandBus.execute(
-          new CreateTenantCommand(
-            { name: 'Test Tenant', slug: 'test-tenant' } as any,
-            'admin-123',
-          ),
+        const suspended = await commandBus.execute<SuspendTenantCommand, Tenant>(
+          new SuspendTenantCommand(tenant.id, suspendDto, 'admin-123'),
         );
+        expect(suspended.status).toBe(TenantStatus.SUSPENDED);
 
-        // 2. Update Tenant
-        mockTenantRepository.findOne.mockResolvedValueOnce(tenant);
-        const updatedTenant = { ...tenant, name: 'Updated Tenant' };
-        (queryRunner.manager.save).mockResolvedValueOnce(updatedTenant);
+        const activated = await commandBus.execute<ActivateTenantCommand, Tenant>(
+          new ActivateTenantCommand(tenant.id, 'admin-123'),
+        );
+        expect(activated.status).toBe(TenantStatus.ACTIVE);
 
-        // 3. Suspend Tenant
-        const suspendedTenant = { ...tenant, status: TenantStatus.SUSPENDED };
-        mockTenantRepository.findOne.mockResolvedValueOnce(tenant);
-        (queryRunner.manager.save).mockResolvedValueOnce(suspendedTenant);
+        const deactivated = await commandBus.execute<DeactivateTenantCommand, Tenant>(
+          new DeactivateTenantCommand(tenant.id, 'Tenant shutdown requested', 'admin-123'),
+        );
+        expect(deactivated.status).toBe(TenantStatus.DEACTIVATED);
 
-        // 4. Activate Tenant
-        const activatedTenant = { ...tenant, status: TenantStatus.ACTIVE };
-        mockTenantRepository.findOne.mockResolvedValueOnce(suspendedTenant);
-        (queryRunner.manager.save).mockResolvedValueOnce(activatedTenant);
+        const archived = await commandBus.execute<ArchiveTenantCommand, Tenant>(
+          new ArchiveTenantCommand(tenant.id, 'admin-123'),
+        );
+        expect(archived.status).toBe(TenantStatus.ARCHIVED);
 
-        // 5. Archive Tenant
-        const archivedTenant = { ...tenant, status: TenantStatus.ARCHIVED };
-        mockTenantRepository.findOne.mockResolvedValueOnce(activatedTenant);
-        (queryRunner.manager.save).mockResolvedValueOnce(archivedTenant);
-
-        // Verify audit log was called for each operation
-        // expect(mockAuditLogService.log).toHaveBeenCalledTimes(5);
+        expect(mockAuthProvisioningClient.suspendTenant).toHaveBeenCalledTimes(1);
+        expect(mockAuthProvisioningClient.activateTenant).toHaveBeenCalledTimes(1);
+        expect(mockAuthProvisioningClient.deprovisionTenant).toHaveBeenCalledTimes(1);
+        expect(mockAuthProvisioningClient.archiveTenant).toHaveBeenCalledTimes(1);
+        expect(mockAuditLogService.log).toHaveBeenCalledTimes(4);
+        expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(4);
       });
     });
 
@@ -318,7 +386,7 @@ describe('Tenant Integration Tests', () => {
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
         const queryRunner = mockDataSource.createQueryRunner();
-        (queryRunner.manager.save).mockResolvedValueOnce(trialTenant);
+        queryRunner.manager.save.mockResolvedValueOnce(trialTenant);
 
         // Verify trial tenant properties
         expect(trialTenant.isTrialActive).toBe(true);
@@ -345,7 +413,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
+        queryRunner.manager.save.mockResolvedValueOnce(tenant);
 
         // After tenant creation, provisioning should be triggered
         expect(mockProvisioningService.provisionTenant).toHaveBeenCalledTimes(0);
@@ -378,7 +446,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
+        queryRunner.manager.save.mockResolvedValueOnce(tenant);
 
         // Audit log should be created
       });
@@ -388,8 +456,13 @@ describe('Tenant Integration Tests', () => {
   describe('Query Handler Integration Tests', () => {
     describe('ListTenantsQuery', () => {
       it('should return paginated tenants', async () => {
-        const tenants = [createMockTenant(), createMockTenant({ id: 'tenant-2', slug: 'tenant-2' })];
-        mockTenantRepository.createQueryBuilder().getManyAndCount.mockResolvedValueOnce([tenants, 2]);
+        const tenants = [
+          createMockTenant(),
+          createMockTenant({ id: 'tenant-2', slug: 'tenant-2' }),
+        ];
+        mockTenantRepository
+          .createQueryBuilder()
+          .getManyAndCount.mockResolvedValueOnce([tenants, 2]);
 
         // Execute query through queryBus
         const result = await queryBus.execute(
@@ -399,21 +472,27 @@ describe('Tenant Integration Tests', () => {
 
       it('should filter tenants by status', async () => {
         const activeTenants = [createMockTenant({ status: TenantStatus.ACTIVE })];
-        mockTenantRepository.createQueryBuilder().getManyAndCount.mockResolvedValueOnce([activeTenants, 1]);
+        mockTenantRepository
+          .createQueryBuilder()
+          .getManyAndCount.mockResolvedValueOnce([activeTenants, 1]);
 
         // Filter by status
       });
 
       it('should filter tenants by tier', async () => {
         const enterpriseTenants = [createMockTenant({ tier: TenantTier.ENTERPRISE })];
-        mockTenantRepository.createQueryBuilder().getManyAndCount.mockResolvedValueOnce([enterpriseTenants, 1]);
+        mockTenantRepository
+          .createQueryBuilder()
+          .getManyAndCount.mockResolvedValueOnce([enterpriseTenants, 1]);
 
         // Filter by tier
       });
 
       it('should search tenants by name and slug', async () => {
         const foundTenants = [createMockTenant({ name: 'Farm Corp' })];
-        mockTenantRepository.createQueryBuilder().getManyAndCount.mockResolvedValueOnce([foundTenants, 1]);
+        mockTenantRepository
+          .createQueryBuilder()
+          .getManyAndCount.mockResolvedValueOnce([foundTenants, 1]);
 
         // Search by name
       });
@@ -499,10 +578,7 @@ describe('Tenant Integration Tests', () => {
           failed: [],
         });
 
-        const result = await mockDetailService.bulkActivate(
-          ['tenant-1', 'tenant-2'],
-          'admin-123',
-        );
+        const result = await mockDetailService.bulkActivate(['tenant-1', 'tenant-2'], 'admin-123');
 
         expect(result.success).toHaveLength(2);
       });
@@ -513,10 +589,7 @@ describe('Tenant Integration Tests', () => {
           failed: ['archived-tenant'],
         });
 
-        const result = await mockDetailService.bulkActivate(
-          ['archived-tenant'],
-          'admin-123',
-        );
+        const result = await mockDetailService.bulkActivate(['archived-tenant'], 'admin-123');
 
         expect(result.failed).toContain('archived-tenant');
       });
@@ -530,8 +603,10 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
-        mockProvisioningService.provisionTenant.mockRejectedValueOnce(new Error('Provisioning failed'));
+        queryRunner.manager.save.mockResolvedValueOnce(tenant);
+        mockProvisioningService.provisionTenant.mockRejectedValueOnce(
+          new Error('Provisioning failed'),
+        );
 
         // Transaction should be rolled back
         // expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
@@ -542,7 +617,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
+        queryRunner.manager.save.mockResolvedValueOnce(tenant);
         mockProvisioningService.provisionTenant.mockResolvedValueOnce(undefined);
 
         // Transaction should be committed
@@ -611,7 +686,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save).mockRejectedValueOnce({
+        queryRunner.manager.save.mockRejectedValueOnce({
           code: '23505', // Unique constraint violation
           message: 'duplicate key value violates unique constraint',
         });
@@ -644,7 +719,7 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
 
         mockTenantRepository.findOne.mockResolvedValueOnce(null);
-        (queryRunner.manager.save).mockResolvedValueOnce(tenant);
+        queryRunner.manager.save.mockResolvedValueOnce(tenant);
 
         // TenantCreated event should be published
       });

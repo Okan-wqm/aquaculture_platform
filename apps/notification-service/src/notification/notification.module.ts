@@ -10,6 +10,7 @@ import { AuthEventHandler } from './event-handlers/auth-event.handler';
 import { BillingEventHandler } from './event-handlers/billing-event.handler';
 import { DeviceTokenRevocationHandler } from './event-handlers/device-token-revocation.handler';
 import { MessagingEventHandler } from './event-handlers/messaging-event.handler';
+import { NotificationCommandHandler } from './event-handlers/notification-command.handler';
 import { TaskEventHandler } from './event-handlers/task-event.handler';
 import { NotificationResolver } from './resolvers/notification.resolver';
 import { DeadLetterQueueService } from './services/dead-letter-queue.service';
@@ -58,6 +59,7 @@ import { SmsService } from './services/sms.service';
     BillingEventHandler,
     TaskEventHandler,
     MessagingEventHandler,
+    NotificationCommandHandler,
     DeviceTokenRevocationHandler,
 
     // Resolvers

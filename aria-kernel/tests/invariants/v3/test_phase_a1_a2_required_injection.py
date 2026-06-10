@@ -166,12 +166,26 @@ class PhaseA1RequiredAutoMergeRunner(unittest.TestCase):
                 profile="strict",
                 adapter_factory=lambda: object(),
                 pr_enumerator=lambda adapter: [42],
+                readiness_claim_resolver=lambda adapter, pr_number, base_dir: "claim-42",
             )
             runner(base_dir="/tmp", workspace_root="/tmp")
         finally:
             auto_merge_module.merge_if_green = original
         self.assertEqual(len(captured), 1)
         self.assertIs(captured[0]["dry_run"], True)
+
+    def test_i_v3_03_real_runner_missing_dependencies_blocks(self) -> None:
+        from aria_kernel.auto_merge_runners import RealAutoMergeRunner
+
+        result = RealAutoMergeRunner(profile="strict")(
+            base_dir="/tmp",
+            workspace_root="/tmp",
+        )
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "real_auto_merge_runner_missing_dependencies")
+        self.assertIn("github_adapter_factory", result["missing_dependencies"])
+        self.assertIn("pr_enumerator", result["missing_dependencies"])
+        self.assertIn("readiness_claim_resolver", result["missing_dependencies"])
 
     def test_select_rejects_unknown_profile(self) -> None:
         """Unknown profile → ValueError. Tier-1: factory cannot

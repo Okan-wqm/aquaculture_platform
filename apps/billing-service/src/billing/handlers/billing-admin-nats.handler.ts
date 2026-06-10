@@ -1,8 +1,12 @@
-import { BadRequestException, Controller, Logger, NotFoundException } from '@nestjs/common';
+import * as crypto from 'crypto';
+
+import { BadRequestException, ConflictException, Controller, Logger, NotFoundException } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import {
   BILLING_ADMIN_COMMAND_SUBJECTS,
+  type BillingTenantProvisioningCommand,
+  type BillingTenantProvisioningResult,
   type BillingAdminCreateInvoiceCommand,
   type BillingAdminChangeSubscriptionPlanCommand,
   type BillingAdminCancelSubscriptionCommand,
@@ -18,7 +22,7 @@ import {
   type BillingAdminSubscriptionCommandResult,
   type BillingAdminVoidInvoiceCommand,
 } from '@platform/event-contracts';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
 import { CreateInvoiceCommand } from '../commands/create-invoice.command';
@@ -31,7 +35,8 @@ import { RecordPaymentInput } from '../dto/record-payment.input';
 import { RefundPaymentInput } from '../dto/refund-payment.input';
 import { Invoice } from '../entities/invoice.entity';
 import { Payment, PaymentMethod } from '../entities/payment.entity';
-import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
+import { Plan } from '../entities/plan.entity';
+import { BillingCycle, PlanTier, Subscription, SubscriptionStatus } from '../entities/subscription.entity';
 
 interface TenantLookupRow {
   tenantId: string;
@@ -63,6 +68,20 @@ interface InvoiceSnapshotRow {
   updatedAt: Date | string;
 }
 
+interface BillingCommandReceiptRow {
+  id: string;
+  payloadHash: string;
+  status: 'STARTED' | 'SUCCEEDED' | 'FAILED';
+  resultSummary?: Record<string, unknown> | null;
+  updatedAt: Date | string;
+}
+
+interface ActiveSubscriptionRow {
+  id: string;
+  status: string;
+  planId?: string | null;
+}
+
 /**
  * NATS request-reply surface for platform-admin billing writes.
  *
@@ -78,6 +97,65 @@ export class BillingAdminNatsHandler {
     private readonly commandBus: CommandBus,
     private readonly dataSource: DataSource,
   ) {}
+
+  @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.PROVISION_TENANT_SUBSCRIPTION)
+  async provisionTenantSubscription(
+    @Payload() command: BillingTenantProvisioningCommand,
+  ): Promise<BillingTenantProvisioningResult> {
+    const commandType = 'ProvisionTenantSubscription';
+    const payloadHash = this.hashBillingPayload({
+      tenantId: command.tenantId,
+      tenantName: command.tenantName,
+      tier: command.tier,
+      billingCycle: command.billingCycle,
+      moduleIds: command.moduleIds,
+      moduleQuantities: command.moduleQuantities,
+      trialDays: command.trialDays,
+      catalogVersionId: command.catalogVersionId,
+      quoteId: command.quoteId,
+      customPlanId: command.customPlanId,
+    });
+
+    try {
+      return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+        const receipt = await this.prepareBillingReceipt(manager, command, commandType, payloadHash);
+        if (receipt.status === 'SUCCEEDED') {
+          return this.replayProvisioningResult(manager, command, receipt);
+        }
+
+        const plan = await this.resolveProvisioningPlan(manager, command);
+        const existing = await this.findActiveSubscription(manager, command.tenantId, true);
+        if (existing) {
+          await this.assertActiveSubscriptionReplayMatches(manager, command, existing, plan);
+          return this.markBillingReceiptSucceeded(manager, command, receipt.id, {
+            subscriptionId: existing.id,
+            status: existing.status,
+            moduleItemCount: await this.countSubscriptionModuleItems(manager, existing.id),
+            replayed: true,
+          });
+        }
+
+        const subscription = await this.createProvisioningSubscription(manager, command, plan);
+        const moduleItemCount = await this.reconcileSubscriptionModuleItems(
+          manager,
+          subscription.id,
+          command.moduleIds,
+          command.moduleQuantities,
+          plan.currency,
+        );
+
+        return this.markBillingReceiptSucceeded(manager, command, receipt.id, {
+          subscriptionId: subscription.id,
+          status: subscription.status,
+          moduleItemCount,
+          replayed: false,
+        });
+      });
+    } catch (err) {
+      await this.markBillingReceiptFailed(command, commandType, payloadHash, err);
+      return this.toProvisioningError(command, err);
+    }
+  }
 
   @MessagePattern(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_INVOICE)
   async createInvoice(
@@ -296,6 +374,553 @@ export class BillingAdminNatsHandler {
     } catch (err) {
       return this.toSubscriptionError('extendSubscriptionTrial', err);
     }
+  }
+
+  private async prepareBillingReceipt(
+    manager: EntityManager,
+    command: BillingTenantProvisioningCommand,
+    commandType: string,
+    payloadHash: string,
+  ): Promise<BillingCommandReceiptRow> {
+    const rows = await manager.query<BillingCommandReceiptRow[]>(
+      `SELECT id, "payloadHash", status, "resultSummary", "updatedAt"
+         FROM billing.command_receipts
+        WHERE "operationId" = $1
+          AND "tenantId" = $2
+          AND "commandType" = $3
+          AND "idempotencyKey" = $4
+        FOR UPDATE`,
+      [command.operationId, command.tenantId, commandType, command.idempotencyKey],
+    );
+    const existing = rows[0];
+    if (existing) {
+      if (existing.payloadHash !== payloadHash) {
+        throw new ConflictException('Billing idempotency key was reused with a different payload');
+      }
+      if (existing.status === 'FAILED') {
+        await manager.query(
+          `UPDATE billing.command_receipts
+              SET status = 'STARTED',
+                  "resultHash" = NULL,
+                  "resultSummary" = NULL,
+                  "errorCode" = NULL,
+                  error = NULL,
+                  "completedAt" = NULL,
+                  "updatedAt" = NOW()
+            WHERE id = $1`,
+          [existing.id],
+        );
+        return { ...existing, status: 'STARTED', resultSummary: null, updatedAt: new Date() };
+      }
+      return existing;
+    }
+
+    const inserted = await manager.query<BillingCommandReceiptRow[]>(
+      `INSERT INTO billing.command_receipts (
+         "operationId",
+         "tenantId",
+         "commandType",
+         "idempotencyKey",
+         "payloadHash",
+         status,
+         "actorId",
+         "createdAt",
+         "updatedAt"
+       ) VALUES ($1, $2, $3, $4, $5, 'STARTED', $6, NOW(), NOW())
+       RETURNING id, "payloadHash", status, "resultSummary", "updatedAt"`,
+      [
+        command.operationId,
+        command.tenantId,
+        commandType,
+        command.idempotencyKey,
+        payloadHash,
+        command.actorId,
+      ],
+    );
+    const receipt = inserted[0];
+    if (!receipt) {
+      throw new Error('billing.command_receipts insert did not return a receipt row');
+    }
+    return receipt;
+  }
+
+  private async replayProvisioningResult(
+    manager: EntityManager,
+    command: BillingTenantProvisioningCommand,
+    receipt: BillingCommandReceiptRow,
+  ): Promise<BillingTenantProvisioningResult> {
+    const summary = receipt.resultSummary;
+    if (summary && typeof summary['subscriptionId'] === 'string') {
+      return {
+        success: true,
+        operationId: command.operationId,
+        tenantId: command.tenantId,
+        subscriptionId: summary['subscriptionId'],
+        status: typeof summary['status'] === 'string' ? summary['status'] : undefined,
+        moduleItemCount: typeof summary['moduleItemCount'] === 'number'
+          ? summary['moduleItemCount']
+          : undefined,
+        receiptId: receipt.id,
+        resultHash: this.hashBillingPayload(summary),
+        replayed: true,
+      };
+    }
+
+    const existing = await this.findActiveSubscription(manager, command.tenantId, true);
+    if (!existing) {
+      throw new ConflictException('Billing receipt is marked successful but subscription evidence is missing');
+    }
+    return this.markBillingReceiptSucceeded(manager, command, receipt.id, {
+      subscriptionId: existing.id,
+      status: existing.status,
+      moduleItemCount: await this.countSubscriptionModuleItems(manager, existing.id),
+      replayed: true,
+    });
+  }
+
+  private async resolveProvisioningPlan(
+    manager: EntityManager,
+    command: BillingTenantProvisioningCommand,
+  ): Promise<Plan> {
+    const tier = this.parsePlanTier(command.tier);
+    const billingCycle = this.parseBillingCycle(command.billingCycle);
+    if (tier === PlanTier.ENTERPRISE && !command.quoteId && !command.customPlanId) {
+      throw new BadRequestException('Enterprise provisioning requires an approved billing quote or custom plan');
+    }
+    if (command.quoteId && !command.customPlanId) {
+      throw new BadRequestException('Billing quote resolution requires a customPlanId');
+    }
+
+    // eslint-disable-next-line no-restricted-syntax -- Billing Plan is a cross-tenant catalog table with no tenantId; tenantManagerRepo would invent tenant scope where the schema intentionally has none.
+    const planRepository = manager.getRepository(Plan);
+    const plan = command.customPlanId
+      ? await planRepository.findOne({
+          where: {
+            id: command.customPlanId,
+            billingCycle,
+            isActive: true,
+            isDeleted: false,
+          },
+        })
+      : await planRepository.findOne({
+          where: {
+            tier,
+            billingCycle,
+            isActive: true,
+            isDeleted: false,
+          },
+          order: { version: 'DESC', sortOrder: 'ASC' },
+        });
+    if (!plan) {
+      throw new NotFoundException(
+        `No active billing catalog plan for tier=${command.tier} billingCycle=${command.billingCycle}`,
+      );
+    }
+    if (
+      command.catalogVersionId &&
+      command.catalogVersionId !== plan.id &&
+      command.catalogVersionId !== String(plan.version)
+    ) {
+      throw new ConflictException(
+        `Billing catalog version mismatch for tier=${command.tier} billingCycle=${command.billingCycle}`,
+      );
+    }
+    return plan;
+  }
+
+  private async createProvisioningSubscription(
+    manager: EntityManager,
+    command: BillingTenantProvisioningCommand,
+    plan: Plan,
+  ): Promise<{ id: string; status: SubscriptionStatus }> {
+    if (command.trialDays && command.trialDays > 30) {
+      throw new ConflictException('Trial period cannot exceed 30 days');
+    }
+
+    const startDate = new Date();
+    const currentPeriodEnd = this.calculatePeriodEnd(startDate, plan.billingCycle);
+    const trialEndDate = command.trialDays && command.trialDays > 0
+      ? this.addDays(startDate, command.trialDays)
+      : null;
+    const status = trialEndDate ? SubscriptionStatus.TRIAL : SubscriptionStatus.ACTIVE;
+    const pricing = {
+      basePrice: Number(plan.basePrice),
+      perFarmPrice: plan.pricing.perFarmPrice ?? 0,
+      perSensorPrice: plan.pricing.perSensorPrice ?? 0,
+      perUserPrice: plan.pricing.perUserPrice ?? 0,
+      currency: plan.currency,
+    };
+
+    const rows = await manager.query<Array<{ id: string; status: SubscriptionStatus }>>(
+      `INSERT INTO billing.subscriptions (
+         tenant_id,
+         plan_id,
+         plan_tier,
+         plan_name,
+         status,
+         billing_cycle,
+         limits,
+         pricing,
+         start_date,
+         current_period_start,
+         current_period_end,
+         trial_end_date,
+         auto_renew,
+         created_by,
+         updated_by,
+         version,
+         is_deleted,
+         "createdAt",
+         "updatedAt"
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $9, $10, $11,
+         true, $12, $12, 1, false, NOW(), NOW()
+       )
+       RETURNING id, status`,
+      [
+        command.tenantId,
+        plan.id,
+        plan.tier,
+        plan.name.trim(),
+        status,
+        plan.billingCycle,
+        JSON.stringify(plan.limits),
+        JSON.stringify(pricing),
+        startDate,
+        currentPeriodEnd,
+        trialEndDate,
+        command.actorId,
+      ],
+    );
+    const subscription = rows[0];
+    if (!subscription?.id) {
+      throw new Error('Billing subscription insert did not return an id');
+    }
+    return subscription;
+  }
+
+  private async assertActiveSubscriptionReplayMatches(
+    manager: EntityManager,
+    command: BillingTenantProvisioningCommand,
+    existing: ActiveSubscriptionRow,
+    plan: Plan,
+  ): Promise<void> {
+    if (existing.planId !== plan.id) {
+      throw new ConflictException(
+        'Active billing subscription exists but its catalog plan does not match the provisioning command',
+      );
+    }
+    const rows = await manager.query<Array<{ moduleId: string; quantities: Record<string, unknown> }>>(
+      `SELECT module_id as "moduleId", quantities
+         FROM billing.subscription_module_items
+        WHERE subscription_id = $1
+          AND status = 'active'
+        ORDER BY module_id`,
+      [existing.id],
+    );
+    const existingDigest = this.hashBillingPayload(
+      rows.map((row) => ({
+        moduleId: row.moduleId,
+        quantities: row.quantities ?? { moduleId: row.moduleId },
+      })),
+    );
+    const commandDigest = this.hashBillingPayload(
+      [...new Set(command.moduleIds)].sort().map((moduleId) => ({
+        moduleId,
+        quantities: command.moduleQuantities?.find((item) => item.moduleId === moduleId) ?? { moduleId },
+      })),
+    );
+    if (existingDigest !== commandDigest) {
+      throw new ConflictException(
+        'Active billing subscription exists but its module digest does not match the provisioning command',
+      );
+    }
+  }
+
+  private parsePlanTier(value: string): PlanTier {
+    const validTiers: readonly string[] = Object.values(PlanTier);
+    if (!validTiers.includes(value)) {
+      throw new BadRequestException(`Unsupported billing plan tier: ${value}`);
+    }
+    return value as PlanTier;
+  }
+
+  private parseBillingCycle(value: string): BillingCycle {
+    const validCycles: readonly string[] = Object.values(BillingCycle);
+    if (!validCycles.includes(value)) {
+      throw new BadRequestException(`Unsupported billing cycle: ${value}`);
+    }
+    return value as BillingCycle;
+  }
+
+  private calculatePeriodEnd(startDate: Date, billingCycle: BillingCycle): Date {
+    return this.addMonthsClamped(startDate, this.cycleToMonths(billingCycle));
+  }
+
+  private cycleToMonths(billingCycle: BillingCycle): number {
+    switch (billingCycle) {
+      case BillingCycle.MONTHLY:
+        return 1;
+      case BillingCycle.QUARTERLY:
+        return 3;
+      case BillingCycle.SEMI_ANNUAL:
+        return 6;
+      case BillingCycle.ANNUAL:
+        return 12;
+    }
+  }
+
+  private addMonthsClamped(date: Date, months: number): Date {
+    const targetYear = date.getFullYear();
+    const targetMonth = date.getMonth() + months;
+    const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const result = new Date(date);
+    result.setFullYear(targetYear, targetMonth, Math.min(date.getDate(), lastDay));
+    return result;
+  }
+
+  private addDays(date: Date, days: number): Date {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+  }
+
+  private async findActiveSubscription(
+    manager: EntityManager,
+    tenantId: string,
+    forUpdate = false,
+  ): Promise<ActiveSubscriptionRow | null> {
+    const rows = await manager.query<ActiveSubscriptionRow[]>(
+      `SELECT id, status, plan_id as "planId"
+         FROM billing.subscriptions
+        WHERE tenant_id = $1
+          AND is_deleted = false
+          AND status IN ('trial', 'active', 'past_due', 'suspended')
+        ORDER BY "createdAt" DESC
+        LIMIT 1
+        ${forUpdate ? 'FOR UPDATE' : ''}`,
+      [tenantId],
+    );
+    return rows[0] ?? null;
+  }
+
+  private async reconcileSubscriptionModuleItems(
+    manager: EntityManager,
+    subscriptionId: string,
+    moduleIds: string[],
+    moduleQuantities: BillingTenantProvisioningCommand['moduleQuantities'],
+    currency: string,
+  ): Promise<number> {
+    if (moduleIds.length === 0) return 0;
+
+    const moduleRows = await manager.query<Array<{ id: string; code: string; name: string }>>(
+      `SELECT id, code, name FROM modules WHERE id = ANY($1::uuid[])`,
+      [moduleIds],
+    );
+    const moduleMap = new Map(moduleRows.map((row) => [row.id, row]));
+    const missing = moduleIds.filter((moduleId) => !moduleMap.has(moduleId));
+    if (missing.length > 0) {
+      throw new NotFoundException(`Missing module metadata for billing reconciliation: ${missing.join(', ')}`);
+    }
+
+    for (const moduleId of moduleIds) {
+      const moduleInfo = moduleMap.get(moduleId);
+      if (!moduleInfo) {
+        // Unreachable after the missing-module check above; explicit guard
+        // keeps the read null-safe without a non-null assertion.
+        throw new NotFoundException(
+          `Missing module metadata for billing reconciliation: ${moduleId}`,
+        );
+      }
+      const quantities = moduleQuantities?.find((item) => item.moduleId === moduleId) ?? { moduleId };
+      await manager.query(
+        `INSERT INTO billing.subscription_module_items (
+           subscription_id,
+           module_id,
+           module_code,
+           module_name,
+           quantities,
+           line_items,
+           subtotal,
+           discount_amount,
+           total,
+           currency,
+           status,
+           activated_at,
+           "createdAt",
+           "updatedAt"
+         ) VALUES (
+           $1,
+           $2,
+           $3,
+           $4,
+           $5::jsonb,
+           '[]'::jsonb,
+           0,
+           0,
+           0,
+           $6,
+           'active',
+           NOW(),
+           NOW(),
+           NOW()
+         )
+         ON CONFLICT (subscription_id, module_id) DO UPDATE SET
+           quantities = EXCLUDED.quantities,
+           module_code = EXCLUDED.module_code,
+           module_name = EXCLUDED.module_name,
+           currency = EXCLUDED.currency,
+           status = 'active',
+           "updatedAt" = NOW()`,
+        [
+          subscriptionId,
+          moduleId,
+          moduleInfo.code,
+          moduleInfo.name,
+          JSON.stringify(quantities),
+          currency,
+        ],
+      );
+    }
+
+    return this.countSubscriptionModuleItems(manager, subscriptionId);
+  }
+
+  private async countSubscriptionModuleItems(
+    manager: EntityManager,
+    subscriptionId: string,
+  ): Promise<number> {
+    const rows = await manager.query<Array<{ count: string }>>(
+      `SELECT COUNT(*)::text AS count
+         FROM billing.subscription_module_items
+        WHERE subscription_id = $1
+          AND status = 'active'`,
+      [subscriptionId],
+    );
+    return Number.parseInt(rows[0]?.count ?? '0', 10);
+  }
+
+  private async markBillingReceiptSucceeded(
+    manager: EntityManager,
+    command: BillingTenantProvisioningCommand,
+    receiptId: string,
+    summary: {
+      subscriptionId: string;
+      status: string;
+      moduleItemCount: number;
+      replayed: boolean;
+    },
+  ): Promise<BillingTenantProvisioningResult> {
+    const resultSummary = {
+      subscriptionId: summary.subscriptionId,
+      status: summary.status,
+      moduleItemCount: summary.moduleItemCount,
+    };
+    const resultHash = this.hashBillingPayload(resultSummary);
+    await manager.query(
+      `UPDATE billing.command_receipts
+          SET status = 'SUCCEEDED',
+              "entityId" = $2,
+              "resultHash" = $3,
+              "resultSummary" = $4::jsonb,
+              "errorCode" = NULL,
+              error = NULL,
+              "completedAt" = NOW(),
+              "updatedAt" = NOW()
+        WHERE id = $1`,
+      [receiptId, summary.subscriptionId, resultHash, JSON.stringify(resultSummary)],
+    );
+    return {
+      success: true,
+      operationId: command.operationId,
+      tenantId: command.tenantId,
+      subscriptionId: summary.subscriptionId,
+      status: summary.status,
+      moduleItemCount: summary.moduleItemCount,
+      receiptId,
+      resultHash,
+      replayed: summary.replayed,
+    };
+  }
+
+  private async markBillingReceiptFailed(
+    command: BillingTenantProvisioningCommand,
+    commandType: string,
+    payloadHash: string,
+    err: unknown,
+  ): Promise<void> {
+    const errorCode = this.toBillingProvisioningErrorCode(err);
+    const error = err instanceof Error ? err.message : String(err);
+    await this.dataSource.query(
+      `INSERT INTO billing.command_receipts (
+         "operationId",
+         "tenantId",
+         "commandType",
+         "idempotencyKey",
+         "payloadHash",
+         status,
+         "actorId",
+         "errorCode",
+         error,
+         "completedAt",
+         "createdAt",
+         "updatedAt"
+       ) VALUES ($1, $2, $3, $4, $5, 'FAILED', $6, $7, $8, NOW(), NOW(), NOW())
+       ON CONFLICT ("operationId", "tenantId", "commandType", "idempotencyKey") DO UPDATE SET
+         status = 'FAILED',
+         "errorCode" = EXCLUDED."errorCode",
+         error = EXCLUDED.error,
+         "completedAt" = NOW(),
+         "updatedAt" = NOW()
+       WHERE billing.command_receipts."payloadHash" = EXCLUDED."payloadHash"`,
+      [
+        command.operationId,
+        command.tenantId,
+        commandType,
+        command.idempotencyKey,
+        payloadHash,
+        command.actorId,
+        errorCode,
+        error,
+      ],
+    );
+  }
+
+  private toProvisioningError(
+    command: BillingTenantProvisioningCommand,
+    err: unknown,
+  ): BillingTenantProvisioningResult {
+    return {
+      success: false,
+      operationId: command.operationId,
+      tenantId: command.tenantId,
+      errorCode: this.toBillingProvisioningErrorCode(err),
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  private toBillingProvisioningErrorCode(
+    err: unknown,
+  ): BillingTenantProvisioningResult['errorCode'] {
+    if (err instanceof NotFoundException) return 'CATALOG_MISSING';
+    if (err instanceof BadRequestException) return 'VALIDATION_ERROR';
+    if (err instanceof ConflictException) return 'CONFLICT';
+    return 'INTERNAL_ERROR';
+  }
+
+  private hashBillingPayload(value: unknown): string {
+    return crypto.createHash('sha256').update(this.stableStringify(value)).digest('hex');
+  }
+
+  private stableStringify(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
+    }
+    if (value !== null && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${this.stableStringify(record[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value);
   }
 
   private async getInvoiceTenantId(invoiceId: string): Promise<string> {

@@ -13,22 +13,32 @@
  * IMPORTANT: Requires docker-compose.dev.yml services running:
  *   docker compose -f docker-compose.dev.yml up -d postgres redis nats
  */
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { DataSource } from 'typeorm';
 import * as crypto from 'crypto';
-import supertest from 'supertest';
-import Redis from 'ioredis';
-import { AppModule } from '../src/app.module';
+
 import {
+  applyTenantRlsToSchema,
+  createMigrationRunnerService,
   getTenantSchemaName,
   tenantMigrationLedgerTable,
 } from '@aquaculture/backend-common/database';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
-import { generateServiceIdentityHeadersV2 } from '@aquaculture/backend-common/utils';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
 import { NatsEventBus } from '@platform/event-bus';
-import { REDIS_CLIENT } from '../src/shared/redis.provider';
+import Redis from 'ioredis';
+import supertest from 'supertest';
+import { DataSource } from 'typeorm';
+
+import { AppModule } from '../src/app.module';
 import { STORAGE_OBJECT_VERIFIER } from '../src/message/services/storage-object-verifier.port';
+import { Baseline1800000000000 } from '../src/migrations/1800000000000-Baseline';
+import { CreateMessagingOutboxTable1800200000000 } from '../src/migrations/1800200000000-CreateMessagingOutboxTable';
+import { AddUserAiConsentTenantUserUnique1800300000000 } from '../src/migrations/1800300000000-AddUserAiConsentTenantUserUnique';
+import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from '../src/migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
+import { EnsureMessagingPartitionContract1800500000000 } from '../src/migrations/1800500000000-EnsureMessagingPartitionContract';
+import { PartitionManagerService } from '../src/partition/partition-manager.service';
+import { REDIS_CLIENT } from '../src/shared/redis.provider';
 
 // ── Test Constants ──────────────────────────────────────────────────────────
 
@@ -42,6 +52,14 @@ export const ADMIN_A = '33333333-3333-4333-8333-333333333333';
 export const USER_B1 = '44444444-4444-4444-8444-444444444444';
 export const USER_B2 = '55555555-5555-4555-8555-555555555555';
 
+const MESSAGING_SOURCE_SCHEMA = 'messaging';
+const MessagingE2eMigrationRunner = createMigrationRunnerService(MESSAGING_SOURCE_SCHEMA, {
+  tenantAware: false,
+});
+const GRAPHQL_CONTENT_TYPE = 'application/json';
+const MESSAGING_SERVICE_AUDIENCE = 'messaging';
+let sourceMigrationPromise: Promise<void> | undefined;
+
 function getE2eInternalServiceSecret(): string {
   const existing = process.env['INTERNAL_SERVICE_SECRET'];
   if (existing) {
@@ -50,6 +68,67 @@ function getE2eInternalServiceSecret(): string {
   const generated = crypto.randomBytes(32).toString('hex');
   process.env['INTERNAL_SERVICE_SECRET'] = generated;
   return generated;
+}
+
+function e2eConfigService(): { get: <T = string>(key: string, defaultValue?: T) => T | undefined } {
+  return {
+    get: <T = string>(key: string, defaultValue?: T): T | undefined => {
+      const value = process.env[key];
+      return value === undefined ? defaultValue : (value as T);
+    },
+  };
+}
+
+async function withE2eDdlAuthority<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = process.env['DB_MIGRATE_DDL_AUTHORITY'];
+  process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
+  try {
+    return await operation();
+  } finally {
+    if (previous === undefined) {
+      Reflect.deleteProperty(process.env, 'DB_MIGRATE_DDL_AUTHORITY');
+    } else {
+      process.env['DB_MIGRATE_DDL_AUTHORITY'] = previous;
+    }
+  }
+}
+
+async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
+  sourceMigrationPromise ??= withE2eDdlAuthority(async () => {
+    const dataSource = new DataSource({
+      type: 'postgres',
+      host: process.env['DATABASE_HOST'] ?? 'localhost',
+      port: Number(process.env['DATABASE_PORT'] ?? '5432'),
+      username: process.env['DATABASE_USER'] ?? 'postgres',
+      password: process.env['DATABASE_PASSWORD'] ?? 'postgres',
+      database: process.env['DATABASE_NAME'] ?? 'aquaculture_e2e',
+      schema: MESSAGING_SOURCE_SCHEMA,
+      synchronize: false,
+      migrationsRun: false,
+      logging: false,
+      migrations: [
+        Baseline1800000000000,
+        CreateMessagingOutboxTable1800200000000,
+        AddUserAiConsentTenantUserUnique1800300000000,
+        EnforceSourceOnlyMessagingOutboxContract1800400000000,
+        EnsureMessagingPartitionContract1800500000000,
+      ],
+    });
+
+    await dataSource.initialize();
+    try {
+      await dataSource.query(`CREATE SCHEMA IF NOT EXISTS "${MESSAGING_SOURCE_SCHEMA}"`);
+      await dataSource.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
+      await dataSource.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
+      await dataSource.query('CREATE EXTENSION IF NOT EXISTS "vector"');
+
+      const runner = new MessagingE2eMigrationRunner(dataSource, e2eConfigService());
+      await runner.onApplicationBootstrap();
+    } finally {
+      await dataSource.destroy();
+    }
+  });
+  return sourceMigrationPromise;
 }
 
 // ── App Bootstrap ───────────────────────────────────────────────────────────
@@ -74,6 +153,7 @@ export async function createE2eTestApp(
   options: { enableRateLimiting?: boolean } = {},
 ): Promise<E2eTestContext> {
   // ── Environment setup for production-safe app bootstrap ──
+  await ensureMessagingSourceMigrationsApplied();
 
   // SECURITY: E2E requests simulate gateway-to-subgraph traffic, including
   // service-identity signatures. This keeps StripInternalHeadersMiddleware
@@ -247,22 +327,26 @@ export function gqlRequest(
     query: (gql: string, variables?: Record<string, unknown>) => {
       const body =
         variables === undefined ? { query: gql } : { query: gql, variables };
+      const bodyString = JSON.stringify(body);
       const serviceHeaders: Record<string, string> = {
-        ...generateServiceIdentityHeadersV2({
+        ...buildSignedInternalHeaders({
           serviceName: 'gateway-api',
           secret: getE2eInternalServiceSecret(),
           tenantId,
           method: 'POST',
           path: '/graphql',
-          body: JSON.stringify(body),
+          body: bodyString,
+          audience: MESSAGING_SERVICE_AUDIENCE,
+          contentType: GRAPHQL_CONTENT_TYPE,
         }),
       };
       return supertest(httpServer)
         .post('/graphql')
         .set(serviceHeaders)
+        .set('content-type', GRAPHQL_CONTENT_TYPE)
         .set('x-user-payload', userPayload)
         .set('x-tenant-id', tenantId)
-        .send(body);
+        .send(bodyString);
     },
   };
 }
@@ -384,16 +468,26 @@ export async function setupTenantSchemas(
     }
 
     await backfillTenantMigrationLedger(dataSource, sourceSchema, schemaName);
+    await withE2eDdlAuthority(async () => {
+      const queryRunner = dataSource.createQueryRunner();
+      try {
+        await queryRunner.connect();
+        await applyTenantRlsToSchema(queryRunner, {
+          schemaOverride: schemaName,
+          excludeTables: ['messaging_outbox', 'embeddings_metadata'],
+          tenantIdColumns: ['tenantId'],
+        });
+      } finally {
+        await queryRunner.release();
+      }
+    });
 
-    // Partitions for `messages` / `message_receipts` are created by
-    // PartitionManagerService.onApplicationBootstrap (the runtime SSoT).
-    // Per INFRA-CRITICAL-012, the test fixture must NOT create its own
-    // partitions — the runtime service uses naming `<table>_<year>_<month>`
-    // and PostgreSQL detects overlapping FOR VALUES ranges (regardless of
-    // partition NAME), so any duplicate creator deadlocks the boot. The
-    // PartitionManagerService runs at app bootstrap inside the test's
-    // createE2eTestApp() flow and ensures current + next 2 months exist.
+    // Partition DDL is intentionally not emitted by this fixture. Tenant
+    // schemas are created after app bootstrap in these E2E suites, so call
+    // the canonical runtime partition service once schemas exist.
   }
+
+  await new PartitionManagerService(dataSource).onApplicationBootstrap();
 }
 
 async function backfillTenantMigrationLedger(
@@ -443,23 +537,6 @@ async function clonePartitionedTable(
   targetSchema: string,
   tablename: string,
 ): Promise<void> {
-  // Get column definitions from the source table
-  const columns: { column_name: string; full_data_type: string; is_nullable: string; column_default: string | null }[] =
-    await dataSource.query(
-      `SELECT
-         a.attname AS column_name,
-         format_type(a.atttypid, a.atttypmod) AS full_data_type,
-         CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
-         pg_get_expr(d.adbin, d.adrelid) AS column_default
-       FROM pg_attribute a
-       LEFT JOIN pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
-       WHERE a.attrelid = ($1 || '.' || $2)::regclass
-         AND a.attnum > 0
-         AND NOT a.attisdropped
-       ORDER BY a.attnum`,
-      [sourceSchema, tablename],
-    );
-
   // Get the partition key expression
   const partKey: { partition_expr: string }[] = await dataSource.query(
     `SELECT pg_get_partkeydef(c.oid) as partition_expr
@@ -468,18 +545,12 @@ async function clonePartitionedTable(
     [sourceSchema, tablename],
   );
 
-  if (columns.length === 0 || partKey.length === 0) return;
-
-  const colDefs = columns.map((c) => {
-    const nullable = c.is_nullable === 'NO' ? ' NOT NULL' : '';
-    const def = c.column_default ? ` DEFAULT ${c.column_default}` : '';
-    return `"${c.column_name}" ${c.full_data_type}${nullable}${def}`;
-  });
+  if (partKey.length === 0) return;
 
   const partExpr = partKey[0]!.partition_expr;
 
   await dataSource.query(
-    `CREATE TABLE "${targetSchema}"."${tablename}" (${colDefs.join(', ')}) PARTITION BY ${partExpr}`,
+    `CREATE TABLE "${targetSchema}"."${tablename}" (LIKE "${sourceSchema}"."${tablename}" INCLUDING ALL) PARTITION BY ${partExpr}`,
   );
 }
 

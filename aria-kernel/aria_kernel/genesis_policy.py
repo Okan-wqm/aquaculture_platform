@@ -28,7 +28,48 @@ POLICY_KEYS = {
     # estimated_tokens_per_authoring). Closes V6 CONCERN #19
     # (pre-cycle budget audit via max_tokens_per_cycle cap).
     "skill_genesis_drainer",
+    "genesis_lifecycle",
 }
+
+
+GENESIS_LIFECYCLE_DEFAULTS: dict[str, Any] = {
+    "pressure_min_score": 70,
+    "min_evidence_refs": 3,
+    "existing_capability_coverage_threshold": 0.80,
+    "request_requires_signed_operator_feedback": True,
+    "real_sandbox_min_fixture_results": 3,
+    "real_sandbox_required_lanes": [
+        "real_repo_baseline",
+        "semantic_regression",
+        "scope_violation_guard",
+    ],
+    "shadow_min_days": 14,
+    "shadow_min_clean_cycles": 5,
+    "shadow_min_eval_runs": 10,
+    "min_precision": 0.95,
+    "min_recall": 0.90,
+    "max_critical_false_positives": 0,
+    "max_noncritical_false_positives_30d": 3,
+    "max_result_rejection_rate": 0.05,
+    "max_bridge_permanent_failures": 0,
+}
+
+
+def genesis_lifecycle_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(GENESIS_LIFECYCLE_DEFAULTS)
+    raw_block = merged.get("genesis_lifecycle")
+    if isinstance(raw_block, dict):
+        for key, default in GENESIS_LIFECYCLE_DEFAULTS.items():
+            if key in raw_block:
+                block[key] = raw_block[key]
+    return block
 
 
 SKILL_GENESIS_DRAINER_DEFAULTS: dict[str, Any] = {

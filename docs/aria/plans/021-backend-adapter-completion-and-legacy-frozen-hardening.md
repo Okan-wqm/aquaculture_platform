@@ -1,3 +1,5 @@
+<!-- ARIA-HISTORICAL: Historical plan document. Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
+
 # ARIA Plan 021 — Backend Adapter Completion + Legacy Writer Frozen-Guard Hardening (placeholder)
 
 > **Status:** PLACEHOLDER — created at Plan 020 sign-off (`2026-05-08`).

@@ -7,7 +7,8 @@
 * Runs.jsonl readers (spine_orchestrator, architecture_spine_gate)
   route through ``runs_reader.latest_run_for_tool``.
 * Generic-JSONL readers (context_budget_gate, agent_compliance,
-  agent_eval) route through ``strict_jsonl_reader.read_strict_jsonl``.
+  agent_eval) route through ``strict_jsonl_reader.read_strict_jsonl``
+  or the manifest-declared ``load_declared_jsonl`` strict reader.
 """
 from __future__ import annotations
 
@@ -67,27 +68,23 @@ class RunsMigrationTests(unittest.TestCase):
 
 
 class GenericJsonlMigrationTests(unittest.TestCase):
-    def test_generic_jsonl_readers_use_read_strict_jsonl(self) -> None:
-        for module_name in (
-            "context_budget_gate.py",
-            "agent_compliance.py",
-            "agent_eval.py",
+    def test_generic_jsonl_readers_use_strict_reader(self) -> None:
+        expected_readers = {
+            "context_budget_gate.py": "load_declared_jsonl(",
+            "agent_compliance.py": "read_strict_jsonl(",
+            "agent_eval.py": "read_strict_jsonl(",
             # §A.3 forward-fix (reviewer-A.3 finding): list_profile_history
             # in runtime_profile.py was the 11th JSONL ledger reader,
             # missed by the original §A.3 sweep because the wrong-shape
             # file-level allowlist entry hid it.
-            "runtime_profile.py",
-        ):
+            "runtime_profile.py": "read_strict_jsonl(",
+        }
+        for module_name, reader_call in expected_readers.items():
             src = _src(module_name)
             self.assertIn(
-                "read_strict_jsonl",
+                reader_call,
                 src,
-                f"{module_name} missing strict_jsonl_reader migration",
-            )
-            self.assertIn(
-                "read_strict_jsonl(",
-                src,
-                f"{module_name} missing read_strict_jsonl callsite",
+                f"{module_name} missing strict JSONL reader migration",
             )
 
 

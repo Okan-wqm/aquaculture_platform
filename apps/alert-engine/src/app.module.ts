@@ -103,7 +103,10 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/alert.graphql') },
+        autoSchemaFile: {
+          federation: 2,
+          path: join(process.cwd(), 'dist/graphql/subgraphs/alert.graphql'),
+        },
         /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
          *  The gateway already blocks batching, but subgraphs must also enforce this as
          *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -193,7 +196,7 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'alert-engine'),
       inject: [ConfigService],
     },
     // Tenant guard

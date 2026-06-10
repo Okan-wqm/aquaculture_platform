@@ -13,10 +13,9 @@ Plus the SnapshotGitHubAdapter.get_latest_head_sha had a fallback
 Tests:
 1. SnapshotGitHubAdapter.get_latest_head_sha returns None when
    github.latest_head_sha is missing (no fallback to pr.head_sha).
-2. merge_if_green source carries the pre_merge_re_evaluation_blocked
-   tag and re-runs collect_github_snapshot at the merge boundary
-   (source scan; integration coverage is in test_auto_merge.py via
-   the head-sha-changed test which now hits the re-eval path).
+2. merge_authority source carries the pre_merge_re_evaluation_blocked
+   tag and re-runs collect_github_snapshot at the real merge boundary.
+   auto_merge remains evaluation-only and rejects dry_run=False.
 """
 from __future__ import annotations
 
@@ -68,11 +67,14 @@ class MergeIfGreenReEvaluationSourceTests(unittest.TestCase):
         Pre-§H.1 this test scanned auto_merge.py for substring markers.
         The converted form parses the module with ``ast`` and asserts:
 
-        * ``merge_if_green`` exists as a function in auto_merge.
+        * ``_merge_if_green_with_executor`` exists in auto_merge as an
+          evaluation-only gate and contains the direct-real-merge rejection
+          literal.
+        * ``merge_authority.merge_pr_if_ready`` is the real merge boundary.
         * Its body contains a Call to ``collect_github_snapshot`` with
           ``fresh_pr`` as the second positional argument (the re-eval
-          collection site).
-        * The body contains a string constant
+          collection site), and a Call to ``adapter.merge_pr``.
+        * The authority body contains a string constant
           ``pre_merge_re_evaluation_blocked`` (the block-row tag) AND
           a string constant ``pre_merge_re_evaluation`` (the stage
           indicator). AST-level constant lookup proves these literals
@@ -93,31 +95,64 @@ class MergeIfGreenReEvaluationSourceTests(unittest.TestCase):
             (
                 n for n in _ast.walk(tree)
                 if isinstance(n, _ast.FunctionDef)
-                and n.name == "merge_if_green"
+                and n.name == "_merge_if_green_with_executor"
             ),
             None,
         )
         self.assertIsNotNone(
-            merge_fn, "auto_merge.py: merge_if_green not found",
+            merge_fn, "auto_merge.py: _merge_if_green_with_executor not found",
         )
-        body_consts = {
+        evaluator_consts = {
             node.value for node in _ast.walk(merge_fn)
             if isinstance(node, _ast.Constant)
             and isinstance(node.value, str)
         }
         self.assertIn(
+            "direct_real_merge_forbidden: call merge_authority.merge_pr_if_ready() "
+            "for dry_run=False",
+            evaluator_consts,
+            "_merge_if_green_with_executor must fail closed on dry_run=False",
+        )
+        authority_path = (
+            Path(__file__).resolve().parent.parent
+            / "aria_kernel"
+            / "merge_authority.py"
+        )
+        authority_tree = _ast.parse(authority_path.read_text(encoding="utf-8"))
+        authority_fn = next(
+            (
+                n for n in _ast.walk(authority_tree)
+                if isinstance(n, _ast.FunctionDef)
+                and n.name == "merge_pr_if_ready"
+            ),
+            None,
+        )
+        self.assertIsNotNone(
+            authority_fn, "merge_authority.py: merge_pr_if_ready not found",
+        )
+        body_consts = {
+            node.value for node in _ast.walk(authority_fn)
+            if isinstance(node, _ast.Constant)
+            and isinstance(node.value, str)
+        }
+        self.assertIn(
             "pre_merge_re_evaluation_blocked", body_consts,
-            "merge_if_green: missing distinguishing tag literal",
+            "merge_pr_if_ready: missing distinguishing tag literal",
         )
         self.assertIn(
             "pre_merge_re_evaluation", body_consts,
-            "merge_if_green: missing stage indicator literal",
+            "merge_pr_if_ready: missing stage indicator literal",
         )
         found_fresh_pr_call = False
-        for node in _ast.walk(merge_fn):
+        found_real_merge_call = False
+        for node in _ast.walk(authority_fn):
             if not isinstance(node, _ast.Call):
                 continue
             func = node.func
+            if isinstance(func, _ast.Attribute) and func.attr == "merge_pr":
+                receiver = func.value
+                if isinstance(receiver, _ast.Name) and receiver.id == "adapter":
+                    found_real_merge_call = True
             is_target = (
                 isinstance(func, _ast.Name)
                 and func.id == "collect_github_snapshot"
@@ -132,12 +167,15 @@ class MergeIfGreenReEvaluationSourceTests(unittest.TestCase):
                 for arg in node.args
             ):
                 found_fresh_pr_call = True
-                break
         self.assertTrue(
             found_fresh_pr_call,
-            "merge_if_green: no "
+            "merge_pr_if_ready: no "
             "collect_github_snapshot(..., fresh_pr) call — Plan 024 §B-6 "
             "fresh snapshot site missing",
+        )
+        self.assertTrue(
+            found_real_merge_call,
+            "merge_pr_if_ready: adapter.merge_pr call missing from authority boundary",
         )
         # Strict head-SHA accessor invariant.
         adapter_cls = next(

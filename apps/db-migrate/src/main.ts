@@ -51,6 +51,8 @@
  */
 import 'reflect-metadata';
 
+process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
+
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -58,6 +60,7 @@ import { bootInvariantSignalRecord } from '@aquaculture/backend-common/constants
 import {
   applyTenantRlsToSchema,
   convertAuditColumnsToTimestamptz,
+  getTenantSchemaName,
   grantTenantMigrationLedgerReadAccess,
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
@@ -67,7 +70,10 @@ import {
 import { DataSource, QueryRunner } from 'typeorm';
 import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 
+import { parseArgs } from './cli-args';
 import {
+  readLedgerHead,
+  rollbackSchemaMigrations,
   runSchemaMigrations,
   type MigrationLedgerHead,
   type RunSchemaOptions,
@@ -75,6 +81,7 @@ import {
 } from './migration-orchestrator';
 import { runPlatformBootstrap, resolvePlatformBootstrapSqlDir } from './platform-bootstrap.service';
 import { SCHEMA_REGISTRY, type SchemaPostMigrationHardening } from './schema-registry';
+import { runTenantSchemaProvisioner } from './tenant-schema-provisioner';
 
 /**
  * Resolve the bundle root so migration globs in schema-registry.ts
@@ -537,6 +544,7 @@ async function writeReleaseLedgerMigrationState(
     appliedHeads: Record<string, unknown>;
     tenantSchemas: readonly string[];
     fanoutResults: Record<string, unknown>;
+    status?: 'db_complete' | 'rollback_attempted' | 'rollback_verified' | 'rollback_failed';
   },
 ): Promise<void> {
   const releaseId =
@@ -567,8 +575,8 @@ async function writeReleaseLedgerMigrationState(
          $4::jsonb,
          $5::jsonb,
          $6::jsonb,
-         'db_complete',
          $7,
+         $8,
          NOW()
        )
        ON CONFLICT (release_id) DO UPDATE SET
@@ -588,6 +596,7 @@ async function writeReleaseLedgerMigrationState(
         JSON.stringify(args.appliedHeads),
         JSON.stringify(args.tenantSchemas),
         JSON.stringify(args.fanoutResults),
+        args.status ?? 'db_complete',
         operator,
       ],
     );
@@ -622,11 +631,259 @@ async function listTenantSchemas(database: RunSchemaOptions['database']): Promis
   }
 }
 
+function tenantRollbackSchemaFromInput(input: string): string {
+  if (TENANT_SCHEMA_NAME_RE.test(input)) return input;
+  return getTenantSchemaName(input);
+}
+
+async function readSchemaLedgerHead(
+  database: RunSchemaOptions['database'],
+  schema: string,
+  migrationsTableName: string = MIGRATION_LEDGER_TABLE,
+): Promise<MigrationLedgerHead | null> {
+  const dataSource = createControlDataSource(database);
+  await dataSource.initialize();
+  const queryRunner = dataSource.createQueryRunner();
+  try {
+    await queryRunner.connect();
+    return await readLedgerHead(queryRunner, schema, migrationsTableName);
+  } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+async function runRollback(
+  database: RunSchemaOptions['database'],
+  args: {
+    schema: string;
+    down: number;
+    tenantSelector?: { type: 'all' } | { type: 'tenant'; tenant: string };
+  },
+  root: string,
+): Promise<number> {
+  const entry = SCHEMA_REGISTRY.find((candidate) => candidate.schema === args.schema);
+  if (!entry) {
+    log({
+      level: 'error',
+      message: 'Rollback schema is not registered',
+      schema: args.schema,
+      registeredSchemas: SCHEMA_REGISTRY.map((candidate) => candidate.schema),
+    });
+    return 2;
+  }
+
+  const migrations = entry.migrationsGlob.map((glob) => resolve(root, glob));
+  const entities = entry.entitiesGlob?.map((glob) => resolve(root, glob));
+  const tenantSchemas = TENANT_AWARE_SCHEMAS.has(entry.schema)
+    ? args.tenantSelector?.type === 'tenant'
+      ? [tenantRollbackSchemaFromInput(args.tenantSelector.tenant)]
+      : await listTenantSchemas(database)
+    : [];
+  const tenantHeads = new Map<string, Map<string, MigrationLedgerHead | null>>();
+  const sourceHeads = new Map<string, MigrationLedgerHead | null>();
+  const fanoutResults: Record<string, unknown> = {};
+  const preflightSourceHeads = new Map<string, MigrationLedgerHead | null>();
+  const preflightTenantHeads = new Map<string, Map<string, MigrationLedgerHead | null>>();
+
+  try {
+    preflightSourceHeads.set(entry.schema, await readSchemaLedgerHead(database, entry.schema));
+    for (const tenantSchema of tenantSchemas) {
+      preflightTenantHeads.set(
+        tenantSchema,
+        new Map([
+          [
+            entry.schema,
+            await readSchemaLedgerHead(
+              database,
+              tenantSchema,
+              tenantMigrationLedgerTable(entry.schema),
+            ),
+          ],
+        ]),
+      );
+    }
+    const preflightHeads = buildHeadPayloads(preflightSourceHeads, preflightTenantHeads);
+    await writeReleaseLedgerMigrationState(database, {
+      expectedHeads: preflightHeads.expectedHeads,
+      appliedHeads: preflightHeads.appliedHeads,
+      tenantSchemas,
+      fanoutResults: {
+        [entry.schema]: {
+          status: 'rollback_preflight_complete',
+          rollbackCount: args.down,
+          tenantSelector: args.tenantSelector ?? { type: 'all' },
+        },
+      },
+      status: 'rollback_attempted',
+    });
+
+    const sourceRollback = await rollbackSchemaMigrations(
+      {
+        schema: entry.schema,
+        migrations,
+        ...(entities !== undefined ? { entities } : {}),
+        database,
+        log,
+      },
+      { count: args.down },
+    );
+    const sourceHead = await readSchemaLedgerHead(database, entry.schema);
+    sourceHeads.set(entry.schema, sourceHead);
+    fanoutResults[entry.schema] = {
+      rollbackCount: args.down,
+      tenantSelector: args.tenantSelector ?? { type: 'all' },
+      source: {
+        status: 'rolled_back',
+        reverted: sourceRollback.reverted,
+        beforeHead: headToJson(preflightSourceHeads.get(entry.schema) ?? null),
+        afterHead: headToJson(sourceHead),
+      },
+      tenantCount: tenantSchemas.length,
+      tenants: {},
+    };
+
+    if (tenantSchemas.length > 0) {
+      const tenants: Record<string, unknown> = {};
+      for (const tenantSchema of tenantSchemas) {
+        const tenantRollback = await rollbackSchemaMigrations(
+          {
+            schema: tenantSchema,
+            migrations,
+            ...(entities !== undefined ? { entities } : {}),
+            database,
+            log,
+            migrationsTableName: tenantMigrationLedgerTable(entry.schema),
+          },
+          { count: args.down },
+        );
+        const tenantHead = await readSchemaLedgerHead(
+          database,
+          tenantSchema,
+          tenantMigrationLedgerTable(entry.schema),
+        );
+        tenantHeads.set(tenantSchema, new Map([[entry.schema, tenantHead]]));
+        tenants[tenantSchema] = {
+          status: 'rolled_back',
+          reverted: tenantRollback.reverted,
+          beforeHead: headToJson(preflightTenantHeads.get(tenantSchema)?.get(entry.schema) ?? null),
+          expectedHead: headToJson(sourceHead),
+          appliedHead: headToJson(tenantHead),
+        };
+      }
+      fanoutResults[entry.schema] = {
+        ...(fanoutResults[entry.schema] as Record<string, unknown>),
+        tenants,
+      };
+    }
+
+    const { expectedHeads, appliedHeads } = buildHeadPayloads(sourceHeads, tenantHeads);
+    await writeReleaseLedgerMigrationState(database, {
+      expectedHeads,
+      appliedHeads,
+      tenantSchemas,
+      fanoutResults,
+      status: 'rollback_verified',
+    });
+
+    if (JSON.stringify(expectedHeads) !== JSON.stringify(appliedHeads)) {
+      log({
+        level: 'error',
+        message: 'Release ledger expected/applied rollback heads diverge',
+        expectedHeads,
+        appliedHeads,
+      });
+      return 1;
+    }
+
+    log({
+      level: 'warn',
+      message: 'Schema rollback complete',
+      context: 'DbMigrate',
+      schema: entry.schema,
+      reverted: sourceRollback.reverted,
+      tenantCount: tenantSchemas.length,
+    });
+    return 0;
+  } catch (err: unknown) {
+    log({
+      level: 'error',
+      message: 'Schema rollback failed',
+      context: 'DbMigrate',
+      schema: entry.schema,
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    try {
+      const schemaFanoutResult = fanoutResults[entry.schema];
+      const previousSchemaFanoutResult =
+        schemaFanoutResult !== null &&
+        typeof schemaFanoutResult === 'object' &&
+        !Array.isArray(schemaFanoutResult)
+          ? schemaFanoutResult
+          : {};
+      await writeReleaseLedgerMigrationState(database, {
+        expectedHeads: buildHeadPayloads(preflightSourceHeads, preflightTenantHeads).expectedHeads,
+        appliedHeads: buildHeadPayloads(sourceHeads, tenantHeads).appliedHeads,
+        tenantSchemas,
+        fanoutResults: {
+          ...fanoutResults,
+          [entry.schema]: {
+            ...previousSchemaFanoutResult,
+            status: 'rollback_failed',
+            error: err instanceof Error ? err.message : String(err),
+            failedAt: new Date().toISOString(),
+          },
+        },
+        status: 'rollback_failed',
+      });
+    } catch (ledgerError: unknown) {
+      log({
+        level: 'error',
+        message: 'Release ledger rollback failure write failed',
+        context: 'DbMigrate',
+        error: ledgerError instanceof Error ? ledgerError.message : String(ledgerError),
+      });
+    }
+    return 1;
+  }
+}
+
 async function main(): Promise<number> {
+  let parsedArgs: ReturnType<typeof parseArgs>;
+  try {
+    parsedArgs = parseArgs(process.argv.slice(2));
+  } catch (err: unknown) {
+    log({
+      level: 'error',
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return 2;
+  }
+
   log({
     level: 'info',
-    message: 'aqua-db-migrate starting',
+    message:
+      parsedArgs.mode === 'tenant-schema-provisioner'
+        ? 'aqua-db-migrate tenant schema provisioner starting'
+        : parsedArgs.mode === 'tenant-schema-rollback'
+          ? 'aqua-db-migrate tenant schema rollback starting'
+          : parsedArgs.down === undefined
+            ? 'aqua-db-migrate starting'
+            : 'aqua-db-migrate rollback starting',
     schemaCount: SCHEMA_REGISTRY.length,
+    ...(parsedArgs.down !== undefined
+      ? { rollbackSchema: parsedArgs.schema, rollbackCount: parsedArgs.down }
+      : {}),
+    ...(parsedArgs.mode === 'tenant-schema-provisioner'
+      ? { provisionerRunMode: parsedArgs.provisionerRunMode ?? 'once' }
+      : {}),
+    ...(parsedArgs.mode === 'tenant-schema-rollback'
+      ? {
+          tenantRollbackTarget: parsedArgs.tenantRollbackTarget,
+          tenantRollbackTenant: parsedArgs.tenantRollbackTenant,
+        }
+      : {}),
   });
 
   // Production hard-fail boundary — mirrors
@@ -634,14 +891,16 @@ async function main(): Promise<number> {
   // in production almost certainly misconfigured the stack; refuse.
   const nodeEnv = envOr('NODE_ENV', 'development');
   const migrationsRun = envOr('DATABASE_MIGRATIONS_RUN', 'true') === 'true';
-  if (!migrationsRun && nodeEnv === 'production') {
+  const rollbackMode =
+    parsedArgs.down !== undefined || parsedArgs.mode === 'tenant-schema-rollback';
+  if (!migrationsRun && nodeEnv === 'production' && !rollbackMode) {
     log({
       level: 'error',
       message: 'SECURITY: DATABASE_MIGRATIONS_RUN must not be false in production',
     });
     return 2;
   }
-  if (!migrationsRun) {
+  if (!migrationsRun && !rollbackMode) {
     log({
       level: 'warn',
       message:
@@ -687,6 +946,70 @@ async function main(): Promise<number> {
     message: 'Bundle root resolved',
     root,
   });
+
+  if (parsedArgs.mode === 'tenant-schema-provisioner') {
+    return runTenantSchemaProvisioner({
+      database,
+      root,
+      once: parsedArgs.provisionerRunMode !== 'loop',
+      pollIntervalMs: Number.parseInt(
+        process.env['TENANT_SCHEMA_PROVISIONER_POLL_INTERVAL_MS'] ?? '5000',
+        10,
+      ),
+      leaseSeconds: Number.parseInt(
+        process.env['TENANT_SCHEMA_PROVISIONER_LEASE_SECONDS'] ?? '900',
+        10,
+      ),
+      provisionerId: process.env['TENANT_SCHEMA_PROVISIONER_ID'],
+      log,
+    });
+  }
+
+  if (
+    parsedArgs.mode === 'tenant-schema-rollback' &&
+    parsedArgs.down !== undefined &&
+    parsedArgs.schema !== undefined &&
+    parsedArgs.tenantRollbackTarget !== undefined
+  ) {
+    const rollbackSchema = parsedArgs.schema;
+    const rollbackCount = parsedArgs.down;
+    // Branch-then-assign (not guard + ternary): the selector union demands
+    // tenant: string, and TS only narrows tenantRollbackTenant inside the
+    // branch where the target check and the undefined check are coupled.
+    let tenantSelector: { type: 'all' } | { type: 'tenant'; tenant: string };
+    if (parsedArgs.tenantRollbackTarget === 'tenant') {
+      const rollbackTenant = parsedArgs.tenantRollbackTenant;
+      if (rollbackTenant === undefined) {
+        log({
+          level: 'error',
+          message: '--tenant is required when --tenant-rollback-target=tenant',
+        });
+        return 2;
+      }
+      tenantSelector = { type: 'tenant', tenant: rollbackTenant };
+    } else {
+      tenantSelector = { type: 'all' };
+    }
+    return await withReleaseMigrationLock(database, async () =>
+      runRollback(
+        database,
+        {
+          schema: rollbackSchema,
+          down: rollbackCount,
+          tenantSelector,
+        },
+        root,
+      ),
+    );
+  }
+
+  if (parsedArgs.down !== undefined && parsedArgs.schema !== undefined) {
+    const rollbackSchema = parsedArgs.schema;
+    const rollbackCount = parsedArgs.down;
+    return await withReleaseMigrationLock(database, async () =>
+      runRollback(database, { schema: rollbackSchema, down: rollbackCount }, root),
+    );
+  }
 
   return await withReleaseMigrationLock(database, async () => {
     // ── Phase 0 — Platform Bootstrap Atom (ADR-031) ─────────────────────────
@@ -795,11 +1118,14 @@ async function main(): Promise<number> {
                 log,
                 migrationsTableName: tenantMigrationLedgerTable(entry.schema),
               });
-              const grant = await grantTenantLedgerReadAccess(
-                database,
-                entry.schema,
-                tenantSchema,
-              );
+              if (entry.postMigrationHardening !== undefined) {
+                await runSchemaPostMigrationHardening(
+                  database,
+                  tenantSchema,
+                  entry.postMigrationHardening,
+                );
+              }
+              const grant = await grantTenantLedgerReadAccess(database, entry.schema, tenantSchema);
               log({
                 level: 'info',
                 message: 'Tenant migration ledger read grant asserted',

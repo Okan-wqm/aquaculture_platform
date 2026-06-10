@@ -13,20 +13,29 @@
  * Uses NestJS TestingModule with mocked services.
  */
 
-import { INestApplication, ValidationPipe, HttpStatus } from '@nestjs/common';
+import {
+  ConflictException,
+  ExecutionContext,
+  HttpStatus,
+  INestApplication,
+  NotFoundException,
+  ValidationPipe,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Reflector } from '@nestjs/core';
 import request from 'supertest';
 
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { BillingController } from '../billing.controller';
-import { PlanDefinitionService } from '../services/plan-definition.service';
-import { DiscountCodeService } from '../services/discount-code.service';
-import { SubscriptionManagementService } from '../services/subscription-management.service';
-import { ModulePricingService } from '../services/module-pricing.service';
-import { PricingCalculatorService } from '../services/pricing-calculator.service';
+import { BillingAdminCommandClientService } from '../services/billing-admin-command-client.service';
 import { CustomPlanService } from '../services/custom-plan.service';
+import { DiscountCodeService } from '../services/discount-code.service';
 import { InvoiceManagementService } from '../services/invoice-management.service';
+import { ModulePricingService } from '../services/module-pricing.service';
+import { PaymentManagementService } from '../services/payment-management.service';
+import { PlanDefinitionService } from '../services/plan-definition.service';
+import { PricingCalculatorService } from '../services/pricing-calculator.service';
+import { SubscriptionManagementService } from '../services/subscription-management.service';
+import { UsageMeteringManagementService } from '../services/usage-metering-management.service';
 
 // ============================================================================
 // Mock Definitions
@@ -118,6 +127,28 @@ const mockInvoiceService = {
   updateOverdueStatus: jest.fn().mockResolvedValue({ updated: 0 }),
 };
 
+const mockPaymentService = {
+  getPayments: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+};
+
+const mockBillingAdminCommands = {
+  changeSubscriptionPlan: jest.fn().mockResolvedValue({ success: true }),
+  cancelSubscription: jest.fn().mockResolvedValue({ cancelled: true }),
+  reactivateSubscription: jest.fn().mockResolvedValue({ reactivated: true }),
+  extendSubscriptionTrial: jest.fn().mockResolvedValue({ extended: true }),
+  createInvoice: jest.fn().mockResolvedValue({ id: 'inv-new' }),
+  markInvoicePaid: jest.fn().mockResolvedValue({ id: 'inv-1', status: 'paid' }),
+  voidInvoice: jest.fn().mockResolvedValue({ id: 'inv-1', status: 'void' }),
+  recordPayment: jest.fn().mockResolvedValue({ id: 'payment-new' }),
+  refundPayment: jest.fn().mockResolvedValue({ id: 'refund-new' }),
+};
+
+const mockUsageMeteringService = {
+  getUsageMetrics: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+  getUsageAggregations: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+  recordUsage: jest.fn().mockResolvedValue({}),
+};
+
 // ============================================================================
 // Test Suite
 // ============================================================================
@@ -125,18 +156,50 @@ const mockInvoiceService = {
 describe('BillingController', () => {
   let app: INestApplication;
 
+  type TestApp = Parameters<typeof request>[0];
+
   const authenticatedUser = {
     id: 'jwt-admin-uuid-5678',
     email: 'billing-admin@platform.com',
     roles: ['SUPER_ADMIN'],
   };
 
+  type AuthenticatedBillingRequest = {
+    user?: typeof authenticatedUser;
+  };
+
+  type ThrottleConfigMetadata = {
+    limit?: number;
+    ttl?: number;
+  };
+
+  function allowAuthenticatedBillingRequest(context: ExecutionContext): boolean {
+    const req = context.switchToHttp().getRequest<AuthenticatedBillingRequest>();
+    req.user = { ...authenticatedUser };
+    return true;
+  }
+
+  function httpServer(): TestApp {
+    return app.getHttpServer() as TestApp;
+  }
+
+  function throttleConfigMetadata(target: object): ThrottleConfigMetadata | undefined {
+    return Reflect.getMetadata('THROTTLE_CONFIG', target) as ThrottleConfigMetadata | undefined;
+  }
+
+  function firstChangePlanRequest(): Record<string, unknown> {
+    const calls = mockBillingAdminCommands.changeSubscriptionPlan.mock.calls as Array<
+      [Record<string, unknown>, string]
+    >;
+    const payload = calls[0]?.[0];
+    if (!payload) {
+      throw new Error('Expected changeSubscriptionPlan to be called with a request payload');
+    }
+    return payload;
+  }
+
   const mockGuard = {
-    canActivate: jest.fn().mockImplementation((context) => {
-      const req = context.switchToHttp().getRequest();
-      req.user = { ...authenticatedUser };
-      return true;
-    }),
+    canActivate: jest.fn(allowAuthenticatedBillingRequest),
   };
 
   beforeAll(async () => {
@@ -150,6 +213,9 @@ describe('BillingController', () => {
         { provide: PricingCalculatorService, useValue: mockPricingCalculator },
         { provide: CustomPlanService, useValue: mockCustomPlanService },
         { provide: InvoiceManagementService, useValue: mockInvoiceService },
+        { provide: PaymentManagementService, useValue: mockPaymentService },
+        { provide: BillingAdminCommandClientService, useValue: mockBillingAdminCommands },
+        { provide: UsageMeteringManagementService, useValue: mockUsageMeteringService },
       ],
     })
       .overrideGuard(PlatformAdminGuard)
@@ -157,6 +223,7 @@ describe('BillingController', () => {
       .compile();
 
     app = module.createNestApplication();
+    app.useGlobalGuards(mockGuard);
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -173,11 +240,7 @@ describe('BillingController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGuard.canActivate.mockImplementation((context) => {
-      const req = context.switchToHttp().getRequest();
-      req.user = { ...authenticatedUser };
-      return true;
-    });
+    mockGuard.canActivate.mockImplementation(allowAuthenticatedBillingRequest);
   });
 
   // ==========================================================================
@@ -185,14 +248,13 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('PlatformAdminGuard enforcement', () => {
-    it('should have guards metadata on BillingController class', () => {
-      const guards = Reflect.getMetadata('__guards__', BillingController);
-      expect(guards).toBeDefined();
-      expect(guards).toContain(PlatformAdminGuard);
+    it('should rely on the application-level PlatformAdminGuard', () => {
+      const guards = Reflect.getMetadata('__guards__', BillingController) as unknown;
+      expect(guards).toBeUndefined();
     });
 
     it('should invoke guard on every request', async () => {
-      await request(app.getHttpServer()).get('/billing/plans');
+      await request(httpServer()).get('/billing/plans');
 
       expect(mockGuard.canActivate).toHaveBeenCalled();
     });
@@ -200,7 +262,7 @@ describe('BillingController', () => {
     it('should reject when guard denies access', async () => {
       mockGuard.canActivate.mockReturnValueOnce(false);
 
-      const res = await request(app.getHttpServer()).get('/billing/plans');
+      const res = await request(httpServer()).get('/billing/plans');
 
       expect(res.status).toBe(HttpStatus.FORBIDDEN);
     });
@@ -221,7 +283,7 @@ describe('BillingController', () => {
     };
 
     it('should override createdBy with JWT user.id', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/plans')
         .send({ ...validPlanDto, createdBy: 'attacker-id' });
 
@@ -233,7 +295,7 @@ describe('BillingController', () => {
     });
 
     it('should use JWT user.id even when createdBy is not in body', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/plans')
         .send(validPlanDto);
 
@@ -245,7 +307,7 @@ describe('BillingController', () => {
     });
 
     it('should ignore x-admin-id header for createdBy', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/plans')
         .set('x-admin-id', 'header-injected-id')
         .send(validPlanDto);
@@ -264,7 +326,7 @@ describe('BillingController', () => {
 
   describe('PUT /billing/plans/:id (updatePlan)', () => {
     it('should override updatedBy with JWT user.id', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .put('/billing/plans/plan-1')
         .send({ name: 'Updated Plan', updatedBy: 'attacker-id' });
 
@@ -277,7 +339,7 @@ describe('BillingController', () => {
     });
 
     it('should use JWT user.id even when updatedBy is absent', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .put('/billing/plans/plan-1')
         .send({ name: 'Updated Plan' });
 
@@ -296,44 +358,40 @@ describe('BillingController', () => {
 
   describe('POST /billing/subscriptions/tenant/:tenantId/cancel', () => {
     it('should use JWT user.id as cancelledBy', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/subscriptions/tenant/tenant-1/cancel')
         .send({ reason: 'No longer needed' });
 
-      expect(mockSubscriptionService.cancelSubscription).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.cancelSubscription).toHaveBeenCalledWith(
         'tenant-1',
         'No longer needed',
-        authenticatedUser.id,
         undefined,
+        authenticatedUser.id,
       );
     });
 
-    it('should ignore client-supplied cancelledBy in body', async () => {
-      await request(app.getHttpServer())
+    it('should reject client-supplied cancelledBy in body', async () => {
+      const res = await request(httpServer())
         .post('/billing/subscriptions/tenant/tenant-1/cancel')
         .send({
           reason: 'Closing account',
           cancelledBy: 'attacker-injected',
         });
 
-      expect(mockSubscriptionService.cancelSubscription).toHaveBeenCalledWith(
-        'tenant-1',
-        'Closing account',
-        authenticatedUser.id,
-        undefined,
-      );
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockBillingAdminCommands.cancelSubscription).not.toHaveBeenCalled();
     });
 
     it('should pass cancelImmediately flag to service', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/subscriptions/tenant/tenant-1/cancel')
         .send({ reason: 'Test', cancelImmediately: true });
 
-      expect(mockSubscriptionService.cancelSubscription).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.cancelSubscription).toHaveBeenCalledWith(
         'tenant-1',
         'Test',
-        authenticatedUser.id,
         true,
+        authenticatedUser.id,
       );
     });
   });
@@ -344,7 +402,7 @@ describe('BillingController', () => {
 
   describe('POST /billing/discounts/bulk-create', () => {
     it('should override createdBy in template with JWT user.id', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/discounts/bulk-create')
         .send({
           count: 5,
@@ -367,7 +425,7 @@ describe('BillingController', () => {
     });
 
     it('should set createdBy from JWT even when not in template', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/discounts/bulk-create')
         .send({
           count: 3,
@@ -389,7 +447,7 @@ describe('BillingController', () => {
   });
 
   // ==========================================================================
-  // 6. createSubscription -- JWT identity (C6 fix)
+  // 6. createSubscription -- billing-service SSOT boundary
   // ==========================================================================
 
   describe('POST /billing/subscriptions (createSubscription)', () => {
@@ -398,28 +456,22 @@ describe('BillingController', () => {
       planId: 'plan-starter',
     };
 
-    it('should override createdBy with JWT user.id', async () => {
-      await request(app.getHttpServer())
+    it('should reject admin-api direct subscription creation', async () => {
+      const res = await request(httpServer())
         .post('/billing/subscriptions')
         .send({ ...validSubDto, createdBy: 'attacker-id' });
 
-      expect(mockSubscriptionService.createSubscription).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
-      );
+      expect(res.status).toBe(HttpStatus.CONFLICT);
+      expect(mockSubscriptionService.createSubscription).not.toHaveBeenCalled();
     });
 
-    it('should set createdBy from JWT when absent from body', async () => {
-      await request(app.getHttpServer())
+    it('should not fall back to body-driven direct writers', async () => {
+      const res = await request(httpServer())
         .post('/billing/subscriptions')
         .send(validSubDto);
 
-      expect(mockSubscriptionService.createSubscription).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
-      );
+      expect(res.status).toBe(HttpStatus.CONFLICT);
+      expect(mockSubscriptionService.createSubscription).not.toHaveBeenCalled();
     });
   });
 
@@ -429,7 +481,7 @@ describe('BillingController', () => {
 
   describe('POST /billing/discounts (createDiscountCode)', () => {
     it('should override createdBy with JWT user.id', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/discounts')
         .send({
           code: 'SPRING2026',
@@ -453,7 +505,7 @@ describe('BillingController', () => {
 
   describe('PUT /billing/discounts/:id (updateDiscountCode)', () => {
     it('should override updatedBy with JWT user.id', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .put('/billing/discounts/disc-1')
         .send({
           name: 'Updated Discount',
@@ -475,7 +527,7 @@ describe('BillingController', () => {
 
   describe('POST /billing/plans/:id/deprecate', () => {
     it('should use JWT user.id for deprecation', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/plans/plan-old/deprecate');
 
       expect(mockPlanService.deprecate).toHaveBeenCalledWith(
@@ -487,7 +539,7 @@ describe('BillingController', () => {
 
   describe('POST /billing/plans/seed', () => {
     it('should use JWT user.id for seed operation', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/plans/seed');
 
       expect(mockPlanService.seedDefaultPlans).toHaveBeenCalledWith(
@@ -502,7 +554,7 @@ describe('BillingController', () => {
 
   describe('POST /billing/subscriptions/change-plan', () => {
     it('should override changedBy with JWT user.id', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/subscriptions/change-plan')
         .send({
           tenantId: 'tenant-1',
@@ -510,11 +562,14 @@ describe('BillingController', () => {
           changedBy: 'attacker-id',
         });
 
-      expect(mockSubscriptionService.changePlan).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.changeSubscriptionPlan).toHaveBeenCalledWith(
         expect.objectContaining({
-          changedBy: authenticatedUser.id,
+          tenantId: 'tenant-1',
+          newPlanId: 'plan-pro',
         }),
+        authenticatedUser.id,
       );
+      expect(firstChangePlanRequest()).not.toHaveProperty('changedBy');
     });
   });
 
@@ -524,11 +579,11 @@ describe('BillingController', () => {
 
   describe('POST /billing/invoices/:invoiceId/mark-paid', () => {
     it('should use JWT user.id as paidBy', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/invoices/inv-1/mark-paid')
         .send({ amount: 99.99 });
 
-      expect(mockInvoiceService.markAsPaid).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.markInvoicePaid).toHaveBeenCalledWith(
         'inv-1',
         99.99,
         authenticatedUser.id,
@@ -538,11 +593,11 @@ describe('BillingController', () => {
 
   describe('POST /billing/invoices/:invoiceId/void', () => {
     it('should use JWT user.id as voidedBy', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/invoices/inv-1/void')
         .send({ reason: 'Duplicate invoice' });
 
-      expect(mockInvoiceService.voidInvoice).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.voidInvoice).toHaveBeenCalledWith(
         'inv-1',
         'Duplicate invoice',
         authenticatedUser.id,
@@ -556,7 +611,7 @@ describe('BillingController', () => {
 
   describe('Custom plan JWT identity overrides', () => {
     it('POST /billing/custom-plans should use JWT createdBy', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/custom-plans')
         .send({
           tenantId: 'tenant-1',
@@ -572,7 +627,7 @@ describe('BillingController', () => {
     });
 
     it('PUT /billing/custom-plans/:planId should use JWT updatedBy', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .put('/billing/custom-plans/cp-1')
         .send({ name: 'Updated Custom', updatedBy: 'attacker' });
 
@@ -585,7 +640,7 @@ describe('BillingController', () => {
     });
 
     it('POST /billing/custom-plans/:planId/approve should use JWT approvedBy', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/custom-plans/cp-1/approve');
 
       expect(mockCustomPlanService.approvePlan).toHaveBeenCalledWith(
@@ -595,7 +650,7 @@ describe('BillingController', () => {
     });
 
     it('POST /billing/custom-plans/:planId/reject should use JWT rejectedBy', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/custom-plans/cp-1/reject')
         .send({ reason: 'Pricing too low' });
 
@@ -613,7 +668,7 @@ describe('BillingController', () => {
 
   describe('POST /billing/discounts/:id/deactivate', () => {
     it('should use JWT user.id for deactivation', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/discounts/disc-1/deactivate');
 
       expect(mockDiscountService.deactivate).toHaveBeenCalledWith(
@@ -629,17 +684,17 @@ describe('BillingController', () => {
 
   describe('POST /billing/discounts/apply', () => {
     it('should use JWT user.id as redeemedBy', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/discounts/apply')
         .send({
           code: 'SPRING2026',
-          tenantId: 'tenant-1',
+          tenantId: 'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
           originalAmount: 100,
         });
 
       expect(mockDiscountService.applyDiscount).toHaveBeenCalledWith(
         'SPRING2026',
-        'tenant-1',
+        'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
         100,
         expect.objectContaining({
           redeemedBy: authenticatedUser.id,
@@ -654,31 +709,22 @@ describe('BillingController', () => {
 
   describe('ThrottleSensitive decorator metadata', () => {
     it('should have THROTTLE_CONFIG on cancelSubscription', () => {
-      const metadata = Reflect.getMetadata(
-        'THROTTLE_CONFIG',
-        BillingController.prototype.cancelSubscription,
-      );
+      const metadata = throttleConfigMetadata(BillingController.prototype.cancelSubscription);
       expect(metadata).toBeDefined();
-      expect(metadata.limit).toBe(3);
-      expect(metadata.ttl).toBe(300);
+      expect(metadata?.limit).toBe(3);
+      expect(metadata?.ttl).toBe(300);
     });
 
     it('should have THROTTLE_CONFIG on markInvoiceAsPaid', () => {
-      const metadata = Reflect.getMetadata(
-        'THROTTLE_CONFIG',
-        BillingController.prototype.markInvoiceAsPaid,
-      );
+      const metadata = throttleConfigMetadata(BillingController.prototype.markInvoiceAsPaid);
       expect(metadata).toBeDefined();
-      expect(metadata.limit).toBe(3);
+      expect(metadata?.limit).toBe(3);
     });
 
     it('should have THROTTLE_CONFIG on voidInvoice', () => {
-      const metadata = Reflect.getMetadata(
-        'THROTTLE_CONFIG',
-        BillingController.prototype.voidInvoice,
-      );
+      const metadata = throttleConfigMetadata(BillingController.prototype.voidInvoice);
       expect(metadata).toBeDefined();
-      expect(metadata.limit).toBe(3);
+      expect(metadata?.limit).toBe(3);
     });
   });
 
@@ -688,21 +734,21 @@ describe('BillingController', () => {
 
   describe('Subscription auxiliary JWT identity', () => {
     it('POST reactivateSubscription should use JWT user.id', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/subscriptions/tenant/tenant-1/reactivate');
 
-      expect(mockSubscriptionService.reactivateSubscription).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.reactivateSubscription).toHaveBeenCalledWith(
         'tenant-1',
         authenticatedUser.id,
       );
     });
 
     it('POST extendTrial should use JWT user.id', async () => {
-      await request(app.getHttpServer())
+      await request(httpServer())
         .post('/billing/subscriptions/tenant/tenant-1/extend-trial')
         .send({ additionalDays: 14 });
 
-      expect(mockSubscriptionService.extendTrial).toHaveBeenCalledWith(
+      expect(mockBillingAdminCommands.extendSubscriptionTrial).toHaveBeenCalledWith(
         'tenant-1',
         14,
         authenticatedUser.id,
@@ -716,23 +762,21 @@ describe('BillingController', () => {
 
   describe('Error handling', () => {
     it('should propagate NotFoundException from plan service', async () => {
-      const { NotFoundException } = require('@nestjs/common');
       mockPlanService.findById.mockRejectedValueOnce(
         new NotFoundException('Plan not found'),
       );
 
-      const res = await request(app.getHttpServer()).get('/billing/plans/non-existent');
+      const res = await request(httpServer()).get('/billing/plans/non-existent');
 
       expect(res.status).toBe(HttpStatus.NOT_FOUND);
     });
 
     it('should propagate ConflictException from discount service', async () => {
-      const { ConflictException } = require('@nestjs/common');
       mockDiscountService.create.mockRejectedValueOnce(
         new ConflictException('Discount code already exists'),
       );
 
-      const res = await request(app.getHttpServer())
+      const res = await request(httpServer())
         .post('/billing/discounts')
         .send({ code: 'DUP', name: 'Dup', discountType: 'fixed', discountValue: 5 });
 

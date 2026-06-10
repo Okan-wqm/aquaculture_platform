@@ -11,6 +11,7 @@ import {
   IsEnum,
   IsDateString,
   IsArray,
+  Matches,
   ValidateNested,
   registerDecorator,
   ValidationOptions,
@@ -71,6 +72,16 @@ function IsOccurredAtWithinBounds(validationOptions?: ValidationOptions) {
  * DTO for appending a single event to a stream
  */
 export class AppendEventDto {
+  @IsString()
+  @MaxLength(100)
+  @IsNotEmpty()
+  producer!: string;
+
+  @IsString()
+  @MaxLength(255)
+  @IsNotEmpty()
+  producerEventId!: string;
+
   @IsString()
   @MaxLength(255)
   @IsNotEmpty()
@@ -160,10 +171,9 @@ export class ReadStreamDto {
  */
 export class ReadAllEventsDto {
   @IsOptional()
-  @Transform(({ value }) => parseInt(value, 10))
-  @IsNumber()
-  @Min(0)
-  fromPosition?: number = 0;
+  @Transform(({ value }) => (value === undefined || value === null ? '0' : String(value)))
+  @Matches(/^\d+$/)
+  fromPosition?: string = '0';
 
   @IsOptional()
   @Transform(({ value }) => parseInt(value, 10))

@@ -1,7 +1,7 @@
 /**
  * EdgeWitnessV2 — junction table: witnesses to a provisioning ceremony.
  *
- * Per ADR-025. Per-tenant under sensor schema. Supersedes ADR-022's
+ * Per ADR-034. Per-tenant under sensor schema. Supersedes ADR-022's
  * `edge.witnesses` (and corrects its initial generic-JSON shape per the
  * ADR-022-FINDING-002 reinterpretation). Each row records one
  * (provisioning_id, witness_user_id, witness_role) tuple plus the

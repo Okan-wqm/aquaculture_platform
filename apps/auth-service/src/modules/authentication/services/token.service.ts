@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
 
@@ -194,9 +195,14 @@ export class TokenService {
       ...(options?.mfaVerified ? { mfaVerified: true } : {}),
     };
 
-    // SECURITY: Include audience claim to prevent cross-service token replay
+    // SECURITY (SEC-HIGH-003): include audience (anti cross-service replay)
+    // AND the `kid` header so verifiers can deterministically select the
+    // matching JWKS public key during a rotation overlap. The kid is derived
+    // from the same SSoT (getActiveSigningKid) the JWKS controller publishes,
+    // making header/JWKS drift impossible.
     const accessToken = await this.jwtService.signAsync(payload, {
       audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
+      keyid: getActiveSigningKid(this.configService),
     });
     const refreshTokenRandom = crypto.randomBytes(64).toString('hex');
 

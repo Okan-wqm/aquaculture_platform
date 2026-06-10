@@ -120,6 +120,20 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+/**
+ * CLI output channels. Gate scripts are standalone CLIs (no Nest
+ * runtime, so no StructuredLoggerService) — they write line-oriented
+ * operator output directly to the process streams, matching the
+ * scripts/ci/* convention. console.* is ESLint-banned repo-wide.
+ */
+function emitLine(message: string): void {
+  process.stdout.write(`${message}\n`);
+}
+
+function emitErrorLine(message: string): void {
+  process.stderr.write(`${message}\n`);
+}
+
 const REPO_ROOT = (() => {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], {
@@ -174,7 +188,7 @@ function affectedFiles(
   let raw: string;
   if (mode === 'range') {
     if (!base || !head) {
-      console.error(
+      emitErrorLine(
         'range mode requires two refs: --mode=range <base> <head>',
       );
       process.exit(2);
@@ -228,7 +242,7 @@ function runClippy(): ClippyDiagnostic[] {
     },
   );
   if (result.error) {
-    console.error(`cargo clippy invocation failed: ${result.error.message}`);
+    emitErrorLine(`cargo clippy invocation failed: ${result.error.message}`);
     process.exit(2);
   }
   const diagnostics: ClippyDiagnostic[] = [];
@@ -398,7 +412,7 @@ function parseArgs(argv: readonly string[]): RunOptions {
   const args = [...argv];
   const modeFlag = args.shift() ?? '';
   if (!modeFlag.startsWith('--mode=')) {
-    console.error('Usage: clippy-affected --mode=<range|staged|prepush> [base head]');
+    emitErrorLine('Usage: clippy-affected --mode=<range|staged|prepush> [base head]');
     process.exit(2);
   }
   const mode = modeFlag.replace(/^--mode=/, '');
@@ -412,7 +426,7 @@ function parseArgs(argv: readonly string[]): RunOptions {
   if (mode === 'prepush') {
     return { mode: 'prepush' };
   }
-  console.error(`Unknown mode: ${mode}`);
+  emitErrorLine(`Unknown mode: ${mode}`);
   process.exit(2);
 }
 
@@ -521,7 +535,7 @@ function rangeForPrePushRef(
       // Override set but ref not resolvable — log + fall
       // through to origin/main; the operator sees the
       // exact ref name in the gate output to fix.
-      console.error(
+      emitErrorLine(
         `clippy-affected: SUDERRA_PREPUSH_BASE_REF=${overrideBase} not resolvable; falling back to origin/main.`,
       );
     }
@@ -568,7 +582,7 @@ function gateRange(base: string, head: string, label: string): number {
   const affected = affectedFiles('range', base, head);
 
   if (affected.size === 0) {
-    console.log(
+    emitLine(
       `clippy-affected[${label}]: no Rust files in ${base}...${head}; gate skipped.`,
     );
     return 0;
@@ -579,12 +593,12 @@ function gateRange(base: string, head: string, label: string): number {
     (sum, set) => sum + set.size,
     0,
   );
-  console.log(
+  emitLine(
     `clippy-affected[${label}]: scanning ${affected.size} file(s) / ${totalAffectedLines} line(s) in ${base}...${head}…`,
   );
 
   if (!existsSync(resolve(RUST_CRATE_DIR, 'Cargo.toml'))) {
-    console.error(
+    emitErrorLine(
       `clippy-affected: no Cargo.toml at ${RUST_CRATE_DIR}; gate cannot run.`,
     );
     process.exit(2);
@@ -604,43 +618,43 @@ function gateRange(base: string, head: string, label: string): number {
   });
 
   if (errorsInAffectedLines.length === 0) {
-    console.log(
+    emitLine(
       `clippy-affected[${label}]: 0 errors on affected lines.`,
     );
     return 0;
   }
 
-  console.error(
+  emitErrorLine(
     `clippy-affected[${label}]: FAILED — ${errorsInAffectedLines.length} error(s) on affected lines:`,
   );
-  console.error('');
+  emitErrorLine('');
   for (const diag of errorsInAffectedLines) {
-    console.error(diag.rendered.trimEnd());
-    console.error('');
+    emitErrorLine(diag.rendered.trimEnd());
+    emitErrorLine('');
   }
   return errorsInAffectedLines.length;
 }
 
 function printDenyListReminder(): void {
-  console.error(
+  emitErrorLine(
     'New code on affected lines must satisfy the crate-level clippy deny-list (',
   );
-  console.error(
+  emitErrorLine(
     '  clippy::unwrap_used / clippy::expect_used / clippy::indexing_slicing /',
   );
-  console.error(
+  emitErrorLine(
     '  clippy::print_stdout / clippy::print_stderr / clippy::dbg_macro /',
   );
-  console.error(
+  emitErrorLine(
     '  clippy::large_stack_arrays / clippy::unimplemented / clippy::todo',
   );
-  console.error(
+  emitErrorLine(
     ').',
   );
-  console.error(
+  emitErrorLine(
     'Legacy violations on untouched lines are not blocked — only new code is gated.',
   );
-  console.error(
+  emitErrorLine(
     'See ORPHAN-MEDIUM-029 + Batch #343/#346/#347 commits for architectural rationale.',
   );
 }
@@ -675,20 +689,20 @@ function main(): void {
     const stdin = readFileSync(0, 'utf8');
     const refs = parsePrePushStdin(stdin);
     if (refs.length === 0) {
-      console.log('clippy-affected[prepush]: no refs on stdin; gate skipped.');
+      emitLine('clippy-affected[prepush]: no refs on stdin; gate skipped.');
       return;
     }
     let totalErrors = 0;
     for (const ref of refs) {
       if (isPreservationRef(ref.remoteRef)) {
-        console.log(
+        emitLine(
           `clippy-affected[prepush]: ref ${ref.localRef} → ${ref.remoteRef} skipped (rescue/ preservation namespace — snapshot pushes are not integration-bound; see gate header).`,
         );
         continue;
       }
       const range = rangeForPrePushRef(ref);
       if (!range) {
-        console.log(
+        emitLine(
           `clippy-affected[prepush]: ref ${ref.localRef} → ${ref.remoteRef} skipped (deletion or new-branch with no origin/main fallback).`,
         );
         continue;
@@ -704,10 +718,10 @@ function main(): void {
   }
 
   if (opts.mode !== 'range' || !opts.base || !opts.head) {
-    console.error(
+    emitErrorLine(
       'clippy-affected: per-LINE filtering requires --mode=range with explicit base + head refs (or --mode=prepush via git pre-push stdin).',
     );
-    console.error(
+    emitErrorLine(
       '  Staged-mode per-line tracked at ORPHAN-LOW-035 (filed Batch #346).',
     );
     process.exit(2);

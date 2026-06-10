@@ -2,12 +2,13 @@ import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '
 import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
 
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';
 import { UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
-import { Tenant, TenantStatus } from '../entities/tenant.entity';
+import { Tenant } from '../entities/tenant.entity';
 import { TenantService } from '../services/tenant.service';
 
 /**
@@ -16,9 +17,11 @@ import { TenantService } from '../services/tenant.service';
  */
 @ObjectType()
 class TenantPublicInfo {
-  @Field(() => ID)
-  id!: string;
-
+  // SECURITY (MT-LOW-001): internal tenant `id` and `status` were REMOVED
+  // from this public type. The exposed UUID was the harvest leg that turned
+  // the register-mutation injection (SEC-CRITICAL-001) from "guess a UUID"
+  // into "look it up by slug"; status leaked lifecycle state to anonymous
+  // callers. The login/branding flow needs only name/slug/logo.
   @Field()
   name!: string;
 
@@ -27,9 +30,6 @@ class TenantPublicInfo {
 
   @Field(() => String, { nullable: true })
   logoUrl!: string | null;
-
-  @Field(() => TenantStatus)
-  status!: TenantStatus;
 }
 
 @Resolver(() => Tenant)
@@ -65,13 +65,12 @@ export class TenantResolver {
   @Query(() => TenantPublicInfo)
   async tenantBySlug(@Args('slug') slug: string): Promise<TenantPublicInfo> {
     const tenant = await this.tenantService.findBySlug(slug);
-    // SECURITY: Only expose minimal public info — no plan, maxUsers, settings, etc.
+    // SECURITY: Only expose minimal branding info — no id, status, plan,
+    // maxUsers, settings, contact details (MT-LOW-001).
     return {
-      id: tenant.id,
       name: tenant.name,
       slug: tenant.slug,
       logoUrl: tenant.logoUrl ?? null,
-      status: tenant.status,
     };
   }
 
@@ -87,6 +86,10 @@ export class TenantResolver {
     if (role !== Role.SUPER_ADMIN && userTenantId !== id) {
       throw new ForbiddenException('Access denied: You can only update your own tenant');
     }
+    // Tenant mutation authority converged on the command-receipt/FSM
+    // path in the enterprise train; the resolver-level update is
+    // rejected outright (stronger than role-based field filtering —
+    // nothing mutates tenants outside the governed command path).
     void input;
     throw new BadRequestException(
       'Tenant updates are command-receipt owned. Use the auth tenant command/FSM path.',
@@ -307,7 +310,7 @@ export class TenantResolver {
       ipAddress: l.ipAddress ?? undefined,
       userAgent: l.userAgent ?? undefined,
       deviceType: undefined as string | undefined,
-      success: l.severity !== 'error',
+      success: l.severity !== AuditLogSeverity.ERROR,
     }));
 
     // Build user activity summaries
@@ -343,8 +346,9 @@ export class TenantResolver {
     const dayMap = new Map<string, Set<string>>();
     for (const log of logs) {
       const dateKey = log.createdAt.toISOString().slice(0, 10);
-      if (!dayMap.has(dateKey)) dayMap.set(dateKey, new Set());
-      dayMap.get(dateKey)!.add(log.performedBy);
+      const dayUsers = dayMap.get(dateKey) ?? new Set<string>();
+      dayUsers.add(log.performedBy);
+      dayMap.set(dateKey, dayUsers);
     }
 
     const dailyActiveUsers = Array.from(dayMap.entries())

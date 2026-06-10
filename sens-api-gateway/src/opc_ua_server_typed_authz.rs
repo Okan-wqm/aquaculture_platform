@@ -85,7 +85,9 @@ use async_trait::async_trait;
 
 use crate::authz::context::{AuthorizationDecision, AuthorizationDenyReason, AuthorizedContext};
 use crate::authz::permission::{Permission, TagId, TenantId};
-use crate::authz::policy::{AuthorizationRequest, PolicyEngine, PolicyEngineError};
+use crate::authz::policy::{
+    AuthorizationRequest, CoApproverEvidence, PolicyEngine, PolicyEngineError,
+};
 
 use crate::opc_ua_server_session::{AuthenticatedUser, OpcUaActorResolver, SessionActorError};
 
@@ -140,11 +142,27 @@ pub trait TypedAuthzPort: Send + Sync {
     /// `HandlerInput::authorize` accepts (Batch #236 Tier-1 seal),
     /// so the NodeManager that calls this method has no way to
     /// bypass the seal even accidentally.
+    ///
+    /// **WHY `co_approver`:** `Permission::OpcUaWrite` is on the
+    /// canonical two-person-integrity floor
+    /// (`Permission::requires_two_person_integrity`, 2026-04-29
+    /// decision — direct PLC writes change physical process
+    /// state). The engine's gate 5 therefore denies any OPC UA
+    /// write whose request carries no co-approver evidence. The
+    /// port models the ceremony so the engine stays the sole
+    /// decision point; callers without a co-approval channel pass
+    /// `None` and are fail-closed by design, NOT exempted.
+    ///
+    /// **WHAT:** `Some(evidence)` threads the second operator's
+    /// signed envelope into `AuthorizationRequest::with_co_approver`;
+    /// `None` builds the bare request, which gate 5 denies with
+    /// `TwoPersonIntegrityMissing` for floor permissions.
     async fn authorize_write(
         &self,
         user: &AuthenticatedUser,
         tag_name: &str,
         received_at: SystemTime,
+        co_approver: Option<CoApproverEvidence>,
     ) -> Result<AuthorizedContext, TypedAuthzError>;
 }
 
@@ -182,6 +200,7 @@ impl TypedAuthzPort for ManifestBackedTypedAuthz {
         user: &AuthenticatedUser,
         tag_name: &str,
         received_at: SystemTime,
+        co_approver: Option<CoApproverEvidence>,
     ) -> Result<AuthorizedContext, TypedAuthzError> {
         // Step 1: resolver. Short-circuits anonymous + unenrolled
         // before reaching the engine — keeps the engine cost off
@@ -203,6 +222,9 @@ impl TypedAuthzPort for ManifestBackedTypedAuthz {
 
         // Step 3: build request. claimed_policy_version comes from
         // the closure so manifest hot-reload propagates instantly.
+        // Co-approver evidence is threaded verbatim — the ENGINE
+        // (gate 5) decides relevance/self-approval/expiry; this
+        // adapter never pre-judges the ceremony.
         let request = AuthorizationRequest::new(
             actor,
             permission,
@@ -210,6 +232,10 @@ impl TypedAuthzPort for ManifestBackedTypedAuthz {
             (self.policy_version_fn)(),
             received_at,
         );
+        let request = match co_approver {
+            Some(evidence) => request.with_co_approver(evidence),
+            None => request,
+        };
 
         // Step 4: engine.authorize + map.
         match self.engine.authorize(request).await {
@@ -223,6 +249,7 @@ impl TypedAuthzPort for ManifestBackedTypedAuthz {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::authz::context::ActorIdentity;
     use crate::authz::in_memory_engine::InMemoryPolicyEngine;
     use crate::authz::manifest::{
         CustomRole, Ed25519PublicKeyBytes, OperatorBinding, RbacManifest,
@@ -243,51 +270,117 @@ mod tests {
         Ed25519PublicKeyBytes::from_bytes([0xAAu8; 32])
     }
 
+    /// Second operator for the two-person ceremony. Distinct id
+    /// from `canned_operator` — gate 5 rejects self-approval, so
+    /// every fixture that needs an allow path needs a real second
+    /// operator bound in the manifest.
+    fn co_operator() -> OperatorId {
+        OperatorId::new_from_verified([0x08u8; 16])
+    }
+
+    fn co_pubkey() -> Ed25519PublicKeyBytes {
+        Ed25519PublicKeyBytes::from_bytes([0xBBu8; 32])
+    }
+
+    /// Co-approval evidence from the second operator. The engine
+    /// does NOT verify this signature (the envelope adapter owns
+    /// signature verification upstream); gate 5 only proves the
+    /// co-approver is RBAC-relevant — so a zero signature is valid
+    /// at this layer.
+    fn co_approval() -> CoApproverEvidence {
+        use crate::authz::policy::Ed25519SignatureBytes;
+        CoApproverEvidence {
+            actor: ActorIdentity::Operator(co_operator()),
+            signature: Ed25519SignatureBytes::from_array([0u8; 64]),
+        }
+    }
+
+    /// Binding + role for the co-approver, granting exactly
+    /// `OpcUaWrite { tag_id: tag }`. Gate 5 keys relevance on
+    /// EXACT permission equality (tag included), so each manifest
+    /// grants the co-approver the tag under test.
+    fn co_approver_binding() -> OperatorBinding {
+        OperatorBinding {
+            operator_id: co_operator(),
+            pubkey: co_pubkey(),
+            role_names: vec!["write_co_approver".into()],
+        }
+    }
+
+    fn co_approver_role(tag: &str) -> CustomRole {
+        CustomRole {
+            name: "write_co_approver".into(),
+            permissions: vec![Permission::OpcUaWrite {
+                tag_id: TagId::new(tag.into()),
+            }],
+            valid_from_unix_secs: 1_000_000_000,
+            valid_until_unix_secs: 2_000_000_000,
+            is_emergency_role: false,
+        }
+    }
+
     /// Manifest with the canned operator bound to a role that
-    /// grants `OpcUaWrite { tag_id: "do_pump" }` — the happy path.
+    /// grants `OpcUaWrite { tag_id: tag }` — the happy path. The
+    /// co-operator is bound with the same grant because OpcUaWrite
+    /// sits on the two-person-integrity floor: no manifest without
+    /// a relevant co-approver can produce an allow.
     fn manifest_with_opcua_write(tag: &str) -> RbacManifest {
         RbacManifest {
             policy_version: 10,
             tenant_id: canned_tenant(),
             manifest_valid_from_unix_secs: 1_000_000_000,
             manifest_valid_until_unix_secs: 2_000_000_000,
-            operator_bindings: vec![OperatorBinding {
-                operator_id: canned_operator(),
-                pubkey: canned_pubkey(),
-                role_names: vec!["actuator_operator".into()],
-            }],
-            roles: vec![CustomRole {
-                name: "actuator_operator".into(),
-                permissions: vec![Permission::OpcUaWrite {
-                    tag_id: TagId::new(tag.into()),
-                }],
-                valid_from_unix_secs: 1_000_000_000,
-                valid_until_unix_secs: 2_000_000_000,
-                is_emergency_role: false,
-            }],
+            operator_bindings: vec![
+                OperatorBinding {
+                    operator_id: canned_operator(),
+                    pubkey: canned_pubkey(),
+                    role_names: vec!["actuator_operator".into()],
+                },
+                co_approver_binding(),
+            ],
+            roles: vec![
+                CustomRole {
+                    name: "actuator_operator".into(),
+                    permissions: vec![Permission::OpcUaWrite {
+                        tag_id: TagId::new(tag.into()),
+                    }],
+                    valid_from_unix_secs: 1_000_000_000,
+                    valid_until_unix_secs: 2_000_000_000,
+                    is_emergency_role: false,
+                },
+                co_approver_role(tag),
+            ],
         }
     }
 
-    /// Manifest with the canned operator bound BUT lacking the
-    /// OpcUaWrite permission — proves engine-side deny.
+    /// Manifest where the PRIMARY operator lacks the OpcUaWrite
+    /// permission but the co-approver holds it — isolates the
+    /// engine's gate-7 deny (primary permission match) from the
+    /// gate-5 ceremony, which passes.
     fn manifest_without_opcua_write() -> RbacManifest {
         RbacManifest {
             policy_version: 10,
             tenant_id: canned_tenant(),
             manifest_valid_from_unix_secs: 1_000_000_000,
             manifest_valid_until_unix_secs: 2_000_000_000,
-            operator_bindings: vec![OperatorBinding {
-                operator_id: canned_operator(),
-                pubkey: canned_pubkey(),
-                role_names: vec!["observer".into()],
-            }],
-            roles: vec![CustomRole {
-                name: "observer".into(),
-                permissions: vec![Permission::ReadTag],
-                valid_from_unix_secs: 1_000_000_000,
-                valid_until_unix_secs: 2_000_000_000,
-                is_emergency_role: false,
-            }],
+            operator_bindings: vec![
+                OperatorBinding {
+                    operator_id: canned_operator(),
+                    pubkey: canned_pubkey(),
+                    role_names: vec!["observer".into()],
+                },
+                co_approver_binding(),
+            ],
+            roles: vec![
+                CustomRole {
+                    name: "observer".into(),
+                    permissions: vec![Permission::ReadTag],
+                    valid_from_unix_secs: 1_000_000_000,
+                    valid_until_unix_secs: 2_000_000_000,
+                    is_emergency_role: false,
+                },
+                co_approver_role("do_pump"),
+            ],
         }
     }
 
@@ -312,7 +405,10 @@ mod tests {
     async fn anonymous_rejects_before_engine() {
         let a = adapter_with(manifest_with_opcua_write("do_pump"));
         let user = AuthenticatedUser::for_test_anonymous();
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", received_at(), None)
+            .await
+        {
             Err(TypedAuthzError::SessionRejected(SessionActorError::AnonymousSessionRejected)) => {}
             other => panic!(
                 "expected SessionRejected(AnonymousSessionRejected), got {:?}",
@@ -326,7 +422,10 @@ mod tests {
         let a = adapter_with(manifest_with_opcua_write("do_pump"));
         let stranger = OperatorId::new_from_verified([0xDEu8; 16]);
         let user = AuthenticatedUser::for_test_user_pass(stranger);
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", received_at(), None)
+            .await
+        {
             Err(TypedAuthzError::SessionRejected(SessionActorError::OperatorNotEnrolled)) => {}
             other => panic!(
                 "expected SessionRejected(OperatorNotEnrolled), got {:?}",
@@ -340,7 +439,7 @@ mod tests {
         let a = adapter_with(manifest_with_opcua_write("do_pump"));
         let user = AuthenticatedUser::for_test_user_pass(canned_operator());
         let ctx = a
-            .authorize_write(&user, "do_pump", received_at())
+            .authorize_write(&user, "do_pump", received_at(), Some(co_approval()))
             .await
             .expect("allow path");
         assert_eq!(
@@ -351,13 +450,42 @@ mod tests {
         );
         assert_eq!(ctx.tenant().as_bytes(), &[0x42u8; 16]);
         assert_eq!(ctx.policy_version(), 10);
+        // OpcUaWrite sits on the two-person floor, so an allow
+        // context MUST carry the verified-ceremony marker.
+        assert!(ctx.two_person_integrity_verified());
+    }
+
+    #[tokio::test]
+    async fn write_without_co_approver_is_fail_closed() {
+        // Codifies the PRODUCTION posture: the OPC UA write surface
+        // has no co-approval channel yet, the NodeManager passes
+        // `None`, and the engine's gate 5 denies — direct OPC UA
+        // writes are fail-closed under the canonical two-person
+        // floor, not exempted from it.
+        let a = adapter_with(manifest_with_opcua_write("do_pump"));
+        let user = AuthenticatedUser::for_test_user_pass(canned_operator());
+        match a
+            .authorize_write(&user, "do_pump", received_at(), None)
+            .await
+        {
+            Err(TypedAuthzError::EngineDenied(
+                AuthorizationDenyReason::TwoPersonIntegrityMissing,
+            )) => {}
+            other => panic!(
+                "expected EngineDenied(TwoPersonIntegrityMissing), got {:?}",
+                other.is_ok()
+            ),
+        }
     }
 
     #[tokio::test]
     async fn enrolled_without_permission_engine_denies() {
         let a = adapter_with(manifest_without_opcua_write());
         let user = AuthenticatedUser::for_test_user_pass(canned_operator());
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", received_at(), Some(co_approval()))
+            .await
+        {
             Err(TypedAuthzError::EngineDenied(AuthorizationDenyReason::PermissionNotGranted)) => {}
             other => panic!(
                 "expected EngineDenied(PermissionNotGranted), got {:?}",
@@ -371,10 +499,13 @@ mod tests {
         // Prove tag_name threads through to the Permission::OpcUaWrite
         // tag_id — if an attacker submits a write for tag "pond3_aerator"
         // while the manifest only grants "do_pump", it must reject.
+        // Gate 5 keys the co-approver's relevance on the SAME exact
+        // permission, so the mismatched tag also voids the ceremony —
+        // both gates independently produce PermissionNotGranted.
         let a = adapter_with(manifest_with_opcua_write("do_pump"));
         let user = AuthenticatedUser::for_test_user_pass(canned_operator());
         match a
-            .authorize_write(&user, "pond3_aerator", received_at())
+            .authorize_write(&user, "pond3_aerator", received_at(), Some(co_approval()))
             .await
         {
             Err(TypedAuthzError::EngineDenied(AuthorizationDenyReason::PermissionNotGranted)) => {}
@@ -396,7 +527,10 @@ mod tests {
         let a =
             ManifestBackedTypedAuthz::new(resolver, engine, canned_tenant(), Arc::new(|| 10u64));
         let user = AuthenticatedUser::for_test_user_pass(canned_operator());
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", received_at(), Some(co_approval()))
+            .await
+        {
             Err(TypedAuthzError::EngineError(PolicyEngineError::ManifestUnavailable)) => {}
             other => panic!(
                 "expected EngineError(ManifestUnavailable), got {:?}",
@@ -422,7 +556,7 @@ mod tests {
 
         // Call 1: allow.
         assert!(
-            a.authorize_write(&user, "do_pump", received_at())
+            a.authorize_write(&user, "do_pump", received_at(), Some(co_approval()))
                 .await
                 .is_ok()
         );
@@ -436,7 +570,10 @@ mod tests {
         store.test_set_manifest(revoked);
 
         // Call 2: OperatorNotEnrolled (resolver short-circuit).
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", received_at(), Some(co_approval()))
+            .await
+        {
             Err(TypedAuthzError::SessionRejected(SessionActorError::OperatorNotEnrolled)) => {}
             other => panic!(
                 "expected OperatorNotEnrolled after revocation, got {:?}",
@@ -458,7 +595,10 @@ mod tests {
         let a = adapter_with(manifest_with_opcua_write("do_pump"));
         let cn = MachineIssuerCn::from_verified_cert_cn("auth-service".into()).unwrap();
         let user = AuthenticatedUser::for_test_x509(cn, canned_operator());
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", received_at(), Some(co_approval()))
+            .await
+        {
             Err(TypedAuthzError::EngineDenied(AuthorizationDenyReason::PermissionNotGranted)) => {}
             other => panic!(
                 "expected EngineDenied(PermissionNotGranted) for x509-no-machine-table, got {:?}",
@@ -494,7 +634,7 @@ mod tests {
 
         // First call: version 10.
         let ctx = a
-            .authorize_write(&user, "do_pump", received_at())
+            .authorize_write(&user, "do_pump", received_at(), Some(co_approval()))
             .await
             .unwrap();
         assert_eq!(ctx.policy_version(), 10);
@@ -505,7 +645,10 @@ mod tests {
         // trigger the engine's StalePolicyVersion path. We set
         // claimed=9 < manifest's policy_version=10 → engine denies.
         counter.store(9, Ordering::SeqCst);
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", received_at(), Some(co_approval()))
+            .await
+        {
             Err(TypedAuthzError::EngineDenied(AuthorizationDenyReason::StalePolicyVersion {
                 claimed,
                 highest_seen,

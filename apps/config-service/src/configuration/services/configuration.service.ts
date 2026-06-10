@@ -8,6 +8,7 @@ import {
 } from '../entities/configuration.entity';
 import { EncryptionService } from './encryption.service';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { GLOBAL_TENANT_UUID } from '@aquaculture/backend-common/tenant';
 
 interface CacheEntry {
   value: Configuration;
@@ -39,7 +40,7 @@ export class ConfigurationService implements OnModuleInit {
   }
 
   /**
-   * Get a single configuration value with caching and global fallback.
+   * Get a single configuration value with caching and system fallback.
    * Decrypts secret values automatically.
    */
   async get<T = string>(
@@ -75,11 +76,11 @@ export class ConfigurationService implements OnModuleInit {
     }
 
     // ── L3: Database ──
-    // Single query with tenant + global fallback
+    // Single query with tenant + system fallback
     const whereConditions: FindOptionsWhere<Configuration>[] = [
       { tenantId, service, key, isActive: true },
-      ...(tenantId !== 'global'
-        ? [{ tenantId: 'global', service, key, isActive: true }]
+      ...(tenantId !== GLOBAL_TENANT_UUID
+        ? [{ tenantId: GLOBAL_TENANT_UUID, service, key, isActive: true }]
         : []),
     ];
 
@@ -88,10 +89,10 @@ export class ConfigurationService implements OnModuleInit {
       take: 2,
     });
 
-    // Prefer tenant-specific over global
+    // Prefer tenant-specific over system-wide
     const config =
       configs.find((c) => c.tenantId === tenantId) ||
-      configs.find((c) => c.tenantId === 'global');
+      configs.find((c) => c.tenantId === GLOBAL_TENANT_UUID);
 
     if (!config) {
       if (defaultValue !== undefined) {
@@ -108,7 +109,7 @@ export class ConfigurationService implements OnModuleInit {
 
   /**
    * Get all configurations for a service, filtered by environment.
-   * Tenant-specific values override global values.
+   * Tenant-specific values override system-wide values.
    */
   async getAll(
     tenantId: string,
@@ -122,13 +123,15 @@ export class ConfigurationService implements OnModuleInit {
         isActive: true,
         ...(environment && { environment }),
       },
-      ...(tenantId !== 'global'
-        ? [{
-            tenantId: 'global',
-            service,
-            isActive: true,
-            ...(environment && { environment }),
-          }]
+      ...(tenantId !== GLOBAL_TENANT_UUID
+        ? [
+            {
+              tenantId: GLOBAL_TENANT_UUID,
+              service,
+              isActive: true,
+              ...(environment && { environment }),
+            },
+          ]
         : []),
     ];
 
@@ -139,18 +142,18 @@ export class ConfigurationService implements OnModuleInit {
 
     const result: Record<string, unknown> = {};
 
-    // First add global configs — secrets masked to prevent bulk plaintext exposure.
+    // First add system-wide configs — secrets masked to prevent bulk plaintext exposure.
     // Single-key get() decrypts for authorized callers; getAll() is a bulk operation
     // used for config bootstrapping where plaintext secrets must not appear.
     configs
-      .filter((c) => c.tenantId === 'global')
+      .filter((c) => c.tenantId === GLOBAL_TENANT_UUID)
       .forEach((c) => {
         result[c.key] = c.isSecret ? '[ENCRYPTED]' : this.getDecryptedTypedValue(c);
       });
 
     // Then override with tenant-specific
     configs
-      .filter((c) => c.tenantId !== 'global')
+      .filter((c) => c.tenantId !== GLOBAL_TENANT_UUID)
       .forEach((c) => {
         result[c.key] = c.isSecret ? '[ENCRYPTED]' : this.getDecryptedTypedValue(c);
       });
@@ -161,7 +164,7 @@ export class ConfigurationService implements OnModuleInit {
   /**
    * Invalidate cache for a specific configuration.
    * Called by command handlers after successful writes.
-   * When a global config is updated, all per-tenant entries caching that global
+   * When a system-wide config is updated, all per-tenant entries caching that
    * fallback are also purged to prevent stale reads across tenants.
    *
    * Invalidates both L1 (in-memory) and L2 (Redis) caches so that
@@ -174,8 +177,8 @@ export class ConfigurationService implements OnModuleInit {
     // ── L1: in-memory ──
     this.cache.delete(cacheKey);
 
-    if (tenantId === 'global') {
-      // Global update: purge all per-tenant cache entries that may hold this fallback value
+    if (tenantId === GLOBAL_TENANT_UUID) {
+      // System update: purge all per-tenant cache entries that may hold this fallback value
       const suffix = `:${service}:${key}`;
       for (const k of this.cache.keys()) {
         if (k.endsWith(suffix)) {
@@ -183,8 +186,8 @@ export class ConfigurationService implements OnModuleInit {
         }
       }
     } else {
-      // Tenant-specific update: also purge the global cache entry
-      this.cache.delete(`global:${service}:${key}`);
+      // Tenant-specific update: also purge the system fallback cache entry
+      this.cache.delete(`${GLOBAL_TENANT_UUID}:${service}:${key}`);
     }
 
     // ── L2: Redis (cross-pod) ──
@@ -194,14 +197,14 @@ export class ConfigurationService implements OnModuleInit {
         this.logger.warn(`Failed to invalidate Redis cache for ${redisKey}: ${err}`);
       });
 
-      if (tenantId === 'global') {
+      if (tenantId === GLOBAL_TENANT_UUID) {
         // Purge all tenant-specific Redis entries for this service:key
         this.redisService.deletePattern(`config:*:${service}:${key}`).catch((err) => {
           this.logger.warn(`Failed to invalidate Redis pattern for ${service}:${key}: ${err}`);
         });
       } else {
-        this.redisService.del(`config:global:${service}:${key}`).catch((err) => {
-          this.logger.warn(`Failed to invalidate Redis global cache for ${service}:${key}: ${err}`);
+        this.redisService.del(`config:${GLOBAL_TENANT_UUID}:${service}:${key}`).catch((err) => {
+          this.logger.warn(`Failed to invalidate Redis system cache for ${service}:${key}: ${err}`);
         });
       }
     }
@@ -237,7 +240,7 @@ export class ConfigurationService implements OnModuleInit {
         .into(Configuration)
         .values(
           defaults.map((def) => ({
-            tenantId: 'global',
+            tenantId: GLOBAL_TENANT_UUID,
             service: def.service,
             key: def.key,
             value: def.value,
@@ -275,7 +278,11 @@ export class ConfigurationService implements OnModuleInit {
     let rawValue = config.value;
 
     // Decrypt if secret and encryption is available
-    if (config.isSecret && this.encryptionService.isAvailable() && this.encryptionService.isEncrypted(rawValue)) {
+    if (
+      config.isSecret &&
+      this.encryptionService.isAvailable() &&
+      this.encryptionService.isEncrypted(rawValue)
+    ) {
       try {
         // PLAT-HIGH-003: AAD binding validates tenant + key context
         rawValue = this.encryptionService.decrypt(rawValue, config.tenantId, config.key);

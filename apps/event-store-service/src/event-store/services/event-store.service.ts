@@ -98,12 +98,12 @@ export class EventStoreService {
 
       // Use PostgreSQL sequence for atomic global position assignment
       const positionResults = await queryRunner.manager.query(
-        `SELECT nextval('stored_events_global_position_seq') as pos FROM generate_series(1, $1)`,
+        `SELECT nextval('event_store.stored_events_global_position_seq'::regclass) AS pos FROM generate_series(1, $1)`,
         [events.length],
       );
 
-      const positions: number[] = positionResults.map((r: { pos: string }) =>
-        parseInt(r.pos, 10),
+      const positions: number[] = positionResults.map((r: { pos: number | string }) =>
+        parseInt(String(r.pos), 10),
       );
 
       // Build all events for bulk insert

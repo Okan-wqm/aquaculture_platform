@@ -47,7 +47,11 @@ export class ProjectionsService {
 
   /** Generate a tenant-safe projection key */
   private getProjectionKey(tenantId: string, name: string): string {
-    return `${tenantId}:${name}`;
+    return JSON.stringify([tenantId, name]);
+  }
+
+  private getProjectionIntervalName(tenantId: string, name: string): string {
+    return `projection-${this.getProjectionKey(tenantId, name)}`;
   }
 
   constructor(
@@ -121,7 +125,8 @@ export class ProjectionsService {
    * Start processing a projection
    */
   async startProjection(name: string, tenantId: string): Promise<void> {
-    const registration = this.registeredProjections.get(name);
+    const projectionKey = this.getProjectionKey(tenantId, name);
+    const registration = this.registeredProjections.get(projectionKey);
     if (!registration) {
       throw new NotFoundException(`Projection ${name} not found`);
     }
@@ -138,7 +143,7 @@ export class ProjectionsService {
     await this.checkpointRepository.save(checkpoint);
 
     // Start processing loop
-    this.startProcessingLoop(name);
+    this.startProcessingLoop(name, tenantId);
 
     this.logger.log(`Started projection: ${name}`);
   }
@@ -159,7 +164,15 @@ export class ProjectionsService {
     await this.checkpointRepository.save(checkpoint);
 
     // Stop processing loop
-    this.clearProjectionInterval(name);
+    this.clearProjectionInterval(name, tenantId);
+
+    const registration = this.registeredProjections.get(
+      this.getProjectionKey(tenantId, name),
+    );
+    if (registration) {
+      registration.cachedCheckpoint = undefined;
+      registration.idleBatchCount = 0;
+    }
 
     this.logger.log(`Stopped projection: ${name}`);
   }
@@ -178,6 +191,14 @@ export class ProjectionsService {
 
     checkpoint.status = ProjectionStatus.PAUSED;
     await this.checkpointRepository.save(checkpoint);
+
+    const registration = this.registeredProjections.get(
+      this.getProjectionKey(tenantId, name),
+    );
+    if (registration) {
+      registration.cachedCheckpoint = undefined;
+      registration.idleBatchCount = 0;
+    }
 
     this.logger.log(`Paused projection: ${name}`);
   }
@@ -200,6 +221,16 @@ export class ProjectionsService {
 
     checkpoint.status = ProjectionStatus.RUNNING;
     await this.checkpointRepository.save(checkpoint);
+
+    this.startProcessingLoop(name, tenantId);
+
+    const registration = this.registeredProjections.get(
+      this.getProjectionKey(tenantId, name),
+    );
+    if (registration) {
+      registration.cachedCheckpoint = undefined;
+      registration.idleBatchCount = 0;
+    }
 
     this.logger.log(`Resumed projection: ${name}`);
   }
@@ -225,7 +256,9 @@ export class ProjectionsService {
 
     // Invalidate in-memory checkpoint cache so the next processBatch re-reads
     // from the DB and picks up the new position.
-    const registration = this.registeredProjections.get(name);
+    const registration = this.registeredProjections.get(
+      this.getProjectionKey(tenantId, name),
+    );
     if (registration) {
       registration.cachedCheckpoint = undefined;
       registration.idleBatchCount = 0;
@@ -284,18 +317,17 @@ export class ProjectionsService {
     failed: number;
     newPosition: number;
   }> {
-    // Key lock on name:tenantId for proper tenant isolation
-    const lockKey = `${name}:${tenantId}`;
+    const projectionKey = this.getProjectionKey(tenantId, name);
 
     // Check if already processing
-    if (this.processingLocks.get(lockKey)) {
+    if (this.processingLocks.get(projectionKey)) {
       return { processed: 0, failed: 0, newPosition: 0 };
     }
 
-    this.processingLocks.set(lockKey, true);
+    this.processingLocks.set(projectionKey, true);
 
     try {
-      const registration = this.registeredProjections.get(name);
+      const registration = this.registeredProjections.get(projectionKey);
       if (!registration) {
         throw new Error(`Projection ${name} not registered`);
       }
@@ -448,7 +480,7 @@ export class ProjectionsService {
             checkpoint.status = ProjectionStatus.FAULTED;
             await this.checkpointRepository.save(checkpoint);
             // Stop the interval when transitioning to FAULTED
-            this.clearProjectionInterval(name);
+            this.clearProjectionInterval(name, tenantId);
             break;
           }
         }
@@ -483,8 +515,7 @@ export class ProjectionsService {
         newPosition: lastPosition,
       };
     } finally {
-      const lockKey = `${name}:${tenantId}`;
-      this.processingLocks.set(lockKey, false);
+      this.processingLocks.set(projectionKey, false);
     }
   }
 
@@ -522,10 +553,11 @@ export class ProjectionsService {
   /**
    * Start the processing loop for a projection with adaptive back-off
    */
-  private startProcessingLoop(name: string): void {
-    const intervalName = `projection-${name}`;
+  private startProcessingLoop(name: string, tenantId: string): void {
+    const projectionKey = this.getProjectionKey(tenantId, name);
+    const intervalName = this.getProjectionIntervalName(tenantId, name);
 
-    this.clearProjectionInterval(name);
+    this.clearProjectionInterval(name, tenantId);
 
     let currentDelay = 100;
     const minDelay = 100;
@@ -538,7 +570,10 @@ export class ProjectionsService {
 
       const timeout = setTimeout(async () => {
         try {
-          const result = await this.processBatch(name, this.getProjectionTenantId(name));
+          const result = await this.processBatch(
+            name,
+            this.getProjectionTenantId(projectionKey),
+          );
 
           // Adaptive back-off: if no events processed, increase delay
           if (result.processed === 0) {
@@ -579,16 +614,16 @@ export class ProjectionsService {
   /**
    * Get the tenantId for a registered projection
    */
-  private getProjectionTenantId(name: string): string {
-    const registration = this.registeredProjections.get(name);
+  private getProjectionTenantId(projectionKey: string): string {
+    const registration = this.registeredProjections.get(projectionKey);
     return registration?.tenantId ?? '';
   }
 
   /**
    * Clear the processing interval for a projection
    */
-  private clearProjectionInterval(name: string): void {
-    const intervalName = `projection-${name}`;
+  private clearProjectionInterval(name: string, tenantId: string): void {
+    const intervalName = this.getProjectionIntervalName(tenantId, name);
     try {
       if (this.schedulerRegistry.doesExist('interval', intervalName)) {
         this.schedulerRegistry.deleteInterval(intervalName);

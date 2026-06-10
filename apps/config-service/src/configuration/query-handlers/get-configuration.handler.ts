@@ -7,6 +7,7 @@ import {
   GetConfigurationByIdQuery,
 } from '../queries/get-configuration.query';
 import { Configuration, ConfigEnvironment } from '../entities/configuration.entity';
+import { GLOBAL_TENANT_UUID } from '@aquaculture/backend-common/tenant';
 
 @Injectable()
 @QueryHandler(GetConfigurationQuery)
@@ -22,18 +23,14 @@ export class GetConfigurationHandler
     const { tenantId, service, key, environment } = query;
     const env = (environment as ConfigEnvironment) || ConfigEnvironment.ALL;
 
-    // IMPORTANT: System-wide configs use the reserved system tenant UUID,
-    // not the string 'global'. This ensures all tenant_id columns are valid UUIDs.
-    const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
-
     // Single query with both tenant-specific and system-wide fallback
     const whereConditions: FindOptionsWhere<Configuration>[] = [
       { tenantId, service, key, environment: env, isActive: true },
     ];
 
-    if (tenantId !== SYSTEM_TENANT_ID) {
+    if (tenantId !== GLOBAL_TENANT_UUID) {
       whereConditions.push({
-        tenantId: SYSTEM_TENANT_ID,
+        tenantId: GLOBAL_TENANT_UUID,
         service,
         key,
         environment: env,
@@ -49,7 +46,7 @@ export class GetConfigurationHandler
     // Prefer tenant-specific over system-wide
     const configuration =
       configurations.find((c) => c.tenantId === tenantId) ||
-      configurations.find((c) => c.tenantId === SYSTEM_TENANT_ID);
+      configurations.find((c) => c.tenantId === GLOBAL_TENANT_UUID);
 
     if (!configuration) {
       throw new NotFoundException(`Configuration not found: ${service}/${key}`);

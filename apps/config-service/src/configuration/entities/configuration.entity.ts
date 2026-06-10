@@ -59,7 +59,7 @@ export class Configuration {
   @Field(() => ID)
   id!: string;
 
-  /** SYSTEM_TENANT_ID ('00000000-0000-0000-0000-000000000000') for system-wide configs */
+  /** GLOBAL_TENANT_UUID sentinel for system-wide configs */
   @Column({ type: 'uuid', name: 'tenant_id' })
   @Index()
   @Field()

@@ -12,6 +12,7 @@ import {
   ConfigurationHistory,
   ConfigEnvironment,
 } from '../entities/configuration.entity';
+import { GLOBAL_TENANT_UUID } from '@aquaculture/backend-common/tenant';
 
 @Injectable()
 @QueryHandler(GetConfigurationsQuery)
@@ -63,10 +64,7 @@ export class GetConfigurationsHandler
     const limit = Math.min(Math.max(filter?.limit ?? 100, 1), 500);
     const offset = Math.max(filter?.offset ?? 0, 0);
 
-    qb.orderBy('config.service', 'ASC')
-      .addOrderBy('config.key', 'ASC')
-      .take(limit)
-      .skip(offset);
+    qb.orderBy('config.service', 'ASC').addOrderBy('config.key', 'ASC').take(limit).skip(offset);
 
     return qb.getMany();
   }
@@ -94,10 +92,10 @@ export class GetConfigurationsByServiceHandler
       },
     ];
 
-    // Also include global configs
-    if (tenantId !== 'global') {
+    // Also include system-wide configs
+    if (tenantId !== GLOBAL_TENANT_UUID) {
       where.push({
-        tenantId: 'global',
+        tenantId: GLOBAL_TENANT_UUID,
         service,
         isActive: true,
         ...(environment && { environment: environment as ConfigEnvironment }),
@@ -110,17 +108,17 @@ export class GetConfigurationsByServiceHandler
       take: 500,
     });
 
-    // Merge: tenant-specific overrides global
+    // Merge: tenant-specific overrides system-wide
     const configMap = new Map<string, Configuration>();
 
-    // First add global configs
+    // First add system-wide configs
     configurations
-      .filter((c) => c.tenantId === 'global')
+      .filter((c) => c.tenantId === GLOBAL_TENANT_UUID)
       .forEach((c) => configMap.set(`${c.key}-${c.environment}`, c));
 
     // Then override with tenant-specific
     configurations
-      .filter((c) => c.tenantId !== 'global')
+      .filter((c) => c.tenantId !== GLOBAL_TENANT_UUID)
       .forEach((c) => configMap.set(`${c.key}-${c.environment}`, c));
 
     return Array.from(configMap.values());

@@ -1,5 +1,5 @@
-import { TenantAdminOrHigher, ModuleUserOrHigher, CurrentUser } from '@aquaculture/backend-common/decorators';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { TenantAdminOrHigher, CurrentUser } from '@aquaculture/backend-common/decorators';
 
 import { User } from '../../authentication/entities/user.entity';
 import {
@@ -30,13 +30,9 @@ export class TenantAdminResolver {
    * Get modules accessible by current user
    * TENANT_ADMIN: All tenant modules
    * MODULE_MANAGER/USER: Only assigned modules
-   *
-   * WHY @ModuleUserOrHigher: the query is self-scoped (service branches on
-   * the CALLER's own role/assignments), so MODULE_USER must be able to call
-   * it — the service's MODULE_MANAGER/USER branch is unreachable otherwise.
    */
   @Query(() => [UserModuleInfo])
-  @ModuleUserOrHigher()
+  @TenantAdminOrHigher()
   async myModules(@CurrentUser('sub') userId: string): Promise<UserModuleInfo[]> {
     return this.tenantAdminService.getMyModules(userId);
   }

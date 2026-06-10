@@ -7,25 +7,22 @@
 /* eslint-disable @typescript-eslint/no-floating-promises */
 import * as crypto from 'crypto';
 
-import { BypassRlsService } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, SelectQueryBuilder } from 'typeorm';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
+import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
-import { Tenant } from '../../tenant/entities/tenant.entity';
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import { AuthenticationService } from '../services/authentication.service';
-import { MfaService } from '../services/mfa.service';
-import { TokenService } from '../services/token.service';
 
 
 // ============================================================================
@@ -113,26 +110,6 @@ const mockAuditLogService = {
   log: jest.fn().mockResolvedValue(undefined),
 };
 
-// WHY: AuthenticationService now injects TokenService (token minting moved
-// there) and MfaService (login MFA branch). Password-reset paths don't mint
-// MFA challenges, but the constructor requires both collaborators.
-const mockTokenService = {
-  generateTokens: jest.fn().mockImplementation(async (user: User) => ({
-    accessToken: 'mock-access-token',
-    refreshToken: 'mock-refresh-token',
-    user,
-    expiresIn: 900,
-    tokenType: 'Bearer',
-    redirectUrl: '/dashboard',
-  })),
-  getUserModules: jest.fn().mockResolvedValue([]),
-};
-
-const mockMfaService = {
-  isMfaAvailable: jest.fn().mockReturnValue(false),
-  generateMfaChallenge: jest.fn(),
-};
-
 const mockDataSource = {
   transaction: jest.fn(),
   query: jest.fn(),
@@ -161,21 +138,9 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
         { provide: AuditLogService, useValue: mockAuditLogService },
-        { provide: TokenService, useValue: mockTokenService },
-        { provide: MfaService, useValue: mockMfaService },
         { provide: TimingSafeService, useValue: mockTimingSafe },
         { provide: SESSION_MANAGER, useValue: null },
         { provide: TOKEN_BLACKLIST, useValue: null },
-        // WHY: the SUPER_ADMIN reset path persists refresh tokens through the
-        // audited RLS bypass; the mock forwards through withBypass so the
-        // spec exercises the same call chain without the audit WARN log.
-        {
-          provide: BypassRlsService,
-          useValue: {
-            withBypass: async <T>(_op: string, cb: () => Promise<T> | T): Promise<T> => cb(),
-            withBypassSync: <T>(_op: string, cb: () => T): T => cb(),
-          },
-        },
       ],
     }).compile();
 
@@ -218,7 +183,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
       expect(expiresAt).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
     });
 
-    it('should publish a PII-free PasswordResetRequested event (opaque references only)', async () => {
+    it('should publish PasswordResetRequested event with plain token', async () => {
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockUserRepository.save.mockResolvedValue(user);
@@ -226,23 +191,12 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
 
       expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
       const event = mockEventBus.publish.mock.calls[0][0];
       expect(event.eventType).toBe('PasswordResetRequested');
-      expect(event.version).toBe(2);
+      expect(event.email).toBe('test@example.com');
       expect(event.userId).toBe('user-uuid-123');
-      // WHAT: actionTokenId is the SHA-256 hash of the reset token — the same
-      // value persisted on the user row. Notification-service resolves the
-      // actual reset URL at delivery time via authenticated internal API
-      // using this opaque reference; the raw token never crosses the bus.
-      expect(event.actionTokenId).toHaveLength(64);
-      expect(event.actionTokenId).toBe(savedUser.passwordResetToken);
-      expect(event.cryptoShredKeyId).toBe('user-uuid-123');
-      // WHY: PII and secrets must never be placed on the immutable event bus
-      // (GDPR erasure + token-leak surface). Assert structural absence so a
-      // regression reintroducing them fails loudly.
-      expect(event.email).toBeUndefined();
-      expect(event.resetToken).toBeUndefined();
+      expect(event.resetToken).toBeDefined();
+      expect(event.resetToken).toHaveLength(64); // crypto.randomBytes(32).toString('hex')
     });
 
     it('should silently return without error when user is not found (enumeration prevention)', async () => {

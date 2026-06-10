@@ -1,9 +1,8 @@
-import { CurrentUser, ModuleUserOrHigher, TenantAdminOrHigher } from '@aquaculture/backend-common/decorators';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-
-import { UpdateMobileUserSettingsInput, BulkUpdateMobileSettingsInput } from '../dto/mobile-settings.dto';
+import { CurrentUser, TenantAdminOrHigher } from '@aquaculture/backend-common/decorators';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { MobileSettingsService } from '../services/mobile-settings.service';
+import { UpdateMobileUserSettingsInput, BulkUpdateMobileSettingsInput } from '../dto/mobile-settings.dto';
 
 @Resolver(() => MobileUserSettings)
 export class MobileSettingsResolver {
@@ -28,10 +27,6 @@ export class MobileSettingsResolver {
    * Using `currentUser.id` resolved to undefined, causing
    * "null value in column user_id" on auto-created settings rows.
    */
-  // WHY @ModuleUserOrHigher: self-scoped read (caller's own settings) needs an
-  // explicit role gate for defense-in-depth — the bare JWT guard alone leaves
-  // the minimum-role contract implicit and untestable.
-  @ModuleUserOrHigher()
   @Query(() => MobileUserSettings, { name: 'getMyMobileSettings' })
   async getMyMobileSettings(
     @CurrentUser() currentUser: { sub: string; tenantId: string },

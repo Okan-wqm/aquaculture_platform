@@ -1,7 +1,3 @@
-import * as crypto from 'crypto';
-
-import { SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
 import {
   Injectable,
   ConflictException,
@@ -11,6 +7,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
 import { IEventBus } from '@platform/event-bus';
 import {
   TenantCreatedEvent,
@@ -22,10 +20,11 @@ import {
   UserInvitedEvent,
   createBaseEvent,
 } from '@platform/event-contracts';
+import * as crypto from 'crypto';
 import { Repository, DataSource, MoreThan, Between } from 'typeorm';
 
-import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { TENANT_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { User } from '../../authentication/entities/user.entity';
@@ -340,45 +339,17 @@ export class TenantService {
     });
   }
 
-  async update(id: string, input: UpdateTenantInput, role: Role): Promise<Tenant> {
+  async update(id: string, input: UpdateTenantInput): Promise<Tenant> {
     const tenant = await this.findById(id);
 
-    if (role === Role.SUPER_ADMIN) {
-      // Update max users if plan changes
-      if (input.plan && input.plan !== tenant.plan) {
-        if (!input.maxUsers) {
-          input.maxUsers = this.getDefaultMaxUsers(input.plan);
-        }
+    // Update max users if plan changes
+    if (input.plan && input.plan !== tenant.plan) {
+      if (!input.maxUsers) {
+        input.maxUsers = this.getDefaultMaxUsers(input.plan);
       }
-      Object.assign(tenant, input);
-    } else {
-      // SECURITY: single consolidated update path with role-based field
-      // filtering (replaces the removed updateTenantSettings method).
-      // TENANT_ADMIN may update profile fields only — status/plan/maxUsers
-      // are platform-governance fields and are rejected loudly rather than
-      // silently dropped, so callers learn the contract instead of assuming
-      // their write succeeded.
-      if (input.status || input.plan || input.maxUsers !== undefined) {
-        throw new ForbiddenException('Cannot update status, plan, or maxUsers. Contact support.');
-      }
-      const allowedFields: (keyof UpdateTenantInput)[] = [
-        'name',
-        'description',
-        'logoUrl',
-        'contactEmail',
-        'contactPhone',
-        'address',
-        'settings',
-      ];
-      const updates: Partial<Tenant> = {};
-      for (const field of allowedFields) {
-        if (input[field] !== undefined) {
-          (updates as Record<string, unknown>)[field] = input[field];
-        }
-      }
-      Object.assign(tenant, updates);
     }
 
+    Object.assign(tenant, input);
     const saved = await this.tenantRepository.save(tenant);
 
     this.logger.log(`Tenant updated: ${saved.name} (${saved.id})`);
@@ -1016,9 +987,53 @@ export class TenantService {
     return saved;
   }
 
-  // NOTE: updateTenantSettings was removed — role-based field filtering is
-  // consolidated into update(id, input, role) above (single update path,
-  // single TenantUpdated emission point). See tenant-update-consolidation.spec.
+  /**
+   * Update tenant settings (limited fields for TENANT_ADMIN)
+   */
+  async updateTenantSettings(
+    tenantId: string,
+    input: UpdateTenantInput,
+  ): Promise<Tenant> {
+    const tenant = await this.findById(tenantId);
+
+    // Tenant admins can only update these fields
+    const allowedFields: (keyof UpdateTenantInput)[] = [
+      'name',
+      'description',
+      'logoUrl',
+      'contactEmail',
+      'contactPhone',
+      'address',
+      'settings',
+    ];
+
+    // Filter to allowed fields only
+    const updates: Partial<Tenant> = {};
+    for (const field of allowedFields) {
+      if (input[field] !== undefined) {
+        (updates as Record<string, unknown>)[field] = input[field];
+      }
+    }
+
+    // Prevent updating restricted fields
+    if (input.status || input.plan || input.maxUsers) {
+      throw new ForbiddenException('Cannot update status, plan, or maxUsers. Contact support.');
+    }
+
+    Object.assign(tenant, updates);
+    const saved = await this.tenantRepository.save(tenant);
+
+    this.logger.log(`Tenant settings updated by tenant admin: ${saved.name} (${saved.id})`);
+
+    // Publish TenantUpdatedEvent for consistency — settings changes are tenant updates
+    const event: TenantUpdatedEvent = {
+      ...createBaseEvent<TenantUpdatedEvent>('TenantUpdated', saved.id, { aggregateId: saved.id, aggregateType: 'Tenant' }),
+      name: input.name,
+    };
+    await this.eventBus.publish(event);
+
+    return saved;
+  }
 
   /**
    * Count active sessions for a tenant.

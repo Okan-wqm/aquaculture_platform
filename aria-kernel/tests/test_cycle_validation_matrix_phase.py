@@ -13,7 +13,6 @@ extended-phase block dispatches into).
 """
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 import unittest
@@ -22,14 +21,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.cycle import _run_extended_phases
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class ValidationMatrixPhaseTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-vm-phase-"))
-        self.tools_root = self.tmp / "aria-tools"
-        self.tools_root.mkdir()
+        self.tools_root = ensure_tools_dir(self.tmp / "aria-tools")
         self._old_cwd = os.getcwd()
         os.chdir(self.tmp)
         # Plan 020 Phase 0 — ARIA_WORKSPACE_BASE override so workspace
@@ -60,8 +59,11 @@ class ValidationMatrixPhaseTests(unittest.TestCase):
             "actual_affected_files": ["aria-kernel/test.py"],
             "recorded_at": recorded_at.isoformat().replace("+00:00", "Z"),
         }
-        with committed_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+        append_declared_fixture(
+            committed_path,
+            row,
+            expected_surface="change_committed",
+        )
 
     def _seed_validated_chain(self, *, change_id: str) -> None:
         # Same direct-write strategy for validated.jsonl so
@@ -77,8 +79,11 @@ class ValidationMatrixPhaseTests(unittest.TestCase):
                 "+00:00", "Z"
             ),
         }
-        with validated_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+        append_declared_fixture(
+            validated_path,
+            row,
+            expected_surface="change_validated",
+        )
 
     def test_no_committed_changes_in_window_returns_no_op(self) -> None:
         # No seed; validation_matrix phase returns no_op.

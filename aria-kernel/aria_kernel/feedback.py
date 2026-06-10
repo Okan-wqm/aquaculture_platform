@@ -11,7 +11,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, file_hash, load_index, read_jsonl, verify_index_hashes, write_index
+from .ledger import (
+    append_declared_jsonl,
+    append_jsonl as _append_jsonl,
+    file_hash,
+    load_index,
+    read_jsonl,
+    verify_index_hashes,
+    write_index,
+)
 from .phase2_utils import git_head
 from .pressure import close_pressures_from_signals
 from .workspace import WorkspacePaths, record_workspace_governance, require_workspace_v2
@@ -34,6 +42,27 @@ DEFAULT_FAILURE_MODE_BY_KIND = {
     "external_contradiction": "evidence_contradiction",
     "closed_signal": "evidence_gap",
 }
+
+
+_WORKSPACE_MEMORY_SURFACE_BY_FILENAME: dict[str, str] = {
+    "unknowns.jsonl": "workspace_memory_unknowns",
+    "missed_signals.jsonl": "workspace_memory_missed_signals",
+    "external_feedback.jsonl": "workspace_memory_external_feedback",
+    "pressure.jsonl": "workspace_memory_pressure",
+    "pressure_state.jsonl": "workspace_memory_pressure_state",
+    "vocabulary_rejections.jsonl": "workspace_memory_vocabulary_rejections",
+    "since_migration_events.jsonl": "workspace_memory_since_migration_events",
+    "governance.jsonl": "workspace_memory_governance",
+}
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    concrete = Path(path)
+    if concrete.parent.name == "aria-memory":
+        surface = _WORKSPACE_MEMORY_SURFACE_BY_FILENAME.get(concrete.name)
+        if surface is not None:
+            return append_declared_jsonl(path, record, expected_surface=surface)
+    return _append_jsonl(path, record)
 
 
 def now_iso() -> str:

@@ -1,3 +1,5 @@
+import type { BillingCycle, PlanTier } from './base-event';
+
 /**
  * Platform-admin billing command contracts.
  *
@@ -7,6 +9,7 @@
  */
 
 export const BILLING_ADMIN_COMMAND_SUBJECTS = {
+  PROVISION_TENANT_SUBSCRIPTION: 'request.billing.tenant.provisionSubscription',
   CREATE_INVOICE: 'request.billing.admin.createInvoice',
   MARK_INVOICE_PAID: 'request.billing.admin.markInvoicePaid',
   VOID_INVOICE: 'request.billing.admin.voidInvoice',
@@ -21,6 +24,50 @@ export const BILLING_ADMIN_COMMAND_SUBJECTS = {
 export interface BillingAdminCommandMeta {
   actorId: string;
   correlationId?: string;
+}
+
+export interface BillingTenantProvisioningCommand {
+  operationId: string;
+  tenantId: string;
+  idempotencyKey: string;
+  requestPayloadHash: string;
+  actorId: string;
+  tenantName: string;
+  tier: PlanTier;
+  billingCycle: BillingCycle;
+  moduleIds: string[];
+  moduleQuantities?: Array<{
+    moduleId: string;
+    users?: number;
+    farms?: number;
+    ponds?: number;
+    sensors?: number;
+    employees?: number;
+    devices?: number;
+    storageGb?: number;
+    apiCalls?: number;
+    alerts?: number;
+    reports?: number;
+    integrations?: number;
+  }>;
+  trialDays?: number;
+  catalogVersionId?: string;
+  quoteId?: string;
+  customPlanId?: string;
+}
+
+export interface BillingTenantProvisioningResult {
+  success: boolean;
+  operationId: string;
+  tenantId: string;
+  subscriptionId?: string;
+  status?: string;
+  moduleItemCount?: number;
+  receiptId?: string;
+  resultHash?: string;
+  replayed?: boolean;
+  errorCode?: BillingAdminCommandErrorCode | 'CATALOG_MISSING';
+  error?: string;
 }
 
 export interface BillingAdminAddress {

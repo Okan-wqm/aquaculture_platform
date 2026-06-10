@@ -72,7 +72,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl, rewrite_declared_json
+from .state_manifest import observe_permitted_profile_surfaces, profile_surfaces
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -122,11 +123,15 @@ PROFILE_HISTORY_FILENAME = "runtime-profile-history.jsonl"
 #   - change_committed  — auto-commit allowed under L3 + classifier-pass
 #   - change_validated  — auto-validate chain allowed
 #   - pr_open           — auto-PR-open allowed under L3 + breaker-ok
+#   - pr_merge          — auto-merge execution allowed only under L3; this is
+#                         an action authority, not a ledger write surface.
 ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "agent_claim": frozenset({"standard", "strict", "autonomous"}),
     "change_committed": frozenset({"standard", "strict", "autonomous"}),
     "change_validated": frozenset({"standard", "strict", "autonomous"}),
+    "pr_create": frozenset({"strict", "autonomous"}),
     "pr_open": frozenset({"strict", "autonomous"}),
+    "pr_merge": frozenset({"autonomous"}),
 }
 
 # ---------------------------------------------------------------------
@@ -139,44 +144,19 @@ ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
 # human_required, review_record, change_planned, agent_release/requeue/
 # reap_stale_claims, append_tools_governance low-level) are PLAN 021 SCOPE —
 # Plan 020's frozen invariant intentionally does not cover them.
-PLAN_020_WRITE_SURFACES: frozenset[str] = frozenset({
-    "context_audits",          # Phase 2
-    "handoffs",                # Phase 3
-    "agent_evals",             # Phase 6
-    "agent_compliance",        # Phase 7
-    "validation_matrix",       # Phase 8 — writer surface, no dedicated file
-    "surface_validations",     # Phase 11
-    "instinct_candidates",     # Phase 12 (PROPOSED-only under observe)
-    "cost_telemetry",          # Phase 13
-    "change_ledger_committed", # Phase 1.B (defense-in-depth for change_ledger)
-    "change_ledger_validated", # Phase 1.B (defense-in-depth)
-    "tool_runs",               # Phase 4 + Phase 10 chokepoint via run_tool
-    "agent_claim",             # Phase 1.B (defense-in-depth for claim_request)
-    "pr_open",                 # Phase 1.B (defense-in-depth for open_pr)
-    "spine_orchestrator",      # Phase 4 dedicated invocation
-    # ----------------------------------------------------------------
-    # Plan 026R §A.4 — close the legacy-writer scope gap (Plan 020's
-    # original 14 surfaces left these 8 mutators ungated; frozen
-    # profile leaked silently into observation-class ledger writes,
-    # defeating incident-response no-write intent).
-    "finding",                 # §A.4 — finding.emit_finding
-    "debt",                    # §A.4 — debt.emit_debt
-    "governance",              # §A.4 — high-level governance event emit
-    "observation",             # §A.4 — memory.update_memory observation row
-    "agent_genesis",           # §A.4 — agent_genesis.request_agent_genesis
-    "tool_governance",         # §A.4 — tool_registry.append_tools_governance
-    "critical_observation",    # §A.4 — critical_observation.record_critical_observation
-    "human_required",          # §A.4 — human_required.record_human_required
-    "runtime_v2_promotion",
-    "plan_promotion_dispatch",
-    "worker_verification",
-    "worker_result",
-    "pr_lifecycle",
-    "pr_action",
-    "tool_registry",
+_NON_FILE_PROFILE_SURFACES: frozenset[str] = frozenset({
+    # Action authority surfaces that are not a direct file path in the
+    # manifest but remain first-class profile gates.
+    "pr_open",
+    "pr_merge",
+    "spine_orchestrator",
     "tool_lifecycle",
-    "skill_genesis",
+    "governance",
 })
+
+PLAN_020_WRITE_SURFACES: frozenset[str] = (
+    profile_surfaces() | _NON_FILE_PROFILE_SURFACES
+)
 
 
 # Plan 026R §A.4 — diagnostic-class write surfaces that bypass the
@@ -209,16 +189,7 @@ DIAGNOSTIC_ALLOWLIST: frozenset[str] = frozenset({
 # Governance events are observation-class — they RECORD what happened,
 # they do NOT enact change — so they belong in the observe permission
 # set even though the underlying surface_kind is now gated for frozen.
-OBSERVE_PERMITTED_SURFACES: frozenset[str] = frozenset({
-    "finding",
-    "debt",
-    "observation",
-    "context_audits",
-    "handoffs",
-    "surface_validations",
-    "instinct_candidates",
-    "tool_governance",          # §A.4 — governance audit events
-})
+OBSERVE_PERMITTED_SURFACES: frozenset[str] = observe_permitted_profile_surfaces()
 
 # Union of every surface_kind the validator recognises. A surface_kind that
 # is neither plan-020-protected nor observe-permitted nor on the
@@ -367,18 +338,23 @@ def set_profile(
         "operator_approval_ref": operator_approval_ref,
     }
     state_file = root / PROFILE_STATE_FILENAME
-    tmp = state_file.with_name(f".{state_file.name}.tmp")
-    tmp.write_text(
-        json.dumps(state, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    rewrite_declared_json(
+        state_file,
+        state,
+        expected_surface="runtime_profile_state",
+        bypass_profile_gate=True,
     )
-    tmp.replace(state_file)
     history_row = {
         "$schema": "aria/runtime-profile-history/v1",
         "schema_version": 1,
         **state,
     }
-    append_jsonl(_profile_history_file(root), history_row)
+    append_declared_jsonl(
+        _profile_history_file(root),
+        history_row,
+        expected_surface="runtime_profile_history",
+        bypass_profile_gate=True,
+    )
     # Plan 026R §A.4 — control-plane exception: set_profile is the ONE
     # path that may emit a governance event under any profile (the
     # operator MUST be able to THAW a frozen kernel, which itself

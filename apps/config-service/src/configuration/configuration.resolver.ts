@@ -1,42 +1,27 @@
 import {
-  Resolver,
-  Query,
-  Mutation,
-  Args,
-  ID,
-  Context,
-  ResolveField,
-  Parent,
-  Int,
-} from '@nestjs/graphql';
-import {
   UnauthorizedException,
   ForbiddenException,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import {
-  Configuration,
-  ConfigurationHistory,
-  ConfigEnvironment,
-} from './entities/configuration.entity';
-import {
-  CreateConfigurationInput,
-  UpdateConfigurationInput,
-  ConfigurationFilterInput,
-} from './dto/create-configuration.input';
-import { CreateConfigurationCommand } from './commands/create-configuration.command';
-import { UpdateConfigurationCommand } from './commands/update-configuration.command';
-import { DeleteConfigurationCommand } from './commands/delete-configuration.command';
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  Context,
+} from '@nestjs/graphql';
+
 import { UpsertConfigurationCommand } from './commands/upsert-configuration.command';
 import {
-  GetConfigurationQuery,
-  GetConfigurationByIdQuery,
-} from './queries/get-configuration.query';
+  EffectiveConfigurationDto,
+  toEffectiveConfigurationDto,
+} from './dto/effective-configuration.dto';
 import {
-  GetConfigurationsQuery,
-  GetConfigurationsByServiceQuery,
-  GetConfigurationHistoryQuery,
-} from './queries/get-configurations.query';
+  Configuration,
+  ConfigEnvironment,
+} from './entities/configuration.entity';
+import { GetConfigurationQuery } from './queries/get-configuration.query';
+import { GetConfigurationsByServiceQuery } from './queries/get-configurations.query';
 
 interface GraphQLContext {
   req: {
@@ -48,7 +33,7 @@ interface GraphQLContext {
   };
 }
 
-@Resolver(() => Configuration)
+@Resolver(() => EffectiveConfigurationDto)
 export class ConfigurationResolver {
   constructor(
     private readonly commandBus: CommandBus,
@@ -89,129 +74,48 @@ export class ConfigurationResolver {
     }
   }
 
-  /**
-   * Mask secret values in GraphQL responses.
-   * SECURITY: Never expose encrypted blobs or plaintext secrets.
-   */
-  @ResolveField(() => String, { name: 'value' })
-  resolveValue(@Parent() config: Configuration): string {
-    if (config.isSecret) {
-      return '[ENCRYPTED]';
-    }
-    return config.value;
-  }
-
   // ─── Queries ──────────────────────────────────────────────────
 
-  @Query(() => Configuration, { name: 'configuration' })
-  async getConfiguration(
-    @Args('service') service: string,
+  @Query(() => EffectiveConfigurationDto, { name: 'effectiveConfiguration' })
+  async getEffectiveConfiguration(
+    @Args('serviceId') serviceId: string,
     @Args('key') key: string,
     @Args('environment', { type: () => ConfigEnvironment, nullable: true })
     environment: ConfigEnvironment,
     @Context() context: GraphQLContext,
-  ): Promise<Configuration> {
+  ): Promise<EffectiveConfigurationDto> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
-      new GetConfigurationQuery(tenantId, service, key, environment),
+    const configuration = await this.queryBus.execute<GetConfigurationQuery, Configuration>(
+      new GetConfigurationQuery(tenantId, serviceId, key, environment),
     );
+    return toEffectiveConfigurationDto(tenantId, configuration);
   }
 
-  @Query(() => Configuration, { name: 'configurationById' })
-  async getConfigurationById(
-    @Args('id', { type: () => ID }) id: string,
-    @Context() context: GraphQLContext,
-  ): Promise<Configuration> {
-    const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetConfigurationByIdQuery(tenantId, id));
-  }
-
-  @Query(() => [Configuration], { name: 'configurations' })
-  async getConfigurations(
-    @Args('filter', { nullable: true }) filter: ConfigurationFilterInput,
-    @Context() context: GraphQLContext,
-  ): Promise<Configuration[]> {
-    const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetConfigurationsQuery(tenantId, filter));
-  }
-
-  @Query(() => [Configuration], { name: 'configurationsByService' })
-  async getConfigurationsByService(
+  @Query(() => [EffectiveConfigurationDto], { name: 'effectiveConfigurationsByService' })
+  async getEffectiveConfigurationsByService(
     @Args('service') service: string,
     @Args('environment', { type: () => ConfigEnvironment, nullable: true })
     environment: ConfigEnvironment,
     @Context() context: GraphQLContext,
-  ): Promise<Configuration[]> {
+  ): Promise<EffectiveConfigurationDto[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(
+    const configurations = await this.queryBus.execute<
+      GetConfigurationsByServiceQuery,
+      Configuration[]
+    >(
       new GetConfigurationsByServiceQuery(tenantId, service, environment),
     );
-  }
-
-  @Query(() => [ConfigurationHistory], { name: 'configurationHistory' })
-  async getConfigurationHistory(
-    @Args('configurationId', { type: () => ID }) configurationId: string,
-    @Args('limit', { type: () => Int, nullable: true, defaultValue: 50 }) limit: number,
-    @Context() context: GraphQLContext,
-  ): Promise<ConfigurationHistory[]> {
-    const tenantId = this.getTenantId(context);
-    this.checkAdminAccess(context);
-    // Cap limit to prevent abuse
-    const cappedLimit = Math.min(Math.max(limit, 1), 500);
-    return this.queryBus.execute(
-      new GetConfigurationHistoryQuery(tenantId, configurationId, cappedLimit),
+    return configurations.map((configuration) =>
+      toEffectiveConfigurationDto(tenantId, configuration),
     );
   }
 
   // ─── Mutations ────────────────────────────────────────────────
 
-  @Mutation(() => Configuration)
-  async createConfiguration(
-    @Args('input') input: CreateConfigurationInput,
-    @Context() context: GraphQLContext,
-  ): Promise<Configuration> {
-    const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
-    this.checkAdminAccess(context);
-
-    return this.commandBus.execute(
-      new CreateConfigurationCommand(tenantId, input, userId),
-    );
-  }
-
-  @Mutation(() => Configuration)
-  async updateConfiguration(
-    @Args('input') input: UpdateConfigurationInput,
-    @Context() context: GraphQLContext,
-  ): Promise<Configuration> {
-    const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
-    this.checkAdminAccess(context);
-
-    return this.commandBus.execute(
-      new UpdateConfigurationCommand(tenantId, input, userId),
-    );
-  }
-
-  @Mutation(() => Boolean)
-  async deleteConfiguration(
-    @Args('id', { type: () => ID }) id: string,
-    @Args('hardDelete', { defaultValue: false }) hardDelete: boolean,
-    @Context() context: GraphQLContext,
-  ): Promise<boolean> {
-    const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
-    this.checkAdminAccess(context);
-
-    return this.commandBus.execute(
-      new DeleteConfigurationCommand(tenantId, id, userId, hardDelete),
-    );
-  }
-
   /**
    * Atomic upsert - uses INSERT ... ON CONFLICT DO UPDATE under the hood.
    */
-  @Mutation(() => Configuration)
+  @Mutation(() => EffectiveConfigurationDto)
   async setConfiguration(
     @Args('service') service: string,
     @Args('key') key: string,
@@ -225,13 +129,17 @@ export class ConfigurationResolver {
     @Args('isSecret', { nullable: true, defaultValue: false }) isSecret: boolean,
     @Args('reason', { type: () => String, nullable: true }) reason: string | undefined,
     @Context() context: GraphQLContext,
-  ): Promise<Configuration> {
+  ): Promise<EffectiveConfigurationDto> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     this.checkAdminAccess(context);
 
-    return this.commandBus.execute(
+    const configuration = await this.commandBus.execute<
+      UpsertConfigurationCommand,
+      Configuration
+    >(
       new UpsertConfigurationCommand(tenantId, service, key, value, environment, userId, isSecret, reason),
     );
+    return toEffectiveConfigurationDto(tenantId, configuration);
   }
 }

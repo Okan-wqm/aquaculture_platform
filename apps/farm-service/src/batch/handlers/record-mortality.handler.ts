@@ -18,7 +18,7 @@
  * @module Batch/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
-import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { MortalityRecordedEvent } from '@platform/event-contracts';
@@ -41,6 +41,7 @@ import { Batch } from '../entities/batch.entity';
 import { MortalityRecord, MortalityCause } from '../entities/mortality-record.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
+import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
 import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
 
 @Injectable()
@@ -66,6 +67,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly backdatePolicy: BackdatePolicyService,
+    private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
     private readonly mobileCommandReceipts: MobileCommandReceiptService =
@@ -144,12 +146,11 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
 
       const tank = tankLookup.equipment;
 
-      // Validasyon: mortality mevcut sayıyı aşamaz
-      if (payload.quantity > batch.currentQuantity) {
-        throw new BadRequestException(
-          `Mortality sayısı (${payload.quantity}) mevcut sayıdan (${batch.currentQuantity}) fazla olamaz`
-        );
-      }
+      this.mortalityCullPolicy.assertQuantityWithinCurrent({
+        operation: 'Mortality',
+        quantity: payload.quantity,
+        currentQuantity: batch.currentQuantity,
+      });
 
       // Biomass hesapla
       const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();

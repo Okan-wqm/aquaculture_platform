@@ -68,6 +68,7 @@ export const inputSchema = z.object({
   // A) h2sMeasured: Cihazdan okunan H₂S değeri (µg/L) — totalSulfide otomatik hesaplanır
   // B) totalSulfide: Toplam sülfid (µg/L) — doğrudan verilir
   h2sMeasured: z.number().min(0).optional().describe('Ölçülen H₂S değeri (µg/L) — cihaz okuması. Verilirse totalSulfide otomatik hesaplanır'),
+  h2sMeasuredAtPH: z.number().min(4).max(12.5).optional().describe('H₂S ölçümünün yapıldığı pH. Verilmezse mevcut pH kullanılır'),
   totalSulfide: z.number().min(0).default(0).describe('Toplam sülfid (µg/L) — h2sMeasured verilmişse kullanılmaz'),
 
   // Toksin limitleri (opsiyonel — tür bazlı override)
@@ -194,13 +195,13 @@ export async function handler(params: z.infer<typeof inputSchema>): Promise<Tool
 
   // ── H₂S: Ölçüm → Toplam Sülfid Dönüşümü ─────────────────────
   // Kullanıcı H₂S cihaz okuması verirse (h2sMeasured), totalSulfide'ı
-  // ters hesapla: totalSulfide = h2sMeasured / fractionH2S(pH, T, S)
+  // ters hesapla: totalSulfide = h2sMeasured / fractionH2S(measurementPH, T, S)
   // Çünkü cihaz sadece toksik H₂S formunu ölçer, ama toplam sülfid
   // (H₂S + HS⁻ + S²⁻) pH'a göre değişir.
   let totalSulfide: number;
   if (input.h2sMeasured !== undefined && input.h2sMeasured > 0) {
     // Ters hesap: H₂S ölçümünden toplam sülfid bul
-    totalSulfide = calcTotalSulfide(input.h2sMeasured, ph, T, S);
+    totalSulfide = calcTotalSulfide(input.h2sMeasured, input.h2sMeasuredAtPH ?? ph, T, S);
   } else {
     totalSulfide = input.totalSulfide ?? 0;
   }

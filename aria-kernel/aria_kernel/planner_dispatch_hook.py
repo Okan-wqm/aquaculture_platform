@@ -79,6 +79,8 @@ def _serialise_claim_metadata_for_env(
     * claim_id, request_id, agent_id (control-plane identifiers)
     * expected_output_path, role, must_satisfy, allowed_scope,
       evidence_refs (envelope — fused into claim by §B.3)
+    * context_hash, prompt_hash, context_ledger_hash, prompt_ledger_hash
+      (model-visible context/prompt SSoT binding)
     * lease_expires_at (lease lifecycle anchor)
     * claim_ledger_hash, request_ledger_hash (§B.5 tamper-detection
       anchors — verified by the deserialiser against on-disk rows)
@@ -114,7 +116,7 @@ def _serialise_claim_metadata_for_env(
     # the env-var SERIALISER below (this function) was never updated
     # to PROPAGATE those fields to the ci_executor subprocess. Net
     # effect: claim dict in this process has full envelope; serialised
-    # ARIA_CLAIM_METADATA env var carries only a 11-field subset;
+    # ARIA_CLAIM_METADATA env var previously carried only an envelope subset;
     # ci_executor's ``request_envelope`` build (line 1542) reads None
     # for the missing fields; the prompt file's ``## Suggested prompt``
     # section is empty; cross_reviewer (and any role) refuses with
@@ -152,6 +154,10 @@ def _serialise_claim_metadata_for_env(
         "impact_graph_refs": claim.get("impact_graph_refs") or [],
         "validation_commands": claim.get("validation_commands") or [],
         "plan_revision_hash": claim.get("plan_revision_hash"),
+        "context_hash": claim.get("context_hash"),
+        "prompt_hash": claim.get("prompt_hash"),
+        "context_ledger_hash": claim.get("context_ledger_hash"),
+        "prompt_ledger_hash": claim.get("prompt_ledger_hash"),
         "lease_expires_at": claim.get("lease_expires_at"),
         "claim_ledger_hash": claim.get("claim_ledger_hash"),
         "request_ledger_hash": claim.get("request_ledger_hash"),

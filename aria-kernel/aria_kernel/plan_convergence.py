@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .agent_priors import reviewer_names
-from .ledger import append_jsonl, load_jsonl, verify_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl, verify_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -504,10 +504,14 @@ def list_active_plans(*, base_dir: str | Path | None = None) -> list[str]:
                 return [str(item) for item in cached["active_plan_ids"]]
         except (OSError, json.JSONDecodeError):
             pass
-    plan_ids = sorted({str(row.get("plan_id")) for row in load_jsonl(path) if row.get("plan_id")})
+    event_rows = load_declared_jsonl(
+        path,
+        expected_surface="plan_convergence_events",
+    )
+    plan_ids = sorted({str(row.get("plan_id")) for row in event_rows if row.get("plan_id")})
     active = [plan_id for plan_id in plan_ids if fold_plan_state(plan_id=plan_id, base_dir=root).get("state") not in TERMINAL_STATES]
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(json.dumps({"schema_version": 1, "events_hash": events_hash, "event_count": len(load_jsonl(path)), "active_plan_ids": active}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    cache_path.write_text(json.dumps({"schema_version": 1, "events_hash": events_hash, "event_count": len(event_rows), "active_plan_ids": active}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return active
 
 
@@ -878,7 +882,13 @@ def fold_plan_state(*, plan_id: str, base_dir: str | Path | None = None) -> dict
         # ai-safety MED-019 + arch-arbiter MED-009 both reference this
         # site. Closes performance PERF-CRIT-004 + PERF-MED-011.
         return copy.deepcopy(cached)
-    events = [row for row in load_jsonl(events_path(root)) if row.get("plan_id") == plan_id]
+    events = [
+        row for row in load_declared_jsonl(
+            events_path(root),
+            expected_surface="plan_convergence_events",
+        )
+        if row.get("plan_id") == plan_id
+    ]
     state = _initial_state(plan_id)
     for event in events:
         _validate_event(event)
@@ -929,7 +939,10 @@ def scan_orphan_implementation_requests(
         return []
     # Enumerate distinct plan_ids + track last_event_at per plan.
     plan_ids: dict[str, str | None] = {}
-    for event in load_jsonl(events_file):
+    for event in load_declared_jsonl(
+        events_file,
+        expected_surface="plan_convergence_events",
+    ):
         pid = event.get("plan_id")
         if isinstance(pid, str) and pid:
             ts = event.get("ts") or event.get("created_at")
@@ -1004,7 +1017,11 @@ def _append_event(
         "payload": payload,
     }
     _validate_event(event)
-    return append_jsonl(events_path(root), event)
+    return append_declared_jsonl(
+        events_path(root),
+        event,
+        expected_surface="plan_convergence_events",
+    )
 
 
 def _append_rejection(root: Path, kind: str, details: dict[str, Any]) -> dict[str, Any]:
@@ -1031,7 +1048,10 @@ def _canonical_json(payload: Any) -> str:
 
 
 def _find_by_idempotency(root: Path, key: str) -> dict[str, Any] | None:
-    for row in load_jsonl(events_path(root)):
+    for row in load_declared_jsonl(
+        events_path(root),
+        expected_surface="plan_convergence_events",
+    ):
         if row.get("idempotency_key") == key:
             return row
     return None
@@ -1070,9 +1090,11 @@ def _results_pair_hash_check(
     [row_a, row_b]}`` so callers can chain ledger writes against the
     pair without re-querying.
     """
-    from .ledger import load_jsonl as _load_jsonl
     root = Path(base_dir) if base_dir else Path.cwd()
-    results = _load_jsonl(root / "agent-invocations" / "results.jsonl")
+    results = load_declared_jsonl(
+        root / "agent-invocations" / "results.jsonl",
+        expected_surface="agent_invocation_results",
+    )
     candidates: list[dict[str, Any]] = []
     for row in results:
         if row.get("status") != "accepted":
@@ -1130,7 +1152,10 @@ def _cross_review_hash_mismatch(root: Path, payload: dict[str, Any]) -> dict[str
     if not request_id:
         return None
     expected = payload.get("review_content_hash")
-    for row in reversed(load_jsonl(root / "agent-invocations" / "results.jsonl")):
+    for row in reversed(load_declared_jsonl(
+        root / "agent-invocations" / "results.jsonl",
+        expected_surface="agent_invocation_results",
+    )):
         if row.get("request_id") == request_id:
             actual = row.get("content_hash")
             if actual != expected:

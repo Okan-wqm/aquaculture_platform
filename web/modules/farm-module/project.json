@@ -41,7 +41,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": "web/modules/farm-module",
-        "command": "npm run test"
+        "command": "npm run test:run"
       }
     }
   },

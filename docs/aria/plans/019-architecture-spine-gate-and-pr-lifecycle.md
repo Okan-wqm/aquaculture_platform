@@ -1,3 +1,5 @@
+<!-- ARIA-HISTORICAL: Historical plan document. Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
+
 # ARIA Plan 019 — Architecture Spine Gate, PR CLI, Auth Lane (operator-revised, reconstructed retrospectively)
 
 > **Branch:** `snowball`.

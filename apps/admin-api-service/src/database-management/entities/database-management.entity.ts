@@ -17,7 +17,13 @@ import {
 // Enums
 // ============================================================================
 
-export type SchemaStatus = 'creating' | 'active' | 'migrating' | 'suspended' | 'deleted';
+export type SchemaStatus =
+  | 'creating'
+  | 'active'
+  | 'migrating'
+  | 'suspended'
+  | 'pending_deletion'
+  | 'deleted';
 export type MigrationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'rolled_back';
 export type BackupStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'expired';
 export type BackupType = 'full' | 'incremental' | 'differential';
@@ -186,6 +192,8 @@ export class SchemaBackup {
     rowCount?: number;
     version?: string;
     compressionRatio?: number;
+    encryptionAlgorithm?: string;
+    encryptionKeyId?: string;
   };
 
   @Column({ type: 'timestamptz', nullable: true })
@@ -435,7 +443,6 @@ export interface RestoreOptions {
   targetSchemaName?: string;
   pointInTime?: Date;
   tablesToRestore?: string[];
-  skipValidation?: boolean;
 }
 
 export interface ConnectionPoolStatus {
@@ -454,7 +461,9 @@ export interface IndexRecommendation {
   indexType: 'btree' | 'hash' | 'gin' | 'gist';
   reason: string;
   estimatedImpact: 'high' | 'medium' | 'low';
-  createStatement: string;
+  recommendedAction: 'add_index' | 'review_unused_index';
+  indexName: string;
+  authority: 'db-migrate';
 }
 
 export interface DatabaseHealthStatus {

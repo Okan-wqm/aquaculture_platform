@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 const repoRoot = resolve(new URL('../..', import.meta.url).pathname);
@@ -9,16 +9,15 @@ const registryText = readFileSync(registryPath, 'utf8');
 const registry = JSON.parse(registryText);
 const registryHash = createHash('sha256').update(registryText).digest('hex');
 const generatorVersion = '1';
+const check = process.argv.includes('--check');
+const artifacts = [];
 
 function tsString(value) {
   return `'${String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`;
 }
 
-function write(path, content) {
-  const outputPath = resolve(repoRoot, path);
-  mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, `${content.trimEnd()}\n`);
-  console.log(`Generated ${path}`);
+function artifact(path, content) {
+  artifacts.push({ path, content: `${content.trimEnd()}\n` });
 }
 
 const gatewayLines = [
@@ -46,7 +45,7 @@ for (const subgraph of registry.subgraphs) {
 }
 gatewayLines.push('];');
 
-write('apps/gateway-api/src/config/federated-subgraphs.generated.ts', gatewayLines.join('\n'));
+artifact('apps/gateway-api/src/config/federated-subgraphs.generated.ts', gatewayLines.join('\n'));
 
 const supergraphLines = [
   '# Generated from infrastructure/apollo-router/subgraphs.json.',
@@ -63,9 +62,12 @@ for (const subgraph of registry.subgraphs) {
   supergraphLines.push(`      file: ${JSON.stringify(subgraph.schemaArtifactPath)}`);
 }
 
-write('infrastructure/apollo-router/supergraph-config.generated.yaml', supergraphLines.join('\n'));
+artifact(
+  'infrastructure/apollo-router/supergraph-config.generated.yaml',
+  supergraphLines.join('\n'),
+);
 
-write(
+artifact(
   'infrastructure/apollo-router/codegen-schema.generated.json',
   JSON.stringify(
     {
@@ -84,3 +86,35 @@ write(
     2,
   ),
 );
+
+const mismatches = [];
+for (const { path, content } of artifacts) {
+  const outputPath = resolve(repoRoot, path);
+  if (check) {
+    if (!existsSync(outputPath)) {
+      mismatches.push(`${path} is missing`);
+      continue;
+    }
+    const existing = readFileSync(outputPath, 'utf8');
+    if (existing !== content) {
+      mismatches.push(`${path} is out of date for registry SHA256 ${registryHash}`);
+    }
+    continue;
+  }
+
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, content);
+  console.log(`Generated ${path}`);
+}
+
+if (mismatches.length > 0) {
+  console.error('GraphQL registry generated artifacts are out of date:');
+  for (const mismatch of mismatches) {
+    console.error(`  - ${mismatch}`);
+  }
+  process.exit(1);
+}
+
+if (check) {
+  console.log(`GraphQL registry artifacts match SHA256 ${registryHash}.`);
+}

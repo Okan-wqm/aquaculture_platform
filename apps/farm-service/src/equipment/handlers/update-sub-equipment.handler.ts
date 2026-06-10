@@ -1,20 +1,28 @@
 /**
  * Update SubEquipment Command Handler
  */
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { ConflictException, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { ConflictException, InternalServerErrorException, NotFoundException, Logger } from '@nestjs/common';
+import { SubEquipmentUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
+
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
 import { UpdateSubEquipmentCommand } from '../commands/update-sub-equipment.command';
 import { SubEquipment } from '../entities/sub-equipment.entity';
+
+import { subEquipmentAuditSnapshot } from './equipment-audit.util';
 
 @CommandHandler(UpdateSubEquipmentCommand)
 export class UpdateSubEquipmentHandler implements ICommandHandler<UpdateSubEquipmentCommand, SubEquipment> {
   private readonly logger = new Logger(UpdateSubEquipmentHandler.name);
 
   constructor(
-    @InjectRepository(SubEquipment)
-    private readonly subEquipmentRepository: Repository<SubEquipment>,
+    private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateSubEquipmentCommand): Promise<SubEquipment> {
@@ -22,74 +30,91 @@ export class UpdateSubEquipmentHandler implements ICommandHandler<UpdateSubEquip
 
     this.logger.log(`Updating sub-equipment ${id} for tenant ${tenantId}`);
 
-    // Find existing sub-equipment
-    const subEquipment = await this.subEquipmentRepository.findOne({
-      where: { id, tenantId },
-      relations: ['subEquipmentType', 'parentEquipment'],
-    });
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const subEquipmentRepository = tenantManagerRepo(queryRunner.manager, SubEquipment, tenantId);
 
-    if (!subEquipment) {
-      throw new NotFoundException(`Sub-equipment with ID "${id}" not found`);
-    }
-
-    // Check for duplicate code if code is being changed
-    if (input.code && input.code !== subEquipment.code) {
-      const normalizedCode = input.code.toUpperCase();
-      const existingByCode = await this.subEquipmentRepository.findOne({
-        where: {
-          tenantId,
-          parentEquipmentId: subEquipment.parentEquipmentId,
-          code: normalizedCode,
-        },
+      const subEquipment = await subEquipmentRepository.findOne({
+        where: { id, tenantId },
+        relations: ['subEquipmentType', 'parentEquipment'],
       });
-      if (existingByCode && existingByCode.id !== id) {
-        throw new ConflictException(
-          `Sub-equipment with code "${normalizedCode}" already exists for this parent equipment`
+      if (!subEquipment) {
+        throw new NotFoundException(`Sub-equipment with ID "${id}" not found`);
+      }
+
+      const before = subEquipmentAuditSnapshot(subEquipment);
+
+      if (input.code && input.code.toUpperCase() !== subEquipment.code) {
+        const normalizedCode = input.code.toUpperCase();
+        const existingByCode = await subEquipmentRepository.findOne({
+          where: {
+            parentEquipmentId: subEquipment.parentEquipmentId,
+            code: normalizedCode,
+            tenantId,
+          },
+        });
+        if (existingByCode && existingByCode.id !== id) {
+          throw new ConflictException(
+            `Sub-equipment with code "${normalizedCode}" already exists for this parent equipment`,
+          );
+        }
+        input.code = normalizedCode;
+      }
+
+      if (input.serialNumber && input.serialNumber !== subEquipment.serialNumber) {
+        const existingBySerial = await subEquipmentRepository.findOne({
+          where: { serialNumber: input.serialNumber, tenantId },
+        });
+        if (existingBySerial && existingBySerial.id !== id) {
+          throw new ConflictException(`Sub-equipment with serial number "${input.serialNumber}" already exists`);
+        }
+      }
+
+      const { id: _id, ...updateFields } = input;
+      Object.assign(subEquipment, {
+        ...updateFields,
+        updatedBy: userId,
+      });
+
+      const saved = await subEquipmentRepository.save(subEquipment);
+
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'SubEquipment',
+        entityId: saved.id,
+        action: AuditAction.UPDATE,
+        userId,
+        changes: {
+          before,
+          after: subEquipmentAuditSnapshot(saved),
+        },
+        metadata: { source: 'SITES_SETUP_SUB_EQUIPMENT' },
+        entityVersion: saved.version,
+        summary: `Updated sub-equipment ${saved.code}`,
+      });
+
+      const event: SubEquipmentUpdatedEvent = {
+        ...createBaseEvent<SubEquipmentUpdatedEvent>('SubEquipmentUpdated', tenantId, {
+          aggregateId: saved.id,
+          aggregateType: 'SubEquipment',
+          userId,
+        }),
+        subEquipmentId: saved.id,
+        parentEquipmentId: saved.parentEquipmentId,
+        name: saved.name,
+        status: saved.status,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager, { aggregateId: saved.id });
+
+      const reloaded = await subEquipmentRepository.findOne({
+        where: { id: saved.id, tenantId },
+        relations: ['subEquipmentType', 'parentEquipment'],
+      });
+      if (!reloaded) {
+        throw new InternalServerErrorException(
+          `Sub-equipment ${saved.id} vanished between save and reload`,
         );
       }
-      input.code = normalizedCode;
-    }
-
-    // Check for duplicate serial number if serial number is being changed
-    if (input.serialNumber && input.serialNumber !== subEquipment.serialNumber) {
-      const existingBySerial = await this.subEquipmentRepository.findOne({
-        where: { tenantId, serialNumber: input.serialNumber },
-      });
-      if (existingBySerial && existingBySerial.id !== id) {
-        throw new ConflictException(`Sub-equipment with serial number "${input.serialNumber}" already exists`);
-      }
-    }
-
-    // Update fields - exclude id to prevent entity identity corruption
-    const { id: _id, ...updateFields } = input;
-    Object.assign(subEquipment, {
-      ...updateFields,
-      updatedBy: userId,
+      return reloaded;
     });
-
-    const updatedSubEquipment = await this.subEquipmentRepository.save(subEquipment);
-
-    this.logger.log(`Sub-equipment ${id} updated successfully`);
-
-    // Return with relations — ALWAYS scope post-write re-reads by
-    // tenantId. UUIDs are globally unique so filtering by id alone
-    // would work for the happy path, but the discipline keeps this
-    // line correct even if an upstream refactor weakens the
-    // initial tenant check; a crafted ID from another tenant would
-    // otherwise be served back through this handler.
-    const reloaded = await this.subEquipmentRepository.findOne({
-      where: { id: updatedSubEquipment.id, tenantId },
-      relations: ['subEquipmentType', 'parentEquipment'],
-    });
-    if (!reloaded) {
-      // Should not happen — we just saved the row — but a disappearing
-      // row mid-request is a real (albeit rare) concurrency case,
-      // and silently returning an `as Promise<SubEquipment>` lie
-      // would crash consumers downstream with a less-useful trace.
-      throw new InternalServerErrorException(
-        `Sub-equipment ${updatedSubEquipment.id} vanished between save and reload`,
-      );
-    }
-    return reloaded;
   }
 }

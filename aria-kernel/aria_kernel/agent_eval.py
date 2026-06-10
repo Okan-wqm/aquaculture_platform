@@ -48,7 +48,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
+from .ledger_refs import find_row_by_source_ledger_ref
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -59,6 +60,7 @@ from .tool_registry import (
 )
 
 EVAL_RUNS_PATH = ("agent-evals", "runs.jsonl")
+EVAL_FIXTURES_LEDGER_PATH = ("agent-evals", "fixtures.jsonl")
 EVAL_FIXTURES_DIR = ("agent-evals", "fixtures")
 EVAL_FIXTURE_SCHEMA = "aria/agent-eval-fixture/v1"
 EVAL_RUN_SCHEMA = "aria/agent-eval-run/v1"
@@ -94,6 +96,10 @@ _FIXTURE_ID_RE = re.compile(r"^[A-Z][A-Z0-9_-]{1,63}$")
 
 def _runs_path(tools_root: Path) -> Path:
     return tools_root.joinpath(*EVAL_RUNS_PATH)
+
+
+def _fixtures_ledger_path(tools_root: Path) -> Path:
+    return tools_root.joinpath(*EVAL_FIXTURES_LEDGER_PATH)
 
 
 def _fixtures_dir(tools_root: Path) -> Path:
@@ -155,7 +161,8 @@ def add_fixture(
     if path.exists():
         existing = json.loads(path.read_text(encoding="utf-8"))
         if existing.get("fixture_hash") == fixture_hash:
-            return existing
+            ledger = _find_fixture_row(root, fixture_id=str(fixture["fixture_id"]))
+            return ledger or existing
         raise GovernanceError(
             f"fixture {fixture['fixture_id']} already exists with different "
             f"content hash; refusing accidental fixture mutation"
@@ -164,33 +171,56 @@ def add_fixture(
     tmp = path.with_name(f".{path.name}.tmp")
     tmp.write_text(json.dumps(fixture, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp.replace(path)
-    return fixture
+    return _append_fixture_ledger_row(root, fixture)
 
 
 def list_fixtures(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     root = ensure_tools_dir_readonly(base_dir)
     if root is None:
         return []
-    fixtures_dir = _fixtures_dir(root)
-    if not fixtures_dir.exists():
-        return []
-    rows: list[dict[str, Any]] = []
-    for path in sorted(fixtures_dir.glob("*.json")):
-        try:
-            rows.append(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError):
-            continue
-    return rows
+    ledger_path = _fixtures_ledger_path(root)
+    if ledger_path.exists():
+        return load_declared_jsonl(ledger_path, expected_surface="agent_eval_fixtures")
+    return []
 
 
 def _read_fixture(*, fixture_id: str, base_dir: str | Path | None) -> dict[str, Any]:
     if not _FIXTURE_ID_RE.match(fixture_id):
         raise GovernanceError(f"fixture_id {fixture_id!r} format invalid")
     root = ensure_tools_dir(base_dir)
-    path = _fixtures_dir(root) / f"{fixture_id}.json"
+    ledger = _find_fixture_row(root, fixture_id=fixture_id)
+    if ledger is not None:
+        return ledger
+    raise GovernanceError(f"fixture {fixture_id} ledger row not found")
+
+
+def _find_fixture_row(root: Path, *, fixture_id: str) -> dict[str, Any] | None:
+    path = _fixtures_ledger_path(root)
     if not path.exists():
-        raise GovernanceError(f"fixture {fixture_id} not found")
-    return json.loads(path.read_text(encoding="utf-8"))
+        return None
+    matches = [
+        row for row in load_declared_jsonl(path, expected_surface="agent_eval_fixtures")
+        if row.get("fixture_id") == fixture_id
+    ]
+    if len(matches) > 1:
+        raise GovernanceError(f"fixture_ledger_ambiguous:{fixture_id}")
+    return matches[0] if matches else None
+
+
+def _append_fixture_ledger_row(root: Path, fixture: dict[str, Any]) -> dict[str, Any]:
+    fixture_id = str(fixture["fixture_id"])
+    if _find_fixture_row(root, fixture_id=fixture_id) is not None:
+        raise GovernanceError(f"fixture_ledger_duplicate:{fixture_id}")
+    row = {
+        "row_id": fixture_id,
+        "row_type": "fixture",
+        **dict(fixture),
+    }
+    return append_declared_jsonl(
+        _fixtures_ledger_path(root),
+        row,
+        expected_surface="agent_eval_fixtures",
+    )
 
 
 def _mock_response_envelope(fixture: dict[str, Any]) -> dict[str, Any]:
@@ -218,14 +248,20 @@ def run_agent_eval(
     repo_root: str | Path | None = None,
     mock_mode: bool = True,
     real_response_envelope: dict[str, Any] | None = None,
-    # Plan 023 v3 §A-8 — real-mode provenance binding. Real-mode runs
-    # require an invocation_id (UUIDv7 from upstream lease ledger) and
-    # transcript_hash (sha256 of captured transcript) so the eval row
-    # joins back to the actual agent invocation. Legacy callers that
-    # only file-feed the envelope MUST opt in via
-    # allow_legacy_envelope_feed=True + operator_approval_ref.
+    # Real-mode provenance binding. Real-mode runs require invocation_id
+    # and transcript_hash so the eval row joins back to declared claim,
+    # result and transcript ledgers. The legacy file-feed parameter is
+    # retained only as a hard-fail compatibility guard.
     invocation_id: str | None = None,
     transcript_hash: str | None = None,
+    request_ledger_ref: dict[str, Any] | None = None,
+    claim_ledger_ref: dict[str, Any] | None = None,
+    result_ledger_ref: dict[str, Any] | None = None,
+    fixture_ledger_ref: dict[str, Any] | None = None,
+    transcript_ledger_ref: dict[str, Any] | None = None,
+    operator_approval_ledger_ref: dict[str, Any] | None = None,
+    context_ledger_ref: dict[str, Any] | None = None,
+    prompt_ledger_ref: dict[str, Any] | None = None,
     allow_legacy_envelope_feed: bool = False,
     operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
@@ -249,6 +285,7 @@ def run_agent_eval(
     """
     enforce_profile_for_write("agent_evals", base_dir=base_dir)
     fixture = _read_fixture(fixture_id=fixture_id, base_dir=base_dir)
+    root = ensure_tools_dir(base_dir)
 
     if mock_mode:
         envelope = _mock_response_envelope(fixture)
@@ -260,28 +297,34 @@ def run_agent_eval(
                 "supervised CI executor; until DEBT-2026-05-08-001 closure, "
                 "real-mode runs are operator-only."
             )
-        # Plan 023 v3 §A-8 — provenance binding for real-mode evals.
-        # Pre-Plan-023 mock_mode=False accepted any caller-provided
-        # envelope dict without proof that an actual agent invocation
-        # produced it. Post-fix: invocation_id (lease ledger UUID) and
-        # transcript_hash are required UNLESS the caller opts into the
-        # documented legacy feed path with an operator approval ref.
-        if not invocation_id:
-            if not allow_legacy_envelope_feed:
-                raise GovernanceError(
-                    "real_eval_missing_provenance_fields: mock_mode=False "
-                    "requires invocation_id (UUIDv7 from the upstream lease "
-                    "ledger) AND transcript_hash. Pass them, OR opt in via "
-                    "allow_legacy_envelope_feed=True + operator_approval_ref "
-                    "(deprecated path; tracked via the "
-                    "agent_eval_legacy_envelope_feed governance event)."
-                )
-            if not (operator_approval_ref or "").strip():
-                raise GovernanceError(
-                    "legacy_envelope_feed_requires_operator_approval_ref: "
-                    "allow_legacy_envelope_feed=True without an explicit "
-                    "operator_approval_ref bypasses the audit trail. Refusing."
-                )
+        if allow_legacy_envelope_feed:
+            raise GovernanceError(
+                "real_eval_legacy_envelope_feed_removed: use a ledger-bound "
+                "invocation_id + transcript_hash recorded by submit_claim_result/"
+                "record_transcript"
+            )
+        if not invocation_id or not transcript_hash:
+            raise GovernanceError(
+                "real_eval_missing_provenance_fields: mock_mode=False requires "
+                "invocation_id and transcript_hash"
+            )
+        if not _is_sha256_digest(str(transcript_hash)):
+            raise GovernanceError("real_eval_transcript_hash_must_be_sha256")
+        _validate_real_eval_provenance(
+            root,
+            invocation_id=str(invocation_id),
+            transcript_hash=str(transcript_hash),
+            fixture_id=fixture_id,
+            target_agent=str(fixture["target_agent"]),
+            request_ledger_ref=request_ledger_ref,
+            claim_ledger_ref=claim_ledger_ref,
+            result_ledger_ref=result_ledger_ref,
+            fixture_ledger_ref=fixture_ledger_ref,
+            transcript_ledger_ref=transcript_ledger_ref,
+            operator_approval_ledger_ref=operator_approval_ledger_ref,
+            context_ledger_ref=context_ledger_ref,
+            prompt_ledger_ref=prompt_ledger_ref,
+        )
         envelope = dict(real_response_envelope)
         kind = "agent_eval_run_real"
 
@@ -314,16 +357,27 @@ def run_agent_eval(
         # runs (the synthesized envelope has no lease).
         "invocation_id": invocation_id,
         "transcript_hash": transcript_hash,
+        "request_ledger_ref": request_ledger_ref,
+        "claim_ledger_ref": claim_ledger_ref,
+        "result_ledger_ref": result_ledger_ref,
+        "fixture_ledger_ref": fixture_ledger_ref,
+        "transcript_ledger_ref": transcript_ledger_ref,
+        "operator_approval_ledger_ref": operator_approval_ledger_ref,
+        "context_ledger_ref": context_ledger_ref,
+        "prompt_ledger_ref": prompt_ledger_ref,
         "provenance_mode": (
             "mock" if mock_mode
-            else ("legacy_envelope_feed" if allow_legacy_envelope_feed else "real_invocation")
+            else "real_invocation"
         ),
-        "operator_approval_ref": operator_approval_ref if allow_legacy_envelope_feed else None,
+        "operator_approval_ref": operator_approval_ref,
     }
 
-    root = ensure_tools_dir(base_dir)
     _runs_path(root).parent.mkdir(parents=True, exist_ok=True)
-    append_jsonl(_runs_path(root), run_row)
+    append_declared_jsonl(
+        _runs_path(root),
+        run_row,
+        expected_surface="agent_evals",
+    )
     append_tools_governance(
         root,
         kind,
@@ -337,6 +391,192 @@ def run_agent_eval(
         },
     )
     return run_row
+
+
+def _validate_real_eval_provenance(
+    root: Path,
+    *,
+    invocation_id: str,
+    transcript_hash: str,
+    fixture_id: str,
+    target_agent: str,
+    request_ledger_ref: dict[str, Any] | None,
+    claim_ledger_ref: dict[str, Any] | None,
+    result_ledger_ref: dict[str, Any] | None,
+    fixture_ledger_ref: dict[str, Any] | None,
+    transcript_ledger_ref: dict[str, Any] | None,
+    operator_approval_ledger_ref: dict[str, Any] | None,
+    context_ledger_ref: dict[str, Any] | None = None,
+    prompt_ledger_ref: dict[str, Any] | None = None,
+) -> None:
+    refs = {
+        "request_ledger_ref": request_ledger_ref,
+        "claim_ledger_ref": claim_ledger_ref,
+        "context_ledger_ref": context_ledger_ref,
+        "prompt_ledger_ref": prompt_ledger_ref,
+        "result_ledger_ref": result_ledger_ref,
+        "fixture_ledger_ref": fixture_ledger_ref,
+        "transcript_ledger_ref": transcript_ledger_ref,
+        "operator_approval_ledger_ref": operator_approval_ledger_ref,
+    }
+    missing_refs = [name for name, ref in refs.items() if ref is None]
+    if missing_refs:
+        raise GovernanceError("real_eval_missing_provenance_refs:" + ",".join(missing_refs))
+
+    request = find_row_by_source_ledger_ref(
+        root,
+        request_ledger_ref or {},
+        expected_surface="agent_invocation_requests",
+        expected_row_type="request",
+    )
+    claim = find_row_by_source_ledger_ref(
+        root,
+        claim_ledger_ref or {},
+        expected_surface="agent_invocation_claims",
+        expected_row_type="claim",
+    )
+    result = find_row_by_source_ledger_ref(
+        root,
+        result_ledger_ref or {},
+        expected_surface="agent_invocation_results",
+        expected_row_type="result",
+    )
+    transcript = find_row_by_source_ledger_ref(
+        root,
+        transcript_ledger_ref or {},
+        expected_surface="agent_invocation_transcripts",
+        expected_row_type="transcript",
+    )
+    _validate_fixture_ledger_ref(
+        root,
+        fixture_ledger_ref or {},
+        fixture_id=fixture_id,
+        target_agent=target_agent,
+    )
+    operator = find_row_by_source_ledger_ref(
+        root,
+        operator_approval_ledger_ref or {},
+        expected_surface="operator_provenance",
+        expected_row_type="operator_approval",
+    )
+    _require_operator_approval_future(operator)
+    find_row_by_source_ledger_ref(
+        root,
+        context_ledger_ref or {},
+        expected_surface="agent_invocation_contexts",
+        expected_row_type="context",
+    )
+    find_row_by_source_ledger_ref(
+        root,
+        prompt_ledger_ref or {},
+        expected_surface="agent_invocation_prompts",
+        expected_row_type="prompt",
+    )
+
+    request_id = str(request.get("request_id") or "")
+    claim_id = str(claim.get("claim_id") or claim.get("invocation_id") or "")
+    missing = []
+    if not request_id:
+        missing.append("request_row_id")
+    if claim_id != invocation_id and str(claim.get("invocation_id") or "") != invocation_id:
+        missing.append("claim_row_invocation")
+    if str(claim.get("request_id") or "") != request_id:
+        missing.append("claim_row_request")
+    if (
+        str(result.get("claim_id") or result.get("invocation_id") or "") != invocation_id
+        and str(result.get("invocation_id") or "") != invocation_id
+    ):
+        missing.append("result_row_invocation")
+    if result.get("request_id") and str(result.get("request_id")) != request_id:
+        missing.append("result_row_request")
+    if result.get("status") != "accepted":
+        missing.append("result_row_status")
+    if str(result.get("transcript_hash") or result.get("output_transcript_hash") or "") != transcript_hash:
+        missing.append("result_row_transcript_hash")
+    if str(transcript.get("transcript_hash") or transcript.get("output_transcript_hash") or "") != transcript_hash:
+        missing.append("transcript_row_hash")
+    if (
+        str(transcript.get("invocation_id") or transcript.get("claim_id") or "") != invocation_id
+        and str(transcript.get("claim_id") or "") != invocation_id
+    ):
+        missing.append("transcript_row_invocation")
+    if transcript.get("request_id") and str(transcript.get("request_id")) != request_id:
+        missing.append("transcript_row_request")
+    if str(transcript.get("target_agent") or "") != target_agent:
+        missing.append("transcript_row_target_agent")
+    if transcript.get("fixture_run_id") and str(transcript.get("fixture_run_id")) != fixture_id:
+        missing.append("transcript_row_fixture")
+    _require_transcript_artifact_hash(transcript, transcript_hash=transcript_hash)
+    if missing:
+        raise GovernanceError("real_eval_provenance_unbound:" + ",".join(missing))
+
+
+def _validate_fixture_ledger_ref(
+    root: Path,
+    ref: dict[str, Any],
+    *,
+    fixture_id: str,
+    target_agent: str,
+) -> None:
+    row = find_row_by_source_ledger_ref(
+        root,
+        ref,
+        expected_surface="agent_eval_fixtures",
+        expected_row_type="fixture",
+    )
+    if row.get("fixture_id") != fixture_id:
+        raise GovernanceError("fixture_ledger_ref_fixture_id_mismatch")
+    if row.get("target_agent") != target_agent:
+        raise GovernanceError("fixture_ledger_ref_target_agent_mismatch")
+
+
+def _require_operator_approval_future(row: dict[str, Any]) -> None:
+    expires_at = row.get("expires_at")
+    if not isinstance(expires_at, str) or not expires_at.strip():
+        raise GovernanceError("operator_approval_expiry_required")
+    try:
+        parsed = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise GovernanceError("operator_approval_expiry_invalid") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    if parsed.astimezone(timezone.utc) <= datetime.now(timezone.utc):
+        raise GovernanceError("operator_approval_expired")
+
+
+def _require_transcript_artifact_hash(
+    row: dict[str, Any],
+    *,
+    transcript_hash: str,
+) -> None:
+    artifact = row.get("artifact_ref") or row.get("transcript_artifact_ref")
+    if artifact is None:
+        return
+    if isinstance(artifact, dict):
+        if artifact.get("sha256") != transcript_hash:
+            raise GovernanceError("transcript_artifact_hash_mismatch")
+        return
+    if isinstance(artifact, str) and artifact.startswith("sha256:"):
+        if artifact != transcript_hash:
+            raise GovernanceError("transcript_artifact_hash_mismatch")
+        return
+    if isinstance(artifact, str):
+        path = Path(artifact)
+        if not path.is_file():
+            raise GovernanceError("transcript_artifact_path_missing")
+        observed = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        if observed != transcript_hash:
+            raise GovernanceError("transcript_artifact_hash_mismatch")
+        return
+    raise GovernanceError("transcript_artifact_ref_invalid")
+
+
+def _is_sha256_digest(value: str) -> bool:
+    return (
+        value.startswith("sha256:")
+        and len(value) == len("sha256:") + 64
+        and all(ch in "0123456789abcdef" for ch in value[len("sha256:"):])
+    )
 
 
 def list_eval_runs(

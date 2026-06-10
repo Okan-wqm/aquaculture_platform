@@ -73,15 +73,35 @@ export class TenantProvisioningWorkflow1800400000000
         "lastError" TEXT NULL,
         "attempts" INTEGER NOT NULL DEFAULT 0,
         "nextRetryAt" TIMESTAMPTZ NULL,
+        "leaseToken" UUID NULL,
+        "leasedBy" VARCHAR(128) NULL,
+        "heartbeatAt" TIMESTAMPTZ NULL,
+        "leaseExpiresAt" TIMESTAMPTZ NULL,
         "startedAt" TIMESTAMPTZ NULL,
         "completedAt" TIMESTAMPTZ NULL,
         "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
         "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT "chk_tenant_provisioning_runs_state"
-          CHECK ("state" IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED')),
-        CONSTRAINT "fk_tenant_provisioning_runs_tenant"
-          FOREIGN KEY ("tenantId") REFERENCES "auth"."tenants"("id") ON DELETE CASCADE
+          CHECK ("state" IN ('QUEUED', 'RESERVING', 'RUNNING', 'SUCCEEDED', 'FAILED'))
       )
+    `);
+
+    await queryRunner.query(`
+      ALTER TABLE "admin"."tenant_provisioning_runs"
+        ADD COLUMN IF NOT EXISTS "leaseToken" UUID NULL,
+        ADD COLUMN IF NOT EXISTS "leasedBy" VARCHAR(128) NULL,
+        ADD COLUMN IF NOT EXISTS "heartbeatAt" TIMESTAMPTZ NULL,
+        ADD COLUMN IF NOT EXISTS "leaseExpiresAt" TIMESTAMPTZ NULL
+    `);
+    await queryRunner.query(`
+      ALTER TABLE "admin"."tenant_provisioning_runs"
+        DROP CONSTRAINT IF EXISTS "fk_tenant_provisioning_runs_tenant"
+    `);
+    await queryRunner.query(`
+      ALTER TABLE "admin"."tenant_provisioning_runs"
+        DROP CONSTRAINT IF EXISTS "chk_tenant_provisioning_runs_state",
+        ADD CONSTRAINT "chk_tenant_provisioning_runs_state"
+          CHECK ("state" IN ('QUEUED', 'RESERVING', 'RUNNING', 'SUCCEEDED', 'FAILED'))
     `);
 
     await queryRunner.query(`
@@ -96,12 +116,17 @@ export class TenantProvisioningWorkflow1800400000000
       CREATE INDEX IF NOT EXISTS "idx_tenant_provisioning_runs_state"
         ON "admin"."tenant_provisioning_runs" ("state", "nextRetryAt", "createdAt")
     `);
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS "idx_tenant_provisioning_runs_lease"
+        ON "admin"."tenant_provisioning_runs" ("state", "leaseExpiresAt")
+    `);
 
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "admin"."tenant_provisioning_steps" (
         "id" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
         "runId" UUID NOT NULL,
         "stepName" VARCHAR(100) NOT NULL,
+        "stepOrder" INTEGER NOT NULL DEFAULT 999,
         "state" VARCHAR(20) NOT NULL DEFAULT 'QUEUED',
         "attempts" INTEGER NOT NULL DEFAULT 0,
         "lastError" TEXT NULL,
@@ -118,25 +143,65 @@ export class TenantProvisioningWorkflow1800400000000
     `);
 
     await queryRunner.query(`
+      ALTER TABLE "admin"."tenant_provisioning_steps"
+        ADD COLUMN IF NOT EXISTS "stepOrder" INTEGER NOT NULL DEFAULT 999
+    `);
+
+    await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "idx_tenant_provisioning_steps_run"
         ON "admin"."tenant_provisioning_steps" ("runId", "createdAt")
+    `);
+
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS "admin"."tenant_onboarding_acks" (
+        "id" UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "operationId" UUID NOT NULL,
+        "tenantId" UUID NOT NULL,
+        "service" VARCHAR(128) NOT NULL,
+        "status" VARCHAR(20) NOT NULL,
+        "error" TEXT NULL,
+        "acknowledgedAt" TIMESTAMPTZ NULL,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT "chk_tenant_onboarding_acks_status"
+          CHECK ("status" IN ('ACK', 'FAILED')),
+        CONSTRAINT "uk_tenant_onboarding_acks_operation_service"
+          UNIQUE ("operationId", "service")
+      )
+    `);
+
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS "idx_tenant_onboarding_acks_operation"
+        ON "admin"."tenant_onboarding_acks" ("operationId", "status")
     `);
 
     await queryRunner.query(`
       DO $admin_service_tenant_provisioning_permissions$
       BEGIN
         IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_service') THEN
-          EXECUTE format('GRANT CREATE ON DATABASE %I TO admin_service', current_database());
-
           GRANT USAGE ON SCHEMA "auth", "admin", "shared" TO "admin_service";
 
-          GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
-            "auth"."tenants",
+          GRANT SELECT ON TABLE
+            "auth"."tenants"
+          TO "admin_service";
+
+          REVOKE INSERT, UPDATE, DELETE ON TABLE
+            "auth"."tenants"
+          FROM "admin_service";
+
+          GRANT SELECT ON TABLE
             "auth"."tenant_modules",
             "auth"."tenant_roles",
             "auth"."users",
             "auth"."invitations"
           TO "admin_service";
+
+          REVOKE INSERT, UPDATE, DELETE ON TABLE
+            "auth"."tenant_modules",
+            "auth"."tenant_roles",
+            "auth"."users",
+            "auth"."invitations"
+          FROM "admin_service";
 
           GRANT SELECT ON TABLE "auth"."modules" TO "admin_service";
 
@@ -150,7 +215,8 @@ export class TenantProvisioningWorkflow1800400000000
             "admin"."audit_logs",
             "admin"."admin_outbox",
             "admin"."tenant_provisioning_runs",
-            "admin"."tenant_provisioning_steps"
+            "admin"."tenant_provisioning_steps",
+            "admin"."tenant_onboarding_acks"
           TO "admin_service";
         END IF;
       END $admin_service_tenant_provisioning_permissions$;

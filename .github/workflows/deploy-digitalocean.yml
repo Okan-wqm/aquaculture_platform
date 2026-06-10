@@ -368,17 +368,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ── Service definitions ──
-          # WS10: db-migrate is a one-shot tooling container that bundles
-          # every service's migrations; it ships as a backend image but is
-          # NOT a subgraph (gateway federation / CORS unaffected). Listed
-          # first so the deploy workflow's selective-deploy logic pulls
-          # the latest migration image before restarting service containers.
-          ALL_BACKEND=(db-migrate gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service)
-          ALL_FRONTEND=(shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil)
-          ALL_INFRA_IMAGES=(mosquitto)
-          NX_FRONTEND=(shell dashboard farm-module admin-panel tenant-admin)
-          NON_NX_FRONTEND=(sensor-module hr-module hydroponics-module)
+          # ── Service definitions from generated platform service catalog ──
+          CATALOG_DEPLOY_ENV="infrastructure/deploy/service-catalog.deploy.vars"
+          if [ ! -r "${CATALOG_DEPLOY_ENV}" ]; then
+            echo "::error::Missing generated service catalog deploy artifact: ${CATALOG_DEPLOY_ENV}"
+            echo "Run npm run service-catalog:generate and commit the generated artifact."
+            exit 1
+          fi
+          # shellcheck source=infrastructure/deploy/service-catalog.deploy.vars
+          . "${CATALOG_DEPLOY_ENV}"
+          read -r -a ALL_BACKEND <<< "${CATALOG_BACKEND_IMAGE_SERVICES:?generated backend image services missing}"
+          read -r -a ALL_FRONTEND <<< "${CATALOG_FRONTEND_IMAGE_SERVICES:?generated frontend image services missing}"
+          read -r -a ALL_INFRA_IMAGES <<< "${CATALOG_INFRA_IMAGE_SERVICES:?generated infra image services missing}"
+          read -r -a NX_FRONTEND <<< "${CATALOG_NX_FRONTEND_PROJECTS:-}"
+          read -r -a NON_NX_FRONTEND <<< "${CATALOG_NON_NX_FRONTEND_PROJECTS:-}"
 
           AFFECTED_BACKEND=()
           AFFECTED_FRONTEND=()
@@ -527,34 +530,13 @@ jobs:
           fi
 
           if [ ${#AFFECTED_FRONTEND[@]} -gt 0 ]; then
-            # Build frontend image matrix JSON
-            FE_MATRIX="["
-            first=true
-            for mod in "${AFFECTED_FRONTEND[@]}"; do
-              [ "$first" = true ] || FE_MATRIX+=","
-              first=false
-              case "$mod" in
-                shell)      FE_MATRIX+="{\"module\":\"shell\",\"dockerfile\":\"infrastructure/docker/Dockerfile.shell\",\"module_path\":\"web/shell\"}" ;;
-                aquamobil)  FE_MATRIX+="{\"module\":\"aquamobil\",\"dockerfile\":\"infrastructure/docker/Dockerfile.aquamobil\",\"module_path\":\"web/apps/aquamobil\"}" ;;
-                *)          FE_MATRIX+="{\"module\":\"${mod}\",\"dockerfile\":\"infrastructure/docker/Dockerfile.microfrontend.simple\",\"module_path\":\"web/modules/${mod}\"}" ;;
-              esac
-            done
-            FE_MATRIX+="]"
+            FE_MATRIX=$(node -e 'const fs=require("fs"); const selected=new Set(process.argv.slice(1)); const data=JSON.parse(fs.readFileSync("infrastructure/deploy/service-catalog.generated.json","utf8")); const matrix=(data.deploy?.frontendImageMatrix ?? []).filter((entry)=>selected.has(entry.module)); if (matrix.length !== selected.size) { const known=new Set(matrix.map((entry)=>entry.module)); const missing=[...selected].filter((name)=>!known.has(name)); throw new Error(`Unknown frontend deploy matrix service(s): ${missing.join(", ")}`); } console.log(JSON.stringify(matrix));' "${AFFECTED_FRONTEND[@]}")
           else
             FE_MATRIX="[]"
           fi
 
           if [ ${#AFFECTED_INFRA_IMAGES[@]} -gt 0 ]; then
-            INFRA_MATRIX="["
-            first=true
-            for image in "${AFFECTED_INFRA_IMAGES[@]}"; do
-              [ "$first" = true ] || INFRA_MATRIX+=","
-              first=false
-              case "$image" in
-                mosquitto) INFRA_MATRIX+="{\"image\":\"mosquitto\",\"dockerfile\":\"infrastructure/mosquitto/Dockerfile\",\"context\":\"infrastructure/mosquitto\"}" ;;
-              esac
-            done
-            INFRA_MATRIX+="]"
+            INFRA_MATRIX=$(node -e 'const fs=require("fs"); const selected=new Set(process.argv.slice(1)); const data=JSON.parse(fs.readFileSync("infrastructure/deploy/service-catalog.generated.json","utf8")); const matrix=(data.deploy?.infraImageMatrix ?? []).filter((entry)=>selected.has(entry.image)); if (matrix.length !== selected.size) { const known=new Set(matrix.map((entry)=>entry.image)); const missing=[...selected].filter((name)=>!known.has(name)); throw new Error(`Unknown infra deploy matrix service(s): ${missing.join(", ")}`); } console.log(JSON.stringify(matrix));' "${AFFECTED_INFRA_IMAGES[@]}")
           else
             INFRA_MATRIX="[]"
           fi

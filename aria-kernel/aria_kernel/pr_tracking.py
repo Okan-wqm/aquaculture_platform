@@ -6,12 +6,51 @@ from pathlib import Path
 from typing import Any
 
 from .feedback_store import findings_path
-from .ledger import append_jsonl, load_jsonl, rewrite_jsonl
+from .ledger import (
+    append_declared_jsonl,
+    append_jsonl as _append_jsonl,
+    load_declared_jsonl,
+    load_jsonl as _load_jsonl,
+    rewrite_jsonl,
+)
 from .memory import latest_beliefs
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 
 
 PR_EVENTS = {"opened", "synchronize", "reopened", "closed", "merged"}
+
+
+_DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
+    "pr-events.jsonl": "pr_events",
+    "merge-events.jsonl": "merge_events",
+    "evidence-impact.jsonl": "evidence_impact",
+    "cycle-state/incremental-plans.jsonl": "cycle_incremental_plans",
+    "memory/beliefs.jsonl": "memory_beliefs",
+    "memory/learning-events.jsonl": "memory_learning_events",
+}
+
+
+def _declared_surface_name(path: str | Path) -> str | None:
+    concrete = Path(path)
+    if len(concrete.parts) >= 2:
+        suffix = "/".join(concrete.parts[-2:])
+        if suffix in _DECLARED_SURFACE_BY_JSONL_SUFFIX:
+            return _DECLARED_SURFACE_BY_JSONL_SUFFIX[suffix]
+    return _DECLARED_SURFACE_BY_JSONL_SUFFIX.get(concrete.name)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return append_declared_jsonl(path, record, expected_surface=surface)
+    return _append_jsonl(path, record)
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _declared_surface_name(path)
+    if surface is not None:
+        return load_declared_jsonl(path, expected_surface=surface)
+    return _load_jsonl(path)
 
 
 def observe_pr_event(

@@ -14,15 +14,21 @@ function uncommentedLines(text: string): string[] {
     .filter((line) => !line.trimStart().startsWith('#'));
 }
 
+function extractComposeServiceBlock(compose: string, serviceName: string): string {
+  return (
+    new RegExp(`\\n  ${serviceName}:\\n[\\s\\S]*?(?=\\n  [a-zA-Z0-9_-]+:\\n|\\n\\S|\\s*$)`).exec(
+      `\n${compose}`,
+    )?.[0] ?? ''
+  );
+}
+
 describe('deploy SSOT contract', () => {
   it('keeps production/staging compose on registry images only', () => {
     for (const path of ['docker-compose.droplet.yml', 'docker-compose.staging.yml']) {
       const lines = uncommentedLines(read(path));
 
       expect(lines.filter((line) => /^\s+build:\s*/.test(line))).toEqual([]);
-      expect(lines.filter((line) => line.includes('${TAG:-latest}'))).toEqual(
-        [],
-      );
+      expect(lines.filter((line) => line.includes('${TAG:-latest}'))).toEqual([]);
     }
   });
 
@@ -42,9 +48,7 @@ describe('deploy SSOT contract', () => {
   });
 
   it('records deploy capacity and rollback metadata in the release ledger', () => {
-    const sql = read(
-      'apps/db-migrate/src/sql/platform-bootstrap/007-bootstrap-signal.sql',
-    );
+    const sql = read('apps/db-migrate/src/sql/platform-bootstrap/007-bootstrap-signal.sql');
     const deploy = read('scripts/deploy/droplet-up.sh');
 
     for (const column of [
@@ -55,6 +59,86 @@ describe('deploy SSOT contract', () => {
     ]) {
       expect(sql).toContain(column);
       expect(deploy).toContain(column);
+    }
+  });
+
+  it('covers platform bootstrap DDL authority stages 008 and 009', () => {
+    const leastPrivilege = read(
+      'apps/db-migrate/src/sql/platform-bootstrap/008-least-privilege-hardening.sql',
+    );
+    const provisioner = read(
+      'apps/db-migrate/src/sql/platform-bootstrap/009-tenant-schema-provisioner.sql',
+    );
+    const provisioningFunction = provisioner.split(
+      'CREATE OR REPLACE FUNCTION platform.request_tenant_schema_deletion',
+    )[0];
+    const deletionFunction =
+      provisioner.split('CREATE OR REPLACE FUNCTION platform.request_tenant_schema_deletion')[1] ??
+      '';
+
+    expect(leastPrivilege).toContain('Platform Bootstrap — Stage 8 of 9');
+    expect(leastPrivilege).toContain('db_migrate is the only role granted schema-owner membership');
+    expect(leastPrivilege).toContain('CREATE ROLE db_migrate NOLOGIN');
+    expect(leastPrivilege).toContain("EXECUTE format('GRANT %I TO db_migrate'");
+    expect(leastPrivilege).toContain("EXECUTE format('REVOKE CREATE ON DATABASE %I FROM %I'");
+
+    expect(provisioner).toContain('Platform Bootstrap — Stage 9');
+    expect(provisioner).toContain('aqua-db-migrate provisioner is the sole DDL worker');
+    expect(provisioner).toContain('platform.tenant_schema_jobs');
+    expect(provisioner).toContain(
+      'aqua-db-migrate owns DDL and admin.tenant_schemas commit evidence',
+    );
+    expect(provisioningFunction).toContain("'PROVISION'");
+    expect(provisioningFunction).not.toContain(
+      'Tenant schema deletion requires cleanupProof evidence',
+    );
+    expect(deletionFunction).toContain("'DELETE'");
+    expect(deletionFunction).toContain('Tenant schema deletion requires cleanupProof evidence');
+    expect(deletionFunction).toContain('Tenant schema deletion requires encrypted backup evidence');
+  });
+
+  it('keeps runtime services out of production DDL authority in compose', () => {
+    const runtimeServicesByCompose: Record<string, string[]> = {
+      'docker-compose.prod.yml': [
+        'gateway-api',
+        'auth-service',
+        'farm-service',
+        'sensor-service',
+        'hr-service',
+        'billing-service',
+        'alert-engine',
+        'notification-service',
+        'admin-api-service',
+        'observability-service',
+      ],
+      'docker-compose.droplet.yml': [
+        'gateway-api',
+        'auth-service',
+        'farm-service',
+        'sensor-service',
+        'admin-api-service',
+        'alert-engine',
+        'billing-service',
+        'hr-service',
+        'hydroponics-service',
+        'notification-service',
+        'observability-service',
+        'config-service',
+        'event-store-service',
+        'messaging-service',
+      ],
+    };
+
+    for (const [composePath, services] of Object.entries(runtimeServicesByCompose)) {
+      const compose = read(composePath);
+      expect(compose).not.toContain('DB_MIGRATE_DDL_AUTHORITY');
+
+      for (const service of services) {
+        const block = extractComposeServiceBlock(compose, service);
+        expect(block).toContain(`${service}:`);
+        expect(block).toMatch(/DB_MIGRATE_AUTHORITATIVE:\s*["']true["']/);
+        expect(block).toMatch(/DATABASE_MIGRATIONS_RUN:\s*["']false["']/);
+      }
     }
   });
 
@@ -73,6 +157,38 @@ describe('deploy SSOT contract', () => {
     expect(maintenance).toContain('bash scripts/deploy/droplet-capacity.sh gc');
     expect(maintenance).toContain(
       'CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate',
+    );
+  });
+
+  it('routes required-secret validation through the canonical npm script', () => {
+    const packageJson = JSON.parse(read('package.json')) as {
+      scripts?: Record<string, string>;
+    };
+    const workflows = [
+      read('.github/workflows/ci-affected.yml'),
+      read('.github/workflows/ci-full.yml'),
+    ].join('\n');
+
+    expect(packageJson.scripts?.['validate:required-secrets']).toBe(
+      'node scripts/ci/validate-secrets-manifest.ts',
+    );
+    expect(workflows).toContain('npm run validate:required-secrets');
+    expect(workflows).not.toContain('python3 scripts/ci/validate-required-secrets.py');
+  });
+
+  it('keeps messaging NATS ACL smoke split into static, external, and repo-managed live gates', () => {
+    const packageJson = JSON.parse(read('package.json')) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(packageJson.scripts?.['smoke:nats-messaging-acl:static']).toBe(
+      'node scripts/nats/messaging-acl-smoke.mjs --mode static',
+    );
+    expect(packageJson.scripts?.['smoke:nats-messaging-acl:external']).toBe(
+      'node scripts/nats/messaging-acl-smoke.mjs --mode live',
+    );
+    expect(packageJson.scripts?.['smoke:nats-messaging-acl']).toBe(
+      'bash scripts/nats/messaging-acl-smoke-harness.sh',
     );
   });
 });

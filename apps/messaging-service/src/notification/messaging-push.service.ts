@@ -11,7 +11,13 @@ import { randomUUID } from 'crypto';
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  NOTIFICATION_COMMAND_SUBJECTS,
+  type NotificationSendPushCommand,
+  type NotificationSendResult,
+} from '@platform/event-contracts';
 import Redis from 'ioredis';
+import { firstValueFrom, timeout } from 'rxjs';
 import { Repository, IsNull } from 'typeorm';
 
 import { ChannelMember, NotificationPreference } from '../channel/entities/channel-member.entity';
@@ -23,6 +29,7 @@ import { REDIS_CLIENT } from '../shared/redis.provider';
 const DEDUP_TTL_SECONDS = 30;
 /** Notification refs are short-lived, one-time pointers resolved after app auth. */
 const NOTIFICATION_REF_TTL_SECONDS = 10 * 60;
+const NOTIFICATION_COMMAND_TIMEOUT_MS = 10_000;
 
 /** Pattern to extract @mention user IDs from message metadata. */
 interface MessageSentPayload {
@@ -36,17 +43,6 @@ interface MessageSentPayload {
   createdAt: string;
   mentionedUserIds?: string[];
   senderDisplayName?: string;
-}
-
-interface PushCommandPayload {
-  userId: string;
-  title: string;
-  body: string;
-  data: {
-    type: string;
-    notificationRef: string;
-  };
-  badge: number;
 }
 
 /**
@@ -124,55 +120,88 @@ export class MessagingPushService implements OnModuleInit {
 
       // 5. Dedup + dispatch
       const senderName = payload.senderDisplayName ?? 'Someone';
+      let dispatchedCount = 0;
 
       for (const member of offlineUsers) {
         const dedupKey = `msg:push:dedup:${tenantId}:${channelId}:${member.userId}`;
-        const alreadySent = await this.safeRedisGet(dedupKey);
+        let notificationRefKey: string | undefined;
+        try {
+          const dedupClaimed = await this.safeRedisSetNx(dedupKey, DEDUP_TTL_SECONDS, messageId);
+          if (!dedupClaimed) {
+            this.logger.debug(
+              `Dedup: skipping push for user ${member.userId} in channel ${channelId}`,
+            );
+            continue;
+          }
 
-        if (alreadySent) {
-          this.logger.debug(
-            `Dedup: skipping push for user ${member.userId} in channel ${channelId}`,
+          // Get unread count for badge
+          const unreadCount = await this.messageService.getUnreadCount(member.userId, tenantId);
+          const notificationRef = randomUUID();
+          notificationRefKey = this.notificationRefKey(tenantId, member.userId, notificationRef);
+          await this.safeRedisSetEx(
+            notificationRefKey,
+            NOTIFICATION_REF_TTL_SECONDS,
+            JSON.stringify({
+              tenantId,
+              userId: member.userId,
+              channelId,
+              messageId,
+              messageCreatedAt: payload.createdAt,
+            }),
           );
-          continue;
-        }
 
-        // Get unread count for badge
-        const unreadCount = await this.messageService.getUnreadCount(member.userId, tenantId);
-        const notificationRef = randomUUID();
-        await this.safeRedisSetEx(
-          this.notificationRefKey(tenantId, member.userId, notificationRef),
-          NOTIFICATION_REF_TTL_SECONDS,
-          JSON.stringify({
+          // SECURITY: NEVER include message content or direct channel/message IDs
+          // in push payload. The app resolves notificationRef after auth.
+          const requestReference = `messaging:${tenantId}:${messageId}:push:${member.userId}`;
+          const pushPayload: NotificationSendPushCommand = {
+            deliveryId: requestReference,
+            requestReference,
             tenantId,
-            userId: member.userId,
-            channelId,
-            messageId,
-            messageCreatedAt: payload.createdAt,
-          }),
-        );
+            source: 'messaging-service',
+            recipientRef: {
+              kind: 'userId',
+              ref: member.userId,
+            },
+            templateId: 'messaging.chat.message.push',
+            templateVersion: '1',
+            templateVariables: {
+              senderName,
+              badge: unreadCount,
+              type: 'CHAT_MESSAGE',
+              notificationRef,
+            },
+            metadata: {
+              type: 'CHAT_MESSAGE',
+              notificationRef,
+            },
+          };
 
-        // SECURITY: NEVER include message content or direct channel/message IDs
-        // in push payload. The app resolves notificationRef after auth.
-        const pushPayload: PushCommandPayload = {
-          userId: member.userId,
-          title: senderName,
-          body: 'Sent you a message',
-          data: {
-            type: 'CHAT_MESSAGE',
-            notificationRef,
-          },
-          badge: unreadCount,
-        };
-
-        // Publish NATS command to notification-service
-        this.natsClient.emit('commands.notification.sendPush', pushPayload);
-
-        // Set dedup key with TTL
-        await this.safeRedisSetEx(dedupKey, DEDUP_TTL_SECONDS, '1');
+          const result = await firstValueFrom(
+            this.natsClient
+              .send<
+                NotificationSendResult,
+                NotificationSendPushCommand
+              >(NOTIFICATION_COMMAND_SUBJECTS.SEND_PUSH, pushPayload)
+              .pipe(timeout(NOTIFICATION_COMMAND_TIMEOUT_MS)),
+          );
+          if (!result.success) {
+            throw new Error(result.error ?? 'Notification command failed');
+          }
+          dispatchedCount += 1;
+        } catch (recipientError) {
+          await this.safeRedisDel(dedupKey);
+          if (notificationRefKey) {
+            await this.safeRedisDel(notificationRefKey);
+          }
+          this.logger.error(
+            `Failed to dispatch push notification for user ${member.userId}: ` +
+              `${recipientError instanceof Error ? recipientError.message : String(recipientError)}`,
+          );
+        }
       }
 
       this.logger.debug(
-        `Push dispatched for ${offlineUsers.length} users in channel ${channelId}`,
+        `Push dispatched for ${dispatchedCount}/${offlineUsers.length} users in channel ${channelId}`,
       );
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -182,22 +211,29 @@ export class MessagingPushService implements OnModuleInit {
     }
   }
 
-  /** Safe Redis GET with graceful degradation. */
-  private async safeRedisGet(key: string): Promise<string | null> {
-    try {
-      return await this.redis.get(key);
-    } catch (err) {
-      this.logger.warn(`Redis GET failed: ${(err as Error).message}`);
-      return null;
-    }
-  }
-
-  /** Safe Redis SETEX with graceful degradation. */
+  /** Redis SETEX used for notification refs; failure must stop dispatch. */
   private async safeRedisSetEx(key: string, ttl: number, value: string): Promise<void> {
     try {
       await this.redis.setex(key, ttl, value);
     } catch (err) {
-      this.logger.warn(`Redis SETEX failed: ${(err as Error).message}`);
+      throw new Error(`Redis SETEX failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async safeRedisSetNx(key: string, ttl: number, value: string): Promise<boolean> {
+    try {
+      const result = await this.redis.set(key, value, 'EX', ttl, 'NX');
+      return result === 'OK';
+    } catch (err) {
+      throw new Error(`Redis SET NX EX failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async safeRedisDel(key: string): Promise<void> {
+    try {
+      await this.redis.del(key);
+    } catch (err) {
+      this.logger.warn(`Redis DEL failed for ${key}: ${(err as Error).message}`);
     }
   }
 

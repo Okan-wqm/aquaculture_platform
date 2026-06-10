@@ -183,6 +183,77 @@ export class Baseline1800000000000 implements MigrationInterface {
         await queryRunner.query(`CREATE TABLE "sensor"."audit_archive_v1" ("tenant_id" uuid NOT NULL, "migrated_at" TIMESTAMP WITH TIME ZONE NOT NULL, "archive_id" uuid NOT NULL, "device_id" uuid, "event_type" character varying(64) NOT NULL, "event_payload" jsonb NOT NULL, "event_payload_hash" bytea NOT NULL, "chain_hash" bytea NOT NULL, "prev_chain_hash" bytea, "occurred_at" TIMESTAMP WITH TIME ZONE NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_839ca6b511e09658337129100b6" PRIMARY KEY ("migrated_at", "archive_id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_8e8e771463f3a18e8ea0aaa028" ON "sensor"."audit_archive_v1" ("tenant_id", "chain_hash") `);
         await queryRunner.query(`CREATE INDEX "IDX_b00798fd4599455307b19834bb" ON "sensor"."audit_archive_v1" ("tenant_id", "device_id", "migrated_at") `);
+        await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS btree_gist`);
+        await queryRunner.query(`ALTER TABLE "sensor"."devices" ADD CONSTRAINT "CHK_edge_devices_trust_bundle_sha256_len" CHECK (octet_length("trust_bundle_sha256") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."devices" ADD CONSTRAINT "CHK_edge_devices_provisioning_blob_sha256_len" CHECK ("provisioning_blob_sha256" IS NULL OR octet_length("provisioning_blob_sha256") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."devices" ADD CONSTRAINT "CHK_edge_devices_audit_attestation_pubkey_len" CHECK ("device_audit_attestation_pubkey" IS NULL OR octet_length("device_audit_attestation_pubkey") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."policies" ADD CONSTRAINT "CHK_edge_policies_policy_sha256_len" CHECK (octet_length("policy_sha256") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."licenses" ADD CONSTRAINT "CHK_edge_licenses_license_sha256_len" CHECK (octet_length("license_sha256") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."firmware_releases" ADD CONSTRAINT "CHK_edge_firmware_artifact_sha256_len" CHECK (octet_length("artifact_sha256") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."firmware_releases" ADD CONSTRAINT "CHK_edge_firmware_sbom_sha256_len" CHECK (octet_length("sbom_sha256") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."provisioning_records" ADD CONSTRAINT "CHK_edge_provisioning_fingerprint_sha256_len" CHECK (octet_length("fingerprint_sha256") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."provisioning_records" ADD CONSTRAINT "CHK_edge_provisioning_bundle_sha256_len" CHECK (octet_length("bundle_sha256") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."witnesses" ADD CONSTRAINT "CHK_edge_witness_signature_len" CHECK (octet_length("witness_signature") = 64)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."audit_archive_v1" ADD CONSTRAINT "CHK_edge_audit_event_payload_hash_len" CHECK (octet_length("event_payload_hash") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."audit_archive_v1" ADD CONSTRAINT "CHK_edge_audit_chain_hash_len" CHECK (octet_length("chain_hash") = 32)`);
+        await queryRunner.query(`ALTER TABLE "sensor"."audit_archive_v1" ADD CONSTRAINT "CHK_edge_audit_prev_chain_hash_len" CHECK ("prev_chain_hash" IS NULL OR octet_length("prev_chain_hash") = 32)`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "UQ_edge_policies_current" ON "sensor"."policies" ("tenant_id", "device_id") WHERE "is_current"`);
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "sensor".edge_policies_current_swap()
+            RETURNS trigger AS $edge_policy_current$
+            BEGIN
+              IF NEW.is_current THEN
+                UPDATE "sensor"."policies"
+                   SET "is_current" = false
+                 WHERE "tenant_id" = NEW."tenant_id"
+                   AND "device_id" = NEW."device_id"
+                   AND "policy_id" <> NEW."policy_id"
+                   AND "is_current" = true;
+              END IF;
+              RETURN NEW;
+            END;
+            $edge_policy_current$ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER edge_policies_current_swap
+            BEFORE INSERT OR UPDATE OF "is_current" ON "sensor"."policies"
+            FOR EACH ROW EXECUTE FUNCTION "sensor".edge_policies_current_swap();
+        `);
+        await queryRunner.query(`
+            ALTER TABLE "sensor"."licenses"
+            ADD CONSTRAINT "EX_edge_license_no_temporal_overlap"
+            EXCLUDE USING gist (
+              "tenant_id" WITH =,
+              "device_id" WITH =,
+              tstzrange("issued_at", "expires_at", '[]') WITH &&
+            )
+            WHERE ("revoked_at" IS NULL);
+        `);
+        await queryRunner.query(`
+            CREATE OR REPLACE FUNCTION "sensor".edge_audit_archive_prevent_update_or_delete()
+            RETURNS trigger AS $edge_audit_append_only$
+            BEGIN
+              RAISE EXCEPTION 'audit_archive_v1 is append-only';
+            END;
+            $edge_audit_append_only$ LANGUAGE plpgsql;
+        `);
+        await queryRunner.query(`
+            CREATE TRIGGER edge_audit_archive_prevent_update_or_delete
+            BEFORE UPDATE OR DELETE ON "sensor"."audit_archive_v1"
+            FOR EACH ROW EXECUTE FUNCTION "sensor".edge_audit_archive_prevent_update_or_delete();
+        `);
+        await queryRunner.query(`ALTER TABLE "sensor"."policies" ADD CONSTRAINT "FK_edge_policies_device" FOREIGN KEY ("device_id") REFERENCES "sensor"."devices"("device_id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."licenses" ADD CONSTRAINT "FK_edge_licenses_device" FOREIGN KEY ("device_id") REFERENCES "sensor"."devices"("device_id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."provisioning_records" ADD CONSTRAINT "FK_edge_provisioning_records_device" FOREIGN KEY ("device_id") REFERENCES "sensor"."devices"("device_id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."witnesses" ADD CONSTRAINT "FK_edge_witnesses_provisioning" FOREIGN KEY ("provisioning_id") REFERENCES "sensor"."provisioning_records"("provisioning_id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."audit_archive_v1" ADD CONSTRAINT "FK_edge_audit_archive_device" FOREIGN KEY ("device_id") REFERENCES "sensor"."devices"("device_id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."devices" ADD CONSTRAINT "FK_edge_devices_created_by" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."devices" ADD CONSTRAINT "FK_edge_devices_updated_by" FOREIGN KEY ("updated_by") REFERENCES "auth"."users"("id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."policies" ADD CONSTRAINT "FK_edge_policies_created_by" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."licenses" ADD CONSTRAINT "FK_edge_licenses_issued_by" FOREIGN KEY ("issued_by") REFERENCES "auth"."users"("id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."firmware_releases" ADD CONSTRAINT "FK_edge_firmware_releases_released_by" FOREIGN KEY ("released_by") REFERENCES "auth"."users"("id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."provisioning_records" ADD CONSTRAINT "FK_edge_provisioning_records_created_by" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
+        await queryRunner.query(`ALTER TABLE "sensor"."witnesses" ADD CONSTRAINT "FK_edge_witnesses_user" FOREIGN KEY ("witness_user_id") REFERENCES "auth"."users"("id") ON DELETE RESTRICT ON UPDATE RESTRICT`);
         await queryRunner.query(`CREATE TABLE "sensor"."device_groups" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenant_id" uuid NOT NULL, "name" character varying(100) NOT NULL, "description" text, "type" character varying(50) NOT NULL DEFAULT 'custom', "parent_group_id" uuid, "metadata" jsonb, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_0a85eb3da91cda682e08b66ae77" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_48733bb3e5f0b4a8ee7bde6c0c" ON "sensor"."device_groups" ("tenant_id") `);
         await queryRunner.query(`CREATE TABLE "sensor"."vfd_automation_rules" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenant_id" uuid NOT NULL, "name" character varying(255) NOT NULL, "description" text, "trigger_condition" jsonb NOT NULL, "target_vfd_device_ids" jsonb NOT NULL, "parameter_changes" jsonb NOT NULL, "requires_approval" boolean NOT NULL DEFAULT true, "priority" integer NOT NULL DEFAULT '100', "is_active" boolean NOT NULL DEFAULT true, "last_triggered_at" TIMESTAMP WITH TIME ZONE, "trigger_count" integer NOT NULL DEFAULT '0', "created_by" uuid NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_56371e2d7e50be58fc0f69020bb" PRIMARY KEY ("id"))`);

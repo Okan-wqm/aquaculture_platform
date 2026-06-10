@@ -30,6 +30,8 @@ from aria_kernel.tool_registry import (
     update_tool,
 )
 
+FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
+
 
 def _seed_tools() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="aria-c2b-update-"))
@@ -55,9 +57,19 @@ def _manifest(*, tool_id: str = "fake-adapter") -> dict:
         "schema_version": 2,
         "runner": {
             "type": "subprocess",
-            "argv": ["python3", "fake.py"],
+            "argv": ["python3", FAKE_RUNNER.as_posix()],
             "cwd": ".", "timeout_ms": 60000, "stdin_json": True,
         },
+    }
+
+
+def _changed_runner(tag: str = "--invalid-json") -> dict:
+    return {
+        "type": "subprocess",
+        "argv": ["python3", FAKE_RUNNER.as_posix(), tag],
+        "cwd": ".",
+        "timeout_ms": 60000,
+        "stdin_json": True,
     }
 
 
@@ -82,7 +94,7 @@ class UpdateToolScopeGuardTests(_UpdateToolTestCase):
         with self.assertRaises(GovernanceError) as cm:
             update_tool(
                 "fake-adapter",
-                {"runner": {"type": "subprocess", "argv": ["python3", "evil.py"], "cwd": ".", "timeout_ms": 60000, "stdin_json": True}},
+                {"runner": _changed_runner()},
                 base_dir=self.tools,
             )
         self.assertIn("runner_or_scope_change_requires_operator_approval", str(cm.exception))
@@ -91,7 +103,7 @@ class UpdateToolScopeGuardTests(_UpdateToolTestCase):
         with self.assertRaises(GovernanceError) as cm:
             update_tool(
                 "fake-adapter",
-                {"runner": {"type": "subprocess", "argv": ["python3", "evil.py"], "cwd": ".", "timeout_ms": 60000, "stdin_json": True}},
+                {"runner": _changed_runner()},
                 base_dir=self.tools,
                 operator_approval_ref="ops-1",
                 reason="",
@@ -101,12 +113,12 @@ class UpdateToolScopeGuardTests(_UpdateToolTestCase):
     def test_runner_change_with_approval_and_reason_succeeds(self) -> None:
         result = update_tool(
             "fake-adapter",
-            {"runner": {"type": "subprocess", "argv": ["python3", "good.py"], "cwd": ".", "timeout_ms": 60000, "stdin_json": True}},
+            {"runner": _changed_runner("--echo-input")},
             base_dir=self.tools,
             operator_approval_ref="ops-2026-05-08-002",
             reason="parser refactor; argv split into separate file",
         )
-        self.assertEqual(result["runner"]["argv"], ["python3", "good.py"])
+        self.assertEqual(result["runner"]["argv"], ["python3", FAKE_RUNNER.as_posix(), "--echo-input"])
 
     def test_allowed_read_globs_change_requires_approval(self) -> None:
         with self.assertRaises(GovernanceError):
@@ -119,7 +131,7 @@ class UpdateToolScopeGuardTests(_UpdateToolTestCase):
     def test_runner_argv_swap_emits_governance_event(self) -> None:
         update_tool(
             "fake-adapter",
-            {"runner": {"type": "subprocess", "argv": ["python3", "v2.py"], "cwd": ".", "timeout_ms": 60000, "stdin_json": True}},
+            {"runner": _changed_runner("--invalid-json")},
             base_dir=self.tools,
             operator_approval_ref="ops-2026-05-08-003",
             reason="parser v2 promotion",

@@ -83,6 +83,11 @@ interface WireBaseEvent {
   retryCount?: number;
 }
 
+interface WireSetupBaseEvent extends WireBaseEvent {
+  aggregateId: string;
+  aggregateType: string;
+}
+
 interface WireBatchCreated extends WireBaseEvent {
   eventType: 'BatchCreated';
   batchId: string;
@@ -207,6 +212,211 @@ interface WireFeedInventoryLow extends WireBaseEvent {
   status: 'low_stock' | 'critical';
 }
 
+interface WireSiteCreated extends WireSetupBaseEvent {
+  eventType: 'SiteCreated';
+  siteId: string;
+  name: string;
+  code: string;
+  country: string;
+  region?: string;
+  status: string;
+}
+
+interface WireSiteUpdated extends WireSetupBaseEvent {
+  eventType: 'SiteUpdated';
+  siteId: string;
+  name?: string;
+  code?: string;
+  status?: string;
+}
+
+interface WireSiteDeleted extends WireSetupBaseEvent {
+  eventType: 'SiteDeleted';
+  siteId: string;
+  name: string;
+  code: string;
+  deletedAt: string;
+}
+
+interface WireDepartmentCreated extends WireSetupBaseEvent {
+  eventType: 'DepartmentCreated';
+  departmentId: string;
+  siteId: string;
+  name: string;
+  code: string;
+  type: string;
+}
+
+interface WireDepartmentUpdated extends WireSetupBaseEvent {
+  eventType: 'DepartmentUpdated';
+  departmentId: string;
+  siteId: string;
+  name?: string;
+}
+
+interface WireDepartmentDeleted extends WireSetupBaseEvent {
+  eventType: 'DepartmentDeleted';
+  departmentId: string;
+  siteId: string;
+  name: string;
+  code: string;
+  deletedAt: string;
+}
+
+interface WireSystemCreated extends WireSetupBaseEvent {
+  eventType: 'SystemCreated';
+  systemId: string;
+  siteId: string;
+  departmentId?: string;
+  name: string;
+  code: string;
+  type: string;
+  status: string;
+}
+
+interface WireSystemUpdated extends WireSetupBaseEvent {
+  eventType: 'SystemUpdated';
+  systemId: string;
+  siteId: string;
+  name?: string;
+  status?: string;
+}
+
+interface WireSystemDeleted extends WireSetupBaseEvent {
+  eventType: 'SystemDeleted';
+  systemId: string;
+  siteId: string;
+  name: string;
+  code: string;
+  deletedAt: string;
+}
+
+interface WireSiteContactsChanged extends WireSetupBaseEvent {
+  eventType: 'SiteContactsChanged';
+  siteId: string;
+  previousContactCount: number;
+  newContactCount: number;
+  primaryContactChanged: boolean;
+  changedBy: string;
+}
+
+interface WireTankCreated extends WireSetupBaseEvent {
+  eventType: 'TankCreated';
+  tankId: string;
+  departmentId: string;
+  systemId?: string;
+  name: string;
+  code: string;
+  tankType: string;
+  status: string;
+  volume: number;
+  maxBiomass: number;
+}
+
+interface WireTankUpdated extends WireSetupBaseEvent {
+  eventType: 'TankUpdated';
+  tankId: string;
+  departmentId: string;
+  systemId?: string;
+  name?: string;
+  tankType?: string;
+  status?: string;
+  volume?: number;
+  maxBiomass?: number;
+}
+
+interface WireTankStatusChanged extends WireSetupBaseEvent {
+  eventType: 'TankStatusChanged';
+  tankId: string;
+  previousStatus: string;
+  newStatus: string;
+  reason?: string;
+  changedAt: string;
+}
+
+interface WireTankDeleted extends WireSetupBaseEvent {
+  eventType: 'TankDeleted';
+  tankId: string;
+  departmentId: string;
+  name: string;
+  code: string;
+  deletedAt: string;
+}
+
+interface WireEquipmentCreated extends WireSetupBaseEvent {
+  eventType: 'EquipmentCreated';
+  equipmentId: string;
+  siteId?: string;
+  systemId?: string;
+  departmentId?: string;
+  name: string;
+  code: string;
+  typeId: string;
+  category: string;
+  status: string;
+}
+
+interface WireEquipmentUpdated extends WireSetupBaseEvent {
+  eventType: 'EquipmentUpdated';
+  equipmentId: string;
+  siteId?: string;
+  name?: string;
+  status?: string;
+}
+
+interface WireEquipmentDeleted extends WireSetupBaseEvent {
+  eventType: 'EquipmentDeleted';
+  equipmentId: string;
+  siteId?: string;
+  name: string;
+  code: string;
+  deletedAt: string;
+}
+
+interface WireSubEquipmentCreated extends WireSetupBaseEvent {
+  eventType: 'SubEquipmentCreated';
+  subEquipmentId: string;
+  parentEquipmentId: string;
+  name: string;
+  code: string;
+  status: string;
+}
+
+interface WireSubEquipmentUpdated extends WireSetupBaseEvent {
+  eventType: 'SubEquipmentUpdated';
+  subEquipmentId: string;
+  parentEquipmentId: string;
+  name?: string;
+  status?: string;
+}
+
+interface WireSubEquipmentDeleted extends WireSetupBaseEvent {
+  eventType: 'SubEquipmentDeleted';
+  subEquipmentId: string;
+  parentEquipmentId: string;
+  name: string;
+  code: string;
+  deletedAt: string;
+}
+
+interface WireSupplierApprovedSitesChanged extends WireSetupBaseEvent {
+  eventType: 'SupplierApprovedSitesChanged';
+  supplierId: string;
+  previousSiteIds: string[];
+  newSiteIds: string[];
+  previousPreferredSiteId: string | null;
+  newPreferredSiteId: string | null;
+  changedBy: string;
+}
+
+interface WireFeederCalibrationsSaved extends WireSetupBaseEvent {
+  eventType: 'FeederCalibrationsSaved';
+  equipmentId: string;
+  calibrationCount: number;
+  feedSizeMm: number[];
+  changedBy: string;
+}
+
 // ============================================================================
 // Schemas
 // ============================================================================
@@ -260,6 +470,29 @@ const ISO_DATE_STRING = {
   format: 'date-time',
 } as const;
 
+const NULL_VALUE = {
+  type: 'null',
+  nullable: true,
+} as const;
+
+const NULLABLE_UUID = {
+  anyOf: [UUID_SCHEMA, NULL_VALUE],
+} as const;
+
+const SETUP_EVENT_PROPERTIES = {
+  ...BASE_EVENT_PROPERTIES,
+  aggregateId: SHORT_CODE,
+  aggregateType: SHORT_CODE,
+} as const;
+
+const SETUP_EVENT_REQUIRED = [...BASE_EVENT_REQUIRED, 'aggregateId', 'aggregateType'] as const;
+
+const UUID_ARRAY = {
+  type: 'array',
+  items: UUID_SCHEMA,
+  maxItems: 500,
+} as const;
+
 export const batchCreatedSchema: JSONSchemaType<WireBatchCreated> = {
   ...EVENT_OBJECT_OPTS,
   properties: {
@@ -279,14 +512,7 @@ export const batchCreatedSchema: JSONSchemaType<WireBatchCreated> = {
     quantity: NON_NEGATIVE_INT,
     stockedAt: ISO_DATE_STRING,
   },
-  required: [
-    ...BASE_EVENT_REQUIRED,
-    'batchId',
-    'name',
-    'species',
-    'quantity',
-    'stockedAt',
-  ],
+  required: [...BASE_EVENT_REQUIRED, 'batchId', 'name', 'species', 'quantity', 'stockedAt'],
 };
 
 export const batchHarvestedSchema: JSONSchemaType<WireBatchHarvested> = {
@@ -303,12 +529,7 @@ export const batchHarvestedSchema: JSONSchemaType<WireBatchHarvested> = {
     averageWeight: { ...NON_NEGATIVE_NUMBER, nullable: true },
     totalWeight: { ...NON_NEGATIVE_NUMBER, nullable: true },
   },
-  required: [
-    ...BASE_EVENT_REQUIRED,
-    'batchId',
-    'harvestedQuantity',
-    'harvestedAt',
-  ],
+  required: [...BASE_EVENT_REQUIRED, 'batchId', 'harvestedQuantity', 'harvestedAt'],
 };
 
 export const batchStatusChangedSchema: JSONSchemaType<WireBatchStatusChanged> = {
@@ -323,12 +544,7 @@ export const batchStatusChangedSchema: JSONSchemaType<WireBatchStatusChanged> = 
     newStatus: SHORT_CODE,
     reason: { ...FREE_TEXT, nullable: true },
   },
-  required: [
-    ...BASE_EVENT_REQUIRED,
-    'batchId',
-    'previousStatus',
-    'newStatus',
-  ],
+  required: [...BASE_EVENT_REQUIRED, 'batchId', 'previousStatus', 'newStatus'],
 };
 
 export const batchClosedSchema: JSONSchemaType<WireBatchClosed> = {
@@ -362,34 +578,33 @@ export const batchClosedSchema: JSONSchemaType<WireBatchClosed> = {
   ],
 };
 
-export const batchAllocatedToTankSchema: JSONSchemaType<WireBatchAllocatedToTank> =
-  {
-    ...EVENT_OBJECT_OPTS,
-    properties: {
-      ...BASE_EVENT_PROPERTIES,
-      eventType: { type: 'string', const: 'BatchAllocatedToTank' },
-      batchId: UUID_SCHEMA,
-      farmId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
-      siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
-      tankId: UUID_SCHEMA,
-      quantity: NON_NEGATIVE_INT,
-      biomassKg: NON_NEGATIVE_NUMBER,
-      allocationType: {
-        type: 'string',
-        enum: ['initial', 'transfer_in', 'split'],
-      },
-      allocationDate: ISO_DATE_STRING,
+export const batchAllocatedToTankSchema: JSONSchemaType<WireBatchAllocatedToTank> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'BatchAllocatedToTank' },
+    batchId: UUID_SCHEMA,
+    farmId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    tankId: UUID_SCHEMA,
+    quantity: NON_NEGATIVE_INT,
+    biomassKg: NON_NEGATIVE_NUMBER,
+    allocationType: {
+      type: 'string',
+      enum: ['initial', 'transfer_in', 'split'],
     },
-    required: [
-      ...BASE_EVENT_REQUIRED,
-      'batchId',
-      'tankId',
-      'quantity',
-      'biomassKg',
-      'allocationType',
-      'allocationDate',
-    ],
-  };
+    allocationDate: ISO_DATE_STRING,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'batchId',
+    'tankId',
+    'quantity',
+    'biomassKg',
+    'allocationType',
+    'allocationDate',
+  ],
+};
 
 export const mortalityRecordedSchema: JSONSchemaType<WireMortalityRecorded> = {
   ...EVENT_OBJECT_OPTS,
@@ -526,6 +741,373 @@ export const feedInventoryLowSchema: JSONSchemaType<WireFeedInventoryLow> = {
   ],
 };
 
+export const siteCreatedSchema: JSONSchemaType<WireSiteCreated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'SiteCreated' },
+    siteId: UUID_SCHEMA,
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    country: SHORT_CODE,
+    region: { ...FREE_TEXT, nullable: true },
+    status: SHORT_CODE,
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'siteId', 'name', 'code', 'country', 'status'],
+};
+
+export const siteUpdatedSchema: JSONSchemaType<WireSiteUpdated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'SiteUpdated' },
+    siteId: UUID_SCHEMA,
+    name: { ...NON_EMPTY_STRING, nullable: true },
+    code: { ...SHORT_CODE, nullable: true },
+    status: { ...SHORT_CODE, nullable: true },
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'siteId'],
+};
+
+export const siteDeletedSchema: JSONSchemaType<WireSiteDeleted> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'SiteDeleted' },
+    siteId: UUID_SCHEMA,
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    deletedAt: ISO_DATE_STRING,
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'siteId', 'name', 'code', 'deletedAt'],
+};
+
+export const departmentCreatedSchema: JSONSchemaType<WireDepartmentCreated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'DepartmentCreated' },
+    departmentId: UUID_SCHEMA,
+    siteId: UUID_SCHEMA,
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    type: SHORT_CODE,
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'departmentId', 'siteId', 'name', 'code', 'type'],
+};
+
+export const departmentUpdatedSchema: JSONSchemaType<WireDepartmentUpdated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'DepartmentUpdated' },
+    departmentId: UUID_SCHEMA,
+    siteId: UUID_SCHEMA,
+    name: { ...NON_EMPTY_STRING, nullable: true },
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'departmentId', 'siteId'],
+};
+
+export const departmentDeletedSchema: JSONSchemaType<WireDepartmentDeleted> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'DepartmentDeleted' },
+    departmentId: UUID_SCHEMA,
+    siteId: UUID_SCHEMA,
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    deletedAt: ISO_DATE_STRING,
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'departmentId', 'siteId', 'name', 'code', 'deletedAt'],
+};
+
+export const systemCreatedSchema: JSONSchemaType<WireSystemCreated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'SystemCreated' },
+    systemId: UUID_SCHEMA,
+    siteId: UUID_SCHEMA,
+    departmentId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    type: SHORT_CODE,
+    status: SHORT_CODE,
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'systemId', 'siteId', 'name', 'code', 'type', 'status'],
+};
+
+export const systemUpdatedSchema: JSONSchemaType<WireSystemUpdated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'SystemUpdated' },
+    systemId: UUID_SCHEMA,
+    siteId: UUID_SCHEMA,
+    name: { ...NON_EMPTY_STRING, nullable: true },
+    status: { ...SHORT_CODE, nullable: true },
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'systemId', 'siteId'],
+};
+
+export const systemDeletedSchema: JSONSchemaType<WireSystemDeleted> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'SystemDeleted' },
+    systemId: UUID_SCHEMA,
+    siteId: UUID_SCHEMA,
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    deletedAt: ISO_DATE_STRING,
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'systemId', 'siteId', 'name', 'code', 'deletedAt'],
+};
+
+export const siteContactsChangedSchema: JSONSchemaType<WireSiteContactsChanged> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'SiteContactsChanged' },
+    siteId: UUID_SCHEMA,
+    previousContactCount: NON_NEGATIVE_INT,
+    newContactCount: NON_NEGATIVE_INT,
+    primaryContactChanged: { type: 'boolean' },
+    changedBy: UUID_SCHEMA,
+  },
+  required: [
+    ...SETUP_EVENT_REQUIRED,
+    'siteId',
+    'previousContactCount',
+    'newContactCount',
+    'primaryContactChanged',
+    'changedBy',
+  ],
+};
+
+export const tankCreatedSchema: JSONSchemaType<WireTankCreated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'TankCreated' },
+    tankId: UUID_SCHEMA,
+    departmentId: UUID_SCHEMA,
+    systemId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    tankType: SHORT_CODE,
+    status: SHORT_CODE,
+    volume: NON_NEGATIVE_NUMBER,
+    maxBiomass: NON_NEGATIVE_NUMBER,
+  },
+  required: [
+    ...SETUP_EVENT_REQUIRED,
+    'tankId',
+    'departmentId',
+    'name',
+    'code',
+    'tankType',
+    'status',
+    'volume',
+    'maxBiomass',
+  ],
+};
+
+export const tankUpdatedSchema: JSONSchemaType<WireTankUpdated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'TankUpdated' },
+    tankId: UUID_SCHEMA,
+    departmentId: UUID_SCHEMA,
+    systemId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    name: { ...NON_EMPTY_STRING, nullable: true },
+    tankType: { ...SHORT_CODE, nullable: true },
+    status: { ...SHORT_CODE, nullable: true },
+    volume: { ...NON_NEGATIVE_NUMBER, nullable: true },
+    maxBiomass: { ...NON_NEGATIVE_NUMBER, nullable: true },
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'tankId', 'departmentId'],
+};
+
+export const tankStatusChangedSchema: JSONSchemaType<WireTankStatusChanged> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'TankStatusChanged' },
+    tankId: UUID_SCHEMA,
+    previousStatus: SHORT_CODE,
+    newStatus: SHORT_CODE,
+    reason: { ...FREE_TEXT, nullable: true },
+    changedAt: ISO_DATE_STRING,
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'tankId', 'previousStatus', 'newStatus', 'changedAt'],
+};
+
+export const tankDeletedSchema: JSONSchemaType<WireTankDeleted> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'TankDeleted' },
+    tankId: UUID_SCHEMA,
+    departmentId: UUID_SCHEMA,
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    deletedAt: ISO_DATE_STRING,
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'tankId', 'departmentId', 'name', 'code', 'deletedAt'],
+};
+
+export const equipmentCreatedSchema: JSONSchemaType<WireEquipmentCreated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'EquipmentCreated' },
+    equipmentId: UUID_SCHEMA,
+    siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    systemId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    departmentId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    typeId: UUID_SCHEMA,
+    category: SHORT_CODE,
+    status: SHORT_CODE,
+  },
+  required: [
+    ...SETUP_EVENT_REQUIRED,
+    'equipmentId',
+    'name',
+    'code',
+    'typeId',
+    'category',
+    'status',
+  ],
+} as const;
+
+export const equipmentUpdatedSchema: JSONSchemaType<WireEquipmentUpdated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'EquipmentUpdated' },
+    equipmentId: UUID_SCHEMA,
+    siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    name: { ...NON_EMPTY_STRING, nullable: true },
+    status: { ...SHORT_CODE, nullable: true },
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'equipmentId'],
+} as const;
+
+export const equipmentDeletedSchema: JSONSchemaType<WireEquipmentDeleted> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'EquipmentDeleted' },
+    equipmentId: UUID_SCHEMA,
+    siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    deletedAt: ISO_DATE_STRING,
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'equipmentId', 'name', 'code', 'deletedAt'],
+} as const;
+
+export const subEquipmentCreatedSchema: JSONSchemaType<WireSubEquipmentCreated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'SubEquipmentCreated' },
+    subEquipmentId: UUID_SCHEMA,
+    parentEquipmentId: UUID_SCHEMA,
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    status: SHORT_CODE,
+  },
+  required: [
+    ...SETUP_EVENT_REQUIRED,
+    'subEquipmentId',
+    'parentEquipmentId',
+    'name',
+    'code',
+    'status',
+  ],
+} as const;
+
+export const subEquipmentUpdatedSchema: JSONSchemaType<WireSubEquipmentUpdated> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'SubEquipmentUpdated' },
+    subEquipmentId: UUID_SCHEMA,
+    parentEquipmentId: UUID_SCHEMA,
+    name: { ...NON_EMPTY_STRING, nullable: true },
+    status: { ...SHORT_CODE, nullable: true },
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'subEquipmentId', 'parentEquipmentId'],
+} as const;
+
+export const subEquipmentDeletedSchema: JSONSchemaType<WireSubEquipmentDeleted> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'SubEquipmentDeleted' },
+    subEquipmentId: UUID_SCHEMA,
+    parentEquipmentId: UUID_SCHEMA,
+    name: NON_EMPTY_STRING,
+    code: SHORT_CODE,
+    deletedAt: ISO_DATE_STRING,
+  },
+  required: [
+    ...SETUP_EVENT_REQUIRED,
+    'subEquipmentId',
+    'parentEquipmentId',
+    'name',
+    'code',
+    'deletedAt',
+  ],
+} as const;
+
+export const supplierApprovedSitesChangedSchema: JSONSchemaType<WireSupplierApprovedSitesChanged> =
+  {
+    ...EVENT_OBJECT_OPTS,
+    properties: {
+      ...SETUP_EVENT_PROPERTIES,
+      eventType: { type: 'string', const: 'SupplierApprovedSitesChanged' },
+      supplierId: UUID_SCHEMA,
+      previousSiteIds: UUID_ARRAY,
+      newSiteIds: UUID_ARRAY,
+      previousPreferredSiteId: NULLABLE_UUID,
+      newPreferredSiteId: NULLABLE_UUID,
+      changedBy: UUID_SCHEMA,
+    },
+    required: [
+      ...SETUP_EVENT_REQUIRED,
+      'supplierId',
+      'previousSiteIds',
+      'newSiteIds',
+      'previousPreferredSiteId',
+      'newPreferredSiteId',
+      'changedBy',
+    ],
+  };
+
+export const feederCalibrationsSavedSchema: JSONSchemaType<WireFeederCalibrationsSaved> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...SETUP_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'FeederCalibrationsSaved' },
+    equipmentId: UUID_SCHEMA,
+    calibrationCount: NON_NEGATIVE_INT,
+    feedSizeMm: {
+      type: 'array',
+      items: NON_NEGATIVE_NUMBER,
+      maxItems: 100,
+    },
+    changedBy: UUID_SCHEMA,
+  },
+  required: [...SETUP_EVENT_REQUIRED, 'equipmentId', 'calibrationCount', 'feedSizeMm', 'changedBy'],
+};
+
 /**
  * Farm bridge event types discriminated by the `eventType` field on
  * the wire. Adding a new bridge event type requires:
@@ -548,7 +1130,29 @@ export type FarmEventType =
   | 'CullRecorded'
   | 'BatchTransferred'
   | 'FeedingRecorded'
-  | 'FeedInventoryLow';
+  | 'FeedInventoryLow'
+  | 'SiteCreated'
+  | 'SiteUpdated'
+  | 'SiteDeleted'
+  | 'DepartmentCreated'
+  | 'DepartmentUpdated'
+  | 'DepartmentDeleted'
+  | 'SystemCreated'
+  | 'SystemUpdated'
+  | 'SystemDeleted'
+  | 'SiteContactsChanged'
+  | 'TankCreated'
+  | 'TankUpdated'
+  | 'TankStatusChanged'
+  | 'TankDeleted'
+  | 'EquipmentCreated'
+  | 'EquipmentUpdated'
+  | 'EquipmentDeleted'
+  | 'SubEquipmentCreated'
+  | 'SubEquipmentUpdated'
+  | 'SubEquipmentDeleted'
+  | 'SupplierApprovedSitesChanged'
+  | 'FeederCalibrationsSaved';
 
 /**
  * Map from event type discriminator to its compiled schema. Consumed
@@ -574,4 +1178,26 @@ export const FARM_EVENT_SCHEMAS: Record<FarmEventType, object> = {
   BatchTransferred: batchTransferredSchema,
   FeedingRecorded: feedingRecordedSchema,
   FeedInventoryLow: feedInventoryLowSchema,
+  SiteCreated: siteCreatedSchema,
+  SiteUpdated: siteUpdatedSchema,
+  SiteDeleted: siteDeletedSchema,
+  DepartmentCreated: departmentCreatedSchema,
+  DepartmentUpdated: departmentUpdatedSchema,
+  DepartmentDeleted: departmentDeletedSchema,
+  SystemCreated: systemCreatedSchema,
+  SystemUpdated: systemUpdatedSchema,
+  SystemDeleted: systemDeletedSchema,
+  SiteContactsChanged: siteContactsChangedSchema,
+  TankCreated: tankCreatedSchema,
+  TankUpdated: tankUpdatedSchema,
+  TankStatusChanged: tankStatusChangedSchema,
+  TankDeleted: tankDeletedSchema,
+  EquipmentCreated: equipmentCreatedSchema,
+  EquipmentUpdated: equipmentUpdatedSchema,
+  EquipmentDeleted: equipmentDeletedSchema,
+  SubEquipmentCreated: subEquipmentCreatedSchema,
+  SubEquipmentUpdated: subEquipmentUpdatedSchema,
+  SubEquipmentDeleted: subEquipmentDeletedSchema,
+  SupplierApprovedSitesChanged: supplierApprovedSitesChangedSchema,
+  FeederCalibrationsSaved: feederCalibrationsSavedSchema,
 };

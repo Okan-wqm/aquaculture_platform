@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Cover **initial deployment**, **secret + cert provisioning**, and **rotation** for the Rust sensor-ingestion sidecar. This runbook is pre-rollout: once the sidecar is deployed and healthy, `sensor-ingest-rust-rollout.md` takes over for the per-tenant flip.
+Cover **initial deployment**, **secret + cert provisioning**, and **rotation** for the Rust sensor-ingestion sidecar. For the enterprise-closure release, `sensor-ingestion` is intentionally inactive/non-deployable; this runbook is an archived activation checklist and is not an active production deploy instruction until catalog, image provenance, readiness and rollback evidence are complete.
 
 Rollout flip + deployment are strictly separate — a broken config is detected at deploy time (container fails health check, restart loop) and never reaches tenant traffic. Confidence comes from the layered checks here, not from the rollout-gate.
 
@@ -16,10 +16,10 @@ Rollout flip + deployment are strictly separate — a broken config is detected 
 
 Before running any step in this runbook:
 
-- [ ] `infrastructure/nats/services.yaml` contains `sensor_ingestion` entry (ADR-014/015 SSoT).
+- [ ] `infrastructure/nats/services.yaml` contains `sensor-ingestion` entry (ADR-014/015 SSoT).
 - [ ] `infrastructure/nats/services.schema.json` permits every subject the sidecar publishes/subscribes (including the `policy.` namespace added for ADR-027 + ADR-031).
 - [ ] `scripts/nats/generate-nats-conf.py` produces `infrastructure/docker/nats/nats.conf` with no drift (run `--dry-run` to verify).
-- [ ] The per-service cert for `sensor_ingestion` CN is minted via `infrastructure/docker/scripts/generate-internal-certs.sh` (idempotent; skipped if present).
+- [ ] The per-service cert for `sensor-ingestion` CN is minted via `infrastructure/docker/scripts/generate-internal-certs.sh` (idempotent; skipped if present).
 - [ ] The target image `ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG}` exists in GHCR and passes cosign verification (see §6 below — ADR-032).
 - [ ] Operator has `docker compose` admin privilege on the droplet OR `kubectl apply` equivalent on the target cluster.
 
@@ -27,7 +27,7 @@ Before running any step in this runbook:
 
 ## 1. Initial deployment — DigitalOcean droplet
 
-DigitalOcean compose is `docker-compose.droplet.yml`. The `sensor-ingestion` service block already lives in that file (ADR-025 strangler-fig staging); this section covers what the operator does to **activate** that service for the first time.
+DigitalOcean compose is `docker-compose.droplet.yml`. In the enterprise-closure release the service is not in the active deploy profile; do not activate it from this runbook until the service catalog marks it active.
 
 ### 1a. Provision the cert directory
 
@@ -36,11 +36,11 @@ The sidecar mounts certs from `./certs/sensor-ingestion/` at container path `/et
 ```bash
 # On the droplet, from the repo root:
 bash infrastructure/docker/scripts/generate-internal-certs.sh
-# Verify the sensor_ingestion CN cert is in place:
-ls -la certs/nats/clients/sensor_ingestion-cert.pem certs/nats/clients/sensor_ingestion-key.pem
+# Verify the sensor-ingestion CN cert is in place:
+ls -la certs/nats/clients/sensor-ingestion-cert.pem certs/nats/clients/sensor-ingestion-key.pem
 ```
 
-The cert generator derives its CN list from `infrastructure/nats/services.yaml` (no hand-edited duplicate list — BACKLOG-NATS-002 closed). Adding `sensor_ingestion` to services.yaml is all that is needed for the cert to be minted.
+The cert generator derives its CN list from `infrastructure/nats/services.yaml` (no hand-edited duplicate list — BACKLOG-NATS-002 closed). Adding `sensor-ingestion` to services.yaml is all that is needed for the cert to be minted.
 
 ### 1b. Stage the `config.toml` with secrets
 
@@ -76,7 +76,7 @@ docker logs -f aqua-sensor-ingestion
 ```
 INFO sensor_ingestion: starting version 0.1.0
 INFO sensor_ingestion::mqtt: connected mqtts://mosquitto:8883
-INFO sensor_ingestion::nats: connected tls://nats:4222 (cn=sensor_ingestion)
+INFO sensor_ingestion::nats: connected tls://nats:4222 (cn=sensor-ingestion)
 INFO sensor_ingestion::policy: requesting policy.ingest_backend.snapshot (timeout 5s)
 INFO sensor_ingestion::policy: snapshot received — global=node overrides=0 tenants
 INFO sensor_ingestion::persistence: postgres pool size=4 connected
@@ -126,10 +126,10 @@ Per-service NATS mTLS certs are minted by `infrastructure/docker/scripts/generat
    docker compose -f docker-compose.droplet.yml restart nats
    # Wait for nats health check to pass (10-20 s)
    docker compose -f docker-compose.droplet.yml restart sensor-ingestion
-   # Verify connection in logs: "connected tls://nats:4222 (cn=sensor_ingestion)"
+   # Verify connection in logs: "connected tls://nats:4222 (cn=sensor-ingestion)"
    ```
 
-`verify_and_map: true` + per-service CN means a stale cert is not accepted — if the sidecar fails to reconnect, the log carries `unauthorized: mTLS identity CN=sensor_ingestion not in authorization{} users`. Check that `scripts/nats/generate-nats-conf.py` ran against the updated services.yaml before the NATS container restart.
+`verify_and_map: true` + per-service CN means a stale cert is not accepted — if the sidecar fails to reconnect, the log carries `unauthorized: mTLS identity CN=sensor-ingestion not in authorization{} users`. Check that `scripts/nats/generate-nats-conf.py` ran against the updated services.yaml before the NATS container restart.
 
 ---
 

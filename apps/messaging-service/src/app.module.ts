@@ -17,17 +17,10 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { EventBusModule } from '@platform/event-bus';
 import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { APP_GUARD, Reflector } from '@nestjs/core';
-import {
-  ApolloFederationDriver,
-  ApolloFederationDriverConfig,
-} from '@nestjs/apollo';
-import { GraphQLError } from 'graphql';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
+import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
-import {
-  fieldExtensionsEstimator,
-  getComplexity,
-  simpleEstimator,
-} from 'graphql-query-complexity';
+import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
@@ -58,6 +51,7 @@ import {
 // Tenant infrastructure — 'messaging' source schema for template tables
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('messaging');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('messaging');
+const runtimeTenantRlsSyncEnabled = process.env['DB_MIGRATE_DDL_AUTHORITY'] === '1';
 
 /**
  * MessagingMigrationRunnerService — runs pending TypeORM migrations in the
@@ -103,6 +97,7 @@ import { Baseline1800000000000 } from './migrations/1800000000000-Baseline';
 import { CreateMessagingOutboxTable1800200000000 } from './migrations/1800200000000-CreateMessagingOutboxTable';
 import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800300000000-AddUserAiConsentTenantUserUnique';
 import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from './migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
+import { EnsureMessagingPartitionContract1800500000000 } from './migrations/1800500000000-EnsureMessagingPartitionContract';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -119,6 +114,16 @@ import { MetricsModule } from './metrics/metrics.module';
 
 // Per-process complexity cache keyed by document hash
 const complexityCache = new Map<string, number>();
+
+type QueryComplexityOperationContext = {
+  request: {
+    query?: string;
+    operationName?: string;
+    variables?: Record<string, unknown>;
+  };
+  document: DocumentNode;
+  schema: GraphQLSchema;
+};
 
 @Module({
   imports: [
@@ -176,6 +181,7 @@ const complexityCache = new Map<string, number>();
             CreateMessagingOutboxTable1800200000000,
             AddUserAiConsentTenantUserUnique1800300000000,
             EnforceSourceOnlyMessagingOutboxContract1800400000000,
+            EnsureMessagingPartitionContract1800500000000,
           ],
         }),
     }),
@@ -207,7 +213,11 @@ const complexityCache = new Map<string, number>();
           plugins: [
             {
               requestDidStart: async () => ({
-                async didResolveOperation({ request, document, schema }) {
+                async didResolveOperation({
+                  request,
+                  document,
+                  schema,
+                }: QueryComplexityOperationContext) {
                   const docSource = request.query ?? '';
                   const opName = request.operationName ?? '';
                   /** SEC-L01: Use SHA-256 instead of deprecated SHA-1 for cache key generation.
@@ -246,8 +256,7 @@ const complexityCache = new Map<string, number>();
           // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
           // WHY: messaging subgraph developer UI must not rely on deprecated Apollo Playground behavior.
           introspection:
-            !isProduction ||
-            configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
+            !isProduction || configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',
           context: ({ req }: { req: Request }) => ({ req }),
         };
       },
@@ -312,17 +321,13 @@ const complexityCache = new Map<string, number>();
      * Messages carry user/tenant PII — defence-in-depth isolation via RLS
      * means an app-layer tenantId bypass cannot read cross-tenant messages.
      *
-     * excludeTables MUST stay in lockstep with the migration
-     * 1782400000000-EnableRowLevelSecurity so that runtime
-     * TenantRlsSyncService (which sweeps tenant_<uuid>.* schemas) uses
-     * the same skip list as the migration that installed policies on
-     * the source schema. Divergence would mean a table has RLS on
-     * source but none on tenant clones (leak), or vice-versa (orphan
-     * policy).
+     * Tenant schema RLS DDL is owned by db-migrate/provisioner. Runtime
+     * services do not hold DB_MIGRATE_DDL_AUTHORITY, so registering
+     * TenantRlsSyncService in app boot would fail closed by design.
      */
     RlsModule.forPoolService({
       serviceName: 'messaging',
-      syncTenantSchemas: true,
+      syncTenantSchemas: runtimeTenantRlsSyncEnabled,
       // See P4 migration docblock for rationale:
       // - messaging_outbox: cross-tenant worker reads (BypassRls)
       // - embeddings_metadata: platform-wide reference data (no tenantId)
@@ -334,10 +339,28 @@ const complexityCache = new Map<string, number>();
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
-    { provide: APP_GUARD, useFactory: (c: ConfigService): ServiceIdentityGuard => new ServiceIdentityGuard(c), inject: [ConfigService] },
-    { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService): TenantGuard => new TenantGuard(r, undefined, c), inject: [Reflector, ConfigService] },
-    { provide: APP_GUARD, useFactory: (r: Reflector): RolesGuard => new RolesGuard(r), inject: [Reflector] },
-    { provide: APP_GUARD, useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard => new ThrottlerGuard(r, c, s), inject: [Reflector, ConfigService, SlidingWindowStrategy] },
+    {
+      provide: APP_GUARD,
+      useFactory: (c: ConfigService): ServiceIdentityGuard =>
+        new ServiceIdentityGuard(c, undefined, 'messaging-service'),
+      inject: [ConfigService],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector, c: ConfigService): TenantGuard => new TenantGuard(r, undefined, c),
+      inject: [Reflector, ConfigService],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector): RolesGuard => new RolesGuard(r),
+      inject: [Reflector],
+    },
+    {
+      provide: APP_GUARD,
+      useFactory: (r: Reflector, c: ConfigService, s: SlidingWindowStrategy): ThrottlerGuard =>
+        new ThrottlerGuard(r, c, s),
+      inject: [Reflector, ConfigService, SlidingWindowStrategy],
+    },
 
     // Migration runner — runs pending TypeORM migrations on the messaging
     // source schema at OnApplicationBootstrap with search_path pinning.

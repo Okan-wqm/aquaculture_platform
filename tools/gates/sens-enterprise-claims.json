@@ -156,7 +156,7 @@
     {
       "id": "coapproval-rbac-enterprise-closure",
       "title": "Co-approval is backed by role, expiry, permission relevance, distinct actor and negative tests",
-      "status": "blocked",
+      "status": "closed",
       "owner": "edge-security",
       "risk_tier": "P0",
       "release_blocker": true,
@@ -175,7 +175,6 @@
         "sens-api-gateway/src/authz/in_memory_engine.rs",
         "sens-api-gateway/src/authz/permission.rs"
       ],
-      "blocker": "Current gateway co-approver verification proves distinct signature shape, self-signature rejection and signature validity, but does not yet prove co-approver role, approval expiry or permission relevance under RBAC.",
       "linked_finding_id": "COAPPROVAL-RBAC"
     },
     {

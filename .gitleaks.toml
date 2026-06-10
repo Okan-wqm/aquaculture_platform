@@ -35,6 +35,7 @@ paths = [
   '''(?i)^infrastructure/helm/.*\.ya?ml$''',
   '''(?i)^infrastructure/kubernetes/.*\.ya?ml$''',
   '''(?i)\.env\.example$''',
+  '''(?i)\.env\.[^.]+\.example$''',
   '''(?i)\.env\.sample$''',
 ]
 # Placeholder / dev-default values that should never trip the rule even when
@@ -53,6 +54,7 @@ description = "Paths and patterns that gitleaks should skip"
 paths = [
   # Template and example files — these are documentation, not secrets.
   '''\.env\.example$''',
+  '''\.env\.[^.]+\.example$''',
   '''\.env\.sample$''',
   # Lockfiles and build artefacts
   '''package-lock\.json$''',

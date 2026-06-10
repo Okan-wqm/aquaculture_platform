@@ -1,7 +1,7 @@
 /**
  * Edge Platform v2 entity barrel.
  *
- * 7 per-tenant entities under sensor schema, per ADR-025.
+ * 7 per-tenant entities under sensor schema, per ADR-034.
  *
  * These supersede ADR-022's `edge.*` placement. v1 entities
  * (edge-device.entity.ts et al.) remain alongside in

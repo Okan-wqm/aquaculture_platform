@@ -1,5 +1,8 @@
+import { createHash } from 'crypto';
+
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { verifyServiceIdentityRequest } from '@aquaculture/backend-common/utils';
+
 import { AuthenticatedDataSource } from './authenticated-data-source';
 import type { GatewayContext } from './authenticated-data-source';
 
@@ -75,6 +78,12 @@ function lowerCaseHeaders(headers: RequestInit['headers']): Record<string, strin
   );
 }
 
+function assertionHash(headers: RequestInit['headers']): string | undefined {
+  const lower = lowerCaseHeaders(headers);
+  const assertion = lower['x-verified-user-assertion'];
+  return assertion ? createHash('sha256').update(assertion).digest('hex') : undefined;
+}
+
 describe('AuthenticatedDataSource service identity signing', () => {
   it('preserves Apollo default fetcher when no custom fetcher is supplied', async () => {
     const dataSource = new AuthenticatedDataSource({
@@ -120,10 +129,13 @@ describe('AuthenticatedDataSource service identity signing', () => {
         observedMethod: 'POST',
         observedPath: '/graphql',
         observedBody: wireBody,
+        observedQuery: '?ignored=true',
+        observedContentType: 'application/json',
         secret: SECRET,
+        allowUnscopedDevKey: true,
         expectedTenantId: '',
       }),
-    ).toEqual({ valid: true, version: 'v2' });
+    ).toMatchObject({ valid: true, version: 'v2' });
   });
 
   it('binds a verified tenant into the forwarded header and final fetch-body HMAC', async () => {
@@ -158,10 +170,14 @@ describe('AuthenticatedDataSource service identity signing', () => {
         observedMethod: 'POST',
         observedPath: '/graphql',
         observedBody: wireBody,
+        observedQuery: '',
+        observedContentType: 'application/json',
+        observedAssertionHash: assertionHash(sent?.headers),
         secret: SECRET,
+        allowUnscopedDevKey: true,
         expectedTenantId: TENANT_ID,
       }),
-    ).toEqual({ valid: true, version: 'v2' });
+    ).toMatchObject({ valid: true, version: 'v2' });
   });
 
   it('captures the old pre-fetch-body signing bug as a failing verifier contract', async () => {
@@ -188,6 +204,7 @@ describe('AuthenticatedDataSource service identity signing', () => {
         observedPath: '/graphql',
         observedBody: actualWireBody,
         secret: SECRET,
+        allowUnscopedDevKey: true,
         expectedTenantId: '',
       }),
     ).toEqual({ valid: false, reason: 'invalid-hmac' });
@@ -204,9 +221,12 @@ describe('AuthenticatedDataSource service identity signing', () => {
         observedMethod: 'POST',
         observedPath: '/graphql',
         observedBody: actualWireBody,
+        observedQuery: '',
+        observedContentType: 'application/json',
         secret: SECRET,
+        allowUnscopedDevKey: true,
         expectedTenantId: '',
       }),
-    ).toEqual({ valid: true, version: 'v2' });
+    ).toMatchObject({ valid: true, version: 'v2' });
   });
 });

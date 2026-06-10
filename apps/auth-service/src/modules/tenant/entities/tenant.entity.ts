@@ -27,10 +27,14 @@ registerEnumType(TenantPlan, {
  * Tenant status
  */
 export enum TenantStatus {
+  PENDING = 'PENDING',
+  PROVISIONING = 'PROVISIONING',
+  PROVISIONING_FAILED = 'PROVISIONING_FAILED',
   ACTIVE = 'ACTIVE',
   SUSPENDED = 'SUSPENDED',
-  PENDING = 'PENDING',
   CANCELLED = 'CANCELLED',
+  DEACTIVATED = 'DEACTIVATED',
+  ARCHIVED = 'ARCHIVED',
 }
 
 registerEnumType(TenantStatus, {

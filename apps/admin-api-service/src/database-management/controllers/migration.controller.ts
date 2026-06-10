@@ -5,22 +5,23 @@
  */
 
 import {
-  Controller,
-  Get,
-  Post,
-  Param,
+  BadRequestException,
   Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
   Query,
   Req,
-  HttpStatus,
-  HttpCode,
-  BadRequestException,
 } from '@nestjs/common';
-import { Request } from 'express';
-import { getAuthUser } from '../../shared/authenticated-request';
 import { ApiTags } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsOptional, IsBoolean, MaxLength, Matches } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { Request } from 'express';
 
+import { getAuthUser } from '../../shared/authenticated-request';
 import { MigrationStatus } from '../entities/database-management.entity';
 import { MigrationManagementService } from '../services/migration-management.service';
 
@@ -84,6 +85,12 @@ class RollbackMigrationDto {
 export class MigrationController {
   constructor(private readonly migrationService: MigrationManagementService) {}
 
+  private assertRuntimeMigrationEndpointAllowed(): void {
+    throw new ForbiddenException(
+      'Runtime migration execution is disabled; use db-migrate workflows',
+    );
+  }
+
   // ============================================================================
   // Migration Registry
   // ============================================================================
@@ -114,11 +121,12 @@ export class MigrationController {
 
   @Post('tenant/:tenantId/run')
   @HttpCode(HttpStatus.OK)
-  async runMigration(
+  runMigration(
     @Param('tenantId') tenantId: string,
     @Body() dto: RunMigrationDto,
     @Req() req: Request,
-  ) {
+  ): never {
+    this.assertRuntimeMigrationEndpointAllowed();
     if (!dto.version) {
       throw new BadRequestException('version is required');
     }
@@ -135,11 +143,12 @@ export class MigrationController {
 
   @Post('tenant/:tenantId/rollback')
   @HttpCode(HttpStatus.OK)
-  async rollbackMigration(
+  rollbackMigration(
     @Param('tenantId') tenantId: string,
     @Body() dto: RollbackMigrationDto,
     @Req() req: Request,
-  ) {
+  ): never {
+    this.assertRuntimeMigrationEndpointAllowed();
     if (!dto.version) {
       throw new BadRequestException('version is required');
     }
@@ -159,10 +168,11 @@ export class MigrationController {
 
   @Post('batch/run')
   @HttpCode(HttpStatus.OK)
-  async runBatchMigration(
+  runBatchMigration(
     @Body() dto: BatchMigrationDto,
     @Req() req: Request,
-  ) {
+  ): never {
+    this.assertRuntimeMigrationEndpointAllowed();
     if (!dto.version) {
       throw new BadRequestException('version is required');
     }

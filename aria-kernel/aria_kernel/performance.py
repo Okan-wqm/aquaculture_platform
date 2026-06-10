@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -29,7 +29,11 @@ def record_performance_baseline(
         "unit": unit,
         "source": source,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "performance" / "baselines.jsonl", row)
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "performance" / "baselines.jsonl",
+        row,
+        expected_surface="performance_baselines",
+    )
 
 
 def compare_performance_baseline(
@@ -69,15 +73,25 @@ def compare_performance_baseline(
             "max_regression_pct": max_regression_pct,
             "baseline_ref": baseline.get("ledger_hash"),
         }
-    return append_jsonl(ensure_tools_dir(base_dir) / "performance" / "comparisons.jsonl", row)
+    return append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "performance" / "comparisons.jsonl",
+        row,
+        expected_surface="performance_comparisons",
+    )
 
 
 def list_performance_baselines(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(ensure_tools_dir(base_dir) / "performance" / "baselines.jsonl")
+    return load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "performance" / "baselines.jsonl",
+        expected_surface="performance_baselines",
+    )
 
 
 def list_performance_comparisons(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(ensure_tools_dir(base_dir) / "performance" / "comparisons.jsonl")
+    return load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "performance" / "comparisons.jsonl",
+        expected_surface="performance_comparisons",
+    )
 
 
 def _latest_baseline(*, metric: str, base_dir: str | Path | None) -> dict[str, Any] | None:

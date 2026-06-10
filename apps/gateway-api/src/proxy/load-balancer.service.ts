@@ -260,10 +260,7 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
   /**
    * Get next instance for a service
    */
-  getNextInstance(
-    serviceName: string,
-    context?: LoadBalancerContext,
-  ): ServiceInstanceStats | null {
+  getNextInstance(serviceName: string, context?: LoadBalancerContext): ServiceInstanceStats | null {
     const config = this.services.get(serviceName);
     if (!config) {
       this.logger.warn(`Service not found: ${serviceName}`);
@@ -689,6 +686,7 @@ export class LoadBalancerService extends EventEmitter implements OnModuleInit, O
           tenantId: '',
           method: 'GET',
           path: new URL(url).pathname,
+          audience: serviceName,
           body: '',
         }),
         signal: controller.signal,

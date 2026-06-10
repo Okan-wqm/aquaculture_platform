@@ -13,9 +13,10 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.agent_network import agent_network_index, latest_agent_network_hash
 from aria_kernel.capability_gap import detect_capability_gaps
 from aria_kernel.impact_graph import plan_downstream_impact
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import covered_tool_ledgers, ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class Phase4AgentNetworkInvocationTests(unittest.TestCase):
@@ -102,9 +103,9 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
         self.assertEqual(len(list_agent_invocation_requests(base_dir=self.tools_dir, convergence_id="C-1")), 1)
 
     def test_tool_integrity_covers_new_optional_ledgers(self):
-        append_jsonl(self.tools_dir / "plans" / "events.jsonl", {"schema_version": 1, "event_type": "noop"})
-        append_jsonl(self.tools_dir / "agent-invocations" / "requests.jsonl", {"schema_version": 1, "request_id": "AIR-1"})
-        append_jsonl(self.tools_dir / "agent-invocations" / "results.jsonl", {"schema_version": 1, "request_id": "AIR-1"})
+        append_declared_fixture(self.tools_dir / "plans" / "events.jsonl", {"schema_version": 1, "event_type": "noop"}, expected_surface="plan_convergence_events")
+        append_declared_fixture(self.tools_dir / "agent-invocations" / "requests.jsonl", {"schema_version": 1, "request_id": "AIR-1"}, expected_surface="agent_invocation_requests")
+        append_declared_fixture(self.tools_dir / "agent-invocations" / "results.jsonl", {"schema_version": 1, "request_id": "AIR-1"}, expected_surface="agent_invocation_results")
         ledgers = covered_tool_ledgers(self.tools_dir)
         self.assertIn("plans_events", ledgers)
         self.assertIn("agent_invocations_requests", ledgers)
@@ -112,7 +113,7 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
 
     def test_capability_gap_pressure_source_records_index_hash(self):
         index = agent_network_index(workspace_root=self.repo, base_dir=self.tools_dir, cycle_id="cyc-index")
-        append_jsonl(
+        append_declared_fixture(
             self.paths.ledgers["pressure"],
             {
                 "$schema": "aria/pressure-event/v2",
@@ -129,6 +130,7 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
                 "detected_at": "2026-05-06T00:00:00Z",
                 "drives": ["skill_birth"],
             },
+            expected_surface="workspace_memory_pressure",
         )
         result = detect_capability_gaps(cycle_id="cyc-gap", paths=self.paths, base_dir=self.tools_dir)
         gap = result["gaps"][0]

@@ -37,7 +37,7 @@ export const usersApi = {
   forceLogout: (id: string) => apiFetch<{ success: boolean; count: number }>(`/users/${id}/force-logout`, { method: 'PATCH' }),
   delete: (id: string) => apiFetch<void>(`/users/${id}`, { method: 'DELETE' }),
   invite: (data: InviteUserDto) =>
-    apiFetch<{ success: boolean; userId: string; invitationId: string; invitationToken: string }>('/users/invite', {
+    apiFetch<{ success: boolean; userId: string; invitationId: string }>('/users/invite', {
       method: 'POST',
       body: JSON.stringify(data),
     }),

@@ -8,7 +8,11 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { UpdateConfigurationCommand } from '../commands/update-configuration.command';
-import { Configuration, ConfigurationHistory } from '../entities/configuration.entity';
+import {
+  Configuration,
+  ConfigurationHistory,
+  ConfigValueType,
+} from '../entities/configuration.entity';
 import { ConfigurationService } from '../services/configuration.service';
 import { ConfigurationValidationService } from '../services/configuration-validation.service';
 import { EncryptionService } from '../services/encryption.service';
@@ -48,23 +52,47 @@ export class UpdateConfigurationHandler
       }
 
       const previousValue = configuration.value;
+      const previousWasSecret =
+        configuration.valueType === ConfigValueType.SECRET || configuration.isSecret === true;
+      const nextValueType =
+        input.valueType ?? (previousWasSecret ? ConfigValueType.SECRET : configuration.valueType);
+      const nextWillBeSecret = nextValueType === ConfigValueType.SECRET;
       const valueChanged = input.value !== undefined && input.value !== previousValue;
+      const downgradesSecret =
+        previousWasSecret &&
+        input.valueType !== undefined &&
+        input.valueType !== ConfigValueType.SECRET;
+
+      if (downgradesSecret && input.value === undefined) {
+        throw new BadRequestException(
+          'Secret downgrade requires replacement plaintext value in the same request',
+        );
+      }
+      if (
+        !previousWasSecret &&
+        input.valueType === ConfigValueType.SECRET &&
+        input.value === undefined
+      ) {
+        throw new BadRequestException(
+          'Secret upgrade requires plaintext value in the same request',
+        );
+      }
 
       if (input.value !== undefined) {
-        const valueType = input.valueType || configuration.valueType;
-        this.validationService.validateValue(input.value, valueType);
+        this.validationService.validateValue(input.value, nextValueType);
       }
 
       // Encrypt new value if this is a secret config
       // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
       if (input.value !== undefined) {
-        if (configuration.isSecret && this.encryptionService.isAvailable()) {
+        if (nextWillBeSecret && this.encryptionService.isAvailable()) {
           configuration.value = this.encryptionService.encrypt(input.value, configuration.tenantId, configuration.key);
         } else {
           configuration.value = input.value;
         }
       }
-      if (input.valueType !== undefined) configuration.valueType = input.valueType;
+      configuration.valueType = nextValueType;
+      configuration.isSecret = nextWillBeSecret;
       if (input.environment !== undefined) configuration.environment = input.environment;
       if (input.description !== undefined) configuration.description = input.description;
       if (input.isActive !== undefined) configuration.isActive = input.isActive;
@@ -86,8 +114,8 @@ export class UpdateConfigurationHandler
           tenantId,
           service: configuration.service,
           key: configuration.key,
-          previousValue: configuration.isSecret ? '[REDACTED]' : previousValue,
-          newValue: configuration.isSecret ? '[REDACTED]' : input.value!,
+          previousValue: previousWasSecret ? '[REDACTED]' : previousValue,
+          newValue: nextWillBeSecret ? '[REDACTED]' : input.value!,
           changedBy: userId,
           changedAt: new Date(),
           changeReason: input.changeReason,

@@ -107,6 +107,26 @@ export class Configuration {
   @Field()
   isActive!: boolean;
 
+  @Column({ type: 'timestamp', nullable: true, name: 'deleted_at' })
+  @Field({ nullable: true })
+  deletedAt?: Date | null;
+
+  @Column({ type: 'varchar', nullable: true, length: 100, name: 'deleted_by' })
+  @Field({ nullable: true })
+  deletedBy?: string | null;
+
+  @Column({ type: 'varchar', nullable: true, length: 255, name: 'delete_reason' })
+  @Field({ nullable: true })
+  deleteReason?: string | null;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'retention_until' })
+  @Field({ nullable: true })
+  retentionUntil?: Date | null;
+
+  @Column({ default: false, name: 'suppress_fallback' })
+  @Field()
+  suppressFallback!: boolean;
+
   @Column({ nullable: true, length: 255, name: 'default_value' })
   @Field({ nullable: true })
   defaultValue?: string;
@@ -167,6 +187,10 @@ export class Configuration {
       default:
         return rawValue as T;
     }
+  }
+
+  isSecretValue(): boolean {
+    return this.valueType === ConfigValueType.SECRET || this.isSecret === true;
   }
 }
 

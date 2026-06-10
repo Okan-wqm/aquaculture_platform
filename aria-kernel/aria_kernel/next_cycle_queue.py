@@ -37,7 +37,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl, state_transaction
+from .ledger import load_declared_jsonl, state_transaction
 from .tool_registry import append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -129,7 +129,12 @@ def append_pending(
     path.parent.mkdir(parents=True, exist_ok=True)
     root = ensure_tools_dir(base_dir)
     with state_transaction([path]) as txn:
-        pending = _pending_from_rows(txn.load_jsonl(path, verify=True))
+        pending = _pending_from_rows(
+            txn.load_declared_jsonl(
+                path,
+                expected_surface="next_cycle_queue",
+            ),
+        )
         depth = queue_depth()
         if len(pending) >= depth:
             queue_item_id = f"qi-{uuid.uuid4().hex[:12]}"
@@ -146,7 +151,11 @@ def append_pending(
                 "pending_count": len(pending),
                 "recorded_at": utc_now(),
             }
-            stored = txn.append_jsonl(path, row)
+            stored = txn.append_declared_jsonl(
+                path,
+                row,
+                expected_surface="next_cycle_queue",
+            )
             append_tools_governance(
                 root,
                 "next_cycle_queue_overflow_blocked",
@@ -170,7 +179,11 @@ def append_pending(
             "state": "pending",
             "recorded_at": utc_now(),
         }
-        return txn.append_jsonl(path, row)
+        return txn.append_declared_jsonl(
+            path,
+            row,
+            expected_surface="next_cycle_queue",
+        )
 
 
 def read_pending(
@@ -180,7 +193,7 @@ def read_pending(
 ) -> list[dict[str, Any]]:
     """Return queue items whose latest state is ``pending``."""
     path = queue_path(base_dir)
-    rows = load_jsonl(path, verify=True)
+    rows = load_declared_jsonl(path, expected_surface="next_cycle_queue")
     return _pending_from_rows(rows, limit=limit)
 
 
@@ -201,4 +214,8 @@ def mark_consumed(
         "recorded_at": utc_now(),
     }
     with state_transaction([path]) as txn:
-        return txn.append_jsonl(path, row)
+        return txn.append_declared_jsonl(
+            path,
+            row,
+            expected_surface="next_cycle_queue",
+        )

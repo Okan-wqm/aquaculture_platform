@@ -16,6 +16,15 @@ import { EdgeDevice } from './entities/edge-device.entity';
 import { LoRaDevice } from './entities/lora-device.entity';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { DeviceEvent } from './entities/device-event.entity';
+import {
+  EdgeAuditArchiveV2,
+  EdgeDeviceV2,
+  EdgeFirmwareReleaseV2,
+  EdgeLicenseV2,
+  EdgePolicyV2,
+  EdgeProvisioningRecordV2,
+  EdgeWitnessV2,
+} from './entities/v2';
 import { InstallerScriptService } from './installer-script.service';
 import { MqttAuthController } from './mqtt-auth.controller';
 import { MqttAuthService } from './mqtt-auth.service';
@@ -28,6 +37,13 @@ import { TenantKeyService } from './tenant-key.service';
   imports: [
     TypeOrmModule.forFeature([
       EdgeDevice,
+      EdgeDeviceV2,
+      EdgePolicyV2,
+      EdgeLicenseV2,
+      EdgeFirmwareReleaseV2,
+      EdgeProvisioningRecordV2,
+      EdgeWitnessV2,
+      EdgeAuditArchiveV2,
       DeviceIoConfig,
       LoRaDevice,
       TenantProvisioningKey,
@@ -52,5 +68,4 @@ import { TenantKeyService } from './tenant-key.service';
   ],
   exports: [EdgeDeviceService, ProvisioningService, MqttAuthService, InstallerScriptService],
 })
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class EdgeDeviceModule {}

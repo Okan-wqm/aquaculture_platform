@@ -1,3 +1,5 @@
+<!-- ARIA-HISTORICAL: Historical plan document. Live authority is docs/aria/CURRENT_STATE.md plus executable contracts. -->
+
 # ARIA Codex CLI xhigh Architecture Plan
 
 Date: 2026-05-25

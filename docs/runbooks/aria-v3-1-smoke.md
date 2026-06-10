@@ -1,3 +1,5 @@
+<!-- ARIA-CURRENT-STATE-NOTICE: Historical/compatibility runbook. For live ARIA runtime authority, see docs/aria/CURRENT_STATE.md and executable contracts. Snowball/Claude-era instructions below are not current runtime authority unless reaffirmed there. -->
+
 # Runbook — ARIA V3.1 Smoke + V10.3-B Endurance Gate
 
 **Owner:** Operator (Okan)

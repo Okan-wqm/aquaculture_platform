@@ -40,14 +40,8 @@ export class PartitionManagerService implements OnApplicationBootstrap {
 
   /** On startup, ensure current + next 2 months exist. */
   async onApplicationBootstrap(): Promise<void> {
-    try {
-      const months = this.getMonthRange(0, 2);
-      await this.ensurePartitions(months);
-    } catch (err) {
-      this.logger.error(
-        `Startup partition check failed: ${(err as Error).message}`,
-      );
-    }
+    const months = this.getMonthRange(0, 2);
+    await this.ensurePartitions(months);
   }
 
   /** Monthly cron: 1st of every month at 00:00. Creates partitions for next 3 months. */
@@ -61,6 +55,7 @@ export class PartitionManagerService implements OnApplicationBootstrap {
       this.logger.error(
         `Monthly partition cron failed: ${(err as Error).message}`,
       );
+      throw err;
     }
   }
 
@@ -127,6 +122,7 @@ export class PartitionManagerService implements OnApplicationBootstrap {
         this.logger.error(
           `Failed to create partition ${schema}.${partitionName}: ${message}`,
         );
+        throw err;
       }
     }
   }

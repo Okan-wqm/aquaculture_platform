@@ -134,16 +134,39 @@ describe('AuditColumnsBootstrap', () => {
       // Operators alert on this exact substring (see Phase 2 deploy
       // guide §4.1). Test guards against accidental wording changes.
       const errorLogs = errorSpy.mock.calls.map((c) => String(c[0]));
-      expect(
-        errorLogs.some((log) =>
-          log.includes('audit_columns.bootstrap.failed'),
-        ),
-      ).toBe(true);
-      expect(
-        errorLogs.some((log) => log.includes('service="notification"')),
-      ).toBe(true);
+      expect(errorLogs.some((log) => log.includes('audit_columns.bootstrap.failed'))).toBe(true);
+      expect(errorLogs.some((log) => log.includes('service="notification"'))).toBe(true);
 
       errorSpy.mockRestore();
+    });
+
+    it('rethrows db-migrate authority violations instead of hiding production DDL attempts', async () => {
+      const originalAuthoritative = process.env['DB_MIGRATE_AUTHORITATIVE'];
+      const originalDdlAuthority = process.env['DB_MIGRATE_DDL_AUTHORITY'];
+      process.env['DB_MIGRATE_AUTHORITATIVE'] = 'true';
+      Reflect.deleteProperty(process.env, 'DB_MIGRATE_DDL_AUTHORITY');
+
+      try {
+        const mock = makeMockDataSource({ replies: [] });
+        const bootstrap = new AuditColumnsBootstrap(mock.ds, {
+          serviceName: 'notification',
+        });
+
+        await expect(bootstrap.onApplicationBootstrap()).rejects.toThrow(/db-migrate authority/);
+        expect(mock.createdRunners).toBe(1);
+        expect(mock.releasedRunners).toBe(1);
+      } finally {
+        if (originalAuthoritative === undefined) {
+          Reflect.deleteProperty(process.env, 'DB_MIGRATE_AUTHORITATIVE');
+        } else {
+          process.env['DB_MIGRATE_AUTHORITATIVE'] = originalAuthoritative;
+        }
+        if (originalDdlAuthority === undefined) {
+          Reflect.deleteProperty(process.env, 'DB_MIGRATE_DDL_AUTHORITY');
+        } else {
+          process.env['DB_MIGRATE_DDL_AUTHORITY'] = originalDdlAuthority;
+        }
+      }
     });
   });
 

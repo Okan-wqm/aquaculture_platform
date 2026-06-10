@@ -2,8 +2,8 @@
  * Input Panel - Tabbed compact bar for water chemistry parameters
  * Tabs: System | Realtime | Target | Toxic Limits | Reagents
  */
-import React, { useState } from 'react';
 import { FishType, FishSize, REAGENTS } from '@platform/aquaculture-engines';
+import React, { useState } from 'react';
 
 export interface WaterChemistryInputs {
   tempC: number;
@@ -18,6 +18,7 @@ export interface WaterChemistryInputs {
   unIonizedNH3: number;
   co2Toxic: number;
   h2sUgL: number;       // Measured H₂S in µg/L
+  h2sMeasuredAtPH?: number; // pH at which measured H₂S was sampled
   h2sLimitUgL: number;  // Toxic H₂S limit in µg/L
   caMgL: number;
   volume: number;
@@ -36,6 +37,9 @@ interface InputPanelProps {
 }
 
 type InputTab = 'system' | 'realtime' | 'target' | 'toxic' | 'reagents' | 'simulator';
+type NumericInputField = Exclude<{
+  [K in keyof WaterChemistryInputs]: WaterChemistryInputs[K] extends number | undefined ? K : never;
+}[keyof WaterChemistryInputs], undefined>;
 
 const FISH_TYPES: FishType[] = [
   'Arctic Charr', 'Atlantic Salmon', 'Rainbow Trout', 'Brown Trout',
@@ -58,11 +62,22 @@ const INPUT_TABS: Array<{ id: InputTab; label: string }> = [
 const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReagents, onReagentsChange, onDemandAmounts = {}, onDemandAmountsChange }) => {
   const [activeTab, setActiveTab] = useState<InputTab>('realtime');
 
-  const update = (field: keyof WaterChemistryInputs, value: number | string | boolean) => {
+  const update = (field: keyof WaterChemistryInputs, value: number | string | boolean | undefined): void => {
     onChange({ ...inputs, [field]: value });
   };
 
-  const toggleReagent = (name: string) => {
+  const updateNumeric = (field: NumericInputField, rawValue: string): void => {
+    if (rawValue.trim() === '') {
+      update(field, field === 'h2sMeasuredAtPH' ? undefined : 0);
+      return;
+    }
+
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) return;
+    update(field, parsed);
+  };
+
+  const toggleReagent = (name: string): void => {
     if (selectedReagents.includes(name)) {
       onReagentsChange(selectedReagents.filter(n => n !== name));
     } else {
@@ -72,26 +87,30 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
 
   const numField = (
     label: string,
-    field: keyof WaterChemistryInputs,
+    field: NumericInputField,
     min: number,
     max: number,
     step: number,
     unit: string
-  ) => (
-    <div className="flex items-center gap-1.5 mr-4">
-      <label className="text-xs text-gray-600 whitespace-nowrap">{label}</label>
-      <input
-        type="number"
-        value={inputs[field] as number}
-        min={min}
-        max={max}
-        step={step}
-        onChange={(e) => update(field, parseFloat(e.target.value) || 0)}
-        className="w-[72px] px-1.5 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-      />
-      <span className="text-[10px] text-gray-400 whitespace-nowrap">{unit}</span>
-    </div>
-  );
+  ): React.ReactNode => {
+    const inputId = `water-chemistry-${String(field)}`;
+    return (
+      <div className="flex items-center gap-1.5 mr-4">
+        <label className="text-xs text-gray-600 whitespace-nowrap" htmlFor={inputId}>{label}</label>
+        <input
+          id={inputId}
+          type="number"
+          value={inputs[field] ?? ''}
+          min={min}
+          max={max}
+          step={step}
+          onChange={(e) => updateNumeric(field, e.target.value)}
+          className="w-[72px] px-1.5 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+        />
+        <span className="text-[10px] text-gray-400 whitespace-nowrap">{unit}</span>
+      </div>
+    );
+  };
 
   return (
     <div className="bg-white rounded-lg shadow">
@@ -119,8 +138,9 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
             {numField('Volume', 'volume', 0.1, 1000, 0.1, 'm³')}
             {numField('Ca²⁺', 'caMgL', 1, 2000, 10, 'mg/L')}
             <div className="flex items-center gap-1.5 mr-4">
-              <label className="text-xs text-gray-600 whitespace-nowrap">Fish Type</label>
+              <label className="text-xs text-gray-600 whitespace-nowrap" htmlFor="water-chemistry-fish-type">Fish Type</label>
               <select
+                id="water-chemistry-fish-type"
                 value={inputs.fishType}
                 onChange={(e) => update('fishType', e.target.value)}
                 className="px-1.5 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
@@ -129,8 +149,9 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
               </select>
             </div>
             <div className="flex items-center gap-1.5 mr-4">
-              <label className="text-xs text-gray-600 whitespace-nowrap">Fish Size</label>
+              <label className="text-xs text-gray-600 whitespace-nowrap" htmlFor="water-chemistry-fish-size">Fish Size</label>
               <select
+                id="water-chemistry-fish-size"
                 value={inputs.fishSize}
                 onChange={(e) => update('fishSize', e.target.value)}
                 className="px-1.5 py-0.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
@@ -157,6 +178,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
             {numField('Salinity', 'salinity', 0, 40, 0.5, 'ppt')}
             {numField('Alkalinity', 'alkalinityMg', 20, 800, 5, 'mg/L CaCO₃')}
             {numField('H₂S', 'h2sUgL', 0.1, 500, 0.5, 'µg/L')}
+            {numField('H₂S pH', 'h2sMeasuredAtPH', 4, 12.5, 0.05, 'NBS')}
           </div>
         )}
 
@@ -218,9 +240,13 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
                     onChange={(e) => {
                       const val = parseFloat(e.target.value) || 0;
                       const next = { ...onDemandAmounts };
-                      if (val <= 0) delete next[reagent.name];
-                      else next[reagent.name] = val;
-                      onDemandAmountsChange?.(next);
+                      if (val <= 0) {
+                        const { [reagent.name]: _removed, ...remainingAmounts } = next;
+                        onDemandAmountsChange?.(remainingAmounts);
+                      } else {
+                        next[reagent.name] = val;
+                        onDemandAmountsChange?.(next);
+                      }
                     }}
                     className={`w-16 px-1.5 py-0.5 text-xs border rounded text-right focus:outline-none focus:ring-1 focus:ring-orange-400 ${
                       isActive ? 'border-orange-300 bg-white' : 'border-gray-300'

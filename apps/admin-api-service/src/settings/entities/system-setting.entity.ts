@@ -40,7 +40,6 @@ export enum SettingValueType {
  * System-wide settings entity
  * Persisted to database with caching support
  */
-@Entity('system_settings', { schema: 'admin' })
 @Index(['key'], { unique: true })
 @Index(['category'])
 export class SystemSetting {

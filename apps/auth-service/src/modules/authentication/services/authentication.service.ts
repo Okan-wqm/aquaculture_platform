@@ -19,7 +19,7 @@ import { requestContextStorage, getRequestContext } from '@aquaculture/backend-c
 import { TimingSafeService, ISessionManager, ITokenBlacklist, SESSION_MANAGER, TOKEN_BLACKLIST, SecurityEventService } from '@aquaculture/backend-common/security';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, EntityTarget, ObjectLiteral, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
@@ -28,6 +28,7 @@ import { Tenant } from '../../tenant/entities/tenant.entity';
 import { AuthPayload, MePayload } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
 import { RegisterInput } from '../dto/register.dto';
+import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
@@ -60,6 +61,8 @@ export class AuthenticationService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(Invitation)
     private readonly invitationRepository: Repository<Invitation>,
+    @InjectRepository(ActionToken)
+    private readonly actionTokenRepository: Repository<ActionToken>,
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
     private readonly dataSource: DataSource,
@@ -103,6 +106,14 @@ export class AuthenticationService {
       'MIN_LOGIN_DURATION_MS',
       SECURITY_CONSTANTS.MIN_LOGIN_DURATION_MS,
     );
+  }
+
+  private preTenantAuthRepository<T extends ObjectLiteral>(
+    manager: EntityManager,
+    entity: EntityTarget<T>,
+  ): Repository<T> {
+    const getRepository = manager.getRepository.bind(manager);
+    return getRepository(entity);
   }
 
   /**
@@ -511,6 +522,19 @@ export class AuthenticationService {
 
     // Execute all reads + validation + writes inside a single transaction
     const result = await this.dataSource.transaction(async (manager) => {
+      const actionToken = await this.preTenantAuthRepository(manager, ActionToken)
+        .createQueryBuilder('actionToken')
+        .setLock('pessimistic_write')
+        .where('actionToken.id = :token', { token })
+        .andWhere('actionToken.purpose = :purpose', { purpose: ActionTokenPurpose.INVITATION })
+        .getOne();
+
+      if (actionToken && !actionToken.isActive()) {
+        throw new BadRequestException('Invalid invitation token');
+      }
+
+      const lookupTokenHash = actionToken?.tokenHash ?? tokenHash;
+
       // SECURITY: Lock the invitation row to prevent concurrent acceptance
       // Try hashed token first, then fall back to plaintext for backward compatibility
       // Invitation redemption runs BEFORE tenant context is established
@@ -518,19 +542,15 @@ export class AuthenticationService {
       // lookup must scan across all tenants by construction. auth-
       // service is the one service where cross-tenant auth flows are
       // first-class; tenantManagerRepo cannot be used here.
-      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-      let invitation = await manager
-        .getRepository(Invitation)
+      let invitation = await this.preTenantAuthRepository(manager, Invitation)
         .createQueryBuilder('invitation')
         .setLock('pessimistic_write')
-        .where('invitation.token = :tokenHash', { tokenHash })
+        .where('invitation.token = :tokenHash', { tokenHash: lookupTokenHash })
         .getOne();
 
-      if (!invitation) {
+      if (!invitation && !actionToken) {
         // Backward compatibility: try plaintext token for pre-migration invitations
-        // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-        invitation = await manager
-          .getRepository(Invitation)
+        invitation = await this.preTenantAuthRepository(manager, Invitation)
           .createQueryBuilder('invitation')
           .setLock('pessimistic_write')
           .where('invitation.token = :token', { token })
@@ -550,16 +570,12 @@ export class AuthenticationService {
 
       // Find user by invitation token hash (within transaction).
       // Same cross-tenant-before-tenant-resolved rationale as above.
-      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-      let user = await manager
-        .getRepository(User)
-        .findOne({ where: { invitationToken: tokenHash } });
+      let user = await this.preTenantAuthRepository(manager, User)
+        .findOne({ where: { invitationToken: lookupTokenHash } });
 
-      if (!user) {
+      if (!user && !actionToken) {
         // Backward compatibility: try plaintext token for pre-migration users
-        // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-        user = await manager
-          .getRepository(User)
+        user = await this.preTenantAuthRepository(manager, User)
           .findOne({ where: { invitationToken: token } });
       }
 
@@ -585,6 +601,12 @@ export class AuthenticationService {
       invitation.userId = user.id;
       invitation.acceptedFromIp = ipAddress ?? null;
       await manager.save(Invitation, invitation);
+
+      if (actionToken) {
+        actionToken.status = ActionTokenStatus.CONSUMED;
+        actionToken.consumedAt = new Date();
+        await manager.save(ActionToken, actionToken);
+      }
 
       return user;
     });
@@ -680,8 +702,7 @@ export class AuthenticationService {
       // re-established — the bearer's tenant is derived from the token
       // row's userId after the row is resolved. Cross-tenant scan is
       // intrinsic to the refresh-token protocol.
-      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-      const tokenRepo = manager.getRepository(RefreshToken);
+      const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
 
       // SELECT FOR UPDATE to lock the token row and prevent concurrent refresh
       const refreshToken = await tokenRepo
@@ -697,9 +718,7 @@ export class AuthenticationService {
       }
 
       // Fetch the associated user separately (no lock needed on user row).
-      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-      const user = await manager
-        .getRepository(User)
+      const user = await this.preTenantAuthRepository(manager, User)
         .findOne({ where: { id: refreshToken.userId } });
 
       if (!user || !user.isActive) {
@@ -741,8 +760,7 @@ export class AuthenticationService {
       // re-established — the bearer's tenant is derived from the token
       // row's userId after the row is resolved. Cross-tenant scan is
       // intrinsic to the refresh-token protocol.
-      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-      const tokenRepo = manager.getRepository(RefreshToken);
+      const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
 
       // Build query scoped to user if userId prefix is available
       const queryBuilder = tokenRepo
@@ -810,9 +828,7 @@ export class AuthenticationService {
       }
 
       // Fetch the associated user separately.
-      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-      const user = await manager
-        .getRepository(User)
+      const user = await this.preTenantAuthRepository(manager, User)
         .findOne({ where: { id: matchedToken.userId } });
 
       if (!user || !user.isActive) {
@@ -846,8 +862,7 @@ export class AuthenticationService {
     userId: string,
     tokenPart: string,
   ): Promise<RefreshToken | null> {
-    // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-    const tokenRepo = manager.getRepository(RefreshToken);
+    const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
     const revokedTokens = await tokenRepo
       .createQueryBuilder('rt')
       .where('rt.isRevoked = :isRevoked', { isRevoked: true })
@@ -879,8 +894,7 @@ export class AuthenticationService {
     userId: string,
     suspectToken: RefreshToken,
   ): Promise<void> {
-    // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
-    const tokenRepo = manager.getRepository(RefreshToken);
+    const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
     const revokeReason = `Reuse detected: revoked token id=${suspectToken.id} replayed`;
     await tokenRepo.update(
       { userId, isRevoked: false },
@@ -1154,23 +1168,39 @@ export class AuthenticationService {
 
       // SECURITY: Store SHA-256 hash of token, not the plaintext
       const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
       // Set token and expiry (1 hour)
       user.passwordResetToken = resetTokenHash;
-      user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      user.passwordResetExpires = expiresAt;
       await this.userRepository.save(user);
+
+      const actionToken = await this.actionTokenRepository.save(
+        this.actionTokenRepository.create({
+          purpose: ActionTokenPurpose.PASSWORD_RESET,
+          tenantId: user.tenantId ?? null,
+          userId: user.id,
+          tokenHash: resetTokenHash,
+          status: ActionTokenStatus.ACTIVE,
+          expiresAt,
+          auditMetadata: {
+            source: 'password-reset-request',
+            ipAddress,
+          },
+        }),
+      );
 
       // SECURITY (CRITICAL-001/002): Publish event with opaque references ONLY.
       // PII (email, firstName) and secret URLs are NEVER placed on the immutable event bus.
       // The notification service resolves user details and builds the reset URL at delivery
       // time via authenticated internal API calls using userId and actionTokenId.
       //
-      // actionTokenId is the SHA-256 hash of the reset token (same value stored in DB).
-      // The notification service calls auth-service's internal API with this ID to get
-      // the pre-built action URL without the raw token ever touching the event bus.
+      // actionTokenId is the opaque auth.action_tokens row id. The notification
+      // service calls auth-service's internal API with this ID to get the action URL
+      // without the raw token ever touching the event bus.
       await this.eventBus.publish({
         ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id, version: 2 }),
-        actionTokenId: resetTokenHash,
+        actionTokenId: actionToken.id,
         cryptoShredKeyId: user.id,
       });
 
@@ -1211,13 +1241,32 @@ export class AuthenticationService {
   ): Promise<AuthPayload> {
     // SECURITY: Hash the provided token with SHA-256 to compare against stored hash
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const actionToken = await this.actionTokenRepository.findOne({
+      where: {
+        id: token,
+        purpose: ActionTokenPurpose.PASSWORD_RESET,
+        status: ActionTokenStatus.ACTIVE,
+      },
+    });
+
+    if (actionToken && !actionToken.isActive()) {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
 
     // Find user by hashed token and ensure it hasn't expired
-    const user = await this.userRepository
+    const userQuery = this.userRepository
       .createQueryBuilder('user')
-      .where('user.passwordResetToken = :tokenHash', { tokenHash })
-      .andWhere('user.passwordResetExpires > :now', { now: new Date() })
-      .getOne();
+      .where('user.passwordResetExpires > :now', { now: new Date() });
+
+    if (actionToken) {
+      userQuery
+        .andWhere('user.id = :userId', { userId: actionToken.userId })
+        .andWhere('user.passwordResetToken = :tokenHash', { tokenHash: actionToken.tokenHash });
+    } else {
+      userQuery.andWhere('user.passwordResetToken = :tokenHash', { tokenHash });
+    }
+
+    const user = await userQuery.getOne();
 
     if (!user) {
       throw new BadRequestException('Invalid or expired password reset token');
@@ -1240,6 +1289,12 @@ export class AuthenticationService {
     user.lockedUntil = null;
 
     await this.userRepository.save(user);
+
+    if (actionToken) {
+      actionToken.status = ActionTokenStatus.CONSUMED;
+      actionToken.consumedAt = new Date();
+      await this.actionTokenRepository.save(actionToken);
+    }
 
     // SECURITY: Revoke ALL refresh tokens (force re-auth on all devices)
     await this.refreshTokenRepository.update(

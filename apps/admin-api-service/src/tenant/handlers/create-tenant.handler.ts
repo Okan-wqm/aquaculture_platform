@@ -1,5 +1,4 @@
 import { Injectable, ConflictException, Logger, Inject } from '@nestjs/common';
-import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 import { IEventBus } from '@platform/event-bus';
@@ -14,10 +13,7 @@ import { Tenant, TenantStatus, TenantTier } from '../entities/tenant.entity';
 import { TenantProvisioningService } from '../services/tenant-provisioning.service';
 
 @Injectable()
-@CommandHandler(CreateTenantCommand)
-export class CreateTenantHandler
-  implements ICommandHandler<CreateTenantCommand, Tenant>
-{
+export class CreateTenantHandler {
   private readonly logger = new Logger(CreateTenantHandler.name);
 
   constructor(

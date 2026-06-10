@@ -40,6 +40,7 @@ tmp
 out-tsc
 static
 .nx/
+web/shell/src/generated/remoteHashes.json
 
 # Exception: tools/eslint-rules/dist/ is COMMITTED.
 # Workspace-local ESLint plugin resolved via `plugins: ["aquaculture"]`
@@ -58,6 +59,8 @@ static
 coverage
 .nyc_output
 *.lcov
+e2e/playwright-report/
+e2e/test-results/
 
 # Environment variables
 .env

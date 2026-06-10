@@ -5,7 +5,9 @@ import { FarmOutbox } from './farm-outbox.entity';
 /**
  * FarmOutboxModule
  *
- * Wires the @platform/outbox library against the farm_outbox table.
+ * Wires the @platform/outbox library against canonical farm.outbox_events.
+ * The FarmOutbox class name is retained for import stability; legacy
+ * farm.farm_outbox is read/migration compatibility only.
  *
  * `@Global()` so any feature module's command handler can inject
  * `OutboxPublisher` directly via constructor without each module
@@ -15,9 +17,9 @@ import { FarmOutbox } from './farm-outbox.entity';
  *
  * Requires:
  *   - `EventBusModule.forRoot(...)` registered globally (already in app.module.ts)
- *   - `farm_outbox` table created (CreateFarmOutboxTable1780300000000 migration)
+ *   - `farm.outbox_events` table created (CreateCanonicalOutboxInbox1800700000000)
  *
- * @see Phase A of farm domain real-time visibility plan.
+ * @see Sites Setup SSOT remediation Phase 3.
  */
 @Global()
 @Module({

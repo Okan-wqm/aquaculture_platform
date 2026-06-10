@@ -29,6 +29,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from .ledger import load_declared_jsonl
+from .tool_registry import GovernanceError, ensure_tools_dir
+
 # Plan ARIA-V3 §A1 — supported profiles for auto-merge runner
 # selection. ``autonomous`` is Phase B2; the factory currently maps
 # it to ``RealAutoMergeRunner`` so B2 only needs to add the profile
@@ -108,10 +111,12 @@ class RealAutoMergeRunner:
         profile: str,
         adapter_factory: Callable[[], Any] | None = None,
         pr_enumerator: Callable[[Any], list[int]] | None = None,
+        readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
     ) -> None:
         self.profile = profile
         self.adapter_factory = adapter_factory
         self.pr_enumerator = pr_enumerator
+        self.readiness_claim_resolver = readiness_claim_resolver
 
     def __call__(
         self,
@@ -119,44 +124,75 @@ class RealAutoMergeRunner:
         base_dir: str | Path,
         workspace_root: str | Path | None,
     ) -> dict[str, Any]:
+        missing: list[str] = []
         if self.adapter_factory is None:
+            missing.append("github_adapter_factory")
+        if self.pr_enumerator is None:
+            missing.append("pr_enumerator")
+        if self.readiness_claim_resolver is None:
+            missing.append("readiness_claim_resolver")
+        if missing:
             return {
                 "schema_version": 1,
-                "status": "no_adapter_configured",
-                "reason": (
-                    "real_auto_merge_runner_requires_github_adapter_factory"
-                    " (Plan ARIA-V3 Phase A2 plumbs this through)"
-                ),
+                "status": "blocked",
+                "reason": "real_auto_merge_runner_missing_dependencies",
+                "missing_dependencies": missing,
                 "merges_completed": 0,
                 "candidates_evaluated": 0,
                 "profile": self.profile,
             }
         from .auto_merge import merge_if_green
+        from .merge_authority import merge_pr_if_ready
 
         adapter = self.adapter_factory()
-        candidate_prs = (
-            self.pr_enumerator(adapter)
-            if self.pr_enumerator is not None
-            else []
-        )
+        candidate_prs = self.pr_enumerator(adapter)
         # Plan ARIA-V3 §B2 — under ``autonomous`` profile + lane=L3-snowball
         # this MUST be False. Until B2 lands, strict observes (dry_run=True).
         dry_run = self.profile != "autonomous"
         merges_completed = 0
         decisions: list[dict[str, Any]] = []
         for pr_number in candidate_prs:
-            decision = merge_if_green(
-                adapter=adapter,
-                pr_number=pr_number,
-                base_dir=base_dir,
-                dry_run=dry_run,
-            )
+            try:
+                readiness_claim_id = self.readiness_claim_resolver(
+                    adapter,
+                    int(pr_number),
+                    base_dir,
+                )
+            except Exception as exc:
+                decision = {
+                    "decision": "blocked",
+                    "eligible": False,
+                    "pr_number": pr_number,
+                    "reasons": [f"readiness_claim_resolution_failed: {exc}"],
+                }
+                decisions.append(decision)
+                continue
+            if dry_run:
+                decision = merge_if_green(
+                    adapter=adapter,
+                    pr_number=pr_number,
+                    base_dir=base_dir,
+                    dry_run=True,
+                )
+            else:
+                decision = merge_pr_if_ready(
+                    adapter=adapter,
+                    pr_number=pr_number,
+                    base_dir=base_dir,
+                    readiness_claim_id=readiness_claim_id,
+                )
             decisions.append(decision)
             if decision.get("decision") == "merged":
                 merges_completed += 1
+        blocked_count = sum(1 for decision in decisions if decision.get("decision") == "blocked")
+        status = "ok"
+        if candidate_prs and blocked_count == len(candidate_prs):
+            status = "blocked"
+        elif blocked_count:
+            status = "degraded"
         return {
             "schema_version": 1,
-            "status": "ok",
+            "status": status,
             "merges_completed": merges_completed,
             "candidates_evaluated": len(candidate_prs),
             "decisions": decisions,
@@ -170,6 +206,7 @@ def select_auto_merge_runner(
     profile: str,
     adapter_factory: Callable[[], Any] | None = None,
     pr_enumerator: Callable[[Any], list[int]] | None = None,
+    readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
 ) -> AutoMergeRunner:
     """Plan ARIA-V3 §A1 — profile-derived runner factory.
 
@@ -183,6 +220,7 @@ def select_auto_merge_runner(
             profile=profile,
             adapter_factory=adapter_factory,
             pr_enumerator=pr_enumerator,
+            readiness_claim_resolver=readiness_claim_resolver,
         )
     if profile in _NOOP_RUNNER_PROFILES:
         return NoOpAutoMergeRunner(profile=profile)
@@ -192,10 +230,90 @@ def select_auto_merge_runner(
     )
 
 
+def enumerate_prs_with_readiness_claims(
+    adapter: Any,
+    *,
+    base_dir: str | Path | None,
+) -> list[int]:
+    _ = adapter
+    tools_root = ensure_tools_dir(base_dir)
+    rows = load_declared_jsonl(
+        tools_root / "enterprise" / "readiness-claims.jsonl",
+        expected_surface="enterprise_readiness_claims",
+    )
+    numbers: set[int] = set()
+    for row in rows:
+        try:
+            numbers.add(int(row.get("pr_number")))
+        except (TypeError, ValueError):
+            continue
+    return sorted(numbers)
+
+
+def resolve_readiness_claim_id_from_claims(
+    adapter: Any,
+    pr_number: int,
+    base_dir: str | Path | None,
+) -> str:
+    pr = adapter.get_pr(pr_number)
+    repo = _first_string(pr, "repository", "repo", "repo_full_name")
+    target_ref = _first_string(pr, "target_ref", "base_branch", "baseRefName", "base")
+    head_ref = _first_string(pr, "head_ref", "headRefName")
+    head_sha = _first_string(pr, "head_sha", "headRefOid", "head")
+    missing = [
+        name for name, value in {
+            "repo": repo,
+            "target_ref": target_ref,
+            "head_ref": head_ref,
+            "head_sha": head_sha,
+        }.items()
+        if not isinstance(value, str) or not value.strip()
+    ]
+    if missing:
+        raise GovernanceError("readiness_claim_pr_binding_fields_required:" + ",".join(missing))
+    if len(str(head_sha)) != 40 or any(ch not in "0123456789abcdef" for ch in str(head_sha)):
+        raise GovernanceError("readiness_claim_pr_head_sha_must_be_full_sha")
+    rows = load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "enterprise" / "readiness-claims.jsonl",
+        expected_surface="enterprise_readiness_claims",
+    )
+    matches: list[str] = []
+    for row in rows:
+        if row.get("pr_number") != pr_number:
+            continue
+        if repo and row.get("repo") != repo:
+            continue
+        if target_ref and row.get("target_ref") != target_ref:
+            continue
+        if head_ref and row.get("head_ref") != head_ref:
+            continue
+        if head_sha and row.get("head_sha") != head_sha:
+            continue
+        claim_id = row.get("readiness_claim_id")
+        if isinstance(claim_id, str) and claim_id.strip():
+            matches.append(claim_id)
+    if len(matches) != 1:
+        raise GovernanceError(
+            "readiness_claim_exact_match_required: "
+            f"pr={pr_number} matches={len(matches)}"
+        )
+    return matches[0]
+
+
+def _first_string(payload: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 __all__ = [
     "AutoMergeRunner",
     "NoOpAutoMergeRunner",
     "RealAutoMergeRunner",
+    "enumerate_prs_with_readiness_claims",
+    "resolve_readiness_claim_id_from_claims",
     "select_auto_merge_runner",
     # Plan ARIA-V9.6 — V9 implementation-phase auto-merge surface
     "compute_v9_idempotency_key",

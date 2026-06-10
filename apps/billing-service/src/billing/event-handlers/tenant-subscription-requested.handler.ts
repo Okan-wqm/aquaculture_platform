@@ -1,14 +1,20 @@
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { EventsHandler, IEventHandler, CommandBus } from '@nestjs/cqrs';
-import { DataSource } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
+import { InjectRepository } from '@nestjs/typeorm';
 import { EventHandler, NatsEventBus } from '@platform/event-bus';
-import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { createBaseEvent, SubscriptionProvisioningFailedEvent } from '@platform/event-contracts';
+import { DataSource, Repository } from 'typeorm';
+
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
-import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
-import { SubscriptionModuleItem } from '../entities/subscription-module-item.entity';
 import { Plan } from '../entities/plan.entity';
+import { SubscriptionModuleItem } from '../entities/subscription-module-item.entity';
+import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
+// WHY type-only: the runtime Subscription class is loaded via dynamic
+// import() further down to avoid a module-load cycle; the static type
+// reference here has no runtime footprint.
+import type { Subscription } from '../entities/subscription.entity';
 
 // UUID v4 regex — matches the same pattern used throughout the billing service
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -182,6 +188,10 @@ export class TenantSubscriptionRequestedHandler
   constructor(
     private readonly commandBus: CommandBus,
     private readonly dataSource: DataSource,
+    @InjectRepository(Plan)
+    private readonly planRepository: Repository<Plan>,
+    @InjectRepository(SubscriptionModuleItem)
+    private readonly subscriptionModuleItemRepository: Repository<SubscriptionModuleItem>,
     @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
   ) {}
 
@@ -249,9 +259,7 @@ export class TenantSubscriptionRequestedHandler
       let pricing: typeof DEFAULT_PRICING[string];
       let resolvedPlanId: string | undefined;
 
-      // Plan is the cross-tenant platform catalog.
-      // eslint-disable-next-line no-restricted-syntax -- cross-tenant catalog
-      const planEntity = await this.dataSource.getRepository(Plan).findOne({
+      const planEntity = await this.planRepository.findOne({
         where: { tier: planTier, isActive: true },
         order: { sortOrder: 'ASC' },
       });
@@ -348,7 +356,7 @@ export class TenantSubscriptionRequestedHandler
       };
 
       // Execute create subscription command
-      const subscription = await this.commandBus.execute(
+      const subscription = await this.commandBus.execute<CreateSubscriptionCommand, Subscription>(
         new CreateSubscriptionCommand(
           tenantId,
           subscriptionInput,
@@ -417,10 +425,7 @@ export class TenantSubscriptionRequestedHandler
       integrations?: number;
     }>,
   ): Promise<void> {
-    // SubscriptionModuleItem has no tenantId column — it is a child of
-    // Subscription (scoped by subscriptionId FK). See ORPHAN-DIC-001.
-    // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
-    const moduleItemRepo = this.dataSource.getRepository(SubscriptionModuleItem);
+    const moduleItemRepo = this.subscriptionModuleItemRepository;
 
     try {
       // Batch-fetch all module info in one query instead of N sequential queries
@@ -502,34 +507,24 @@ export class TenantSubscriptionRequestedHandler
   // ─── Retry Infrastructure ──────────────────────────────────────────
 
   /**
-   * Ensure the retry table exists. Called once per service-instance lifetime.
+   * Verify the migration-owned retry table exists. Called once per service-instance lifetime.
    */
   private async ensureRetryTable(): Promise<void> {
     if (this.retryTableEnsured) return;
-    try {
-      await this.dataSource.query(`
-        CREATE TABLE IF NOT EXISTS billing.subscription_provisioning_retries (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          tenant_id UUID NOT NULL,
-          event_payload JSONB NOT NULL,
-          error_message TEXT,
-          retry_count INT NOT NULL DEFAULT 0,
-          status VARCHAR(20) NOT NULL DEFAULT 'pending',
-          next_retry_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `);
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_spr_status_next_retry
-        ON billing.subscription_provisioning_retries (status, next_retry_at)
-        WHERE status = 'pending'
-      `);
-      this.retryTableEnsured = true;
-    } catch (err) {
-      this.logger.warn(`Retry table setup: ${(err as Error).message}`);
-      this.retryTableEnsured = true;
+    const rows: unknown = await this.dataSource.query(
+      `SELECT 1
+         FROM information_schema.tables
+        WHERE table_schema = 'billing'
+          AND table_name = 'subscription_provisioning_retries'
+          AND table_type = 'BASE TABLE'
+        LIMIT 1`,
+    );
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error(
+        'billing.subscription_provisioning_retries is missing; run aqua-db-migrate before billing-service',
+      );
     }
+    this.retryTableEnsured = true;
   }
 
   /**
@@ -577,19 +572,23 @@ export class TenantSubscriptionRequestedHandler
     const now = new Date();
     // Atomically claim pending retries to prevent concurrent processing
     // TypeORM's dataSource.query() wraps UPDATE results as [rows[], affectedCount]
-    const result = await this.dataSource.query(
+    const result: unknown = await this.dataSource.query(
       `UPDATE billing.subscription_provisioning_retries
          SET status = 'processing', updated_at = NOW()
        WHERE status = 'pending' AND next_retry_at <= $1
        RETURNING id, tenant_id, event_payload, retry_count`,
       [now],
     );
-    const rows: Array<{
+    const resultList = Array.isArray(result) ? (result as readonly unknown[]) : [];
+    const claimedRows = Array.isArray(resultList[0])
+      ? (resultList[0] as readonly unknown[])
+      : resultList;
+    const rows = claimedRows as Array<{
       id: string;
       tenant_id: string;
       event_payload: Record<string, unknown>;
       retry_count: number;
-    }> = Array.isArray(result?.[0]) ? result[0] : Array.isArray(result) ? result : [];
+    }>;
 
     if (rows.length === 0) return;
 

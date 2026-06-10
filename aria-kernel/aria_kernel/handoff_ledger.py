@@ -47,7 +47,7 @@ from .change_ledger import list_change_chains
 from .debt import list_debts
 from .finding import list_findings
 from .governance_reader import read_governance_rows
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .diagnostics import emit_ledger_corruption_diagnostic
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
@@ -298,7 +298,11 @@ def take_handoff_snapshot(
         "next_logical_step": next_step,
     }
     root = ensure_tools_dir(base_dir)
-    append_jsonl(root / HANDOFFS_FILENAME, snapshot)
+    append_declared_jsonl(
+        root / HANDOFFS_FILENAME,
+        snapshot,
+        expected_surface="handoffs",
+    )
     append_tools_governance(
         root,
         "handoff_snapshot_recorded",

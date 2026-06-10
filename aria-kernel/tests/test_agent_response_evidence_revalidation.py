@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,16 @@ class AgentResponseEvidenceTests(unittest.TestCase):
         (self.repo / "src.txt").write_text("line1\nline2\nline3\n", encoding="utf-8")
         (self.repo / "deep").mkdir()
         (self.repo / "deep" / "nested.ts").write_text("a\nb\nc\nd\ne\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.email", "aria-test@example.invalid"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.name", "ARIA Test"], cwd=self.repo, check=True)
+        subprocess.run(["git", "add", "src.txt", "deep/nested.ts"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "fixture: evidence"], cwd=self.repo, check=True)
+        self.target_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            text=True,
+        ).strip()
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -28,7 +39,9 @@ class AgentResponseEvidenceTests(unittest.TestCase):
             ],
         }
         result = validate_agent_response_evidence(
-            response=response, workspace_root=self.repo
+            response=response,
+            workspace_root=self.repo,
+            request={"target_sha": self.target_sha, "allowed_scope": ["**"]},
         )
         self.assertTrue(result["valid"], result)
         self.assertEqual(
@@ -141,6 +154,7 @@ class AgentResponseEvidenceTests(unittest.TestCase):
             "allowed_scope": ["deep/**"],
             "evidence_refs": [],
             "allow_empty_satisfaction_matrix": True,
+            "target_sha": self.target_sha,
         }
         result = validate_agent_response_evidence(
             response=response, workspace_root=self.repo, request=request

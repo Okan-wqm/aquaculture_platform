@@ -11,6 +11,7 @@ import {
   createSchemaVersionGate,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
+  isSchemaDdlOwnedByDbMigrate,
 } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
@@ -52,24 +53,7 @@ import { MeteringModule } from './modules/metering/metering.module';
  * standard DATABASE_MIGRATIONS_RUN flow below.
  */
 const BillingMigrationRunnerService = createSchemaVersionGate('billing');
-
-function resolveBillingSchemaDdlOwnedByDbMigrate(env: NodeJS.ProcessEnv): boolean {
-  const explicit = env['DB_MIGRATE_AUTHORITATIVE'];
-  if (explicit === 'true') {
-    return true;
-  }
-  if (explicit === 'false') {
-    return false;
-  }
-
-  const nodeEnv = env['NODE_ENV'] ?? 'development';
-  const aquaEnv = env['AQUA_ENV'] ?? nodeEnv;
-
-  return nodeEnv === 'production' || aquaEnv === 'production' || aquaEnv === 'staging';
-}
-
-const billingSchemaDdlOwnedByDbMigrate =
-  resolveBillingSchemaDdlOwnedByDbMigrate(process.env);
+const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 
 @Module({
   imports: [
@@ -113,7 +97,10 @@ const billingSchemaDdlOwnedByDbMigrate =
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({
       driver: ApolloFederationDriver,
-      autoSchemaFile: { federation: 2, path: join(process.cwd(), 'dist/graphql/subgraphs/billing.graphql') },
+      autoSchemaFile: {
+        federation: 2,
+        path: join(process.cwd(), 'dist/graphql/subgraphs/billing.graphql'),
+      },
       /** SEC-M21: Disable GraphQL query batching to prevent batch-based brute-force attacks.
        *  The gateway already blocks batching, but subgraphs must also enforce this as
        *  defense-in-depth in case a subgraph becomes directly accessible. */
@@ -247,7 +234,7 @@ const billingSchemaDdlOwnedByDbMigrate =
     {
       provide: APP_GUARD,
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
-        new ServiceIdentityGuard(configService),
+        new ServiceIdentityGuard(configService, undefined, 'billing-service'),
       inject: [ConfigService],
     },
     // SECURITY: Global JWT auth guard - requires authentication on all resolvers

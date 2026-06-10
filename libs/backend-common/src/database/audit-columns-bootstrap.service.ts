@@ -92,9 +92,7 @@ export class AuditColumnsBootstrap implements OnApplicationBootstrap {
 
     try {
       await queryRunner.connect();
-      this.logger.log(
-        `Running audit-column conversion for service "${this.options.serviceName}"`,
-      );
+      this.logger.log(`Running audit-column conversion for service "${this.options.serviceName}"`);
 
       await convertAuditColumnsToTimestamptz(queryRunner, {
         excludeTables: this.options.excludeTables,
@@ -104,9 +102,7 @@ export class AuditColumnsBootstrap implements OnApplicationBootstrap {
         logger: this.logger,
       });
 
-      this.logger.log(
-        `Audit-column conversion complete for "${this.options.serviceName}"`,
-      );
+      this.logger.log(`Audit-column conversion complete for "${this.options.serviceName}"`);
     } catch (err) {
       // Operator alerting hook: the literal substring
       // "audit_columns.bootstrap.failed" is the recommended pattern in
@@ -119,6 +115,9 @@ export class AuditColumnsBootstrap implements OnApplicationBootstrap {
           `succeeds: ${msg}`,
         stack,
       );
+      if (msg.includes('[db-migrate authority]')) {
+        throw err;
+      }
       // Do NOT rethrow — partial conversion is recoverable on next
       // restart and is preferable to a hard service crash.
     } finally {

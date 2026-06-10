@@ -68,7 +68,7 @@ export const inputSchema = z.object({
     'dosing_simulation',
   ]).describe('Hesaplama modu'),
 
-  params: z.record(z.unknown())
+  params: z.record(z.string(), z.unknown())
     .describe('Hesaplama moduna özel parametreler'),
 });
 
@@ -558,8 +558,8 @@ function handleH2SToxicity(rawParams: Record<string, unknown>): ToolResult {
 
   // ── Kritik pH ─────────────────────────────────────────────────
   //
-  // criticalPHforH2S(h2sMeasured, currentPH, h2sLimit, tempC, S):
-  //   1. Ölçülen H2S ve mevcut pH'dan toplam sülfidi hesaplar
+  // criticalPHforH2S(h2sMeasured, h2sMeasuredAtPH, h2sLimit, tempC, S):
+  //   1. Ölçülen H2S ve ölçüm pH'ından toplam sülfidi hesaplar
   //   2. Hedef fraksiyonu bulur: h2sLimit / totalSulfide
   //   3. Bisection ile pH bulur
   //
@@ -887,4 +887,3 @@ function handleDosingSimulation(rawParams: Record<string, unknown>): ToolResult 
 // ============================================================================
 // YARDIMCI FONKSİYONLAR
 // ============================================================================
-

@@ -20,6 +20,7 @@ from aria_kernel.change_ledger import (
 )
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 def _plan_change(base: Path, *, intended: list[str], suffix: str = "") -> str:
@@ -93,22 +94,25 @@ class ScopeDriftGateTests(unittest.TestCase):
         # emit_change_planned with empty intended is rejected; we
         # construct the case manually by injecting a planned row that
         # bypasses the planner's own non-empty check.
-        from aria_kernel.ledger import append_jsonl
         change_id = "manually-injected-empty-d2"
         path = self.base / "change-ledger" / "planned.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
-        append_jsonl(path, {
-            "$schema": "aria/change-record/v1",
-            "schema_version": 1,
-            "event": "change_planned",
-            "change_id": change_id,
-            "plan_id": "plan-d2-empty",
-            "finding_id": "F-d2-empty",
-            "intended_affected_files": [],
-            "intended_validation_refs": [],
-            "rationale": "test",
-            "recorded_at": "2026-05-11T13:00:00+00:00",
-        })
+        append_declared_fixture(
+            path,
+            {
+                "$schema": "aria/change-record/v1",
+                "schema_version": 1,
+                "event": "change_planned",
+                "change_id": change_id,
+                "plan_id": "plan-d2-empty",
+                "finding_id": "F-d2-empty",
+                "intended_affected_files": [],
+                "intended_validation_refs": [],
+                "rationale": "test",
+                "recorded_at": "2026-05-11T13:00:00+00:00",
+            },
+            expected_surface="change_planned",
+        )
         with self.assertRaises(GovernanceError) as ctx:
             emit_change_committed(
                 change_id=change_id,

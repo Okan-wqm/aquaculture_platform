@@ -120,11 +120,12 @@ class TestFoldPlanStateCache(unittest.TestCase):
             # Cache should populate on first read
             plan_convergence.fold_plan_state(plan_id=plan_id, base_dir=base)
             cache_keys_before = list(plan_convergence._FOLD_PLAN_STATE_CACHE.keys())
-            # Directly append a syntactically-valid JSON row (load_jsonl
-            # parses it but filters by plan_id; doesn't affect our state)
-            with events_path.open("a", encoding="utf-8") as fh:
-                import json as _json
-                fh.write(_json.dumps({"plan_id": "other-plan", "event_type": "noop"}) + "\n")
+            from tests._helpers.declared_fixtures import append_declared_fixture
+            append_declared_fixture(
+                events_path,
+                {"plan_id": "other-plan", "event_type": "noop"},
+                expected_surface="plan_convergence_events",
+            )
             size_after = events_path.stat().st_size
             self.assertGreater(size_after, size_before)
             # Next call should compute a new cache entry (different size key)

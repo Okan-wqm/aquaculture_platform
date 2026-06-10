@@ -32,7 +32,7 @@ describe('Auth pre-auth surface rate-limit contract (SEC-CRITICAL-002)', () => {
     ['forgotPassword', 3, 60 * 60_000],
     ['resetPassword', 3, 60 * 60_000],
   ])('AuthResolver.%s carries @RateLimit(%i / %ims)', (method, limit, windowMs) => {
-    const config = configOf(AuthResolver.prototype, method as string);
+    const config = configOf(AuthResolver.prototype, method);
     expect(config).toBeDefined();
     expect(config?.limit).toBe(limit);
     expect(config?.windowMs).toBe(windowMs);

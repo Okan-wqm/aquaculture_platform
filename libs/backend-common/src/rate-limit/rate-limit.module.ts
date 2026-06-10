@@ -1,6 +1,7 @@
 import { DynamicModule, Logger, Module, Provider } from '@nestjs/common';
 
 import { RedisService } from '../redis/redis.service';
+
 import { RateLimitGuard } from './rate-limit.guard';
 import { RATE_LIMIT_STORE } from './rate-limit.types';
 import { RedisRateLimitStore } from './redis-rate-limit.store';

@@ -57,6 +57,16 @@
 import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
+// Round-2 cluster-0: the -U0 added-line parser moved to the shared
+// git-diff-ranges module (SSOT — banned-construct.ts and
+// farm-service-enterprise-guardrails.ts consume the same parser, so a
+// hunk-header edge case can no longer be fixed in one gate and stay
+// broken in another).
+import {
+  addedLinesByFile,
+  collectRangeAddedLines,
+  stagedChangedFiles,
+} from './git-diff-ranges';
 
 const REPO_ROOT = (() => {
   try {
@@ -283,51 +293,6 @@ function run(cmd: string): string {
   } catch {
     return '';
   }
-}
-
-function stagedFiles(): string[] {
-  return run('git diff --cached --name-only --diff-filter=ACM').split('\n').filter(Boolean);
-}
-
-function rangeFiles(baseRef: string, headRef: string): string[] {
-  return run(`git diff ${baseRef}..${headRef} --name-only --diff-filter=ACM`)
-    .split('\n')
-    .filter(Boolean);
-}
-
-/**
- * Return the set of line indices (1-based, post-image) that were added or
- * modified in `file` between `baseRef` and `headRef`. Parses a `-U0` diff
- * — only the post-image line numbers of lines beginning with `+` (not the
- * `+++` file header). Removals do not advance the post-image counter; a
- * modification shows up as one `-` plus one `+` at the same logical spot.
- *
- * Used by range mode to scan ONLY the lines that this PR introduced. A
- * pre-existing banned phrase that was never touched by the PR is left
- * alone (otherwise long-lived feature branches surface every historical
- * hit as a new violation — mechanically correct, operationally noise).
- */
-function addedLinesInRange(baseRef: string, headRef: string, file: string): ReadonlySet<number> {
-  const diff = run(`git diff --unified=0 ${baseRef}..${headRef} -- "${file}"`);
-  if (!diff) return new Set();
-  const added = new Set<number>();
-  let postLine = 0;
-  for (const line of diff.split('\n')) {
-    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
-    if (hunk && hunk[1]) {
-      postLine = parseInt(hunk[1], 10);
-      continue;
-    }
-    if (line.startsWith('+++')) continue; // file header
-    if (line.startsWith('---')) continue;
-    if (line.startsWith('+')) {
-      added.add(postLine);
-      postLine++;
-    }
-    // `-` lines do NOT advance postLine; blank/context lines do (but -U0
-    // emits no context, so this branch is unreachable under our invocation).
-  }
-  return added;
 }
 
 function isExempt(relPath: string): boolean {
@@ -589,7 +554,7 @@ function main(): void {
   const violations: Violation[] = [];
 
   if (mode === 'staged') {
-    for (const f of stagedFiles()) {
+    for (const f of stagedChangedFiles(REPO_ROOT)) {
       violations.push(...scanFile(f, ignoreExemptions));
     }
   } else if (mode === 'range') {
@@ -598,8 +563,11 @@ function main(): void {
       writeStderr('range mode requires two refs: --mode=range <base> <head>');
       process.exit(2);
     }
-    for (const f of rangeFiles(baseRef, headRef)) {
-      const added = addedLinesInRange(baseRef, headRef, f);
+    // One -U0 diff for the whole range (was: one git invocation per
+    // changed file), grouped into per-file line sets for the
+    // allowIf-windowed scan.
+    const addedByFile = addedLinesByFile(collectRangeAddedLines(REPO_ROOT, baseRef, headRef));
+    for (const [f, added] of addedByFile) {
       violations.push(...scanFileAddedLinesOnly(f, added, ignoreExemptions));
     }
     violations.push(...scanRangeCommitBodies(baseRef, headRef));

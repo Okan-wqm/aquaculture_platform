@@ -27,6 +27,7 @@ GATE_TSCONFIG="--project tools/gates/tsconfig.json"
 "$GATE_TS_NODE" --transpile-only tools/gates/check-pin.ts || exit 1
 
 "$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/banned-phrase.ts --mode=staged || exit 1
+"$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/banned-construct.ts --mode=staged || exit 1
 "$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/migration-sql-lint.ts --mode=staged || exit 1
 "$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/tier-claim-lint.ts --mode=staged || exit 1
 

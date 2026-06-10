@@ -52,7 +52,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+      - run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
       # Plan ARIA-V2 §Phase 1 CRITICAL-020 — aria-kernel declares
       # pyyaml>=6.0 in pyproject.toml (required by I-25 + I-26
       # invariants for YAML workflow + frontmatter parsing).

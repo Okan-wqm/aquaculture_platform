@@ -55,7 +55,7 @@ jobs:
       - name: Install dependencies (ts-node only)
         # Dependency resolution must be peer-clean; do not hide package graph
         # conflicts in reporting jobs.
-        run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
 
       - name: Compute sweep plan (dry run)
         id: plan

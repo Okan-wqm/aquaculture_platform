@@ -22,6 +22,24 @@ export type BuildKind =
   | 'infra';
 export type ReadinessContract = 'docker-healthcheck' | 'one-shot-success' | 'none';
 export type EventStoreTenantScopePolicy = 'tenant-bound' | 'all-tenants' | 'none';
+/**
+ * How a frontend image obtains its compiled assets.
+ *
+ *   - 'prebuilt-artifact'      — CI builds the module in the
+ *     build-frontend-artifacts job (nx run-many or npm workspace build)
+ *     and the Dockerfile COPYs the dist/ artifact in.
+ *   - 'dockerfile-self-build'  — the Dockerfile runs the module's own
+ *     npm ci + vite build inside the image (standalone lockfile); the
+ *     artifact prebuild step MUST skip it.
+ *
+ * Before this field existed the distinction lived only in a YAML comment
+ * in deploy-digitalocean.yml while the generator derived the prebuild
+ * list by subtraction (frontend targets minus NX projects) — aquamobil
+ * (self-building, web/apps/) fell into the npm-workspace list and the
+ * first full-deploy build broke on `--workspace=web/modules/aquamobil`
+ * (INFRA-HIGH-005, 2026-06-10 main red).
+ */
+export type FrontendAssetStrategy = 'prebuilt-artifact' | 'dockerfile-self-build';
 
 export interface GatewaySubgraphCatalogEntry {
   name: string;
@@ -73,6 +91,10 @@ export interface ServiceCatalogEntry {
   eventStoreTenantScopePolicy?: EventStoreTenantScopePolicy;
   serviceIdentityAudience?: string;
   gatewaySubgraph?: GatewaySubgraphCatalogEntry;
+  /** Frontend entries only: workspace path of the module's package.json (SSOT for build + image-matrix paths). */
+  modulePath?: string;
+  /** Frontend entries only: asset acquisition strategy — see FrontendAssetStrategy. */
+  frontendAssets?: FrontendAssetStrategy;
 }
 
 type CatalogEntryInput = Omit<
@@ -702,6 +724,18 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
           serviceId === 'mosquitto' || !['nginx', 'minio'].includes(serviceId)
             ? serviceId
             : undefined,
+        modulePath: ['nginx', 'mosquitto', 'minio'].includes(serviceId)
+          ? undefined
+          : serviceId === 'shell'
+            ? 'web/shell'
+            : serviceId === 'aquamobil'
+              ? 'web/apps/aquamobil'
+              : `web/modules/${serviceId}`,
+        frontendAssets: ['nginx', 'mosquitto', 'minio'].includes(serviceId)
+          ? undefined
+          : serviceId === 'aquamobil'
+            ? 'dockerfile-self-build'
+            : 'prebuilt-artifact',
         buildKind: serviceId === 'mosquitto' ? 'docker-only' : undefined,
         deploymentStatus: 'active',
         deployTarget: 'droplet',
@@ -771,6 +805,51 @@ export function infraImageBuildTargets(): readonly string[] {
     .filter((entry) => entry.buildKind === 'docker-only')
     .map((entry) => entry.imageTarget)
     .filter((target): target is string => typeof target === 'string');
+}
+
+export interface FrontendPrebuildModule {
+  readonly module: string;
+  readonly workspacePath: string;
+}
+
+export interface FrontendPrebuildPlan {
+  readonly nxProjects: readonly string[];
+  readonly workspaceModules: readonly FrontendPrebuildModule[];
+}
+
+/**
+ * SSOT for the CI artifact-prebuild step (deploy build-frontend-artifacts).
+ *
+ * Splits active frontend image targets into the two prebuild lanes and
+ * EXCLUDES 'dockerfile-self-build' entries entirely — their assets are
+ * compiled inside their own Dockerfile, so prebuilding them is at best
+ * wasted work and at worst a broken `npm --workspace` invocation
+ * (INFRA-HIGH-005: aquamobil). Workspace modules carry their catalog
+ * modulePath so no consumer ever reconstructs the path by convention.
+ */
+export function frontendPrebuildPlan(): FrontendPrebuildPlan {
+  const frontends = activeDropletServices().filter(
+    (entry) => entry.buildKind === 'frontend' && typeof entry.imageTarget === 'string',
+  );
+  const prebuilt = frontends.filter(
+    (entry) => (entry.frontendAssets ?? 'prebuilt-artifact') === 'prebuilt-artifact',
+  );
+  const nxProjects = prebuilt
+    .map((entry) => entry.nxProject)
+    .filter((project): project is string => typeof project === 'string')
+    .sort();
+  const workspaceModules = prebuilt
+    .filter((entry) => entry.nxProject === undefined)
+    .map((entry) => {
+      if (!entry.modulePath) {
+        throw new Error(
+          `frontend ${entry.serviceId} has no modulePath — required to prebuild a non-NX workspace module`,
+        );
+      }
+      return { module: entry.imageTarget as string, workspacePath: entry.modulePath };
+    })
+    .sort((a, b) => a.module.localeCompare(b.module));
+  return { nxProjects, workspaceModules };
 }
 
 export function serviceDbRolePrefixes(): readonly string[] {

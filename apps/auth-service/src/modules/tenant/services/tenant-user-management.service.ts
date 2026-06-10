@@ -404,6 +404,57 @@ export class TenantUserManagementService {
   /**
    * Assign a role to an existing user in a tenant
    */
+  /**
+   * SECURITY (SEC-MEDIUM-001): role-grant authority guard.
+   *
+   * Enforces two invariants the tenant role-assignment paths previously
+   * lacked, allowing horizontal privilege manipulation within a tenant:
+   *   1. Self-modification is FORBIDDEN — an admin cannot assign/change their
+   *      own role assignment (no self-escalation, no self-lockout).
+   *   2. Upward escalation is FORBIDDEN — the granted role's level must not
+   *      exceed the caller's authority ceiling.
+   *
+   * Global TENANT_ADMIN/SUPER_ADMIN sit ABOVE every tenant role, so their
+   * ceiling is unbounded for tenant-role grants; a non-admin caller is capped
+   * at their own highest active tenant-role level.
+   */
+  private async assertRoleGrantAuthority(
+    schemaName: string,
+    actingUserId: string,
+    targetUserId: string,
+    targetRole: TenantRoleWithDetails,
+  ): Promise<void> {
+    if (actingUserId === targetUserId) {
+      throw new ForbiddenException(
+        'You cannot modify your own role assignment. Ask another administrator.',
+      );
+    }
+
+    const actor = await this.userRepository.findOne({ where: { id: actingUserId } });
+    // Global platform admins outrank every tenant role.
+    if (actor && (actor.role === Role.SUPER_ADMIN || actor.role === Role.TENANT_ADMIN)) {
+      return;
+    }
+
+    const actorLevelRows = rowsAs<{ level: number }>(
+      await this.dataSource.query(
+        `SELECT r.level AS level
+         FROM "${schemaName}"."user_role_assignments" ura
+         JOIN "${schemaName}"."tenant_roles" r ON r.id = ura.role_id
+         WHERE ura.user_id = $1 AND ura.is_active = true
+         ORDER BY r.level DESC
+         LIMIT 1`,
+        [actingUserId],
+      ),
+    );
+    const actorCeiling = actorLevelRows[0]?.level ?? 0;
+    if (targetRole.level > actorCeiling) {
+      throw new ForbiddenException(
+        'You cannot grant a role above your own authority level.',
+      );
+    }
+  }
+
   async assignUserRole(
     tenantId: string,
     userId: string,
@@ -432,6 +483,9 @@ export class TenantUserManagementService {
     if (!role) {
       throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
     }
+
+    // SECURITY (SEC-MEDIUM-001): self-target + upward-escalation guard.
+    await this.assertRoleGrantAuthority(schemaName, assignedBy, userId, role);
 
     // Check if user already has an active role assignment
     const existingAssignment = rowsAs<{ id: string }>(
@@ -512,6 +566,9 @@ export class TenantUserManagementService {
       if (!newRole) {
         throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
       }
+      // SECURITY (SEC-MEDIUM-001): self-target + upward-escalation guard on
+      // the role-CHANGE path (only when the role itself is changing).
+      await this.assertRoleGrantAuthority(schemaName, updatedBy, userId, newRole);
     }
 
     // Build update query
@@ -545,16 +602,18 @@ export class TenantUserManagementService {
 
     values.push(assignmentId);
 
-    // Execute update
-    await this.dataSource.query(
-      `UPDATE "${schemaName}"."user_role_assignments" SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
-      values,
-    );
+    // SECURITY (SEC-MEDIUM-002): the role UPDATE and its audit row commit
+    // ATOMICALLY. Previously the audit was a swallowed try/catch AFTER the
+    // committed UPDATE — a failed audit left a role change with no evidence
+    // (SOC 2 CC6.1 violation), fail-OPEN. Now an audit failure rolls back the
+    // role change (fail-CLOSED, matching the MFA audit pattern): no role
+    // mutation persists without its audit trail.
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(
+        `UPDATE "${schemaName}"."user_role_assignments" SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+        values,
+      );
 
-    this.logger.log(`Updated role assignment for user ${userId} in tenant ${tenantId}`);
-
-    // SECURITY AUDIT: Log role change (BULGU-016)
-    try {
       await this.auditLogService.log({
         tenantId,
         performedBy: updatedBy,
@@ -575,9 +634,9 @@ export class TenantUserManagementService {
         },
         severity: AuditLogSeverity.WARNING,
       });
-    } catch (error) {
-      this.logger.error(`Failed to log audit event USER_ROLE_CHANGED: ${(error as Error).message}`);
-    }
+    });
+
+    this.logger.log(`Updated role assignment for user ${userId} in tenant ${tenantId}`);
 
     // Return updated assignment
     return this.getUserRoleAssignment(schemaName, userId);

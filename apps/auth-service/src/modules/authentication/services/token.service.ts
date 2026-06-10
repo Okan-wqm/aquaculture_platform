@@ -156,7 +156,7 @@ export class TokenService {
     user: User,
     ipAddress?: string,
     userAgent?: string,
-    options?: { mfaVerified?: boolean },
+    options?: { mfaVerified?: boolean; familyId?: string },
   ): Promise<AuthPayload> {
     // Enforce concurrent session limit
     if (this.sessionManager) {
@@ -217,11 +217,17 @@ export class TokenService {
       tokenToStore = await bcrypt.hash(refreshTokenRandom, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
     }
 
+    // SECURITY (SEC-MEDIUM-003): a fresh login starts a NEW token family; a
+    // rotation (refresh) passes the rotated token's familyId so the lineage
+    // is preserved. Reuse-detection later revokes by family, not by user.
+    const familyId = options?.familyId ?? crypto.randomUUID();
+
     // Create refresh token
     const refreshToken = this.refreshTokenRepository.create({
       token: tokenToStore,
       userId: user.id,
       tenantId: user.tenantId,
+      familyId,
       expiresAt: new Date(Date.now() + this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000),
       ipAddress,
       userAgent,

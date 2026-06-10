@@ -1,4 +1,5 @@
 import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
+import { RateLimit } from '@aquaculture/backend-common/rate-limit';
 import { UnauthorizedException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
@@ -88,6 +89,18 @@ export class AuthResolver {
   // existing tenant. See docs/reviews/auth-security-expert/
   // 2026-06-10-auth-service-audit.md#SEC-CRITICAL-001.
 
+  // SECURITY (SEC-CRITICAL-002 / ADR-008): service-local limiting so a
+  // gateway bypass or direct internal-network subgraph reach still faces a
+  // brute-force window. The email identifier shares one budget per account
+  // across IPs — distributed credential stuffing cannot rotate around it.
+  @RateLimit({
+    name: 'login',
+    limit: 5,
+    windowMs: 15 * 60_000,
+    identifier: ({ args }) =>
+      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() ||
+      undefined,
+  })
   @Public()
   @Mutation(() => AuthPayload)
   async login(
@@ -103,6 +116,7 @@ export class AuthResolver {
     return this.stripRefreshToken(result);
   }
 
+  @RateLimit({ name: 'refresh', limit: 10, windowMs: 5 * 60_000 })
   @Public()
   @Mutation(() => AuthPayload)
   async refreshToken(
@@ -158,6 +172,16 @@ export class AuthResolver {
    * - Timing-safe: takes the same amount of time whether user exists or not
    * - If the email exists, publishes PasswordResetRequestedEvent for notification service
    */
+  // WHY per-email budget: reset-token flooding spams the victim's inbox and
+  // churns tokens; 3/hour per account regardless of source IP.
+  @RateLimit({
+    name: 'password-reset-request',
+    limit: 3,
+    windowMs: 60 * 60_000,
+    identifier: ({ args }) =>
+      ((args?.['input'] as { email?: string } | undefined)?.email ?? '').toLowerCase() ||
+      undefined,
+  })
   @Public()
   @Mutation(() => Boolean)
   async forgotPassword(
@@ -182,6 +206,7 @@ export class AuthResolver {
    * - Password validation: min 8, uppercase, lowercase, digit, special char (via DTO)
    * - Refresh token is set as httpOnly cookie
    */
+  @RateLimit({ name: 'password-reset', limit: 3, windowMs: 60 * 60_000 })
   @Public()
   @Mutation(() => AuthPayload)
   async resetPassword(

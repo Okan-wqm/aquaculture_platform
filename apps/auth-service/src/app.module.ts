@@ -1,13 +1,6 @@
-import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { Logger, Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_GUARD, Reflector } from '@nestjs/core';
-import { GraphQLModule } from '@nestjs/graphql';
-import { JwtModule, JwtService } from '@nestjs/jwt';
-import { ScheduleModule } from '@nestjs/schedule';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
-import depthLimit from 'graphql-depth-limit';
+
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
   RlsModule,
   SchemaDriftModule,
@@ -24,19 +17,28 @@ import {
   RequestLoggingMiddleware,
   StripInternalHeadersMiddleware,
 } from '@aquaculture/backend-common/middleware';
+import { RateLimitGuard, RateLimitModule, RATE_LIMIT_STORE, RateLimitStore } from '@aquaculture/backend-common/rate-limit';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
-import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
+import { Logger, Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD, Reflector } from '@nestjs/core';
+import { GraphQLModule } from '@nestjs/graphql';
+import { JwtModule, JwtService } from '@nestjs/jwt';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
+import depthLimit from 'graphql-depth-limit';
 
-import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
 import { AuditModule } from './audit/audit.module';
 import { SECURITY_CONSTANTS } from './constants/auth.constants';
+import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
 import { HealthModule } from './health/health.module';
 import { AuthMetricsModule } from './metrics/metrics.module';
-import { JwtAuthGuard } from './modules/authentication/guards/jwt-auth.guard';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
 import { AuthenticationModule } from './modules/authentication/authentication.module';
+import { JwtAuthGuard } from './modules/authentication/guards/jwt-auth.guard';
 import { GdprModule } from './modules/gdpr/gdpr.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
 import { SupportModule } from './modules/support/support.module';
@@ -253,6 +255,10 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
       }),
     }),
 
+    // SECURITY (SEC-CRITICAL-002): distributed rate-limit store on top of
+    // the service Redis — login/MFA/reset budgets are shared across replicas.
+    RateLimitModule.forRoot({ keyPrefix: 'ratelimit:' }),
+
     // Event Bus
     EventBusModule.forRoot(),
 
@@ -349,6 +355,16 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
       useFactory: (configService: ConfigService): ServiceIdentityGuard =>
         new ServiceIdentityGuard(configService, undefined, 'auth-service'),
       inject: [ConfigService],
+    },
+    // SECURITY (SEC-CRITICAL-002 / ADR-008): velocity limiting BEFORE
+    // authentication so pre-auth surfaces (login, MFA verify, password
+    // reset) are budgeted even when the gateway is bypassed on the internal
+    // network. Explicit-config mode: only @RateLimit-decorated handlers pay.
+    {
+      provide: APP_GUARD,
+      useFactory: (reflector: Reflector, store?: RateLimitStore): RateLimitGuard =>
+        new RateLimitGuard(reflector, store),
+      inject: [Reflector, { token: RATE_LIMIT_STORE, optional: true }],
     },
     // SECURITY: Global JWT auth guard
     {

@@ -49,14 +49,32 @@ def _call_name(node: ast.AST) -> str:
     return ""
 
 
-def _literal_command_tokens(node: ast.AST) -> list[str]:
+def _literal_command_tokens(node: ast.AST, names: dict[str, list[str]] | None = None) -> list[str]:
+    names = names or {}
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value.split()
+    if isinstance(node, ast.JoinedStr):
+        parts: list[str] = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                parts.append(value.value)
+            else:
+                parts.append("{expr}")
+        return "".join(parts).split()
+    if isinstance(node, ast.Name):
+        return names.get(node.id, [])
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _literal_command_tokens(node.left, names)
+        right = _literal_command_tokens(node.right, names)
+        return [*left, *right] if left and right else []
     if isinstance(node, (ast.List, ast.Tuple)):
         tokens: list[str] = []
         for element in node.elts:
             if isinstance(element, ast.Constant) and isinstance(element.value, str):
                 tokens.append(element.value)
+            elif isinstance(element, ast.JoinedStr):
+                joined = " ".join(_literal_command_tokens(element, names))
+                tokens.append(joined)
             else:
                 return []
         return tokens
@@ -75,6 +93,9 @@ class _StaticVisitor(ast.NodeVisitor):
     def __init__(self, rel_path: str) -> None:
         self.rel_path = rel_path
         self.scope: list[str] = []
+        self.literal_names: dict[str, list[str]] = {}
+        self.subprocess_aliases: set[str] = {"subprocess"}
+        self.process_function_aliases: set[str] = {"run", "call", "check_call", "check_output", "Popen"}
         self.direct_merge_commands: list[str] = []
         self.adapter_merge_calls: list[str] = []
         self.test_helper_imports: list[str] = []
@@ -104,6 +125,8 @@ class _StaticVisitor(ast.NodeVisitor):
         for alias in node.names:
             if _is_test_helper_import(alias.name):
                 self.test_helper_imports.append(f"{self._location(node)} imports {alias.name}")
+            if alias.name == "subprocess":
+                self.subprocess_aliases.add(alias.asname or alias.name)
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -113,32 +136,53 @@ class _StaticVisitor(ast.NodeVisitor):
         for candidate in candidates:
             if _is_test_helper_import(candidate):
                 self.test_helper_imports.append(f"{self._location(node)} imports {candidate}")
+        if module == "subprocess":
+            for alias in node.names:
+                self.process_function_aliases.add(alias.asname or alias.name)
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        tokens = _literal_command_tokens(node.value, self.literal_names)
+        if tokens:
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.literal_names[target.id] = tokens
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         name = _call_name(node.func)
+        if _is_getattr_merge_pr_call(node):
+            self.adapter_merge_calls.append(self._location(node))
         if name.endswith(".merge_pr") or name == "merge_pr":
             if (self.rel_path, self._scope_name()) != ALLOWED_ADAPTER_MERGE_CALL_LOCATION:
                 self.adapter_merge_calls.append(self._location(node))
 
-        process_call_names = {
-            "subprocess.run",
-            "subprocess.call",
-            "subprocess.check_call",
-            "subprocess.check_output",
-            "subprocess.Popen",
-            "run",
-            "call",
-            "check_call",
-            "check_output",
-            "Popen",
-        }
-        if name in process_call_names and node.args:
-            tokens = _literal_command_tokens(node.args[0])
+        is_process_call = name in self.process_function_aliases
+        if "." in name:
+            prefix, _, attr = name.partition(".")
+            is_process_call = prefix in self.subprocess_aliases and attr in {"run", "call", "check_call", "check_output", "Popen"}
+        command_node = node.args[0] if node.args else None
+        for keyword in node.keywords:
+            if keyword.arg == "args":
+                command_node = keyword.value
+        if is_process_call and command_node is not None:
+            tokens = _literal_command_tokens(command_node, self.literal_names)
             if _is_direct_gh_merge_command(tokens):
                 if (self.rel_path, self._scope_name()) != ALLOWED_GH_PR_MERGE_LOCATION:
                     self.direct_merge_commands.append(self._location(node))
         self.generic_visit(node)
+
+
+def _is_getattr_merge_pr_call(node: ast.Call) -> bool:
+    func = node.func
+    return (
+        isinstance(func, ast.Call)
+        and isinstance(func.func, ast.Name)
+        and func.func.id == "getattr"
+        and len(func.args) >= 2
+        and isinstance(func.args[1], ast.Constant)
+        and func.args[1].value == "merge_pr"
+    )
 
 
 def _is_test_helper_import(module: str) -> bool:
@@ -199,6 +243,27 @@ class ReadinessMergeEvalStaticInvariantTests(unittest.TestCase):
             "production imports from tests/_helpers are forbidden: "
             + ", ".join(helper_imports),
         )
+
+    def test_static_scanner_catches_direct_merge_poison_shapes(self) -> None:
+        poison = """
+import subprocess as sp
+from subprocess import run as sprun
+
+def one():
+    cmd = ["gh", "pr"] + ["merge", "1"]
+    sp.run(cmd)
+
+def two():
+    sprun(args=["gh", "api", f"/repos/o/r/pulls/{1}/merge"])
+
+def three(adapter):
+    getattr(adapter, "merge_pr")(1)
+"""
+        tree = ast.parse(poison)
+        visitor = _StaticVisitor("aria-kernel/aria_kernel/poison.py")
+        visitor.visit(tree)
+        self.assertGreaterEqual(len(visitor.direct_merge_commands), 2)
+        self.assertEqual(len(visitor.adapter_merge_calls), 1)
 
 
 if __name__ == "__main__":

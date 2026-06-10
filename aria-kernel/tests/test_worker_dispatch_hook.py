@@ -203,15 +203,26 @@ class WorkerDispatchHookTests(unittest.TestCase):
             encoding="utf-8",
         )
         adapter = MagicMock()
+        adapter.get_pr.return_value = {
+            "number": 555,
+            "repository": "acme/aqua",
+            "target_ref": "refs/heads/main",
+            "head_ref": "refs/heads/aria-ready",
+            "head_sha": "a" * 40,
+            "base_branch": "main",
+        }
         with patch(
             "aria_kernel.worker_dispatch_hook.subprocess.run",
             self._capturing_subprocess_run(returncode=0),
         ), patch(
             "aria_kernel.verification_gate.verify_worker_result"
         ) as mock_verify, patch(
-            "aria_kernel.auto_merge.merge_if_green"
+            "aria_kernel.enterprise_readiness.resolve_readiness_claim_id"
+        ) as mock_resolve_readiness, patch(
+            "aria_kernel.merge_authority.merge_if_authorized"
         ) as mock_merge:
             mock_verify.return_value = {"status": "passed", "failures": []}
+            mock_resolve_readiness.return_value = "ready-claim-555"
             mock_merge.return_value = {"decision": "merged", "eligible": True}
             result = dispatch_one_pending_worker_assignment(
                 base_dir=self.tools_root,
@@ -220,9 +231,17 @@ class WorkerDispatchHookTests(unittest.TestCase):
             )
         self.assertEqual(result["status"], "merged")
         self.assertEqual(result["merge_result"]["decision"], "merged")
+        resolve_kwargs = mock_resolve_readiness.call_args.kwargs
+        self.assertEqual(resolve_kwargs["pr_number"], 555)
+        self.assertEqual(resolve_kwargs["repository"], "acme/aqua")
+        self.assertEqual(resolve_kwargs["target_ref"], "refs/heads/main")
+        self.assertEqual(resolve_kwargs["head_ref"], "refs/heads/aria-ready")
+        self.assertEqual(resolve_kwargs["head_sha"], "a" * 40)
+        self.assertEqual(resolve_kwargs["assignment_id"], "A-MERGE")
         merge_kwargs = mock_merge.call_args.kwargs
         self.assertEqual(merge_kwargs["pr_number"], 555)
         self.assertIs(merge_kwargs["adapter"], adapter)
+        self.assertEqual(merge_kwargs["readiness_claim_id"], "ready-claim-555")
         self.assertEqual(merge_kwargs["dry_run"], False)
 
     def test_verification_failed_retry_scheduled_releases_claim(self) -> None:

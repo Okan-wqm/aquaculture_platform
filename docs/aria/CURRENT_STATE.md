@@ -12,8 +12,9 @@ ARIA authority is ordered and fail-closed:
 1. Executable code and machine-checked contracts are normative.
 2. This file is the live human-readable state index.
 3. Accepted ADRs are normative only when they do not contradict executable contracts or this file.
-4. `SPEC.md`, `CONTRACTS.md`, `IDENTITY.md`, `ROADMAP.md`, and `docs/aria/plans/**` are live only in sections that are not marked historical, superseded, or compatibility reference.
-5. Historical snowball/Claude-era docs are evidence of design history, not runtime authority.
+4. `SPEC.md`, `CONTRACTS.md`, `IDENTITY.md`, and `ROADMAP.md` are live only in sections that are not marked historical, superseded, or compatibility reference.
+5. `docs/aria/plans/**` is historical design evidence by default; a plan section becomes live authority only when it carries an explicit `ARIA-LIVE-AUTHORITY` marker and does not contradict executable contracts or this file.
+6. Historical snowball/Claude-era docs are evidence of design history, not runtime authority.
 
 When two sources disagree, the lower-priority source must be updated, generated from code, or explicitly marked historical. Runtime behavior must not be inferred from stale prose.
 
@@ -29,7 +30,8 @@ When two sources disagree, the lower-priority source must be updated, generated 
 - Agent role/lifecycle SSoT: `aria-kernel/aria_kernel/agent_surface.py`
 - Agent request/response contract: `aria-kernel/aria_kernel/agent_contract.py`
 - Transactional append/index primitive: `aria-kernel/aria_kernel/ledger.py`
-- Merge authority: `aria-kernel/aria_kernel/auto_merge.py::merge_if_green`
+- Merge evaluation: `aria-kernel/aria_kernel/auto_merge.py::merge_if_green`
+- Merge authority: `aria-kernel/aria_kernel/merge_authority.py::merge_if_authorized`
 - Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, `tools/aria-poc/codex_runtime.py`
 - Runtime artifact safety boundary: `aria-kernel/aria_kernel/artifact_safety.py`
 
@@ -53,10 +55,10 @@ Legacy Claude/Anthropic executor language in older docs is historical or compati
 
 This closure is a contract anchor only. It does not make generated documentation the SSoT, burn-in remains open, and full autonomy closure remains governed by the follow-up burn-in/docs SSoT plan.
 
-- Readiness proof: enterprise merge readiness is owned by `aria-kernel/aria_kernel/enterprise_readiness.py::verify_enterprise_readiness` and requires typed, hash-chained CAS, branch-protection, workflow-run, artifact, rollback, retention, DLP, token, and waiver ledger rows bound to the same PR, target ref, head ref, head SHA, repository, and readiness claim id.
+- Readiness proof: enterprise merge readiness is owned by `aria-kernel/aria_kernel/enterprise_readiness.py::verify_enterprise_readiness` and requires typed, hash-chained CAS, branch-protection, workflow-run, artifact, rollback, retention, DLP, token, and waiver ledger rows bound to the same PR, target ref, head ref, head SHA, repository, workflow run ids, structured artifact refs, source ledger refs, and readiness claim id.
 - Merge authority: `aria-kernel/aria_kernel/auto_merge.py::merge_if_green` is evaluate-only. The only production merge authority is `aria-kernel/aria_kernel/merge_authority.py::merge_if_authorized`, which re-runs auto-merge evaluation, verifies enterprise readiness, re-evaluates the fresh PR snapshot, enforces the PR/change/validation triple gate, and only then calls `aria-kernel/aria_kernel/merge_authority.py::execute_gh_squash_merge` for `gh pr merge --squash --match-head-commit`.
-- Eval provenance: real-mode agent eval rows are authoritative only when `aria-kernel/aria_kernel/agent_eval.py::run_agent_eval` records `provenance_mode`, `invocation_id`, `transcript_hash`, result/context/prompt/transcript ledger hashes, joins a fixture, accepted invocation result, context hash, prompt hash, transcript ledger row, and operator approval ref. Legacy envelope-feed evals do not satisfy real eval proof.
-- Evidence trust: promotion, readiness, and merge evidence must be runtime-verified, artifact-bearing, hash-bound, path-contained, source-surface declared, and ledger-connected before it can drive future behavior.
+- Eval provenance: real-mode agent eval rows are authoritative only when `aria-kernel/aria_kernel/agent_eval.py::run_agent_eval` records `provenance_mode`, `invocation_id`, `transcript_hash`, request/claim/result/context/prompt/transcript ledger hashes, joins a fixture, accepted invocation result, context hash, prompt hash, transcript ledger row, output artifact ref, transcript artifact ref, and operator approval ledger ref. Legacy envelope-feed evals do not satisfy real eval proof.
+- Evidence trust: promotion, readiness, and merge evidence must pass `aria-kernel/aria_kernel/evidence_trust.py::verify_hash_bound_artifact_ref` or a verified resolver before it can drive future behavior; proof must be runtime-verified, artifact-bearing, hash-bound, path-contained, source-surface declared, producer-bound, and ledger-connected.
 - Fail-closed bypass classes: direct merge bypass, production import from test helpers, unproven real-mode eval envelope feed, missing artifact/evidence hash binding, missing PR-to-change binding, stale head SHA, unreadable branch protection or checks, unresolved review state, and lifecycle-only promotion evidence.
 
 ## Clean Trial Rule

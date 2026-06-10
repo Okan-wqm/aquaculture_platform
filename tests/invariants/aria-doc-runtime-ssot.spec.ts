@@ -54,6 +54,8 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(current).toMatch(/Last verified commit: `[a-f0-9]{40}`/);
     expect(current).toContain('## Authority Chain');
     expect(current).toContain('Executable code and machine-checked contracts are normative');
+    expect(current).toContain('docs/aria/plans/**` is historical design evidence by default');
+    expect(current).toContain('ARIA-LIVE-AUTHORITY');
     expect(current).toContain('Codex CLI');
     for (const anchor of [
       'aria-kernel/aria_kernel/cli.py',
@@ -88,7 +90,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
       'provenance_mode',
       'invocation_id',
       'transcript_hash',
-      'operator approval ref',
+      'operator approval ledger ref',
       'artifact-bearing',
       'hash-bound',
       'path-contained',
@@ -129,6 +131,17 @@ describe('ARIA live runtime/documentation SSoT', () => {
       const containsStaleTerm = staleRuntimeTerms.some((term) => body.includes(term));
       if (!containsStaleTerm) continue;
       expect(body).toMatch(/ARIA-LIVE-AUTHORITY|ARIA-CURRENT-STATE-NOTICE/);
+    }
+  });
+
+  it('ARIA plan docs are historical unless explicitly promoted as live authority', () => {
+    const plans = git(['ls-files', 'docs/aria/plans']).trim().split('\n').filter(Boolean);
+    expect(plans.length).toBeGreaterThan(0);
+    for (const rel of plans) {
+      const body = read(rel);
+      if (!body.includes('ARIA-LIVE-AUTHORITY')) continue;
+      expect(body).toContain('ARIA-CURRENT-STATE-NOTICE');
+      expect(body).not.toMatch(/Claude Code|Anthropic|ANTHROPIC_API_KEY|llm_bridge\.py|never auto-merge/i);
     }
   });
 

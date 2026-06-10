@@ -38,6 +38,7 @@ from aria_kernel.agent_eval import (
     list_fixtures,
     run_agent_eval,
 )
+from aria_kernel.evidence_trust import recompute_artifact_hash
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.plan_016_metrics import compute_plan_016_metrics
 from aria_kernel.runtime_profile import set_profile
@@ -77,6 +78,43 @@ def _sample_fixture(fid: str = "F999_TEST", verdict: str = "ACCEPTED",
     }
 
 
+def _artifact_ref(tools: Path, *, name: str, payload: dict) -> dict:
+    path = tools / "evidence" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    return {
+        "artifact_id": f"artifact-{name}",
+        "source_surface": "runtime_artifact",
+        "uri": f"evidence/{name}",
+        "sha256": recompute_artifact_hash(path),
+        "content_type": "application/json",
+        "produced_by_workflow_run_id": "run-real-eval",
+    }
+
+
+def _operator_ref(
+    tools: Path,
+    *,
+    request_id: str,
+    claim_id: str,
+    target_agent: str,
+) -> dict:
+    row = append_jsonl(
+        tools / "governance.jsonl",
+        {
+            "schema_version": 1,
+            "kind": "operator_approval",
+            "operator_id": "operator-real-eval",
+            "approved_action": "real_eval",
+            "request_id": request_id,
+            "claim_id": claim_id,
+            "target_agent": target_agent,
+            "expires_at": "2999-06-05T00:00:00Z",
+        },
+    )
+    return {"ledger_path": "governance.jsonl", "ledger_hash": row["ledger_hash"]}
+
+
 def _seed_real_eval_proof(
     tools: Path,
     *,
@@ -84,12 +122,53 @@ def _seed_real_eval_proof(
     envelope: dict,
     request_id: str | None = None,
     transcript_hash: str | None = None,
-) -> dict[str, str]:
+) -> dict[str, object]:
     input_envelope = fixture["input_envelope"]
     request_id = request_id or input_envelope["request_id"]
-    transcript_hash = transcript_hash or sha256_text(f"transcript:{request_id}")
     claim_id = f"claim-{request_id}"
     agent_id = "agent-eval-worker"
+    append_jsonl(
+        tools / "agent-invocations" / "requests.jsonl",
+        {
+            "schema_version": 1,
+            "request_id": request_id,
+            "target_agent": fixture["target_agent"],
+            "role": fixture["role"],
+            "context_hash": input_envelope["context_hash"],
+            "prompt_hash": input_envelope["prompt_hash"],
+        },
+    )
+    context_row = append_jsonl(
+        tools / "agent-invocations" / "contexts.jsonl",
+        {
+            "schema_version": 1,
+            "request_id": request_id,
+            "context_hash": input_envelope["context_hash"],
+        },
+    )
+    prompt_row = append_jsonl(
+        tools / "agent-invocations" / "prompts.jsonl",
+        {
+            "schema_version": 1,
+            "request_id": request_id,
+            "prompt_hash": input_envelope["prompt_hash"],
+        },
+    )
+    append_jsonl(
+        tools / "agent-invocations" / "claims.jsonl",
+        {
+            "schema_version": 1,
+            "claim_id": claim_id,
+            "request_id": request_id,
+            "agent_id": agent_id,
+        },
+    )
+    transcript_ref = _artifact_ref(
+        tools,
+        name=f"{request_id}.transcript.json",
+        payload={"transcript": f"transcript:{request_id}"},
+    )
+    transcript_hash = transcript_hash or transcript_ref["sha256"]
     transcript_row = append_jsonl(
         tools / "agent-invocations" / "transcripts.jsonl",
         {
@@ -100,7 +179,7 @@ def _seed_real_eval_proof(
             "claim_id": claim_id,
             "agent_id": agent_id,
             "transcript_hash": transcript_hash,
-            "artifact_ref": f"/tmp/{request_id}.transcript.jsonl",
+            "artifact_ref": transcript_ref,
         },
     )
     append_jsonl(
@@ -114,11 +193,16 @@ def _seed_real_eval_proof(
             "role": fixture["role"],
             "status": "accepted",
             "envelope_evidence_hash": sha256_payload(envelope),
+            "output_artifact_ref": _artifact_ref(
+                tools,
+                name=f"{request_id}.output.json",
+                payload={"payload": envelope},
+            ),
             "context_hash": input_envelope["context_hash"],
             "prompt_hash": input_envelope["prompt_hash"],
             "transcript_hash": transcript_hash,
-            "context_ledger_hash": sha256_text(f"context-ledger:{request_id}"),
-            "prompt_ledger_hash": sha256_text(f"prompt-ledger:{request_id}"),
+            "context_ledger_hash": context_row["ledger_hash"],
+            "prompt_ledger_hash": prompt_row["ledger_hash"],
             "transcript_ledger_hash": transcript_row["ledger_hash"],
             "submitted_at": datetime.now(timezone.utc).isoformat(),
         },
@@ -126,7 +210,12 @@ def _seed_real_eval_proof(
     return {
         "invocation_id": request_id,
         "transcript_hash": transcript_hash,
-        "operator_approval_ref": "test:real-eval-proof",
+        "operator_approval_ref": _operator_ref(
+            tools,
+            request_id=request_id,
+            claim_id=claim_id,
+            target_agent=fixture["target_agent"],
+        ),
     }
 
 

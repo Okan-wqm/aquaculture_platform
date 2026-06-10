@@ -123,6 +123,10 @@ class TestV9BashAllowlist(unittest.TestCase):
                 ["git", "push", "origin", "HEAD:refs/heads/main"]
             )
 
+    def test_i_v9_bash_01_direct_pr_merge_denied(self):
+        with self.assertRaises(_is.BashDenylistHit):
+            _is.verify_bash_command_allowed(["gh", "pr", "merge", "--squash", "42"])
+
     def test_i_v9_bash_01_allowlist_accepts_canonical(self):
         """Canonical safe commands MUST pass."""
         for argv in (
@@ -133,7 +137,6 @@ class TestV9BashAllowlist(unittest.TestCase):
             ["git", "push", "origin", "aria-impl-abc123def456"],
             ["gh", "pr", "create", "--base", "main", "--head", "aria-impl-abc"],
             ["gh", "pr", "checks", "42"],
-            ["gh", "pr", "merge", "--squash", "42"],
             ["nx", "affected", "--target=test"],
             ["pytest", "tests/"],
             ["npm", "run", "type-check"],

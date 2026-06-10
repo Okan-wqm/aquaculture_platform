@@ -19,9 +19,10 @@ Invariants locked:
     ``merges_completed=0`` + ``status="skipped"``.
   * I-V3-03 — ``select_auto_merge_runner`` returns ``RealAutoMergeRunner``
     for ``strict`` (and ``autonomous`` once Phase B2 lands). The
-    real runner imports and references ``auto_merge.merge_if_green``
-    (verified by source inspection so a future no-op refactor
-    cannot silently break the wrapping).
+    real runner imports and references
+    ``merge_authority.merge_if_authorized`` (verified by source
+    inspection so a future no-op refactor cannot silently break the
+    authority boundary).
 """
 
 from __future__ import annotations
@@ -127,21 +128,22 @@ class PhaseA1RequiredAutoMergeRunner(unittest.TestCase):
         self.assertIsInstance(runner, RealAutoMergeRunner)
         self.assertEqual(runner.profile, "strict")
 
-    def test_i_v3_03_real_runner_imports_merge_if_green(self) -> None:
+    def test_i_v3_03_real_runner_imports_merge_authority(self) -> None:
         """Source-level invariant: the Real runner's __call__ must
-        reference ``merge_if_green`` from ``auto_merge``. A refactor
-        that silently no-ops this wrap is caught by source-string
-        inspection.
+        reference ``merge_if_authorized`` from ``merge_authority``. A
+        refactor that silently no-ops this wrap is caught by
+        source-string inspection.
         """
         from aria_kernel import auto_merge_runners
 
         source = inspect.getsource(auto_merge_runners.RealAutoMergeRunner)
-        self.assertIn("merge_if_green", source)
-        self.assertIn("auto_merge", source)
+        self.assertIn("merge_if_authorized", source)
+        self.assertIn("merge_authority", source)
+        self.assertIn("readiness_claim_resolver", source)
 
     def test_i_v3_03_real_runner_dry_run_true_under_strict(self) -> None:
         """Under ``strict`` profile the Real runner MUST call
-        ``merge_if_green`` with ``dry_run=True``. The autonomous
+        ``merge_if_authorized`` with ``dry_run=True``. The autonomous
         profile (Phase B2) is the only profile that flips this to
         False. This invariant locks the strict-observation semantic
         so a future profile-table edit cannot accidentally promote
@@ -151,27 +153,29 @@ class PhaseA1RequiredAutoMergeRunner(unittest.TestCase):
 
         captured: list[dict[str, Any]] = []
 
-        def _fake_merge_if_green(**kwargs: Any) -> dict[str, Any]:
+        def _fake_merge_if_authorized(**kwargs: Any) -> dict[str, Any]:
             captured.append(kwargs)
             return {"decision": "blocked", "merges_completed": 0}
 
-        # Patch auto_merge.merge_if_green via attribute monkeypatch in
-        # the same module the runner imports from.
-        import aria_kernel.auto_merge as auto_merge_module
+        # Patch merge_authority.merge_if_authorized via attribute
+        # monkeypatch in the same module the runner imports from.
+        import aria_kernel.merge_authority as merge_authority_module
 
-        original = auto_merge_module.merge_if_green
-        auto_merge_module.merge_if_green = _fake_merge_if_green
+        original = merge_authority_module.merge_if_authorized
+        merge_authority_module.merge_if_authorized = _fake_merge_if_authorized
         try:
             runner = RealAutoMergeRunner(
                 profile="strict",
                 adapter_factory=lambda: object(),
                 pr_enumerator=lambda adapter: [42],
+                readiness_claim_resolver=lambda adapter, pr_number, base_dir: "ready-42",
             )
             runner(base_dir="/tmp", workspace_root="/tmp")
         finally:
-            auto_merge_module.merge_if_green = original
+            merge_authority_module.merge_if_authorized = original
         self.assertEqual(len(captured), 1)
         self.assertIs(captured[0]["dry_run"], True)
+        self.assertEqual(captured[0]["readiness_claim_id"], "ready-42")
 
     def test_select_rejects_unknown_profile(self) -> None:
         """Unknown profile → ValueError. Tier-1: factory cannot

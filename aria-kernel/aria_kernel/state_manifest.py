@@ -184,6 +184,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("enterprise_dlp_proofs", "enterprise/dlp-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True),
     StateSurface("enterprise_token_proofs", "enterprise/token-proofs.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True),
     StateSurface("enterprise_waivers", "enterprise/waivers.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True),
+    StateSurface("enterprise_source_evidence", "enterprise/source-evidence.jsonl", "ledger", "readiness", "runtime", True, "append_fsync", True),
     StateSurface("runtime_v2_promotions", "runtime/v2-promotions.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("autonomy_state", "autonomy_state.jsonl", "ledger", "autonomy", "runtime", True, "append_fsync", True),
     StateSurface("plan_convergence_events", "plans/*.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True),

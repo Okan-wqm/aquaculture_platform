@@ -33,6 +33,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.agent_eval import add_fixture, run_agent_eval
+from aria_kernel.evidence_trust import recompute_artifact_hash
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
@@ -76,6 +77,37 @@ def _envelope() -> dict:
     }
 
 
+def _artifact_ref(tools: Path, *, name: str, payload: dict) -> dict:
+    path = tools / "evidence" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    return {
+        "artifact_id": f"artifact-{name}",
+        "source_surface": "runtime_artifact",
+        "uri": f"evidence/{name}",
+        "sha256": recompute_artifact_hash(path),
+        "content_type": "application/json",
+        "produced_by_workflow_run_id": "run-real-eval",
+    }
+
+
+def _operator_ref(tools: Path, *, request_id: str, claim_id: str, target_agent: str) -> dict:
+    row = append_jsonl(
+        tools / "governance.jsonl",
+        {
+            "schema_version": 1,
+            "kind": "operator_approval",
+            "operator_id": "operator-real-eval",
+            "approved_action": "real_eval",
+            "request_id": request_id,
+            "claim_id": claim_id,
+            "target_agent": target_agent,
+            "expires_at": "2999-06-05T00:00:00Z",
+        },
+    )
+    return {"ledger_path": "governance.jsonl", "ledger_hash": row["ledger_hash"]}
+
+
 def _seed_proof(
     tools: Path,
     *,
@@ -87,7 +119,48 @@ def _seed_proof(
     request_id = input_envelope["request_id"]
     claim_id = f"claim-{request_id}"
     agent_id = "real-eval-agent"
-    transcript_hash = sha256_text(f"transcript:{request_id}")
+    append_jsonl(
+        tools / "agent-invocations" / "requests.jsonl",
+        {
+            "schema_version": 1,
+            "request_id": request_id,
+            "target_agent": fixture["target_agent"],
+            "role": fixture["role"],
+            "context_hash": input_envelope["context_hash"],
+            "prompt_hash": input_envelope["prompt_hash"],
+        },
+    )
+    context_row = append_jsonl(
+        tools / "agent-invocations" / "contexts.jsonl",
+        {
+            "schema_version": 1,
+            "request_id": request_id,
+            "context_hash": input_envelope["context_hash"],
+        },
+    )
+    prompt_row = append_jsonl(
+        tools / "agent-invocations" / "prompts.jsonl",
+        {
+            "schema_version": 1,
+            "request_id": request_id,
+            "prompt_hash": input_envelope["prompt_hash"],
+        },
+    )
+    append_jsonl(
+        tools / "agent-invocations" / "claims.jsonl",
+        {
+            "schema_version": 1,
+            "claim_id": claim_id,
+            "request_id": request_id,
+            "agent_id": agent_id,
+        },
+    )
+    transcript_ref = _artifact_ref(
+        tools,
+        name=f"{request_id}.transcript.json",
+        payload={"transcript": f"transcript:{request_id}"},
+    )
+    transcript_hash = transcript_ref["sha256"]
     if include_transcript:
         transcript_row = append_jsonl(
             tools / "agent-invocations" / "transcripts.jsonl",
@@ -99,7 +172,7 @@ def _seed_proof(
                 "claim_id": claim_id,
                 "agent_id": agent_id,
                 "transcript_hash": transcript_hash,
-                "artifact_ref": f"/tmp/{request_id}.transcript.jsonl",
+                "artifact_ref": transcript_ref,
             },
         )
         transcript_ledger_hash = transcript_row["ledger_hash"]
@@ -116,11 +189,16 @@ def _seed_proof(
             "role": fixture["role"],
             "status": "accepted",
             "envelope_evidence_hash": sha256_payload(envelope),
+            "output_artifact_ref": _artifact_ref(
+                tools,
+                name=f"{request_id}.output.json",
+                payload={"payload": envelope},
+            ),
             "context_hash": input_envelope["context_hash"],
             "prompt_hash": input_envelope["prompt_hash"],
             "transcript_hash": transcript_hash,
-            "context_ledger_hash": sha256_text(f"context-ledger:{request_id}"),
-            "prompt_ledger_hash": sha256_text(f"prompt-ledger:{request_id}"),
+            "context_ledger_hash": context_row["ledger_hash"],
+            "prompt_ledger_hash": prompt_row["ledger_hash"],
             "transcript_ledger_hash": transcript_ledger_hash,
             "submitted_at": "2026-06-05T00:00:01+00:00",
         },
@@ -128,7 +206,12 @@ def _seed_proof(
     return {
         "invocation_id": request_id,
         "transcript_hash": transcript_hash,
-        "operator_approval_ref": "operator:real-eval-proof",
+        "operator_approval_ref": _operator_ref(
+            tools,
+            request_id=request_id,
+            claim_id=claim_id,
+            target_agent=fixture["target_agent"],
+        ),
     }
 
 
@@ -176,7 +259,7 @@ class RealModeProvenanceTests(unittest.TestCase):
         self.assertEqual(result["proof_mode"], "ledger_bound_accepted_result")
         self.assertEqual(result["invocation_id"], proof["invocation_id"])
         self.assertEqual(result["transcript_hash"], proof["transcript_hash"])
-        self.assertEqual(result["operator_approval_ref"], proof["operator_approval_ref"])
+        self.assertEqual(result["operator_approval_ref"], proof["operator_approval_ref"]["ledger_hash"])
 
     def test_real_mode_without_provenance_rejects(self) -> None:
         """No invocation_id/operator/transcript proof rejects."""
@@ -187,7 +270,7 @@ class RealModeProvenanceTests(unittest.TestCase):
                 mock_mode=False,
                 real_response_envelope=_envelope(),
             )
-        self.assertIn("real_eval_operator_approval_ref_required", str(ctx.exception))
+        self.assertIn("real_eval_invocation_id_required", str(ctx.exception))
 
     def test_legacy_feed_without_accepted_result_rejects(self) -> None:
         envelope = _envelope()
@@ -202,7 +285,7 @@ class RealModeProvenanceTests(unittest.TestCase):
                 transcript_hash=sha256_text("transcript:detached"),
                 operator_approval_ref="operator:legacy-feed",
             )
-        self.assertIn("real_eval_accepted_result_not_found", str(ctx.exception))
+        self.assertIn("real_eval_request_row_not_found", str(ctx.exception))
 
     def test_missing_transcript_row_rejects(self) -> None:
         envelope = _envelope()
@@ -234,7 +317,7 @@ class RealModeProvenanceTests(unittest.TestCase):
                 real_response_envelope=envelope,
                 **proof,
             )
-        self.assertIn("real_eval_operator_approval_ref_required", str(ctx.exception))
+        self.assertIn("real_eval_operator_approval_ref_not_structured", str(ctx.exception))
 
     def test_missing_fixture_context_provenance_rejects(self) -> None:
         tools = self.tmp / "legacy-fixture-tools"

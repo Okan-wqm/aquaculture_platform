@@ -48,6 +48,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .evidence_trust import (
+    TRUSTED_PROOF_SOURCE_SURFACES,
+    recompute_artifact_hash,
+    resolve_verified_artifact_payload,
+    verify_hash_bound_artifact_ref,
+)
 from .ledger import append_jsonl, load_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
@@ -109,6 +115,26 @@ def _agent_transcripts_path(tools_root: Path) -> Path:
     return tools_root / "agent-invocations" / "transcripts.jsonl"
 
 
+def _agent_requests_path(tools_root: Path) -> Path:
+    return tools_root / "agent-invocations" / "requests.jsonl"
+
+
+def _agent_claims_path(tools_root: Path) -> Path:
+    return tools_root / "agent-invocations" / "claims.jsonl"
+
+
+def _agent_contexts_path(tools_root: Path) -> Path:
+    return tools_root / "agent-invocations" / "contexts.jsonl"
+
+
+def _agent_prompts_path(tools_root: Path) -> Path:
+    return tools_root / "agent-invocations" / "prompts.jsonl"
+
+
+def _governance_path(tools_root: Path) -> Path:
+    return tools_root / "governance.jsonl"
+
+
 def _sha256_payload(payload: dict[str, Any]) -> str:
     canonical = json.dumps(
         payload,
@@ -158,6 +184,85 @@ def _verified_rows(path: Path, *, proof_name: str) -> list[dict[str, Any]]:
         return load_jsonl(path, verify=True)
     except Exception as exc:
         raise GovernanceError(f"{proof_name}_ledger_unverified: {exc}") from exc
+
+
+def _find_row_by_ledger_hash(rows: list[dict[str, Any]], ledger_hash: Any, field: str) -> dict[str, Any]:
+    digest = _require_sha256(ledger_hash, field)
+    row = next((item for item in reversed(rows) if item.get("ledger_hash") == digest), None)
+    if row is None:
+        raise GovernanceError(f"{field}_row_not_found:{digest}")
+    return row
+
+
+def _verify_artifact_ref_bytes(
+    *,
+    root: Path,
+    ref: Any,
+    field: str,
+    allowed_surfaces: frozenset[str] = TRUSTED_PROOF_SOURCE_SURFACES,
+) -> dict[str, Any]:
+    issues = verify_hash_bound_artifact_ref(
+        ref,
+        trusted_root=root,
+        allowed_source_surfaces=allowed_surfaces,
+        allow_workspace_path=False,
+        source={"field": field},
+    )
+    if issues:
+        raise GovernanceError(f"{field}_untrusted:{issues}")
+    try:
+        return resolve_verified_artifact_payload(
+            ref,
+            trusted_root=root,
+            allowed_source_surfaces=allowed_surfaces,
+            expected_sha256=str(ref.get("sha256") or "") if isinstance(ref, dict) else None,
+            source={"field": field},
+        )
+    except Exception as exc:
+        raise GovernanceError(f"{field}_payload_untrusted:{exc}") from exc
+
+
+def _verify_operator_approval_ref(
+    *,
+    root: Path,
+    ref: Any,
+    request_id: str,
+    claim_id: str,
+    target_agent: str,
+    proof_prefix: str,
+) -> dict[str, Any]:
+    if not isinstance(ref, dict):
+        raise GovernanceError(f"{proof_prefix}_operator_approval_ref_not_structured")
+    ledger_path = ref.get("ledger_path")
+    ledger_hash = ref.get("ledger_hash")
+    if not isinstance(ledger_path, str) or Path(ledger_path).is_absolute():
+        raise GovernanceError(f"{proof_prefix}_operator_approval_ledger_path_invalid")
+    path = (root / ledger_path).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError as exc:
+        raise GovernanceError(f"{proof_prefix}_operator_approval_ledger_path_escape") from exc
+    rows = _verified_rows(path, proof_name=f"{proof_prefix}_operator_approval")
+    row = _find_row_by_ledger_hash(rows, ledger_hash, f"{proof_prefix}_operator_approval_ledger_hash")
+    if row.get("request_id") != request_id:
+        raise GovernanceError(f"{proof_prefix}_operator_approval_request_mismatch")
+    if row.get("claim_id") != claim_id:
+        raise GovernanceError(f"{proof_prefix}_operator_approval_claim_mismatch")
+    if row.get("target_agent") != target_agent:
+        raise GovernanceError(f"{proof_prefix}_operator_approval_target_mismatch")
+    if str(row.get("approved_action") or "") not in {"real_eval", "shadow_eval", "eval_provenance"}:
+        raise GovernanceError(f"{proof_prefix}_operator_approval_action_invalid")
+    expires_at = row.get("expires_at")
+    if isinstance(expires_at, str):
+        try:
+            parsed = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise GovernanceError(f"{proof_prefix}_operator_approval_expiry_invalid") from exc
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        if parsed.astimezone(timezone.utc) <= datetime.now(timezone.utc):
+            raise GovernanceError(f"{proof_prefix}_operator_approval_expired")
+    return row
 
 
 def _fixture_provenance(
@@ -312,7 +417,7 @@ def _verify_real_eval_provenance(
     envelope: dict[str, Any],
     invocation_id: str | None,
     transcript_hash: str | None,
-    operator_approval_ref: str | None,
+    operator_approval_ref: Any,
 ) -> dict[str, Any]:
     """Bind a real eval to the strict invocation result proof chain.
 
@@ -325,9 +430,6 @@ def _verify_real_eval_provenance(
     if envelope.get("mock") is True or envelope.get("mock_mode") is True:
         raise GovernanceError("real_eval_mock_output_rejected")
 
-    operator_ref = _require_nonempty_str(
-        operator_approval_ref, "real_eval_operator_approval_ref"
-    )
     request_id = _require_nonempty_str(invocation_id, "real_eval_invocation_id")
     transcript_digest = _require_sha256(
         transcript_hash, "real_eval_transcript_hash"
@@ -340,6 +442,16 @@ def _verify_real_eval_provenance(
             f"fixture_request_id={fixture_proof['request_id']} "
             f"invocation_id={request_id}"
         )
+
+    requests = _verified_rows(_agent_requests_path(root), proof_name="real_eval_request")
+    request_row = next((row for row in reversed(requests) if row.get("request_id") == request_id), None)
+    if request_row is None:
+        raise GovernanceError(f"real_eval_request_row_not_found:{request_id}")
+    request_ledger_hash = _require_sha256(request_row.get("ledger_hash"), "real_eval_request_ledger_hash")
+    if request_row.get("context_hash") != fixture_proof["context_hash"]:
+        raise GovernanceError("real_eval_request_context_hash_mismatch")
+    if request_row.get("prompt_hash") != fixture_proof["prompt_hash"]:
+        raise GovernanceError("real_eval_request_prompt_hash_mismatch")
 
     result_hash = _sha256_payload(envelope)
     results = _verified_rows(
@@ -370,6 +482,17 @@ def _verify_real_eval_provenance(
     result_ledger_hash = _require_sha256(
         result_row.get("ledger_hash"), "real_eval_result_ledger_hash"
     )
+    claim_id = _require_nonempty_str(result_row.get("claim_id"), "real_eval_claim_id")
+    agent_id = _require_nonempty_str(result_row.get("agent_id"), "real_eval_agent_id")
+    claims = _verified_rows(_agent_claims_path(root), proof_name="real_eval_claim")
+    claim_row = next((row for row in reversed(claims) if row.get("claim_id") == claim_id), None)
+    if claim_row is None:
+        raise GovernanceError(f"real_eval_claim_row_not_found:{claim_id}")
+    claim_ledger_hash = _require_sha256(claim_row.get("ledger_hash"), "real_eval_claim_ledger_hash")
+    if claim_row.get("request_id") != request_id:
+        raise GovernanceError("real_eval_claim_request_mismatch")
+    if claim_row.get("agent_id") != agent_id:
+        raise GovernanceError("real_eval_claim_agent_mismatch")
     if result_row.get("context_hash") != fixture_proof["context_hash"]:
         raise GovernanceError("real_eval_context_hash_mismatch")
     if result_row.get("prompt_hash") != fixture_proof["prompt_hash"]:
@@ -380,6 +503,20 @@ def _verify_real_eval_provenance(
     prompt_ledger_hash = _require_sha256(
         result_row.get("prompt_ledger_hash"), "real_eval_prompt_ledger_hash"
     )
+    context_row = _find_row_by_ledger_hash(
+        _verified_rows(_agent_contexts_path(root), proof_name="real_eval_context"),
+        context_ledger_hash,
+        "real_eval_context_ledger_hash",
+    )
+    prompt_row = _find_row_by_ledger_hash(
+        _verified_rows(_agent_prompts_path(root), proof_name="real_eval_prompt"),
+        prompt_ledger_hash,
+        "real_eval_prompt_ledger_hash",
+    )
+    if context_row.get("request_id") != request_id or context_row.get("context_hash") != fixture_proof["context_hash"]:
+        raise GovernanceError("real_eval_context_row_mismatch")
+    if prompt_row.get("request_id") != request_id or prompt_row.get("prompt_hash") != fixture_proof["prompt_hash"]:
+        raise GovernanceError("real_eval_prompt_row_mismatch")
     if result_row.get("transcript_hash") != transcript_digest:
         raise GovernanceError("real_eval_transcript_hash_mismatch")
     transcript_ledger_hash = _require_sha256(
@@ -410,16 +547,37 @@ def _verify_real_eval_provenance(
             raise GovernanceError(
                 f"real_eval_transcript_row_{field}_mismatch"
             )
-    _require_nonempty_str(
-        transcript_row.get("artifact_ref"), "real_eval_transcript_artifact_ref"
+    _verify_artifact_ref_bytes(
+        root=root,
+        ref=transcript_row.get("artifact_ref"),
+        field="real_eval_transcript_artifact_ref",
+    )
+    output_ref = result_row.get("output_artifact_ref")
+    output_payload = _verify_artifact_ref_bytes(
+        root=root,
+        ref=output_ref,
+        field="real_eval_output_artifact_ref",
+    )
+    output_envelope = output_payload.get("payload") if isinstance(output_payload.get("payload"), dict) else output_payload
+    if _sha256_payload(output_envelope) != result_hash:
+        raise GovernanceError("real_eval_output_artifact_envelope_hash_mismatch")
+    operator_row = _verify_operator_approval_ref(
+        root=root,
+        ref=operator_approval_ref,
+        request_id=request_id,
+        claim_id=claim_id,
+        target_agent=str(fixture.get("target_agent") or ""),
+        proof_prefix="real_eval",
     )
 
     return {
         "provenance_mode": "real_invocation",
         "proof_mode": "ledger_bound_accepted_result",
-        "operator_approval_ref": operator_ref,
+        "operator_approval_ref": operator_row.get("ledger_hash"),
         "invocation_id": request_id,
         "transcript_hash": transcript_digest,
+        "request_ledger_hash": request_ledger_hash,
+        "claim_ledger_hash": claim_ledger_hash,
         "result_ledger_hash": result_ledger_hash,
         "result_envelope_hash": result_hash,
         "context_ledger_hash": context_ledger_hash,
@@ -470,10 +628,6 @@ def verify_shadow_eval_proof(
     provenance = run.get("shadow_provenance")
     if not isinstance(provenance, dict):
         raise GovernanceError("shadow_eval_provenance_required")
-    operator_ref = _require_nonempty_str(
-        provenance.get("operator_approval_ref"),
-        "shadow_eval_operator_approval_ref",
-    )
     fixture_id = _require_nonempty_str(
         provenance.get("fixture_id"), "shadow_eval_fixture_id"
     )
@@ -523,8 +677,18 @@ def verify_shadow_eval_proof(
         raise GovernanceError("shadow_eval_transcript_row_invocation_id_mismatch")
     if transcript_row.get("request_id") != fixture_proof["request_id"]:
         raise GovernanceError("shadow_eval_fixture_transcript_request_mismatch")
-    _require_nonempty_str(
-        transcript_row.get("artifact_ref"), "shadow_eval_transcript_artifact_ref"
+    _verify_artifact_ref_bytes(
+        root=root,
+        ref=transcript_row.get("artifact_ref"),
+        field="shadow_eval_transcript_artifact_ref",
+    )
+    operator_row = _verify_operator_approval_ref(
+        root=root,
+        ref=provenance.get("operator_approval_ref"),
+        request_id=fixture_proof["request_id"],
+        claim_id=str(transcript_row.get("claim_id") or ""),
+        target_agent=str(fixture.get("target_agent") or ""),
+        proof_prefix="shadow_eval",
     )
 
     return {
@@ -532,7 +696,7 @@ def verify_shadow_eval_proof(
         "run_id": target_run_id,
         "tool_id": tool_id,
         "run_ledger_hash": run_ledger_hash,
-        "operator_approval_ref": operator_ref,
+        "operator_approval_ref": operator_row.get("ledger_hash"),
         "fixture_id": fixture_id,
         "fixture_hash": fixture_hash,
         "context_hash": context_hash,
@@ -557,7 +721,7 @@ def run_agent_eval(
     invocation_id: str | None = None,
     transcript_hash: str | None = None,
     allow_legacy_envelope_feed: bool = False,
-    operator_approval_ref: str | None = None,
+    operator_approval_ref: Any = None,
 ) -> dict[str, Any]:
     """Run an agent against a fixture; record pass/fail to runs.jsonl.
 
@@ -586,6 +750,8 @@ def run_agent_eval(
         "operator_approval_ref": None,
         "invocation_id": None,
         "transcript_hash": None,
+        "request_ledger_hash": None,
+        "claim_ledger_hash": None,
         "result_ledger_hash": None,
         "result_envelope_hash": None,
         "context_ledger_hash": None,
@@ -621,11 +787,36 @@ def run_agent_eval(
     verdict_match = envelope.get("verdict_class") == fixture["expected_verdict_class"]
     evidence_match = expected_refs.issubset(actual_refs)
     passed = verdict_match and evidence_match
+    eval_idempotency_key = _eval_idempotency_key(
+        fixture_id=fixture_id,
+        mode="mock" if mock_mode else "real",
+        invocation_id=str(provenance["invocation_id"] or ""),
+        result_ledger_hash=str(provenance["result_ledger_hash"] or _sha256_payload(envelope)),
+        envelope_evidence_hash=str(provenance["result_envelope_hash"] or _sha256_payload(envelope)),
+        transcript_ledger_hash=str(provenance["transcript_ledger_hash"] or ""),
+        fixture_hash=str(provenance["fixture_hash"] or ""),
+    )
+    existing = (
+        _find_existing_eval_run(root, eval_idempotency_key)
+        if not mock_mode
+        else None
+    )
+    if existing is not None:
+        drift_fields = {
+            "passed": passed,
+            "actual_verdict_class": envelope.get("verdict_class"),
+            "rounds_used": int(envelope.get("rounds_used", 0)),
+            "tokens_used": int(envelope.get("tokens_used", 0)),
+        }
+        if any(existing.get(key) != value for key, value in drift_fields.items()):
+            raise GovernanceError("real_eval_idempotency_drift")
+        return existing
 
     run_row: dict[str, Any] = {
         "$schema": EVAL_RUN_SCHEMA,
         "schema_version": 1,
         "run_id": str(uuid.uuid4()),
+        "eval_idempotency_key": eval_idempotency_key,
         "fixture_id": fixture_id,
         "target_agent": fixture["target_agent"],
         "role": fixture["role"],
@@ -648,6 +839,8 @@ def run_agent_eval(
         "provenance_mode": provenance["provenance_mode"],
         "proof_mode": provenance["proof_mode"],
         "operator_approval_ref": provenance["operator_approval_ref"],
+        "request_ledger_hash": provenance["request_ledger_hash"],
+        "claim_ledger_hash": provenance["claim_ledger_hash"],
         "result_ledger_hash": provenance["result_ledger_hash"],
         "result_envelope_hash": provenance["result_envelope_hash"],
         "context_ledger_hash": provenance["context_ledger_hash"],
@@ -701,7 +894,7 @@ def list_eval_runs(
             continue
         if fixture_id is not None and row.get("fixture_id") != fixture_id:
             continue
-        if mock_mode is not None and bool(row.get("mock_mode")) != mock_mode:
+        if mock_mode is not None and row.get("mock_mode") is not mock_mode:
             continue
         rows.append(row)
     if limit is not None and limit > 0:
@@ -789,6 +982,42 @@ def aggregate_eval_metrics(
     }
 
 
+def _eval_idempotency_key(
+    *,
+    fixture_id: str,
+    mode: str,
+    invocation_id: str,
+    result_ledger_hash: str,
+    envelope_evidence_hash: str,
+    transcript_ledger_hash: str,
+    fixture_hash: str,
+) -> str:
+    payload = {
+        "fixture_id": fixture_id,
+        "mode": mode,
+        "invocation_id": invocation_id,
+        "result_ledger_hash": result_ledger_hash,
+        "envelope_evidence_hash": envelope_evidence_hash,
+        "transcript_ledger_hash": transcript_ledger_hash,
+        "fixture_hash": fixture_hash,
+    }
+    return _sha256_payload(payload)
+
+
+def _find_existing_eval_run(root: Path, eval_idempotency_key: str) -> dict[str, Any] | None:
+    path = _runs_path(root)
+    if not path.exists():
+        return None
+    rows = _verified_rows(path, proof_name="agent_eval_runs")
+    return next(
+        (
+            row for row in reversed(rows)
+            if row.get("eval_idempotency_key") == eval_idempotency_key
+        ),
+        None,
+    )
+
+
 def count_eval_runs_by_mode(*, base_dir: str | Path | None = None) -> dict[str, int]:
     """Plan 020 metric helper — used by plan_016_metrics 11th + 12th counters.
 
@@ -850,6 +1079,7 @@ def sample_shadow_raw_findings(
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     runs = list(read_runs_rows(runs_path(base_dir), base_dir=root))
     by_tool: dict[str, int] = {}
+    proof_hashes_by_tool: dict[str, list[str]] = {}
     # Plan 023 v3 §C-6 — track runs skipped due to scope_out_mutations
     # so the sampler output surfaces the suspect-run count separately
     # from the clean raw_findings aggregate.
@@ -889,8 +1119,14 @@ def sample_shadow_raw_findings(
         if runner_block.get("scope_out_mutations"):
             suspect_by_tool[tool_id] = suspect_by_tool.get(tool_id, 0) + 1
             continue
+        try:
+            proof = verify_shadow_eval_proof(run_id=str(run.get("run_id") or ""), base_dir=root)
+        except GovernanceError:
+            suspect_by_tool[tool_id] = suspect_by_tool.get(tool_id, 0) + 1
+            continue
         count = int(runner_block.get("raw_findings_count", 0) or 0)
         by_tool[tool_id] = by_tool.get(tool_id, 0) + count
+        proof_hashes_by_tool.setdefault(tool_id, []).append(str(proof.get("run_ledger_hash") or ""))
 
     samples: list[dict[str, Any]] = []
     escalation_count = 0
@@ -907,6 +1143,7 @@ def sample_shadow_raw_findings(
             "suspect_run_count_24h": suspect_run_count,
             "escalated": escalated,
             "threshold_24h": threshold_24h,
+            "proof_hashes": proof_hashes_by_tool.get(tool_id, []),
         })
         append_tools_governance(
             root,
@@ -916,6 +1153,7 @@ def sample_shadow_raw_findings(
                 "raw_findings_count_24h": count,
                 "threshold_24h": threshold_24h,
                 "escalated": escalated,
+                "proof_hashes": proof_hashes_by_tool.get(tool_id, []),
             },
         )
         if escalated:
@@ -927,7 +1165,8 @@ def sample_shadow_raw_findings(
                     f"SHADOW tool {tool_id!r} produced {count} raw_findings "
                     f"in the last 24h (threshold={threshold_24h}); operator "
                     f"review required to triage findings + decide on "
-                    f"SHADOW->CALIBRATE transition."
+                    f"SHADOW->CALIBRATE transition. proof_hashes="
+                    f"{proof_hashes_by_tool.get(tool_id, [])}"
                 ),
                 base_dir=base_dir,
             )

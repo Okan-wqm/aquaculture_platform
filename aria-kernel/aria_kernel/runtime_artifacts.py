@@ -12,7 +12,9 @@ from typing import Any
 from .artifact_safety import scrub_json
 from .evidence_trust import (
     recompute_artifact_hash,
+    resolve_verified_artifact_payload,
     verify_hash_bound_artifact_ref,
+    verify_retention_event_content,
     verify_retention_event_structure,
 )
 from .ledger import LedgerIntegrityError, append_jsonl, load_jsonl, verify_jsonl
@@ -137,6 +139,8 @@ def write_run_artifact(
         "source_surface": RUNTIME_ARTIFACT_SOURCE_SURFACE,
         "uri": uri,
         "sha256": digest,
+        "content_type": "application/json",
+        "produced_by_workflow_run_id": run_id,
         "size_bytes": len(encoded),
         "verification_status": status,
     }
@@ -228,20 +232,15 @@ def resolve_artifact_payload(
     *,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any] | None:
-    if not isinstance(artifact_ref, dict):
+    try:
+        return resolve_verified_artifact_payload(
+            artifact_ref,
+            trusted_root=ensure_tools_dir(base_dir),
+            allowed_source_surfaces=frozenset({RUNTIME_ARTIFACT_SOURCE_SURFACE}),
+            expected_sha256=artifact_ref.get("sha256") if isinstance(artifact_ref, dict) else None,
+        )
+    except Exception:
         return None
-    uri = artifact_ref.get("uri")
-    if not isinstance(uri, str) or not uri:
-        return None
-    path = _resolve_uri(ensure_tools_dir(base_dir), uri)
-    if not path.exists() or not path.is_file():
-        return None
-    expected = artifact_ref.get("sha256")
-    raw = path.read_bytes()
-    if isinstance(expected, str) and expected and _sha256_bytes(raw) != expected:
-        return None
-    payload = json.loads(raw.decode("utf-8"))
-    return payload if isinstance(payload, dict) else None
 
 
 def resolve_finding_from_artifact(
@@ -819,11 +818,12 @@ def _verify_artifact_ref(ref: Any, *, root: Path, workspace_root: Path | None, s
         _runtime_artifact_issue(issue)
         for issue in verify_hash_bound_artifact_ref(
             ref,
-            root=root,
+            trusted_root=root,
             workspace_root=workspace_root,
             source=source,
             require_artifact_id=True,
             require_source_surface=True,
+            allowed_source_surfaces=frozenset({RUNTIME_ARTIFACT_SOURCE_SURFACE}),
             allow_workspace_path=False,
         )
     ]
@@ -837,6 +837,9 @@ def _runtime_artifact_issue(issue: dict[str, Any]) -> dict[str, Any]:
         "proof_artifact_ref_missing_artifact_id": "artifact_ref_missing_artifact_id",
         "proof_artifact_ref_missing_hash": "artifact_ref_missing_hash",
         "proof_artifact_ref_missing_path": "artifact_ref_missing_path",
+        "proof_artifact_ref_missing_content_type": "artifact_ref_missing_content_type",
+        "proof_artifact_ref_missing_produced_by_workflow_run_id": "artifact_ref_missing_produced_by_workflow_run_id",
+        "proof_artifact_self_output_path": "artifact_ref_self_output_path",
         "proof_ref_not_structured": "artifact_ref_invalid",
         "proof_source_surface_missing": "artifact_ref_source_surface_missing",
         "proof_source_surface_unknown": "artifact_ref_source_surface_unknown",
@@ -1094,7 +1097,7 @@ def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> Non
         for row in _safe_load_jsonl(path, issues, "retention_events"):
             issues.extend(
                 {**issue, "ledger": path.as_posix()}
-                for issue in verify_retention_event_structure(row)
+                for issue in verify_retention_event_content(row, trusted_root=root)
             )
             kind = str(row.get("kind") or row.get("event") or row.get("event_type") or "")
             source = row.get("source_path") or row.get("artifact_path") or row.get("original_path")

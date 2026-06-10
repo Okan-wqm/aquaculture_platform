@@ -185,7 +185,7 @@ class RuntimeArtifactGraphVerifierTests(unittest.TestCase):
 
         verify = verify_runtime_artifacts(base_dir=self.base, workspace_root=workspace, cycle_id="cyc-worktree")
 
-        self.assertIn("artifact_path_escape", {issue["code"] for issue in verify["issues"]})
+        self.assertIn("artifact_ref_self_output_path", {issue["code"] for issue in verify["issues"]})
 
     def test_malformed_retention_event_fails_structural_verification(self) -> None:
         append_jsonl(

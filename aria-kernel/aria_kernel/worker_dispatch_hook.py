@@ -21,7 +21,7 @@ Decision branching (status enum):
 * ``executor_failed`` — worker_executor.py exited non-zero.
 * ``verified_pending_merge`` — verify passed but no PR exists yet
   (assignment_id → PR bridge missing in pr-lifecycle.jsonl).
-* ``merged`` — verify passed AND PR exists AND merge_if_green
+* ``merged`` — verify passed AND PR exists AND merge authority
   decision was ``merged``.
 * ``retry_scheduled`` — verify failed AND retry budget remains;
   claim released back to ``pending`` for next tick.
@@ -106,7 +106,8 @@ def dispatch_one_pending_worker_assignment(
     triage tiers OR when ``pr_for_assignment`` returns None — that
     branch is governance discipline, not adapter absence.
     """
-    from .auto_merge import merge_if_green
+    from .enterprise_readiness import resolve_readiness_claim_id
+    from .merge_authority import merge_if_authorized
     from .tool_registry import (
         GovernanceError,
         append_tools_governance,
@@ -334,9 +335,22 @@ def dispatch_one_pending_worker_assignment(
             triage_tier == "auto_fix_safe"
             and pr_number is not None
         ):
-            merge_result = merge_if_green(
-                adapter=github_adapter, pr_number=pr_number,
-                base_dir=root, dry_run=False,
+            pr_payload = github_adapter.get_pr(pr_number)
+            readiness_claim_id = resolve_readiness_claim_id(
+                pr_number=pr_number,
+                repository=str(pr_payload.get("repository") or pr_payload.get("repo_full_name") or ""),
+                target_ref=str(pr_payload.get("target_ref") or pr_payload.get("base_branch") or pr_payload.get("baseRefName") or pr_payload.get("base") or ""),
+                head_ref=str(pr_payload.get("head_ref") or pr_payload.get("headRefName") or pr_payload.get("source_ref") or ""),
+                head_sha=str(pr_payload.get("head_sha") or pr_payload.get("headRefOid") or pr_payload.get("head") or ""),
+                assignment_id=assignment_id,
+                base_dir=root,
+            )
+            merge_result = merge_if_authorized(
+                adapter=github_adapter,
+                pr_number=pr_number,
+                readiness_claim_id=readiness_claim_id,
+                base_dir=root,
+                dry_run=False,
             )
             governance_count += 1
             merged = merge_result.get("decision") == "merged"

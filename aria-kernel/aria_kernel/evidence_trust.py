@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from pathlib import Path
 from typing import Any
 
 
 SHA256_RE = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
-SELF_OUTPUT_PATH_PREFIXES = ("agent-workspace/", ".aria-poc/", "aria-tools/")
+SELF_OUTPUT_PATH_PREFIXES = (
+    "agent-workspace/",
+    ".aria-poc/",
+    "tmp/",
+    "temp/",
+    "runner-temp/",
+)
 
 TRUSTED_PROOF_SOURCE_SURFACES = frozenset(
     {
@@ -91,16 +98,23 @@ def source_surface_issues(
 def verify_hash_bound_artifact_ref(
     ref: Any,
     *,
-    root: str | Path,
+    root: str | Path | None = None,
+    trusted_root: str | Path | None = None,
     workspace_root: str | Path | None = None,
     source: dict[str, Any] | None = None,
     require_artifact_id: bool = True,
     require_source_surface: bool = True,
-    allowed_source_surfaces: frozenset[str] = TRUSTED_PROOF_SOURCE_SURFACES,
+    allowed_source_surfaces: frozenset[str] | None = None,
     allow_workspace_path: bool = False,
+    require_content_type: bool = True,
+    require_produced_by_workflow_run_id: bool = True,
 ) -> list[dict[str, Any]]:
     if not isinstance(ref, dict):
         return [{"code": "proof_ref_not_structured", "ref": repr(ref), "source": source or {}}]
+    if trusted_root is None and root is None:
+        return [{"code": "proof_trusted_root_required", "ref": ref, "source": source or {}}]
+    if allowed_source_surfaces is None:
+        return [{"code": "proof_allowed_source_surfaces_required", "ref": ref, "source": source or {}}]
 
     issues = source_surface_issues(
         ref,
@@ -109,6 +123,10 @@ def verify_hash_bound_artifact_ref(
     )
     if require_artifact_id and not ref.get("artifact_id"):
         issues.append({"code": "proof_artifact_ref_missing_artifact_id", "ref": ref, "source": source or {}})
+    if require_content_type and not _nonempty_string(ref.get("content_type")):
+        issues.append({"code": "proof_artifact_ref_missing_content_type", "ref": ref, "source": source or {}})
+    if require_produced_by_workflow_run_id and not _nonempty_string(ref.get("produced_by_workflow_run_id")):
+        issues.append({"code": "proof_artifact_ref_missing_produced_by_workflow_run_id", "ref": ref, "source": source or {}})
 
     raw_path = str(ref.get("uri") or ref.get("path") or ref.get("artifact_path") or "")
     expected_hash = normalize_sha256(ref.get("sha256") or ref.get("hash") or ref.get("content_hash"))
@@ -117,9 +135,12 @@ def verify_hash_bound_artifact_ref(
     if not raw_path.strip():
         issues.append({"code": "proof_artifact_ref_missing_path", "ref": ref, "source": source or {}})
         return _with_source(issues, source)
+    if not allow_workspace_path and is_self_output_path(raw_path):
+        issues.append({"code": "proof_artifact_self_output_path", "path": raw_path})
+        return _with_source(issues, source)
     resolved, path_issue = resolve_artifact_ref_path(
         raw_path,
-        root=root,
+        root=trusted_root if trusted_root is not None else root,
         workspace_root=workspace_root,
         allow_workspace_path=allow_workspace_path,
     )
@@ -144,6 +165,43 @@ def verify_hash_bound_artifact_ref(
     return _with_source(issues, source)
 
 
+def resolve_verified_artifact_payload(
+    ref: Any,
+    *,
+    trusted_root: str | Path,
+    allowed_source_surfaces: frozenset[str],
+    expected_sha256: str | None = None,
+    workspace_root: str | Path | None = None,
+    source: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    issues = verify_hash_bound_artifact_ref(
+        ref,
+        trusted_root=trusted_root,
+        workspace_root=workspace_root,
+        source=source,
+        allowed_source_surfaces=allowed_source_surfaces,
+        allow_workspace_path=False,
+    )
+    if issues:
+        raise ValueError(f"artifact_ref_untrusted:{issues}")
+    expected = normalize_sha256(expected_sha256 or ref.get("sha256"))
+    raw_path = str(ref.get("uri") or ref.get("path") or ref.get("artifact_path") or "")
+    resolved, path_issue = resolve_artifact_ref_path(
+        raw_path,
+        root=trusted_root,
+        workspace_root=workspace_root,
+        allow_workspace_path=False,
+    )
+    if resolved is None or path_issue is not None:
+        raise ValueError(f"artifact_ref_path_untrusted:{path_issue}")
+    if expected is not None and recompute_artifact_hash(resolved) != expected:
+        raise ValueError("artifact_ref_hash_mismatch")
+    payload = json.loads(resolved.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("artifact_payload_not_object")
+    return payload
+
+
 def resolve_artifact_ref_path(
     raw_path: str,
     *,
@@ -151,6 +209,8 @@ def resolve_artifact_ref_path(
     workspace_root: str | Path | None = None,
     allow_workspace_path: bool = False,
 ) -> tuple[Path | None, dict[str, Any] | None]:
+    if root is None:
+        return None, {"code": "proof_trusted_root_required"}
     trusted_root = Path(root).resolve()
     candidate = Path(raw_path)
     if not candidate.is_absolute():
@@ -206,6 +266,43 @@ def verify_retention_event_structure(row: Any) -> list[dict[str, Any]]:
             issues.append({"code": "unknown_manifest_rollback", "details": row})
         _require_string(row, "reason", issues, "retention_event_reason_missing")
         _require_string(row, "operator_approval_ref", issues, "retention_event_operator_approval_missing")
+    return issues
+
+
+def verify_retention_event_content(
+    row: Any,
+    *,
+    trusted_root: str | Path,
+) -> list[dict[str, Any]]:
+    issues = verify_retention_event_structure(row)
+    if not isinstance(row, dict):
+        return issues
+    kind = str(row.get("kind") or row.get("event") or row.get("event_type") or "").strip()
+    if kind not in {"retention_apply", "cycle_artifact_archived", "artifact_archived", "artifact_restored"}:
+        return issues
+    expected = normalize_sha256(row.get("sha256") or row.get("hash") or row.get("content_hash"))
+    if expected is None:
+        issues.append({"code": "retention_event_hash_invalid"})
+        return issues
+    path_key = "new_path" if kind in {"retention_apply", "cycle_artifact_archived", "artifact_archived"} else "path"
+    candidate = row.get(path_key)
+    if not isinstance(candidate, str) or not candidate.strip():
+        issues.append({"code": "retention_event_archive_path_missing", "field": path_key})
+        return issues
+    resolved, path_issue = resolve_artifact_ref_path(
+        candidate,
+        root=trusted_root,
+        allow_workspace_path=False,
+    )
+    if path_issue is not None or resolved is None:
+        issues.append({"code": "retention_event_path_escape", "path": candidate})
+        return issues
+    if not resolved.exists() or not resolved.is_file():
+        issues.append({"code": "retention_event_archive_missing", "path": candidate})
+        return issues
+    actual = recompute_artifact_hash(resolved)
+    if actual != expected:
+        issues.append({"code": "retention_event_hash_mismatch", "expected": expected, "actual": actual})
     return issues
 
 
@@ -272,6 +369,10 @@ def _normalize_posix_path(path: str) -> str:
             continue
         parts.append(part)
     return "/".join(parts)
+
+
+def _nonempty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _require_string(row: dict[str, Any], key: str, issues: list[dict[str, Any]], code: str) -> None:

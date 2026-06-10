@@ -122,11 +122,15 @@ PROFILE_HISTORY_FILENAME = "runtime-profile-history.jsonl"
 #   - change_committed  — auto-commit allowed under L3 + classifier-pass
 #   - change_validated  — auto-validate chain allowed
 #   - pr_open           — auto-PR-open allowed under L3 + breaker-ok
+#   - pr_merge          — real merge execution; autonomous only, and the
+#                         merge authority still requires readiness +
+#                         credential proof before it reaches the executor.
 ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "agent_claim": frozenset({"standard", "strict", "autonomous"}),
     "change_committed": frozenset({"standard", "strict", "autonomous"}),
     "change_validated": frozenset({"standard", "strict", "autonomous"}),
     "pr_open": frozenset({"strict", "autonomous"}),
+    "pr_merge": frozenset({"autonomous"}),
 }
 
 # ---------------------------------------------------------------------
@@ -153,6 +157,7 @@ PLAN_020_WRITE_SURFACES: frozenset[str] = frozenset({
     "tool_runs",               # Phase 4 + Phase 10 chokepoint via run_tool
     "agent_claim",             # Phase 1.B (defense-in-depth for claim_request)
     "pr_open",                 # Phase 1.B (defense-in-depth for open_pr)
+    "pr_merge_execution",      # Merge authority only; real PR merge boundary
     "spine_orchestrator",      # Phase 4 dedicated invocation
     # ----------------------------------------------------------------
     # Plan 026R §A.4 — close the legacy-writer scope gap (Plan 020's

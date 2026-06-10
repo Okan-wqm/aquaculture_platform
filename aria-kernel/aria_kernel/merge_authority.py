@@ -17,6 +17,7 @@ from .enterprise_readiness import (
     EnterpriseReadinessVerdict,
     verify_enterprise_readiness,
 )
+from .runtime_profile import enforce_profile_for_action, enforce_profile_for_write
 from .tool_registry import GovernanceError, utc_now
 
 
@@ -151,6 +152,8 @@ def merge_if_authorized(
 
     executor = merge_executor or execute_gh_squash_merge
     try:
+        enforce_profile_for_action("pr_merge", base_dir=base_dir)
+        enforce_profile_for_write("pr_merge_execution", base_dir=base_dir)
         merge_result = executor(pr_number, expected_head_sha, _adapter_cwd(adapter))
     except Exception as exc:
         failed = dict(authorized)
@@ -223,8 +226,9 @@ def _diff_for_pr(
     if diff_text is not None:
         return diff_text
     if hasattr(adapter, "get_pr_diff"):
+        getter = getattr(adapter, "get_pr_diff")
         try:
-            return adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
+            return getter(pr_number)
         except Exception:
             return None
     return None

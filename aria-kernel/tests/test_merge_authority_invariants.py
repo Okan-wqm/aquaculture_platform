@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from aria_kernel.evidence_trust import recompute_artifact_hash
 from aria_kernel.change_ledger import (
     emit_change_committed,
     emit_change_planned,
@@ -22,7 +23,9 @@ from aria_kernel.enterprise_readiness import (
     record_rollback_proof,
     record_token_proof,
     record_workflow_run_proof,
+    readiness_source_evidence_path,
 )
+from aria_kernel.ledger import append_jsonl
 from aria_kernel.merge_authority import merge_if_authorized
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.validation_runs_ledger import record_validation_run
@@ -31,8 +34,6 @@ from aria_kernel.validation_runs_ledger import record_validation_run
 HEAD_SHA = "abc1234567890abc1234567890abc1234567890a"
 OTHER_HEAD_SHA = "def1234567890def1234567890def1234567890d"
 TARGET_REF = "refs/heads/main"
-ARTIFACT_HASH = "sha256:" + "1" * 64
-LEDGER_HASH = "sha256:" + "2" * 64
 TOKEN_HASH = "sha256:" + "3" * 64
 SNAPSHOT_HASH = "sha256:" + "4" * 64
 FUTURE = "2999-06-05T00:00:00Z"
@@ -228,6 +229,64 @@ class MergeAuthorityTests(unittest.TestCase):
             "head_sha": head_sha,
         }
 
+    def _source_ref(self, row_type: str, *, head_sha: str = HEAD_SHA) -> dict[str, Any]:
+        row = append_jsonl(
+            readiness_source_evidence_path(base_dir=self.base),
+            {
+                "schema_version": 1,
+                "row_id": f"source-{row_type}",
+                "row_type": row_type,
+                "repository": "acme/aqua",
+                "pr_number": 42,
+                "target_ref": TARGET_REF,
+                "head_ref": "feature/readiness",
+                "head_sha": head_sha,
+            },
+        )
+        return {
+            "surface": "enterprise_source_evidence",
+            "ledger_path": "enterprise/source-evidence.jsonl",
+            "row_id": row["row_id"],
+            "row_type": row["row_type"],
+            "row_hash": row["ledger_hash"],
+            "schema_version": 1,
+        }
+
+    def _artifact_ref(self, *, name: str = "readiness.json") -> dict[str, Any]:
+        path = self.base / "evidence" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"ok": True, "name": name}, sort_keys=True) + "\n", encoding="utf-8")
+        return {
+            "artifact_id": f"artifact-{name}",
+            "source_surface": "workflow_artifact",
+            "uri": f"evidence/{name}",
+            "sha256": recompute_artifact_hash(path),
+            "content_type": "application/json",
+            "produced_by_workflow_run_id": "123",
+        }
+
+    def _workflow_evidence_ref(self) -> dict[str, Any]:
+        path = self.base / "evidence" / "workflow-proof.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "schema_version": 1,
+            "valid": True,
+            "dlp_scan_clean": True,
+            "token_provenance": "github_actions_artifact_token",
+            "workflow_hash": "sha256:" + "5" * 64,
+            "contract_hash": "sha256:" + "6" * 64,
+            "network_policy": ["github_artifact"],
+            "runtime_write_paths": ["runner-temp/aria-operational-proof"],
+        }, sort_keys=True) + "\n", encoding="utf-8")
+        return {
+            "artifact_id": "artifact-workflow-proof",
+            "source_surface": "workflow_preflight_artifact",
+            "uri": "evidence/workflow-proof.json",
+            "sha256": recompute_artifact_hash(path),
+            "content_type": "application/json",
+            "produced_by_workflow_run_id": "123",
+        }
+
     def _seed_enterprise_readiness(
         self,
         *,
@@ -241,7 +300,7 @@ class MergeAuthorityTests(unittest.TestCase):
             {
                 **common,
                 "workflow_run_ids": [123],
-                "artifact_hashes": {"evidence/readiness.json": ARTIFACT_HASH},
+                "artifact_refs": [self._artifact_ref()],
             },
             base_dir=self.base,
         )
@@ -263,7 +322,7 @@ class MergeAuthorityTests(unittest.TestCase):
                     "required_status_checks": ["ci/test", "ci/lint"],
                     "required_approving_review_count": 1,
                     "snapshot_hash": SNAPSHOT_HASH,
-                    "source_ledger_hash": LEDGER_HASH,
+                    "source_ledger_ref": self._source_ref("branch_protection", head_sha=head_sha),
                 },
             ),
             "workflow_run": (
@@ -273,7 +332,7 @@ class MergeAuthorityTests(unittest.TestCase):
                     "workflow_run_id": 123,
                     "status": "completed",
                     "conclusion": "success",
-                    "source_ledger_hash": LEDGER_HASH,
+                    "source_ledger_ref": self._source_ref("workflow_run", head_sha=head_sha),
                 },
             ),
             "artifact": (
@@ -281,9 +340,8 @@ class MergeAuthorityTests(unittest.TestCase):
                 {
                     **common,
                     "workflow_run_id": 123,
-                    "artifact_path": "evidence/readiness.json",
-                    "artifact_hash": ARTIFACT_HASH,
-                    "source_ledger_hash": LEDGER_HASH,
+                    "artifact_ref": self._artifact_ref(),
+                    "source_ledger_ref": self._source_ref("artifact", head_sha=head_sha),
                 },
             ),
             "rollback": (
@@ -292,8 +350,8 @@ class MergeAuthorityTests(unittest.TestCase):
                     **common,
                     "rollback_plan_ref": "runbooks/rollback.md#pr-42",
                     "status": "verified",
-                    "artifact_hash": ARTIFACT_HASH,
-                    "source_ledger_hash": LEDGER_HASH,
+                    "artifact_ref": self._artifact_ref(),
+                    "source_ledger_ref": self._source_ref("rollback", head_sha=head_sha),
                 },
             ),
             "retention": (
@@ -303,8 +361,19 @@ class MergeAuthorityTests(unittest.TestCase):
                     "status": "active",
                     "retention_days": 365,
                     "retained_until": FUTURE,
-                    "artifact_hash": ARTIFACT_HASH,
-                    "source_ledger_hash": LEDGER_HASH,
+                    "artifact_ref": self._artifact_ref(),
+                    "retention_event": {
+                        "schema_version": 1,
+                        "event": "artifact_archived",
+                        "artifact_id": "artifact-readiness.json",
+                        "original_path": "evidence/readiness.json",
+                        "new_path": "evidence/readiness.json",
+                        "sha256": self._artifact_ref()["sha256"],
+                        "reason": "retention",
+                        "operator_approval_ref": "operator:retention",
+                        "reviewed": True,
+                    },
+                    "source_ledger_ref": self._source_ref("retention", head_sha=head_sha),
                 },
             ),
             "dlp": (
@@ -313,8 +382,12 @@ class MergeAuthorityTests(unittest.TestCase):
                     **common,
                     "scanner": "dlp-ci",
                     "findings_count": 0,
-                    "artifact_hash": ARTIFACT_HASH,
-                    "source_ledger_hash": LEDGER_HASH,
+                    "artifact_ref": self._artifact_ref(),
+                    "workflow_evidence_ref": self._workflow_evidence_ref(),
+                    "token_source": "github_actions_artifact_token",
+                    "workflow_hash": "sha256:" + "5" * 64,
+                    "contract_hash": "sha256:" + "6" * 64,
+                    "source_ledger_ref": self._source_ref("dlp", head_sha=head_sha),
                 },
             ),
             "token": (
@@ -325,6 +398,12 @@ class MergeAuthorityTests(unittest.TestCase):
                     "scopes": ["contents:read", "pull_requests:read", "actions:read"],
                     "expires_at": FUTURE,
                     "token_hash": TOKEN_HASH,
+                    "workflow_run_id": 123,
+                    "token_source": "github_actions_artifact_token",
+                    "workflow_hash": "sha256:" + "5" * 64,
+                    "contract_hash": "sha256:" + "6" * 64,
+                    "workflow_evidence_ref": self._workflow_evidence_ref(),
+                    "source_ledger_ref": self._source_ref("token", head_sha=head_sha),
                 },
             ),
         }
@@ -456,6 +535,7 @@ class MergeAuthorityTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
     def test_authority_executes_merge_with_expected_head_sha_after_all_gates(self) -> None:
+        set_profile("autonomous", operator_approval_ref="operator:autonomous-merge", base_dir=self.base)
         self._seed_enterprise_readiness()
         change_id = self._seed_triple_gate()
         calls: list[tuple[int, str, str | Path]] = []
@@ -487,6 +567,23 @@ class MergeAuthorityTests(unittest.TestCase):
             for line in (self.base / "auto-merge-decisions.jsonl").read_text(encoding="utf-8").splitlines()
         ]
         self.assertEqual(rows[-1]["decision"], "merged")
+
+    def test_strict_profile_blocks_real_merge_even_after_all_gates(self) -> None:
+        self._seed_enterprise_readiness()
+        self._seed_triple_gate()
+        calls: list[tuple[int, str, str | Path]] = []
+        result = merge_if_authorized(
+            adapter=SequencedGitHubAdapter(),
+            pr_number=42,
+            readiness_claim_id="ready-claim-1",
+            policy=enabled_policy(),
+            base_dir=self.base,
+            dry_run=False,
+            merge_executor=lambda pr_number, sha, cwd: calls.append((pr_number, sha, cwd)) or {},
+        )
+        self.assertEqual(result["decision"], "failed")
+        self.assertIn("profile_violation", result["reasons"][0])
+        self.assertEqual(calls, [])
 
 
 class MergeBoundaryStaticInvariantTests(unittest.TestCase):

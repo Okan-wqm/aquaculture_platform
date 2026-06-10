@@ -78,6 +78,7 @@ class ProfileTaxonomyTests(unittest.TestCase):
         # update this table directly.
         self.assertEqual(set(ACTION_PERMISSIONS.keys()), {
             "agent_claim", "change_committed", "change_validated", "pr_open",
+            "pr_merge",
         })
         self.assertEqual(
             ACTION_PERMISSIONS["agent_claim"],
@@ -94,6 +95,10 @@ class ProfileTaxonomyTests(unittest.TestCase):
         self.assertEqual(
             ACTION_PERMISSIONS["pr_open"],
             frozenset({"strict", "autonomous"}),
+        )
+        self.assertEqual(
+            ACTION_PERMISSIONS["pr_merge"],
+            frozenset({"autonomous"}),
         )
 
     def test_plan_020_write_surfaces_includes_22_locked_entries(self) -> None:
@@ -115,6 +120,7 @@ class ProfileTaxonomyTests(unittest.TestCase):
             "worker_verification", "worker_result",
             "pr_lifecycle", "pr_action",
             "tool_registry", "tool_lifecycle", "skill_genesis",
+            "pr_merge_execution",
         }
         self.assertEqual(PLAN_020_WRITE_SURFACES, frozenset(expected))
 
@@ -270,10 +276,18 @@ class EnforceProfileForActionTests(unittest.TestCase):
         with self.assertRaises(GovernanceError):
             enforce_profile_for_action("pr_open", base_dir=self.tools)
 
-    def test_strict_permits_every_action(self) -> None:
+    def test_strict_permits_non_merge_actions(self) -> None:
         set_profile("strict", operator_approval_ref="op:1", base_dir=self.tools)
         for action in ACTION_PERMISSIONS:
+            if action == "pr_merge":
+                continue
             self.assertEqual(enforce_profile_for_action(action, base_dir=self.tools), "strict")
+        with self.assertRaises(GovernanceError):
+            enforce_profile_for_action("pr_merge", base_dir=self.tools)
+
+    def test_autonomous_permits_pr_merge(self) -> None:
+        set_profile("autonomous", operator_approval_ref="op:1", base_dir=self.tools)
+        self.assertEqual(enforce_profile_for_action("pr_merge", base_dir=self.tools), "autonomous")
 
     def test_unknown_action_kind_raises(self) -> None:
         with self.assertRaises(GovernanceError) as cm:

@@ -11,7 +11,8 @@ typed runners selected by runtime profile:
   ``skipped`` result row, never invokes ``auto_merge.merge_if_green``.
   Used for ``observe`` / ``standard`` / ``frozen`` profiles where
   auto-merge is structurally not permitted.
-* :class:`RealAutoMergeRunner` — wraps ``auto_merge.merge_if_green``.
+* :class:`RealAutoMergeRunner` — routes through
+  ``merge_authority.merge_if_authorized``.
   Used for ``strict`` (shadow / dry_run=True observation) and
   ``autonomous`` (Phase B2; real merge with dry_run=False on the L3
   snowball lane only).
@@ -86,14 +87,12 @@ class NoOpAutoMergeRunner:
 
 
 class RealAutoMergeRunner:
-    """Plan ARIA-V3 §A1 + §B2 — wraps ``auto_merge.merge_if_green``.
+    """Plan ARIA-V3 §A1 + §B2 — routes through merge authority.
 
-    Under ``strict`` profile this runner dispatches to merge_if_green
-    with ``dry_run=True`` so the evaluation chain runs (decision
-    logged, eligibility checked, audit emitted) but no actual ``gh pr
-    merge --squash`` fires. Phase B2 introduces the ``autonomous``
-    profile, at which point this runner flips ``dry_run=False`` for
-    the L3-snowball lane (and ONLY that lane, via the lane classifier).
+    Under ``strict`` profile this runner dispatches to
+    merge_if_authorized with ``dry_run=True`` so the evaluation chain
+    runs but no merge fires. Under ``autonomous`` it may pass
+    ``dry_run=False`` only after resolving an exact readiness claim.
 
     The runner depends on a :class:`GitHubAdapter` factory plumbed
     through from Phase A2. Until A2 lands its factory, this runner
@@ -108,10 +107,12 @@ class RealAutoMergeRunner:
         profile: str,
         adapter_factory: Callable[[], Any] | None = None,
         pr_enumerator: Callable[[Any], list[int]] | None = None,
+        readiness_claim_resolver: Callable[[Any, int, str | Path], str | None] | None = None,
     ) -> None:
         self.profile = profile
         self.adapter_factory = adapter_factory
         self.pr_enumerator = pr_enumerator
+        self.readiness_claim_resolver = readiness_claim_resolver
 
     def __call__(
         self,
@@ -119,35 +120,40 @@ class RealAutoMergeRunner:
         base_dir: str | Path,
         workspace_root: str | Path | None,
     ) -> dict[str, Any]:
-        if self.adapter_factory is None:
+        if self.adapter_factory is None or self.pr_enumerator is None or self.readiness_claim_resolver is None:
             return {
                 "schema_version": 1,
-                "status": "no_adapter_configured",
-                "reason": (
-                    "real_auto_merge_runner_requires_github_adapter_factory"
-                    " (Plan ARIA-V3 Phase A2 plumbs this through)"
-                ),
+                "status": "blocked",
+                "reason": "merge_runtime_dependency_missing",
                 "merges_completed": 0,
                 "candidates_evaluated": 0,
                 "profile": self.profile,
             }
-        from .auto_merge import merge_if_green
+        from .merge_authority import merge_if_authorized
 
         adapter = self.adapter_factory()
-        candidate_prs = (
-            self.pr_enumerator(adapter)
-            if self.pr_enumerator is not None
-            else []
-        )
+        candidate_prs = self.pr_enumerator(adapter)
         # Plan ARIA-V3 §B2 — under ``autonomous`` profile + lane=L3-snowball
         # this MUST be False. Until B2 lands, strict observes (dry_run=True).
         dry_run = self.profile != "autonomous"
         merges_completed = 0
         decisions: list[dict[str, Any]] = []
         for pr_number in candidate_prs:
-            decision = merge_if_green(
+            readiness_claim_id = self.readiness_claim_resolver(adapter, pr_number, base_dir)
+            if readiness_claim_id is None:
+                decision = {
+                    "decision": "blocked",
+                    "eligible": False,
+                    "stage": "readiness_claim_resolution",
+                    "reasons": ["readiness_claim_id_not_resolved"],
+                    "pr_number": pr_number,
+                }
+                decisions.append(decision)
+                continue
+            decision = merge_if_authorized(
                 adapter=adapter,
                 pr_number=pr_number,
+                readiness_claim_id=readiness_claim_id,
                 base_dir=base_dir,
                 dry_run=dry_run,
             )
@@ -170,6 +176,7 @@ def select_auto_merge_runner(
     profile: str,
     adapter_factory: Callable[[], Any] | None = None,
     pr_enumerator: Callable[[Any], list[int]] | None = None,
+    readiness_claim_resolver: Callable[[Any, int, str | Path], str | None] | None = None,
 ) -> AutoMergeRunner:
     """Plan ARIA-V3 §A1 — profile-derived runner factory.
 
@@ -183,6 +190,7 @@ def select_auto_merge_runner(
             profile=profile,
             adapter_factory=adapter_factory,
             pr_enumerator=pr_enumerator,
+            readiness_claim_resolver=readiness_claim_resolver,
         )
     if profile in _NOOP_RUNNER_PROFILES:
         return NoOpAutoMergeRunner(profile=profile)

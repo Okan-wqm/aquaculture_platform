@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.agent_eval import add_fixture, verify_shadow_eval_proof
+from aria_kernel.evidence_trust import recompute_artifact_hash
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, register_tool
@@ -79,6 +80,17 @@ def _fixture(tools: Path) -> dict:
 
 
 def _transcript(tools: Path, *, request_id: str) -> dict:
+    artifact = tools / "evidence" / f"{request_id}.transcript.json"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text('{"transcript":"shadow"}\n', encoding="utf-8")
+    transcript_ref = {
+        "artifact_id": f"artifact-{request_id}-transcript",
+        "source_surface": "runtime_artifact",
+        "uri": f"evidence/{request_id}.transcript.json",
+        "sha256": recompute_artifact_hash(artifact),
+        "content_type": "application/json",
+        "produced_by_workflow_run_id": "run-shadow",
+    }
     return append_jsonl(
         tools / "agent-invocations" / "transcripts.jsonl",
         {
@@ -88,10 +100,27 @@ def _transcript(tools: Path, *, request_id: str) -> dict:
             "request_id": request_id,
             "claim_id": f"claim-{request_id}",
             "agent_id": "shadow-agent",
-            "transcript_hash": sha256_text(f"transcript:{request_id}"),
-            "artifact_ref": f"/tmp/{request_id}.transcript.jsonl",
+            "transcript_hash": transcript_ref["sha256"],
+            "artifact_ref": transcript_ref,
         },
     )
+
+
+def _operator_ref(tools: Path, *, request_id: str, target_agent: str) -> dict:
+    row = append_jsonl(
+        tools / "governance.jsonl",
+        {
+            "schema_version": 1,
+            "kind": "operator_approval",
+            "operator_id": "operator-shadow",
+            "approved_action": "shadow_eval",
+            "request_id": request_id,
+            "claim_id": f"claim-{request_id}",
+            "target_agent": target_agent,
+            "expires_at": "2999-06-05T00:00:00Z",
+        },
+    )
+    return {"ledger_path": "governance.jsonl", "ledger_hash": row["ledger_hash"]}
 
 
 def _seed_run(
@@ -104,12 +133,20 @@ def _seed_run(
     input_envelope = fixture["input_envelope"]
     request_id = input_envelope["request_id"]
     provenance = {
-        "operator_approval_ref": "operator:shadow-proof",
+        "operator_approval_ref": _operator_ref(
+            tools,
+            request_id=request_id,
+            target_agent=fixture["target_agent"],
+        ),
         "fixture_id": fixture["fixture_id"],
         "fixture_hash": fixture["fixture_hash"],
         "context_hash": input_envelope["context_hash"],
         "prompt_hash": input_envelope["prompt_hash"],
-        "transcript_hash": sha256_text(f"transcript:{request_id}"),
+        "transcript_hash": (
+            transcript_row["transcript_hash"]
+            if transcript_row is not None
+            else sha256_text(f"transcript:{request_id}")
+        ),
         "transcript_ledger_hash": (
             transcript_row["ledger_hash"]
             if transcript_row is not None
@@ -187,7 +224,7 @@ class ShadowEvalProofTests(unittest.TestCase):
         )
         with self.assertRaises(GovernanceError) as ctx:
             verify_shadow_eval_proof(run_id=run["run_id"], base_dir=self.tools)
-        self.assertIn("shadow_eval_operator_approval_ref_required", str(ctx.exception))
+        self.assertIn("shadow_eval_operator_approval_ref_not_structured", str(ctx.exception))
 
     def test_shadow_proof_rejects_missing_fixture_provenance(self) -> None:
         run = _seed_run(

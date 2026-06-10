@@ -101,7 +101,6 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^gh\s+pr\s+checks(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+view(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+diff(\s+\S+)*\s*$"),
-    re.compile(r"^gh\s+pr\s+merge\s+--squash(\s+\S+)*\s*$"),
     re.compile(r"^npm\s+test(\s+\S+)*\s*$"),
     re.compile(r"^nx\s+(affected|test|lint|build)(\s+\S+)*\s*$"),
     re.compile(r"^pytest(\s+\S+)*\s*$"),
@@ -127,6 +126,8 @@ DENIED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^(apt|apt-get|yum|dnf|pacman|brew)\b"),  # pkg install
     re.compile(r"^(docker|kubectl|helm)\b"),            # orchestration
     re.compile(r"^gh\s+api\s+(-X\s+)?(DELETE|PATCH|PUT)\b"),  # GH API mutation
+    re.compile(r"^gh\s+api\b.*pulls/.*/merge\b"),              # PR merge API
+    re.compile(r"^gh\s+pr\s+merge\b"),                         # merge authority only
     re.compile(r"^gh\s+workflow\b"),                    # workflow mutation
     re.compile(r"^gh\s+secret\b"),                      # secret list/set
     re.compile(r"^gh\s+release\b"),                     # release create

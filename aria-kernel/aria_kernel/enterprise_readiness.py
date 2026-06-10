@@ -16,7 +16,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from .evidence_trust import (
+    TRUSTED_PROOF_SOURCE_SURFACES,
+    verify_hash_bound_artifact_ref,
+    verify_retention_event_content,
+    verify_workflow_dlp_token_evidence,
+)
 from .ledger import append_jsonl, load_jsonl
+from .state_manifest import surface_for_path
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -42,6 +49,7 @@ RETENTION_PROOFS_RELATIVE = ("enterprise", "retention-proofs.jsonl")
 DLP_PROOFS_RELATIVE = ("enterprise", "dlp-proofs.jsonl")
 TOKEN_PROOFS_RELATIVE = ("enterprise", "token-proofs.jsonl")
 WAIVERS_RELATIVE = ("enterprise", "waivers.jsonl")
+SOURCE_EVIDENCE_RELATIVE = ("enterprise", "source-evidence.jsonl")
 
 REQUIRED_PROOF_TYPES: tuple[ProofType, ...] = (
     "cas",
@@ -56,9 +64,13 @@ REQUIRED_PROOF_TYPES: tuple[ProofType, ...] = (
 
 REQUIRED_READINESS_FIELDS: tuple[str, ...] = (
     "readiness_claim_id",
+    "repository",
     "pr_number",
     "target_ref",
+    "head_ref",
     "head_sha",
+    "workflow_run_ids",
+    "artifact_refs",
 )
 
 _PROOF_PATHS: dict[ProofType, tuple[str, ...]] = {
@@ -136,7 +148,7 @@ class _ReadinessContext:
     head_ref: str | None = None
     readiness_claim_id: str | None = None
     workflow_run_ids: tuple[str, ...] = ()
-    artifact_hashes: dict[str, str] = field(default_factory=dict)
+    artifact_refs: tuple[dict[str, Any], ...] = ()
     waiver_ids: tuple[str, ...] = ()
     now: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -151,6 +163,10 @@ def readiness_proof_path(
     base_dir: str | Path | None = None,
 ) -> Path:
     return ensure_tools_dir(base_dir).joinpath(*_PROOF_PATHS[_canonical_proof_type(proof_type)])
+
+
+def readiness_source_evidence_path(base_dir: str | Path | None = None) -> Path:
+    return ensure_tools_dir(base_dir).joinpath(*SOURCE_EVIDENCE_RELATIVE)
 
 
 def evaluate_enterprise_readiness_claim(claim: dict[str, Any]) -> EnterpriseReadinessVerdict:
@@ -342,18 +358,42 @@ def consume_waiver(
     waiver_id: str,
     *,
     readiness_claim_id: str,
+    repository: str | None = None,
+    pr_number: int | None = None,
+    target_ref: str | None = None,
+    head_ref: str | None = None,
+    head_sha: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if not waiver_id.strip():
         raise GovernanceError("waiver_id_required")
     if not readiness_claim_id.strip():
         raise GovernanceError("readiness_claim_id_required")
+    root = ensure_tools_dir(base_dir)
+    rows = _load_proof_rows(root, "waiver")
+    open_row = next(
+        (
+            row for row in reversed(rows)
+            if str(row.get("waiver_id") or "") == waiver_id
+            and _first_str(row, "state") == "open"
+            and _expiry_is_future(_first_str(row, "expires_at"), datetime.now(timezone.utc))
+        ),
+        None,
+    )
+    if open_row is None:
+        raise GovernanceError(f"open_unexpired_waiver_not_found:{waiver_id}")
     return append_readiness_proof(
         "waiver",
         {
             "waiver_id": waiver_id,
             "state": "consumed",
             "consumed_by_readiness_claim_id": readiness_claim_id,
+            "previous_waiver_ledger_hash": open_row.get("ledger_hash"),
+            "repository": repository or _first_str(open_row, "repository", "repo_full_name"),
+            "pr_number": pr_number if pr_number is not None else open_row.get("pr_number"),
+            "target_ref": target_ref or _first_str(open_row, "target_ref", "base_ref"),
+            "head_ref": head_ref or _first_str(open_row, "head_ref", "source_ref"),
+            "head_sha": head_sha or _first_str(open_row, "head_sha", "observed_head_sha"),
         },
         base_dir=base_dir,
     )
@@ -371,6 +411,7 @@ def verify_enterprise_readiness(
     head_sha: str | None = None,
     workflow_run_ids: list[int | str] | tuple[int | str, ...] | None = None,
     artifact_hashes: dict[str, str] | list[str] | tuple[str, ...] | None = None,
+    artifact_refs: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
     waiver_ids: list[str] | tuple[str, ...] | None = None,
     now: datetime | None = None,
 ) -> EnterpriseReadinessVerdict:
@@ -393,6 +434,7 @@ def verify_enterprise_readiness(
         head_ref = head_ref or _first_str(claim, "head_ref", "source_ref")
         head_sha = head_sha or _first_str(claim, "head_sha")
         workflow_run_ids = workflow_run_ids or claim.get("workflow_run_ids")
+        artifact_refs = artifact_refs or claim.get("artifact_refs")
         artifact_hashes = artifact_hashes or claim.get("artifact_hashes")
         waiver_ids = waiver_ids or claim.get("waiver_ids")
         _validate_claim_runtime_binding(
@@ -433,6 +475,7 @@ def verify_enterprise_readiness(
         readiness_claim_id=readiness_claim_id,
         workflow_run_ids=workflow_run_ids,
         artifact_hashes=artifact_hashes,
+        artifact_refs=artifact_refs,
         waiver_ids=waiver_ids,
         now=now,
         reasons=reasons,
@@ -459,6 +502,7 @@ def evaluate_enterprise_readiness(
     readiness_claim_id: str | None = None,
     workflow_run_ids: list[int | str] | tuple[int | str, ...] | None = None,
     artifact_hashes: dict[str, str] | list[str] | tuple[str, ...] | None = None,
+    artifact_refs: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
     waiver_ids: list[str] | tuple[str, ...] | None = None,
     now: datetime | None = None,
 ) -> EnterpriseReadinessVerdict:
@@ -472,6 +516,7 @@ def evaluate_enterprise_readiness(
         readiness_claim_id=readiness_claim_id,
         workflow_run_ids=workflow_run_ids,
         artifact_hashes=artifact_hashes,
+        artifact_refs=artifact_refs,
         waiver_ids=waiver_ids,
         now=now,
     )
@@ -503,6 +548,15 @@ def _validate_readiness_claim_shape(
     head_sha = _first_str(claim, "head_sha")
     if head_sha and not _is_full_git_sha(head_sha):
         reasons.append("readiness_claim_head_sha_must_be_full_git_sha")
+        failures.append("readiness_claim_incomplete")
+    if "artifact_hashes" in claim:
+        reasons.append("readiness_claim_artifact_hashes_string_map_not_allowed")
+        failures.append("readiness_claim_not_artifact_ref_bound")
+    if not _normalise_artifact_refs(claim.get("artifact_refs")):
+        reasons.append("readiness_claim_artifact_refs_required")
+        failures.append("readiness_claim_incomplete")
+    if not _normalise_id_tuple(claim.get("workflow_run_ids")):
+        reasons.append("readiness_claim_workflow_run_ids_required")
         failures.append("readiness_claim_incomplete")
     for key in _READINESS_INLINE_PROOF_KEYS:
         if key in claim:
@@ -542,13 +596,17 @@ def _validate_common_binding(
     reasons: list[str],
     failures: list[str],
 ) -> None:
-    if proof_type == "waiver":
-        return
     if not isinstance(row.get("pr_number"), int) or row.get("pr_number") <= 0:
         reasons.append(f"{proof_type}_pr_number_required")
         failures.append(f"{proof_type}_proof_binding_required")
+    if not _first_str(row, "repository", "repo_full_name"):
+        reasons.append(f"{proof_type}_repository_required")
+        failures.append(f"{proof_type}_proof_binding_required")
     if not _first_str(row, "target_ref", "base_ref"):
         reasons.append(f"{proof_type}_target_ref_required")
+        failures.append(f"{proof_type}_proof_binding_required")
+    if not _first_str(row, "head_ref", "source_ref"):
+        reasons.append(f"{proof_type}_head_ref_required")
         failures.append(f"{proof_type}_proof_binding_required")
     head_sha = _first_str(row, "head_sha", "observed_head_sha")
     if not head_sha or not _is_full_git_sha(head_sha):
@@ -586,7 +644,7 @@ def _validate_branch_protection_fields(row: dict[str, Any], reasons: list[str], 
         reasons.append("branch_protection_review_count_invalid")
         failures.append("branch_protection_required")
     _require_strong_hash(row, "snapshot_hash", reasons, failures, "branch_protection")
-    _require_strong_hash(row, "source_ledger_hash", reasons, failures, "branch_protection")
+    _require_source_ledger_ref(row, reasons, failures, "branch_protection")
 
 
 def _validate_workflow_run_fields(row: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
@@ -600,15 +658,14 @@ def _validate_workflow_run_fields(row: dict[str, Any], reasons: list[str], failu
     if _first_str(row, "conclusion") != "success":
         reasons.append("workflow_run_conclusion_must_be_success")
         failures.append("workflow_run_proof_required")
-    _require_strong_hash(row, "source_ledger_hash", reasons, failures, "workflow_run")
+    _require_source_ledger_ref(row, reasons, failures, "workflow_run")
 
 
 def _validate_artifact_fields(row: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
-    if not _first_str(row, "artifact_path", "path", "artifact_name"):
-        reasons.append("artifact_path_required")
+    if not isinstance(row.get("artifact_ref"), dict):
+        reasons.append("artifact_ref_required")
         failures.append("artifact_hashes_untrusted")
-    _require_strong_hash(row, "artifact_hash", reasons, failures, "artifact")
-    _require_strong_hash(row, "source_ledger_hash", reasons, failures, "artifact")
+    _require_source_ledger_ref(row, reasons, failures, "artifact")
 
 
 def _validate_rollback_fields(row: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
@@ -618,8 +675,10 @@ def _validate_rollback_fields(row: dict[str, Any], reasons: list[str], failures:
     if _first_str(row, "status") not in {"available", "exercised", "ready", "verified"}:
         reasons.append("rollback_status_not_ready")
         failures.append("rollback_proof_required")
-    _require_strong_hash(row, "artifact_hash", reasons, failures, "rollback")
-    _require_strong_hash(row, "source_ledger_hash", reasons, failures, "rollback")
+    if not isinstance(row.get("artifact_ref"), dict):
+        reasons.append("rollback_artifact_ref_required")
+        failures.append("rollback_proof_required")
+    _require_source_ledger_ref(row, reasons, failures, "rollback")
 
 
 def _validate_retention_fields(row: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
@@ -634,8 +693,13 @@ def _validate_retention_fields(row: dict[str, Any], reasons: list[str], failures
     if retained_until and not _parse_time(retained_until):
         reasons.append("retention_expiry_invalid")
         failures.append("retention_proof_required")
-    _require_strong_hash(row, "artifact_hash", reasons, failures, "retention")
-    _require_strong_hash(row, "source_ledger_hash", reasons, failures, "retention")
+    elif retained_until and not _expiry_is_future(retained_until, datetime.now(timezone.utc)):
+        reasons.append("retention_expiry_must_be_future")
+        failures.append("retention_proof_required")
+    if not isinstance(row.get("artifact_ref"), dict):
+        reasons.append("retention_artifact_ref_required")
+        failures.append("retention_proof_required")
+    _require_source_ledger_ref(row, reasons, failures, "retention")
 
 
 def _validate_dlp_fields(row: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
@@ -646,8 +710,10 @@ def _validate_dlp_fields(row: dict[str, Any], reasons: list[str], failures: list
     if not isinstance(findings, int) or findings != 0:
         reasons.append("dlp_findings_must_be_zero")
         failures.append("dlp_proof_required")
-    _require_strong_hash(row, "artifact_hash", reasons, failures, "dlp")
-    _require_strong_hash(row, "source_ledger_hash", reasons, failures, "dlp")
+    if not isinstance(row.get("artifact_ref"), dict):
+        reasons.append("dlp_artifact_ref_required")
+        failures.append("dlp_proof_required")
+    _require_source_ledger_ref(row, reasons, failures, "dlp")
 
 
 def _validate_token_fields(row: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
@@ -671,12 +737,10 @@ def _validate_token_fields(row: dict[str, Any], reasons: list[str], failures: li
     elif not _parse_time(expires_at):
         reasons.append("token_expires_at_invalid")
         failures.append("token_proof_required")
-    if not (
-        _is_sha256_digest(_first_str(row, "token_hash"))
-        or _is_sha256_digest(_first_str(row, "source_ledger_hash"))
-    ):
-        reasons.append("token_hash_or_source_ledger_hash_required")
+    if not isinstance(row.get("workflow_evidence_ref"), dict):
+        reasons.append("token_workflow_evidence_ref_required")
         failures.append("token_proof_required")
+    _require_source_ledger_ref(row, reasons, failures, "token")
 
 
 def _validate_waiver_fields(row: dict[str, Any], reasons: list[str], failures: list[str]) -> None:
@@ -684,7 +748,7 @@ def _validate_waiver_fields(row: dict[str, Any], reasons: list[str], failures: l
         reasons.append("waiver_id_required")
         failures.append("waiver_ledger_not_green")
     state = _first_str(row, "state") or "open"
-    if state not in {"open", "consumed", "closed"}:
+    if state not in {"open", "consumed", "closed", "expired"}:
         reasons.append("waiver_state_invalid")
         failures.append("waiver_ledger_not_green")
     expires_at = _first_str(row, "expires_at")
@@ -693,6 +757,9 @@ def _validate_waiver_fields(row: dict[str, Any], reasons: list[str], failures: l
         failures.append("waiver_ledger_not_green")
     elif expires_at and not _parse_time(expires_at):
         reasons.append("waiver_expires_at_invalid")
+        failures.append("waiver_ledger_not_green")
+    if state == "consumed" and not _first_str(row, "previous_waiver_ledger_hash"):
+        reasons.append("waiver_consume_previous_open_hash_required")
         failures.append("waiver_ledger_not_green")
 
 
@@ -712,34 +779,34 @@ def _verify_required_proof(
             if row is None:
                 _append_missing_or_mismatch_reason(rows, proof_type, ctx, reasons, failures, suffix=f":{run_id}")
                 continue
-            _verify_matched_row(proof_type, row, ctx, reasons, failures, proof_refs)
+            _verify_matched_row(root, proof_type, row, ctx, reasons, failures, proof_refs)
         return
-    if proof_type == "artifact" and ctx.artifact_hashes:
-        for artifact_key, artifact_hash in ctx.artifact_hashes.items():
-            row = next(
-                (
-                    item for item in reversed(matches)
-                    if str(item.get("artifact_hash") or item.get("sha256") or "") == artifact_hash
-                    and (
-                        artifact_key == artifact_hash
-                        or str(item.get("artifact_path") or item.get("path") or item.get("artifact_name") or "") == artifact_key
-                    )
-                ),
-                None,
-            )
+    if proof_type in {"artifact", "rollback", "retention", "dlp"} and ctx.artifact_refs:
+        for artifact_ref in ctx.artifact_refs:
+            row = next((item for item in reversed(matches) if _row_matches_artifact_ref(item, artifact_ref)), None)
             if row is None:
-                _append_missing_or_mismatch_reason(rows, proof_type, ctx, reasons, failures, suffix=f":{artifact_key}")
+                suffix = ":" + str(artifact_ref.get("artifact_id") or artifact_ref.get("sha256") or "artifact")
+                _append_missing_or_mismatch_reason(rows, proof_type, ctx, reasons, failures, suffix=suffix)
                 continue
-            _verify_matched_row(proof_type, row, ctx, reasons, failures, proof_refs)
+            _verify_matched_row(root, proof_type, row, ctx, reasons, failures, proof_refs)
+        return
+    if proof_type == "token" and ctx.workflow_run_ids:
+        for run_id in ctx.workflow_run_ids:
+            row = next((item for item in reversed(matches) if str(item.get("workflow_run_id", item.get("run_id", ""))) == run_id), None)
+            if row is None:
+                _append_missing_or_mismatch_reason(rows, proof_type, ctx, reasons, failures, suffix=f":{run_id}")
+                continue
+            _verify_matched_row(root, proof_type, row, ctx, reasons, failures, proof_refs)
         return
     row = matches[-1] if matches else None
     if row is None:
         _append_missing_or_mismatch_reason(rows, proof_type, ctx, reasons, failures)
         return
-    _verify_matched_row(proof_type, row, ctx, reasons, failures, proof_refs)
+    _verify_matched_row(root, proof_type, row, ctx, reasons, failures, proof_refs)
 
 
 def _verify_matched_row(
+    root: Path,
     proof_type: ProofType,
     row: dict[str, Any],
     ctx: _ReadinessContext,
@@ -749,6 +816,9 @@ def _verify_matched_row(
 ) -> None:
     before = len(failures)
     _validate_row_type(proof_type, row, reasons, failures)
+    _verify_typed_row_chain(row, proof_type, reasons, failures)
+    _verify_source_ledger_ref(root, row, proof_type, reasons, failures)
+    _verify_artifact_evidence(root, proof_type, row, reasons, failures)
     if proof_type == "cas":
         expires_at = _first_str(row, "expires_at", "lease_expires_at")
         if expires_at and not _expiry_is_future(expires_at, ctx.now):
@@ -776,10 +846,11 @@ def _verify_waiver_ledger(
     proof_refs: dict[str, str],
 ) -> None:
     rows = _load_proof_rows(root, "waiver")
+    _verify_waiver_state_machine(rows, ctx, reasons, failures)
     for row in rows:
         if not _waiver_relevant(row, ctx):
             continue
-        _verify_matched_row("waiver", row, ctx, reasons, failures, proof_refs)
+        _verify_matched_row(root, "waiver", row, ctx, reasons, failures, proof_refs)
     for waiver_id in ctx.waiver_ids:
         row = next((item for item in reversed(rows) if str(item.get("waiver_id") or "") == waiver_id and _waiver_relevant(item, ctx)), None)
         if row is None:
@@ -832,6 +903,45 @@ def _find_claim(root: Path, readiness_claim_id: str) -> dict[str, Any] | None:
     )
 
 
+def resolve_readiness_claim_id(
+    *,
+    pr_number: int,
+    repository: str,
+    target_ref: str,
+    head_ref: str,
+    head_sha: str,
+    base_dir: str | Path | None = None,
+    assignment_id: str | None = None,
+) -> str | None:
+    root = ensure_tools_dir(base_dir)
+    rows = load_jsonl(root.joinpath(*READINESS_CLAIMS_RELATIVE), verify=True)
+    matches: list[dict[str, Any]] = []
+    for row in rows:
+        if row.get("pr_number") != pr_number:
+            continue
+        if _first_str(row, "repository", "repo_full_name") != repository:
+            continue
+        if _normalize_ref(_first_str(row, "target_ref", "base_ref")) != _normalize_ref(target_ref):
+            continue
+        if _normalize_ref(_first_str(row, "head_ref", "source_ref")) != _normalize_ref(head_ref):
+            continue
+        if _first_str(row, "head_sha") != head_sha:
+            continue
+        if assignment_id and _first_str(row, "assignment_id") and _first_str(row, "assignment_id") != assignment_id:
+            continue
+        matches.append(row)
+    if not matches:
+        return None
+    claim_ids = {
+        _first_str(row, "readiness_claim_id", "claim_id")
+        for row in matches
+        if _first_str(row, "readiness_claim_id", "claim_id")
+    }
+    if len(claim_ids) != 1:
+        raise GovernanceError("readiness_claim_resolution_ambiguous")
+    return next(iter(claim_ids))
+
+
 def _build_context(
     *,
     pr_number: int,
@@ -842,6 +952,7 @@ def _build_context(
     readiness_claim_id: str | None,
     workflow_run_ids: list[int | str] | tuple[int | str, ...] | Any,
     artifact_hashes: dict[str, str] | list[str] | tuple[str, ...] | Any,
+    artifact_refs: list[dict[str, Any]] | tuple[dict[str, Any], ...] | Any,
     waiver_ids: list[str] | tuple[str, ...] | Any,
     now: datetime | None,
     reasons: list[str],
@@ -860,6 +971,28 @@ def _build_context(
         reasons.append("readiness_head_sha_must_be_full_git_sha")
         failures.append("readiness_context_invalid")
         context_failed = True
+    if not repository:
+        reasons.append("readiness_repository_required")
+        failures.append("readiness_context_invalid")
+        context_failed = True
+    if not head_ref:
+        reasons.append("readiness_head_ref_required")
+        failures.append("readiness_context_invalid")
+        context_failed = True
+    if artifact_hashes:
+        reasons.append("readiness_artifact_hashes_string_map_not_allowed")
+        failures.append("readiness_context_invalid")
+        context_failed = True
+    normalised_artifact_refs = _normalise_artifact_refs(artifact_refs)
+    if not normalised_artifact_refs:
+        reasons.append("readiness_artifact_refs_required")
+        failures.append("readiness_context_invalid")
+        context_failed = True
+    normalised_workflow_run_ids = _normalise_id_tuple(workflow_run_ids)
+    if not normalised_workflow_run_ids:
+        reasons.append("readiness_workflow_run_ids_required")
+        failures.append("readiness_context_invalid")
+        context_failed = True
     if context_failed:
         return None
     return _ReadinessContext(
@@ -869,8 +1002,8 @@ def _build_context(
         head_ref=head_ref,
         head_sha=str(head_sha),
         readiness_claim_id=readiness_claim_id,
-        workflow_run_ids=_normalise_id_tuple(workflow_run_ids),
-        artifact_hashes=_normalise_artifact_hashes(artifact_hashes),
+        workflow_run_ids=normalised_workflow_run_ids,
+        artifact_refs=normalised_artifact_refs,
         waiver_ids=_normalise_id_tuple(waiver_ids),
         now=(now or datetime.now(timezone.utc)).astimezone(timezone.utc),
     )
@@ -909,7 +1042,8 @@ def _row_matches_context(row: dict[str, Any], ctx: _ReadinessContext) -> bool:
         return False
     if ctx.readiness_claim_id and str(row.get("readiness_claim_id") or "") != ctx.readiness_claim_id:
         return False
-    if ctx.repository and _first_str(row, "repository", "repo_full_name") and _first_str(row, "repository", "repo_full_name") != ctx.repository:
+    row_repository = _first_str(row, "repository", "repo_full_name")
+    if row_repository != ctx.repository:
         return False
     row_head = _first_str(row, "head_sha", "observed_head_sha")
     if row_head != ctx.head_sha:
@@ -918,7 +1052,7 @@ def _row_matches_context(row: dict[str, Any], ctx: _ReadinessContext) -> bool:
     if _normalize_ref(row_target) != _normalize_ref(ctx.target_ref):
         return False
     row_head_ref = _first_str(row, "head_ref", "source_ref")
-    if ctx.head_ref and row_head_ref and _normalize_ref(row_head_ref) != _normalize_ref(ctx.head_ref):
+    if _normalize_ref(row_head_ref) != _normalize_ref(ctx.head_ref):
         return False
     return True
 
@@ -938,9 +1072,7 @@ def _waiver_relevant(row: dict[str, Any], ctx: _ReadinessContext) -> bool:
     row_claim = str(row.get("readiness_claim_id") or row.get("consumed_by_readiness_claim_id") or "")
     if ctx.readiness_claim_id and row_claim == ctx.readiness_claim_id:
         return True
-    if int(row.get("pr_number") or 0) == ctx.pr_number:
-        return True
-    return not row.get("pr_number") and not row_claim
+    return _row_matches_context(row, ctx)
 
 
 def _load_live_pr(adapter: Any, pr_number: int) -> dict[str, Any]:
@@ -968,7 +1100,210 @@ def _require_strong_hash(
 
 
 def _failure_type(prefix: str) -> ProofType:
-    return "branch_protection" if prefix == "branch_protection" else prefix  # type: ignore[return-value]
+    if prefix == "branch_protection":
+        return "branch_protection"
+    if prefix not in _PROOF_PATHS:
+        raise GovernanceError(f"unknown_failure_type:{prefix}")
+    return _canonical_proof_type(prefix)
+
+
+def _require_source_ledger_ref(
+    row: dict[str, Any],
+    reasons: list[str],
+    failures: list[str],
+    prefix: ProofType,
+) -> None:
+    ref = row.get("source_ledger_ref")
+    if not isinstance(ref, dict):
+        reasons.append(f"{prefix}_source_ledger_ref_required")
+        failures.append(_failure_class_for(prefix))
+        return
+    for key in ("surface", "ledger_path", "row_id", "row_type", "row_hash", "schema_version"):
+        if ref.get(key) in (None, "", [], {}):
+            reasons.append(f"{prefix}_source_ledger_ref_{key}_required")
+            failures.append(_failure_class_for(prefix))
+    if not _is_sha256_digest(str(ref.get("row_hash") or "")):
+        reasons.append(f"{prefix}_source_ledger_ref_row_hash_must_be_sha256")
+        failures.append(_failure_class_for(prefix))
+
+
+def _verify_typed_row_chain(
+    row: dict[str, Any],
+    proof_type: ProofType,
+    reasons: list[str],
+    failures: list[str],
+) -> None:
+    required = ("$schema", "schema_version", "proof_row_id", "recorded_at", "ledger_hash", "proof_type")
+    for key in required:
+        if row.get(key) in (None, "", [], {}):
+            reasons.append(f"{proof_type}_typed_row_{key}_required")
+            failures.append(f"{proof_type}_proof_malformed")
+    if "previous_ledger_hash" not in row:
+        reasons.append(f"{proof_type}_typed_row_previous_ledger_hash_required")
+        failures.append(f"{proof_type}_proof_malformed")
+    if row.get("$schema") != f"aria/enterprise-readiness/{proof_type}/v1":
+        reasons.append(f"{proof_type}_typed_row_schema_mismatch")
+        failures.append(f"{proof_type}_proof_malformed")
+    if row.get("schema_version") != 1:
+        reasons.append(f"{proof_type}_typed_row_schema_version_invalid")
+        failures.append(f"{proof_type}_proof_malformed")
+    if not _is_sha256_digest(str(row.get("ledger_hash") or "")):
+        reasons.append(f"{proof_type}_typed_row_ledger_hash_invalid")
+        failures.append(f"{proof_type}_proof_malformed")
+
+
+def _verify_source_ledger_ref(
+    root: Path,
+    row: dict[str, Any],
+    proof_type: ProofType,
+    reasons: list[str],
+    failures: list[str],
+) -> None:
+    if proof_type == "cas":
+        return
+    ref = row.get("source_ledger_ref")
+    if not isinstance(ref, dict):
+        return
+    ledger_path = str(ref.get("ledger_path") or "")
+    if not ledger_path or Path(ledger_path).is_absolute():
+        reasons.append(f"{proof_type}_source_ledger_ref_path_invalid")
+        failures.append(_failure_class_for(proof_type))
+        return
+    path = (root / ledger_path).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError:
+        reasons.append(f"{proof_type}_source_ledger_ref_path_escape")
+        failures.append(_failure_class_for(proof_type))
+        return
+    surface = surface_for_path(path)
+    if surface is None or surface[0].name != str(ref.get("surface") or ""):
+        reasons.append(f"{proof_type}_source_ledger_ref_surface_mismatch")
+        failures.append(_failure_class_for(proof_type))
+        return
+    rows = load_jsonl(path, verify=True)
+    expected_hash = str(ref.get("row_hash") or "")
+    expected_id = str(ref.get("row_id") or "")
+    expected_type = str(ref.get("row_type") or "")
+    source_row = next(
+        (
+            item for item in rows
+            if str(item.get("ledger_hash") or "") == expected_hash
+            and str(item.get("row_id") or item.get("proof_row_id") or item.get("claim_row_id") or "") == expected_id
+            and str(item.get("row_type") or item.get("proof_type") or item.get("kind") or "") == expected_type
+        ),
+        None,
+    )
+    if source_row is None:
+        reasons.append(f"{proof_type}_source_ledger_ref_row_not_found")
+        failures.append(_failure_class_for(proof_type))
+
+
+def _verify_artifact_evidence(
+    root: Path,
+    proof_type: ProofType,
+    row: dict[str, Any],
+    reasons: list[str],
+    failures: list[str],
+) -> None:
+    if proof_type in {"artifact", "rollback", "retention", "dlp"}:
+        ref = row.get("artifact_ref")
+        issues = verify_hash_bound_artifact_ref(
+            ref,
+            trusted_root=root,
+            source={"proof_type": proof_type, "proof_row_id": row.get("proof_row_id")},
+            allowed_source_surfaces=TRUSTED_PROOF_SOURCE_SURFACES,
+            allow_workspace_path=False,
+        )
+        for issue in issues:
+            reasons.append(f"{proof_type}_{issue.get('code')}")
+            failures.append(_failure_class_for(proof_type))
+    if proof_type == "retention" and isinstance(row.get("retention_event"), dict):
+        for issue in verify_retention_event_content(row["retention_event"], trusted_root=root):
+            reasons.append(f"retention_{issue.get('code')}")
+            failures.append("retention_proof_required")
+    if proof_type in {"dlp", "token"}:
+        ref_key = "workflow_evidence_ref" if proof_type == "token" else "workflow_evidence_ref"
+        ref = row.get(ref_key)
+        issues = verify_hash_bound_artifact_ref(
+            ref,
+            trusted_root=root,
+            source={"proof_type": proof_type, "proof_row_id": row.get("proof_row_id")},
+            allowed_source_surfaces=frozenset({"workflow_preflight_artifact", "workflow_artifact", "dlp_scan", "token_provenance"}),
+            allow_workspace_path=False,
+        )
+        for issue in issues:
+            reasons.append(f"{proof_type}_{issue.get('code')}")
+            failures.append(_failure_class_for(proof_type))
+        if not issues and isinstance(ref, dict):
+            from .evidence_trust import resolve_verified_artifact_payload
+            try:
+                payload = resolve_verified_artifact_payload(
+                    ref,
+                    trusted_root=root,
+                    allowed_source_surfaces=frozenset({"workflow_preflight_artifact", "workflow_artifact", "dlp_scan", "token_provenance"}),
+                    expected_sha256=str(ref.get("sha256") or ""),
+                )
+            except Exception as exc:
+                reasons.append(f"{proof_type}_workflow_evidence_payload_untrusted:{exc}")
+                failures.append(_failure_class_for(proof_type))
+            else:
+                workflow_issues = verify_workflow_dlp_token_evidence(
+                    payload,
+                    expected_token_source=_first_str(row, "token_source") or None,
+                    expected_workflow_hash=_first_str(row, "workflow_hash") or None,
+                    expected_contract_hash=_first_str(row, "contract_hash") or None,
+                )
+                for issue in workflow_issues:
+                    reasons.append(f"{proof_type}_{issue.get('code')}")
+                    failures.append(_failure_class_for(proof_type))
+
+
+def _row_matches_artifact_ref(row: dict[str, Any], artifact_ref: dict[str, Any]) -> bool:
+    ref = row.get("artifact_ref")
+    if not isinstance(ref, dict):
+        return False
+    return (
+        str(ref.get("artifact_id") or "") == str(artifact_ref.get("artifact_id") or "")
+        and str(ref.get("sha256") or "") == str(artifact_ref.get("sha256") or "")
+    )
+
+
+def _verify_waiver_state_machine(
+    rows: list[dict[str, Any]],
+    ctx: _ReadinessContext,
+    reasons: list[str],
+    failures: list[str],
+) -> None:
+    histories: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if not _waiver_relevant(row, ctx):
+            continue
+        waiver_id = str(row.get("waiver_id") or "")
+        if waiver_id:
+            histories.setdefault(waiver_id, []).append(row)
+    for waiver_id, history in histories.items():
+        state = ""
+        open_hash: str | None = None
+        for row in history:
+            next_state = _first_str(row, "state") or "open"
+            if next_state == "open":
+                if state in {"consumed", "closed", "expired"}:
+                    reasons.append(f"waiver_reopen_after_terminal_rejected:{waiver_id}")
+                    failures.append("waiver_ledger_not_green")
+                state = "open"
+                open_hash = str(row.get("ledger_hash") or "")
+            elif next_state in {"consumed", "closed", "expired"}:
+                if state != "open" or not open_hash:
+                    reasons.append(f"waiver_transition_without_open_rejected:{waiver_id}")
+                    failures.append("waiver_ledger_not_green")
+                if next_state == "consumed" and row.get("previous_waiver_ledger_hash") != open_hash:
+                    reasons.append(f"waiver_consume_previous_hash_mismatch:{waiver_id}")
+                    failures.append("waiver_ledger_not_green")
+                state = next_state
+            else:
+                reasons.append(f"waiver_state_invalid:{waiver_id}")
+                failures.append("waiver_ledger_not_green")
 
 
 def _reject_boolean_assertions(
@@ -1022,7 +1357,25 @@ def _canonical_proof_type(proof_type: str) -> ProofType:
     canonical = aliases.get(proof_type, proof_type)
     if canonical not in _PROOF_PATHS:
         raise GovernanceError(f"unknown_enterprise_readiness_proof_type:{proof_type}")
-    return canonical  # type: ignore[return-value]
+    if canonical == "cas":
+        return "cas"
+    if canonical == "branch_protection":
+        return "branch_protection"
+    if canonical == "workflow_run":
+        return "workflow_run"
+    if canonical == "artifact":
+        return "artifact"
+    if canonical == "rollback":
+        return "rollback"
+    if canonical == "retention":
+        return "retention"
+    if canonical == "dlp":
+        return "dlp"
+    if canonical == "token":
+        return "token"
+    if canonical == "waiver":
+        return "waiver"
+    raise GovernanceError(f"unknown_enterprise_readiness_proof_type:{proof_type}")
 
 
 def _first_str(row: dict[str, Any], *keys: str) -> str:
@@ -1053,6 +1406,16 @@ def _normalise_artifact_hashes(values: Any) -> dict[str, str]:
     if isinstance(values, (list, tuple)):
         return {str(value): str(value) for value in values}
     return {}
+
+
+def _normalise_artifact_refs(values: Any) -> tuple[dict[str, Any], ...]:
+    if not isinstance(values, (list, tuple)):
+        return ()
+    refs: list[dict[str, Any]] = []
+    for value in values:
+        if isinstance(value, dict):
+            refs.append(dict(value))
+    return tuple(refs)
 
 
 def _normalize_ref(ref: str | None) -> str:
@@ -1119,6 +1482,7 @@ __all__ = [
     "REQUIRED_READINESS_FIELDS",
     "RETENTION_PROOFS_RELATIVE",
     "ROLLBACK_PROOFS_RELATIVE",
+    "SOURCE_EVIDENCE_RELATIVE",
     "TOKEN_PROOFS_RELATIVE",
     "WAIVERS_RELATIVE",
     "WORKFLOW_RUN_PROOFS_RELATIVE",
@@ -1130,6 +1494,7 @@ __all__ = [
     "evaluate_pr_readiness_claim",
     "readiness_claims_path",
     "readiness_proof_path",
+    "readiness_source_evidence_path",
     "record_artifact_proof",
     "record_branch_protection_proof",
     "record_dlp_proof",
@@ -1140,5 +1505,6 @@ __all__ = [
     "record_token_proof",
     "record_waiver",
     "record_workflow_run_proof",
+    "resolve_readiness_claim_id",
     "verify_enterprise_readiness",
 ]

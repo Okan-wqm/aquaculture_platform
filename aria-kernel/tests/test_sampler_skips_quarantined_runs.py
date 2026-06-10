@@ -39,10 +39,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.agent_eval import sample_shadow_raw_findings
+from aria_kernel.agent_eval import add_fixture, sample_shadow_raw_findings
+from aria_kernel.evidence_trust import recompute_artifact_hash
 from aria_kernel.feedback_store import record_raw_findings_for_run, raw_findings_path
+from aria_kernel.ledger import append_jsonl
 from aria_kernel.tool_health import runs_path
-from aria_kernel.tool_registry import register_tool
+from aria_kernel.tool_registry import register_tool, utc_now
+from tests._helpers.context_binding import sha256_text
 
 
 def _make_run(
@@ -108,6 +111,92 @@ def _shadow_tool() -> dict:
             "timeout_ms": 1000,
             "stdin_json": True,
         },
+    }
+
+
+def _input_envelope(tool_id: str) -> dict:
+    request_id = f"shadow-request-{tool_id}"
+    return {
+        "claim_summary": f"shadow fixture for {tool_id}",
+        "request_id": request_id,
+        "context_hash": sha256_text(f"context:{request_id}"),
+        "prompt_hash": sha256_text(f"prompt:{request_id}"),
+    }
+
+
+def _artifact_ref(tools: Path, *, name: str, payload: str) -> dict:
+    path = tools / "evidence" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(payload, encoding="utf-8")
+    return {
+        "artifact_id": f"artifact-{name}",
+        "source_surface": "runtime_artifact",
+        "uri": f"evidence/{name}",
+        "sha256": recompute_artifact_hash(path),
+        "content_type": "application/json",
+        "produced_by_workflow_run_id": "run-shadow-sampler",
+    }
+
+
+def _seed_shadow_provenance(tools: Path, *, tool_id: str = "fake") -> dict:
+    fixture = add_fixture(
+        fixture={
+            "fixture_id": "F999_FAKE",
+            "target_agent": tool_id,
+            "role": "shadow_eval",
+            "pinned_commit_sha": "cabbfc038",
+            "input_envelope": _input_envelope(tool_id),
+            "expected_verdict_class": "PASS",
+            "expected_evidence_refs": ["apps/fake.ts:1"],
+            "max_rounds": 1,
+            "max_tokens": 1000,
+        },
+        base_dir=tools,
+    )
+    request_id = fixture["input_envelope"]["request_id"]
+    claim_id = f"claim-{request_id}"
+    transcript_ref = _artifact_ref(
+        tools,
+        name=f"{request_id}.transcript.json",
+        payload='{"transcript":"shadow"}\n',
+    )
+    transcript_row = append_jsonl(
+        tools / "agent-invocations" / "transcripts.jsonl",
+        {
+            "schema_version": 1,
+            "recorded_at": utc_now(),
+            "invocation_id": request_id,
+            "request_id": request_id,
+            "claim_id": claim_id,
+            "agent_id": "shadow-agent",
+            "transcript_hash": transcript_ref["sha256"],
+            "artifact_ref": transcript_ref,
+        },
+    )
+    operator_row = append_jsonl(
+        tools / "governance.jsonl",
+        {
+            "schema_version": 1,
+            "kind": "operator_approval",
+            "operator_id": "operator-shadow",
+            "approved_action": "shadow_eval",
+            "request_id": request_id,
+            "claim_id": claim_id,
+            "target_agent": tool_id,
+            "expires_at": "2999-06-05T00:00:00Z",
+        },
+    )
+    return {
+        "operator_approval_ref": {
+            "ledger_path": "governance.jsonl",
+            "ledger_hash": operator_row["ledger_hash"],
+        },
+        "fixture_id": fixture["fixture_id"],
+        "fixture_hash": fixture["fixture_hash"],
+        "context_hash": fixture["input_envelope"]["context_hash"],
+        "prompt_hash": fixture["input_envelope"]["prompt_hash"],
+        "transcript_hash": transcript_ref["sha256"],
+        "transcript_ledger_hash": transcript_row["ledger_hash"],
     }
 
 
@@ -178,8 +267,11 @@ class ShadowSamplerSkipsScopeOutTests(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _append_run(self, **kwargs) -> None:
-        from aria_kernel.ledger import append_jsonl
         run = _make_run(recorded_at=self.now_iso, **kwargs)
+        run["shadow_provenance"] = _seed_shadow_provenance(
+            self.base,
+            tool_id=str(run.get("tool_id") or "fake"),
+        )
         append_jsonl(runs_path(self.base), run)
 
     def test_clean_run_counted(self) -> None:

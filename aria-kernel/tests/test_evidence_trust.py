@@ -7,6 +7,7 @@ from pathlib import Path
 from aria_kernel.evidence_trust import (
     is_self_output_path,
     recompute_artifact_hash,
+    resolve_verified_artifact_payload,
     verify_hash_bound_artifact_ref,
     verify_retention_event_structure,
     verify_workflow_dlp_token_evidence,
@@ -32,17 +33,42 @@ class EvidenceTrustTests(unittest.TestCase):
             "source_surface": "runtime_artifact",
             "uri": "proof.json",
             "sha256": recompute_artifact_hash(artifact),
+            "content_type": "application/json",
+            "produced_by_workflow_run_id": "run-1",
         }
 
-        self.assertEqual(verify_hash_bound_artifact_ref(ref, root=self.tools), [])
+        self.assertEqual(
+            verify_hash_bound_artifact_ref(
+                ref,
+                trusted_root=self.tools,
+                allowed_source_surfaces=frozenset({"runtime_artifact"}),
+            ),
+            [],
+        )
+        self.assertEqual(
+            resolve_verified_artifact_payload(
+                ref,
+                trusted_root=self.tools,
+                allowed_source_surfaces=frozenset({"runtime_artifact"}),
+            ),
+            {"ok": True},
+        )
 
         artifact.write_text('{"ok":false}\n', encoding="utf-8")
-        issues = verify_hash_bound_artifact_ref(ref, root=self.tools)
+        issues = verify_hash_bound_artifact_ref(
+            ref,
+            trusted_root=self.tools,
+            allowed_source_surfaces=frozenset({"runtime_artifact"}),
+        )
 
         self.assertIn("proof_artifact_hash_mismatch", {issue["code"] for issue in issues})
 
     def test_caller_proof_string_is_not_authority(self) -> None:
-        issues = verify_hash_bound_artifact_ref("proof passed: sha256:abc", root=self.tools)
+        issues = verify_hash_bound_artifact_ref(
+            "proof passed: sha256:abc",
+            trusted_root=self.tools,
+            allowed_source_surfaces=frozenset({"runtime_artifact"}),
+        )
 
         self.assertEqual([issue["code"] for issue in issues], ["proof_ref_not_structured"])
 
@@ -53,9 +79,15 @@ class EvidenceTrustTests(unittest.TestCase):
             "artifact_id": "proof-2",
             "uri": "proof.json",
             "sha256": recompute_artifact_hash(artifact),
+            "content_type": "text/plain",
+            "produced_by_workflow_run_id": "run-2",
         }
 
-        issues = verify_hash_bound_artifact_ref(ref, root=self.tools)
+        issues = verify_hash_bound_artifact_ref(
+            ref,
+            trusted_root=self.tools,
+            allowed_source_surfaces=frozenset({"runtime_artifact"}),
+        )
 
         self.assertIn("proof_source_surface_missing", {issue["code"] for issue in issues})
 
@@ -66,16 +98,19 @@ class EvidenceTrustTests(unittest.TestCase):
             "artifact_id": "proof-3",
             "uri": "proof.json",
             "sha256": recompute_artifact_hash(artifact),
+            "content_type": "text/plain",
+            "produced_by_workflow_run_id": "run-3",
         }
 
         for surface in ("worktree", "self_output"):
             issues = verify_hash_bound_artifact_ref(
                 {**base_ref, "source_surface": surface},
-                root=self.tools,
+                trusted_root=self.tools,
+                allowed_source_surfaces=frozenset({"runtime_artifact"}),
             )
             self.assertIn("proof_source_surface_untrusted", {issue["code"] for issue in issues})
 
-        self.assertTrue(is_self_output_path("src/../aria-tools/proof.json"))
+        self.assertTrue(is_self_output_path("src/../agent-workspace/proof.json"))
 
     def test_workspace_file_path_cannot_satisfy_trusted_artifact_ref_by_default(self) -> None:
         workspace = self.tmp / "workspace"
@@ -87,11 +122,18 @@ class EvidenceTrustTests(unittest.TestCase):
             "source_surface": "runtime_artifact",
             "uri": proof.as_posix(),
             "sha256": recompute_artifact_hash(proof),
+            "content_type": "text/plain",
+            "produced_by_workflow_run_id": "run-4",
         }
 
-        issues = verify_hash_bound_artifact_ref(ref, root=self.tools, workspace_root=workspace)
+        issues = verify_hash_bound_artifact_ref(
+            ref,
+            trusted_root=self.tools,
+            workspace_root=workspace,
+            allowed_source_surfaces=frozenset({"runtime_artifact"}),
+        )
 
-        self.assertIn("proof_artifact_path_escape", {issue["code"] for issue in issues})
+        self.assertIn("proof_artifact_self_output_path", {issue["code"] for issue in issues})
 
     def test_retention_event_structure_rejects_unreviewed_unapproved_event(self) -> None:
         issues = verify_retention_event_structure(

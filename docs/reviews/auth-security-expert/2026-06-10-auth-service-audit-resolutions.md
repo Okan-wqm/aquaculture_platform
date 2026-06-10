@@ -72,8 +72,16 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 
 ## AUDIT-CRITICAL-006 — YENİ BULGU: gateway-api test gate'i main'de KIRMIZI (17 suite / 254 test örneği)
 
-- **Durum:** OPEN — ayrı odaklı PR'da onarılacak (Wave-1 merge'inin ÖN KOŞULU; gateway-api denetiminin — servis #2 — baş maddesi). Sahip: claude-session, deadline 2026-06-12.
+- **Durum:** RESOLVED (PR #380 — GitHub CI tüm check'ler YEŞİL, 0 hata; commit'ler 657db9630 + 70b291e32 + e16318a69). 21 kırık suite / 254 kırık test örneği → **32/32 suite, 1070/1070 test yeşil**. Onarım sırasında 3 üretim hatası düzeltildi: slow-call circuit-breaker'ın success-yolunda hiç değerlendirilmemesi (ölü özellik), `forceOpen()` kill-switch'inin kayıtsız serviste sessiz no-op olması, 429 yanıtlarında RFC 6585 `Retry-After` HEADER eksikliği + dekoratör metadata şekil doğrulaması; ayrıca error-mapping'de `not null violation` → 400. PR #380 operatör merge'ini bekliyor.
 - **Sorun:** Wave-1 doğrulaması sırasında keşfedildi ve temiz baseline'da (Wave-1 değişiklikleri stash'liyken koşularak) doğrulandı: AUDIT-CRITICAL-004 ile aynı sistemik sınıf. Kümeler: AuthGuard DI drift (JwtService provider eksik), ServiceProxy servis-kaydı doğrulama drift'i ('test-service' kayıtsız), bayat ETag spec'i (md5 32-hex bekliyor, üretim sha256 64-hex), TenantIsolationGuard sıkılaşmış tenant-association kontrolleri, ResponseTransform/RequestLogging/CacheControl kümeleri. CI test job'ı artık enforce ediyor (`continue-on-error removed: failing tests must block PR merge`) — kırmızı, gate'in advisory olduğu dönemden birikme. backend-common diff'i gateway-api'yi affected yaptığından Wave-1 PR CI'ını bloklar; bu yüzden önce ayrı `fix(gateway)` PR'ı yeşillenir, Wave-1 rebase eder.
+
+## SEC-CRITICAL-002 — auth-service'te yerel rate limiting yoktu (0-byte stub dosyaları)
+
+- **Durum:** RESOLVED (PR #383, commit f110a8170)
+- **Sorun:** `rate-limit/` klasöründe 0-byte stub'lar dururken yorumlar "gateway seviyesinde limitlenir" iddia ediyordu. Gateway bypass'ı veya iç ağdan doğrudan subgraph erişimi `login`, `verifyMfaLogin` (6 haneli TOTP uzayı!), `forgotPassword`, `resetPassword`, `refreshToken` üzerinde SIFIR hız kontrolüyle karşılaşıyordu (ADR-008 ihlali).
+- **Çözüm (Tier-1/2):** Yeni platform SSoT modülü `libs/backend-common/src/rate-limit/` — **atomik Lua** `INCR`+koşullu`PEXPIRE`+`PTTL` tek script (GET→parse→SET yarışının kökten kaldırılması; sayaçlar replikalar arası paylaşımlı), HTTP+GraphQL guard, explicit-config modu (`@RateLimit` dekoratörü — her limitli yüzey review'da görünür ve metadata-reflection ile test edilir), kimlik önceliği `özel-id > user > tenant:ip > ip`, RFC 6585 `Retry-After` + `X-RateLimit-*`, **üretimde fail-CLOSED** (Redis'i düşürebilen saldırgan limitsiz credential stuffing kazanamaz), dev'de loglanan-enforcing in-process fallback. auth-service pencereleri: login 5/15dk (hesap-başına e-posta anahtarı — IP rotasyonu işlemez), verifyMfaLogin 5/15dk (challenge-token anahtarı — oturum başına 5 tahmin), forgotPassword 3/saat (e-posta), resetPassword 3/saat, refreshToken 10/5dk. Guard sırası `ServiceIdentity → RateLimit → JwtAuth` (pre-auth yüzeyler korunur). Stub'lar SİLİNDİ.
+- **Değişen dosyalar:** `libs/backend-common/src/rate-limit/*` (6 dosya + 2 spec), `tsconfig.base.json` (path), `auth.resolver.ts`, `mfa.resolver.ts`, `app.module.ts`, `rate-limit-contract.spec.ts` (yeni), `apps/auth-service/src/rate-limit/*` (silindi), `tenant-update-consolidation.spec.ts` (command-receipt sözleşmesine yükseltildi).
+- **Doğrulama:** backend-common + auth-service 18/18 suite (260 test) yeşil; sözleşme spec'i her pencereyi sabitliyor; GitHub CI PR #383'te.
 
 ---
 
@@ -81,8 +89,6 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 
 | ID | Dalga | Durum |
 |---|---|---|
-| SEC-CRITICAL-002 (boş rate-limit stub'ları) | W1.3 | OPEN |
-| AUDIT-CRITICAL-006 (gateway gate kırmızı — YENİ) | W1 ön-koşul PR | OPEN |
 | AUDIT-CRITICAL-005 (reuse-detection test kapsamı) | W2 | OPEN |
 | SEC-HIGH-001..004, SEC-MEDIUM-001..004 | W2 | OPEN |
 | MT-HIGH-001..003, DATA-HIGH-001..003, MT-MEDIUM-001..002, DATA-MEDIUM-001..002, DATA-LOW-001 | W3 | OPEN |

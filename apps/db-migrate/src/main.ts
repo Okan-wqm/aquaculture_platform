@@ -815,6 +815,13 @@ async function runRollback(
       stack: err instanceof Error ? err.stack : undefined,
     });
     try {
+      const schemaFanoutResult = fanoutResults[entry.schema];
+      const previousSchemaFanoutResult =
+        schemaFanoutResult !== null &&
+        typeof schemaFanoutResult === 'object' &&
+        !Array.isArray(schemaFanoutResult)
+          ? schemaFanoutResult
+          : {};
       await writeReleaseLedgerMigrationState(database, {
         expectedHeads: buildHeadPayloads(preflightSourceHeads, preflightTenantHeads).expectedHeads,
         appliedHeads: buildHeadPayloads(sourceHeads, tenantHeads).appliedHeads,
@@ -822,7 +829,7 @@ async function runRollback(
         fanoutResults: {
           ...fanoutResults,
           [entry.schema]: {
-            ...((fanoutResults[entry.schema] as Record<string, unknown>) ?? {}),
+            ...previousSchemaFanoutResult,
             status: 'rollback_failed',
             error: err instanceof Error ? err.message : String(err),
             failedAt: new Date().toISOString(),
@@ -964,16 +971,26 @@ async function main(): Promise<number> {
     parsedArgs.schema !== undefined &&
     parsedArgs.tenantRollbackTarget !== undefined
   ) {
+    const rollbackSchema = parsedArgs.schema;
+    const rollbackCount = parsedArgs.down;
+    const rollbackTenant = parsedArgs.tenantRollbackTenant;
+    if (parsedArgs.tenantRollbackTarget === 'tenant' && rollbackTenant === undefined) {
+      log({
+        level: 'error',
+        message: '--tenant is required when --tenant-rollback-target=tenant',
+      });
+      return 2;
+    }
     const tenantSelector =
       parsedArgs.tenantRollbackTarget === 'tenant'
-        ? { type: 'tenant' as const, tenant: parsedArgs.tenantRollbackTenant! }
+        ? { type: 'tenant' as const, tenant: rollbackTenant }
         : { type: 'all' as const };
     return await withReleaseMigrationLock(database, async () =>
       runRollback(
         database,
         {
-          schema: parsedArgs.schema!,
-          down: parsedArgs.down!,
+          schema: rollbackSchema,
+          down: rollbackCount,
           tenantSelector,
         },
         root,

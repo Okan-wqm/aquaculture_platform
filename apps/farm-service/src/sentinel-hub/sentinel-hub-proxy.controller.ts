@@ -65,7 +65,7 @@ export class SentinelHubProxyController {
     @Res() res: ExpressResponse,
   ): Promise<void> {
     const tenantId = this.extractTenantId(req);
-    const requestPolicy = this.policy.validateWmsRequest(layerId, req.query as Record<string, unknown>);
+    const requestPolicy = this.policy.validateWmsRequest(layerId, req.query);
 
     try {
       const tokenResult = await this.sentinelHubService.getAccessToken(tenantId);

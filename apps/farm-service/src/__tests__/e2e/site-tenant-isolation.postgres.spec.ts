@@ -13,6 +13,7 @@ import {
   getTenantSchemaName,
   withTenantContext,
 } from '@aquaculture/backend-common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { ConfigService } from '@nestjs/config';
 import { CommandBus } from '@platform/cqrs';
 import {
@@ -260,6 +261,13 @@ describe('Site tenant isolation on real Postgres', () => {
   let tankCodeGenerator: CodeGeneratorService;
   let harness: SiteHarness;
 
+  function requireDataSource(): DataSource {
+    if (!dataSource) {
+      throw new Error('Postgres harness DataSource has not been initialised');
+    }
+    return dataSource;
+  }
+
   beforeAll(async () => {
     pg = await bootPostgresContainer({ startTimeoutMs: 90_000 });
     await pg.dataSource.query('CREATE SCHEMA farm');
@@ -306,7 +314,7 @@ describe('Site tenant isolation on real Postgres', () => {
     });
 
     await dataSource.initialize();
-    equipmentTypeRepository = dataSource.getRepository(EquipmentType);
+    equipmentTypeRepository = unusedRepository<EquipmentType>();
     await seedEquipmentTypesForSetupTest();
 
     const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
@@ -1069,10 +1077,8 @@ describe('Site tenant isolation on real Postgres', () => {
     expect(await outboxEventCount(TENANT_A, 'FeederCalibrationsSaved', equipmentA.id)).toBe(1);
 
     const auditFailingHandler = new SaveFeederCalibrationsHandler(
-      dataSource!,
-      {
-        logWithManager: jest.fn().mockRejectedValue(new Error('audit down')),
-      } as any,
+      requireDataSource(),
+      createFailingAuditLogService('audit down'),
       new OutboxPublisher(FarmOutbox),
     );
     const rollbackEquipment = await createEquipmentForTenant(
@@ -1144,10 +1150,8 @@ describe('Site tenant isolation on real Postgres', () => {
     );
     const rowCountBeforeRollback = await tankRowCount(getTenantSchemaName(TENANT_A), TENANT_A);
     const auditFailingCreateTank = new CreateTankHandler(
-      dataSource!,
-      {
-        logWithManager: jest.fn().mockRejectedValue(new Error('audit down')),
-      } as any,
+      requireDataSource(),
+      createFailingAuditLogService('audit down'),
       tankCodeGenerator,
       new OutboxPublisher(FarmOutbox),
     );
@@ -1561,11 +1565,9 @@ describe('Site tenant isolation on real Postgres', () => {
     expect(await outboxEventCount(TENANT_A, 'SupplierApprovedSitesChanged', supplierA.id)).toBe(1);
 
     const auditFailingHandler = new SetSupplierApprovedSitesHandler(
-      dataSource!,
+      requireDataSource(),
       new OutboxPublisher(FarmOutbox),
-      {
-        logWithManager: jest.fn().mockRejectedValue(new Error('audit down')),
-      } as any,
+      createFailingAuditLogService('audit down'),
     );
     const rollbackSupplier = await createSupplierForTenant(
       TENANT_A,
@@ -1759,7 +1761,7 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   async function rowCount(schema: string, tenantId: string): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."sites" WHERE "tenantId" = $1`,
       [tenantId],
     );
@@ -1791,7 +1793,7 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   async function systemRowCount(schema: string, tenantId: string): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."systems" WHERE "tenantId" = $1`,
       [tenantId],
     );
@@ -1909,7 +1911,7 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   async function tankRowCount(schema: string, tenantId: string): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."tanks" WHERE "tenantId" = $1`,
       [tenantId],
     );
@@ -1943,7 +1945,7 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   async function feedRowCount(schema: string, tenantId: string): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."feeds" WHERE "tenantId" = $1`,
       [tenantId],
     );
@@ -1978,7 +1980,7 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   async function inventoryRowCount(schema: string, tenantId: string): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."feed_inventory" WHERE "tenantId" = $1`,
       [tenantId],
     );
@@ -1990,10 +1992,10 @@ describe('Site tenant isolation on real Postgres', () => {
     name: string,
     code: string,
   ): Promise<Supplier> {
-    const repository = dataSource!.getRepository(Supplier);
+    const repository = tenantManagerRepo(requireDataSource().manager, Supplier, tenantId);
     return withTenantContext(tenantId, () =>
       repository.save(
-        repository.create({
+        {
           tenantId,
           name,
           code,
@@ -2003,7 +2005,7 @@ describe('Site tenant isolation on real Postgres', () => {
           isActive: true,
           createdBy: USER_ID,
           updatedBy: USER_ID,
-        }),
+        },
       ),
     );
   }
@@ -2013,7 +2015,7 @@ describe('Site tenant isolation on real Postgres', () => {
     tenantId: string,
     supplierId: string,
   ): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."supplier_sites" WHERE "tenantId" = $1 AND "supplierId" = $2`,
       [tenantId, supplierId],
     );
@@ -2025,7 +2027,7 @@ describe('Site tenant isolation on real Postgres', () => {
     tenantId: string,
     equipmentId: string,
   ): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."feeder_calibrations" WHERE "tenant_id" = $1 AND "equipment_id" = $2`,
       [tenantId, equipmentId],
     );
@@ -2037,7 +2039,7 @@ describe('Site tenant isolation on real Postgres', () => {
     eventType: string,
     aggregateId: string,
   ): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "farm"."outbox_events" WHERE "tenantId" = $1 AND "eventType" = $2 AND "aggregateId" = $3`,
       [tenantId, eventType, aggregateId],
     );
@@ -2045,7 +2047,7 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   async function outboxEventTypeCount(tenantId: string, eventType: string): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "farm"."outbox_events" WHERE "tenantId" = $1 AND "eventType" = $2`,
       [tenantId, eventType],
     );
@@ -2057,7 +2059,7 @@ describe('Site tenant isolation on real Postgres', () => {
     tenantId: string,
     entityType: string,
   ): Promise<number> {
-    const rows: Array<{ value: string | null }> = await dataSource!.query(
+    const rows: Array<{ value: string | null }> = await requireDataSource().query(
       `SELECT COALESCE(MAX("lastSequence"), 0)::text AS value FROM "${schema}"."code_sequences" WHERE "tenantId" = $1 AND "entityType" = $2`,
       [tenantId, entityType],
     );
@@ -2092,7 +2094,7 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   async function parameterConfigRowCount(schema: string, tenantId: string): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."water_quality_parameter_configs" WHERE "tenantId" = $1`,
       [tenantId],
     );
@@ -2104,7 +2106,7 @@ describe('Site tenant isolation on real Postgres', () => {
     table: string,
     tenantId: string,
   ): Promise<number> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."${table}" WHERE "tenantId" = $1`,
       [tenantId],
     );
@@ -2118,7 +2120,7 @@ describe('Site tenant isolation on real Postgres', () => {
     id: string,
     idColumn = 'id',
   ): Promise<boolean> {
-    const rows: Array<{ count: string }> = await dataSource!.query(
+    const rows: Array<{ count: string }> = await requireDataSource().query(
       `SELECT COUNT(*)::text AS count FROM "${schema}"."${table}" WHERE "tenantId" = $1 AND "${idColumn}" = $2`,
       [tenantId, id],
     );
@@ -2126,8 +2128,8 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   async function seedEquipmentTypesForSetupTest(): Promise<void> {
-    await equipmentTypeRepository.save([
-      equipmentTypeRepository.create({
+    await requireDataSource().manager.save(EquipmentType, [
+      requireDataSource().manager.create(EquipmentType, {
         id: PUMP_EQUIPMENT_TYPE_ID,
         name: 'Centrifugal Pump',
         code: 'pump-centrifugal',
@@ -2139,7 +2141,7 @@ describe('Site tenant isolation on real Postgres', () => {
         isSystem: true,
         sortOrder: 1,
       }),
-      equipmentTypeRepository.create({
+      requireDataSource().manager.create(EquipmentType, {
         id: TANK_EQUIPMENT_TYPE_ID,
         name: 'Circular Tank',
         code: 'tank-circular',
@@ -2195,9 +2197,16 @@ function createSentinelConfigService(): ConfigService {
   });
 }
 
-function createAuditLogService() {
+function createAuditLogService(): AuditLogService {
   return {
-    log: jest.fn().mockResolvedValue(undefined),
-    logWithManager: jest.fn().mockResolvedValue(undefined),
-  } as any;
+    log: () => Promise.resolve(new AuditLog()),
+    logWithManager: () => Promise.resolve(new AuditLog()),
+  } as AuditLogService;
+}
+
+function createFailingAuditLogService(message: string): AuditLogService {
+  return {
+    log: () => Promise.resolve(new AuditLog()),
+    logWithManager: () => Promise.reject(new Error(message)),
+  } as AuditLogService;
 }

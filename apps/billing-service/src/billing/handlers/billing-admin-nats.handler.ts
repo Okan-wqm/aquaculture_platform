@@ -437,7 +437,11 @@ export class BillingAdminNatsHandler {
         command.actorId,
       ],
     );
-    return inserted[0]!;
+    const receipt = inserted[0];
+    if (!receipt) {
+      throw new Error('billing.command_receipts insert did not return a receipt row');
+    }
+    return receipt;
   }
 
   private async replayProvisioningResult(
@@ -634,19 +638,19 @@ export class BillingAdminNatsHandler {
   }
 
   private parsePlanTier(value: string): PlanTier {
-    const tier = Object.values(PlanTier).find((candidate) => candidate === value);
-    if (!tier) {
+    const validTiers: readonly string[] = Object.values(PlanTier);
+    if (!validTiers.includes(value)) {
       throw new BadRequestException(`Unsupported billing plan tier: ${value}`);
     }
-    return tier;
+    return value as PlanTier;
   }
 
   private parseBillingCycle(value: string): BillingCycle {
-    const cycle = Object.values(BillingCycle).find((candidate) => candidate === value);
-    if (!cycle) {
+    const validCycles: readonly string[] = Object.values(BillingCycle);
+    if (!validCycles.includes(value)) {
       throw new BadRequestException(`Unsupported billing cycle: ${value}`);
     }
-    return cycle;
+    return value as BillingCycle;
   }
 
   private calculatePeriodEnd(startDate: Date, billingCycle: BillingCycle): Date {
@@ -663,8 +667,6 @@ export class BillingAdminNatsHandler {
         return 6;
       case BillingCycle.ANNUAL:
         return 12;
-      default:
-        throw new BadRequestException(`Unsupported billing cycle: ${billingCycle}`);
     }
   }
 

@@ -7,6 +7,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Role, SchemaManagerService } from '@platform/backend-common';
+import type { UserInvitedEvent } from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -102,7 +103,16 @@ const createMockRoleWithDetails = (
 // Mock Setup
 // ============================================================================
 
-const createMockRepository = () => ({
+const createMockRepository = (): {
+  find: jest.Mock;
+  findOne: jest.Mock;
+  findAndCount: jest.Mock;
+  save: jest.Mock;
+  create: jest.Mock;
+  update: jest.Mock;
+  delete: jest.Mock;
+  count: jest.Mock;
+} => ({
   find: jest.fn(),
   findOne: jest.fn(),
   findAndCount: jest.fn(),
@@ -132,7 +142,7 @@ describe('UserLifecycleService', () => {
   let mockDataSource: jest.Mocked<Pick<DataSource, 'query' | 'transaction'>>;
   let mockSchemaManager: jest.Mocked<Pick<SchemaManagerService, 'getTenantSchemaName'>>;
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
-  let mockEventBus: { publish: jest.Mock };
+  let mockEventBus: { publish: jest.Mock<Promise<void>, [UserInvitedEvent]> };
   let mockAuditLogService: { log: jest.Mock };
 
   beforeEach(async () => {
@@ -146,7 +156,7 @@ describe('UserLifecycleService', () => {
 
     mockDataSource = {
       query: jest.fn().mockResolvedValue([]),
-      transaction: jest.fn().mockImplementation(async (cb: (manager: unknown) => Promise<unknown>) => {
+      transaction: jest.fn().mockImplementation((cb: (manager: unknown) => Promise<unknown>) => {
         // Simulate transaction by passing a mock manager
         const mockManager = {
           getRepository: jest.fn().mockReturnValue(mockUserRepo),
@@ -171,7 +181,7 @@ describe('UserLifecycleService', () => {
     };
 
     mockEventBus = {
-      publish: jest.fn().mockResolvedValue(undefined),
+      publish: jest.fn<Promise<void>, [UserInvitedEvent]>().mockResolvedValue(undefined),
     };
 
     mockAuditLogService = {
@@ -349,7 +359,8 @@ describe('UserLifecycleService', () => {
           cryptoShredKeyId: 'invited-user-id',
         }),
       );
-      expect(JSON.stringify(mockEventBus.publish.mock.calls[0]?.[0])).not.toContain('newuser@tenant.com');
+      const [publishedEvent] = mockEventBus.publish.mock.calls[0] ?? [];
+      expect(JSON.stringify(publishedEvent)).not.toContain('newuser@tenant.com');
     });
 
     it('does not publish UserInvited when delivery is not requested', async () => {

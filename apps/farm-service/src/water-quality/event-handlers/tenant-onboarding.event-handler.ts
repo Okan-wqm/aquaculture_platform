@@ -190,8 +190,13 @@ export class TenantOnboardingEventHandler
           : ''),
     );
 
+    const eventBus = this.eventBus;
+    if (!eventBus) {
+      throw new Error('EVENT_BUS is required for tenant onboarding ack/fail publication');
+    }
+
     if (failed.length > 0) {
-      await this.eventBus!.publish({
+      await eventBus.publish({
         ...createBaseEvent<TenantOnboardingFailedEvent>('TenantOnboardingFailed', event.tenantId, {
           aggregateId: event.tenantId,
           aggregateType: 'Tenant',
@@ -203,7 +208,7 @@ export class TenantOnboardingEventHandler
       return;
     }
 
-    await this.eventBus!.publish({
+    await eventBus.publish({
       ...createBaseEvent('TenantOnboardingAck', event.tenantId, {
         aggregateId: event.tenantId,
         aggregateType: 'Tenant',

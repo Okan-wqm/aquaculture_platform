@@ -11,7 +11,6 @@ import {
   TENANT_SCHEMA_NAME_RE,
 } from '@aquaculture/backend-common/database';
 import { DataSource, QueryRunner } from 'typeorm';
-import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
 
 import {
   readLedgerHead,
@@ -71,7 +70,7 @@ function createControlDataSource(database: RunSchemaOptions['database'], max = 2
     migrationsRun: false,
     synchronize: false,
     logging: false,
-    ssl: database.ssl as PostgresConnectionOptions['ssl'],
+    ssl: database.ssl,
     extra: { max },
   });
 }

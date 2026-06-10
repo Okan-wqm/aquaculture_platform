@@ -8,6 +8,7 @@ import { UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenan
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
+import { TenantService } from '../services/tenant.service';
 
 /**
  * Minimal public tenant info exposed by the unauthenticated tenantBySlug query.
@@ -30,7 +31,6 @@ class TenantPublicInfo {
   @Field(() => TenantStatus)
   status!: TenantStatus;
 }
-import { TenantService } from '../services/tenant.service';
 
 @Resolver(() => Tenant)
 export class TenantResolver {
@@ -77,12 +77,12 @@ export class TenantResolver {
 
   @TenantAdminOrHigher()
   @Mutation(() => Tenant)
-  async updateTenant(
+  updateTenant(
     @Args('id', { type: () => ID }) id: string,
     @Args('input') input: UpdateTenantInput,
     @CurrentUser('role') role: Role,
     @CurrentUser('tenantId') userTenantId: string | null,
-  ): Promise<Tenant> {
+  ): Tenant {
     // SECURITY: Tenant isolation - TENANT_ADMIN can only update their own tenant
     if (role !== Role.SUPER_ADMIN && userTenantId !== id) {
       throw new ForbiddenException('Access denied: You can only update your own tenant');
@@ -95,9 +95,9 @@ export class TenantResolver {
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  async suspendTenant(
+  suspendTenant(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<Tenant> {
+  ): Tenant {
     void id;
     throw new BadRequestException(
       'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
@@ -106,9 +106,9 @@ export class TenantResolver {
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  async activateTenant(
+  activateTenant(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<Tenant> {
+  ): Tenant {
     void id;
     throw new BadRequestException(
       'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',
@@ -117,9 +117,9 @@ export class TenantResolver {
 
   @SuperAdminOnly()
   @Mutation(() => Tenant)
-  async cancelTenant(
+  cancelTenant(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<Tenant> {
+  ): Tenant {
     void id;
     throw new BadRequestException(
       'Tenant lifecycle is command-receipt owned. Use the auth tenant command/FSM path.',

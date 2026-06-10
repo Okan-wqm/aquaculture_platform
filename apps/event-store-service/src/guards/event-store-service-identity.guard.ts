@@ -160,7 +160,7 @@ export class EventStoreServiceIdentityGuard implements CanActivate {
    */
   private rawBodyForHash(request: RawBodyRequest): string | Buffer {
     if (request.rawBody) return request.rawBody;
-    const body = request.body;
+    const body: unknown = request.body;
     if (body === undefined || body === null) return '';
     if (typeof body === 'string') return body;
     if (Buffer.isBuffer(body)) return body;

@@ -3,7 +3,7 @@
  * @module Tank/Handlers
  */
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { NotFoundException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { TankStatusChangedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -14,7 +14,7 @@ import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { UpdateTankStatusCommand } from '../commands/update-tank-status.command';
-import { Tank, TankStatus } from '../entities/tank.entity';
+import { Tank } from '../entities/tank.entity';
 
 import { assertTankStatusTransition } from './tank-status.policy';
 

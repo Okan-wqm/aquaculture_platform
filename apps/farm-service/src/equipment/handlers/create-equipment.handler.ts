@@ -6,7 +6,7 @@ import { BadRequestException, ConflictException, Logger, NotFoundException } fro
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { EquipmentCreatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { DataSource, In } from 'typeorm';
+import { DataSource, FindOneOptions, In } from 'typeorm';
 
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
@@ -22,7 +22,7 @@ import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.
 import { equipmentAuditSnapshot } from './equipment-audit.util';
 
 type ScopedReadRepository<T> = {
-  findOne: (options: any) => Promise<T | null>;
+  findOne: (options: FindOneOptions<T>) => Promise<T | null>;
 };
 
 @CommandHandler(CreateEquipmentCommand)

@@ -58,6 +58,14 @@ interface TenantCommandReceiptExecution<TResult> {
   replayed: boolean;
 }
 
+interface IdRow {
+  id: string;
+}
+
+interface RelationRow {
+  relation: string | null;
+}
+
 @Injectable()
 export class TenantProvisioningCommandService {
   private readonly logger = new Logger(TenantProvisioningCommandService.name);
@@ -221,7 +229,7 @@ export class TenantProvisioningCommandService {
 
         let rolesCreated = 0;
         for (const role of roles) {
-          const rows = await manager.query(
+          const roleRowsRaw: unknown = await manager.query(
             `
             INSERT INTO auth.tenant_roles (
               id, "tenantId", code, name, description, permissions,
@@ -245,7 +253,7 @@ export class TenantProvisioningCommandService {
               command.createdBy ?? command.actor.id,
             ],
           );
-          rolesCreated += Array.isArray(rows) ? rows.length : 0;
+          rolesCreated += this.rowsFromQuery<IdRow>(roleRowsRaw).length;
         }
 
         return { rolesCreated };
@@ -271,11 +279,13 @@ export class TenantProvisioningCommandService {
           throw new BadRequestException('At least one module must be assigned');
         }
 
-        const existingRows = await manager.query(
+        const existingRowsRaw: unknown = await manager.query(
           `SELECT id FROM auth.modules WHERE id = ANY($1::uuid[])`,
           [moduleIds],
         );
-        const existingIds = new Set((Array.isArray(existingRows) ? existingRows : []).map((row) => String(row.id)));
+        const existingIds = new Set(
+          this.rowsFromQuery<IdRow>(existingRowsRaw).map((row) => row.id),
+        );
         const missingIds = moduleIds.filter((moduleId) => !existingIds.has(moduleId));
         if (missingIds.length > 0) {
           throw new NotFoundException(`Modules not found: ${missingIds.join(', ')}`);
@@ -606,10 +616,10 @@ export class TenantProvisioningCommandService {
   }
 
   private async assertTenantRolesTableExists(manager?: EntityManager): Promise<void> {
-    const rows = await (manager ?? this.dataSource).query(
+    const rowsRaw: unknown = await (manager ?? this.dataSource).query(
       `SELECT to_regclass('"auth"."tenant_roles"') AS relation`,
     );
-    const relation = Array.isArray(rows) ? rows[0]?.relation : undefined;
+    const relation = this.rowsFromQuery<RelationRow>(rowsRaw)[0]?.relation;
     if (!relation) {
       throw new Error('auth.tenant_roles is missing; run auth migrations before tenant provisioning');
     }
@@ -621,6 +631,10 @@ export class TenantProvisioningCommandService {
 
   private rowCount(rows: unknown): number {
     return Array.isArray(rows) ? rows.length : 0;
+  }
+
+  private rowsFromQuery<TRow extends object>(rows: unknown): TRow[] {
+    return Array.isArray(rows) ? (rows as TRow[]) : [];
   }
 
   private async transitionTenantStatus(
@@ -718,7 +732,7 @@ export class TenantProvisioningCommandService {
     );
 
     return this.dataSource.transaction('SERIALIZABLE', async (manager) => {
-      const receiptRows = await manager.query(
+      const receiptRowsRaw: unknown = await manager.query(
         `SELECT "payloadHash", status, "entityId", "resultSummary"
            FROM auth.tenant_command_receipts
           WHERE "operationId" = $1
@@ -727,7 +741,8 @@ export class TenantProvisioningCommandService {
             AND "idempotencyKey" = $4
           FOR UPDATE`,
         [command.operationId, command.tenantId, commandType, receiptIdempotencyKey],
-      ) as TenantCommandReceiptRow<TResult>[];
+      );
+      const receiptRows = this.rowsFromQuery<TenantCommandReceiptRow<TResult>>(receiptRowsRaw);
 
       const existing = receiptRows[0];
       if (existing) {

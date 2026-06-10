@@ -121,7 +121,8 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
   async function countRows(query: string, params: unknown[] = []): Promise<number> {
     const qr = ctx.dataSource.createQueryRunner();
     try {
-      const rows: Array<{ count: string }> = await qr.query(query, params);
+      const rowsRaw: unknown = await qr.query(query, params);
+      const rows = Array.isArray(rowsRaw) ? (rowsRaw as Array<{ count: string }>) : [];
       return Number.parseInt(rows[0]?.count ?? '0', 10);
     } finally {
       await qr.release();

@@ -10,7 +10,15 @@ import {
   createBaseEvent,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { DataSource, In, QueryRunner } from 'typeorm';
+import {
+  DataSource,
+  DeepPartial,
+  FindManyOptions,
+  FindOptionsWhere,
+  In,
+  QueryRunner,
+  UpdateResult,
+} from 'typeorm';
 
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
@@ -23,10 +31,10 @@ import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.
 import { equipmentAuditSnapshot, subEquipmentAuditSnapshot } from './equipment-audit.util';
 
 type ScopedWriteRepository<T> = {
-  find: (options?: any) => Promise<T[]>;
-  count: (options?: any) => Promise<number>;
+  find: (options?: FindManyOptions<T>) => Promise<T[]>;
+  count: (options?: FindManyOptions<T>) => Promise<number>;
   save: (entity: T) => Promise<T>;
-  update: (criteria: any, partialEntity: Partial<T>) => Promise<unknown>;
+  update: (criteria: FindOptionsWhere<T>, partialEntity: DeepPartial<T>) => Promise<UpdateResult>;
 };
 
 @CommandHandler(DeleteEquipmentCommand)

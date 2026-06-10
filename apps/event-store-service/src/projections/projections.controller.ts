@@ -170,10 +170,10 @@ export class ProjectionsController {
    */
   @Post(':name/reset')
   @HttpCode(HttpStatus.GONE)
-  async resetProjection(
+  resetProjection(
     @Param('name') name: string,
     @Req() request: TenantRequest,
-  ): Promise<never> {
+  ): never {
     extractTenantId(request);
     throw new GoneException(
       `Projection reset endpoint for ${name} is retired; use POST /projections/:name/rebuilds`,

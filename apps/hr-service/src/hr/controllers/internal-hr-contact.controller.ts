@@ -54,9 +54,13 @@ export class InternalHrContactController {
     if (!match) {
       throw new NotFoundException('Unsupported HR notification contact ref');
     }
+    const [, kind, employeeId] = match;
+    if ((kind !== 'employee' && kind !== 'manager') || !employeeId) {
+      throw new NotFoundException('Unsupported HR notification contact ref');
+    }
     return {
-      kind: `${match[1]}.email` as HrNotificationContactKind,
-      employeeId: match[2]!,
+      kind: `${kind}.email` as HrNotificationContactKind,
+      employeeId,
     };
   }
 

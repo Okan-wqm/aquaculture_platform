@@ -102,8 +102,8 @@ export class HealthController extends StandardHealthController {
 
   private async checkExists(sql: string): Promise<'ok' | 'error'> {
     try {
-      const rows = (await this.dataSource.query(sql)) as unknown[];
-      return rows.length > 0 ? 'ok' : 'error';
+      const rows: unknown = await this.dataSource.query(sql);
+      return Array.isArray(rows) && rows.length > 0 ? 'ok' : 'error';
     } catch {
       return 'error';
     }

@@ -352,7 +352,7 @@ export class TenantSubscriptionRequestedHandler
       };
 
       // Execute create subscription command
-      const subscription = await this.commandBus.execute(
+      const subscription = await this.commandBus.execute<CreateSubscriptionCommand, Subscription>(
         new CreateSubscriptionCommand(
           tenantId,
           subscriptionInput,

@@ -23,7 +23,7 @@ export interface DomainEventContext {
 
 @Injectable()
 export class DomainEventPublisher {
-  async publish(
+  publish(
     event: IEvent & Record<string, unknown>,
     context: DomainEventContext,
   ): Promise<void> {

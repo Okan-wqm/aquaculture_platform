@@ -106,14 +106,21 @@ export class EventStoreService {
           const byProducerEventId = new Map(
             duplicateEvents.map((event) => [event.producerEventId, event]),
           );
+          const replayedEvents = events.map((event) => {
+            const replayedEvent = byProducerEventId.get(event.producerEventId);
+            if (!replayedEvent) {
+              throw new ConflictException(
+                `Producer event ${event.producerEventId} was not found in the idempotent replay set`,
+              );
+            }
+            return replayedEvent;
+          });
           return {
             success: true,
             streamName,
             newVersion: currentVersion,
-            eventIds: events.map((event) => byProducerEventId.get(event.producerEventId)!.id),
-            globalPositions: events.map(
-              (event) => byProducerEventId.get(event.producerEventId)!.globalPosition,
-            ),
+            eventIds: replayedEvents.map((event) => event.id),
+            globalPositions: replayedEvents.map((event) => event.globalPosition),
           };
         }
 

@@ -1075,11 +1075,11 @@ export class SchemaManagerService {
     });
   }
 
-  private async dropTenantSchema(
+  private dropTenantSchema(
     schemaName: string,
     tenantId: string,
     proof: CleanupDropProof,
-  ): Promise<void> {
+  ): void {
     assertCleanupDropProof(proof, tenantId);
     validateSqlIdentifier(schemaName, 'schema');
     throw new Error(

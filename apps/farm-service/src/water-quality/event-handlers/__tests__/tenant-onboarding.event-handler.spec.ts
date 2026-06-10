@@ -16,7 +16,11 @@ import { SpeciesSeederService } from '../../../species/services/species-seeder.s
 import { FeedingProtocolSeederService } from '../../../feed/services/feeding-protocol-seeder.service';
 import { RegulatorySettingsSeederService } from '../../../regulatory/services/regulatory-settings-seeder.service';
 import { EquipmentTypeCatalogCheckerService } from '../../../equipment/services/equipment-type-catalog-checker.service';
-import type { TenantOnboardingRequestedEvent } from '@platform/event-contracts';
+import type {
+  TenantOnboardingAckEvent,
+  TenantOnboardingFailedEvent,
+  TenantOnboardingRequestedEvent,
+} from '@platform/event-contracts';
 
 interface SeederDouble {
   seedDefaults: jest.Mock;
@@ -24,7 +28,7 @@ interface SeederDouble {
 
 interface BusDouble {
   subscribeWildcard: jest.Mock;
-  publish: jest.Mock;
+  publish: jest.Mock<Promise<void>, [TenantOnboardingAckEvent | TenantOnboardingFailedEvent]>;
 }
 
 function makeHandler(opts: {
@@ -202,15 +206,14 @@ describe('TenantOnboardingEventHandler', () => {
     expect(protocol.seedDefaults).toHaveBeenCalledWith(TENANT);
     expect(regulatory.seedDefaults).toHaveBeenCalledWith(TENANT);
     expect(equipment.seedDefaults).toHaveBeenCalledWith(TENANT);
-    expect(bus?.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'TenantOnboardingFailed',
-        tenantId: TENANT,
-        operationId: OPERATION,
-        service: 'farm-service',
-        error: expect.stringContaining('water-quality-parameters: wq db locked'),
-      }),
-    );
+    const [publishedEvent] = bus?.publish.mock.calls[0] ?? [];
+    if (!publishedEvent || publishedEvent.eventType !== 'TenantOnboardingFailed') {
+      throw new Error('Expected TenantOnboardingFailed event to be published');
+    }
+    expect(publishedEvent.tenantId).toBe(TENANT);
+    expect(publishedEvent.operationId).toBe(OPERATION);
+    expect(publishedEvent.service).toBe('farm-service');
+    expect(publishedEvent.error).toContain('water-quality-parameters: wq db locked');
   });
 
   it('all seeders failing publishes failed ack and does not rethrow', async () => {

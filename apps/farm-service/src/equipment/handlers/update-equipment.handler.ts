@@ -6,7 +6,15 @@ import { BadRequestException, ConflictException, Logger, NotFoundException } fro
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { EquipmentUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { DataSource, In } from 'typeorm';
+import {
+  DataSource,
+  DeepPartial,
+  FindManyOptions,
+  FindOneOptions,
+  FindOptionsWhere,
+  In,
+  UpdateResult,
+} from 'typeorm';
 
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
@@ -23,9 +31,12 @@ import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.
 import { equipmentAuditSnapshot } from './equipment-audit.util';
 
 type ScopedEquipmentRepository = {
-  findOne: (options: any) => Promise<Equipment | null>;
-  count: (options?: any) => Promise<number>;
-  update: (criteria: any, partialEntity: Partial<Equipment>) => Promise<unknown>;
+  findOne: (options: FindOneOptions<Equipment>) => Promise<Equipment | null>;
+  count: (options?: FindManyOptions<Equipment>) => Promise<number>;
+  update: (
+    criteria: FindOptionsWhere<Equipment>,
+    partialEntity: DeepPartial<Equipment>,
+  ) => Promise<UpdateResult>;
 };
 
 @CommandHandler(UpdateEquipmentCommand)
@@ -243,7 +254,7 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
 
   private async assertValidParentEquipment(
     equipmentRepository: ScopedEquipmentRepository,
-    departmentRepository: { findOne: (options: any) => Promise<Department | null> },
+    departmentRepository: { findOne: (options: FindOneOptions<Department>) => Promise<Department | null> },
     equipmentId: string,
     parentEquipmentId: string,
     childDepartmentId?: string,

@@ -12,6 +12,24 @@ import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-en
 import { WeeklyPlan, WeeklyPlanStatus } from '../entities/weekly-plan.entity';
 import { ScheduleNotificationService } from '../services/schedule-notification.service';
 
+interface SentEmailCommand {
+  deliveryId: string;
+  requestReference: string;
+  tenantId: string;
+  source: string;
+  recipientRef: {
+    kind: string;
+    ref: string;
+  };
+  templateId: string;
+  templateVersion: string;
+  templateVariables: {
+    employeeName?: string;
+    scheduleEntryCount?: number;
+    [key: string]: unknown;
+  };
+}
+
 describe('ScheduleNotificationService', () => {
   let service: ScheduleNotificationService;
   let planRepository: jest.Mocked<Repository<WeeklyPlan>>;
@@ -187,25 +205,23 @@ describe('ScheduleNotificationService', () => {
         overtimeHours: 0,
       });
 
-      expect(natsClient.send).toHaveBeenCalledWith(
-        NOTIFICATION_COMMAND_SUBJECTS.SEND_EMAIL,
-        expect.objectContaining({
-          deliveryId: 'hr-schedule:tenant-1:emp-1:2026-01-12',
-          requestReference: 'hr-schedule:tenant-1:emp-1:2026-01-12',
-          tenantId: 'tenant-1',
-          source: 'hr-service',
-          recipientRef: {
-            kind: 'tenantContactRef',
-            ref: 'hr.employee.email:emp-1',
-          },
-          templateId: 'hr.weekly_schedule.email',
-          templateVersion: '1',
-          templateVariables: expect.objectContaining({
-            employeeName: 'Ahmet Yilmaz',
-            scheduleEntryCount: 0,
-          }),
-        }),
-      );
+      const sendCall = natsClient.send.mock.calls[0];
+      expect(sendCall?.[0]).toBe(NOTIFICATION_COMMAND_SUBJECTS.SEND_EMAIL);
+      const command = sendCall?.[1] as SentEmailCommand | undefined;
+      expect(command).toMatchObject({
+        deliveryId: 'hr-schedule:tenant-1:emp-1:2026-01-12',
+        requestReference: 'hr-schedule:tenant-1:emp-1:2026-01-12',
+        tenantId: 'tenant-1',
+        source: 'hr-service',
+        recipientRef: {
+          kind: 'tenantContactRef',
+          ref: 'hr.employee.email:emp-1',
+        },
+        templateId: 'hr.weekly_schedule.email',
+        templateVersion: '1',
+      });
+      expect(command?.templateVariables.employeeName).toBe('Ahmet Yilmaz');
+      expect(command?.templateVariables.scheduleEntryCount).toBe(0);
     });
 
     it('sends overtime warning commands with manager contact ref and template variables', async () => {

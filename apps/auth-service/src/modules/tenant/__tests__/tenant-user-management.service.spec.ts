@@ -5,19 +5,19 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/no-floating-promises */
+import { SchemaManagerService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
 import {
   ConflictException,
-  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';
+import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 import { TenantRoleService, TenantRoleWithDetails } from '../services/tenant-role.service';
 import { TenantUserManagementService } from '../services/tenant-user-management.service';
@@ -110,7 +110,7 @@ const createMockRepository = () => ({
   findOne: jest.fn(),
   findAndCount: jest.fn(),
   save: jest.fn(),
-  create: jest.fn((data: any) => ({ ...data } as any)),
+  create: jest.fn((data: any) => ({ ...data })),
   update: jest.fn(),
   delete: jest.fn(),
 });
@@ -136,6 +136,10 @@ describe('TenantUserManagementService', () => {
   beforeEach(async () => {
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
+    // WHY: the service auto-provisions/deactivates mobile settings when a
+    // user's accessType changes (MOBILE_ONLY/BOTH/PANEL_ONLY), so the
+    // constructor now requires the MobileUserSettings repository.
+    const mockMobileSettingsRepo = createMockRepository();
 
     mockDataSource = {
       query: jest.fn().mockResolvedValue([]),
@@ -188,6 +192,7 @@ describe('TenantUserManagementService', () => {
         TenantUserManagementService,
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepo },
+        { provide: getRepositoryToken(MobileUserSettings), useValue: mockMobileSettingsRepo },
         { provide: DataSource, useValue: mockDataSource },
         { provide: SchemaManagerService, useValue: mockSchemaManager },
         { provide: TenantRoleService, useValue: mockTenantRoleService },
@@ -217,6 +222,13 @@ describe('TenantUserManagementService', () => {
       email: 'newuser@tenant.com',
       roleId: ROLE_ID,
     };
+
+    beforeEach(() => {
+      // WHY: createTenantUser validates tenant existence before delegating to
+      // UserLifecycleService — prime an existing tenant so delegation tests
+      // exercise the delegation contract, not the guard clause.
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+    });
 
     it('should delegate to UserLifecycleService.createUser', async () => {
       const result = await service.createTenantUser(TENANT_ID, createInput, ADMIN_USER_ID);
@@ -600,7 +612,11 @@ describe('TenantUserManagementService', () => {
       expect(result.success).toContain('user-a');
       expect(result.success).toContain('user-b');
       expect(result.failed).toHaveLength(1);
-      expect(result.failed[0]!.userId).toBe('user-c');
+      const [failedEntry] = result.failed;
+      if (!failedEntry) {
+        throw new Error('expected exactly one failed bulk-assign entry');
+      }
+      expect(failedEntry.userId).toBe('user-c');
     });
 
     it('should throw NotFoundException when role does not exist', async () => {

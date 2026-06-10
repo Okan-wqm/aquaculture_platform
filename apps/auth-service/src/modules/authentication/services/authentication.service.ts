@@ -1,10 +1,12 @@
 import * as crypto from 'crypto';
-import * as bcrypt from 'bcryptjs';
 
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
+import { TimingSafeService, ISessionManager, ITokenBlacklist, SESSION_MANAGER, TOKEN_BLACKLIST, SecurityEventService } from '@aquaculture/backend-common/security';
 import {
   Injectable,
   UnauthorizedException,
-  ConflictException,
   BadRequestException,
   Inject,
   Logger,
@@ -13,25 +15,22 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { BypassRlsService } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
-import { TimingSafeService, ISessionManager, ITokenBlacklist, SESSION_MANAGER, TOKEN_BLACKLIST, SecurityEventService } from '@aquaculture/backend-common/security';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
+import * as bcrypt from 'bcryptjs';
 import { DataSource, EntityManager, EntityTarget, ObjectLiteral, Repository } from 'typeorm';
 
-import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { AuditLogService } from '../../../audit/audit-log.service';
 import { SECURITY_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
-import { Tenant } from '../../tenant/entities/tenant.entity';
+import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { AuthPayload, MePayload } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
-import { RegisterInput } from '../dto/register.dto';
 import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
+
 import { MfaService } from './mfa.service';
 import { TokenService, parseExpiresIn } from './token.service';
 import type { JwtPayload } from './token.service';
@@ -156,50 +155,11 @@ export class AuthenticationService {
     }
   }
 
-  /**
-   * Register a new user (self-registration - typically not used in enterprise)
-   *
-   * SECURITY:
-   * - Can be disabled via REGISTRATION_ENABLED=false env var (checked in resolver)
-   * - Generic error message to prevent email enumeration
-   * - Rate limited at gateway level (RateLimitGuard applied as global APP_GUARD)
-   */
-  async register(input: RegisterInput): Promise<AuthPayload> {
-    // Check if user already exists
-    const existingUser = await this.userRepository.findOne({
-      where: { email: input.email.toLowerCase() },
-    });
-
-    if (existingUser) {
-      // SECURITY: Generic message to prevent email enumeration
-      // In production, you might want to silently fail or send email instead
-      // SECURITY: Do not log email address -- PII under GDPR (H-14)
-      this.logger.debug('Registration attempt for existing email');
-      throw new ConflictException('Registration failed. Please try again or contact support.');
-    }
-
-    // Create new user with MODULE_USER role
-    const user = this.userRepository.create({
-      email: input.email.toLowerCase(),
-      password: input.password,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      tenantId: input.tenantId,
-      role: Role.MODULE_USER,
-      isEmailVerified: false,
-    });
-
-    const savedUser = await this.userRepository.save(user);
-    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`User registered: userId=${savedUser.id} in tenant ${savedUser.tenantId}`);
-
-    // Publish event
-    await this.eventBus.publish({
-      ...createBaseEvent('UserRegistered', savedUser.tenantId ?? 'system', { aggregateId: savedUser.id, aggregateType: 'User', userId: savedUser.id }),
-    });
-
-    return this.tokenService.generateTokens(savedUser);
-  }
+  // SECURITY (SEC-CRITICAL-001): register() was REMOVED — it persisted a
+  // client-supplied tenantId with no existence/ACTIVE/maxUsers validation
+  // and issued a full token pair to an unverified email. User creation is
+  // owned by the invitation flow and the provisioning saga's first-admin
+  // path (UserLifecycleService).
 
   /**
    * Login user - supports all roles including SUPER_ADMIN
@@ -278,7 +238,10 @@ export class AuthenticationService {
       // SUPER_ADMIN users (tenantId is null) are exempt from this check
       if (user.tenantId) {
         const tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
-        if (tenant && (tenant.status === 'SUSPENDED' || tenant.status === 'CANCELLED')) {
+        if (
+          tenant &&
+          (tenant.status === TenantStatus.SUSPENDED || tenant.status === TenantStatus.CANCELLED)
+        ) {
           await this.ensureMinDuration(startTime);
           this.logger.debug(`Login failed: tenant ${user.tenantId} is ${tenant.status}`);
           await this.logSecurityEvent('LOGIN_BLOCKED_TENANT_SUSPENDED', {

@@ -2,16 +2,9 @@ import { BaseEvent } from './base-event';
 
 // ==================== Auth Events ====================
 
-/**
- * User Registered Event
- * Published when a new user registers in the system
- */
-export interface UserRegisteredEvent extends BaseEvent {
-  eventType: 'UserRegistered';
-  userId: string;
-  email?: string;
-  role?: string;
-}
+// NOTE (SEC-CRITICAL-001): UserRegisteredEvent was REMOVED together with the
+// public register mutation — no producer or consumer existed. User creation
+// emits UserInvited / InvitationAccepted through the invitation flow instead.
 
 /**
  * User Logged In Event
@@ -196,7 +189,6 @@ export interface ConsentWithdrawnEvent extends BaseEvent {
  * Union type for all auth events
  */
 export type AuthEvent =
-  | UserRegisteredEvent
   | UserLoggedInEvent
   | InvitationAcceptedEvent
   | PasswordResetRequestedEvent

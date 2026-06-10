@@ -6,13 +6,17 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
 import { Role, SchemaManagerService } from '@platform/backend-common';
+import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { Invitation } from '../../authentication/entities/invitation.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
+import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User } from '../../authentication/entities/user.entity';
+import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
+
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import { UserLifecycleService } from './user-lifecycle.service';
 
@@ -127,6 +131,13 @@ describe('UserLifecycleService', () => {
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
     const mockRefreshTokenRepo = createMockRepository();
+    // WHY: UserLifecycleService grew three repositories — MobileUserSettings
+    // (accessType-driven mobile provisioning), Invitation and
+    // UserModuleAssignment (atomic invite + module assignment) — so the
+    // testing module must mirror the production constructor exactly.
+    const mockMobileSettingsRepo = createMockRepository();
+    const mockInvitationRepo = createMockRepository();
+    const mockUserModuleAssignmentRepo = createMockRepository();
 
     mockDataSource = {
       query: jest.fn().mockResolvedValue([]),
@@ -162,6 +173,9 @@ describe('UserLifecycleService', () => {
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepo },
         { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepo },
+        { provide: getRepositoryToken(MobileUserSettings), useValue: mockMobileSettingsRepo },
+        { provide: getRepositoryToken(Invitation), useValue: mockInvitationRepo },
+        { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepo },
         { provide: DataSource, useValue: mockDataSource },
         { provide: SchemaManagerService, useValue: mockSchemaManager },
         { provide: TenantRoleService, useValue: mockTenantRoleService },

@@ -1,6 +1,6 @@
-import { ObjectType, Field, ID, HideField, registerEnumType, Directive } from '@nestjs/graphql';
 import { hashPassword as hashPasswordWithPepper, verifyPassword as verifyPasswordWithPepper, PEPPERED_PREFIX_V1 } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { ObjectType, Field, ID, HideField, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -45,9 +45,11 @@ registerEnumType(AccessType, {
 @ObjectType()
 @Entity('users', { schema: 'auth' })
 // NOTE: email uniqueness is enforced via a `LOWER(email)` expression index
-// created by migration EnforceCaseInsensitiveEmailUniqueness1781300000000.
-// TypeORM decorators don't support expression indexes, so the index lives
-// in SQL. The @Column below has `unique: true` REMOVED so TypeORM does
+// created by migration RestoreCaseInsensitiveEmailUniqueness1800100000000
+// (successor of the archived EnforceCaseInsensitiveEmailUniqueness — the
+// Baseline consolidation dropped the index, the Restore migration re-installs
+// it). TypeORM decorators don't support expression indexes, so the index
+// lives in SQL. The @Column below has `unique: true` REMOVED so TypeORM does
 // not create a conflicting case-sensitive index at synchronize time.
 @Index('IDX_users_tenant', ['tenantId'])
 @Index('IDX_users_role', ['role'])
@@ -62,7 +64,7 @@ export class User {
   // NOTE: column-level `unique: true` REMOVED so TypeORM does not create a
   // case-sensitive auto-index that conflicts with the case-insensitive
   // `LOWER(email)` expression index installed by
-  // EnforceCaseInsensitiveEmailUniqueness1781300000000. Uniqueness is still
+  // RestoreCaseInsensitiveEmailUniqueness1800100000000. Uniqueness is still
   // enforced at the DB level — just by the migration, not the decorator.
   @Column({ type: 'varchar', length: 255 })
   email!: string;

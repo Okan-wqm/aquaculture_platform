@@ -161,7 +161,7 @@ test.describe('GraphQL Security Limits', () => {
 
   test('Alias brute force on login mutation is blocked', async () => {
     // The AliasLimitPlugin blocks duplicate sensitive mutations in a single request
-    // Sensitive mutations: loginWithCredentials, register, refreshToken, resetPassword, changePassword
+    // Sensitive mutations: loginWithCredentials, refreshToken, resetPassword, forgotPassword, changePassword
     //
     // Note: The plugin checks for 'loginWithCredentials', not 'login'
     // Let's test with both the plugin's exact check and the actual mutation name
@@ -210,27 +210,26 @@ test.describe('GraphQL Security Limits', () => {
       }
     }
 
-    // Test with the exact mutation name the plugin checks
-    const aliasedRegisterMutation = `
-      mutation BruteForceRegister {
-        attempt1: register(input: { email: "test1@test.com", password: "P@ss1234!", firstName: "A", lastName: "B" }) {
-          accessToken
-        }
-        attempt2: register(input: { email: "test2@test.com", password: "P@ss1234!", firstName: "C", lastName: "D" }) {
-          accessToken
-        }
+    // WHY forgotPassword: the public register mutation was REMOVED
+    // (SEC-CRITICAL-001 — registration is invitation-only), so the second
+    // sensitive-mutation probe uses forgotPassword, which remains in the
+    // SENSITIVE_MUTATIONS set and is likewise @Public (anonymous-reachable).
+    const aliasedForgotPasswordMutation = `
+      mutation BruteForceForgotPassword {
+        attempt1: forgotPassword(input: { email: "test1@test.com" })
+        attempt2: forgotPassword(input: { email: "test2@test.com" })
       }
     `;
 
-    const registerResponse = await client.mutate<GenericQueryResponse>(
-      aliasedRegisterMutation,
+    const forgotPasswordResponse = await client.mutate<GenericQueryResponse>(
+      aliasedForgotPasswordMutation,
       {},
       {},
     );
 
-    // register IS in the SENSITIVE_MUTATIONS set, so this should be blocked
-    if (registerResponse.body.errors && registerResponse.body.errors.length > 0) {
-      const isBlocked = registerResponse.body.errors.some(e =>
+    // forgotPassword IS in the SENSITIVE_MUTATIONS set, so this should be blocked
+    if (forgotPasswordResponse.body.errors && forgotPasswordResponse.body.errors.length > 0) {
+      const isBlocked = forgotPasswordResponse.body.errors.some(e =>
         e.message.includes('Duplicate mutation') ||
         e.message.includes('not allowed') ||
         e.message.includes('Too many') ||
@@ -244,7 +243,7 @@ test.describe('GraphQL Security Limits', () => {
 
     // Should not cause server crash
     expect(response.status).not.toBe(500);
-    expect(registerResponse.status).not.toBe(500);
+    expect(forgotPasswordResponse.status).not.toBe(500);
   });
 
   test('Excessive top-level mutation fields are rejected', async () => {

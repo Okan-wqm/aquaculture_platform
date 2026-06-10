@@ -4,7 +4,6 @@ import * as bcrypt from 'bcryptjs';
 import {
   Injectable,
   UnauthorizedException,
-  ConflictException,
   BadRequestException,
   Inject,
   Logger,
@@ -27,7 +26,6 @@ import { SECURITY_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.con
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { AuthPayload, MePayload } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
-import { RegisterInput } from '../dto/register.dto';
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
@@ -145,50 +143,11 @@ export class AuthenticationService {
     }
   }
 
-  /**
-   * Register a new user (self-registration - typically not used in enterprise)
-   *
-   * SECURITY:
-   * - Can be disabled via REGISTRATION_ENABLED=false env var (checked in resolver)
-   * - Generic error message to prevent email enumeration
-   * - Rate limited at gateway level (RateLimitGuard applied as global APP_GUARD)
-   */
-  async register(input: RegisterInput): Promise<AuthPayload> {
-    // Check if user already exists
-    const existingUser = await this.userRepository.findOne({
-      where: { email: input.email.toLowerCase() },
-    });
-
-    if (existingUser) {
-      // SECURITY: Generic message to prevent email enumeration
-      // In production, you might want to silently fail or send email instead
-      // SECURITY: Do not log email address -- PII under GDPR (H-14)
-      this.logger.debug('Registration attempt for existing email');
-      throw new ConflictException('Registration failed. Please try again or contact support.');
-    }
-
-    // Create new user with MODULE_USER role
-    const user = this.userRepository.create({
-      email: input.email.toLowerCase(),
-      password: input.password,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      tenantId: input.tenantId,
-      role: Role.MODULE_USER,
-      isEmailVerified: false,
-    });
-
-    const savedUser = await this.userRepository.save(user);
-    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`User registered: userId=${savedUser.id} in tenant ${savedUser.tenantId}`);
-
-    // Publish event
-    await this.eventBus.publish({
-      ...createBaseEvent('UserRegistered', savedUser.tenantId ?? 'system', { aggregateId: savedUser.id, aggregateType: 'User', userId: savedUser.id }),
-    });
-
-    return this.tokenService.generateTokens(savedUser);
-  }
+  // SECURITY (SEC-CRITICAL-001): register() was REMOVED — it persisted a
+  // client-supplied tenantId with no existence/ACTIVE/maxUsers validation
+  // and issued a full token pair to an unverified email. User creation is
+  // owned by the invitation flow and the provisioning saga's first-admin
+  // path (UserLifecycleService).
 
   /**
    * Login user - supports all roles including SUPER_ADMIN

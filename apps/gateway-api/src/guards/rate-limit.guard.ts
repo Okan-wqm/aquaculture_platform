@@ -184,8 +184,6 @@ export class RateLimitGuard implements CanActivate {
   // Per-endpoint limits from rate-limit.config.ts
   private readonly loginLimit: number;
   private readonly loginWindowMs: number;
-  private readonly registerLimit: number;
-  private readonly registerWindowMs: number;
   private readonly uploadLimit: number;
   private readonly uploadWindowMs: number;
 
@@ -220,8 +218,6 @@ export class RateLimitGuard implements CanActivate {
     // Per-endpoint limits (wired from rate-limit.config.ts env vars)
     this.loginLimit = this.configService.get<number>('RATE_LIMIT_LOGIN_MAX', 5);
     this.loginWindowMs = this.configService.get<number>('RATE_LIMIT_LOGIN_WINDOW_MS', 900000);
-    this.registerLimit = this.configService.get<number>('RATE_LIMIT_REGISTER_MAX', 3);
-    this.registerWindowMs = this.configService.get<number>('RATE_LIMIT_REGISTER_WINDOW_MS', 900000);
     this.uploadLimit = this.configService.get<number>('RATE_LIMIT_UPLOAD_MAX', 10);
     this.uploadWindowMs = this.configService.get<number>('RATE_LIMIT_UPLOAD_WINDOW_MS', 60000);
 
@@ -405,10 +401,6 @@ export class RateLimitGuard implements CanActivate {
         paths: ['/api/auth/login', '/auth/login'],
       },
       {
-        bucket: 'register',
-        paths: ['/api/auth/register', '/auth/register'],
-      },
-      {
         bucket: 'upload',
         // The 'upload' bucket protects the canonical file-upload
         // endpoint family. Each path is explicit; substring shapes
@@ -515,9 +507,6 @@ export class RateLimitGuard implements CanActivate {
     const url = request.url || '';
     if (url === '/api/auth/login' || url.endsWith('/auth/login')) {
       return { limit: this.loginLimit, windowMs: this.loginWindowMs };
-    }
-    if (url === '/api/auth/register' || url.endsWith('/auth/register')) {
-      return { limit: this.registerLimit, windowMs: this.registerWindowMs };
     }
     if (url.includes('/upload')) {
       return { limit: this.uploadLimit, windowMs: this.uploadWindowMs };

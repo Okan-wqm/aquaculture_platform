@@ -7,7 +7,7 @@ import { User } from '../../authentication/entities/user.entity';
 import { CreateTenantInput, UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
-import { Tenant, TenantStatus } from '../entities/tenant.entity';
+import { Tenant } from '../entities/tenant.entity';
 
 /**
  * Minimal public tenant info exposed by the unauthenticated tenantBySlug query.
@@ -15,9 +15,11 @@ import { Tenant, TenantStatus } from '../entities/tenant.entity';
  */
 @ObjectType()
 class TenantPublicInfo {
-  @Field(() => ID)
-  id!: string;
-
+  // SECURITY (MT-LOW-001): internal tenant `id` and `status` were REMOVED
+  // from this public type. The exposed UUID was the harvest leg that turned
+  // the register-mutation injection (SEC-CRITICAL-001) from "guess a UUID"
+  // into "look it up by slug"; status leaked lifecycle state to anonymous
+  // callers. The login/branding flow needs only name/slug/logo.
   @Field()
   name!: string;
 
@@ -26,9 +28,6 @@ class TenantPublicInfo {
 
   @Field(() => String, { nullable: true })
   logoUrl!: string | null;
-
-  @Field(() => TenantStatus)
-  status!: TenantStatus;
 }
 import { TenantService } from '../services/tenant.service';
 
@@ -74,13 +73,12 @@ export class TenantResolver {
   @Query(() => TenantPublicInfo)
   async tenantBySlug(@Args('slug') slug: string): Promise<TenantPublicInfo> {
     const tenant = await this.tenantService.findBySlug(slug);
-    // SECURITY: Only expose minimal public info — no plan, maxUsers, settings, etc.
+    // SECURITY: Only expose minimal branding info — no id, status, plan,
+    // maxUsers, settings, contact details (MT-LOW-001).
     return {
-      id: tenant.id,
       name: tenant.name,
       slug: tenant.slug,
       logoUrl: tenant.logoUrl ?? null,
-      status: tenant.status,
     };
   }
 

@@ -1,4 +1,4 @@
-import { UnauthorizedException, ForbiddenException, Logger } from '@nestjs/common';
+import { UnauthorizedException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
 import { Request, Response } from 'express';
@@ -15,7 +15,6 @@ import {
 } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
 import { RefreshTokenInput } from '../dto/refresh-token.dto';
-import { RegisterInput } from '../dto/register.dto';
 import { ForgotPasswordInput, ResetPasswordInput } from '../dto/reset-password.dto';
 import { User } from '../entities/user.entity';
 import { AuthenticationService } from '../services/authentication.service';
@@ -31,7 +30,6 @@ interface GqlContext {
 @Resolver(() => User)
 export class AuthResolver {
   private readonly logger = new Logger(AuthResolver.name);
-  private readonly registrationEnabled: boolean;
   private readonly isProduction: boolean;
   private readonly refreshTokenExpiryDays: number;
 
@@ -39,15 +37,11 @@ export class AuthResolver {
     private readonly authService: AuthenticationService,
     private readonly configService: ConfigService,
   ) {
-    this.registrationEnabled = this.configService.get<string>('REGISTRATION_ENABLED', 'true') === 'true';
     this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
     this.refreshTokenExpiryDays = this.configService.get<number>(
       'REFRESH_TOKEN_EXPIRY_DAYS',
       SECURITY_CONSTANTS.DEFAULT_REFRESH_TOKEN_EXPIRY_DAYS,
     );
-    if (!this.registrationEnabled) {
-      this.logger.log('Self-registration is DISABLED via REGISTRATION_ENABLED=false');
-    }
   }
 
   /**
@@ -83,32 +77,16 @@ export class AuthResolver {
     return { ...result, refreshToken: '' };
   }
 
-  /**
-   * Self-registration mutation.
-   *
-   * SECURITY:
-   * - Can be disabled via REGISTRATION_ENABLED=false environment variable
-   * - Rate limited at gateway level (RateLimitGuard as global APP_GUARD)
-   *   - Anonymous requests: 20/min default, configure stricter limits via
-   *     RATE_LIMIT_REGISTER_MAX and RATE_LIMIT_REGISTER_WINDOW_MS
-   * - Input validated via class-validator (email format, password complexity)
-   * - Generic error messages prevent email enumeration
-   * - Refresh token is set as httpOnly cookie, not returned in body
-   */
-  @Public()
-  @Mutation(() => AuthPayload)
-  async register(
-    @Args('input') input: RegisterInput,
-    @Context() context: GqlContext,
-  ): Promise<AuthPayload> {
-    if (!this.registrationEnabled) {
-      this.logger.warn(`Blocked registration attempt (registration disabled): ${input.email}`);
-      throw new ForbiddenException('Self-registration is not available. Please contact your administrator.');
-    }
-    const result = await this.authService.register(input);
-    this.setRefreshTokenCookie(context.res, result.refreshToken);
-    return this.stripRefreshToken(result);
-  }
+  // SECURITY (SEC-CRITICAL-001): the public `register` mutation was REMOVED.
+  // It accepted a client-supplied tenantId with no tenant validation —
+  // anonymous cross-tenant account injection at the identity primitive.
+  // User creation flows through exactly two server-governed paths:
+  //   1. invitation flow (acceptInvitation — token resolves the tenant)
+  //   2. provisioning saga first-admin creation (admin-api → NATS command)
+  // Re-introducing public self-registration requires a dedicated
+  // "new tenant + first admin" onboarding saga, never a write into an
+  // existing tenant. See docs/reviews/auth-security-expert/
+  // 2026-06-10-auth-service-audit.md#SEC-CRITICAL-001.
 
   @Public()
   @Mutation(() => AuthPayload)

@@ -54,16 +54,36 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 - **Değişen dosyalar:** `libs/backend-common/src/decorators/roles.decorator.ts`, `modules/tenant/resolvers/tenant-admin.resolver.ts`, `modules/tenant/resolvers/mobile-settings.resolver.ts`.
 - **Doğrulama:** `tenant-admin-resolver-guards.spec.ts` + `mobile-settings-resolver-guards.spec.ts` yeşil.
 
+## SEC-CRITICAL-001 — Public `register` mutation: doğrulanmamış istemci tenantId'si (cross-tenant hesap enjeksiyonu)
+
+- **Durum:** RESOLVED (Wave 1, PR #378)
+- **Sorun:** `@Public()` register mutation'ı istemciden gelen `tenantId`'yi hiçbir tenant varlık/ACTIVE/maxUsers doğrulaması yapmadan persist ediyor ve doğrulanmamış e-postaya anında token çifti veriyordu. Anonim bir saldırgan, herhangi bir kurban tenant'ına aktif MODULE_USER hesabı ekleyebilirdi. Yüzey ölüydü: hiçbir gerçek UI kullanmıyordu (shell /register → /login yönlendirir, "invitation-only").
+- **Çözüm (Tier-1 make-impossible):** Mutation, DTO (`register.dto.ts`), servis metodu ve `REGISTRATION_ENABLED` bayrağı TAMAMEN KALDIRILDI; üretici/tüketicisi olmayan `UserRegisteredEvent` sözleşmesi de kaldırıldı (BREAKING CHANGE). Kullanıcı yaratma tek sahipli iki sunucu-yönetimli yoldan akar: davet akışı (`acceptInvitation`) ve provisioning saga ilk-admin yolu. Gateway süpürmesi: `SENSITIVE_MUTATIONS`'tan 'register', rate-limit register bucket'ı + env anahtarları + path'leri, tenant-context public-path girdileri kaldırıldı. E2E alias probu `forgotPassword`'a taşındı. Yeni `public-surface-contract.spec.ts` yeniden-ekleme girişimini CI'da kırar.
+- **Değişen dosyalar:** `auth.resolver.ts`, `authentication.service.ts`, `register.dto.ts` (silindi), `libs/event-contracts/src/auth-events.ts`, gateway `graphql-alias-limit.plugin.ts` / `rate-limit.guard.ts` / `rate-limit.config.ts` / `tenant-context.interceptor.ts` / `tenant-context.middleware.ts` (+spec'leri), `e2e/tests/security/graphql-limits.spec.ts`, yeni `public-surface-contract.spec.ts`.
+- **Doğrulama:** auth-service 17/17 suite (252 test) yeşil; dokunulan gateway spec'lerinde failure seti baseline ile birebir aynı (yeni hata yok); GraphQL contract-drift gate yeşil.
+
+## MT-LOW-001 — `tenantBySlug` public sorgusu iç tenant `id` + `status` sızdırıyordu
+
+- **Durum:** RESOLVED (Wave 1, PR #378)
+- **Sorun:** Kimliksiz erişilebilir `tenantBySlug`, slug→UUID hasadı sağlıyordu — SEC-CRITICAL-001 enjeksiyonunu "UUID tahmin et"ten "slug'la sorgula"ya indiren bacak. `status` da tenant yaşam döngüsü durumunu anonim sızdırıyordu.
+- **Çözüm (Tier-1):** `TenantPublicInfo`'dan `id` ve `status` kaldırıldı; sorgu yalnız marka bilgisi (name/slug/logoUrl) döner. Exact-keys sözleşme testi yanlışlıkla alan eklemeyi kırar. (Doğrulandı: web/e2e'de hiçbir tüketici bu alanları kullanmıyordu.)
+- **Değişen dosyalar:** `tenant.resolver.ts`, `public-surface-contract.spec.ts`.
+- **Doğrulama:** exact-keys testi `['logoUrl','name','slug']` asserte ediyor; suite yeşil.
+
+## AUDIT-CRITICAL-006 — YENİ BULGU: gateway-api test gate'i main'de KIRMIZI (17 suite / 254 test örneği)
+
+- **Durum:** OPEN — ayrı odaklı PR'da onarılacak (Wave-1 merge'inin ÖN KOŞULU; gateway-api denetiminin — servis #2 — baş maddesi). Sahip: claude-session, deadline 2026-06-12.
+- **Sorun:** Wave-1 doğrulaması sırasında keşfedildi ve temiz baseline'da (Wave-1 değişiklikleri stash'liyken koşularak) doğrulandı: AUDIT-CRITICAL-004 ile aynı sistemik sınıf. Kümeler: AuthGuard DI drift (JwtService provider eksik), ServiceProxy servis-kaydı doğrulama drift'i ('test-service' kayıtsız), bayat ETag spec'i (md5 32-hex bekliyor, üretim sha256 64-hex), TenantIsolationGuard sıkılaşmış tenant-association kontrolleri, ResponseTransform/RequestLogging/CacheControl kümeleri. CI test job'ı artık enforce ediyor (`continue-on-error removed: failing tests must block PR merge`) — kırmızı, gate'in advisory olduğu dönemden birikme. backend-common diff'i gateway-api'yi affected yaptığından Wave-1 PR CI'ını bloklar; bu yüzden önce ayrı `fix(gateway)` PR'ı yeşillenir, Wave-1 rebase eder.
+
 ---
 
 ## Bekleyen bulgular (denetim kayıt defteri)
 
 | ID | Dalga | Durum |
 |---|---|---|
-| SEC-CRITICAL-001 (register tenantId enjeksiyonu) | W1.2 | OPEN |
 | SEC-CRITICAL-002 (boş rate-limit stub'ları) | W1.3 | OPEN |
+| AUDIT-CRITICAL-006 (gateway gate kırmızı — YENİ) | W1 ön-koşul PR | OPEN |
 | AUDIT-CRITICAL-005 (reuse-detection test kapsamı) | W2 | OPEN |
 | SEC-HIGH-001..004, SEC-MEDIUM-001..004 | W2 | OPEN |
-| MT-HIGH-001..010, MT-MEDIUM-001..008, DATA-LOW-001 | W3 | OPEN |
-| PERF-HIGH-001..014, PERF-MEDIUM-001..012, SEC-LOW-001 | W4 | OPEN |
-| MT-LOW-001 (tenantBySlug id/status sızıntısı) | W1.2 | OPEN |
+| MT-HIGH-001..003, DATA-HIGH-001..003, MT-MEDIUM-001..002, DATA-MEDIUM-001..002, DATA-LOW-001 | W3 | OPEN |
+| PERF-HIGH-001..003, AUDIT-HIGH-009, PERF-MEDIUM-001..003, AUDIT-MEDIUM-015, SEC-LOW-001 | W4 | OPEN |

@@ -21,7 +21,6 @@ import { Logger } from '@nestjs/common';
 const SENSITIVE_MUTATIONS = new Set([
   'login',
   'loginWithCredentials',
-  'register',
   'refreshToken',
   'resetPassword',
   'forgotPassword',

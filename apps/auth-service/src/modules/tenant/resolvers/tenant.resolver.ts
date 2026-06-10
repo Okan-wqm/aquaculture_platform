@@ -1,24 +1,14 @@
 import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '@aquaculture/backend-common/decorators';
-<<<<<<< HEAD
-import { ForbiddenException, Logger } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
-
-import { AuditLogSeverity } from '../../../audit/audit-log.entity';
-=======
 import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
 
->>>>>>> origin/main
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';
 import { UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
-<<<<<<< HEAD
 import { Tenant } from '../entities/tenant.entity';
-=======
-import { Tenant, TenantStatus } from '../entities/tenant.entity';
->>>>>>> origin/main
 import { TenantService } from '../services/tenant.service';
 
 /**
@@ -96,17 +86,14 @@ export class TenantResolver {
     if (role !== Role.SUPER_ADMIN && userTenantId !== id) {
       throw new ForbiddenException('Access denied: You can only update your own tenant');
     }
-<<<<<<< HEAD
-    // SECURITY: Role-based field filtering enforced inside
-    // TenantService.update(id, input, role) — TENANT_ADMIN is limited to
-    // profile fields; status/plan/maxUsers writes are rejected there.
-    return this.tenantService.update(id, input, role);
-=======
+    // Tenant mutation authority converged on the command-receipt/FSM
+    // path in the enterprise train; the resolver-level update is
+    // rejected outright (stronger than role-based field filtering —
+    // nothing mutates tenants outside the governed command path).
     void input;
     throw new BadRequestException(
       'Tenant updates are command-receipt owned. Use the auth tenant command/FSM path.',
     );
->>>>>>> origin/main
   }
 
   @SuperAdminOnly()

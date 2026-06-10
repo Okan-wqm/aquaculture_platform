@@ -45,7 +45,7 @@ registerEnumType(AccessType, {
 @ObjectType()
 @Entity('users', { schema: 'auth' })
 // NOTE: email uniqueness is enforced via a `LOWER(email)` expression index
-// created by migration RestoreCaseInsensitiveEmailUniqueness1800100000000
+// created by migration RestoreCaseInsensitiveEmailUniqueness1800300000000
 // (successor of the archived EnforceCaseInsensitiveEmailUniqueness — the
 // Baseline consolidation dropped the index, the Restore migration re-installs
 // it). TypeORM decorators don't support expression indexes, so the index
@@ -64,7 +64,7 @@ export class User {
   // NOTE: column-level `unique: true` REMOVED so TypeORM does not create a
   // case-sensitive auto-index that conflicts with the case-insensitive
   // `LOWER(email)` expression index installed by
-  // RestoreCaseInsensitiveEmailUniqueness1800100000000. Uniqueness is still
+  // RestoreCaseInsensitiveEmailUniqueness1800300000000. Uniqueness is still
   // enforced at the DB level — just by the migration, not the decorator.
   @Column({ type: 'varchar', length: 255 })
   email!: string;

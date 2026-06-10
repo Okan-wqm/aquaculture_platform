@@ -93,3 +93,16 @@
 - `SourceSchemaBootstrapService` pattern (DATA-HIGH-003 comment says "same approach as other services") — runtime-DDL shims likely exist elsewhere; audit per service.
 - `kid` adoption (SEC-HIGH-003) ripples to every token-consuming subgraph + `backend-common` verify path.
 - PlanTier ordinal SSoT (MT-MEDIUM-001) belongs in `@platform/event-contracts`.
+
+## Post-audit remediation findings (registry anchors)
+
+Findings raised DURING the remediation waves (full narratives live in
+[the resolutions log](./2026-06-10-auth-service-audit-resolutions.md);
+the registry references this audit document as their review_file, so
+the IDs are anchored here for three-store cross-referencing):
+
+- CLAUDE-HIGH-013 — Baseline consolidation LOST UNIQUE(LOWER(email)) on auth.users; restored by the RestoreCaseInsensitiveEmailUniqueness migration (renumbered to 1800300000000 after the enterprise-train merge introduced a 1800100000000 sibling).
+- CLAUDE-HIGH-014 — createTenantUser was a line-for-line duplicate of UserLifecycleService.createUser (SSoT violation).
+- CLAUDE-HIGH-015 — TenantService.update had no role-based field filtering despite the resolver comment claiming it; superseded by the command-receipt convergence which rejects resolver-level tenant updates outright.
+- CLAUDE-MEDIUM-012 — myModules and getMyMobileSettings role gates contradicted the documented minimum-role contract.
+- AUDIT-CRITICAL-006 — gateway-api unit test gate RED on main (17 suites / 254 failures); see also the consolidation ledger's GATEWAY-TEST-CRASH-001 record of the rate-limit spec worker crash.

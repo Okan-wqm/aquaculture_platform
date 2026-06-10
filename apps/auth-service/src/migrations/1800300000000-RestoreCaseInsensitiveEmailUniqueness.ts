@@ -2,7 +2,7 @@ import { MigrationLogger } from '@aquaculture/backend-common/database';
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * RestoreCaseInsensitiveEmailUniqueness1800100000000
+ * RestoreCaseInsensitiveEmailUniqueness1800300000000
  * ============================================================================
  *
  * WHY THIS MIGRATION EXISTS (audit finding, 2026-06-10 auth-service audit):
@@ -42,10 +42,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * EXISTS` / `CREATE UNIQUE INDEX IF NOT EXISTS` make the index installation
  * a no-op where it was already applied. Safe to re-run.
  */
-export class RestoreCaseInsensitiveEmailUniqueness1800100000000
+export class RestoreCaseInsensitiveEmailUniqueness1800300000000
   implements MigrationInterface
 {
-  name = 'RestoreCaseInsensitiveEmailUniqueness1800100000000';
+  name = 'RestoreCaseInsensitiveEmailUniqueness1800300000000';
   private readonly logger = new MigrationLogger(this.name);
 
   public async up(queryRunner: QueryRunner): Promise<void> {

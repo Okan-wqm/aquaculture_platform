@@ -17,12 +17,9 @@
 // invokes — every "should reject password X" assertion was
 // passing because the SUT called the real, un-mocked bcryptjs
 // while the test mocked an unrelated bcrypt instance.
-<<<<<<< HEAD
 // Aligning to bcryptjs makes the spies intercept the real call
 // path AND silences the missing-types error. Surfaced by PR-31
 // (PROC-MEDIUM-007 ratchet).
-=======
->>>>>>> origin/main
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
@@ -31,21 +28,12 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-<<<<<<< HEAD
-=======
-// Aligning to bcryptjs makes the spies intercept the real call
-// path AND silences the missing-types error. Surfaced by PR-31
-// (PROC-MEDIUM-007 ratchet).
->>>>>>> origin/main
 import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
-<<<<<<< HEAD
-=======
 import { ActionToken } from '../entities/action-token.entity';
->>>>>>> origin/main
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
@@ -54,25 +42,30 @@ import { AuthenticationService } from '../services/authentication.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
 
-<<<<<<< HEAD
 // WHY: bcryptjs publishes a sealed module namespace under the current
 // toolchain — jest.spyOn(bcrypt, 'compare') throws "Cannot redefine
 // property". Re-exporting compare/hash as plain jest.fn wrappers (default
 // behaviour = the real implementation) restores spy-ability while keeping
 // production-equivalent hashing for tests that don't stub.
 jest.mock('bcryptjs', () => {
-  const actual = jest.requireActual('bcryptjs');
-  return { ...actual, compare: jest.fn(actual.compare), hash: jest.fn(actual.hash) };
+  const actual = jest.requireActual<typeof bcrypt>('bcryptjs');
+  // Bind the promise overloads explicitly — jest.fn over the raw
+  // overloaded functions resolves the callback overload and trips
+  // no-misused-promises.
+  const promiseCompare: (data: string, encrypted: string) => Promise<boolean> = actual.compare;
+  const promiseHash: (data: string, saltOrRounds: string | number) => Promise<string> =
+    actual.hash;
+  return { ...actual, compare: jest.fn(promiseCompare), hash: jest.fn(promiseHash) };
 });
-=======
-jest.mock('bcryptjs', () => ({
-  compare: jest.fn(),
-}));
 
-const mockBcryptCompare = bcrypt.compare as unknown as jest.MockedFunction<
-  (data: string, encrypted: string) => Promise<boolean>
->;
->>>>>>> origin/main
+// Typed alias over the spy-able wrapper above: body assertions stub via
+// mockBcryptCompare.mockResolvedValue while jest.spyOn(bcrypt, 'compare')
+// remains equally valid — both views target the same jest.fn. The
+// explicit type argument selects compare's promise overload; jest.mocked
+// over the raw overloaded type collapses mockResolvedValue to never.
+const mockBcryptCompare = jest.mocked<(data: string, encrypted: string) => Promise<boolean>>(
+  bcrypt.compare,
+);
 
 // ============================================================================
 // Mock Helpers
@@ -279,10 +272,7 @@ const mockSessionManager = {
   createSession: jest.fn().mockResolvedValue(undefined),
   invalidateSession: jest.fn().mockResolvedValue(undefined),
   invalidateAllSessions: jest.fn().mockResolvedValue(0),
-<<<<<<< HEAD
   enforceSessionLimit: jest.fn().mockResolvedValue(undefined),
-=======
->>>>>>> origin/main
   revokeAllSessions: jest.fn().mockResolvedValue(undefined),
 };
 
@@ -290,17 +280,6 @@ const mockTokenBlacklist = {
   add: jest.fn().mockResolvedValue(undefined),
   isBlacklisted: jest.fn().mockResolvedValue(false),
 };
-
-const mockTokenService = {
-  generateTokens: jest.fn().mockResolvedValue({
-    accessToken: 'mock-access-token',
-    refreshToken: 'mock-refresh-token',
-    user: null,
-  }),
-  refreshTokens: jest.fn(),
-};
-
-const mockMfaService = {};
 
 // ============================================================================
 // Test Suite
@@ -421,7 +400,6 @@ describe('AuthenticationService', () => {
       const user = createMockUser({ failedLoginAttempts: 2 });
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
-<<<<<<< HEAD
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
@@ -432,15 +410,6 @@ describe('AuthenticationService', () => {
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('"failedLoginAttempts" = "failedLoginAttempts" + 1'),
         ['user-uuid-123', 5, expect.any(Date)],
-=======
-      mockBcryptCompare.mockResolvedValue(false);
-      mockUserRepository.save.mockResolvedValue({ ...user, failedLoginAttempts: 3 });
-
-      await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('UPDATE auth.users'),
-        expect.arrayContaining(['user-uuid-123']),
->>>>>>> origin/main
       );
     });
 
@@ -490,16 +459,11 @@ describe('AuthenticationService', () => {
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
     });
 
-<<<<<<< HEAD
     it('delegates session-limit enforcement to TokenService on login', async () => {
-=======
-    it('delegates token generation after password validation', async () => {
->>>>>>> origin/main
       const user = createMockUser();
       const tenant = createMockTenant();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(tenant);
-<<<<<<< HEAD
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
       mockUserRepository.save.mockResolvedValue(user);
 
@@ -512,15 +476,6 @@ describe('AuthenticationService', () => {
       // token.service.spec.ts where the collaborator lives.
       expect(result.accessToken).toBe('mock-access-token');
       expect(mockTokenService.generateTokens).toHaveBeenCalledWith(user, '127.0.0.1', 'test-agent');
-=======
-      mockBcryptCompare.mockResolvedValue(true);
-      mockUserRepository.save.mockResolvedValue(user);
-
-      await expect(service.login(validInput)).resolves.toEqual(
-        expect.objectContaining({ accessToken: 'mock-access-token' }),
-      );
-      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(user, undefined, undefined);
->>>>>>> origin/main
     });
 
     it('records audit log entry on successful login', async () => {
@@ -602,11 +557,8 @@ describe('AuthenticationService', () => {
 
       await service.logout('user-uuid-123', 'jti-123', accessExpiry);
 
-<<<<<<< HEAD
       // WHAT: third argument is the blacklist reason — logout() always tags
       // entries with 'user_logout' for incident-triage attribution.
-=======
->>>>>>> origin/main
       expect(mockTokenBlacklist.add).toHaveBeenCalledWith('jti-123', accessExpiry, 'user_logout');
     });
   });

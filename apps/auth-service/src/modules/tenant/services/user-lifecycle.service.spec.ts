@@ -8,18 +8,11 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-<<<<<<< HEAD
-import { DataSource, Repository } from 'typeorm';
-
-import { AuditLogService } from '../../../audit/audit-log.service';
-=======
-import { Role, SchemaManagerService } from '@platform/backend-common';
 import type { UserInvitedEvent } from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { ActionToken } from '../../authentication/entities/action-token.entity';
->>>>>>> origin/main
 import { Invitation } from '../../authentication/entities/invitation.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
@@ -157,18 +150,14 @@ describe('UserLifecycleService', () => {
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
     const mockRefreshTokenRepo = createMockRepository();
-<<<<<<< HEAD
-    // WHY: UserLifecycleService grew three repositories — MobileUserSettings
+    // WHY: UserLifecycleService grew four repositories — MobileUserSettings
     // (accessType-driven mobile provisioning), Invitation and
-    // UserModuleAssignment (atomic invite + module assignment) — so the
-    // testing module must mirror the production constructor exactly.
-    const mockMobileSettingsRepo = createMockRepository();
-    const mockInvitationRepo = createMockRepository();
-=======
+    // UserModuleAssignment (atomic invite + module assignment), and
+    // ActionToken (opaque invitation token ledger) — so the testing
+    // module must mirror the production constructor exactly.
     const mockMobileSettingsRepo = createMockRepository();
     const mockInvitationRepo = createMockRepository();
     const mockActionTokenRepo = createMockRepository();
->>>>>>> origin/main
     const mockUserModuleAssignmentRepo = createMockRepository();
 
     mockDataSource = {
@@ -212,10 +201,7 @@ describe('UserLifecycleService', () => {
         { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepo },
         { provide: getRepositoryToken(MobileUserSettings), useValue: mockMobileSettingsRepo },
         { provide: getRepositoryToken(Invitation), useValue: mockInvitationRepo },
-<<<<<<< HEAD
-=======
         { provide: getRepositoryToken(ActionToken), useValue: mockActionTokenRepo },
->>>>>>> origin/main
         { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepo },
         { provide: DataSource, useValue: mockDataSource },
         { provide: SchemaManagerService, useValue: mockSchemaManager },

@@ -12,10 +12,7 @@ import { DataSource, SelectQueryBuilder } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-<<<<<<< HEAD
-=======
 import { ActionToken } from '../entities/action-token.entity';
->>>>>>> origin/main
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
@@ -26,6 +23,7 @@ import { TokenService } from '../services/token.service';
 
 interface PasswordResetRequestedEvent {
   eventType: string;
+  version: number;
   userId: string;
   actionTokenId: string;
   cryptoShredKeyId: string;
@@ -136,7 +134,7 @@ const mockAuditLogService = {
 // there) and MfaService (login MFA branch). Password-reset paths don't mint
 // MFA challenges, but the constructor requires both collaborators.
 const mockTokenService = {
-  generateTokens: jest.fn().mockImplementation(async (user: User) => ({
+  generateTokens: jest.fn().mockImplementation((user: User) => ({
     accessToken: 'mock-access-token',
     refreshToken: 'mock-refresh-token',
     user,
@@ -160,16 +158,6 @@ const mockDataSource = {
 const mockTimingSafe = {
   ensureMinDuration: jest.fn().mockResolvedValue(undefined),
 };
-
-const mockTokenService = {
-  generateTokens: jest.fn().mockResolvedValue({
-    accessToken: 'mock-access-token',
-    refreshToken: 'mock-refresh-token',
-    user: null,
-  }),
-};
-
-const mockMfaService = {};
 
 describe('AuthenticationService - Password Reset Flow', () => {
   let service: AuthenticationService;
@@ -204,16 +192,6 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
         { provide: MfaService, useValue: mockMfaService },
-<<<<<<< HEAD
-=======
-        {
-          provide: BypassRlsService,
-          useValue: {
-            withBypass: async <T>(_op: string, cb: () => Promise<T> | T): Promise<T> => cb(),
-            withBypassSync: <T>(_op: string, cb: () => T): T => cb(),
-          },
-        },
->>>>>>> origin/main
         { provide: TimingSafeService, useValue: mockTimingSafe },
         { provide: SESSION_MANAGER, useValue: null },
         { provide: TOKEN_BLACKLIST, useValue: null },
@@ -249,18 +227,11 @@ describe('AuthenticationService - Password Reset Flow', () => {
       const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
       expect(savedUser.passwordResetToken).toBeDefined();
       expect(savedUser.passwordResetToken).toHaveLength(64); // SHA-256 hex digest
-<<<<<<< HEAD
       const resetExpires = savedUser.passwordResetExpires;
       if (!(resetExpires instanceof Date)) {
         throw new Error('passwordResetExpires was not persisted as a Date');
       }
       expect(resetExpires.getTime()).toBeGreaterThan(Date.now());
-=======
-      expect(savedUser.passwordResetExpires).toBeInstanceOf(Date);
-      const expiresAt = savedUser.passwordResetExpires?.getTime();
-      expect(expiresAt).toBeDefined();
-      expect(expiresAt ?? 0).toBeGreaterThan(Date.now());
->>>>>>> origin/main
     });
 
     it('should set token expiry to 1 hour from now', async () => {
@@ -272,28 +243,19 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
       const after = Date.now();
 
-<<<<<<< HEAD
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
+      const saveCalls = mockUserRepository.save.mock.calls as readonly (readonly unknown[])[];
+      const savedUser = saveCalls[0]?.[0] as User;
       const resetExpires = savedUser.passwordResetExpires;
       if (!(resetExpires instanceof Date)) {
         throw new Error('passwordResetExpires was not persisted as a Date');
       }
       const expiresAt = resetExpires.getTime();
-=======
-      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
-      const expiresAt = savedUser.passwordResetExpires?.getTime();
-      expect(expiresAt).toBeDefined();
->>>>>>> origin/main
       // Expiry should be approximately 1 hour from now (within 5 second tolerance)
       expect(expiresAt ?? 0).toBeGreaterThanOrEqual(before + 60 * 60 * 1000 - 5000);
       expect(expiresAt ?? 0).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
     });
 
-<<<<<<< HEAD
     it('should publish a PII-free PasswordResetRequested event (opaque references only)', async () => {
-=======
-    it('should publish PasswordResetRequested event with opaque action token id', async () => {
->>>>>>> origin/main
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockUserRepository.save.mockResolvedValue(user);
@@ -301,29 +263,22 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
 
       expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
-<<<<<<< HEAD
-      const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
-      const event = mockEventBus.publish.mock.calls[0][0];
+      const publishCalls = mockEventBus.publish.mock.calls as readonly (readonly unknown[])[];
+      const event = publishCalls[0]?.[0] as PasswordResetRequestedEvent;
       expect(event.eventType).toBe('PasswordResetRequested');
       expect(event.version).toBe(2);
       expect(event.userId).toBe('user-uuid-123');
-      // WHAT: actionTokenId is the SHA-256 hash of the reset token — the same
-      // value persisted on the user row. Notification-service resolves the
-      // actual reset URL at delivery time via authenticated internal API
-      // using this opaque reference; the raw token never crosses the bus.
-      expect(event.actionTokenId).toHaveLength(64);
-      expect(event.actionTokenId).toBe(savedUser.passwordResetToken);
+      // WHAT: actionTokenId is the persisted ActionToken row id (the
+      // command-receipt ledger design that landed with the enterprise
+      // train). Notification-service resolves the actual reset URL at
+      // delivery time via the authenticated internal
+      // /internal/action-tokens/{id}/url endpoint using this opaque
+      // reference; the raw token never crosses the bus.
+      expect(event.actionTokenId).toBe('action-token-id');
       expect(event.cryptoShredKeyId).toBe('user-uuid-123');
       // WHY: PII and secrets must never be placed on the immutable event bus
       // (GDPR erasure + token-leak surface). Assert structural absence so a
       // regression reintroducing them fails loudly.
-=======
-      const [event] = mockEventBus.publish.mock.calls[0] as [PasswordResetRequestedEvent];
-      expect(event.eventType).toBe('PasswordResetRequested');
-      expect(event.userId).toBe('user-uuid-123');
-      expect(event.actionTokenId).toBe('action-token-id');
-      expect(event.cryptoShredKeyId).toBe('user-uuid-123');
->>>>>>> origin/main
       expect(event.email).toBeUndefined();
       expect(event.resetToken).toBeUndefined();
     });
@@ -562,7 +517,6 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-<<<<<<< HEAD
       const publishCalls = mockEventBus.publish.mock.calls as readonly (readonly unknown[])[];
       const resetCompletedEvent = publishCalls.find((call) => {
         const payload = call[0];
@@ -575,17 +529,8 @@ describe('AuthenticationService - Password Reset Flow', () => {
       if (!resetCompletedEvent) {
         throw new Error('PasswordResetCompleted event was not published');
       }
-      expect((resetCompletedEvent[0] as { userId?: unknown }).userId).toBe('user-uuid-123');
-=======
-      const publishCalls = mockEventBus.publish.mock.calls as Array<
-        [PasswordResetRequestedEvent | PasswordResetCompletedEvent]
-      >;
-      const resetCompletedEvent = publishCalls.find(
-        (call) => call[0].eventType === 'PasswordResetCompleted',
-      );
-      expect(resetCompletedEvent).toBeDefined();
-      expect(resetCompletedEvent?.[0].userId).toBe('user-uuid-123');
->>>>>>> origin/main
+      const completedEvent = resetCompletedEvent[0] as PasswordResetCompletedEvent;
+      expect(completedEvent.userId).toBe('user-uuid-123');
     });
 
     it('should log PASSWORD_RESET_SUCCESS audit event', async () => {

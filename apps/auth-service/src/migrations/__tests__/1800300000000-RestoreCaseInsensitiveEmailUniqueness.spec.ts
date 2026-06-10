@@ -1,6 +1,6 @@
 import type { QueryRunner } from 'typeorm';
 
-import { RestoreCaseInsensitiveEmailUniqueness1800100000000 } from '../1800100000000-RestoreCaseInsensitiveEmailUniqueness';
+import { RestoreCaseInsensitiveEmailUniqueness1800300000000 } from '../1800300000000-RestoreCaseInsensitiveEmailUniqueness';
 
 /**
  * RestoreCaseInsensitiveEmailUniqueness.spec.ts
@@ -53,11 +53,11 @@ function makeMockRunner(replies: ReadonlyArray<unknown>): {
   return { runner, calls };
 }
 
-describe('RestoreCaseInsensitiveEmailUniqueness1800100000000', () => {
-  let migration: RestoreCaseInsensitiveEmailUniqueness1800100000000;
+describe('RestoreCaseInsensitiveEmailUniqueness1800300000000', () => {
+  let migration: RestoreCaseInsensitiveEmailUniqueness1800300000000;
 
   beforeEach(() => {
-    migration = new RestoreCaseInsensitiveEmailUniqueness1800100000000();
+    migration = new RestoreCaseInsensitiveEmailUniqueness1800300000000();
   });
 
   describe('up()', () => {

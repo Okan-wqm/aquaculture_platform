@@ -1,4 +1,4 @@
-import { SetMetadata } from '@nestjs/common';
+import { SetMetadata, applyDecorators } from '@nestjs/common';
 
 /**
  * Roles metadata key
@@ -122,15 +122,15 @@ export const SkipTenantGuard = () => SetMetadata(SKIP_TENANT_GUARD_KEY, true);
  * do not need to apply @SkipTenantGuard() separately for public endpoints.
  */
 export const IS_PUBLIC_KEY = 'isPublic';
-export const Public = (): MethodDecorator & ClassDecorator => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (target: any, propertyKey?: string | symbol, descriptor?: any): any => {
-    // Apply both isPublic and skipTenantGuard metadata
-    SetMetadata(IS_PUBLIC_KEY, true)(target, propertyKey!, descriptor);
-    SetMetadata(SKIP_TENANT_GUARD_KEY, true)(target, propertyKey!, descriptor);
-    return descriptor ?? target;
-  };
-};
+// applyDecorators is Nest's canonical combinator for exactly this
+// shape — one decorator stamping multiple metadata keys on either a
+// class or a method — and carries the MethodDecorator & ClassDecorator
+// typing without any hand-rolled target/descriptor bridging.
+export const Public = (): MethodDecorator & ClassDecorator =>
+  applyDecorators(
+    SetMetadata(IS_PUBLIC_KEY, true),
+    SetMetadata(SKIP_TENANT_GUARD_KEY, true),
+  );
 
 /**
  * Check if metadata indicates public access

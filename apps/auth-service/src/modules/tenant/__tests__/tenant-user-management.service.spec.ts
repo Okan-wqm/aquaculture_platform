@@ -612,7 +612,11 @@ describe('TenantUserManagementService', () => {
       expect(result.success).toContain('user-a');
       expect(result.success).toContain('user-b');
       expect(result.failed).toHaveLength(1);
-      expect(result.failed[0]!.userId).toBe('user-c');
+      const [failedEntry] = result.failed;
+      if (!failedEntry) {
+        throw new Error('expected exactly one failed bulk-assign entry');
+      }
+      expect(failedEntry.userId).toBe('user-c');
     });
 
     it('should throw NotFoundException when role does not exist', async () => {

@@ -29,7 +29,8 @@ function expectQueryRejected(
   const isBadRequest = status === 400;
   const hasValidationError = errors?.some(e => {
     const message = e.message.toLowerCase();
-    const code = (e.extensions?.code ?? '').toString().toLowerCase();
+    const rawCode = e.extensions?.code;
+    const code = typeof rawCode === 'string' ? rawCode.toLowerCase() : '';
     return expectedPatterns.some(pattern =>
       message.includes(pattern.toLowerCase()) ||
       code.includes(pattern.toLowerCase()),
@@ -46,7 +47,7 @@ function expectQueryRejected(
 test.describe('GraphQL Security Limits', () => {
   let client: GraphQLTestClient;
 
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(({ request }) => {
     client = new GraphQLTestClient(request);
   });
 

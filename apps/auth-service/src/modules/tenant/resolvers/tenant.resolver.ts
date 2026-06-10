@@ -2,12 +2,14 @@ import { CurrentUser, Public, SuperAdminOnly, TenantAdminOrHigher, Role } from '
 import { ForbiddenException, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType, Field } from '@nestjs/graphql';
 
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../../authentication/entities/user.entity';
 import { CreateTenantInput, UpdateTenantInput, AssignModuleManagerInput } from '../dto/create-tenant.dto';
 import { TenantStats, TenantDatabaseInfo, TableSchemaInfo, AuditLogPage, TenantActivityResponse, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant } from '../entities/tenant.entity';
+import { TenantService } from '../services/tenant.service';
 
 /**
  * Minimal public tenant info exposed by the unauthenticated tenantBySlug query.
@@ -29,7 +31,6 @@ class TenantPublicInfo {
   @Field(() => String, { nullable: true })
   logoUrl!: string | null;
 }
-import { TenantService } from '../services/tenant.service';
 
 @Resolver(() => Tenant)
 export class TenantResolver {
@@ -305,7 +306,7 @@ export class TenantResolver {
       ipAddress: l.ipAddress ?? undefined,
       userAgent: l.userAgent ?? undefined,
       deviceType: undefined as string | undefined,
-      success: l.severity !== 'error',
+      success: l.severity !== AuditLogSeverity.ERROR,
     }));
 
     // Build user activity summaries
@@ -341,8 +342,9 @@ export class TenantResolver {
     const dayMap = new Map<string, Set<string>>();
     for (const log of logs) {
       const dateKey = log.createdAt.toISOString().slice(0, 10);
-      if (!dayMap.has(dateKey)) dayMap.set(dateKey, new Set());
-      dayMap.get(dateKey)!.add(log.performedBy);
+      const dayUsers = dayMap.get(dateKey) ?? new Set<string>();
+      dayUsers.add(log.performedBy);
+      dayMap.set(dateKey, dayUsers);
     }
 
     const dailyActiveUsers = Array.from(dayMap.entries())

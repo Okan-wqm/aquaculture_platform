@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
@@ -24,6 +26,28 @@ import { Tenant } from '../entities/tenant.entity';
 
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import { UserLifecycleService } from './user-lifecycle.service';
+
+/**
+ * Raw-SQL trust boundary: dataSource.query returns untyped rows. Each
+ * call site declares the row shape its SELECT/RETURNING projects, so
+ * the any never propagates past the query line.
+ */
+function rowsAs<T extends object>(result: unknown): readonly T[] {
+  return Array.isArray(result) ? (result as readonly T[]) : [];
+}
+
+/** Row shape of the user_role_assignments join used by role lookups. */
+interface UserRoleAssignmentRow extends Record<string, unknown> {
+  id: string;
+  role_id: string;
+  role_name: string;
+  role_color: string | null;
+  role_icon: string | null;
+  role_level: number | null;
+  permission_overrides: unknown;
+  panel_permissions: unknown;
+  resource_permissions: string[] | null;
+}
 
 /**
  * Created tenant user result
@@ -244,13 +268,15 @@ export class TenantUserManagementService {
       }
 
       // Check if user has an existing active role assignment
-      const existingResult = await this.dataSource.query(
-        `SELECT id, role_id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
-        [userId],
+      const existingResult = rowsAs<{ id: string; role_id: string }>(
+        await this.dataSource.query(
+          `SELECT id, role_id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
+          [userId],
+        ),
       );
+      const existing = existingResult[0];
 
-      if (existingResult.length > 0) {
-        const existing = existingResult[0];
+      if (existing) {
         // Only update if role actually changed
         if (existing.role_id !== input.roleId) {
           await this.dataSource.query(
@@ -295,7 +321,10 @@ export class TenantUserManagementService {
 
     // Return updated user
     const updatedUser = await this.userRepository.findOne({ where: { id: userId } });
-    return updatedUser!;
+    if (!updatedUser) {
+      throw new NotFoundException(`User with ID "${userId}" disappeared during update`);
+    }
+    return updatedUser;
   }
 
   /**
@@ -405,9 +434,11 @@ export class TenantUserManagementService {
     }
 
     // Check if user already has an active role assignment
-    const existingAssignment = await this.dataSource.query(
-      `SELECT id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
-      [userId],
+    const existingAssignment = rowsAs<{ id: string }>(
+      await this.dataSource.query(
+        `SELECT id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
+        [userId],
+      ),
     );
 
     if (existingAssignment.length > 0) {
@@ -460,16 +491,18 @@ export class TenantUserManagementService {
     }
 
     // Get existing assignment
-    const existingResult = await this.dataSource.query(
-      `SELECT * FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
-      [userId],
+    const existingResult = rowsAs<{ id: string; role_id: string } & Record<string, unknown>>(
+      await this.dataSource.query(
+        `SELECT * FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
+        [userId],
+      ),
     );
 
-    if (existingResult.length === 0) {
+    const existing = existingResult[0];
+    if (!existing) {
       throw new NotFoundException(`No active role assignment found for user ${userId}`);
     }
 
-    const existing = existingResult[0];
     const assignmentId = existing.id;
 
     // If changing role, validate new role exists
@@ -570,9 +603,11 @@ export class TenantUserManagementService {
     }
 
     // Get existing active assignment
-    const existingResult = await this.dataSource.query(
-      `SELECT id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
-      [userId],
+    const existingResult = rowsAs<{ id: string }>(
+      await this.dataSource.query(
+        `SELECT id FROM "${schemaName}"."user_role_assignments" WHERE user_id = $1 AND is_active = true`,
+        [userId],
+      ),
     );
 
     if (existingResult.length === 0) {
@@ -618,8 +653,9 @@ export class TenantUserManagementService {
     }
 
     // Get user's role assignment with role details
-    const assignmentResult = await this.dataSource.query(
-      `
+    const assignmentResult = rowsAs<UserRoleAssignmentRow>(
+      await this.dataSource.query(
+        `
       SELECT
         ura.*,
         r.name as role_name,
@@ -633,17 +669,18 @@ export class TenantUserManagementService {
       LEFT JOIN "${schemaName}"."tenant_role_permissions" rp ON r.id = rp.role_id
       WHERE ura.user_id = $1 AND ura.is_active = true
       `,
-      [userId],
+        [userId],
+      ),
     );
 
-    if (assignmentResult.length === 0) {
+    const assignment = assignmentResult[0];
+    if (!assignment) {
       throw new NotFoundException(`No active role assignment found for user ${userId}`);
     }
 
-    const assignment = assignmentResult[0];
     const overrides = this.parsePermissionOverrides(assignment.permission_overrides);
     const panelPermissions = this.parsePanelPermissions(assignment.panel_permissions);
-    const resourcePermissions: string[] = assignment.resource_permissions || [];
+    const resourcePermissions: string[] = assignment.resource_permissions ?? [];
 
     return {
       roleId: assignment.role_id,
@@ -705,8 +742,9 @@ export class TenantUserManagementService {
     schemaName: string,
     userId: string,
   ): Promise<UserRoleAssignmentResult> {
-    const result = await this.dataSource.query(
-      `
+    const result = rowsAs<UserRoleAssignmentRow>(
+      await this.dataSource.query(
+        `
       SELECT
         ura.*,
         r.name as role_name,
@@ -720,14 +758,16 @@ export class TenantUserManagementService {
       LEFT JOIN "${schemaName}"."tenant_role_permissions" rp ON r.id = rp.role_id
       WHERE ura.user_id = $1 AND ura.is_active = true
       `,
-      [userId],
+        [userId],
+      ),
     );
 
-    if (result.length === 0) {
+    const row = result[0];
+    if (!row) {
       throw new NotFoundException(`No active role assignment found for user ${userId}`);
     }
 
-    return this.mapRowToUserRoleAssignment(result[0]);
+    return this.mapRowToUserRoleAssignment(row);
   }
 
   /**
@@ -743,17 +783,23 @@ export class TenantUserManagementService {
     expiresAt?: Date,
   ): Promise<UserRoleAssignmentResult> {
     // Insert role assignment
-    const insertResult = await this.dataSource.query(
-      `
+    const insertResult = rowsAs<{ id: string }>(
+      await this.dataSource.query(
+        `
       INSERT INTO "${schemaName}"."user_role_assignments" (
         user_id, role_id, permission_overrides, is_active, expires_at, assigned_by, created_at, updated_at
       ) VALUES ($1, $2, $3, true, $4, $5, NOW(), NOW())
       RETURNING id
       `,
-      [userId, roleId, JSON.stringify(permissionOverrides), expiresAt || null, assignedBy],
+        [userId, roleId, JSON.stringify(permissionOverrides), expiresAt || null, assignedBy],
+      ),
     );
 
-    const assignmentId = insertResult[0].id;
+    const insertedRow = insertResult[0];
+    if (!insertedRow) {
+      throw new Error('user_role_assignments INSERT returned no id');
+    }
+    const assignmentId = insertedRow.id;
 
     // Build response
     const effectivePermissions = this.calculateEffectivePermissions(
@@ -795,10 +841,7 @@ export class TenantUserManagementService {
   ): Promise<void> {
     // SECURITY: Hash the invitation token for the opaque actionTokenId reference.
     // The raw token is NEVER placed on the event bus.
-    const actionTokenHash = require('crypto')
-      .createHash('sha256')
-      .update(invitationToken)
-      .digest('hex');
+    const actionTokenHash = createHash('sha256').update(invitationToken).digest('hex');
 
     const event: UserInvitedEvent = {
       ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, { aggregateId: user.id, aggregateType: 'User' }),
@@ -850,11 +893,15 @@ export class TenantUserManagementService {
 
     if (typeof raw === 'string') {
       try {
-        const parsed = JSON.parse(raw);
-        return {
-          grants: Array.isArray(parsed.grants) ? parsed.grants : [],
-          revokes: Array.isArray(parsed.revokes) ? parsed.revokes : [],
-        };
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed === 'object' && parsed !== null) {
+          const candidate = parsed as { grants?: unknown; revokes?: unknown };
+          return {
+            grants: Array.isArray(candidate.grants) ? (candidate.grants as string[]) : [],
+            revokes: Array.isArray(candidate.revokes) ? (candidate.revokes as string[]) : [],
+          };
+        }
+        return { grants: [], revokes: [] };
       } catch {
         return { grants: [], revokes: [] };
       }
@@ -883,7 +930,10 @@ export class TenantUserManagementService {
 
     if (typeof raw === 'string') {
       try {
-        return JSON.parse(raw);
+        const parsed: unknown = JSON.parse(raw);
+        return typeof parsed === 'object' && parsed !== null
+          ? (parsed as Record<string, Record<string, Record<string, boolean>>>)
+          : {};
       } catch {
         return {};
       }

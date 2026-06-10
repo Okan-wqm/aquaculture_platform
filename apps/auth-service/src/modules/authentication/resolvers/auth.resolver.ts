@@ -1,8 +1,8 @@
+import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
 import { UnauthorizedException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resolver, Mutation, Args, Query, Context } from '@nestjs/graphql';
 import { Request, Response } from 'express';
-import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { AcceptInvitationInput } from '../dto/accept-invitation.dto';
@@ -97,7 +97,7 @@ export class AuthResolver {
     const request = context.req;
     const forwarded = request.headers['x-forwarded-for'];
     const ipAddress = request.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
-    const userAgent = request.headers['user-agent'] as string | undefined;
+    const userAgent = request.headers['user-agent'];
     const result = await this.authService.login(input, ipAddress, userAgent);
     this.setRefreshTokenCookie(context.res, result.refreshToken);
     return this.stripRefreshToken(result);
@@ -109,8 +109,14 @@ export class AuthResolver {
     @Args('input') input: RefreshTokenInput,
     @Context() context: GqlContext,
   ): Promise<AuthPayload> {
-    // SECURITY: Prefer httpOnly cookie, fall back to body for backward compatibility
-    const token = context.req.cookies?.refresh_token || input.refreshToken;
+    // SECURITY: Prefer httpOnly cookie, fall back to body for backward
+    // compatibility. express cookies are untyped at the boundary —
+    // narrow before the token flows into the auth service.
+    const cookieToken: unknown = context.req.cookies?.refresh_token;
+    const token =
+      typeof cookieToken === 'string' && cookieToken.length > 0
+        ? cookieToken
+        : input.refreshToken;
     if (!token) {
       throw new UnauthorizedException('No refresh token provided');
     }
@@ -184,7 +190,7 @@ export class AuthResolver {
   ): Promise<AuthPayload> {
     const forwarded = context.req?.headers?.['x-forwarded-for'];
     const ipAddress = context.req?.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
-    const userAgent = context.req?.headers?.['user-agent'] as string | undefined;
+    const userAgent = context.req?.headers?.['user-agent'];
     const result = await this.authService.resetPassword(
       input.token,
       input.newPassword,

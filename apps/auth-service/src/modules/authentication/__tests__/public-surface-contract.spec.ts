@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 
-import { AuthResolver } from '../resolvers/auth.resolver';
 import { TenantResolver } from '../../tenant/resolvers/tenant.resolver';
+import { AuthResolver } from '../resolvers/auth.resolver';
 
 /**
  * Public-surface contract — SEC-CRITICAL-001 + MT-LOW-001 regression guards.

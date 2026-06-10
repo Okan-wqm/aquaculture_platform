@@ -91,12 +91,6 @@ interface VersionQueryRow {
   version: string;
 }
 
-/**
- * Raw database row for count query
- */
-interface CountQueryRow {
-  cnt: string;
-}
 
 /**
  * Raw database row for hypertable size query
@@ -680,7 +674,9 @@ export class TenantService {
    * (e.g., tenant_4b529829 for tenantId 4b529829-ea79-48da-982c-cd6fbec8ffb7)
    */
   async getTenantDatabaseInfo(tenantId: string): Promise<TenantDatabaseInfo> {
-    const tenant = await this.findById(tenantId);
+    // Existence check only — findById throws NotFoundException for
+    // unknown tenants; the entity itself is not needed below.
+    await this.findById(tenantId);
     const tenantSchemaName = getTenantSchemaName(tenantId);
 
     this.logger.debug(`Getting database info for tenant ${tenantId}, schema: ${tenantSchemaName}`);

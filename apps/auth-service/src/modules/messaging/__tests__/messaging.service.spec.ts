@@ -197,7 +197,11 @@ describe('MessagingService', () => {
       const result = await service.getThreads(tenantAdmin.id);
 
       expect(result).toHaveLength(2);
-      expect(result[0]!.tenantId).toBe('tenant-1');
+      const [firstThread] = result;
+      if (!firstThread) {
+        throw new Error('expected getThreads to return at least one thread');
+      }
+      expect(firstThread.tenantId).toBe('tenant-1');
     });
 
     it('should return all threads for SuperAdmin', async () => {

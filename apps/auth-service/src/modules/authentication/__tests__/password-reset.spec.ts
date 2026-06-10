@@ -198,8 +198,11 @@ describe('AuthenticationService - Password Reset Flow', () => {
       const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
       expect(savedUser.passwordResetToken).toBeDefined();
       expect(savedUser.passwordResetToken).toHaveLength(64); // SHA-256 hex digest
-      expect(savedUser.passwordResetExpires).toBeInstanceOf(Date);
-      expect(savedUser.passwordResetExpires!.getTime()).toBeGreaterThan(Date.now());
+      const resetExpires = savedUser.passwordResetExpires;
+      if (!(resetExpires instanceof Date)) {
+        throw new Error('passwordResetExpires was not persisted as a Date');
+      }
+      expect(resetExpires.getTime()).toBeGreaterThan(Date.now());
     });
 
     it('should set token expiry to 1 hour from now', async () => {
@@ -212,7 +215,11 @@ describe('AuthenticationService - Password Reset Flow', () => {
       const after = Date.now();
 
       const savedUser = mockUserRepository.save.mock.calls[0][0] as User;
-      const expiresAt = savedUser.passwordResetExpires!.getTime();
+      const resetExpires = savedUser.passwordResetExpires;
+      if (!(resetExpires instanceof Date)) {
+        throw new Error('passwordResetExpires was not persisted as a Date');
+      }
+      const expiresAt = resetExpires.getTime();
       // Expiry should be approximately 1 hour from now (within 5 second tolerance)
       expect(expiresAt).toBeGreaterThanOrEqual(before + 60 * 60 * 1000 - 5000);
       expect(expiresAt).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
@@ -478,12 +485,19 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const publishCalls = mockEventBus.publish.mock.calls;
-      const resetCompletedEvent = publishCalls.find(
-        (call: any[]) => call[0].eventType === 'PasswordResetCompleted',
-      );
-      expect(resetCompletedEvent).toBeDefined();
-      expect(resetCompletedEvent![0].userId).toBe('user-uuid-123');
+      const publishCalls = mockEventBus.publish.mock.calls as readonly (readonly unknown[])[];
+      const resetCompletedEvent = publishCalls.find((call) => {
+        const payload = call[0];
+        return (
+          typeof payload === 'object' &&
+          payload !== null &&
+          (payload as { eventType?: unknown }).eventType === 'PasswordResetCompleted'
+        );
+      });
+      if (!resetCompletedEvent) {
+        throw new Error('PasswordResetCompleted event was not published');
+      }
+      expect((resetCompletedEvent[0] as { userId?: unknown }).userId).toBe('user-uuid-123');
     });
 
     it('should log PASSWORD_RESET_SUCCESS audit event', async () => {

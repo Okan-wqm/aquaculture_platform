@@ -248,8 +248,12 @@ describe('AnnouncementService', () => {
       const result = await service.getAnnouncements(tenantAdmin.id);
 
       expect(result).toHaveLength(1);
-      expect(result[0]!.hasViewed).toBe(true);
-      expect(result[0]!.hasAcknowledged).toBe(true);
+      const [firstAnnouncement] = result;
+      if (!firstAnnouncement) {
+        throw new Error('expected exactly one announcement in the result');
+      }
+      expect(firstAnnouncement.hasViewed).toBe(true);
+      expect(firstAnnouncement.hasAcknowledged).toBe(true);
     });
   });
 

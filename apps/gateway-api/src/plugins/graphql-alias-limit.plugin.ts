@@ -1,11 +1,11 @@
-import { GraphQLError } from 'graphql';
+import type { ApolloServerPlugin, GraphQLRequestListener, BaseContext } from '@apollo/server';
+import { Logger } from '@nestjs/common';
+import { GraphQLError, Kind, OperationTypeNode } from 'graphql';
 import type {
   DocumentNode,
   OperationDefinitionNode,
   FieldNode,
 } from 'graphql';
-import type { ApolloServerPlugin } from '@apollo/server';
-import { Logger } from '@nestjs/common';
 
 /**
  * Sensitive authentication mutations that must not be aliased.
@@ -44,20 +44,24 @@ export function createAliasLimitPlugin(): ApolloServerPlugin {
   const logger = new Logger('AliasLimitPlugin');
 
   return {
-    async requestDidStart() {
-      return {
-        async didResolveOperation({ document }: { document: DocumentNode }) {
+    // WHY non-async + Promise.resolve: the listener performs purely
+    // synchronous AST inspection; Apollo's hook contract is
+    // Promise-based, so the Promise wrapper stays while async-without-
+    // await goes.
+    requestDidStart(): Promise<GraphQLRequestListener<BaseContext>> {
+      return Promise.resolve({
+        didResolveOperation({ document }: { document: DocumentNode }): Promise<void> {
           const operationDef = document.definitions.find(
             (def): def is OperationDefinitionNode =>
-              def.kind === 'OperationDefinition',
+              def.kind === Kind.OPERATION_DEFINITION,
           );
 
-          if (!operationDef || operationDef.operation !== 'mutation') {
-            return;
+          if (!operationDef || operationDef.operation !== OperationTypeNode.MUTATION) {
+            return Promise.resolve();
           }
 
           const topLevelFields = operationDef.selectionSet.selections.filter(
-            (sel): sel is FieldNode => sel.kind === 'Field',
+            (sel): sel is FieldNode => sel.kind === Kind.FIELD,
           );
 
           // Check total mutation field count
@@ -92,8 +96,9 @@ export function createAliasLimitPlugin(): ApolloServerPlugin {
               }
             }
           }
+          return Promise.resolve();
         },
-      };
+      });
     },
   };
 }

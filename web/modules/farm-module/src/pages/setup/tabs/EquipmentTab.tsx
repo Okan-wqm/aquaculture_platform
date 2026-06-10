@@ -319,8 +319,10 @@ export const EquipmentTab: React.FC = () => {
     return selectedEquipmentType.code.startsWith('feeder-');
   }, [selectedEquipmentType]);
 
-  // Get equipment list from API or empty array
-  const equipment = equipmentData?.items || [];
+  // Get equipment list from API or empty array. Memoized so the
+  // filtered-list useMemo below keeps a stable dependency instead of a
+  // fresh [] identity on every render.
+  const equipment = useMemo(() => equipmentData?.items ?? [], [equipmentData]);
 
   // Count orphaned equipment (no system associations)
   const orphanedCount = equipment.filter(

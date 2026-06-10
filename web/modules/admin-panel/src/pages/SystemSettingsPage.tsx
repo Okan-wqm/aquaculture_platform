@@ -579,7 +579,7 @@ const SystemSettingsPage: React.FC = () => {
   const saveWithFeedback = async (
     saveFn: () => Promise<unknown>,
     successMessage: string
-  ) => {
+  ): Promise<void> => {
     setSaving(true);
     setError(null);
     setSuccess(null);

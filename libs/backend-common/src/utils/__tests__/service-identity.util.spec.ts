@@ -37,7 +37,7 @@ const KEYRING = [
   },
 ];
 
-function fullHeaders() {
+function fullHeaders(): ReturnType<typeof generateServiceIdentityHeadersV2> {
   return generateServiceIdentityHeadersV2({
     serviceName: SERVICE,
     secret: SECRET,

@@ -8,7 +8,7 @@ const TENANT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const DEVICE_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const DEVICE_CODE = 'edge-device-01';
 
-function makeMqttClient() {
+function makeMqttClient(): { isConnectedToBroker: jest.Mock; publish: jest.Mock } {
   return {
     isConnectedToBroker: jest.fn().mockReturnValue(true),
     publish: jest.fn().mockResolvedValue(undefined),

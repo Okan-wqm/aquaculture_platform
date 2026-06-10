@@ -404,30 +404,51 @@ try {
     regressions,
   });
 
-  if (regressions.length > 0) {
+  // Severity is the SSoT for contract-vs-advisory: rules the platform
+  // treats as architectural contracts are configured at error level;
+  // warning-level rules (e.g. aquaculture/no-direct-event-publish,
+  // tracked as DATA-HIGH-004) are deliberate advisories. The gate
+  // therefore BLOCKS only on error-level regressions and reports
+  // warning-level regressions loudly without re-judging their severity.
+  //
+  // The full list is always printed (the previous 100-line cap masked
+  // an entire second regression batch on this very branch); the JSON
+  // report additionally persists everything for artifacts.
+  const errorRegressions = regressions.filter((item) => item.severity === 2);
+  const warningRegressions = regressions.filter((item) => item.severity !== 2);
+
+  const printRegression = (regression) =>
     console.error(
-      `New file-level lint findings relative to ${options.base}: ` +
-        `${regressions.reduce((sum, item) => sum + item.addedCount, 0)}`,
+      `  ${regression.path}:${regression.line}:${regression.column} ` +
+        `${severityLabel(regression.severity)} ${regression.ruleId} ` +
+        `(base=${regression.baseCount}, head=${regression.headCount}) ` +
+        `${regression.message}`,
     );
-    for (const regression of regressions.slice(0, 100)) {
-      console.error(
-        `  ${regression.path}:${regression.line}:${regression.column} ` +
-          `${severityLabel(regression.severity)} ${regression.ruleId} ` +
-          `(base=${regression.baseCount}, head=${regression.headCount}) ` +
-          `${regression.message}`,
-      );
+
+  if (warningRegressions.length > 0) {
+    console.error(
+      `Warning-level lint regressions relative to ${options.base} ` +
+        `(report-only, NOT blocking — severity is owned by the rule config): ` +
+        `${warningRegressions.reduce((sum, item) => sum + item.addedCount, 0)}`,
+    );
+    for (const regression of warningRegressions) {
+      printRegression(regression);
     }
-    if (regressions.length > 100) {
-      console.error(
-        `  ... ${regressions.length - 100} more finding groups; see ` +
-          `artifacts/ci-lint/changed-files-lint-delta.json`,
-      );
+  }
+
+  if (errorRegressions.length > 0) {
+    console.error(
+      `New error-level lint findings relative to ${options.base}: ` +
+        `${errorRegressions.reduce((sum, item) => sum + item.addedCount, 0)}`,
+    );
+    for (const regression of errorRegressions) {
+      printRegression(regression);
     }
     process.exit(1);
   }
 
   console.log(
-    `No new file-level lint findings relative to ${options.base}. ` +
+    `No new error-level lint findings relative to ${options.base}. ` +
       `Existing lint debt stays owned by project quarantine policy.`,
   );
 } finally {

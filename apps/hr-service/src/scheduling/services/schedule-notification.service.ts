@@ -325,10 +325,10 @@ export class ScheduleNotificationService {
     return {
       employeeId: employee.id,
       employeeName: `${employee.firstName} ${employee.lastName}`,
-      employeeEmail: employee.email!,
+      employeeEmail: employee.email,
       tenantId: plan.tenantId,
-      weekStartDate: plan.weekStartDate.toISOString().split('T')[0],
-      weekEndDate: plan.weekEndDate.toISOString().split('T')[0],
+      weekStartDate: plan.weekStartDate.toISOString().slice(0, 10),
+      weekEndDate: plan.weekEndDate.toISOString().slice(0, 10),
       entries,
       totalWorkDays: plan.plannedWorkDays,
       totalWorkHours: Math.round((plan.plannedTotalMinutes / 60) * 10) / 10,
@@ -575,7 +575,7 @@ export class ScheduleNotificationService {
           NotificationSendEmailCommand
         >(NOTIFICATION_COMMAND_SUBJECTS.SEND_EMAIL, command)
         .pipe(timeout(this.notificationCommandTimeoutMs)),
-    ) as Promise<NotificationSendResult>;
+    );
   }
 
   /**

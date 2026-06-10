@@ -724,7 +724,14 @@ export class BillingAdminNatsHandler {
     }
 
     for (const moduleId of moduleIds) {
-      const moduleInfo = moduleMap.get(moduleId)!;
+      const moduleInfo = moduleMap.get(moduleId);
+      if (!moduleInfo) {
+        // Unreachable after the missing-module check above; explicit guard
+        // keeps the read null-safe without a non-null assertion.
+        throw new NotFoundException(
+          `Missing module metadata for billing reconciliation: ${moduleId}`,
+        );
+      }
       const quantities = moduleQuantities?.find((item) => item.moduleId === moduleId) ?? { moduleId };
       await manager.query(
         `INSERT INTO billing.subscription_module_items (

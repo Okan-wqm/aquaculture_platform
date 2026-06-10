@@ -999,8 +999,10 @@ async function main(): Promise<number> {
   }
 
   if (parsedArgs.down !== undefined && parsedArgs.schema !== undefined) {
+    const rollbackSchema = parsedArgs.schema;
+    const rollbackCount = parsedArgs.down;
     return await withReleaseMigrationLock(database, async () =>
-      runRollback(database, { schema: parsedArgs.schema!, down: parsedArgs.down! }, root),
+      runRollback(database, { schema: rollbackSchema, down: rollbackCount }, root),
     );
   }
 

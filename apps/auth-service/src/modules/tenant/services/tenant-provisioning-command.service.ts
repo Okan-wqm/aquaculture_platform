@@ -299,7 +299,7 @@ export class TenantProvisioningCommandService {
             ...(requested.configuration ?? {}),
             quantities,
           };
-          const rows = await manager.query(
+          const rows: unknown = await manager.query(
             `
             INSERT INTO auth.tenant_modules (
               id, "tenantId", "moduleId", "isEnabled", "activatedAt",
@@ -343,7 +343,7 @@ export class TenantProvisioningCommandService {
       async (manager) => {
         await this.assertTenantExists(command.tenantId, manager);
 
-        const rows = await manager.query(
+        const rows: unknown = await manager.query(
           `
           UPDATE auth.tenant_modules
           SET "isEnabled" = false,
@@ -516,11 +516,11 @@ export class TenantProvisioningCommandService {
         };
 
         if (command.completedSteps.includes('create_admin')) {
-          const invitations = await manager.query(
+          const invitations: unknown = await manager.query(
             `DELETE FROM auth.invitations WHERE "tenantId" = $1 RETURNING id`,
             [command.tenantId],
           );
-          const users = await manager.query(
+          const users: unknown = await manager.query(
             `DELETE FROM auth.users WHERE "tenantId" = $1 AND role = $2 RETURNING id`,
             [command.tenantId, Role.TENANT_ADMIN],
           );
@@ -529,7 +529,7 @@ export class TenantProvisioningCommandService {
         }
 
         if (command.completedSteps.includes('setup_roles')) {
-          const roles = await manager.query(
+          const roles: unknown = await manager.query(
             `DELETE FROM auth.tenant_roles WHERE "tenantId" = $1 RETURNING id`,
             [command.tenantId],
           );
@@ -537,7 +537,7 @@ export class TenantProvisioningCommandService {
         }
 
         if (command.completedSteps.includes('assign_modules')) {
-          const modules = await manager.query(
+          const modules: unknown = await manager.query(
             `DELETE FROM auth.tenant_modules WHERE "tenantId" = $1 RETURNING id`,
             [command.tenantId],
           );

@@ -161,10 +161,9 @@ describe('UserLifecycleService', () => {
         const mockManager = {
           getRepository: jest.fn().mockReturnValue(mockUserRepo),
           create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
-          save: jest.fn(async (_entity: unknown, data: Record<string, unknown>) => ({
-            id: 'action-token-id',
-            ...data,
-          })),
+          save: jest.fn((_entity: unknown, data: Record<string, unknown>) =>
+            Promise.resolve({ id: 'action-token-id', ...data }),
+          ),
           createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
           query: mockDataSource.query,
         };
@@ -293,8 +292,6 @@ describe('UserLifecycleService', () => {
         }))
         .mockResolvedValueOnce(null);
 
-      const txUserRepo = createMockRepository();
-      const txInvitationRepo = createMockRepository();
       const txUserModuleAssignmentRepo = createMockRepository();
       const txTenantRepo = {
         increment: jest.fn().mockResolvedValue(undefined),
@@ -304,23 +301,24 @@ describe('UserLifecycleService', () => {
         email: 'newuser@tenant.com',
         role: Role.MODULE_USER,
       });
-      txUserRepo.save.mockResolvedValue(invitedUser);
-      txInvitationRepo.save.mockResolvedValue({ id: 'invitation-id' });
       txUserModuleAssignmentRepo.save.mockResolvedValue([]);
 
+      // User + Invitation writes go through typed manager.create/save
+      // (cross-tenant auth tables — see service WHY note); only
+      // UserModuleAssignment still routes through getRepository via
+      // tenantManagerRepo.
       const txManager = {
         getRepository: jest.fn((entity: unknown) => {
-          if (entity === User) return txUserRepo;
-          if (entity === Invitation) return txInvitationRepo;
           if (entity === UserModuleAssignment) return txUserModuleAssignmentRepo;
           if (entity === Tenant) return txTenantRepo;
           throw new Error('Unexpected repository');
         }),
         create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
-        save: jest.fn(async (_entity: unknown, data: Record<string, unknown>) => ({
-          id: 'action-token-id',
-          ...data,
-        })),
+        save: jest.fn((entity: unknown, data: Record<string, unknown>) => {
+          if (entity === User) return Promise.resolve(invitedUser);
+          if (entity === Invitation) return Promise.resolve({ id: 'invitation-id', ...data });
+          return Promise.resolve({ id: 'action-token-id', ...data });
+        }),
         createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
       };
       mockDataSource.transaction.mockImplementationOnce(
@@ -374,31 +372,29 @@ describe('UserLifecycleService', () => {
         }))
         .mockResolvedValueOnce(null);
 
-      const txUserRepo = createMockRepository();
-      const txInvitationRepo = createMockRepository();
       const txTenantRepo = {
         increment: jest.fn().mockResolvedValue(undefined),
       };
-      txUserRepo.save.mockResolvedValue(createMockUser({
+      const invitedUser = createMockUser({
         id: 'invited-user-id',
         email: 'newuser@tenant.com',
         role: Role.MODULE_USER,
-      }));
-      txInvitationRepo.save.mockResolvedValue({ id: 'invitation-id' });
+      });
 
+      // Same entity-aware manager shape as the previous test — User and
+      // Invitation persist through typed manager.create/save.
       const txManager = {
         getRepository: jest.fn((entity: unknown) => {
-          if (entity === User) return txUserRepo;
-          if (entity === Invitation) return txInvitationRepo;
           if (entity === UserModuleAssignment) return createMockRepository();
           if (entity === Tenant) return txTenantRepo;
           throw new Error('Unexpected repository');
         }),
         create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
-        save: jest.fn(async (_entity: unknown, data: Record<string, unknown>) => ({
-          id: 'action-token-id',
-          ...data,
-        })),
+        save: jest.fn((entity: unknown, data: Record<string, unknown>) => {
+          if (entity === User) return Promise.resolve(invitedUser);
+          if (entity === Invitation) return Promise.resolve({ id: 'invitation-id', ...data });
+          return Promise.resolve({ id: 'action-token-id', ...data });
+        }),
         createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
       };
       mockDataSource.transaction.mockImplementationOnce(

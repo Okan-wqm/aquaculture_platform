@@ -11,6 +11,10 @@ import { CreateSubscriptionCommand } from '../commands/create-subscription.comma
 import { Plan } from '../entities/plan.entity';
 import { SubscriptionModuleItem } from '../entities/subscription-module-item.entity';
 import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
+// WHY type-only: the runtime Subscription class is loaded via dynamic
+// import() further down to avoid a module-load cycle; the static type
+// reference here has no runtime footprint.
+import type { Subscription } from '../entities/subscription.entity';
 
 // UUID v4 regex — matches the same pattern used throughout the billing service
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -507,7 +511,7 @@ export class TenantSubscriptionRequestedHandler
    */
   private async ensureRetryTable(): Promise<void> {
     if (this.retryTableEnsured) return;
-    const rows = await this.dataSource.query(
+    const rows: unknown = await this.dataSource.query(
       `SELECT 1
          FROM information_schema.tables
         WHERE table_schema = 'billing'
@@ -568,19 +572,23 @@ export class TenantSubscriptionRequestedHandler
     const now = new Date();
     // Atomically claim pending retries to prevent concurrent processing
     // TypeORM's dataSource.query() wraps UPDATE results as [rows[], affectedCount]
-    const result = await this.dataSource.query(
+    const result: unknown = await this.dataSource.query(
       `UPDATE billing.subscription_provisioning_retries
          SET status = 'processing', updated_at = NOW()
        WHERE status = 'pending' AND next_retry_at <= $1
        RETURNING id, tenant_id, event_payload, retry_count`,
       [now],
     );
-    const rows: Array<{
+    const resultList = Array.isArray(result) ? (result as readonly unknown[]) : [];
+    const claimedRows = Array.isArray(resultList[0])
+      ? (resultList[0] as readonly unknown[])
+      : resultList;
+    const rows = claimedRows as Array<{
       id: string;
       tenant_id: string;
       event_payload: Record<string, unknown>;
       retry_count: number;
-    }> = Array.isArray(result?.[0]) ? result[0] : Array.isArray(result) ? result : [];
+    }>;
 
     if (rows.length === 0) return;
 

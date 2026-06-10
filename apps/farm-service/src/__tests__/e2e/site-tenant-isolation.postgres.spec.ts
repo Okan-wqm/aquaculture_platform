@@ -30,6 +30,7 @@ import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { AuditLog } from '../../database/entities/audit-log.entity';
 import { CodeSequence } from '../../database/entities/code-sequence.entity';
+import type { AuditLogService } from '../../database/services/audit-log.service';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
 import { CreateDepartmentCommand } from '../../department/commands/create-department.command';
 import { DeleteDepartmentCommand } from '../../department/commands/delete-department.command';
@@ -2198,15 +2199,18 @@ function createSentinelConfigService(): ConfigService {
 }
 
 function createAuditLogService(): AuditLogService {
+  // as never: AuditLogService grew members this stub never exercises;
+  // a direct `as AuditLogService` no longer sufficiently overlaps and
+  // error-poisons every downstream handler argument.
   return {
     log: () => Promise.resolve(new AuditLog()),
     logWithManager: () => Promise.resolve(new AuditLog()),
-  } as AuditLogService;
+  } as never;
 }
 
 function createFailingAuditLogService(message: string): AuditLogService {
   return {
     log: () => Promise.resolve(new AuditLog()),
     logWithManager: () => Promise.reject(new Error(message)),
-  } as AuditLogService;
+  } as never;
 }

@@ -99,7 +99,9 @@ function makeHandler(opts: {
   };
   const defaultEventBus: BusDouble = {
     subscribeWildcard: jest.fn().mockResolvedValue(undefined),
-    publish: jest.fn().mockResolvedValue(undefined),
+    publish: jest
+      .fn<Promise<void>, [TenantOnboardingAckEvent | TenantOnboardingFailedEvent]>()
+      .mockResolvedValue(undefined),
   };
   const eventBus = Object.prototype.hasOwnProperty.call(opts, 'eventBus')
     ? opts.eventBus
@@ -259,7 +261,9 @@ describe('TenantOnboardingEventHandler', () => {
   it('subscribes via wildcard when EventBus is wired', async () => {
     const bus: BusDouble = {
       subscribeWildcard: jest.fn().mockResolvedValue(undefined),
-      publish: jest.fn().mockResolvedValue(undefined),
+      publish: jest
+        .fn<Promise<void>, [TenantOnboardingAckEvent | TenantOnboardingFailedEvent]>()
+        .mockResolvedValue(undefined),
     };
     const { handler } = makeHandler({ eventBus: bus });
     await handler.onModuleInit();

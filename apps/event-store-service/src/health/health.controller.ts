@@ -111,10 +111,15 @@ export class HealthController extends StandardHealthController {
 
   private async checkNoActiveRlsBypass(): Promise<'ok' | 'error'> {
     try {
-      const rows = (await this.dataSource.query(`
+      const rows: unknown = await this.dataSource.query(`
         SELECT current_setting('app.bypass_rls', true) AS bypass
-      `)) as Array<{ bypass?: string | null }>;
-      return rows[0]?.bypass === 'on' ? 'error' : 'ok';
+      `);
+      const first = Array.isArray(rows) ? (rows as readonly unknown[])[0] : undefined;
+      const bypass =
+        typeof first === 'object' && first !== null
+          ? (first as Record<string, unknown>).bypass
+          : undefined;
+      return bypass === 'on' ? 'error' : 'ok';
     } catch {
       return 'error';
     }

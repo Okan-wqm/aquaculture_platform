@@ -205,7 +205,7 @@ describe('ScheduleNotificationService', () => {
         overtimeHours: 0,
       });
 
-      const sendCall = natsClient.send.mock.calls[0];
+      const sendCall = natsClient.send.mock.calls[0] as readonly unknown[] | undefined;
       expect(sendCall?.[0]).toBe(NOTIFICATION_COMMAND_SUBJECTS.SEND_EMAIL);
       const command = sendCall?.[1] as SentEmailCommand | undefined;
       expect(command).toMatchObject({
@@ -275,11 +275,11 @@ describe('ScheduleNotificationService', () => {
             overtimeHours: 13,
             maxHours: 12,
             isExceeded: true,
-          }),
+          }) as Record<string, unknown>,
           metadata: expect.objectContaining({
             employeeId: 'emp-1',
             recipientRole: 'manager',
-          }),
+          }) as Record<string, unknown>,
         }),
       );
     });

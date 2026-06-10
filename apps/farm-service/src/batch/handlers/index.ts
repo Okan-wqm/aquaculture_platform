@@ -14,8 +14,8 @@ import { RecordMortalityHandler } from './record-mortality.handler';
 import { RemoveCleanerFishHandler } from './remove-cleaner-fish.handler';
 import { TransferBatchHandler } from './transfer-batch.handler';
 import { TransferCleanerFishHandler } from './transfer-cleaner-fish.handler';
-import { UpdateBatchHandler } from './update-batch.handler';
 import { UpdateBatchStatusHandler } from './update-batch-status.handler';
+import { UpdateBatchHandler } from './update-batch.handler';
 
 export * from './create-batch.handler';
 export * from './create-cleaner-batch.handler';

@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
+import { AuditLog } from '../../infrastructure/audit';
 import {
   PlcConnection,
   PlcConnectionStatus,
@@ -28,6 +29,21 @@ import { OpcUaAdapter } from '../../protocol/adapters/industrial/opcua.adapter';
 import { buildOpcUaConfig } from './opcua-config.builder';
 
 export type PaginatedPlcConnections = IStandardPaginatedResult<PlcConnection>;
+const OPC_UA_WRITE_DATA_TYPES = new Set([
+  'Boolean',
+  'SByte',
+  'Byte',
+  'Int16',
+  'UInt16',
+  'Int32',
+  'UInt32',
+  'Int64',
+  'UInt64',
+  'Float',
+  'Double',
+  'String',
+  'DateTime',
+]);
 
 /**
  * Status count result interface
@@ -48,6 +64,8 @@ export class PlcConnectionService {
   constructor(
     @InjectRepository(PlcConnection)
     private readonly plcConnectionRepository: Repository<PlcConnection>,
+    @InjectRepository(AuditLog)
+    private readonly auditLogRepository: Repository<AuditLog>,
     private readonly opcUaAdapter: OpcUaAdapter,
   ) {}
 
@@ -153,7 +171,7 @@ export class PlcConnectionService {
 
     // Get total count and items
     const [items, total] = await queryBuilder
-      .skip(skip)
+      .offset(skip)
       .take(limit)
       .getManyAndCount();
 
@@ -603,14 +621,70 @@ export class PlcConnectionService {
     nodeId: string,
     value: unknown,
     dataType?: string,
+    actorUserId?: string,
+    correlationId?: string,
   ): Promise<void> {
     const connection = await this.findById(id, tenantId);
 
-    if (connection.status !== PlcConnectionStatus.ONLINE) {
-      throw new BadRequestException('PLC connection must be online to write values');
+    if (!actorUserId) {
+      throw new ForbiddenException('Authenticated actor is required for OPC UA writes');
+    }
+    if (!correlationId) {
+      throw new BadRequestException('Correlation ID is required for OPC UA writes');
+    }
+
+    if (!connection.isActive || connection.status !== PlcConnectionStatus.ONLINE) {
+      await this.writeOpcUaAudit({
+        tenantId,
+        connectionId: connection.id,
+        nodeId,
+        dataType,
+        actorUserId,
+        correlationId,
+        result: 'denied',
+        reason: 'connection_not_active_or_online',
+      });
+      throw new BadRequestException('PLC connection must be active and online to write values');
+    }
+
+    if (!this.isWriteNodeAllowlisted(connection, nodeId)) {
+      await this.writeOpcUaAudit({
+        tenantId,
+        connectionId: connection.id,
+        nodeId,
+        dataType,
+        actorUserId,
+        correlationId,
+        result: 'denied',
+        reason: 'node_not_allowlisted',
+      });
+      throw new ForbiddenException('OPC UA node is not allowlisted for writes');
+    }
+
+    if (dataType && !OPC_UA_WRITE_DATA_TYPES.has(dataType)) {
+      await this.writeOpcUaAudit({
+        tenantId,
+        connectionId: connection.id,
+        nodeId,
+        dataType,
+        actorUserId,
+        correlationId,
+        result: 'denied',
+        reason: 'unsupported_data_type',
+      });
+      throw new BadRequestException(`Unsupported OPC UA write data type: ${dataType}`);
     }
 
     this.logger.log(`Writing value to node ${nodeId} on ${connection.name}`);
+    await this.writeOpcUaAudit({
+      tenantId,
+      connectionId: connection.id,
+      nodeId,
+      dataType,
+      actorUserId,
+      correlationId,
+      result: 'attempt',
+    });
 
     const config = buildOpcUaConfig(connection);
     let handle;
@@ -618,14 +692,73 @@ export class PlcConnectionService {
     try {
       handle = await this.opcUaAdapter.connect(config);
       await this.opcUaAdapter.writeData(handle, nodeId, value, dataType);
+      await this.writeOpcUaAudit({
+        tenantId,
+        connectionId: connection.id,
+        nodeId,
+        dataType,
+        actorUserId,
+        correlationId,
+        result: 'success',
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Write failed: ${msg}`);
+      await this.writeOpcUaAudit({
+        tenantId,
+        connectionId: connection.id,
+        nodeId,
+        dataType,
+        actorUserId,
+        correlationId,
+        result: 'failure',
+        reason: msg,
+      });
       throw new BadRequestException(`Failed to write to node: ${msg}`);
     } finally {
       if (handle) {
         try { await this.opcUaAdapter.disconnect(handle); } catch { /* ignore */ }
       }
+    }
+  }
+
+  private isWriteNodeAllowlisted(connection: PlcConnection, nodeId: string): boolean {
+    return connection.parametersNodeId === nodeId;
+  }
+
+  private async writeOpcUaAudit(input: {
+    tenantId: string;
+    connectionId: string;
+    nodeId: string;
+    dataType?: string;
+    actorUserId: string;
+    correlationId: string;
+    result: 'attempt' | 'success' | 'denied' | 'failure';
+    reason?: string;
+  }): Promise<void> {
+    try {
+      const entry = this.auditLogRepository.create({
+        tenantId: input.tenantId,
+        entityType: 'plc_connection',
+        entityId: input.connectionId,
+        action: 'UPDATE',
+        changedBy: input.actorUserId,
+        changedFields: ['opcUaNodeValue'],
+        newValue: {
+          semanticAction: 'writeOpcUaNode',
+          connectionId: input.connectionId,
+          nodeId: input.nodeId,
+          dataType: input.dataType,
+          result: input.result,
+          reason: input.reason,
+          correlationId: input.correlationId,
+        },
+      });
+      await this.auditLogRepository.save(entry);
+    } catch (error) {
+      throw new BadRequestException(
+        `OPC UA write audit failed: ${(error as Error).message}`,
+      );
     }
   }
 }

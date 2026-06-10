@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 import {
   Injectable,
   Logger,
@@ -6,10 +8,18 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, MoreThan, FindOptionsWhere } from 'typeorm';
-import { StoredEvent } from '../entities/stored-event.entity';
+import {
+  Repository,
+  DataSource,
+  MoreThan,
+  FindOptionsWhere,
+  EntityManager,
+  Brackets,
+} from 'typeorm';
+
 import { EventStream } from '../entities/event-stream.entity';
 import { Snapshot } from '../entities/snapshot.entity';
+import { StoredEvent } from '../entities/stored-event.entity';
 import {
   DomainEvent,
   PersistedEvent,
@@ -25,6 +35,7 @@ import {
 const ALLOWED_SORT_FIELDS = new Set(['occurredAt', 'storedAt', 'globalPosition']);
 const AGGREGATE_TYPE_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
 const MAX_LOAD_AGGREGATE_EVENTS = 1000;
+const MAX_APPEND_EVENTS = 100;
 
 @Injectable()
 export class EventStoreService {
@@ -53,6 +64,7 @@ export class EventStoreService {
     expectedVersion: number,
   ): Promise<AppendResult> {
     this.validateAggregateType(aggregateType);
+    this.validateAppendEvents(events);
     const streamName = this.buildStreamName(aggregateType, aggregateId);
     const queryRunner = this.dataSource.createQueryRunner();
 
@@ -80,6 +92,43 @@ export class EventStoreService {
         );
       }
 
+      const duplicateEvents = await this.findExistingProducerEvents(
+        queryRunner.manager,
+        tenantId,
+        events,
+      );
+      if (duplicateEvents.length > 0) {
+        if (
+          duplicateEvents.length === events.length &&
+          this.isExactIdempotentReplay(duplicateEvents, streamName, events)
+        ) {
+          await queryRunner.commitTransaction();
+          const byProducerEventId = new Map(
+            duplicateEvents.map((event) => [event.producerEventId, event]),
+          );
+          const replayedEvents = events.map((event) => {
+            const replayedEvent = byProducerEventId.get(event.producerEventId);
+            if (!replayedEvent) {
+              throw new ConflictException(
+                `Producer event ${event.producerEventId} was not found in the idempotent replay set`,
+              );
+            }
+            return replayedEvent;
+          });
+          return {
+            success: true,
+            streamName,
+            newVersion: currentVersion,
+            eventIds: replayedEvents.map((event) => event.id),
+            globalPositions: replayedEvents.map((event) => event.globalPosition),
+          };
+        }
+
+        throw new ConflictException(
+          'Producer event idempotency conflict: producerEventId already exists with different event content',
+        );
+      }
+
       // Create stream if new
       if (!stream) {
         stream = queryRunner.manager.create(EventStream, {
@@ -93,30 +142,20 @@ export class EventStoreService {
       }
 
       const eventIds: string[] = [];
-      const globalPositions: number[] = [];
+      const globalPositions: string[] = [];
       let newVersion = currentVersion;
-
-      // Use PostgreSQL sequence for atomic global position assignment
-      const positionResults = await queryRunner.manager.query(
-        `SELECT nextval('stored_events_global_position_seq') as pos FROM generate_series(1, $1)`,
-        [events.length],
-      );
-
-      const positions: number[] = positionResults.map((r: { pos: string }) =>
-        parseInt(r.pos, 10),
-      );
 
       // Build all events for bulk insert
       const storedEvents: Array<Record<string, unknown>> = [];
       for (let i = 0; i < events.length; i++) {
         const event = events[i]!;
         newVersion++;
-        const globalPosition = positions[i]!;
 
         storedEvents.push({
           streamName,
-          globalPosition,
-          streamPosition: newVersion,
+          streamPosition: newVersion.toString(),
+          producer: event.producer,
+          producerEventId: event.producerEventId,
           aggregateType,
           aggregateId,
           version: newVersion,
@@ -130,14 +169,19 @@ export class EventStoreService {
           occurredAt: event.occurredAt || new Date(),
           schemaVersion: event.schemaVersion || 1,
         });
-
-        globalPositions.push(globalPosition);
       }
 
       // Bulk insert all events
-      const insertResult = await queryRunner.manager.insert(StoredEvent, storedEvents);
-      for (const row of insertResult.identifiers) {
-        eventIds.push(row['id']);
+      const insertResult = await queryRunner.manager
+        .createQueryBuilder()
+        .insert()
+        .into(StoredEvent)
+        .values(storedEvents)
+        .returning(['id', 'globalPosition'])
+        .execute();
+      for (const row of insertResult.raw as Array<Record<string, unknown>>) {
+        eventIds.push(String(row['id']));
+        globalPositions.push(String(row['globalPosition'] ?? row['globalposition']));
       }
 
       // Update stream metadata
@@ -206,7 +250,7 @@ export class EventStoreService {
         fromVersion,
         nextVersion: 0,
         isEndOfStream: true,
-        streamPosition: { preparePosition: 0, commitPosition: 0 },
+        streamPosition: { preparePosition: '0', commitPosition: '0' },
       };
     }
 
@@ -237,8 +281,8 @@ export class EventStoreService {
       nextVersion: lastVersion,
       isEndOfStream,
       streamPosition: {
-        preparePosition: lastVersion,
-        commitPosition: stream.currentVersion,
+        preparePosition: lastVersion.toString(),
+        commitPosition: stream.currentVersion.toString(),
       },
     };
   }
@@ -251,7 +295,7 @@ export class EventStoreService {
     options: ReadAllOptions = {},
   ): Promise<AllEventsSlice> {
     const {
-      fromPosition = 0,
+      fromPosition = '0',
       maxCount = 100,
       direction = 'forward',
       eventTypes,
@@ -385,19 +429,31 @@ export class EventStoreService {
       );
     }
 
-    // Atomic upsert instead of delete+insert
-    // TypeORM's QueryDeepPartialEntity doesn't handle Record<string, unknown> for JSONB columns
-    const upsertData = { aggregateType, aggregateId, tenantId, version, state, schemaVersion };
-    await this.snapshotRepository.upsert(
-      upsertData as Parameters<typeof this.snapshotRepository.upsert>[0],
-      {
-        conflictPaths: ['aggregateType', 'aggregateId', 'tenantId'],
-      },
-    );
-
-    const snapshot = await this.snapshotRepository.findOneOrFail({
-      where: { aggregateType, aggregateId, tenantId },
+    const stateHash = this.hashJson(state);
+    const existingSnapshot = await this.snapshotRepository.findOne({
+      where: { aggregateType, aggregateId, tenantId, version },
     });
+
+    if (existingSnapshot) {
+      if (existingSnapshot.stateHash === stateHash) {
+        return existingSnapshot;
+      }
+      throw new ConflictException(
+        `Snapshot ${aggregateType}/${aggregateId}@${version} already exists with different state`,
+      );
+    }
+
+    const snapshot = await this.snapshotRepository.save(
+      this.snapshotRepository.create({
+        aggregateType,
+        aggregateId,
+        tenantId,
+        version,
+        state,
+        stateHash,
+        schemaVersion,
+      }),
+    );
 
     this.logger.log(
       `Created snapshot for ${aggregateType}/${aggregateId} at version ${version}`,
@@ -415,6 +471,7 @@ export class EventStoreService {
   ): Promise<SnapshotData | null> {
     const snapshot = await this.snapshotRepository.findOne({
       where: { aggregateType, aggregateId, tenantId },
+      order: { version: 'DESC' },
     });
 
     if (!snapshot) {
@@ -462,7 +519,7 @@ export class EventStoreService {
     return {
       snapshot,
       events: slice.events,
-      currentVersion: slice.streamPosition.commitPosition,
+      currentVersion: Number(slice.streamPosition.commitPosition),
     };
   }
 
@@ -483,17 +540,39 @@ export class EventStoreService {
       throw new NotFoundException(`Stream ${streamName} not found`);
     }
 
-    stream.isDeleted = true;
-    await this.streamRepository.save(stream);
+    if (stream.isDeleted) {
+      return;
+    }
 
-    // Cascade: delete associated snapshot
-    await this.snapshotRepository.delete({
+    await this.appendToStream(
+      tenantId,
       aggregateType,
       aggregateId,
-      tenantId,
-    });
+      [
+        {
+          producer: 'event-store-service',
+          producerEventId: `stream-delete:${tenantId}:${streamName}:${stream.currentVersion + 1}`,
+          eventType: 'StreamDeleted',
+          payload: {
+            aggregateType,
+            aggregateId,
+            streamName,
+            deletedAt: new Date().toISOString(),
+          },
+          metadata: { tombstone: true },
+          occurredAt: new Date(),
+          schemaVersion: 1,
+        },
+      ],
+      stream.currentVersion,
+    );
 
-    this.logger.log(`Soft deleted stream ${streamName} and associated snapshot`);
+    await this.streamRepository.update(
+      { id: stream.id, tenantId, isDeleted: false },
+      { isDeleted: true },
+    );
+
+    this.logger.log(`Tombstoned stream ${streamName}`);
   }
 
   /**
@@ -640,7 +719,7 @@ export class EventStoreService {
 
     const [events, total] = await queryBuilder
       .orderBy(`event.${sorting.field}`, sorting.order)
-      .skip((pagination.page - 1) * pagination.limit)
+      .offset((pagination.page - 1) * pagination.limit)
       .take(pagination.limit)
       .getManyAndCount();
 
@@ -664,6 +743,75 @@ export class EventStoreService {
     }
   }
 
+  private validateAppendEvents(events: DomainEvent[]): void {
+    if (events.length === 0) {
+      throw new BadRequestException('At least one event is required');
+    }
+    if (events.length > MAX_APPEND_EVENTS) {
+      throw new BadRequestException(`Cannot append more than ${MAX_APPEND_EVENTS} events at once`);
+    }
+    for (const event of events) {
+      if (!event.producer || !event.producerEventId) {
+        throw new BadRequestException('producer and producerEventId are required for every event');
+      }
+    }
+  }
+
+  private async findExistingProducerEvents(
+    manager: EntityManager,
+    tenantId: string,
+    events: DomainEvent[],
+  ): Promise<StoredEvent[]> {
+    const query = manager
+      .createQueryBuilder(StoredEvent, 'event')
+      .where('event.tenantId = :tenantId', { tenantId });
+
+    query.andWhere(
+      new Brackets((scoped) => {
+        events.forEach((event, index) => {
+          const condition = `(event.producer = :producer${index} AND event.producerEventId = :producerEventId${index})`;
+          const params = {
+            [`producer${index}`]: event.producer,
+            [`producerEventId${index}`]: event.producerEventId,
+          };
+          if (index === 0) {
+            scoped.where(condition, params);
+          } else {
+            scoped.orWhere(condition, params);
+          }
+        });
+      }),
+    );
+
+    return query.getMany();
+  }
+
+  private isExactIdempotentReplay(
+    existingEvents: StoredEvent[],
+    streamName: string,
+    requestedEvents: DomainEvent[],
+  ): boolean {
+    const byProducerEventId = new Map(
+      existingEvents.map((event) => [event.producerEventId, event]),
+    );
+
+    return requestedEvents.every((requested) => {
+      const existing = byProducerEventId.get(requested.producerEventId);
+      return (
+        existing !== undefined &&
+        existing.streamName === streamName &&
+        existing.producer === requested.producer &&
+        existing.eventType === requested.eventType &&
+        this.hashJson(existing.payload) === this.hashJson(requested.payload) &&
+        this.hashJson(existing.metadata ?? {}) === this.hashJson(requested.metadata ?? {})
+      );
+    });
+  }
+
+  private hashJson(value: Record<string, unknown>): string {
+    return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  }
+
   /**
    * Build stream name from aggregate type and id
    */
@@ -680,6 +828,8 @@ export class EventStoreService {
       streamName: event.streamName,
       globalPosition: event.globalPosition,
       streamPosition: event.streamPosition,
+      producer: event.producer,
+      producerEventId: event.producerEventId,
       aggregateType: event.aggregateType,
       aggregateId: event.aggregateId,
       version: event.version,

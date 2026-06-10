@@ -18,9 +18,13 @@ from aria_kernel import (
 )
 from aria_kernel.agent_genesis import list_agent_drafts
 from aria_kernel.feedback_store import record_operator_feedback
-from aria_kernel.ledger import append_jsonl
+from aria_kernel.ledger import append_jsonl as _append_jsonl
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import register_tool
+
+
+def append_jsonl(path, record):
+    return _append_jsonl(path, record, test_fixture=True)
 
 
 class AgentGenesisFoundationTests(unittest.TestCase):

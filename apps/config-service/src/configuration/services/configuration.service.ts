@@ -1,13 +1,16 @@
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
+
+import { SYSTEM_TENANT_ID } from '../configuration.constants';
 import {
   Configuration,
   ConfigValueType,
   ConfigEnvironment,
 } from '../entities/configuration.entity';
+
 import { EncryptionService } from './encryption.service';
-import { RedisService } from '@aquaculture/backend-common/redis';
 
 interface CacheEntry {
   value: Configuration;
@@ -39,7 +42,7 @@ export class ConfigurationService implements OnModuleInit {
   }
 
   /**
-   * Get a single configuration value with caching and global fallback.
+   * Get a single configuration value with caching and system-tenant fallback.
    * Decrypts secret values automatically.
    */
   async get<T = string>(
@@ -48,7 +51,7 @@ export class ConfigurationService implements OnModuleInit {
     key: string,
     defaultValue?: T,
   ): Promise<T> {
-    const cacheKey = `${tenantId}:${service}:${key}`;
+    const cacheKey = this.cacheKey(tenantId, service, key, ConfigEnvironment.ALL);
 
     // ── L1: in-memory cache ──
     const cached = this.cache.get(cacheKey);
@@ -75,11 +78,11 @@ export class ConfigurationService implements OnModuleInit {
     }
 
     // ── L3: Database ──
-    // Single query with tenant + global fallback
+    // Single query with tenant + system fallback
     const whereConditions: FindOptionsWhere<Configuration>[] = [
-      { tenantId, service, key, isActive: true },
-      ...(tenantId !== 'global'
-        ? [{ tenantId: 'global', service, key, isActive: true }]
+      { tenantId, service, key },
+      ...(tenantId !== SYSTEM_TENANT_ID
+        ? [{ tenantId: SYSTEM_TENANT_ID, service, key, isActive: true }]
         : []),
     ];
 
@@ -88,12 +91,17 @@ export class ConfigurationService implements OnModuleInit {
       take: 2,
     });
 
-    // Prefer tenant-specific over global
+    // Prefer tenant-specific over system fallback.
+    const tenantConfig = configs.find((c) => c.tenantId === tenantId);
+    const systemConfig = configs.find((c) => c.tenantId === SYSTEM_TENANT_ID);
     const config =
-      configs.find((c) => c.tenantId === tenantId) ||
-      configs.find((c) => c.tenantId === 'global');
+      tenantConfig?.isActive === false && tenantConfig.suppressFallback
+        ? tenantConfig
+        : tenantConfig?.isActive === true
+          ? tenantConfig
+          : systemConfig;
 
-    if (!config) {
+    if (!config || config.isActive === false) {
       if (defaultValue !== undefined) {
         return defaultValue;
       }
@@ -108,7 +116,7 @@ export class ConfigurationService implements OnModuleInit {
 
   /**
    * Get all configurations for a service, filtered by environment.
-   * Tenant-specific values override global values.
+   * Tenant-specific values override system fallback values.
    */
   async getAll(
     tenantId: string,
@@ -119,12 +127,11 @@ export class ConfigurationService implements OnModuleInit {
       {
         tenantId,
         service,
-        isActive: true,
         ...(environment && { environment }),
       },
-      ...(tenantId !== 'global'
+      ...(tenantId !== SYSTEM_TENANT_ID
         ? [{
-            tenantId: 'global',
+            tenantId: SYSTEM_TENANT_ID,
             service,
             isActive: true,
             ...(environment && { environment }),
@@ -138,21 +145,29 @@ export class ConfigurationService implements OnModuleInit {
     });
 
     const result: Record<string, unknown> = {};
+    const tenantTombstones = new Set(
+      configs
+        .filter((c) => c.tenantId === tenantId && c.isActive === false && c.suppressFallback)
+        .map((c) => c.key),
+    );
 
-    // First add global configs — secrets masked to prevent bulk plaintext exposure.
+    // First add system fallback configs — secrets masked to prevent bulk plaintext exposure.
     // Single-key get() decrypts for authorized callers; getAll() is a bulk operation
     // used for config bootstrapping where plaintext secrets must not appear.
     configs
-      .filter((c) => c.tenantId === 'global')
+      .filter((c) => c.tenantId === SYSTEM_TENANT_ID)
       .forEach((c) => {
-        result[c.key] = c.isSecret ? '[ENCRYPTED]' : this.getDecryptedTypedValue(c);
+        if (tenantTombstones.has(c.key)) {
+          return;
+        }
+        result[c.key] = this.isSecretConfig(c) ? '[ENCRYPTED]' : this.getDecryptedTypedValue(c);
       });
 
     // Then override with tenant-specific
     configs
-      .filter((c) => c.tenantId !== 'global')
+      .filter((c) => c.tenantId !== SYSTEM_TENANT_ID && c.isActive === true)
       .forEach((c) => {
-        result[c.key] = c.isSecret ? '[ENCRYPTED]' : this.getDecryptedTypedValue(c);
+        result[c.key] = this.isSecretConfig(c) ? '[ENCRYPTED]' : this.getDecryptedTypedValue(c);
       });
 
     return result;
@@ -161,7 +176,7 @@ export class ConfigurationService implements OnModuleInit {
   /**
    * Invalidate cache for a specific configuration.
    * Called by command handlers after successful writes.
-   * When a global config is updated, all per-tenant entries caching that global
+   * When a system config is updated, all per-tenant entries caching that system
    * fallback are also purged to prevent stale reads across tenants.
    *
    * Invalidates both L1 (in-memory) and L2 (Redis) caches so that
@@ -169,22 +184,22 @@ export class ConfigurationService implements OnModuleInit {
    * @see PLAT-MEDIUM-007 (config cache is local-only per-pod)
    */
   invalidateCache(tenantId: string, service: string, key: string): void {
-    const cacheKey = `${tenantId}:${service}:${key}`;
+    const cacheKey = this.cacheKey(tenantId, service, key, ConfigEnvironment.ALL);
 
     // ── L1: in-memory ──
     this.cache.delete(cacheKey);
 
-    if (tenantId === 'global') {
-      // Global update: purge all per-tenant cache entries that may hold this fallback value
-      const suffix = `:${service}:${key}`;
+    if (tenantId === SYSTEM_TENANT_ID) {
+      // System update: purge all per-tenant cache entries that may hold this fallback value
+      const suffix = `:${service}:${key}:${ConfigEnvironment.ALL}`;
       for (const k of this.cache.keys()) {
         if (k.endsWith(suffix)) {
           this.cache.delete(k);
         }
       }
     } else {
-      // Tenant-specific update: also purge the global cache entry
-      this.cache.delete(`global:${service}:${key}`);
+      // Tenant-specific update: also purge the system fallback cache entry
+      this.cache.delete(this.cacheKey(SYSTEM_TENANT_ID, service, key, ConfigEnvironment.ALL));
     }
 
     // ── L2: Redis (cross-pod) ──
@@ -194,14 +209,14 @@ export class ConfigurationService implements OnModuleInit {
         this.logger.warn(`Failed to invalidate Redis cache for ${redisKey}: ${err}`);
       });
 
-      if (tenantId === 'global') {
+      if (tenantId === SYSTEM_TENANT_ID) {
         // Purge all tenant-specific Redis entries for this service:key
-        this.redisService.deletePattern(`config:*:${service}:${key}`).catch((err) => {
+        this.redisService.deletePattern(`config:*:${service}:${key}:${ConfigEnvironment.ALL}`).catch((err) => {
           this.logger.warn(`Failed to invalidate Redis pattern for ${service}:${key}: ${err}`);
         });
       } else {
-        this.redisService.del(`config:global:${service}:${key}`).catch((err) => {
-          this.logger.warn(`Failed to invalidate Redis global cache for ${service}:${key}: ${err}`);
+        this.redisService.del(`config:${this.cacheKey(SYSTEM_TENANT_ID, service, key, ConfigEnvironment.ALL)}`).catch((err) => {
+          this.logger.warn(`Failed to invalidate Redis system cache for ${service}:${key}: ${err}`);
         });
       }
     }
@@ -237,7 +252,7 @@ export class ConfigurationService implements OnModuleInit {
         .into(Configuration)
         .values(
           defaults.map((def) => ({
-            tenantId: 'global',
+            tenantId: SYSTEM_TENANT_ID,
             service: def.service,
             key: def.key,
             value: def.value,
@@ -246,7 +261,7 @@ export class ConfigurationService implements OnModuleInit {
             category: def.category,
             environment: ConfigEnvironment.ALL,
             isActive: true,
-            isSecret: false,
+            isSecret: def.valueType === ConfigValueType.SECRET,
             createdBy: 'system',
             updatedBy: 'system',
           })),
@@ -275,7 +290,7 @@ export class ConfigurationService implements OnModuleInit {
     let rawValue = config.value;
 
     // Decrypt if secret and encryption is available
-    if (config.isSecret && this.encryptionService.isAvailable() && this.encryptionService.isEncrypted(rawValue)) {
+    if (this.isSecretConfig(config) && this.encryptionService.isAvailable() && this.encryptionService.isEncrypted(rawValue)) {
       try {
         // PLAT-HIGH-003: AAD binding validates tenant + key context
         rawValue = this.encryptionService.decrypt(rawValue, config.tenantId, config.key);
@@ -337,7 +352,7 @@ export class ConfigurationService implements OnModuleInit {
       const redisKey = `config:${key}`;
       // SECURITY: Do not cache secret values in Redis — they are decrypted on read
       // and should not be stored in a shared cache in plaintext.
-      if (!value.isSecret) {
+      if (value.isActive !== false && !this.isSecretConfig(value)) {
         this.redisService
           .set(redisKey, JSON.stringify(value), REDIS_CACHE_TTL_SECONDS)
           .catch((err) => {
@@ -345,5 +360,18 @@ export class ConfigurationService implements OnModuleInit {
           });
       }
     }
+  }
+
+  private cacheKey(
+    tenantId: string,
+    service: string,
+    key: string,
+    environment: ConfigEnvironment,
+  ): string {
+    return `${tenantId}:${service}:${key}:${environment}`;
+  }
+
+  private isSecretConfig(config: Configuration): boolean {
+    return config.valueType === ConfigValueType.SECRET || config.isSecret === true;
   }
 }

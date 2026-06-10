@@ -10,13 +10,19 @@ import type { EntityManager } from 'typeorm';
 
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 
+function rejectDirectHandlerDefault(dependency: string): never {
+  throw new Error(
+    `${dependency} direct-handler default is test-only; production handlers must receive an explicit DI dependency`,
+  );
+}
+
 class DirectHandlerFarmStockProjectionService extends FarmStockProjectionService {
   override refreshContainers(
     _manager: EntityManager,
     _tenantId: string,
     _containerIds: readonly string[],
   ): Promise<void> {
-    return Promise.resolve();
+    rejectDirectHandlerDefault('FarmStockProjectionService');
   }
 }
 
@@ -25,14 +31,14 @@ class DirectHandlerMobileCommandReceiptService extends MobileCommandReceiptServi
     _manager: EntityManager,
     _options: BeginMobileCommandReceiptOptions,
   ): Promise<MobileCommandReceiptState> {
-    return Promise.resolve({ mode: 'legacy' });
+    rejectDirectHandlerDefault('MobileCommandReceiptService.begin');
   }
 
   override complete(
     _manager: EntityManager,
     _options: CompleteMobileCommandReceiptOptions,
   ): Promise<void> {
-    return Promise.resolve();
+    rejectDirectHandlerDefault('MobileCommandReceiptService.complete');
   }
 }
 
@@ -48,7 +54,7 @@ class DirectHandlerOutboxPublisher extends OutboxPublisher {
     _manager: EntityManager,
     _options?: { idempotencyKey?: string; aggregateId?: string },
   ): Promise<void> {
-    return Promise.resolve();
+    rejectDirectHandlerDefault('OutboxPublisher.enqueue');
   }
 }
 

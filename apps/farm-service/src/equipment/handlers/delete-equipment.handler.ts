@@ -1,46 +1,51 @@
 /**
  * Delete Equipment Command Handler
- * Supports cascade soft delete of all related items
- *
- * Handles deletion for both Equipment and Tank entities.
- * When an equipment ID is found in the tanks table, the delete is delegated
- * to delete the Tank entity instead.
  */
-import { NotFoundException, BadRequestException, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { EquipmentDeletedEvent, createBaseEvent } from '@platform/event-contracts';
-import { OutboxPublisher } from '@platform/outbox';
-import { Repository, In } from 'typeorm';
-
-import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import {
-  defaultFarmStockProjectionForDirectHandlerConstruction,
-  defaultOutboxPublisherForDirectHandlerConstruction,
-} from '../../common/services/direct-handler-dependency-defaults';
-import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+  EquipmentDeletedEvent,
+  SubEquipmentDeletedEvent,
+  createBaseEvent,
+} from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  DataSource,
+  DeepPartial,
+  FindManyOptions,
+  FindOptionsWhere,
+  In,
+  QueryRunner,
+  UpdateResult,
+} from 'typeorm';
+
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
 import { Tank } from '../../tank/entities/tank.entity';
 import { DeleteEquipmentCommand } from '../commands/delete-equipment.command';
 import { Equipment } from '../entities/equipment.entity';
 import { SubEquipment } from '../entities/sub-equipment.entity';
+import { TankEquipmentAdapterService } from '../services/tank-equipment-adapter.service';
+
+import { equipmentAuditSnapshot, subEquipmentAuditSnapshot } from './equipment-audit.util';
+
+type ScopedWriteRepository<T> = {
+  find: (options?: FindManyOptions<T>) => Promise<T[]>;
+  count: (options?: FindManyOptions<T>) => Promise<number>;
+  save: (entity: T) => Promise<T>;
+  update: (criteria: FindOptionsWhere<T>, partialEntity: DeepPartial<T>) => Promise<UpdateResult>;
+};
 
 @CommandHandler(DeleteEquipmentCommand)
 export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCommand, boolean> {
   private readonly logger = new Logger(DeleteEquipmentHandler.name);
 
   constructor(
-    @InjectRepository(Equipment)
-    private readonly equipmentRepository: Repository<Equipment>,
-    @InjectRepository(SubEquipment)
-    private readonly subEquipmentRepository: Repository<SubEquipment>,
-    @InjectRepository(Tank)
-    private readonly tankRepository: Repository<Tank>,
-    @InjectRepository(TankBatch)
-    private readonly tankBatchRepository: Repository<TankBatch>,
-    private readonly farmStockProjection: FarmStockProjectionService =
-      defaultFarmStockProjectionForDirectHandlerConstruction(),
-    private readonly outboxPublisher: OutboxPublisher =
-      defaultOutboxPublisherForDirectHandlerConstruction(),
+    private readonly dataSource: DataSource,
+    private readonly auditLogService: AuditLogService,
+    private readonly outboxPublisher: OutboxPublisher,
+    private readonly tankEquipmentAdapter: TankEquipmentAdapterService,
   ) {}
 
   async execute(command: DeleteEquipmentCommand): Promise<boolean> {
@@ -48,132 +53,175 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
 
     this.logger.log(`Deleting equipment ${equipmentId} for tenant ${tenantId} (cascade: ${cascade})`);
 
-    // Check if this ID exists in the tanks table first
-    const tank = await this.tankRepository.findOne({
+    const tankRepository = tenantManagerRepo(this.dataSource.manager, Tank, tenantId);
+    const tank = await tankRepository.findOne({
       where: { id: equipmentId, tenantId },
     });
-
     if (tank) {
-      // This is a tank - delegate to tank delete logic
-      this.logger.log(`Equipment ${equipmentId} is a tank, deleting Tank entity`);
-      return this.deleteTank(tank, tenantId, userId);
+      return this.tankEquipmentAdapter.deleteFromEquipment(equipmentId, tenantId, userId);
     }
 
-    // Find existing equipment
-    const equipment = await this.equipmentRepository.findOne({
-      where: { id: equipmentId, tenantId, isDeleted: false },
-    });
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const equipmentRepository = tenantManagerRepo(queryRunner.manager, Equipment, tenantId);
+      const subEquipmentRepository = tenantManagerRepo(queryRunner.manager, SubEquipment, tenantId);
 
-    if (!equipment) {
-      throw new NotFoundException(`Equipment with ID "${equipmentId}" not found`);
-    }
-
-    // Get child equipment
-    const childEquipment = await this.getChildEquipmentRecursive(equipmentId, tenantId);
-
-    // Get sub-equipment
-    const subEquipment = await this.subEquipmentRepository.find({
-      where: { parentEquipmentId: equipmentId, tenantId },
-    });
-
-    if (!cascade) {
-      // Old behavior: block if equipment has children
-      if (childEquipment.length > 0) {
-        throw new BadRequestException(
-          `Cannot delete equipment "${equipment.name}". It has ${childEquipment.length} child equipment(s). Use cascade=true to delete all related items.`
-        );
-      }
-
-      if (subEquipment.length > 0) {
-        throw new BadRequestException(
-          `Cannot delete equipment "${equipment.name}". It has ${subEquipment.length} sub-equipment(s). Use cascade=true to delete all related items.`
-        );
-      }
-    }
-
-    await this.equipmentRepository.manager.transaction(async (manager) => {
-      const deletedAt = new Date();
-
-      if (cascade) {
-        // Cascade delete all children
-        this.logger.log(`Cascade deleting equipment ${equipmentId} with ${childEquipment.length} child equipment and ${subEquipment.length} sub-equipment`);
-
-        // Soft delete all child equipment (in reverse order - children first)
-        for (const child of [...childEquipment].reverse()) {
-          child.isDeleted = true;
-          child.deletedAt = deletedAt;
-          child.deletedBy = userId;
-          child.isActive = false;
-          child.updatedBy = userId;
-          await manager.save(Equipment, child);
-          this.logger.log(`Soft deleted child equipment ${child.id}`);
-        }
-
-        // Deactivate all sub-equipment (SubEquipment doesn't have soft delete fields)
-        if (subEquipment.length > 0) {
-          await manager
-            .createQueryBuilder()
-            .update(SubEquipment)
-            .set({
-              isActive: false,
-              updatedBy: userId,
-            })
-            .where('parentEquipmentId = :equipmentId', { equipmentId })
-            .andWhere('tenantId = :tenantId', { tenantId })
-            .execute();
-
-          this.logger.log(`Deactivated ${subEquipment.length} sub-equipment for equipment ${equipmentId}`);
-        }
-      }
-
-      // If equipment has a parent, decrement the parent's subEquipmentCount
-      if (equipment.parentEquipmentId) {
-        await manager.decrement(
-          Equipment,
-          { id: equipment.parentEquipmentId },
-          'subEquipmentCount',
-          1
-        );
-        this.logger.log(`Decremented subEquipmentCount for parent equipment ${equipment.parentEquipmentId}`);
-      }
-
-      // Soft delete - mark as deleted AND inactive
-      equipment.isDeleted = true;
-      equipment.deletedAt = deletedAt;
-      equipment.deletedBy = userId;
-      equipment.isActive = false;
-      equipment.updatedBy = userId;
-      await manager.save(Equipment, equipment);
-      if (equipment.isTank) {
-        await this.farmStockProjection.refreshContainers(
-          manager,
-          tenantId,
-          [equipment.id],
-        );
-      }
-
-      const event: EquipmentDeletedEvent = {
-        ...createBaseEvent<EquipmentDeletedEvent>('EquipmentDeleted', tenantId),
-        equipmentId: equipment.id,
-        name: equipment.name,
-        code: equipment.code,
-        deletedAt,
-      };
-      await this.outboxPublisher.enqueue(event, manager, {
-        aggregateId: equipment.id,
+      const equipment = await equipmentRepository.findOne({
+        where: { id: equipmentId, isDeleted: false, tenantId },
       });
+      if (!equipment) {
+        throw new NotFoundException(`Equipment with ID "${equipmentId}" not found`);
+      }
+
+      const childEquipment = await this.getChildEquipmentRecursive(
+        equipmentRepository,
+        equipmentId,
+        tenantId,
+      );
+      const subEquipment = await subEquipmentRepository.find({
+        where: { parentEquipmentId: equipmentId, isActive: true, tenantId },
+      });
+
+      if (!cascade) {
+        if (childEquipment.length > 0) {
+          throw new BadRequestException(
+            `Cannot delete equipment "${equipment.name}". It has ${childEquipment.length} child equipment(s). Use cascade=true to delete all related items.`,
+          );
+        }
+        if (subEquipment.length > 0) {
+          throw new BadRequestException(
+            `Cannot delete equipment "${equipment.name}". It has ${subEquipment.length} sub-equipment(s). Use cascade=true to delete all related items.`,
+          );
+        }
+      }
+
+      const deletedAt = new Date();
+      if (cascade) {
+            for (const child of [...childEquipment].reverse()) {
+              await this.softDeleteEquipment(
+                queryRunner,
+                equipmentRepository,
+                child,
+                tenantId,
+            userId,
+            deletedAt,
+          );
+        }
+            for (const childSubEquipment of subEquipment) {
+              await this.softDeleteSubEquipment(
+                queryRunner,
+                subEquipmentRepository,
+                childSubEquipment,
+                tenantId,
+            userId,
+          );
+        }
+      }
+
+          await this.softDeleteEquipment(
+            queryRunner,
+            equipmentRepository,
+            equipment,
+            tenantId,
+        userId,
+        deletedAt,
+      );
+
+      await this.recomputeChildEquipmentCount(equipmentRepository, equipment.parentEquipmentId);
     });
 
     this.logger.log(`Equipment ${equipmentId} marked as deleted`);
-
     return true;
   }
 
-  /**
-   * Get all child equipment using batch loading to avoid N+1 queries
-   * Uses iterative breadth-first approach with depth limit
-   */
+  private async softDeleteEquipment(
+    queryRunner: QueryRunner,
+    equipmentRepository: ScopedWriteRepository<Equipment>,
+    equipment: Equipment,
+    tenantId: string,
+    userId: string,
+    deletedAt: Date,
+  ): Promise<void> {
+    const before = equipmentAuditSnapshot(equipment);
+    equipment.isDeleted = true;
+    equipment.deletedAt = deletedAt;
+    equipment.deletedBy = userId;
+    equipment.isActive = false;
+    equipment.updatedBy = userId;
+    const saved = await equipmentRepository.save(equipment);
+
+    await this.auditLogService.logWithManager(queryRunner.manager, {
+      tenantId,
+      entityType: 'Equipment',
+      entityId: saved.id,
+      action: AuditAction.SOFT_DELETE,
+      userId,
+      changes: {
+        before,
+        after: equipmentAuditSnapshot(saved),
+      },
+      metadata: { source: 'SITES_SETUP_EQUIPMENT' },
+      entityVersion: saved.version,
+      summary: `Soft deleted equipment ${saved.code}`,
+    });
+
+    const event: EquipmentDeletedEvent = {
+      ...createBaseEvent<EquipmentDeletedEvent>('EquipmentDeleted', tenantId, {
+        aggregateId: saved.id,
+        aggregateType: 'Equipment',
+        userId,
+      }),
+      equipmentId: saved.id,
+      name: saved.name,
+      code: saved.code,
+      deletedAt,
+    };
+    await this.outboxPublisher.enqueue(event, queryRunner.manager, { aggregateId: saved.id });
+  }
+
+  private async softDeleteSubEquipment(
+    queryRunner: QueryRunner,
+    subEquipmentRepository: ScopedWriteRepository<SubEquipment>,
+    subEquipment: SubEquipment,
+    tenantId: string,
+    userId: string,
+  ): Promise<void> {
+    const before = subEquipmentAuditSnapshot(subEquipment);
+    subEquipment.isActive = false;
+    subEquipment.updatedBy = userId;
+    const saved = await subEquipmentRepository.save(subEquipment);
+
+    await this.auditLogService.logWithManager(queryRunner.manager, {
+      tenantId,
+      entityType: 'SubEquipment',
+      entityId: saved.id,
+      action: AuditAction.SOFT_DELETE,
+      userId,
+      changes: {
+        before,
+        after: subEquipmentAuditSnapshot(saved),
+      },
+      metadata: { source: 'SITES_SETUP_SUB_EQUIPMENT' },
+      entityVersion: saved.version,
+      summary: `Soft deleted sub-equipment ${saved.code}`,
+    });
+
+    const event: SubEquipmentDeletedEvent = {
+      ...createBaseEvent<SubEquipmentDeletedEvent>('SubEquipmentDeleted', tenantId, {
+        aggregateId: saved.id,
+        aggregateType: 'SubEquipment',
+        userId,
+      }),
+      subEquipmentId: saved.id,
+      parentEquipmentId: saved.parentEquipmentId,
+      name: saved.name,
+      code: saved.code,
+      deletedAt: new Date(),
+    };
+    await this.outboxPublisher.enqueue(event, queryRunner.manager, { aggregateId: saved.id });
+  }
+
   private async getChildEquipmentRecursive(
+    equipmentRepository: ScopedWriteRepository<Equipment>,
     parentId: string,
     tenantId: string,
     maxDepth = 10,
@@ -182,103 +230,34 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
     let currentParentIds = [parentId];
     let depth = 0;
 
-    while (currentParentIds.length > 0 && depth < maxDepth) {
-      // Batch fetch all children for current level
-      const children = await this.equipmentRepository.find({
+    while (currentParentIds.length > 0) {
+      if (depth >= maxDepth) {
+        throw new BadRequestException(`Equipment hierarchy depth limit (${maxDepth}) exceeded`);
+      }
+      const children = await equipmentRepository.find({
         where: {
           parentEquipmentId: In(currentParentIds),
-          tenantId,
           isDeleted: false,
+          tenantId,
         },
       });
-
-      if (children.length === 0) {
-        break;
-      }
-
+      if (children.length === 0) break;
       allChildren.push(...children);
       currentParentIds = children.map((child) => child.id);
-      depth++;
-    }
-
-    if (depth >= maxDepth) {
-      this.logger.warn(
-        `Max depth (${maxDepth}) reached while fetching child equipment for parent ${parentId}`,
-      );
+      depth += 1;
     }
 
     return allChildren;
   }
 
-  /**
-   * Delete Tank entity when accessed via equipment resolver
-   * Handles cascade requirements for tank batches and related data
-   */
-  private async deleteTank(
-    tank: Tank,
-    tenantId: string,
-    userId: string,
-  ): Promise<boolean> {
-    // Cannot delete tank with active biomass
-    if (tank.currentBiomass > 0) {
-      throw new BadRequestException(
-        `Cannot delete tank "${tank.name}": it has ${tank.currentBiomass}kg of active biomass. ` +
-          'Please transfer or harvest first.',
-      );
-    }
-
-    // Check for active tank batches
-    const activeBatches = await this.tankBatchRepository.find({
-      where: { tankId: tank.id, tenantId },
+  private async recomputeChildEquipmentCount(
+    equipmentRepository: ScopedWriteRepository<Equipment>,
+    equipmentId?: string,
+  ): Promise<void> {
+    if (!equipmentId) return;
+    const childCount = await equipmentRepository.count({
+      where: { parentEquipmentId: equipmentId, isDeleted: false },
     });
-
-    if (activeBatches.length > 0) {
-      // Check if any batch has fish
-      const batchesWithFish = activeBatches.filter(
-        b => (b.totalQuantity && b.totalQuantity > 0) || (b.cleanerFishQuantity && b.cleanerFishQuantity > 0)
-      );
-
-      if (batchesWithFish.length > 0) {
-        throw new BadRequestException(
-          `Cannot delete tank "${tank.name}": it has ${batchesWithFish.length} active batch(es) with fish. ` +
-            'Please transfer or harvest first.',
-        );
-      }
-
-      // Remove empty tank batches (they will be recreated if needed)
-      await this.tankRepository.manager.transaction(async (manager) => {
-        await manager.delete(TankBatch, { tankId: tank.id, tenantId });
-
-        this.logger.log(`Removed ${activeBatches.length} empty tank batch records for tank ${tank.id}`);
-
-        // Soft delete - set isActive to false
-        tank.isActive = false;
-        tank.updatedBy = userId;
-
-        await manager.save(Tank, tank);
-        await this.farmStockProjection.refreshContainers(
-          manager,
-          tenantId,
-          [tank.id],
-        );
-      });
-    } else {
-      await this.tankRepository.manager.transaction(async (manager) => {
-        // Soft delete - set isActive to false
-        tank.isActive = false;
-        tank.updatedBy = userId;
-
-        await manager.save(Tank, tank);
-        await this.farmStockProjection.refreshContainers(
-          manager,
-          tenantId,
-          [tank.id],
-        );
-      });
-    }
-
-    this.logger.log(`Tank ${tank.id} (${tank.name}) soft-deleted via equipment resolver`);
-
-    return true;
+    await equipmentRepository.update({ id: equipmentId }, { subEquipmentCount: childCount });
   }
 }

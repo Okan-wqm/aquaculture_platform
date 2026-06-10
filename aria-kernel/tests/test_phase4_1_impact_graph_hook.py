@@ -5,9 +5,10 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.learning import _impact_graph_compute
-from aria_kernel.ledger import append_jsonl, load_jsonl
+from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class ImpactGraphHookTests(unittest.TestCase):
@@ -27,7 +28,7 @@ class ImpactGraphHookTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _seed_pressure(self, event_id: str, evidence_refs: list[str]) -> None:
-        append_jsonl(
+        append_declared_fixture(
             self.paths.ledgers["pressure"],
             {
                 "$schema": "aria/pressure-event/v2",
@@ -41,10 +42,11 @@ class ImpactGraphHookTests(unittest.TestCase):
                 "feedback_event_ids": [],
                 "detected_at": "2026-05-06T00:00:00Z",
             },
+            expected_surface="workspace_memory_pressure",
         )
 
     def _seed_dispatch(self, assignment_id: str, pressure_event_id: str, state: str = "pending") -> None:
-        append_jsonl(
+        append_declared_fixture(
             self.tools_dir / "dispatch" / "requests.jsonl",
             {
                 "$schema": "aria/dispatch-request/v1",
@@ -54,6 +56,7 @@ class ImpactGraphHookTests(unittest.TestCase):
                 "state": state,
                 "created_at": "2026-05-06T00:00:00Z",
             },
+            expected_surface="dispatch_requests",
         )
 
     def test_no_pending_dispatch_returns_skipped(self):

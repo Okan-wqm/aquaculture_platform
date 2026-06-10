@@ -1,9 +1,9 @@
 import * as crypto from 'crypto';
 
-import { Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
+import { GoneException, Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, LessThanOrEqual, MoreThanOrEqual, Between } from 'typeorm';
+import { LessThanOrEqual, Repository } from 'typeorm';
 
 import {
   FeatureToggle,
@@ -15,7 +15,6 @@ import {
   GlobalConfig,
   ConfigCategory,
   ConfigValueType,
-  ConfigHistory,
 } from '../entities/global-config.entity';
 import {
   MaintenanceMode,
@@ -70,7 +69,6 @@ export interface SystemHealthStatus {
 export class GlobalSettingsService implements OnModuleInit {
   private readonly logger = new Logger(GlobalSettingsService.name);
   private featureToggleCache: Map<string, FeatureToggle> = new Map();
-  private configCache: Map<string, GlobalConfig> = new Map();
   private lastCacheRefresh: Date = new Date(0);
   private readonly CACHE_TTL_MS = 60000; // 1 minute
 
@@ -81,11 +79,9 @@ export class GlobalSettingsService implements OnModuleInit {
     private readonly maintenanceModeRepo: Repository<MaintenanceMode>,
     @InjectRepository(SystemVersion)
     private readonly systemVersionRepo: Repository<SystemVersion>,
-    @InjectRepository(GlobalConfig)
-    private readonly globalConfigRepo: Repository<GlobalConfig>,
   ) {}
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     await this.refreshCaches();
   }
 
@@ -324,17 +320,38 @@ export class GlobalSettingsService implements OnModuleInit {
         case 'not_equals':
           return contextValue !== condition.value;
         case 'contains':
-          return String(contextValue).includes(String(condition.value));
+          return this.conditionValueToString(contextValue).includes(
+            this.conditionValueToString(condition.value),
+          );
         case 'in':
           return Array.isArray(condition.value) && (condition.value as unknown[]).includes(contextValue);
         case 'not_in':
           return Array.isArray(condition.value) && !(condition.value as unknown[]).includes(contextValue);
         case 'regex':
-          return new RegExp(String(condition.value)).test(String(contextValue));
+          return new RegExp(this.conditionValueToString(condition.value)).test(
+            this.conditionValueToString(contextValue),
+          );
         default:
           return false;
       }
     });
+  }
+
+  private conditionValueToString(value: unknown): string {
+    if (value == null) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return value.toString();
+    }
+    return '';
   }
 
   private getContextValue(type: string, context: Record<string, unknown>): unknown {
@@ -707,7 +724,7 @@ export class GlobalSettingsService implements OnModuleInit {
   // Global Configuration Management
   // ============================================================================
 
-  async createConfig(data: {
+  createConfig(data: {
     key: string;
     name: string;
     description?: string;
@@ -729,186 +746,51 @@ export class GlobalSettingsService implements OnModuleInit {
     requiresRestart?: boolean;
     helpText?: string;
     createdBy?: string;
-  }): Promise<GlobalConfig> {
-    const existing = await this.globalConfigRepo.findOne({ where: { key: data.key } });
-    if (existing) {
-      throw new BadRequestException(`Configuration with key '${data.key}' already exists`);
-    }
-
-    // Validate the value
-    if (data.validation) {
-      this.validateConfigValue(data.value, data.validation);
-    }
-
-    const config = this.globalConfigRepo.create({
-      ...data,
-      category: data.category || ConfigCategory.SYSTEM,
-      valueType: data.valueType || ConfigValueType.STRING,
-      isSecret: data.isSecret || false,
-      isReadOnly: data.isReadOnly || false,
-      requiresRestart: data.requiresRestart || false,
-      history: [],
-      lastModifiedBy: data.createdBy,
-    });
-
-    const saved = await this.globalConfigRepo.save(config);
-    this.configCache.set(saved.key, saved);
-
-    this.logger.log(`Created config: ${saved.key}`);
-    return this.maskSecretConfig(saved);
+  }): never {
+    void data;
+    this.throwGlobalConfigGone();
   }
 
-  async updateConfig(
+  updateConfig(
     id: string,
     value: unknown,
     updatedBy: string,
     reason?: string,
-  ): Promise<GlobalConfig> {
-    const config = await this.globalConfigRepo.findOne({ where: { id } });
-    if (!config) {
-      throw new NotFoundException(`Configuration not found: ${id}`);
-    }
-
-    if (config.isReadOnly) {
-      throw new BadRequestException(`Configuration '${config.key}' is read-only`);
-    }
-
-    if (config.validation) {
-      this.validateConfigValue(value, config.validation);
-    }
-
-    // Add to history
-    const historyEntry: ConfigHistory = {
-      previousValue: config.value,
-      newValue: value,
-      changedAt: new Date(),
-      changedBy: updatedBy,
-      reason,
-    };
-
-    const history = config.history || [];
-    history.push(historyEntry);
-
-    // Keep only last N entries
-    while (history.length > config.maxHistoryEntries) {
-      history.shift();
-    }
-
-    config.value = value;
-    config.history = history;
-    config.lastModifiedBy = updatedBy;
-
-    const saved = await this.globalConfigRepo.save(config);
-    this.configCache.set(saved.key, saved);
-
-    this.logger.log(`Updated config: ${saved.key}`);
-    return this.maskSecretConfig(saved);
+  ): never {
+    void id;
+    void value;
+    void updatedBy;
+    void reason;
+    this.throwGlobalConfigGone();
   }
 
-  async getConfig(key: string): Promise<unknown> {
-    await this.ensureCacheFresh();
-    const config = this.configCache.get(key);
-    return config?.value;
+  getConfig(key: string): unknown {
+    return this.provisioningDefault(key);
   }
 
-  async getConfigEntity(id: string): Promise<GlobalConfig> {
-    const config = await this.globalConfigRepo.findOne({ where: { id } });
-    if (!config) {
-      throw new NotFoundException(`Configuration not found: ${id}`);
-    }
-    return this.maskSecretConfig(config);
+  getConfigEntity(id: string): never {
+    void id;
+    this.throwGlobalConfigGone();
   }
 
-  async queryConfigs(params: {
+  queryConfigs(params: {
     category?: ConfigCategory;
     isSecret?: boolean;
     search?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ items: GlobalConfig[]; total: number }> {
-    const query = this.globalConfigRepo.createQueryBuilder('c');
-
-    if (params.category) {
-      query.andWhere('c.category = :category', { category: params.category });
-    }
-    if (params.isSecret !== undefined) {
-      query.andWhere('c.isSecret = :isSecret', { isSecret: params.isSecret });
-    }
-    if (params.search) {
-      query.andWhere(
-        '(c.key ILIKE :search OR c.name ILIKE :search OR c.description ILIKE :search)',
-        { search: `%${params.search}%` },
-      );
-    }
-
-    const page = params.page || 1;
-    const limit = params.limit || 50;
-
-    query.orderBy('c.category', 'ASC').addOrderBy('c.sortOrder', 'ASC').addOrderBy('c.key', 'ASC');
-    query.skip((page - 1) * limit).take(limit);
-
-    const [items, total] = await query.getManyAndCount();
-    return { items: items.map((c) => this.maskSecretConfig(c)), total };
+  }): { items: GlobalConfig[]; total: number } {
+    void params;
+    return { items: [], total: 0 };
   }
 
-  async bulkUpdateConfigs(
+  bulkUpdateConfigs(
     updates: Array<{ key: string; value: unknown }>,
     updatedBy: string,
-  ): Promise<GlobalConfig[]> {
-    const results: GlobalConfig[] = [];
-
-    for (const update of updates) {
-      const config = await this.globalConfigRepo.findOne({ where: { key: update.key } });
-      if (config && !config.isReadOnly) {
-        const updated = await this.updateConfig(config.id, update.value, updatedBy);
-        results.push(updated);
-      }
-    }
-
-    return results;
-  }
-
-  private validateConfigValue(
-    value: unknown,
-    validation: GlobalConfig['validation'],
-  ): void {
-    if (!validation) return;
-
-    if (validation.required && (value === null || value === undefined || value === '')) {
-      throw new BadRequestException('Value is required');
-    }
-
-    if (typeof value === 'number') {
-      if (validation.min !== undefined && value < validation.min) {
-        throw new BadRequestException(`Value must be at least ${validation.min}`);
-      }
-      if (validation.max !== undefined && value > validation.max) {
-        throw new BadRequestException(`Value must be at most ${validation.max}`);
-      }
-    }
-
-    if (typeof value === 'string') {
-      if (validation.minLength !== undefined && value.length < validation.minLength) {
-        throw new BadRequestException(`Value must be at least ${validation.minLength} characters`);
-      }
-      if (validation.maxLength !== undefined && value.length > validation.maxLength) {
-        throw new BadRequestException(`Value must be at most ${validation.maxLength} characters`);
-      }
-      if (validation.pattern && !new RegExp(validation.pattern).test(value)) {
-        throw new BadRequestException('Value does not match required pattern');
-      }
-    }
-
-    if (validation.allowedValues && !validation.allowedValues.includes(value)) {
-      throw new BadRequestException(`Value must be one of: ${validation.allowedValues.join(', ')}`);
-    }
-  }
-
-  private maskSecretConfig(config: GlobalConfig): GlobalConfig {
-    if (config.isSecret) {
-      return { ...config, value: '********' };
-    }
-    return config;
+  ): never {
+    void updates;
+    void updatedBy;
+    this.throwGlobalConfigGone();
   }
 
   // ============================================================================
@@ -923,19 +805,13 @@ export class GlobalSettingsService implements OnModuleInit {
   }
 
   async refreshCaches(): Promise<void> {
-    const [toggles, configs] = await Promise.all([
-      this.featureToggleRepo.find(),
-      this.globalConfigRepo.find(),
-    ]);
+    const toggles = await this.featureToggleRepo.find();
 
     this.featureToggleCache.clear();
     toggles.forEach((t) => this.featureToggleCache.set(t.key, t));
 
-    this.configCache.clear();
-    configs.forEach((c) => this.configCache.set(c.key, c));
-
     this.lastCacheRefresh = new Date();
-    this.logger.debug(`Refreshed caches: ${toggles.length} toggles, ${configs.length} configs`);
+    this.logger.debug(`Refreshed caches: ${toggles.length} toggles`);
   }
 
   // ============================================================================
@@ -1002,102 +878,34 @@ export class GlobalSettingsService implements OnModuleInit {
    * Get provisioning configuration for edge device installer scripts.
    * Called by sensor-service to generate dynamic installer scripts.
    */
-  async getProvisioningConfig(): Promise<{
+  getProvisioningConfig(): {
     provisioningApiUrl: string;
     mqttBrokerHost: string;
     mqttBrokerPort: number;
     githubReleaseUrl: string;
     agentDefaultVersion: string;
     githubRepo: string;
-  }> {
-    // Default values - used when no DB config exists yet
-    const defaults: Record<string, string> = {
-      'provisioning.api_url': 'http://localhost:3000',
-      'provisioning.mqtt_broker_host': 'localhost',
-      'provisioning.mqtt_broker_port': '1883',
-      'provisioning.github_release_url': 'https://github.com/Okan-wqm/aquaculture_platform/releases',
-      'provisioning.agent_default_version': 'latest',
-      'provisioning.github_repo': 'Okan-wqm/aquaculture_platform',
-    };
-
-    // Fetch all provisioning configs from DB
-    const configs = await this.globalConfigRepo.find({
-      where: { category: ConfigCategory.PROVISIONING },
-    });
-
-    const getValue = (key: string): string => {
-      const config = configs.find(c => c.key === key);
-      return (config?.value as string) ?? defaults[key] ?? '';
-    };
-
+  } {
     return {
-      provisioningApiUrl: getValue('provisioning.api_url'),
-      mqttBrokerHost: getValue('provisioning.mqtt_broker_host'),
-      mqttBrokerPort: parseInt(getValue('provisioning.mqtt_broker_port'), 10),
-      githubReleaseUrl: getValue('provisioning.github_release_url'),
-      agentDefaultVersion: getValue('provisioning.agent_default_version'),
-      githubRepo: getValue('provisioning.github_repo'),
+      provisioningApiUrl: this.provisioningDefault('provisioning.api_url'),
+      mqttBrokerHost: this.provisioningDefault('provisioning.mqtt_broker_host'),
+      mqttBrokerPort: Number.parseInt(this.provisioningDefault('provisioning.mqtt_broker_port'), 10),
+      githubReleaseUrl: this.provisioningDefault('provisioning.github_release_url'),
+      agentDefaultVersion: this.provisioningDefault('provisioning.agent_default_version'),
+      githubRepo: this.provisioningDefault('provisioning.github_repo'),
     };
   }
 
   /**
    * Update provisioning configuration
    */
-  async updateProvisioningConfig(
+  updateProvisioningConfig(
     updates: Record<string, string>,
     updatedBy: string,
-  ): Promise<void> {
-    // Whitelist of allowed provisioning config keys
-    const ALLOWED_KEYS = new Set([
-      'provisioning.api_url',
-      'provisioning.mqtt_broker_host',
-      'provisioning.mqtt_broker_port',
-      'provisioning.github_release_url',
-      'provisioning.github_repo',
-      'provisioning.agent_default_version',
-    ]);
-
-    // Validate ALL keys first before making any changes
-    const rejectedKeys: string[] = [];
-    const validUpdates: Array<{ fullKey: string; value: string }> = [];
-
-    for (const [key, value] of Object.entries(updates)) {
-      const fullKey = key.startsWith('provisioning.') ? key : `provisioning.${key}`;
-
-      if (!ALLOWED_KEYS.has(fullKey)) {
-        rejectedKeys.push(fullKey);
-        continue;
-      }
-
-      if (typeof value !== 'string' || value.length > 2048) {
-        rejectedKeys.push(fullKey);
-        continue;
-      }
-
-      validUpdates.push({ fullKey, value });
-    }
-
-    if (rejectedKeys.length > 0) {
-      throw new BadRequestException(`Invalid provisioning config keys: ${rejectedKeys.join(', ')}`);
-    }
-
-    // Now apply all valid updates
-    for (const { fullKey, value } of validUpdates) {
-      const existing = await this.globalConfigRepo.findOne({ where: { key: fullKey } });
-
-      if (existing) {
-        await this.updateConfig(existing.id, value, updatedBy);
-      } else {
-        await this.createConfig({
-          key: fullKey,
-          name: fullKey,
-          value,
-          category: ConfigCategory.PROVISIONING,
-          valueType: ConfigValueType.STRING,
-          description: `Provisioning setting: ${fullKey}`,
-        });
-      }
-    }
+  ): never {
+    void updates;
+    void updatedBy;
+    this.throwGlobalConfigGone();
   }
 
   // ============================================================================
@@ -1105,11 +913,10 @@ export class GlobalSettingsService implements OnModuleInit {
   // ============================================================================
 
   async getSystemStatus(): Promise<SystemHealthStatus> {
-    const [currentVersion, maintenanceCheck, toggleCount, configCount] = await Promise.all([
+    const [currentVersion, maintenanceCheck, toggleCount] = await Promise.all([
       this.getCurrentVersion(),
       this.checkMaintenanceMode(),
       this.featureToggleRepo.count(),
-      this.globalConfigRepo.count(),
     ]);
 
     return {
@@ -1118,7 +925,29 @@ export class GlobalSettingsService implements OnModuleInit {
       environment: process.env['NODE_ENV'] || 'development',
       maintenanceMode: maintenanceCheck.isInMaintenance,
       featureToggles: toggleCount,
-      activeConfigs: configCount,
+      activeConfigs: 0,
     };
+  }
+
+  private provisioningDefault(key: string): string {
+    const defaults: Record<string, string> = {
+      'provisioning.api_url': process.env['PROVISIONING_API_URL'] ?? 'http://localhost:3000',
+      'provisioning.mqtt_broker_host': process.env['PROVISIONING_MQTT_BROKER_HOST'] ?? 'localhost',
+      'provisioning.mqtt_broker_port': process.env['PROVISIONING_MQTT_BROKER_PORT'] ?? '1883',
+      'provisioning.github_release_url':
+        process.env['PROVISIONING_GITHUB_RELEASE_URL'] ??
+        'https://github.com/Okan-wqm/aquaculture_platform/releases',
+      'provisioning.agent_default_version':
+        process.env['PROVISIONING_AGENT_DEFAULT_VERSION'] ?? 'latest',
+      'provisioning.github_repo':
+        process.env['PROVISIONING_GITHUB_REPO'] ?? 'Okan-wqm/aquaculture_platform',
+    };
+    return defaults[key] ?? '';
+  }
+
+  private throwGlobalConfigGone(): never {
+    throw new GoneException(
+      'admin-api direct global_configs writes are retired; use config-service effective configuration APIs',
+    );
   }
 }

@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from aria_kernel.auto_merge import classify_changed_files, evaluate_auto_merge, merge_if_green
+from aria_kernel.auto_merge_runners import resolve_readiness_claim_id_from_claims
 from aria_kernel.integrity import verify_integrity
+from aria_kernel.ledger import append_declared_jsonl
+from aria_kernel.ledger_refs import ledger_ref_for_row
+from aria_kernel.merge_authority import merge_pr_if_ready
+from aria_kernel.tool_registry import ensure_tools_dir
+
+HEAD_SHA = "a" * 40
+DRIFT_HEAD_SHA = "b" * 40
+DIGEST = "sha256:" + "c" * 64
 
 
 def enabled_policy(**overrides):
@@ -18,7 +28,9 @@ def enabled_policy(**overrides):
 def pr(**overrides):
     payload = {
         "number": 42,
+        "repository": "example/aqua",
         "base_branch": "main",
+        "head_ref": "feature/docs",
         "head_sha": "abc1234",
         "changed_files": ["docs/aria/plans/008-auto-merge.md"],
         "reviews": [],
@@ -102,6 +114,7 @@ class AutoMergeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools_dir)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -167,6 +180,188 @@ class AutoMergeTests(unittest.TestCase):
              "change_id": change_id, "base_branch": "main"},
             event="opened", base_dir=self.tools_dir,
         )
+
+    def _seed_readiness_claim(self, *, pr_number: int, head_sha: str, target_ref: str = "main") -> str:
+        from aria_kernel.enterprise_readiness import (
+            READINESS_SCHEMA,
+            record_artifact_proof,
+            record_branch_protection_proof,
+            record_dlp_proof,
+            record_enterprise_readiness_claim,
+            record_remote_cas_proof,
+            record_retention_proof,
+            record_rollback_proof,
+            record_token_proof,
+            record_workflow_run_proof,
+        )
+
+        readiness_claim_id = f"ready-{pr_number}"
+        repo = "example/aqua"
+        head_ref = "feature/docs"
+        common = {
+            "repo": repo,
+            "pr_number": pr_number,
+            "target_ref": target_ref,
+            "head_ref": head_ref,
+            "head_sha": head_sha,
+            "readiness_claim_id": readiness_claim_id,
+        }
+
+        source_refs: dict[str, dict] = {}
+
+        def source_ref(label: str) -> dict:
+            if label not in source_refs:
+                row_id = f"source-{label}"
+                row = append_declared_jsonl(
+                    self.tools_dir / "ci" / "source.jsonl",
+                    {
+                        "schema_version": 1,
+                        "row_id": row_id,
+                        "row_type": "ci_source",
+                        "label": label,
+                        "content_hash": "sha256:" + hashlib.sha256(label.encode("utf-8")).hexdigest(),
+                    },
+                    expected_surface="ci_source",
+                    bypass_profile_gate=True,
+                )
+                source_refs[label] = ledger_ref_for_row(
+                    surface="ci_source",
+                    ledger_path="ci/source.jsonl",
+                    row_id=row_id,
+                    row_type="ci_source",
+                    row=row,
+                )
+            return dict(source_refs[label])
+
+        def write_artifact(name: str, payload: str) -> str:
+            path = self.tools_dir / name
+            path.write_text(payload, encoding="utf-8")
+            return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+        artifact_sha = write_artifact("evidence-bundle.json", '{"ok":true}\n')
+        rollback_source = write_artifact("rollback-source.json", '{"source":true}\n')
+        rollback_archive = write_artifact("rollback-archive.json", '{"archive":true}\n')
+        retention_source = write_artifact("retention-source.json", '{"source":true}\n')
+        retention_archive = write_artifact("retention-archive.json", '{"archive":true}\n')
+        artifact_ref = {
+            "schema_version": 2,
+            "artifact_id": "artifact-1",
+            "uri": "evidence-bundle.json",
+            "sha256": artifact_sha,
+            "content_type": "application/json",
+            "produced_by_workflow_run_id": "123",
+            "source_surface": "github_actions_artifact",
+        }
+        cas = {
+            **common,
+            "state": "fresh",
+            "lease_id": f"lease-{pr_number}",
+            "epoch": 1,
+            "expires_at": "2999-06-02T00:00:00Z",
+            "source_ledger_ref": source_ref("cas"),
+        }
+        record_remote_cas_proof(cas, base_dir=self.tools_dir)
+        branch = {
+            **common,
+            "valid": True,
+            "snapshot_hash": artifact_sha,
+            "required_checks": ["ci/test", "ci/lint"],
+            "source_ledger_ref": source_ref("branch"),
+        }
+        record_branch_protection_proof(branch, base_dir=self.tools_dir)
+        rollback = {
+            **common,
+            "validated": True,
+            "rollback_proof_id": f"rollback-{pr_number}",
+            "source_uri": "rollback-source.json",
+            "archive_uri": "rollback-archive.json",
+            "source_sha256": rollback_source,
+            "archive_sha256": rollback_archive,
+            "source_ledger_ref": source_ref("rollback"),
+        }
+        retention = {
+            **common,
+            "validated": True,
+            "retention_proof_id": f"retention-{pr_number}",
+            "source_uri": "retention-source.json",
+            "archive_uri": "retention-archive.json",
+            "source_sha256": retention_source,
+            "archive_sha256": retention_archive,
+            "retention_days": 365,
+            "source_ledger_ref": source_ref("retention"),
+        }
+        workflow_run = {
+            **common,
+            "workflow_run_id": 123,
+            "conclusion": "success",
+            "source_ledger_ref": source_ref("workflow"),
+        }
+        artifact = {
+            **common,
+            "artifact_id": artifact_ref["artifact_id"],
+            "uri": artifact_ref["uri"],
+            "sha256": artifact_ref["sha256"],
+            "schema_version": artifact_ref["schema_version"],
+            "content_type": artifact_ref["content_type"],
+            "source_surface": artifact_ref["source_surface"],
+            "produced_by_workflow_run_id": artifact_ref["produced_by_workflow_run_id"],
+            "source_ledger_ref": source_ref("artifact"),
+        }
+        dlp = {
+            **common,
+            "valid": True,
+            "dlp_proof_id": f"dlp-{pr_number}",
+            "workflow_run_id": 123,
+            "artifact_id": artifact_ref["artifact_id"],
+            "artifact_sha256": artifact_ref["sha256"],
+            "workflow_hash": artifact_sha,
+            "contract_hash": artifact_sha,
+            "network_policy": "egress-denied",
+            "runtime_write_paths": ["aria-tools/tmp"],
+            "source_ledger_ref": source_ref("dlp"),
+        }
+        token = {
+            **common,
+            "valid": True,
+            "token_proof_id": f"token-{pr_number}",
+            "workflow_run_id": 123,
+            "artifact_id": artifact_ref["artifact_id"],
+            "artifact_sha256": artifact_ref["sha256"],
+            "workflow_hash": artifact_sha,
+            "contract_hash": artifact_sha,
+            "network_policy": "egress-denied",
+            "runtime_write_paths": ["aria-tools/tmp"],
+            "source_ledger_ref": source_ref("token"),
+        }
+        record_rollback_proof(rollback, base_dir=self.tools_dir)
+        record_retention_proof(retention, base_dir=self.tools_dir)
+        record_workflow_run_proof(workflow_run, base_dir=self.tools_dir)
+        record_artifact_proof(artifact, base_dir=self.tools_dir)
+        record_dlp_proof(dlp, base_dir=self.tools_dir)
+        record_token_proof(token, base_dir=self.tools_dir)
+        claim = {
+            "$schema": READINESS_SCHEMA,
+            "schema_version": 2,
+            "claim_row_id": f"claim-row-{readiness_claim_id}",
+            "readiness_claim_id": readiness_claim_id,
+            "repo": repo,
+            "pr_number": pr_number,
+            "target_ref": target_ref,
+            "head_ref": head_ref,
+            "head_sha": head_sha,
+            "evidence_bundle": {"path": "evidence-bundle.json", "sha256": artifact_sha},
+            "workflow_run_ids": [123],
+            "artifact_refs": [artifact_ref],
+            "remote_cas_proof": cas,
+            "rollback_proof": rollback,
+            "retention_proof": retention,
+            "waiver_ledger": {"open_expired_waivers": [], "source_ledger_ref": source_ref("waiver")},
+            "branch_protection_proof": branch,
+            "dlp_proof": dlp,
+            "token_proof": token,
+        }
+        record_enterprise_readiness_claim(claim, base_dir=self.tools_dir)
+        return readiness_claim_id
 
     def test_policy_disabled_blocks_even_low_risk_green_pr(self):
         decision = evaluate_auto_merge(pr=pr(), github=github(), policy={}, base_dir=self.tools_dir)
@@ -256,40 +451,60 @@ class AutoMergeTests(unittest.TestCase):
         # Plan 026R §D.4 — auto-merge now triple-gates on
         # change_committed + change_validated + verified validation_runs.
         # Seed a passing chain so the merge proceeds.
-        self._seed_passing_triple_gate(pr_number=42, head_sha="abc1234")
-        adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc1234", "abc1234"])
-        result = merge_if_green(
+        self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
+        readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
+        from aria_kernel.runtime_profile import set_profile
+        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        adapter = FakeGitHubAdapter(
+            pr(head_sha=HEAD_SHA),
+            github(
+                latest_head_sha=HEAD_SHA,
+                checks={
+                    "readable": True,
+                    "runs": [
+                        {"name": "ci/test", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                        {"name": "ci/lint", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                    ],
+                },
+            ),
+            latest_heads=[HEAD_SHA, HEAD_SHA],
+        )
+        result = merge_pr_if_ready(
             adapter=adapter,
             pr_number=42,
             policy=enabled_policy(),
             base_dir=self.tools_dir,
             cycle_id="cycle-merge",
-            dry_run=False,
+            readiness_claim_id=readiness_claim_id,
         )
         self.assertEqual(result["decision"], "merged")
-        self.assertEqual(adapter.merge_calls, [{"number": 42, "method": "squash", "expected_head_sha": "abc1234"}])
+        self.assertEqual(adapter.merge_calls, [{"number": 42, "method": "squash", "expected_head_sha": HEAD_SHA}])
         decisions = [json.loads(line) for line in (self.tools_dir / "auto-merge-decisions.jsonl").read_text().splitlines()]
         self.assertEqual([row["decision"] for row in decisions], ["eligible", "merged"])
 
     def test_merge_command_not_called_when_checks_are_pending(self):
+        from aria_kernel.runtime_profile import set_profile
+        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
         adapter = FakeGitHubAdapter(
-            pr(),
+            pr(head_sha=HEAD_SHA),
             github(
+                latest_head_sha=HEAD_SHA,
                 checks={
                     "readable": True,
                     "runs": [
-                        {"name": "ci/test", "head_sha": "abc1234", "status": "completed", "conclusion": "success"},
-                        {"name": "ci/lint", "head_sha": "abc1234", "status": "queued", "conclusion": None},
+                        {"name": "ci/test", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                        {"name": "ci/lint", "head_sha": HEAD_SHA, "status": "queued", "conclusion": None},
                     ],
                 },
             ),
         )
-        result = merge_if_green(
+        result = merge_pr_if_ready(
             adapter=adapter,
             pr_number=42,
             policy=enabled_policy(),
             base_dir=self.tools_dir,
-            dry_run=False,
+            readiness_claim_id=readiness_claim_id,
         )
         self.assertEqual(result["decision"], "blocked")
         self.assertEqual(adapter.merge_calls, [])
@@ -299,14 +514,30 @@ class AutoMergeTests(unittest.TestCase):
         # the re-eval boundary. Plan 026R §D.4 — the auto-merge triple-
         # gate fires BEFORE re-eval; we seed a passing triple-gate so
         # the test reaches the head-SHA drift surface as intended.
-        self._seed_passing_triple_gate(pr_number=42, head_sha="abc1234")
-        adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc1234", "def456"])
-        result = merge_if_green(
+        self._seed_passing_triple_gate(pr_number=42, head_sha=HEAD_SHA)
+        readiness_claim_id = self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
+        from aria_kernel.runtime_profile import set_profile
+        set_profile("autonomous", operator_approval_ref="test:merge-authority", base_dir=self.tools_dir)
+        adapter = FakeGitHubAdapter(
+            pr(head_sha=HEAD_SHA),
+            github(
+                latest_head_sha=HEAD_SHA,
+                checks={
+                    "readable": True,
+                    "runs": [
+                        {"name": "ci/test", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                        {"name": "ci/lint", "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success"},
+                    ],
+                },
+            ),
+            latest_heads=[HEAD_SHA, DRIFT_HEAD_SHA],
+        )
+        result = merge_pr_if_ready(
             adapter=adapter,
             pr_number=42,
             policy=enabled_policy(),
             base_dir=self.tools_dir,
-            dry_run=False,
+            readiness_claim_id=readiness_claim_id,
         )
         self.assertEqual(result["decision"], "blocked")
         joined = " ".join(result["reasons"])
@@ -317,6 +548,28 @@ class AutoMergeTests(unittest.TestCase):
             f"expected SHA-drift or triple-gate block reason; got {result['reasons']!r}",
         )
         self.assertEqual(adapter.merge_calls, [])
+
+    def test_direct_real_merge_if_green_rejected_outside_authority(self):
+        adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc1234", "abc1234"])
+        with self.assertRaisesRegex(Exception, "direct_real_merge_forbidden"):
+            merge_if_green(
+                adapter=adapter,
+                pr_number=42,
+                policy=enabled_policy(),
+                base_dir=self.tools_dir,
+                dry_run=False,
+            )
+        self.assertEqual(adapter.merge_calls, [])
+
+    def test_readiness_claim_resolver_rejects_missing_live_pr_binding_fields(self):
+        self._seed_readiness_claim(pr_number=42, head_sha=HEAD_SHA)
+
+        class Adapter:
+            def get_pr(self, number):
+                return {"number": number}
+
+        with self.assertRaisesRegex(Exception, "readiness_claim_pr_binding_fields_required"):
+            resolve_readiness_claim_id_from_claims(Adapter(), 42, self.tools_dir)
 
 
 if __name__ == "__main__":

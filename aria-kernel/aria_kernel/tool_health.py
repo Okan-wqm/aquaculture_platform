@@ -13,7 +13,7 @@ from .feedback_store import (
     record_findings_for_run,
     record_raw_findings_for_run,
 )
-from .ledger import append_jsonl as append_chained_jsonl
+from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
 from .ledger import load_jsonl as load_chained_jsonl
 from .quarantine import quarantine_tool
 from .runs_reader import read_runs_rows
@@ -22,6 +22,7 @@ from .runtime_artifacts import (
     run_ledger_format,
     write_run_artifact,
 )
+from .evidence_trust import SELF_OUTPUT_PREFIXES
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, update_tool, utc_now
 from .tool_registry import append_tools_governance, update_tools_index
 
@@ -83,7 +84,7 @@ DEFAULT_DENY_READ_GLOBS = (
 # Backwards-compat alias for any external importer (no in-repo importer
 # per grep, but defensive). Equivalent to the pre-fix tuple ordering.
 DEFAULT_FORBIDDEN_READ_GLOBS = HARD_FORBIDDEN_READ_GLOBS + DEFAULT_DENY_READ_GLOBS
-SELF_OUTPUT_MARKERS = ("agent-workspace/", ".aria-poc/", "aria-tools/")
+SELF_OUTPUT_MARKERS = SELF_OUTPUT_PREFIXES
 
 
 def runs_path(base_dir: str | Path | None = None) -> Path:
@@ -535,6 +536,12 @@ def feedback_severity(feedback: Any) -> str | None:
 
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    if path.name == "runs.jsonl":
+        return append_declared_jsonl(path, payload, expected_surface="runs")
+    if path.name == "health.jsonl":
+        return append_declared_jsonl(path, payload, expected_surface="health")
+    if path.name == "cycles.jsonl":
+        return append_declared_jsonl(path, payload, expected_surface="cycles")
     return append_chained_jsonl(path, payload)
 
 

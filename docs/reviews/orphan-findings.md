@@ -3684,3 +3684,73 @@ Fix (Tier 1 Make-Automatic): append `,ignore-error=true` to every `cache-to: typ
 Two call sites in `.github/workflows/deploy-digitalocean.yml`: `build-backend-images` (line 835) + `build-frontend-images` (line ~933). Both updated in the same commit.
 
 Status: RESOLVED on `fix/ghcr-cache-write-ignore-error` branch.
+
+## ORPHAN-HIGH-080 — Service command surfaces had no durable idempotent receipt path across auth, billing, event-store, and notification
+
+Severity: HIGH. Tenant/admin command contracts existed, but the receiving service runtimes did not all share a durable command receipt ledger, v2 service-identity enforcement, and replay-safe notification delivery semantics. A duplicate or retried command could run twice, trust a bare tenant header, or acknowledge an in-flight notification as delivered while the only receipt status was `STARTED`.
+
+Root cause: service commands were added as protocol concepts before the receiving services had the same idempotency and identity spine as gateway calls. Event-store also had a query-hash canonicalization mismatch (`?` stripped from `observedQuery`), and notification command receipts treated every existing `STARTED` row as a successful replay.
+
+Fix: add auth, billing, and notification command receipt ledgers and handlers; require v2 event-store service identity with tenant context from verified signatures; harden event-store ledger/projection surfaces; and make notification command receipts distinguish `SUCCEEDED` replay, `FAILED` retry, fresh `STARTED` in-progress, and stale `STARTED` lease reclaim. Targeted unit specs cover event-store query hash / tenant context / projection FSM and notification receipt lease behavior.
+
+Status: RESOLVED on `feat/service-command-surfaces-20260606`.
+
+## ORPHAN-HIGH-081 — Tenant/admin provisioning still mixed admin-owned runtime writes with owner-service command ownership
+
+Severity: HIGH. Tenant creation, password reset, module catalog mutations, billing admin operations, schema provisioning, and lifecycle rollback paths were not aligned on one admin orchestration contract. Admin-api could still carry raw token material, write or assume ownership of auth/billing state, or proceed before db-migrate/onboarding/billing receipt evidence completed. Rollback and destructive cleanup boundaries were especially risky because create paths and delete paths did not distinguish normal provisioning from cleanup proof.
+
+Root cause: tenant provisioning had been split across admin-api handlers, direct database helpers, UI polling surfaces, NATS subjects, and migration helpers without a single invariant tying the ownership model together. The newer service command receipts existed downstream, but admin orchestration had not been updated to treat auth, billing, db-migrate, notification, and farm onboarding as owner-confirmed steps.
+
+Fix: route tenant creation through operation-based admin provisioning with idempotency, db-migrate wait evidence, owner-service command receipts, onboarding acknowledgement ordering, and tokenless admin surfaces. Admin-api password reset and module catalog mutations become facades over auth-service commands, billing operations require billing receipt evidence, schema cleanup stays behind cleanup proof, and the admin panel polls/retries provisioning operations instead of assuming immediate creation.
+
+Status: RESOLVED on `feat/tenant-admin-orchestration-20260606`.
+
+## ORPHAN-HIGH-082 — Config runtime responses exposed raw storage semantics instead of effective tenant-safe configuration
+
+Severity: HIGH. Config-service public GraphQL responses could expose raw `Configuration` storage rows and did not make tombstone, fallback, cache, and secret-redaction behavior explicit. Tenant runtime callers needed the effective configuration for their tenant, but the API shape could leak whether a value came from system fallback storage, return secret values, or treat deleted tenant overrides as ordinary missing rows.
+
+Root cause: the resolver contract and DTO boundary were coupled to persistence entities. The service had command/query handlers for raw configuration rows, but no public effective DTO that encoded source, requested tenant, tombstone state, and redacted values as runtime behavior.
+
+Fix: add an effective runtime configuration DTO and public resolver contract tests, introduce config tombstone lifecycle columns/migration, and update handlers/query paths to respect tombstones while keeping fallback and redaction explicit. The app module now registers the effective resolver path without exposing raw configuration entities as public runtime output.
+
+Status: RESOLVED on `feat/config-service-runtime-behavior-20260606`.
+
+## ORPHAN-HIGH-083 — Farm setup writes, documents, and batch policies were not bound to tenant transaction, audit, and outbox invariants
+
+Severity: HIGH. Farm setup and batch write paths still had gaps where REST controllers or handlers could bypass CQRS/tenant transaction boundaries, emit events outside the canonical outbox, or rely on runtime schema repair for existing tenants. Document metadata also lacked a canonical tenant table and cleanup provider, and Sentinel proxy access policy was not guarded by focused tests.
+
+Root cause: farm enterprise hardening had been implemented in pieces: batch lifecycle rules, site/system/equipment/tank setup writes, outbox/inbox migrations, document records, metrics, and realtime propagation were not tied together by one invariant-backed contract. That left setup migration status dependent on narrative docs and manual review rather than executable gates.
+
+Fix: add farm outbox/inbox/document/tank setup migrations, CQRS-backed batch write adapters, setup handler transaction/audit/outbox utilities, farm document cleanup registration, Sentinel proxy policy tests, farm event registry/realtime bridge parity, and farm invariants for identity, REST/CQRS, batch policy, and setup eventing. Existing-tenant schema repair remains fail-closed outside explicit e2e bootstrap.
+
+Status: RESOLVED on `feat/farm-service-enterprise-train-20260606`.
+
+## ORPHAN-HIGH-084 — Sensor DDL/RBAC/trust train lacked flat Agent I/O v2 and tenant-bound edge proof
+
+Severity: HIGH. Sensor DDL, edge-device I/O config, PLC control, and Rust gateway trust changes were present as separate hardening pieces, but the executable contract still allowed unsafe gaps: edge I/O mutations had role checks without the tenant permission gate, Agent I/O config could be serialized in a flat v2 shape that the Rust gateway did not parse, orphaned or ambiguous I/O tags could be skipped rather than rejected, and ping responses could complete against the wrong device identifier.
+
+Root cause: the train had runtime and schema changes without one cross-boundary proof tying service-side validation, GraphQL authorization metadata, MQTT payload shape, gateway parsing, and provisioning/trust behavior together. The flat `tags[]` schema was documented by fixtures and tests, but the Rust command parser still only accepted grouped legacy arrays.
+
+Fix: add tenant permission metadata to all edge I/O mutation surfaces, make Agent I/O v2 serialization fail closed for orphaned or ambiguous tags, bind pending pings to both device UUID and device code, add focused sensor-service permission/config/PLC tests, and teach the Rust gateway `update_io_config` parser to accept flat v2 `tags[]` while preserving legacy grouped payload support.
+
+Status: RESOLVED on `feat/sensor-train-ddl-rbac-trust-20260606`.
+
+## ORPHAN-HIGH-085 — Water chemistry leaf train lacked one end-to-end pH-domain and report proof
+
+Severity: HIGH. The Deffeyes DIC/pH engine, farm UI, MCP/AI tool surfaces, report export, and Playwright smoke were split across layers without one leaf-train proof that the visible chart domain, H₂S measurement pH semantics, report export overlays, and MCP schema stayed aligned.
+
+Root cause: chart and solver pH domains were duplicated, `currentPH` and H₂S measured-at-pH semantics were not stabilized as an explicit compatibility boundary, farm-module tests depended on a prebuilt shared-ui package, and the standalone farm module could not run the water smoke because its entrypoint lacked the React Query provider supplied by the shell.
+
+Fix: add shared Deffeyes pH-domain constants, introduce `h2sMeasuredAtPH` while preserving `currentPH` as a deprecated alias, extend engine/UI/report/MCP coverage, add a test-only shared-ui source alias, wrap farm-module standalone startup in a `QueryClientProvider`, and add the Playwright water chemistry release smoke for chart mode, report print, and CSP safety.
+
+Status: RESOLVED on `feat/water-chemistry-leaf-train-20260606`.
+
+## ORPHAN-HIGH-086 — ARIA control-plane proof lacked workflow preflight, evidence trust, and isolated burn-in
+
+Severity: HIGH. ARIA docs, workflows, and runtime helpers described enterprise autonomy proof surfaces, but the control plane did not consistently bind workflow write authority, token provenance, artifact trust, merge authority, and observe-mode burn-in evidence to executable gates. A workflow could claim authority without a real YAML contract, docs could drift from runtime SSoT, and operational proof could run outside an isolated, hash-bound evidence bundle.
+
+Root cause: ARIA hardening had evolved across kernel code, GitHub workflows, runbooks, and docs without one proof slice that made ARIA explicitly non-authoritative for production while still proving its own control-plane preconditions. Existing tests covered pieces of the kernel but not the workflow contract, evidence bundle integrity, genesis lifecycle boundaries, merge authority, and clean burn-in acceptance as one chain.
+
+Fix: add workflow contract/preflight verification, evidence trust and ledger-reference checks, merge authority invariants, enterprise readiness/genesis lifecycle guards, observe burn-in artifact schema and verifier, ARIA operational proof workflow, docs/runtime SSoT cleanup, and hardened automation-report PR helpers. The SSoT invariant now verifies the documented authority target as a reachable ancestor instead of requiring an impossible self-referential commit hash.
+
+Status: RESOLVED on `feat/aria-control-plane-proof-20260606`.

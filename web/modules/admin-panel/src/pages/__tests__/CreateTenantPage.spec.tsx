@@ -18,6 +18,7 @@ vi.mock('../../services/adminApi', () => ({
   tenantsApi: {
     create: vi.fn(),
     getProvisioningOperation: vi.fn(),
+    getProvisioningOperationByStatusUrl: vi.fn(),
     retryProvisioningOperation: vi.fn(),
   },
   modulesApi: {
@@ -35,6 +36,7 @@ vi.mock('../../services/adminApi', () => ({
   },
   TenantProvisioningState: {
     QUEUED: 'QUEUED',
+    RESERVING: 'RESERVING',
     RUNNING: 'RUNNING',
     SUCCEEDED: 'SUCCEEDED',
     FAILED: 'FAILED',
@@ -122,15 +124,10 @@ const mockPricings = [
 ];
 
 const accepted = (state: TenantProvisioningState, overrides = {}) => ({
-  tenantId: '11111111-1111-4111-8111-111111111111',
-  operationId: '22222222-2222-4222-8222-222222222222',
-  provisioningState: state,
-  currentStep: 'assignModules',
-  statusUrl: '/api/v1/tenants/provisioning/22222222-2222-4222-8222-222222222222',
-  steps: [
-    { name: 'createTenant', state: TenantProvisioningState.SUCCEEDED },
-    { name: 'assignModules', state },
-  ],
+  status: state,
+  statusUrl: '/tenants/provisioning/22222222-2222-4222-8222-222222222222',
+  retryAfterMs: state === TenantProvisioningState.RUNNING ? 100 : 0,
+  availableActions: state === TenantProvisioningState.FAILED ? ['retryProvisioning'] : [],
   ...overrides,
 });
 
@@ -159,6 +156,7 @@ describe('CreateTenantPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockNavigate.mockReset();
+    window.sessionStorage.clear();
     vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'idem-key-1') });
     vi.mocked(billingApi.getModulePricingWithModules).mockResolvedValue(mockPricings as never);
     vi.mocked(billingApi.calculatePricing).mockResolvedValue({
@@ -232,8 +230,8 @@ describe('CreateTenantPage', () => {
   it('shows an in-progress provisioning operation and refreshes to success', async () => {
     const user = userEvent.setup();
     vi.mocked(tenantsApi.create).mockResolvedValue(accepted(TenantProvisioningState.RUNNING) as never);
-    vi.mocked(tenantsApi.getProvisioningOperation).mockResolvedValue(
-      accepted(TenantProvisioningState.SUCCEEDED, { currentStep: 'activateTenant' }) as never,
+    vi.mocked(tenantsApi.getProvisioningOperationByStatusUrl).mockResolvedValue(
+      accepted(TenantProvisioningState.SUCCEEDED) as never,
     );
 
     renderWithRouter();
@@ -241,12 +239,14 @@ describe('CreateTenantPage', () => {
     await user.click(screen.getByRole('button', { name: /create tenant/i }));
 
     expect(await screen.findByText('Tenant Provisioning')).toBeTruthy();
-    expect(screen.getAllByText('assignModules').length).toBeGreaterThan(0);
+    expect(screen.getByText('/tenants/provisioning/22222222-2222-4222-8222-222222222222')).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: /refresh/i }));
 
     await waitFor(() => {
-      expect(tenantsApi.getProvisioningOperation).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222');
+      expect(tenantsApi.getProvisioningOperationByStatusUrl).toHaveBeenCalledWith(
+        '/tenants/provisioning/22222222-2222-4222-8222-222222222222',
+      );
     });
     expect(await screen.findByText(/tenant provisioned successfully/i)).toBeTruthy();
   });
@@ -254,28 +254,24 @@ describe('CreateTenantPage', () => {
   it('allows retrying a failed provisioning operation', async () => {
     const user = userEvent.setup();
     vi.mocked(tenantsApi.create).mockResolvedValue(
-      accepted(TenantProvisioningState.FAILED, {
-        error: 'Billing subscription failed',
-        steps: [
-          { name: 'createTenant', state: TenantProvisioningState.SUCCEEDED },
-          { name: 'createSubscription', state: TenantProvisioningState.FAILED, lastError: 'Billing subscription failed' },
-        ],
-      }) as never,
+      accepted(TenantProvisioningState.FAILED) as never,
     );
     vi.mocked(tenantsApi.retryProvisioningOperation).mockResolvedValue(
-      accepted(TenantProvisioningState.RUNNING, { currentStep: 'createSubscription' }) as never,
+      accepted(TenantProvisioningState.RUNNING) as never,
     );
 
     renderWithRouter();
     await completeFormToReview(user);
     await user.click(screen.getByRole('button', { name: /create tenant/i }));
 
-    expect((await screen.findAllByText(/billing subscription failed/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/tenant provisioning failed/i)).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: /retry/i }));
 
     await waitFor(() => {
-      expect(tenantsApi.retryProvisioningOperation).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222');
+      expect(tenantsApi.retryProvisioningOperation).toHaveBeenCalledWith(
+        '/tenants/provisioning/22222222-2222-4222-8222-222222222222',
+      );
     });
   });
 

@@ -1,11 +1,7 @@
-import { randomUUID } from 'node:crypto';
-
 import {
-  BadRequestException,
+  ConflictException,
   Injectable,
-  InternalServerErrorException,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -70,23 +66,6 @@ type PaymentOverviewRow = Omit<PaymentOverview, 'amount' | 'refundedAmount'> & {
   amount: DbNumeric;
   refundedAmount: DbNumeric;
 };
-
-interface InvoicePaymentSourceRow {
-  id: string;
-  tenantId: string;
-  status: string;
-  amountDue: DbNumeric;
-  total: DbNumeric;
-}
-
-interface PaymentRefundSourceRow {
-  id: string;
-  tenantId: string;
-  invoiceId: string;
-  amount: DbNumeric;
-  refundedAmount: DbNumeric;
-  status: string;
-}
 
 function dbNumber(value: DbNumeric): number {
   if (value === null || value === undefined || value === '') {
@@ -214,212 +193,28 @@ export class PaymentManagementService {
   /**
    * Record a payment for an invoice
    */
-  async recordPayment(
+  recordPayment(
     dto: RecordPaymentDto,
     recordedBy: string,
-  ): Promise<PaymentOverview> {
-    // Verify invoice exists
-    const invoice = await this.dataSource.query<InvoicePaymentSourceRow[]>(
-      'SELECT id, tenant_id as "tenantId", status, amount_due as "amountDue", total FROM billing.invoices WHERE id = $1',
-      [dto.invoiceId],
+  ): never {
+    void dto;
+    void recordedBy;
+    throw new ConflictException(
+      'Payment recording is billing-service-owned. Use BillingAdminCommandClientService.recordPayment.',
     );
-
-    const inv = invoice[0];
-    if (!inv) {
-      throw new NotFoundException(`Invoice not found: ${dto.invoiceId}`);
-    }
-
-    const amountDue = dbNumber(inv.amountDue);
-
-    if (dto.amount <= 0) {
-      throw new BadRequestException('Payment amount must be positive');
-    }
-
-    if (dto.amount > amountDue) {
-      throw new BadRequestException(`Payment amount ($${dto.amount}) exceeds amount due ($${amountDue})`);
-    }
-
-    /**
-     * SECURITY (H-16): Transaction IDs use cryptographic randomness via crypto.randomUUID().
-     * Math.random() output is predictable after observing a few values, enabling
-     * transaction ID forgery or enumeration attacks on financial records.
-     */
-    const txId = `TXN-${Date.now()}-${randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase()}`;
-
-    // Insert payment record
-    const result = await this.dataSource.query<PaymentOverviewRow[]>(
-      `
-      INSERT INTO billing.payments (
-        id, tenant_id, transaction_id, invoice_id, amount, currency,
-        status, payment_method, payment_date, processed_at,
-        notes, created_by, "createdAt", "updatedAt", version
-      ) VALUES (
-        gen_random_uuid(), $1, $2, $3, $4, $5,
-        'succeeded', $6, $7, NOW(),
-        $8, $9, NOW(), NOW(), 1
-      )
-      RETURNING
-        id,
-        tenant_id as "tenantId",
-        transaction_id as "transactionId",
-        invoice_id as "invoiceId",
-        amount,
-        currency,
-        status,
-        payment_method as "paymentMethod",
-        payment_date as "paymentDate",
-        processed_at as "processedAt",
-        refunded_amount as "refundedAmount",
-        notes,
-        "createdAt",
-        "updatedAt",
-        created_by as "createdBy"
-      `,
-      [
-        inv.tenantId,
-        txId,
-        dto.invoiceId,
-        dto.amount,
-        dto.currency || 'USD',
-        dto.paymentMethod,
-        dto.paymentDate || new Date().toISOString(),
-        dto.notes || null,
-        recordedBy,
-      ],
-    );
-
-    // Update invoice paid amount
-    const newAmountPaid = dbNumber(inv.total) - amountDue + dto.amount;
-    const newAmountDue = amountDue - dto.amount;
-    const isPaidInFull = newAmountDue <= 0.01;
-
-    await this.dataSource.query(
-      `
-      UPDATE billing.invoices SET
-        amount_paid = $1,
-        amount_due = $2,
-        status = $3,
-        paid_at = $4,
-        "updatedAt" = NOW()
-      WHERE id = $5
-      `,
-      [
-        newAmountPaid,
-        Math.max(0, newAmountDue),
-        isPaidInFull ? 'paid' : 'partially_paid',
-        isPaidInFull ? new Date() : null,
-        dto.invoiceId,
-      ],
-    );
-
-    this.logger.log(`Payment ${txId} recorded for invoice ${dto.invoiceId} by ${recordedBy}: $${dto.amount}`);
-
-    const payment = result[0];
-    if (!payment) {
-      throw new InternalServerErrorException(`Payment insert did not return a row for invoice ${dto.invoiceId}`);
-    }
-
-    return mapPaymentOverview(payment);
   }
 
   /**
    * Refund a payment (full or partial)
    */
-  async refundPayment(
+  refundPayment(
     dto: RefundPaymentDto,
     refundedBy: string,
-  ): Promise<PaymentOverview> {
-    // Verify payment exists
-    const paymentResult = await this.dataSource.query<PaymentRefundSourceRow[]>(
-      `SELECT id, tenant_id as "tenantId", invoice_id as "invoiceId", amount, refunded_amount as "refundedAmount", status
-       FROM billing.payments WHERE id = $1`,
-      [dto.paymentId],
+  ): never {
+    void dto;
+    void refundedBy;
+    throw new ConflictException(
+      'Payment refund is billing-service-owned. Use BillingAdminCommandClientService.refundPayment.',
     );
-
-    const payment = paymentResult[0];
-    if (!payment) {
-      throw new NotFoundException(`Payment not found: ${dto.paymentId}`);
-    }
-
-    const originalAmount = dbNumber(payment.amount);
-    const alreadyRefunded = dbNumber(payment.refundedAmount);
-    const maxRefundable = originalAmount - alreadyRefunded;
-
-    if (dto.amount <= 0) {
-      throw new BadRequestException('Refund amount must be positive');
-    }
-
-    if (dto.amount > maxRefundable) {
-      throw new BadRequestException(
-        `Refund amount ($${dto.amount}) exceeds refundable amount ($${maxRefundable})`,
-      );
-    }
-
-    const newRefundedAmount = alreadyRefunded + dto.amount;
-    const isFullyRefunded = Math.abs(newRefundedAmount - originalAmount) < 0.01;
-
-    // Update payment with refund
-    const refundInfo = {
-      amount: dto.amount,
-      reason: dto.reason,
-      refundedAt: new Date().toISOString(),
-    };
-
-    await this.dataSource.query(
-      `
-      UPDATE billing.payments SET
-        refunded_amount = $1,
-        status = $2,
-        refunds = COALESCE(refunds, '[]'::jsonb) || $3::jsonb,
-        "updatedAt" = NOW()
-      WHERE id = $4
-      `,
-      [
-        newRefundedAmount,
-        isFullyRefunded ? 'refunded' : 'partially_refunded',
-        JSON.stringify(refundInfo),
-        dto.paymentId,
-      ],
-    );
-
-    // Update invoice to reflect refund
-    await this.dataSource.query(
-      `
-      UPDATE billing.invoices SET
-        amount_paid = GREATEST(0, amount_paid - $1),
-        amount_due = LEAST(total, amount_due + $1),
-        status = CASE
-          WHEN amount_paid - $1 <= 0 THEN 'refunded'
-          ELSE 'partially_paid'
-        END,
-        "updatedAt" = NOW()
-      WHERE id = $2
-      `,
-      [dto.amount, payment.invoiceId],
-    );
-
-    this.logger.log(
-      `Refund of $${dto.amount} processed for payment ${dto.paymentId} by ${refundedBy}: ${dto.reason}`,
-    );
-
-    // Return updated payment
-    const updated = await this.dataSource.query<PaymentOverviewRow[]>(
-      `SELECT
-        id, tenant_id as "tenantId", transaction_id as "transactionId",
-        invoice_id as "invoiceId", amount, currency, status,
-        payment_method as "paymentMethod", payment_date as "paymentDate",
-        processed_at as "processedAt", failure_reason as "failureReason",
-        refunded_amount as "refundedAmount", notes,
-        "createdAt", "updatedAt", created_by as "createdBy"
-      FROM billing.payments WHERE id = $1`,
-      [dto.paymentId],
-    );
-
-    const updatedPayment = updated[0];
-    if (!updatedPayment) {
-      throw new InternalServerErrorException(`Refund update did not return payment ${dto.paymentId}`);
-    }
-
-    return mapPaymentOverview(updatedPayment);
   }
 }

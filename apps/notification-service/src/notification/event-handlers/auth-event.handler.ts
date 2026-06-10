@@ -1,11 +1,12 @@
+import { createHash } from 'node:crypto';
+
+import { signedFetch } from '@aquaculture/backend-common/http';
+import { maskEmail } from '@aquaculture/backend-common/utils';
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
-import type {
-  PasswordResetRequestedEvent,
-  UserInvitedEvent,
-} from '@platform/event-contracts';
-import { maskEmail } from '@aquaculture/backend-common/utils';
+import type { PasswordResetRequestedEvent, UserInvitedEvent } from '@platform/event-contracts';
+
 import { EmailService } from '../services/email.service';
 
 // UUID v4 regex for tenant ID validation
@@ -52,8 +53,6 @@ export class AuthEventHandler
 {
   private readonly logger = new Logger(AuthEventHandler.name);
   private readonly authServiceUrl: string;
-  private readonly internalSecret: string;
-
   constructor(
     private readonly emailService: EmailService,
     @Inject('EVENT_BUS')
@@ -64,7 +63,6 @@ export class AuthEventHandler
       'AUTH_SERVICE_INTERNAL_URL',
       'http://auth-service:3000',
     );
-    this.internalSecret = this.configService.get<string>('INTERNAL_SERVICE_SECRET', '');
   }
 
   async onModuleInit(): Promise<void> {
@@ -75,7 +73,9 @@ export class AuthEventHandler
     // publisher↔subscriber subject contract (3 segments).
     await this.eventBus.subscribeWildcard('PasswordResetRequested', this);
     await this.eventBus.subscribeWildcard('UserInvited', this);
-    this.logger.log('Subscribed to PasswordResetRequested and UserInvited events (cross-tenant wildcard)');
+    this.logger.log(
+      'Subscribed to PasswordResetRequested and UserInvited events (cross-tenant wildcard)',
+    );
   }
 
   getEventType(): string {
@@ -87,15 +87,13 @@ export class AuthEventHandler
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
         `Auth event has invalid or missing tenantId. ` +
-        'Skipping to prevent cross-tenant notification leakage.',
+          'Skipping to prevent cross-tenant notification leakage.',
       );
       return;
     }
 
     const eventType = event.eventType;
-    this.logger.log(
-      `Processing ${eventType} for tenant ${event.tenantId.substring(0, 8)}...`,
-    );
+    this.logger.log(`Processing ${eventType} for tenant ${event.tenantId.substring(0, 8)}...`);
 
     try {
       switch (eventType) {
@@ -128,24 +126,27 @@ export class AuthEventHandler
       // v2 HMAC headers binding tenantId AND method+path+body. Manual
       // generateServiceIdentityHeaders + fetch is the v1 pattern that left
       // the canonical input cross-endpoint-replayable.
-      const { signedFetch } = require('@aquaculture/backend-common');
       const response = await signedFetch(
-        `${this.authServiceUrl}/internal/users/${userId}/pii`,
+        `${this.authServiceUrl}/api/v1/internal/users/${userId}/pii`,
         {
           method: 'GET',
           serviceName: 'notification-service',
           tenantId,
-          secret: this.internalSecret,
+          audience: 'auth-service',
           headers: { 'Content-Type': 'application/json' },
         },
       );
       if (!response.ok) {
-        this.logger.error(`Failed to resolve user PII for userId=${userId}: HTTP ${response.status}`);
+        this.logger.error(
+          `Failed to resolve user PII for userId=${userId}: HTTP ${response.status}`,
+        );
         return null;
       }
-      return await response.json() as ResolvedUserPII;
+      return (await response.json()) as ResolvedUserPII;
     } catch (error) {
-      this.logger.error(`Failed to resolve user PII for userId=${userId}: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to resolve user PII for userId=${userId}: ${(error as Error).message}`,
+      );
       return null;
     }
   }
@@ -156,24 +157,27 @@ export class AuthEventHandler
   private async resolveTenantInfo(tenantId: string): Promise<ResolvedTenantInfo | null> {
     try {
       // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
-      const { signedFetch } = require('@aquaculture/backend-common');
       const response = await signedFetch(
-        `${this.authServiceUrl}/internal/tenants/${tenantId}/info`,
+        `${this.authServiceUrl}/api/v1/internal/tenants/${tenantId}/info`,
         {
           method: 'GET',
           serviceName: 'notification-service',
           tenantId,
-          secret: this.internalSecret,
+          audience: 'auth-service',
           headers: { 'Content-Type': 'application/json' },
         },
       );
       if (!response.ok) {
-        this.logger.error(`Failed to resolve tenant info for tenantId=${tenantId}: HTTP ${response.status}`);
+        this.logger.error(
+          `Failed to resolve tenant info for tenantId=${tenantId}: HTTP ${response.status}`,
+        );
         return null;
       }
-      return await response.json() as ResolvedTenantInfo;
+      return (await response.json()) as ResolvedTenantInfo;
     } catch (error) {
-      this.logger.error(`Failed to resolve tenant info for tenantId=${tenantId}: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to resolve tenant info for tenantId=${tenantId}: ${(error as Error).message}`,
+      );
       return null;
     }
   }
@@ -184,29 +188,39 @@ export class AuthEventHandler
    * auth-service and returned via an authenticated internal API call. The raw
    * token never touches the event bus.
    */
-  private async resolveActionUrl(actionTokenId: string, tenantId: string): Promise<ResolvedActionInfo | null> {
+  private async resolveActionUrl(
+    actionTokenId: string,
+    tenantId: string,
+  ): Promise<ResolvedActionInfo | null> {
     try {
       // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
-      const { signedFetch } = require('@aquaculture/backend-common');
       const response = await signedFetch(
-        `${this.authServiceUrl}/internal/action-tokens/${actionTokenId}/url`,
+        `${this.authServiceUrl}/api/v1/internal/action-tokens/${actionTokenId}/url`,
         {
           method: 'GET',
           serviceName: 'notification-service',
           tenantId,
-          secret: this.internalSecret,
+          audience: 'auth-service',
           headers: { 'Content-Type': 'application/json' },
         },
       );
       if (!response.ok) {
-        this.logger.error(`Failed to resolve action URL for tokenId=${actionTokenId}: HTTP ${response.status}`);
+        this.logger.error(
+          `Failed to resolve action URL for tokenIdHash=${this.hashTokenId(actionTokenId)}: HTTP ${response.status}`,
+        );
         return null;
       }
-      return await response.json() as ResolvedActionInfo;
+      return (await response.json()) as ResolvedActionInfo;
     } catch (error) {
-      this.logger.error(`Failed to resolve action URL for tokenId=${actionTokenId}: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to resolve action URL for tokenIdHash=${this.hashTokenId(actionTokenId)}: ${(error as Error).message}`,
+      );
       return null;
     }
+  }
+
+  private hashTokenId(actionTokenId: string): string {
+    return createHash('sha256').update(actionTokenId).digest('hex').slice(0, 16);
   }
 
   // ── Event handlers ──
@@ -217,11 +231,15 @@ export class AuthEventHandler
   private async handlePasswordResetRequested(event: PasswordResetRequestedEvent): Promise<void> {
     // SECURITY: Reject stale v1 events that carry raw tokens or PII
     if ('resetToken' in event) {
-      this.logger.warn('SECURITY: Rejected v1 PasswordResetRequested event carrying raw resetToken. User must re-request.');
+      this.logger.warn(
+        'SECURITY: Rejected v1 PasswordResetRequested event carrying raw resetToken. User must re-request.',
+      );
       return;
     }
     if ('email' in event) {
-      this.logger.warn('SECURITY: Rejected legacy PasswordResetRequested event carrying raw PII (email). User must re-request.');
+      this.logger.warn(
+        'SECURITY: Rejected legacy PasswordResetRequested event carrying raw PII (email). User must re-request.',
+      );
       return;
     }
 
@@ -237,7 +255,9 @@ export class AuthEventHandler
     ]);
 
     if (!userPII || !actionInfo) {
-      this.logger.error(`Cannot send password reset email — failed to resolve user PII or action URL for userId=${event.userId}`);
+      this.logger.error(
+        `Cannot send password reset email — failed to resolve user PII or action URL for userId=${event.userId}`,
+      );
       return;
     }
 
@@ -304,7 +324,9 @@ export class AuthEventHandler
   private async handleUserInvited(event: UserInvitedEvent): Promise<void> {
     // SECURITY: Reject legacy events carrying raw PII
     if ('email' in event) {
-      this.logger.warn('SECURITY: Rejected legacy UserInvited event carrying raw PII (email). Re-invite required.');
+      this.logger.warn(
+        'SECURITY: Rejected legacy UserInvited event carrying raw PII (email). Re-invite required.',
+      );
       return;
     }
 
@@ -320,8 +342,10 @@ export class AuthEventHandler
       this.resolveActionUrl(event.actionTokenId, event.tenantId),
     ]);
 
-    if (!userPII || !tenantInfo) {
-      this.logger.error(`Cannot send welcome email — failed to resolve user PII or tenant info for userId=${event.userId}`);
+    if (!userPII || !tenantInfo || !actionInfo?.actionUrl) {
+      this.logger.error(
+        `Cannot send welcome email — failed to resolve user PII, tenant info, or action URL for userId=${event.userId}`,
+      );
       return;
     }
 
@@ -331,10 +355,12 @@ export class AuthEventHandler
       email: userPII.email,
       tenantName: tenantInfo.name,
       role: event.role,
-      actionUrl: actionInfo?.actionUrl || `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/setup-account`,
+      actionUrl: actionInfo.actionUrl,
     });
 
     // SECURITY: Mask email in logs to prevent PII exposure (H-14)
-    this.logger.log(`Welcome email sent to ${maskEmail(userPII.email)} for tenant ${tenantInfo.name}`);
+    this.logger.log(
+      `Welcome email sent to ${maskEmail(userPII.email)} for tenant ${tenantInfo.name}`,
+    );
   }
 }

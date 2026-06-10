@@ -79,7 +79,7 @@ export class CalculateH2SToxicityTool extends BaseTool<
     const fH2S = fractionH2S(pH, T, S);
     const h2s = calcH2S(totalSulfide, pH, T, S);
     const safeTotalSulfide = calcSafeTotalSulfide(pH, H2S_LIMIT, T, S);
-    // criticalPHforH2S expects measured H2S at current pH
+    // h2s is derived from total sulfide at pH, so pH is also the measurement pH here.
     const criticalPH = criticalPHforH2S(h2s, pH, H2S_LIMIT, T, S);
     const status = h2sStatus(pH, criticalPH);
 

@@ -26,8 +26,8 @@ upcaster module docstring).
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,6 +35,8 @@ from pathlib import Path
 from aria_kernel import register_tool, run_cycle
 from aria_kernel.ledger import append_jsonl, load_jsonl
 from aria_kernel.upcasters import upcast_cycle_rows
+
+FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
 
 # Closed set of valid statuses (mirrors the upcaster's mapping). A
@@ -47,7 +49,8 @@ VALID_CYCLE_STATUSES: frozenset[str] = frozenset(
 
 
 def _fake_tool_argv(output: dict[str, object]) -> list[str]:
-    return [sys.executable, "-c", f"import json; print({json.dumps(json.dumps(output))})"]
+    encoded = base64.b64encode(json.dumps(output, separators=(",", ":")).encode("utf-8")).decode("ascii")
+    return ["python3", FAKE_RUNNER.as_posix(), "--output-b64", encoded]
 
 
 def _fixture_tool() -> dict[str, object]:
@@ -200,7 +203,7 @@ class LegacyRowsViaUpcasterTests(unittest.TestCase):
             },
         ]
         for row in legacy_rows:
-            append_jsonl(self.cycles_path, row)
+            append_jsonl(self.cycles_path, row, test_fixture=True)
 
         rows_on_disk = load_jsonl(self.cycles_path)
         self.assertEqual(len(rows_on_disk), 4)
@@ -253,7 +256,7 @@ class LegacyRowsViaUpcasterTests(unittest.TestCase):
                 "event": "stopped",
             },
         ]:
-            append_jsonl(self.cycles_path, row)
+            append_jsonl(self.cycles_path, row, test_fixture=True)
 
         sha_before = hashlib.sha256(self.cycles_path.read_bytes()).hexdigest()
 

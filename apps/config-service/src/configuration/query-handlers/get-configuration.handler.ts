@@ -2,11 +2,13 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
+
+import { SYSTEM_TENANT_ID } from '../configuration.constants';
+import { Configuration, ConfigEnvironment } from '../entities/configuration.entity';
 import {
   GetConfigurationQuery,
   GetConfigurationByIdQuery,
 } from '../queries/get-configuration.query';
-import { Configuration, ConfigEnvironment } from '../entities/configuration.entity';
 
 @Injectable()
 @QueryHandler(GetConfigurationQuery)
@@ -22,13 +24,10 @@ export class GetConfigurationHandler
     const { tenantId, service, key, environment } = query;
     const env = (environment as ConfigEnvironment) || ConfigEnvironment.ALL;
 
-    // IMPORTANT: System-wide configs use the reserved system tenant UUID,
-    // not the string 'global'. This ensures all tenant_id columns are valid UUIDs.
-    const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
-
-    // Single query with both tenant-specific and system-wide fallback
+    // Single query with both tenant-specific and system-wide fallback.
+    // Include inactive tenant rows so tombstones can suppress system fallback.
     const whereConditions: FindOptionsWhere<Configuration>[] = [
-      { tenantId, service, key, environment: env, isActive: true },
+      { tenantId, service, key, environment: env },
     ];
 
     if (tenantId !== SYSTEM_TENANT_ID) {
@@ -47,9 +46,14 @@ export class GetConfigurationHandler
     });
 
     // Prefer tenant-specific over system-wide
+    const tenantConfiguration = configurations.find((c) => c.tenantId === tenantId);
+    const systemConfiguration = configurations.find((c) => c.tenantId === SYSTEM_TENANT_ID);
     const configuration =
-      configurations.find((c) => c.tenantId === tenantId) ||
-      configurations.find((c) => c.tenantId === SYSTEM_TENANT_ID);
+      tenantConfiguration?.isActive === false && tenantConfiguration.suppressFallback
+        ? tenantConfiguration
+        : tenantConfiguration?.isActive === true
+          ? tenantConfiguration
+          : systemConfiguration;
 
     if (!configuration) {
       throw new NotFoundException(`Configuration not found: ${service}/${key}`);

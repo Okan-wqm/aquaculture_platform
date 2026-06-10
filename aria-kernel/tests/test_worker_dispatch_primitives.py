@@ -17,7 +17,6 @@ scheduler daemon depends on:
 """
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 import unittest
@@ -32,24 +31,14 @@ from aria_kernel.worker_dispatch import (
     pr_for_assignment,
     release_claim_assignment,
 )
+from tests._helpers.declared_fixtures import append_declared_fixture, init_test_tools_root
 
 
 class WorkerDispatchPrimitivesTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-wd-prim-"))
         self.tools_root = self.tmp / "aria-tools"
-        self.tools_root.mkdir()
-        # Bootstrap repo_identity.json so ensure_tools_dir is happy.
-        identity = {
-            "aria_tools_contract_version": 2,
-            "bound_repo_hash": None,
-            "bound_repo_root": None,
-            "schema_version": 2,
-        }
-        (self.tools_root / "repo_identity.json").write_text(
-            json.dumps(identity, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        init_test_tools_root(self.tools_root)
         self._old_cwd = os.getcwd()
         os.chdir(self.tmp)
 
@@ -82,15 +71,20 @@ class WorkerDispatchPrimitivesTests(unittest.TestCase):
             "state": state,
             "created_at": "2026-05-10T00:00:00Z",
         }
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+        append_declared_fixture(
+            path,
+            row,
+            expected_surface="dispatch_requests",
+        )
 
     def _seed_governance(self, kind: str, details: dict[str, Any]) -> None:
         path = self.tools_root / "governance.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
         row = {"kind": kind, "details": details}
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+        append_declared_fixture(
+            path,
+            row,
+            expected_surface="tools_governance",
+        )
 
     def test_next_pending_assignment_picks_first_pending_skips_others(self) -> None:
         self._seed_dispatch_row(
@@ -232,7 +226,11 @@ class WorkerDispatchPrimitivesTests(unittest.TestCase):
             "pr_number": 99,
             "proposal_id": "PROP-LEGACY",
         }
-        pr_path.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+        append_declared_fixture(
+            pr_path,
+            legacy,
+            expected_surface="pr_lifecycle",
+        )
         self.assertIsNone(
             pr_for_assignment(
                 assignment_id="A-PR", base_dir=self.tools_root,
@@ -246,8 +244,11 @@ class WorkerDispatchPrimitivesTests(unittest.TestCase):
             "assignment_id": "A-PR",
             "proposal_id": "PROP-NEW",
         }
-        with pr_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(new_row) + "\n")
+        append_declared_fixture(
+            pr_path,
+            new_row,
+            expected_surface="pr_lifecycle",
+        )
         self.assertEqual(
             pr_for_assignment(
                 assignment_id="A-PR", base_dir=self.tools_root,

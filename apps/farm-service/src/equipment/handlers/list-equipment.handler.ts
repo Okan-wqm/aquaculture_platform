@@ -13,7 +13,7 @@ import { ListEquipmentQuery } from '../queries/list-equipment.query';
 import { Equipment, EquipmentStatus, EquipmentLocation, TankSpecifications } from '../entities/equipment.entity';
 import { EquipmentSystem } from '../entities/equipment-system.entity';
 import { EquipmentType, EquipmentCategory } from '../entities/equipment-type.entity';
-import { Tank, TankStatus, TankType } from '../../tank/entities/tank.entity';
+import { Tank, TankContainerKind, TankStatus, TankType } from '../../tank/entities/tank.entity';
 
 /**
  * Categories that can contain tank-like items from the tanks table
@@ -90,14 +90,14 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     const equipmentResult = await this.queryEquipmentTable(tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
 
     // Query tanks table if applicable with row cap
-    let tanksAsEquipment: Equipment[] = [];
+    let tankResult: { items: Equipment[]; total: number } = { items: [], total: 0 };
     if (shouldQueryTanks) {
-      tanksAsEquipment = await this.queryAndTransformTanks(tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
+      tankResult = await this.queryAndTransformTanks(tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
     }
 
     // Merge results from both tables
-    const allItems = [...equipmentResult.items, ...tanksAsEquipment];
-    const totalCount = equipmentResult.total + tanksAsEquipment.length;
+    const allItems = this.dedupeMergedResults([...equipmentResult.items, ...tankResult.items]);
+    const totalCount = equipmentResult.total + tankResult.total;
 
     // Sort merged results
     const sortedItems = this.sortMergedResults(allItems, sortBy, sortOrder);
@@ -115,11 +115,6 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
   private shouldQueryTanksTable(filter?: ListEquipmentQuery['filter']): boolean {
     // If isTank is explicitly false, don't query tanks table
     if (filter?.isTank === false) {
-      return false;
-    }
-
-    // If specific equipment type is requested, don't query tanks table
-    if (filter?.equipmentTypeId) {
       return false;
     }
 
@@ -249,7 +244,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     sortBy: string,
     sortOrder: 'ASC' | 'DESC',
     maxRows?: number,
-  ): Promise<Equipment[]> {
+  ): Promise<{ items: Equipment[]; total: number }> {
     const tankQueryBuilder = this.tankRepository.createQueryBuilder('tank');
     tankQueryBuilder.where('tank.tenantId = :tenantId', { tenantId });
     tankQueryBuilder.andWhere('tank.isActive = :isActive', { isActive: true });
@@ -264,6 +259,16 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
 
     if (filter?.siteId) {
       tankQueryBuilder.andWhere('department.siteId = :siteId', { siteId: filter.siteId });
+    }
+
+    if (filter?.systemId) {
+      tankQueryBuilder.andWhere('tank.systemId = :systemId', { systemId: filter.systemId });
+    }
+
+    if (filter?.equipmentTypeId) {
+      tankQueryBuilder.andWhere('tank.equipmentTypeId = :equipmentTypeId', {
+        equipmentTypeId: filter.equipmentTypeId,
+      });
     }
 
     if (filter?.isActive !== undefined) {
@@ -285,9 +290,17 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
       );
     }
 
+    if (filter?.categories && filter.categories.length > 0) {
+      tankQueryBuilder.andWhere('tank.containerKind IN (:...containerKinds)', {
+        containerKinds: filter.categories.map((category) => this.mapCategoryToContainerKind(category)),
+      });
+    }
+
     // Apply sorting to tanks query
     const tankSortBy = this.mapSortFieldToTank(sortBy);
     tankQueryBuilder.orderBy(`tank.${tankSortBy}`, sortOrder);
+
+    const total = await tankQueryBuilder.getCount();
 
     // Apply row cap to prevent loading entire dataset into memory
     if (maxRows) {
@@ -300,7 +313,10 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     const equipmentTypes = await this.loadEquipmentTypesMap();
 
     // Transform tanks to Equipment format
-    return tanks.map(tank => this.transformTankToEquipment(tank, equipmentTypes));
+    return {
+      items: tanks.map(tank => this.transformTankToEquipment(tank, equipmentTypes)),
+      total,
+    };
   }
 
   /**
@@ -349,8 +365,8 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
 
     // Use explicit farm schema to avoid tenant shadow tables
     const equipmentTypes: EquipmentType[] = await this.dataSource.query(
-      `SELECT * FROM "farm"."equipment_types" WHERE "category" = $1`,
-      [EquipmentCategory.TANK],
+      `SELECT * FROM "farm"."equipment_types" WHERE "category" = ANY($1)`,
+      [[EquipmentCategory.TANK, EquipmentCategory.POND, EquipmentCategory.CAGE]],
     );
 
     const map = new Map<string, EquipmentType>();
@@ -373,7 +389,7 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     tank: Tank,
     equipmentTypes: Map<string, EquipmentType>,
   ): Equipment {
-    const equipmentTypeCode = mapTankTypeToEquipmentTypeCode(tank.tankType);
+    const equipmentTypeCode = tank.equipmentTypeCode || mapTankTypeToEquipmentTypeCode(tank.tankType);
     const equipmentType = equipmentTypes.get(equipmentTypeCode);
 
     // Build specifications JSONB from tank dimensions
@@ -429,6 +445,8 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     if (equipmentType) {
       equipment.equipmentTypeId = equipmentType.id;
       equipment.equipmentType = equipmentType;
+    } else if (tank.equipmentTypeId) {
+      equipment.equipmentTypeId = tank.equipmentTypeId;
     }
 
     // Populate equipmentSystems from tank's systemId (single FK → synthetic junction)
@@ -495,5 +513,19 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
       if (aValue > bValue) return sortOrder === 'ASC' ? 1 : -1;
       return 0;
     });
+  }
+
+  private dedupeMergedResults(items: Equipment[]): Equipment[] {
+    const byId = new Map<string, Equipment>();
+    for (const item of items) {
+      byId.set(item.id, item);
+    }
+    return [...byId.values()];
+  }
+
+  private mapCategoryToContainerKind(category: EquipmentCategory): TankContainerKind {
+    if (category === EquipmentCategory.POND) return TankContainerKind.POND;
+    if (category === EquipmentCategory.CAGE) return TankContainerKind.CAGE;
+    return TankContainerKind.TANK;
   }
 }

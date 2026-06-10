@@ -122,6 +122,14 @@ pub struct ActivationResponse {
     pub config: Option<serde_json::Value>,
     #[serde(default)]
     pub mqtt_tls_enabled: Option<bool>,
+    #[serde(default)]
+    pub provisioning_blob_b64: Option<String>,
+    #[serde(default)]
+    pub provisioning_signature_b64: Option<String>,
+    #[serde(default)]
+    pub provisioning_key_epoch: Option<i32>,
+    #[serde(default)]
+    pub provisioning_bundle_version: Option<i32>,
 }
 
 impl std::fmt::Debug for ActivationResponse {
@@ -187,6 +195,14 @@ pub struct SelfRegisterResponse {
     pub config: Option<serde_json::Value>,
     #[serde(default)]
     pub mqtt_tls_enabled: Option<bool>,
+    #[serde(default)]
+    pub provisioning_blob_b64: Option<String>,
+    #[serde(default)]
+    pub provisioning_signature_b64: Option<String>,
+    #[serde(default)]
+    pub provisioning_key_epoch: Option<i32>,
+    #[serde(default)]
+    pub provisioning_bundle_version: Option<i32>,
 }
 
 impl std::fmt::Debug for SelfRegisterResponse {

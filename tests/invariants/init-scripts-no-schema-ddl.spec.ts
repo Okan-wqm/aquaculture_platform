@@ -16,17 +16,18 @@
  * the pre-ADR-031 init-script flow for audit reference.
  *
  * Allowed in init-scripts/*.sql/*.sh after ADR-031:
- *   - CREATE EXTENSION (defensive — bootstrap atom also installs)
- *   - GRANT ALL PRIVILEGES ON DATABASE
  *   - RAISE NOTICE (logging)
  *   - Commentary / DO blocks that only log
  *
  * Forbidden (must move to apps/db-migrate/src/sql/platform-bootstrap/):
  *   - CREATE SCHEMA
+ *   - CREATE DATABASE
+ *   - CREATE EXTENSION
  *   - CREATE ROLE / ALTER ROLE
  *   - CREATE TABLE / DROP TABLE
  *   - CREATE FUNCTION / CREATE OR REPLACE FUNCTION
  *   - CREATE POLICY
+ *   - GRANT ALL PRIVILEGES
  *   - GRANT ... ON SCHEMA   (schema-level grants, not DB-level)
  *   - ALTER DEFAULT PRIVILEGES
  *   - ALTER SCHEMA
@@ -41,16 +42,19 @@ const INIT_SCRIPTS_DIR = resolve(REPO_ROOT, 'infrastructure', 'docker', 'init-sc
 // Patterns whose presence in init-scripts/* fails the invariant.
 // Each entry: [name, regex-source, severity-hint].
 const FORBIDDEN_PATTERNS: ReadonlyArray<{ readonly name: string; readonly re: RegExp }> = [
-  { name: 'CREATE SCHEMA',                re: /\bCREATE\s+SCHEMA\b/i },
-  { name: 'CREATE ROLE / ALTER ROLE',     re: /\b(?:CREATE|ALTER)\s+ROLE\b/i },
-  { name: 'CREATE TABLE',                 re: /\bCREATE\s+TABLE\b/i },
-  { name: 'DROP TABLE',                   re: /\bDROP\s+TABLE\b/i },
-  { name: 'CREATE FUNCTION',              re: /\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\b/i },
-  { name: 'CREATE POLICY',                re: /\bCREATE\s+POLICY\b/i },
-  { name: 'GRANT ... ON SCHEMA',          re: /\bGRANT\s+[A-Z, ]+\s+ON\s+SCHEMA\b/i },
-  { name: 'ALTER SCHEMA',                 re: /\bALTER\s+SCHEMA\b/i },
-  { name: 'ALTER DEFAULT PRIVILEGES',     re: /\bALTER\s+DEFAULT\s+PRIVILEGES\b/i },
-  { name: 'ALTER TABLE',                  re: /\bALTER\s+TABLE\b/i },
+  { name: 'CREATE SCHEMA', re: /\bCREATE\s+SCHEMA\b/i },
+  { name: 'CREATE DATABASE', re: /\bCREATE\s+DATABASE\b/i },
+  { name: 'CREATE EXTENSION', re: /\bCREATE\s+EXTENSION\b/i },
+  { name: 'CREATE ROLE / ALTER ROLE', re: /\b(?:CREATE|ALTER)\s+ROLE\b/i },
+  { name: 'CREATE TABLE', re: /\bCREATE\s+TABLE\b/i },
+  { name: 'DROP TABLE', re: /\bDROP\s+TABLE\b/i },
+  { name: 'CREATE FUNCTION', re: /\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\b/i },
+  { name: 'CREATE POLICY', re: /\bCREATE\s+POLICY\b/i },
+  { name: 'GRANT ALL PRIVILEGES', re: /\bGRANT\s+ALL\s+PRIVILEGES\b/i },
+  { name: 'GRANT ... ON SCHEMA', re: /\bGRANT\s+[A-Z, ]+\s+ON\s+SCHEMA\b/i },
+  { name: 'ALTER SCHEMA', re: /\bALTER\s+SCHEMA\b/i },
+  { name: 'ALTER DEFAULT PRIVILEGES', re: /\bALTER\s+DEFAULT\s+PRIVILEGES\b/i },
+  { name: 'ALTER TABLE', re: /\bALTER\s+TABLE\b/i },
 ];
 
 interface InitScriptFile {
@@ -137,19 +141,26 @@ describe('init-scripts: no schema/role/function DDL (ADR-031)', () => {
         `MUST live in apps/db-migrate/src/sql/platform-bootstrap/ — that atom is`,
         `restart-survive; init-scripts are NOT.`,
         '',
-        ...violations.map(
-          (v) => `  ✗ ${v.file}:${v.line}  ${v.pattern}\n      ${v.snippet}`,
-        ),
+        ...violations.map((v) => `  ✗ ${v.file}:${v.line}  ${v.pattern}\n      ${v.snippet}`),
       ].join('\n');
       throw new Error(msg);
     }
   });
 
-  it('platform-bootstrap SQL directory exists with the 7 expected stages', () => {
-    const bootstrapDir = resolve(REPO_ROOT, 'apps', 'db-migrate', 'src', 'sql', 'platform-bootstrap');
+  it('platform-bootstrap SQL directory exists with the 9 expected stages', () => {
+    const bootstrapDir = resolve(
+      REPO_ROOT,
+      'apps',
+      'db-migrate',
+      'src',
+      'sql',
+      'platform-bootstrap',
+    );
     expect(statSync(bootstrapDir).isDirectory()).toBe(true);
-    const stages = readdirSync(bootstrapDir).filter((f) => f.endsWith('.sql')).sort();
-    const expectedPrefixes = ['001-', '003-', '004-', '005-', '006-', '007-'];
+    const stages = readdirSync(bootstrapDir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
+    const expectedPrefixes = ['001-', '003-', '004-', '005-', '006-', '007-', '008-', '009-'];
     for (const prefix of expectedPrefixes) {
       const present = stages.some((s) => s.startsWith(prefix));
       expect(present).toBe(true);

@@ -17,8 +17,8 @@ from aria_kernel import (
     wait_pr_checks,
 )
 from aria_kernel.feedback_store import generate_judgment_sample
-from aria_kernel.ledger import append_jsonl
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 def pr_snapshot(**overrides):
@@ -82,7 +82,7 @@ class EnterpriseCiLoopTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name) / "workspace"
         self.root.mkdir()
-        self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        self.tools_dir = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -228,7 +228,7 @@ class EnterpriseCiLoopTests(unittest.TestCase):
     def test_uncertainty_sampling_prioritizes_low_confidence_belief_evidence(self):
         memory_dir = self.tools_dir / "memory"
         memory_dir.mkdir(parents=True)
-        append_jsonl(
+        append_declared_fixture(
             memory_dir / "beliefs.jsonl",
             {
                 "schema_version": 2,
@@ -238,8 +238,9 @@ class EnterpriseCiLoopTests(unittest.TestCase):
                 "status": "needs_revalidation",
                 "evidence_refs": ["apps/farm-service/**"],
             },
+            expected_surface="memory_beliefs",
         )
-        append_jsonl(
+        append_declared_fixture(
             self.tools_dir / "raw-findings.jsonl",
             {
                 "schema_version": 1,
@@ -251,8 +252,9 @@ class EnterpriseCiLoopTests(unittest.TestCase):
                 "status": "raw",
                 "finding": {"id": "farm", "rule": "r1", "path": "apps/farm-service/src/app.module.ts"},
             },
+            expected_surface="raw_findings",
         )
-        append_jsonl(
+        append_declared_fixture(
             self.tools_dir / "raw-findings.jsonl",
             {
                 "schema_version": 1,
@@ -264,6 +266,7 @@ class EnterpriseCiLoopTests(unittest.TestCase):
                 "status": "raw",
                 "finding": {"id": "doc", "rule": "r1", "path": "docs/readme.md"},
             },
+            expected_surface="raw_findings",
         )
         sample = generate_judgment_sample(
             tool_id="learning-adapter",

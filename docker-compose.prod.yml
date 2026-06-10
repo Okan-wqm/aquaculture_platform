@@ -50,7 +50,7 @@ services:
       # (which defaults to /home/postgres/pgdata/data) reads existing
       # volume data at /var/lib/postgresql/data uniformly across env.
       PGDATA: /var/lib/postgresql/data
-      POSTGRES_SSL: "on"
+      POSTGRES_SSL: 'on'
     command: >
       postgres
       -c ssl=on
@@ -60,7 +60,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aquaculture}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-aquaculture}']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -80,7 +80,11 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli --tls --cacert /etc/redis/certs/ca-cert.pem ping"]
+      test:
+        [
+          'CMD-SHELL',
+          'REDISCLI_AUTH=${REDIS_PASSWORD} redis-cli --tls --cacert /etc/redis/certs/ca-cert.pem ping',
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -93,7 +97,7 @@ services:
     restart: unless-stopped
     # ARCH-010/ARCH-018: Use config file for explicit JetStream limits + http_port
     # The config file enables http_port 8222 (required for /healthz endpoint below)
-    command: ["--config", "/etc/nats/nats.conf"]
+    command: ['--config', '/etc/nats/nats.conf']
     # ADR-015: NATS container has NO per-service user/password env vars.
     # The authorization{} block in nats.conf uses LITERAL user names
     # (generated from infrastructure/nats/services.yaml) with no
@@ -110,7 +114,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:8222/healthz']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -133,7 +137,7 @@ services:
   db-migrate:
     image: ghcr.io/okan-wqm/aquaculture_platform/db-migrate:${TAG:-latest}
     container_name: aqua-db-migrate
-    restart: "no"
+    restart: 'no'
     environment:
       NODE_ENV: production
       DATABASE_HOST: postgres
@@ -141,8 +145,8 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-aquaculture}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
-      DATABASE_MIGRATIONS_RUN: "true"
-      DATABASE_SSL: "false"
+      DATABASE_MIGRATIONS_RUN: 'true'
+      DATABASE_SSL: 'false'
     depends_on:
       postgres:
         condition: service_healthy
@@ -162,17 +166,19 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://gateway_service:${GATEWAY_SERVICE_DB_PASS:?GATEWAY_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}?sslmode=require
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: rediss://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: tls://nats:4222
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
-      NATS_TLS_ENABLED: "true"
+      NATS_TLS_ENABLED: 'true'
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
       # SECURITY (HIGH-002 / V4): per-service mTLS — CN=gateway_service maps to NATS user.
       NATS_TLS_CERT: /etc/ssl/nats/clients/gateway_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/gateway_service-key.pem
       # SECURITY (HIGH-001): gateway-api authenticates to NATS with its own account.
       # Subject ACLs in nats.conf restrict what gateway can publish/subscribe.
-              # SECURITY (CRITICAL-001): consumer — verifies tokens with RS256 public key.
+      # SECURITY (CRITICAL-001): consumer — verifies tokens with RS256 public key.
       # JWT_SECRET removed; auth-service holds the private key exclusively.
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
@@ -204,7 +210,7 @@ services:
       - aqua-network
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -218,16 +224,18 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://auth_service:${AUTH_SERVICE_DB_PASS:?AUTH_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}?sslmode=require
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: rediss://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: tls://nats:4222
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
-      NATS_TLS_ENABLED: "true"
+      NATS_TLS_ENABLED: 'true'
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
       # SECURITY (HIGH-002 / V4): per-service mTLS — CN=auth_service maps to NATS user.
       NATS_TLS_CERT: /etc/ssl/nats/clients/auth_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/auth_service-key.pem
       # SECURITY (HIGH-001): auth-service NATS account — matches nats.conf $NATS_AUTH_USER block.
-              # SECURITY (CRITICAL-001): auth-service is the sole token issuer.
+      # SECURITY (CRITICAL-001): auth-service is the sole token issuer.
       # Private key for signing; public key also loaded so it can verify its own tokens.
       # JWT_SECRET removed — RS256 asymmetric signing replaces the shared HS256 secret.
       JWT_PRIVATE_KEY_PATH: /var/run/jwt/private.pem
@@ -235,9 +243,9 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       # SECURITY (HIGH-006): server-side password pepper, kept out of the DB.
       # Generate with: openssl rand -base64 48
-      PASSWORD_PEPPER: "${PASSWORD_PEPPER:?PASSWORD_PEPPER is required}"
+      PASSWORD_PEPPER: '${PASSWORD_PEPPER:?PASSWORD_PEPPER is required}'
       # MFA encryption key for TOTP secrets. Generate with: openssl rand -hex 32
-      MFA_ENCRYPTION_KEY: "${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}"
+      MFA_ENCRYPTION_KEY: '${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}'
     volumes:
       - ./certs/jwt:/var/run/jwt:ro
       # SECURITY (HIGH-002): NATS mTLS certs for auth-service.
@@ -253,7 +261,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -267,16 +275,18 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://farm_service:${FARM_SERVICE_DB_PASS:?FARM_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}?sslmode=require
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: rediss://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: tls://nats:4222
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
-      NATS_TLS_ENABLED: "true"
+      NATS_TLS_ENABLED: 'true'
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
       # SECURITY (HIGH-002 / V4): per-service mTLS — CN=farm_service maps to NATS user.
       NATS_TLS_CERT: /etc/ssl/nats/clients/farm_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/farm_service-key.pem
       # SECURITY (HIGH-001): farm-service NATS account with farm-scoped subject ACLs.
-              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
     volumes:
@@ -294,7 +304,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -308,16 +318,18 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://sensor_service:${SENSOR_SERVICE_DB_PASS:?SENSOR_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}?sslmode=require
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: rediss://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: tls://nats:4222
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
-      NATS_TLS_ENABLED: "true"
+      NATS_TLS_ENABLED: 'true'
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
       # SECURITY (HIGH-002 / V4): per-service mTLS — CN=sensor_service maps to NATS user.
       NATS_TLS_CERT: /etc/ssl/nats/clients/sensor_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/sensor_service-key.pem
       # SECURITY (HIGH-001): sensor-service NATS account with sensor-scoped subject ACLs.
-              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       # ADR-022 — production stays on `legacy` until the staging soak
       # (24h) on control-plane is green. Flip to `control-plane` via
@@ -339,7 +351,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -352,7 +364,7 @@ services:
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:-latest}
     container_name: aqua-sensor-ingestion
     restart: unless-stopped
-    user: "65532:65532"
+    user: '65532:65532'
     environment:
       RUST_LOG: ${SENSOR_INGESTION_LOG:-info}
       SENSOR_INGESTION_CONFIG: /etc/sensor-ingestion/config.toml
@@ -386,16 +398,18 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgres://hr_service:${HR_SERVICE_DB_PASS:?HR_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}?sslmode=require
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: rediss://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: tls://nats:4222
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
-      NATS_TLS_ENABLED: "true"
+      NATS_TLS_ENABLED: 'true'
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
       # SECURITY (HIGH-002 / V4): per-service mTLS — CN=hr_service maps to NATS user.
       NATS_TLS_CERT: /etc/ssl/nats/clients/hr_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/hr_service-key.pem
       # SECURITY (HIGH-001): hr-service NATS account with HR-scoped subject ACLs.
-              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
@@ -412,7 +426,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -429,18 +443,18 @@ services:
       # ADR-016/031: production schema DDL belongs to aqua-db-migrate.
       # Keep this as a real container env var because AppModule import-time
       # wiring decides whether runtime DDL providers are registered.
-      DB_MIGRATE_AUTHORITATIVE: "true"
-      DATABASE_MIGRATIONS_RUN: "false"
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: rediss://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: tls://nats:4222
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
-      NATS_TLS_ENABLED: "true"
+      NATS_TLS_ENABLED: 'true'
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
       # SECURITY (HIGH-002 / V4): per-service mTLS — CN=billing_service maps to NATS user.
       NATS_TLS_CERT: /etc/ssl/nats/clients/billing_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/billing_service-key.pem
       # SECURITY (HIGH-001): billing-service NATS account with billing-scoped subject ACLs.
-              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
@@ -457,7 +471,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -473,16 +487,18 @@ services:
       # ARCH-V11-011: CORS_ORIGINS required — alert-engine throws if wildcard in production
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_URL: postgres://alert_service:${ALERT_SERVICE_DB_PASS:?ALERT_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}?sslmode=require
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: rediss://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: tls://nats:4222
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
-      NATS_TLS_ENABLED: "true"
+      NATS_TLS_ENABLED: 'true'
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
       # SECURITY (HIGH-002 / V4): per-service mTLS — CN=alert_engine maps to NATS user.
       NATS_TLS_CERT: /etc/ssl/nats/clients/alert_engine-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/alert_engine-key.pem
       # SECURITY (HIGH-001): alert-engine NATS account with alert-scoped subject ACLs.
-              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
@@ -501,7 +517,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -517,16 +533,18 @@ services:
       # ARCH-V11-012: CORS_ORIGINS required — notification-service throws if wildcard in production
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_URL: postgres://notification_service:${NOTIFICATION_SERVICE_DB_PASS:?NOTIFICATION_SERVICE_DB_PASS is required}@postgres:5432/${POSTGRES_DB:-aquaculture}?sslmode=require
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: rediss://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: tls://nats:4222
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
-      NATS_TLS_ENABLED: "true"
+      NATS_TLS_ENABLED: 'true'
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
       # SECURITY (HIGH-002 / V4): per-service mTLS — CN=notification_service maps to NATS user.
       NATS_TLS_CERT: /etc/ssl/nats/clients/notification_service-cert.pem
       NATS_TLS_KEY: /etc/ssl/nats/clients/notification_service-key.pem
       # SECURITY (HIGH-001): notification-service NATS account with notification-scoped ACLs.
-              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       # Email config (optional)
       SMTP_HOST: ${SMTP_HOST:-}
@@ -550,7 +568,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -569,10 +587,12 @@ services:
       DATABASE_USER: admin_service
       DATABASE_PASSWORD: ${ADMIN_SERVICE_DB_PASS:?ADMIN_SERVICE_DB_PASS is required}
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: rediss://:${REDIS_PASSWORD}@redis:6379
       NATS_URL: tls://nats:4222
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
-      NATS_TLS_ENABLED: "true"
+      NATS_TLS_ENABLED: 'true'
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
       # SECURITY (HIGH-002 / V4): admin-api shares the gateway_service identity (cert + NATS user).
       NATS_TLS_CERT: /etc/ssl/nats/clients/gateway_service-cert.pem
@@ -581,7 +601,7 @@ services:
       # nats.conf comment — both publish tenant/admin lifecycle events on
       # AQUACULTURE_EVENTS.Tenant*/Admin*. Separate account would double the
       # ACL surface without adding isolation value.
-              # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
+      # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - backup_data:/backups
@@ -599,7 +619,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -620,6 +640,8 @@ services:
       DB_USERNAME: ${POSTGRES_USER:-aquaculture}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_NAME: aquaculture
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
     depends_on:
       postgres:
         condition: service_healthy
@@ -630,7 +652,7 @@ services:
     networks:
       - aqua-internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3009/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3009/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -646,7 +668,7 @@ services:
     networks:
       - aqua-network
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:80/']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -700,7 +722,7 @@ services:
     networks:
       - aqua-network
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:80/']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -714,8 +736,8 @@ services:
     container_name: aqua-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - '80:80'
+      - '443:443'
     volumes:
       - ./infrastructure/docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./infrastructure/docker/nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
@@ -729,7 +751,7 @@ services:
       - aqua-network
     healthcheck:
       # ARCH-012: Use /health (nginx-level endpoint) — nginx has no /health/live path
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:80/health']
       interval: 30s
       timeout: 10s
       retries: 3

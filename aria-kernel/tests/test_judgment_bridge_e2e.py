@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,11 +15,17 @@ from aria_kernel.judgment_bridge import (
     run_consensus,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.declared_fixtures import sha256_file
 
 
 def _seed_repo() -> Path:
     repo = Path(tempfile.mkdtemp(prefix="aria-c5c6-"))
     (repo / "src.txt").write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "aria-test@example.invalid"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "ARIA Test"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "src.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "fixture: evidence"], cwd=repo, check=True)
     return repo
 
 
@@ -74,11 +81,29 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
         self.repo = _seed_repo()
         self.tools = self.repo / "aria-tools"
         ensure_tools_dir(self.tools)
+        self.target_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            text=True,
+        ).strip()
 
     def tearDown(self) -> None:
         import shutil
 
         shutil.rmtree(self.repo, ignore_errors=True)
+
+    def _binding_kwargs(self, request: dict, output_path: Path) -> dict[str, str]:
+        transcript = output_path.with_suffix(".transcript.txt")
+        transcript.write_text(
+            f"fixture transcript for {request['request_id']}\n",
+            encoding="utf-8",
+        )
+        return {
+            "context_hash": str(request["context_hash"]),
+            "prompt_hash": str(request["prompt_hash"]),
+            "transcript_hash": sha256_file(transcript),
+            "transcript_artifact_ref": transcript.resolve().as_posix(),
+        }
 
     def _claim_judge(self, *, target_agent: str, role: str) -> tuple[dict, dict]:
         # Plan 024 §B-2 — must_satisfy + allowed_scope required so the
@@ -95,16 +120,22 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             ],
             allowed_scope=["**"],
             convergence_id="conv-c5c6-001",
+            target_sha=self.target_sha,
             base_dir=self.tools,
         )
         # Inject the legacy request fields the bridge needs.
-        from aria_kernel.ledger import load_jsonl, rewrite_jsonl
+        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl
         path = self.tools / "agent-invocations" / "requests.jsonl"
-        rows = load_jsonl(path)
+        rows = load_declared_jsonl(path, expected_surface="agent_invocation_requests")
         rows[-1]["tool_id"] = "demo-adapter"
         rows[-1]["run_id"] = "run-001"
         rows[-1]["finding_id"] = "F-001"
-        rewrite_jsonl(path, rows)
+        rewrite_declared_jsonl(
+            path,
+            rows,
+            expected_surface="agent_invocation_requests",
+            migration_id="test-fixture-legacy-request-fields",
+        )
         request = rows[-1]
 
         claim = claim_request(
@@ -138,6 +169,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             output_path=ev_out,
             workspace_root=self.repo,
             base_dir=self.tools,
+            **self._binding_kwargs(ev_request, ev_out),
         )
         self.assertEqual(ev_result["status"], "accepted", ev_result)
         self.assertIsNotNone(ev_result["bridged"]["judge_feedback"])
@@ -165,6 +197,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             output_path=ad_out,
             workspace_root=self.repo,
             base_dir=self.tools,
+            **self._binding_kwargs(ad_request, ad_out),
         )
         self.assertEqual(ad_result["status"], "accepted", ad_result)
         self.assertIsNotNone(ad_result["bridged"]["judge_feedback"])
@@ -210,6 +243,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             claim_id=ev_claim["claim_id"], agent_id=ev_claim["agent_id"],
             lease_token=ev_claim["lease_token"], output_path=ev_out,
             workspace_root=self.repo, base_dir=self.tools,
+            **self._binding_kwargs(ev_req, ev_out),
         )
 
         ad_req, ad_claim = self._claim_judge(
@@ -231,6 +265,7 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             claim_id=ad_claim["claim_id"], agent_id=ad_claim["agent_id"],
             lease_token=ad_claim["lease_token"], output_path=ad_out,
             workspace_root=self.repo, base_dir=self.tools,
+            **self._binding_kwargs(ad_req, ad_out),
         )
         result = run_consensus(
             tool_id="demo-adapter", cycle_id=None, min_confidence=0.80, base_dir=self.tools

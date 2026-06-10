@@ -21,6 +21,8 @@ from aria_kernel.planner_dispatch_hook import (
     LEASE_TOKEN_ENV_VAR,
     dispatch_one_pending_planner_request,
 )
+from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class _CapturedSubprocess:
@@ -33,20 +35,7 @@ class _CapturedSubprocess:
 class PlannerDispatchHookTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-pd-hook-"))
-        self.tools_root = self.tmp / "aria-tools"
-        self.tools_root.mkdir()
-        # Bootstrap repo_identity.json so ensure_tools_dir does not
-        # raise ambiguous_tools_root.
-        identity = {
-            "aria_tools_contract_version": 2,
-            "bound_repo_hash": None,
-            "bound_repo_root": None,
-            "schema_version": 2,
-        }
-        (self.tools_root / "repo_identity.json").write_text(
-            json.dumps(identity, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        self.tools_root = ensure_tools_dir(self.tmp / "aria-tools")
         self._old_cwd = os.getcwd()
         os.chdir(self.tmp)
         self._env = patch.dict(os.environ, {
@@ -87,8 +76,11 @@ class PlannerDispatchHookTests(unittest.TestCase):
             "state": "pending",
             "created_at": "2026-05-10T00:00:00Z",
         }
-        with requests_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+        append_declared_fixture(
+            requests_path,
+            row,
+            expected_surface="agent_invocation_requests",
+        )
 
     def _read_governance(self) -> list[dict[str, Any]]:
         gov = self.tools_root / "governance.jsonl"

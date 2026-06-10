@@ -1,7 +1,7 @@
 /**
  * EdgeAuditArchiveV2 — long-term audit chain archive (per-tenant).
  *
- * Per ADR-025. Per-tenant under sensor schema. Supersedes ADR-022's
+ * Per ADR-034. Per-tenant under sensor schema. Supersedes ADR-022's
  * `edge.audit_archive_v1` (the partitioning model carries forward, now
  * scoped per-tenant). The Rust agent emits audit events; sensor-service
  * verifies the device's audit attestation pubkey and persists rows
@@ -13,22 +13,19 @@
  *     over (previousChainHash || eventPayloadHash). Verifiable end-to-
  *     end without replay.
  *   - `prevChainHash bytea NULL` (genesis row carries NULL).
- *   - `PARTITION BY RANGE (migrated_at)` — monthly partitions per tenant.
- *     Composite PK `(migrated_at, archive_id)` carries the partition
- *     key so the planner prunes efficiently.
- *   - pg_partman ownership: baseline migration enables the partition
- *     manager schedule per-tenant.
+ *   - Plain append-only table in the current baseline. The composite PK
+ *     `(migrated_at, archive_id)` preserves the future partition key
+ *     shape, but no active migration declares `PARTITION BY RANGE`.
  *   - FK `deviceId → devices.device_id` ON DELETE RESTRICT.
  *   - Append-only: BEFORE UPDATE / BEFORE DELETE triggers refuse any
  *     mutation; chain integrity ALSO checks at SELECT time via a
  *     verifier view (deferred to Faz 7 runbook).
  *
- * # Per-tenant partition cost
+ * # Partition posture
  *
- * ADR-025 §"Consequences/Negative" tracks `audit_archive_v1` partition
- * count under per-tenant scaling as OPEN-ADR-025-1. Monitor partition
- * count in Faz 8; global event_store fallback is the migration target
- * if partition pressure exceeds 50k.
+ * ADR-034 tracks partitioning as an explicit future migration decision.
+ * Until that migration exists, docs and tests must treat this as a
+ * non-partitioned append-only archive.
  */
 import {
   Column,

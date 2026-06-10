@@ -27,7 +27,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -108,7 +108,11 @@ def record_candidate(
         "promoted_to": None,
         "promotion_pr_url": None,
     }
-    append_jsonl(_ledger_path(root), candidate)
+    append_declared_jsonl(
+        _ledger_path(root),
+        candidate,
+        expected_surface="instinct_candidates",
+    )
     append_tools_governance(
         root,
         "instinct_candidate_recorded",
@@ -173,7 +177,11 @@ def promote_candidate(
         "promotion_operator_approval_ref": operator_approval_ref,
         "promoted_at": utc_now(),
     }
-    append_jsonl(_ledger_path(root), promoted)
+    append_declared_jsonl(
+        _ledger_path(root),
+        promoted,
+        expected_surface="instinct_candidates",
+    )
     append_tools_governance(
         root,
         "instinct_candidate_promoted",

@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from .feedback import add_feedback, build_feedback_event, slug
+from .ledger import append_declared_jsonl
 from .phase2_utils import atomic_write_json, utc_now_iso
+from .tool_registry import GovernanceError, ensure_tools_dir
 from .workspace import WorkspacePaths, record_workspace_governance
 
 
@@ -35,6 +37,7 @@ def report_ingestion_scan(
     """
     registry = paths.repo_root / "docs" / "reviews" / "_registry" / "findings.jsonl"
     cache_path = paths.state_dir / "ingested_findings.json"
+    tools_base = Path(tools_root) if tools_root is not None else None
     if not registry.exists():
         record_workspace_governance(
             paths,
@@ -58,6 +61,15 @@ def report_ingestion_scan(
             record_workspace_governance(paths, "report_ingestion_cache_missing", {"cycle_id": cycle_id, "cache_path": cache_path.as_posix()})
         baseline = sorted({_finding_key(row) for row in rows if _finding_key(row)})
         _write_cache(cache_path, baseline)
+        _record_cache_event(
+            tools_base,
+            {
+                "cycle_id": cycle_id,
+                "event": "baseline_created" if not previously_baselined else "baseline_rebuilt",
+                "baseline_count": len(baseline),
+                "cache_path": cache_path.as_posix(),
+            },
+        )
         record_workspace_governance(
             paths,
             "report_ingestion_skipped",
@@ -93,7 +105,9 @@ def report_ingestion_scan(
             continue
         event = _feedback_event_from_finding(paths, row, cycle_id=cycle_id)
         add_feedback(paths, event)
-        ingested.append({"finding_key": _finding_key(row), "feedback_event_id": event["event_id"], "owner_agent": _owner_agent(row), "severity": _severity(row)})
+        finding_event = {"finding_key": _finding_key(row), "feedback_event_id": event["event_id"], "owner_agent": _owner_agent(row), "severity": _severity(row), "source_refs": _refs(row)}
+        ingested.append(finding_event)
+        _record_ingestion_event(tools_base, {"cycle_id": cycle_id, **finding_event})
         record_workspace_governance(
             paths,
             "agent_report_ingested",
@@ -197,6 +211,7 @@ def _read_registry(
 def _feedback_event_from_finding(paths: WorkspacePaths, row: dict[str, Any], *, cycle_id: str) -> dict[str, Any]:
     refs = _refs(row)
     ref = refs[0] if refs else "docs/reviews/_registry/findings.jsonl"
+    evidence_refs = sorted(dict.fromkeys([*refs, "docs/reviews/_registry/findings.jsonl"]))
     args = argparse.Namespace(
         kind="missed_signal",
         summary=str(row.get("summary") or row.get("title") or row.get("message") or "agent report finding"),
@@ -208,7 +223,7 @@ def _feedback_event_from_finding(paths: WorkspacePaths, row: dict[str, Any], *, 
         parser_kind=row.get("parser_kind"),
         capability_gap_key=row.get("capability_gap_key"),
         cycle_id=cycle_id,
-        evidence_ref=[f"agent:{_owner_agent(row)}", "docs/reviews/_registry/findings.jsonl"],
+        evidence_ref=evidence_refs,
         evidence_chain=[
             json.dumps(
                 {
@@ -226,13 +241,41 @@ def _feedback_event_from_finding(paths: WorkspacePaths, row: dict[str, Any], *, 
 def _read_cache(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"schema_version": 1, "finding_keys": []}
-    return payload if isinstance(payload, dict) else {"schema_version": 1, "finding_keys": []}
+    except OSError as exc:
+        raise GovernanceError(f"report_ingestion_cache_unreadable:{path.as_posix()}:{exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"report_ingestion_cache_corrupt:{path.as_posix()}:{exc}") from exc
+    if not isinstance(payload, dict):
+        raise GovernanceError(f"report_ingestion_cache_not_object:{path.as_posix()}")
+    if not isinstance(payload.get("finding_keys"), list):
+        raise GovernanceError(f"report_ingestion_cache_missing_finding_keys:{path.as_posix()}")
+    return payload
 
 
 def _write_cache(path: Path, keys: list[str]) -> None:
     atomic_write_json(path, {"schema_version": 1, "rebuilt_at": utc_now_iso(), "finding_keys": keys})
+
+
+def _record_ingestion_event(tools_root: Path | None, payload: dict[str, Any]) -> None:
+    if tools_root is None:
+        return
+    root = ensure_tools_dir(tools_root)
+    append_declared_jsonl(
+        root / "report-ingestion" / "findings.jsonl",
+        {"schema_version": 1, "recorded_at": utc_now_iso(), **payload},
+        expected_surface="report_ingestion_findings",
+    )
+
+
+def _record_cache_event(tools_root: Path | None, payload: dict[str, Any]) -> None:
+    if tools_root is None:
+        return
+    root = ensure_tools_dir(tools_root)
+    append_declared_jsonl(
+        root / "report-ingestion" / "cache-events.jsonl",
+        {"schema_version": 1, "recorded_at": utc_now_iso(), **payload},
+        expected_surface="report_ingestion_cache_events",
+    )
 
 
 def _has_report_baseline(paths: WorkspacePaths) -> bool:

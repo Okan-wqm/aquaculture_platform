@@ -101,8 +101,59 @@ describe('SchemaVersionGate release-ledger lifecycle', () => {
       tenantAware: false,
     });
 
-    await expect(
-      new Gate(dataSource, mockConfig()).onApplicationBootstrap(),
-    ).rejects.toThrow(/No release ledger row with migration heads exists/);
+    await expect(new Gate(dataSource, mockConfig()).onApplicationBootstrap()).rejects.toThrow(
+      /No release ledger row with migration heads exists/,
+    );
+  });
+
+  it('requires tenant expected heads and tenant fan-out evidence for tenant-aware gates', async () => {
+    const tenantSchema = 'tenant_4b529829ea7948da';
+    const dataSource = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce(bootstrapRow())
+        .mockResolvedValueOnce([
+          {
+            last_ts: '1800300000000',
+            last_name: 'AlignEquipmentTypesRuntimeContract1800300000000',
+            row_count: '4',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            release_id: 'release-1',
+            expected_ts: '1800300000000',
+            expected_name: 'AlignEquipmentTypesRuntimeContract1800300000000',
+          },
+        ])
+        .mockResolvedValueOnce([{ schema_name: tenantSchema }])
+        .mockResolvedValueOnce([
+          {
+            last_ts: '1800300000000',
+            last_name: 'AlignEquipmentTypesRuntimeContract1800300000000',
+            row_count: '4',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            release_id: 'release-1',
+            expected_ts: '1800300000000',
+            expected_name: 'AlignEquipmentTypesRuntimeContract1800300000000',
+            fanout_evidence: { status: 'applied' },
+          },
+        ]),
+    } as unknown as jest.Mocked<DataSource>;
+
+    const Gate = createSchemaVersionGate('farm', {
+      mode: 'gate',
+      tenantAware: true,
+    });
+    await new Gate(dataSource, mockConfig()).onApplicationBootstrap();
+
+    expect(dataSource.query).toHaveBeenNthCalledWith(
+      6,
+      expect.stringContaining("tenant_fanout #> ARRAY[$2, 'tenants', $1]"),
+      [tenantSchema, 'farm', expect.arrayContaining(['db_complete', 'rollback_verified'])],
+    );
   });
 });

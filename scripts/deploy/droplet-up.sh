@@ -32,7 +32,6 @@ IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/okan-wqm/aquaculture_platform}"
 TAG="${TAG:-${DEPLOY_SHA:-}}"
 export TAG
 GATEWAY_IMAGE_REF="${IMAGE_PREFIX}/gateway-api:latest"
-APPLICATION_IMAGE_SERVICES="db-migrate mosquitto gateway-api auth-service farm-service sensor-service admin-api-service alert-engine billing-service hr-service hydroponics-service notification-service observability-service config-service messaging-service shell dashboard farm-module sensor-module admin-panel tenant-admin hr-module hydroponics-module aquamobil"
 DEPLOY_RELEASE_ID="${DEPLOY_RELEASE_ID:-${DEPLOY_SHA:-unknown}-$(date -u +%Y%m%dT%H%M%SZ)}"
 export DEPLOY_RELEASE_ID
 DEPLOY_STATE_ROOT="${DEPLOY_STATE_ROOT:-/var/lib/aqua/deploy/releases}"
@@ -43,6 +42,17 @@ ROLLBACK_MANIFEST="${ROLLBACK_MANIFEST:-${DEPLOY_STATE_DIR}/rollback-images.tsv}
 export ROLLBACK_MANIFEST
 DEPLOY_IMAGE_DIGESTS_FILE="${DEPLOY_IMAGE_DIGESTS_FILE:-${DEPLOY_STATE_DIR}/image-digests.tsv}"
 export DEPLOY_IMAGE_DIGESTS_FILE
+
+CATALOG_DEPLOY_ENV="${CATALOG_DEPLOY_ENV:-infrastructure/deploy/service-catalog.deploy.vars}"
+if [ ! -r "${CATALOG_DEPLOY_ENV}" ]; then
+  echo "::error::Missing generated service catalog deploy artifact: ${CATALOG_DEPLOY_ENV}"
+  echo "  Run npm run service-catalog:generate and commit the generated artifact."
+  exit 1
+fi
+# shellcheck source=infrastructure/deploy/service-catalog.deploy.vars
+. "${CATALOG_DEPLOY_ENV}"
+APPLICATION_IMAGE_SERVICES="${CATALOG_APPLICATION_IMAGE_SERVICES:?generated application image services missing}"
+SERVICE_DB_ROLES="${CATALOG_SERVICE_DB_ROLE_PREFIXES:?generated service DB role prefixes missing}"
 
 if [ -n "${DEPLOY_IMAGE_DIGESTS_B64:-}" ]; then
   printf '%s' "${DEPLOY_IMAGE_DIGESTS_B64}" | base64 -d > "${DEPLOY_IMAGE_DIGESTS_FILE}"
@@ -81,12 +91,11 @@ esac
 # The platform-bootstrap atom
 # (apps/db-migrate/src/platform-bootstrap.service.ts) fails loud at Phase 0
 # if any *_SERVICE_DB_PASS env var is missing or empty. THIS script's
-# generate_credential loop is the source-of-truth that provisions those
-# passwords; the list below MUST stay aligned with the atom's
-# SERVICE_ROLES constant.
+# generate_credential loop provisions those passwords from the generated
+# platform service catalog deploy artifact.
 #
-# Adding a new service-role: append here AND in
-# apps/db-migrate/src/platform-bootstrap.service.ts SERVICE_ROLES.
+# Adding a new service-role requires a catalog runtime dbRole; this script
+# must not carry a hand-written duplicate list.
 #
 # 2026-05-19: AI, OBSERVABILITY, EVENT_STORE, CONFIG appended after the
 # 2026-05-18 cutover deploy 26082203809 aborted at:
@@ -94,12 +103,9 @@ esac
 #   vars are missing or empty: AI_SERVICE_DB_PASS, OBSERVABILITY_SERVICE_DB_PASS,
 #   EVENT_STORE_SERVICE_DB_PASS, CONFIG_SERVICE_DB_PASS.
 #
-# Two duplicate for-loops in the full-deploy and selective-deploy paths
-# consume this constant — a single SSoT prevents the kind of drift that
-# produced the 11-vs-15 mismatch above.
+# The full-deploy and selective-deploy paths both consume SERVICE_DB_ROLES,
+# which is derived from CATALOG_SERVICE_DB_ROLE_PREFIXES above.
 # ──────────────────────────────────────────────────────────────────────────
-SERVICE_DB_ROLES="AUTH FARM SENSOR BILLING HR ALERT ADMIN GATEWAY NOTIFICATION HYDROPONICS MESSAGING AI OBSERVABILITY EVENT_STORE CONFIG"
-
 read_env_file_value() {
   local name="$1"
   local file="${2:-/var/aqua-saas/.env}"
@@ -109,6 +115,20 @@ read_env_file_value() {
   fi
 
   grep -E "^${name}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- || true
+}
+
+generate_credential() {
+  local VAR_NAME="$1"
+  local ENV_FILE="${2:-/var/aqua-saas/.env}"
+  touch "${ENV_FILE}"
+  if grep -q "^${VAR_NAME}=" "${ENV_FILE}" 2>/dev/null; then
+    echo "  ${VAR_NAME}: already set"
+  else
+    local VALUE
+    VALUE=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+    echo "${VAR_NAME}=${VALUE}" >> "${ENV_FILE}"
+    echo "  ${VAR_NAME}: generated"
+  fi
 }
 
 redact_sensitive() {
@@ -788,6 +808,12 @@ fi
 # always cheaper than failing during boot.
 #
 # Phase A2 — docker-compose interpolation valid
+echo "=== Pre-flight: generated service DB credentials ==="
+ENV_FILE="/var/aqua-saas/.env"
+for SVC in ${SERVICE_DB_ROLES}; do
+  generate_credential "${SVC}_SERVICE_DB_PASS" "${ENV_FILE}"
+done
+
 echo "=== Pre-flight: compose interpolation ==="
 if ! docker compose -f docker-compose.droplet.yml config --quiet; then
   echo "::error::docker-compose.droplet.yml interpolation failed."
@@ -995,7 +1021,7 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   done
 
   # PostgreSQL per-service role passwords
-  # SSoT: SERVICE_DB_ROLES declared at the top of this script (ADR-031).
+  # SSoT: SERVICE_DB_ROLES is generated from the platform service catalog.
   for SVC in ${SERVICE_DB_ROLES}; do
     generate_credential "${SVC}_SERVICE_DB_PASS"
   done
@@ -1032,9 +1058,9 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   sleep 10
 
   # DB-PWD-SYNC: Verify POSTGRES_PASSWORD matches what's in the data volume.
-  # If the .env password was regenerated but the volume persists from a prior init,
-  # db-init and all services will fail to authenticate. Fix by resetting the
-  # password via local trust auth (docker exec uses Unix socket, not TCP).
+  # Deploy must not mutate database roles. A mismatch means bootstrap state
+  # and secret state diverged and must be corrected through the db-migrate /
+  # infrastructure bootstrap authority, not by this runtime deploy script.
   echo "=== Verifying PostgreSQL superuser password ==="
   POSTGRES_EFFECTIVE_USER="${POSTGRES_USER:-$(read_env_file_value POSTGRES_USER "$ENV_FILE")}"
   POSTGRES_EFFECTIVE_USER="${POSTGRES_EFFECTIVE_USER:-aquaculture}"
@@ -1049,20 +1075,14 @@ if [ "$FULL_DEPLOY" = "true" ]; then
       psql -h 127.0.0.1 -U "${POSTGRES_EFFECTIVE_USER}" -c "SELECT 1" >/dev/null 2>&1; then
       echo "  PostgreSQL superuser password matches .env"
     else
-      echo "  WARNING: PostgreSQL superuser password mismatch — resetting via local auth"
-      docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" \
-        -v postgres_password="${POSTGRES_EFFECTIVE_PASSWORD}" \
-        -c "ALTER USER \"${POSTGRES_EFFECTIVE_USER}\" WITH PASSWORD :'postgres_password'"
-      echo "  PostgreSQL superuser password reset to match .env"
+      echo "::error::PostgreSQL superuser password mismatch — refusing deploy-time role mutation."
+      echo "  Rotate or repair the credential through the platform bootstrap authority, then rerun deploy."
+      exit 1
     fi
   else
     echo "::error::Cannot connect to PostgreSQL via local auth — aborting before migrations."
     exit 1
   fi
-
-  # Create observability database if it doesn't exist (postgres init scripts only run on first start)
-  docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" -tc "SELECT 1 FROM pg_database WHERE datname = 'aquaculture_observability'" | grep -q 1 || \
-    docker exec aqua-postgres psql -U "${POSTGRES_EFFECTIVE_USER}" -c "CREATE DATABASE aquaculture_observability" 2>&1
 
   # ─────────────────────────────────────────────────────────────
   # ADR-033 — one-shot authoritative schema migration container.
@@ -1152,7 +1172,7 @@ else
     generate_credential "NATS_${SVC}_SVC_USER"
     generate_credential "NATS_${SVC}_SVC_PASS"
   done
-  # SSoT: SERVICE_DB_ROLES declared at the top of this script (ADR-031).
+  # SSoT: SERVICE_DB_ROLES is generated from the platform service catalog.
   for SVC in ${SERVICE_DB_ROLES}; do
     generate_credential "${SVC}_SERVICE_DB_PASS"
   done

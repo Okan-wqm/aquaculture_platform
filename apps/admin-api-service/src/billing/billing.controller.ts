@@ -2,6 +2,7 @@ import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   Body,
   Controller,
+  ConflictException,
   Delete,
   Get,
   HttpCode,
@@ -78,7 +79,6 @@ import {
   QuoteRequest,
 } from './services/pricing-calculator.service';
 import {
-  CreateSubscriptionDto,
   PlanChangeRequest,
   SubscriptionFilters,
   SubscriptionManagementService,
@@ -310,11 +310,14 @@ export class BillingController {
   // Subscriptions
   // ============================================================================
 
+  @ThrottleSensitive()
   @Post('subscriptions')
-  async createSubscription(@Body() dto: CreateSubscriptionDto, @Req() req: Request): Promise<unknown> {
+  createSubscription(@Req() req: Request): never {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to create a subscription');
-    return this.subscriptionService.createSubscription({ ...dto, createdBy: userId });
+    throw new ConflictException(
+      'Subscription creation is billing-service-owned. Use tenant provisioning or a billing-service command workflow.',
+    );
   }
 
   @Get('subscriptions')
@@ -374,7 +377,8 @@ export class BillingController {
   async changePlan(@Body() request: PlanChangeRequest, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
     if (!userId) throw new UnauthorizedException('Authentication required to change a subscription plan');
-    return this.billingAdminCommands.changeSubscriptionPlan(request, userId);
+    const { changedBy: _changedBy, ...safeRequest } = request as PlanChangeRequest & { changedBy?: unknown };
+    return this.billingAdminCommands.changeSubscriptionPlan(safeRequest, userId);
   }
 
   // Fix: H8 -- per-route throttle: subscription cancel is sensitive (3 req / 5 min)
@@ -411,10 +415,13 @@ export class BillingController {
     return this.billingAdminCommands.extendSubscriptionTrial(tenantId, dto.additionalDays, userId);
   }
 
+  @ThrottleSensitive()
   @Post('subscriptions/process-renewals')
   @HttpCode(HttpStatus.OK)
-  async processRenewals(): Promise<unknown> {
-    return this.subscriptionService.processRenewals();
+  processRenewals(): never {
+    throw new ConflictException(
+      'Subscription renewal processing is billing-service-owned and cannot be run through admin-api direct writers.',
+    );
   }
 
   // ============================================================================
@@ -722,10 +729,13 @@ export class BillingController {
     return { success: true, invoice };
   }
 
+  @ThrottleSensitive()
   @Post('invoices/update-overdue')
   @HttpCode(HttpStatus.OK)
-  async updateOverdueStatus(): Promise<unknown> {
-    return this.invoiceService.updateOverdueStatus();
+  updateOverdueStatus(): never {
+    throw new ConflictException(
+      'Invoice overdue reconciliation is billing-service-owned and cannot be run through admin-api direct writers.',
+    );
   }
 
   // ============================================================================

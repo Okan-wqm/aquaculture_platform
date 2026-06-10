@@ -57,7 +57,7 @@ This tier packages the local SCADA display surface. Broader software coverage re
 - OTA remains an operator-controlled install flow for RC4; device-side automatic OTA enforcement is not claimed here.
 - OPC UA client security posture remains documented as client-side `SecurityPolicy#None` unless later runtime work closes the security-policy gap.
 - Command RBAC and signed envelope types exist, but dispatcher enforcement is a follow-up implementation PR.
-- Edge v2 schema ownership follows ADR-025 and must not use the superseded admin-api `edge` schema design.
+- Edge v2 schema ownership follows ADR-034 and must not use the superseded admin-api `edge` schema design.
 
 ## Release Procedure
 

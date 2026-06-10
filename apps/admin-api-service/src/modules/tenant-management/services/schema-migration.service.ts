@@ -1,12 +1,12 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 /**
  * HR-MEDIUM-006: Schema name validation regex.
  *
  * Strict alphanumeric + underscore validation prevents SQL injection when
- * schema names are interpolated into DDL statements. DDL parameters cannot
- * be parameterized in PostgreSQL (CREATE SCHEMA $1 is invalid), so input
+ * schema names are interpolated into DDL statements. Schema DDL identifiers
+ * cannot be parameterized in PostgreSQL, so input
  * validation is the ONLY defense.
  *
  * Constraints:
@@ -47,22 +47,12 @@ export class SchemaMigrationService {
    *
    * @param schemaName - Tenant schema name (validated)
    */
-  async createSchema(schemaName: string): Promise<void> {
+  createSchema(schemaName: string): never {
     // SECURITY: Validate BEFORE any SQL interpolation
     validateSchemaName(schemaName);
-
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      // WHY: DDL (CREATE SCHEMA) cannot use parameterized queries in PostgreSQL.
-      // The validation above ensures schemaName is safe for interpolation.
-      await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
-
-      this.logger.log(`Schema created: ${schemaName}`);
-    } finally {
-      await queryRunner.release();
-    }
+    throw new ConflictException(
+      'Runtime tenant schema creation is workflow-owned. Use SchemaManagerService through tenant provisioning.',
+    );
   }
 
   /**
@@ -70,20 +60,12 @@ export class SchemaMigrationService {
    *
    * @param schemaName - Tenant schema name (validated)
    */
-  async dropSchema(schemaName: string): Promise<void> {
+  dropSchema(schemaName: string): never {
     // SECURITY: Validate BEFORE any SQL interpolation
     validateSchemaName(schemaName);
-
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      await queryRunner.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
-
-      this.logger.log(`Schema dropped: ${schemaName}`);
-    } finally {
-      await queryRunner.release();
-    }
+    throw new ConflictException(
+      'Runtime tenant schema drop is deprovision-workflow-owned and requires CleanupDropProof.',
+    );
   }
 
   /**

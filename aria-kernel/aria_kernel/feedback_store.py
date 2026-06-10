@@ -6,7 +6,7 @@ import fnmatch
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl as append_chained_jsonl
+from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
 from .runtime_artifacts import resolve_finding_from_artifact, run_ledger_format
@@ -817,6 +817,9 @@ def _consensus_uncertainty(
 
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    if path.name == "raw-findings.jsonl":
+        append_declared_jsonl(path, payload, expected_surface="raw_findings")
+        return
     append_chained_jsonl(path, payload)
 
 

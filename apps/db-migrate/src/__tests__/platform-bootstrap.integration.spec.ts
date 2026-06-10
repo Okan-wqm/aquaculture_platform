@@ -121,7 +121,8 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
   async function countRows(query: string, params: unknown[] = []): Promise<number> {
     const qr = ctx.dataSource.createQueryRunner();
     try {
-      const rows: Array<{ count: string }> = await qr.query(query, params);
+      const rowsRaw: unknown = await qr.query(query, params);
+      const rows = Array.isArray(rowsRaw) ? (rowsRaw as Array<{ count: string }>) : [];
       return Number.parseInt(rows[0]?.count ?? '0', 10);
     } finally {
       await qr.release();
@@ -159,8 +160,9 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
   } | null> {
     const qr = ctx.dataSource.createQueryRunner();
     try {
-      const rows: Array<{ schema_count: number; function_count: number; shared_table_count: number }> =
-        await qr.query(`SELECT schema_count, function_count, shared_table_count FROM platform.bootstrap_signal WHERE id = 1`);
+      const rows = (await qr.query(
+        `SELECT schema_count, function_count, shared_table_count FROM platform.bootstrap_signal WHERE id = 1`,
+      )) as Array<{ schema_count: number; function_count: number; shared_table_count: number }>;
       const r = rows[0];
       if (!r) return null;
       return {
@@ -176,13 +178,13 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
   async function releaseLedgerColumns(): Promise<string[]> {
     const qr = ctx.dataSource.createQueryRunner();
     try {
-      const rows: Array<{ column_name: string }> = await qr.query(
+      const rows = (await qr.query(
         `SELECT column_name
            FROM information_schema.columns
           WHERE table_schema = 'platform'
             AND table_name = 'release_ledger'
           ORDER BY ordinal_position`,
-      );
+      )) as Array<{ column_name: string }>;
       return rows.map((row) => row.column_name);
     } finally {
       await qr.release();
@@ -194,17 +196,17 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
   > {
     const qr = ctx.dataSource.createQueryRunner();
     try {
-      const rows: Array<{
-        column_name: string;
-        data_type: string;
-        udt_name: string;
-        is_nullable: string;
-      }> = await qr.query(
+      const rows = (await qr.query(
         `SELECT column_name, data_type, udt_name, is_nullable
            FROM information_schema.columns
           WHERE table_schema = 'shared'
             AND table_name = 'audit_logs'`,
-      );
+      )) as Array<{
+        column_name: string;
+        data_type: string;
+        udt_name: string;
+        is_nullable: string;
+      }>;
       return Object.fromEntries(
         rows.map((row) => [
           row.column_name,
@@ -223,12 +225,12 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
   async function auditLogConstraintNames(): Promise<string[]> {
     const qr = ctx.dataSource.createQueryRunner();
     try {
-      const rows: Array<{ conname: string }> = await qr.query(
+      const rows = (await qr.query(
         `SELECT conname
            FROM pg_constraint
           WHERE conrelid = 'shared.audit_logs'::regclass
           ORDER BY conname`,
-      );
+      )) as Array<{ conname: string }>;
       return rows.map((row) => row.conname);
     } finally {
       await qr.release();
@@ -238,15 +240,30 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
   async function auditLogIndexNames(): Promise<string[]> {
     const qr = ctx.dataSource.createQueryRunner();
     try {
-      const rows: Array<{ indexname: string }> = await qr.query(
+      const rows = (await qr.query(
         `SELECT indexname
            FROM pg_indexes
           WHERE schemaname = 'shared'
             AND tablename = 'audit_logs'
           ORDER BY indexname`,
-      );
+      )) as Array<{ indexname: string }>;
       return rows.map((row) => row.indexname);
     } finally {
+      await qr.release();
+    }
+  }
+
+  async function queryAsRole<T>(
+    role: string,
+    query: string,
+    params: unknown[] = [],
+  ): Promise<T[]> {
+    const qr = ctx.dataSource.createQueryRunner();
+    try {
+      await qr.query(`SET ROLE "${role}"`);
+      return (await qr.query(query, params)) as T[];
+    } finally {
+      await qr.query('RESET ROLE');
       await qr.release();
     }
   }
@@ -350,6 +367,42 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
         'idx_audit_logs_mfa_verified_created',
       ]),
     );
+  }, 30_000);
+
+  it('hardens runtime database privileges after bootstrap', async () => {
+    const qr = ctx.dataSource.createQueryRunner();
+    try {
+      const ownerRows = (await qr.query(
+        `SELECT n.nspowner::regrole::text AS owner_name, r.rolcanlogin AS owner_can_login
+           FROM pg_namespace n
+           JOIN pg_roles r ON r.oid = n.nspowner
+          WHERE n.nspname = 'farm'`,
+      )) as Array<{ owner_name: string; owner_can_login: boolean }>;
+      expect(ownerRows[0]).toEqual({
+        owner_name: 'farm_schema_owner',
+        owner_can_login: false,
+      });
+
+      const dbCreateRows = (await qr.query(
+        `SELECT has_database_privilege('farm_service', current_database(), 'CREATE') AS has_create`,
+      )) as Array<{ has_create: boolean }>;
+      expect(dbCreateRows[0]?.has_create).toBe(false);
+
+      await qr.query('DROP TABLE IF EXISTS farm.__runtime_privilege_probe');
+      await qr.query('CREATE TABLE farm.__runtime_privilege_probe (id integer PRIMARY KEY)');
+      await queryAsRole('farm_service', 'INSERT INTO farm.__runtime_privilege_probe (id) VALUES (1)');
+      await expect(
+        queryAsRole('farm_service', 'ALTER TABLE farm.__runtime_privilege_probe ADD COLUMN forbidden integer'),
+      ).rejects.toThrow(/permission denied|must be owner/i);
+      await expect(
+        queryAsRole('farm_service', 'CREATE TABLE farm.__runtime_ddl_probe (id integer)'),
+      ).rejects.toThrow(/permission denied/i);
+    } finally {
+      await qr.query('RESET ROLE');
+      await qr.query('DROP TABLE IF EXISTS farm.__runtime_privilege_probe');
+      await qr.query('DROP TABLE IF EXISTS farm.__runtime_ddl_probe');
+      await qr.release();
+    }
   }, 30_000);
 
   it('second invocation is idempotent — no error, same final counts', async () => {
@@ -507,10 +560,10 @@ describe('platform-bootstrap atom — pre-existing initdb artifacts (ADR-031 pro
     // prior policy, but exercising the conflict path.
     const qr = ctx.dataSource.createQueryRunner();
     try {
-      const rows: Array<{ policyname: string }> = await qr.query(
+      const rows = (await qr.query(
         `SELECT policyname FROM pg_policies
           WHERE schemaname = 'shared' AND tablename = 'audit_logs'`,
-      );
+      )) as Array<{ policyname: string }>;
       expect(rows.length).toBeGreaterThanOrEqual(1);
       expect(rows.map((r) => r.policyname)).toContain('tenant_isolation_policy');
     } finally {

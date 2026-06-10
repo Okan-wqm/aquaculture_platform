@@ -5,33 +5,41 @@ import fnmatch
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
+from .evidence_trust import EvidencePolicy, SELF_OUTPUT_PREFIXES, classify_evidence_ref
 from .runs_reader import read_runs_rows
 from .feedback_store import load_feedback
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, load_registry, utc_now
 
-# Plan 026R §E.8 — extended self-output taxonomy. Pre-§E.8 the
-# memory belief evidence validator only blocked ``aria-tools/``,
-# ``agent-workspace/``, and ``.aria-poc/``. ARIA-output directories
-# created by §A/§C (aria-findings, aria-debts, aria-proposals,
-# aria-incidents) were NOT blocked, so a belief could cite an
-# ARIA-emitted finding as "evidence" — a self-referential loop that
-# defeats the evidence chain's external-anchor requirement.
-SELF_OUTPUT_PREFIXES = (
-    "aria-tools/",
-    "agent-workspace/",
-    ".aria-poc/",
-    # §E.8 additions:
-    "aria-findings/",
-    "aria-debts/",
-    "aria-proposals/",
-    "aria-incidents/",
-)
+# Backwards-compatible import surface. The taxonomy itself lives in
+# evidence_trust.py so memory, evidence validation, and tool health cannot drift.
 MEMORY_KINDS = ("beliefs", "observations", "uncertainties", "contradictions", "calibration", "learning-events")
 BELIEF_STATUSES = ("supported", "contradicted", "needs_revalidation", "stale", "withdrawn")
 STALE_AFTER_REVALIDATION_CYCLES = 3
+_MEMORY_SURFACE_BY_FILENAME = {
+    "observations.jsonl": "memory_observations",
+    "beliefs.jsonl": "memory_beliefs",
+    "uncertainties.jsonl": "memory_uncertainties",
+    "contradictions.jsonl": "memory_contradictions",
+    "calibration.jsonl": "memory_calibration",
+    "learning-events.jsonl": "memory_learning_events",
+}
+
+
+def append_jsonl(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    surface = _MEMORY_SURFACE_BY_FILENAME.get(path.name)
+    if path.parent.name == "memory" and surface:
+        return append_declared_jsonl(path, payload, expected_surface=surface)
+    raise GovernanceError(f"memory_append_unknown_surface:{path.as_posix()}")
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _MEMORY_SURFACE_BY_FILENAME.get(path.name)
+    if path.parent.name == "memory" and surface:
+        return load_declared_jsonl(path, expected_surface=surface)
+    raise GovernanceError(f"memory_load_unknown_surface:{path.as_posix()}")
 
 
 def update_memory(
@@ -115,6 +123,7 @@ def update_memory(
             claim="repository uses Nx workspace orchestration",
             evidence_refs=["nx.json"],
             confidence=1.0,
+            workspace_root=workspace_root,
         )
         beliefs_written += 1
     if include_discovery_beliefs and fingerprint.get("has_package_json"):
@@ -125,6 +134,7 @@ def update_memory(
             claim="repository exposes Node workspace metadata through package.json",
             evidence_refs=["package.json"],
             confidence=1.0,
+            workspace_root=workspace_root,
         )
         beliefs_written += 1
     if include_discovery_beliefs and int(fingerprint.get("migration_count") or 0) >= 5:
@@ -135,6 +145,7 @@ def update_memory(
             claim="repository has a recurring TypeORM migration surface that merits drift checks",
             evidence_refs=["apps/*/src/database/migrations/*.ts"],
             confidence=0.85,
+            workspace_root=workspace_root,
         )
         beliefs_written += 1
     # Plan ARIA-V2 §3.5 + I-16 — surface MFEs missing project.json
@@ -155,12 +166,13 @@ def update_memory(
             ),
             evidence_refs=list(missing_mfe_project_json),
             confidence=1.0,
+            workspace_root=workspace_root,
         )
         beliefs_written += 1
     if include_tool_candidates:
         quarantined_tool_ids = _quarantined_tool_ids(root)
         beliefs_written += _mark_quarantined_source_beliefs(root, cycle_id, quarantined_tool_ids)
-        beliefs_written += _ingest_memory_candidates(root, cycle_id, quarantined_tool_ids)
+        beliefs_written += _ingest_memory_candidates(root, cycle_id, quarantined_tool_ids, workspace_root=workspace_root)
     return {
         "schema_version": 1,
         "cycle_id": cycle_id,
@@ -451,23 +463,47 @@ def validate_repo_evidence(
         if not ref.strip():
             raise GovernanceError("memory belief evidence reference must not be empty")
         if workspace_root is not None:
-            # Plan 026R §E.5 — canonical-path resolution.
-            from .evidence_validator import _canonical_evidence_path
-            try:
-                canonical_rel, _absolute = _canonical_evidence_path(
-                    ref, Path(workspace_root),
-                )
-            except GovernanceError:
-                # path-unresolvable / outside-repo — preserve the
-                # underlying raise (already structured).
-                raise
-            if canonical_rel.startswith(SELF_OUTPUT_PREFIXES):
+            workspace = Path(workspace_root)
+            target_sha = "HEAD" if (workspace / ".git").exists() else None
+            envelope = classify_evidence_ref(
+                ref,
+                workspace_root=workspace,
+                source_hint="repo_source",
+                context="memory_belief",
+                target_sha=target_sha,
+            )
+            if envelope.self_output_class == "aria_self_output":
                 raise GovernanceError(
                     f"memory belief cannot use ARIA self-output as evidence: "
-                    f"{ref!r} resolves to {canonical_rel!r}"
+                    f"{ref!r} resolves to {envelope.canonical_ref!r}"
                 )
+            if envelope.trust_grade == "invalid":
+                raise GovernanceError(
+                    f"memory belief evidence is invalid: {ref!r}: "
+                    f"grade={envelope.trust_grade!r} "
+                    f"errors={list(envelope.validation_errors)!r}"
+                )
+            if target_sha is not None:
+                EvidencePolicy.require_repo_verified(envelope)
         elif ref.startswith(SELF_OUTPUT_PREFIXES):
             raise GovernanceError("memory belief cannot use ARIA self-output as evidence")
+
+
+def _evidence_envelopes(
+    evidence_refs: list[str],
+    *,
+    workspace_root: str | Path | None,
+) -> list[dict[str, Any]]:
+    source_hint = "repo_source" if workspace_root is not None else "legacy"
+    return [
+        classify_evidence_ref(
+            ref,
+            workspace_root=workspace_root,
+            source_hint=source_hint,
+            context="memory_belief",
+        ).to_dict()
+        for ref in evidence_refs
+    ]
 
 
 def _stamp_belief_freshness(
@@ -522,8 +558,9 @@ def _record_belief(
     evidence_refs: list[str],
     confidence: float,
     source_tool_ids: list[str] | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    validate_repo_evidence(evidence_refs)
+    validate_repo_evidence(evidence_refs, workspace_root=workspace_root)
     existing = {
         str(row.get("belief_id")): row
         for row in latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl"))
@@ -568,6 +605,7 @@ def _record_belief(
         "confidence": next_confidence,
         "status": status,
         "evidence_refs": evidence_refs,
+        "evidence_envelopes": _evidence_envelopes(evidence_refs, workspace_root=workspace_root),
         "first_seen_cycle": (existing or {}).get("first_seen_cycle", cycle_id),
         "support_count": support_count,
         "contradiction_count": contradiction_count,
@@ -782,7 +820,13 @@ def _mark_quarantined_source_beliefs(root: Path, cycle_id: str, quarantined_tool
     return written
 
 
-def _ingest_memory_candidates(root: Path, cycle_id: str, quarantined_tool_ids: set[str] | None = None) -> int:
+def _ingest_memory_candidates(
+    root: Path,
+    cycle_id: str,
+    quarantined_tool_ids: set[str] | None = None,
+    *,
+    workspace_root: str | Path | None = None,
+) -> int:
     quarantined_tool_ids = quarantined_tool_ids or set()
     written = 0
     for run in list(read_runs_rows(runs_path(root), base_dir=root)):
@@ -826,6 +870,7 @@ def _ingest_memory_candidates(root: Path, cycle_id: str, quarantined_tool_ids: s
                     confidence=float(candidate.get("confidence", 0.5)),
                     evidence_refs=_array_of_strings(candidate.get("evidence_refs")),
                     source_tool_ids=[source_tool_id],
+                    workspace_root=workspace_root,
                 )
                 written += 1
             except (GovernanceError, TypeError, ValueError) as exc:

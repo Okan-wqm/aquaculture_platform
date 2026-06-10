@@ -176,7 +176,13 @@ def _backfill_one(path: Path) -> BackfillReport:
         cleaned.pop("ledger_hash", None)
         cleaned.pop("previous_ledger_hash", None)
         stripped.append(cleaned)
-    rewrite_jsonl(path, stripped)
+    rewrite_jsonl(
+        path,
+        stripped,
+        allow_legacy=True,
+        legacy_reason="operator_acknowledged_hash_chain_backfill",
+        expires_at="2026-12-31T00:00:00+00:00",
+    )
     return BackfillReport(path=str(path), status="backfilled", rows=len(stripped))
 
 

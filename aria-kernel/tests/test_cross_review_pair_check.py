@@ -19,10 +19,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.ledger import append_jsonl
 from aria_kernel.plan_convergence import _results_pair_hash_check
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 def _seed_result(
@@ -50,7 +50,11 @@ def _seed_result(
         "content_hash": content_hash,
         "submitted_at": "2026-05-11T13:00:00+00:00",
     }
-    append_jsonl(base / "agent-invocations" / "results.jsonl", row)
+    append_declared_fixture(
+        base / "agent-invocations" / "results.jsonl",
+        row,
+        expected_surface="agent_invocation_results",
+    )
 
 
 class CrossReviewPairCheckTests(unittest.TestCase):

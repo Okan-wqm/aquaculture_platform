@@ -4,6 +4,28 @@ import { Request } from 'express';
  * Minimal JWT user payload attached to the request by the auth guard.
  * This is the canonical shape used across guards, decorators, middleware, and repositories.
  */
+export interface FarmVerifiedIdentity {
+  issuer: 'gateway-api';
+  subject: string;
+  tenantId: string | null;
+  effectiveTenantId: string | null;
+  roles: string[];
+  email: string | null;
+  mfaVerified: boolean;
+  issuedAt: string;
+  assertionId?: string;
+}
+
+export interface VerifiedServiceIdentity {
+  serviceName: string;
+  tenantId: string;
+  effectiveTenantId: string;
+  keyId: string;
+  audience?: string;
+  nonce: string;
+  version: 'v2';
+}
+
 export interface JwtUser {
   sub: string;
   tenantId?: string;
@@ -38,4 +60,8 @@ export interface TenantRequest extends Request {
   tenantId?: string;
   /** Decoded JWT payload – set by JwtAuthGuard / UserContextMiddleware */
   user?: JwtUser;
+  /** HMAC-verified service caller identity. */
+  verifiedIdentity?: VerifiedServiceIdentity;
+  /** Gateway-minted business identity assertion. */
+  verifiedUserAssertion?: FarmVerifiedIdentity;
 }

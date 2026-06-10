@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -54,19 +54,31 @@ def record_proposal(
         "blocked_by": _blocked_by(source_authority, status),
         "status": status,
     }
-    append_jsonl(ensure_tools_dir(base_dir) / "proposals" / "proposals.jsonl", row)
+    append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "proposals" / "proposals.jsonl",
+        row,
+        expected_surface="proposals",
+    )
     return row
 
 
 def list_proposals(*, base_dir: str | Path | None = None, kind: str | None = None) -> list[dict[str, Any]]:
-    rows = load_jsonl(ensure_tools_dir(base_dir) / "proposals" / "proposals.jsonl")
+    rows = load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "proposals" / "proposals.jsonl",
+        expected_surface="proposals",
+    )
     if kind is not None:
         rows = [row for row in rows if row.get("kind") == kind]
     return rows
 
 
 def get_proposal(*, proposal_id: str, base_dir: str | Path | None = None) -> dict[str, Any]:
-    for row in reversed(load_jsonl(ensure_tools_dir(base_dir) / "proposals" / "proposals.jsonl")):
+    for row in reversed(
+        load_declared_jsonl(
+            ensure_tools_dir(base_dir) / "proposals" / "proposals.jsonl",
+            expected_surface="proposals",
+        ),
+    ):
         if row.get("proposal_id") == proposal_id:
             return row
     raise GovernanceError(f"proposal not found: {proposal_id}")
@@ -86,7 +98,11 @@ def approve_proposal(
     row["status"] = "approved_for_apply"
     row["operator_approval_ref"] = operator_approval_ref
     row["blocked_by"] = []
-    append_jsonl(ensure_tools_dir(base_dir) / "proposals" / "proposals.jsonl", row)
+    append_declared_jsonl(
+        ensure_tools_dir(base_dir) / "proposals" / "proposals.jsonl",
+        row,
+        expected_surface="proposals",
+    )
     return row
 
 

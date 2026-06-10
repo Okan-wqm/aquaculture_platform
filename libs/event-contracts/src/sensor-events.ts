@@ -306,6 +306,29 @@ export interface SensorReactivatedEvent extends BaseEvent {
 }
 
 /**
+ * Sensor Deleted Event
+ * Published when a sensor aggregate is deleted from the owning service.
+ */
+export interface SensorDeletedEvent extends BaseEvent {
+  eventType: 'SensorDeleted';
+  sensorId: string;
+  deletedBy?: string;
+  reason?: string;
+}
+
+/**
+ * Sensor Deprovisioned Event
+ * Published when downstream device caches and edge sidecars must drop sensor
+ * state after a durable owner-side delete/deprovision operation.
+ */
+export interface SensorDeprovisionedEvent extends BaseEvent {
+  eventType: 'SensorDeprovisioned';
+  sensorId: string;
+  deprovisionedBy?: string;
+  reason?: string;
+}
+
+/**
  * Sensor Discovery Started Event
  */
 export interface SensorDiscoveryStartedEvent extends BaseEvent {
@@ -400,6 +423,8 @@ export type SensorEvent =
   | SensorConfigurationUpdatedEvent
   | SensorSuspendedEvent
   | SensorReactivatedEvent
+  | SensorDeletedEvent
+  | SensorDeprovisionedEvent
   | SensorDiscoveryStartedEvent
   | SensorDiscoveryCompletedEvent
   | ParentReadingRoutedEvent

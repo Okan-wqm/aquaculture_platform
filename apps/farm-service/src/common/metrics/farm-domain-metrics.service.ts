@@ -38,15 +38,16 @@
  *     BackdatePolicyService rejections. Labels: tenant, context
  *     (feeding / growth / mortality / harvest).
  *
+ *   farm_setup_legacy_write_total   (counter)
+ *   farm_setup_legacy_read_total    (counter)
+ *     Runtime baseline for the /sites/setup remediation. Labels:
+ *     surface, operation, contract, tenant. These counters are the
+ *     zero-use evidence source for legacy setup API removal gates.
+ *
  * Phase 5.3 of the "Farm modülü kalan kör noktalar" plan. Closes
  * Girdi 14d.
  */
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as client from 'prom-client';
 
 export type MutationOutcome = 'success' | 'error';
@@ -54,6 +55,7 @@ export type CapacityBlockMode = 'hard' | 'admin_override' | 'soft';
 export type CapacityBlockAxis = 'biomass' | 'density' | 'status';
 export type WithdrawalBlockSurface = 'close_batch' | 'harvest_record' | 'harvest_plan';
 export type BackdateContext = 'feeding' | 'growth' | 'mortality' | 'harvest';
+export type SetupLegacyContract = 'graphql' | 'rest_upload' | 'path_document' | 'document_id';
 
 @Injectable()
 export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
@@ -65,6 +67,8 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   private capacityBlocks!: client.Counter;
   private withdrawalBlocks!: client.Counter;
   private backdateRejections!: client.Counter;
+  private setupLegacyWrites!: client.Counter;
+  private setupLegacyReads!: client.Counter;
 
   constructor() {
     this.registry = new client.Registry();
@@ -105,11 +109,7 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  recordMutationError(params: {
-    operation: string;
-    errorClass: string;
-    tenantId?: string;
-  }): void {
+  recordMutationError(params: { operation: string; errorClass: string; tenantId?: string }): void {
     this.mutationErrors.inc({
       operation: params.operation,
       error_class: params.errorClass,
@@ -129,23 +129,45 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  incWithdrawalBlock(params: {
-    tenantId?: string;
-    surface: WithdrawalBlockSurface;
-  }): void {
+  incWithdrawalBlock(params: { tenantId?: string; surface: WithdrawalBlockSurface }): void {
     this.withdrawalBlocks.inc({
       tenant: this.sanitizeTenant(params.tenantId),
       surface: params.surface,
     });
   }
 
-  incBackdateRejection(params: {
-    tenantId?: string;
-    context: BackdateContext;
-  }): void {
+  incBackdateRejection(params: { tenantId?: string; context: BackdateContext }): void {
     this.backdateRejections.inc({
       tenant: this.sanitizeTenant(params.tenantId),
       context: params.context,
+    });
+  }
+
+  recordSetupLegacyWrite(params: {
+    surface: string;
+    operation: string;
+    contract: SetupLegacyContract;
+    tenantId?: string;
+  }): void {
+    this.setupLegacyWrites.inc({
+      surface: params.surface,
+      operation: params.operation,
+      contract: params.contract,
+      tenant: this.sanitizeTenant(params.tenantId),
+    });
+  }
+
+  recordSetupLegacyRead(params: {
+    surface: string;
+    operation: string;
+    contract: SetupLegacyContract;
+    tenantId?: string;
+  }): void {
+    this.setupLegacyReads.inc({
+      surface: params.surface,
+      operation: params.operation,
+      contract: params.contract,
+      tenant: this.sanitizeTenant(params.tenantId),
     });
   }
 
@@ -183,6 +205,20 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
       name: 'farm_backdate_rejected_total',
       help: 'BackdatePolicyService rejections by domain context',
       labelNames: ['tenant', 'context'],
+      registers: [this.registry],
+    });
+
+    this.setupLegacyWrites = new client.Counter({
+      name: 'farm_setup_legacy_write_total',
+      help: 'Runtime baseline count for legacy setup GraphQL/REST write usage before SSOT cutover',
+      labelNames: ['surface', 'operation', 'contract', 'tenant'],
+      registers: [this.registry],
+    });
+
+    this.setupLegacyReads = new client.Counter({
+      name: 'farm_setup_legacy_read_total',
+      help: 'Runtime baseline count for legacy setup GraphQL/REST read usage before SSOT cutover',
+      labelNames: ['surface', 'operation', 'contract', 'tenant'],
       registers: [this.registry],
     });
   }

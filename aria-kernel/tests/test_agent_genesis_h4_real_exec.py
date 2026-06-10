@@ -26,6 +26,7 @@ from aria_kernel.agent_genesis import (
 )
 from aria_kernel.capability_gap import detect_capability_gaps
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 def _fixture_with_provenance(*, status: str = "pass", run_id: str = "run-1") -> dict:
@@ -49,9 +50,8 @@ class _GenesisH4Common(_Base):
         a draft_id we can target with H-4 sandbox calls."""
         from aria_kernel.agent_priors import map_agent_priors
         from aria_kernel.tool_health import runs_path
-        from aria_kernel.ledger import append_jsonl
         map_agent_priors(workspace_root=self.root, base_dir=self.tools_dir)
-        append_jsonl(
+        append_declared_fixture(
             runs_path(self.tools_dir),
             {
                 "schema_version": 1,
@@ -67,6 +67,7 @@ class _GenesisH4Common(_Base):
                 "emitted_findings": [],
                 "runner": {"raw_findings_count": 8},
             },
+            expected_surface="runs",
         )
         gap = detect_capability_gaps(cycle_id="cycle-h4-gap", base_dir=self.tools_dir)["gaps"][0]
         draft = draft_agent_from_gap(gap_id=gap["gap_id"], base_dir=self.tools_dir)
@@ -119,10 +120,9 @@ class GenesisProvenanceRequiredTests(_GenesisH4Common):
         # execution_run_id. Each result references a separate ledger
         # row populated below.
         from aria_kernel.fixture_runner import fixture_runs_path
-        from aria_kernel.ledger import append_jsonl
         draft_id = self._seed_real_draft()
         for i in range(3):
-            append_jsonl(
+            append_declared_fixture(
                 fixture_runs_path(self.tools_dir),
                 {
                     "schema_version": 1,
@@ -135,6 +135,7 @@ class GenesisProvenanceRequiredTests(_GenesisH4Common):
                     "evidence_hash": "sha256:fake",
                     "passed": True,
                 },
+                expected_surface="agent_eval_fixture_runs",
             )
         result = evaluate_genesis_sandbox(
             draft_id=draft_id,

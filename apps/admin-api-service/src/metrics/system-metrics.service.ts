@@ -173,9 +173,7 @@ export class SystemMetricsService {
         tablesCount: parseDbInt(tablesCount[0]?.count),
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to get database metrics: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get database metrics: ${(error as Error).message}`);
       return {
         totalConnections: 0,
         activeConnections: 0,
@@ -194,15 +192,15 @@ export class SystemMetricsService {
     try {
       // H-2 fix: removed dead query for active users (results[3]) that was fetched but never used
       const results = await Promise.all([
-        this.countEntities('tenants'),           // 0: totalTenants
-        this.countEntities('activeTenants'),     // 1: activeTenants
-        this.countEntities('users'),             // 2: totalUsers
-        this.countEntities('farms'),             // 3: totalFarms
-        this.countEntities('sensors'),           // 4: totalSensors
-        this.countEntities('activeSensors'),     // 5: activeSensors
-        this.countEntities('alertRules'),        // 6: totalAlertRules
-        this.countEntities('activeAlertRules'),  // 7: activeAlertRules
-        this.countAuditLogsLast24h(),            // 8: eventsLast24h
+        this.countEntities('tenants'), // 0: totalTenants
+        this.countEntities('activeTenants'), // 1: activeTenants
+        this.countEntities('users'), // 2: totalUsers
+        this.countEntities('farms'), // 3: totalFarms
+        this.countEntities('sensors'), // 4: totalSensors
+        this.countEntities('activeSensors'), // 5: activeSensors
+        this.countEntities('alertRules'), // 6: totalAlertRules
+        this.countEntities('activeAlertRules'), // 7: activeAlertRules
+        this.countAuditLogsLast24h(), // 8: eventsLast24h
       ]);
 
       return {
@@ -218,9 +216,7 @@ export class SystemMetricsService {
         apiCallsLast24h: results[8], // Using audit logs as proxy
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to get platform metrics: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to get platform metrics: ${(error as Error).message}`);
       return {
         totalTenants: 0,
         activeTenants: 0,
@@ -319,10 +315,11 @@ export class SystemMetricsService {
               return await fetch(endpoint.url, {
                 signal: controller.signal,
                 headers: buildSignedInternalHeaders({
-                  serviceName: 'admin-api',
+                  serviceName: 'admin-api-service',
                   tenantId: '',
                   method: 'GET',
                   path: new URL(endpoint.url).pathname,
+                  audience: endpoint.name,
                   body: '',
                 }),
               });
@@ -343,9 +340,7 @@ export class SystemMetricsService {
           status: response?.ok ? 'healthy' : 'degraded',
           responseTime: Date.now() - startTime,
           lastCheck: new Date(),
-          details: response
-            ? { statusCode: response.status }
-            : { error: 'unreachable' },
+          details: response ? { statusCode: response.status } : { error: 'unreachable' },
         });
       } catch {
         services.push({
@@ -370,7 +365,9 @@ export class SystemMetricsService {
   ): Promise<{ timestamp: Date; value: number }[]> {
     // C-3 fix: Return empty array instead of fabricated Math.random() data.
     // Real implementation requires time-series database or aggregated metrics table.
-    this.logger.warn('getMetricTrends requires time-series database integration - returning empty data');
+    this.logger.warn(
+      'getMetricTrends requires time-series database integration - returning empty data',
+    );
     return Promise.resolve([]);
   }
 
@@ -412,9 +409,7 @@ export class SystemMetricsService {
    */
   private readonly tableExistsCache = new Map<string, boolean>();
 
-  private async countEntities(
-    targetKey: CountTargetKey,
-  ): Promise<number> {
+  private async countEntities(targetKey: CountTargetKey): Promise<number> {
     try {
       const target = SystemMetricsService.COUNT_TARGETS[targetKey];
       if (!target) {
@@ -444,13 +439,16 @@ export class SystemMetricsService {
       // HIGH-006 fix: serve table-existence from the in-process cache so we
       // avoid an information_schema round-trip on every call.
       if (!this.tableExistsCache.has(cacheKey)) {
-        const tableExistsRows = await this.dataSource.query<TableExistsRow[]>(`
+        const tableExistsRows = await this.dataSource.query<TableExistsRow[]>(
+          `
           SELECT EXISTS (
             SELECT FROM information_schema.tables
             WHERE table_schema = $1
             AND table_name = $2
           ) AS exists
-        `, [target.schema, target.table]);
+        `,
+          [target.schema, target.table],
+        );
         this.tableExistsCache.set(cacheKey, tableExistsRows[0]?.exists === true);
       }
 

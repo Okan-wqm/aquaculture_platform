@@ -342,10 +342,23 @@ export class CreateTenantDto {
   @IsOptional()
   @IsEnum(['monthly', 'quarterly', 'semi_annual', 'annual'])
   billingCycle?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
+
+  @IsOptional()
+  @IsUUID('4')
+  catalogVersionId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  quoteId?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  customPlanId?: string;
 }
 
 export enum TenantProvisioningState {
   QUEUED = 'QUEUED',
+  RESERVING = 'RESERVING',
   RUNNING = 'RUNNING',
   SUCCEEDED = 'SUCCEEDED',
   FAILED = 'FAILED',
@@ -361,19 +374,24 @@ export class TenantProvisioningStepDto {
 }
 
 export class CreateTenantAcceptedResponse {
-  accepted!: boolean;
-  id!: string;
-  tenantId!: string;
-  operationId!: string;
-  provisioningState!: TenantProvisioningState;
+  /**
+   * Operation state. Public clients must make decisions from this field only.
+   */
+  status!: TenantProvisioningState;
+
+  /**
+   * Tenant lifecycle status from the approved admin projection, when known.
+   */
+  tenantStatus?: TenantStatus;
+
+  /**
+   * Canonical relative polling URL. Legacy /api, /api/v1, and /v1 aliases are
+   * intentionally not part of the contract.
+   */
   statusUrl!: string;
-  status!: string;
-  name!: string;
-  slug!: string;
-  tier!: string;
-  currentStep?: string;
-  error?: string;
-  steps?: TenantProvisioningStepDto[];
+
+  retryAfterMs!: number;
+  availableActions!: string[];
 }
 
 export class UpdateTenantDto {

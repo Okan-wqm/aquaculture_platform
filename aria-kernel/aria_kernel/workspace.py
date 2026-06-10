@@ -8,7 +8,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, file_hash, read_jsonl, write_index
+from .ledger import append_declared_jsonl, file_hash, read_jsonl, write_index
 
 
 @dataclass(frozen=True)
@@ -311,7 +311,11 @@ def require_workspace_v2(paths: WorkspacePaths) -> None:
 
 def record_workspace_governance(paths: WorkspacePaths, kind: str, details: dict[str, Any]) -> dict[str, Any]:
     event = governance_event(kind=kind, details=details)
-    stored = append_jsonl(paths.ledgers["governance"], event)
+    stored = append_declared_jsonl(
+        paths.ledgers["governance"],
+        event,
+        expected_surface="workspace_memory_governance",
+    )
     if paths.feedback_index.exists():
         write_index(paths.feedback_index, _index_state(paths), paths.ledgers)
     return stored

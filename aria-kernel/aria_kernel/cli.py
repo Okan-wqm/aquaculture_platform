@@ -35,6 +35,7 @@ from aria_kernel.agent_genesis import (
     prepare_agent_pr_lane,
 )
 from aria_kernel.agent_network import agent_network_index
+from aria_kernel.burn_in import run_observe_burn_in
 from aria_kernel.capability_gap import detect_capability_gaps
 from aria_kernel.discovery import run_discovery
 from aria_kernel.feedback import add_feedback, build_feedback_event, import_feedback, list_feedback
@@ -217,6 +218,7 @@ def add_subparser(
 # name the directory explicitly. All other 168 subparsers accept the
 # flag but treat it as optional (env-var fallback or downstream None).
 _TOOLS_DIR_REQUIRED_COMMANDS: frozenset[tuple[str, ...]] = frozenset({
+    ("autonomy", "burn-in", "observe"),
     ("integrity", "migrate-tools-v1-to-v2"),
     ("integrity", "rollback-tools-v2-to-v1"),
     # Plan ARIA-V3.3 §2a — bootstrap-class commands MUST name the
@@ -293,6 +295,8 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "consensus_command",
         "agent_genesis_command",
         "skill_genesis_command",
+        "autonomy_command",
+        "burn_in_command",
         "worker_result_command",
         "verification_command",
         "cycle_command",
@@ -550,6 +554,28 @@ def _main(argv: list[str] | None = None) -> int:
         help="JSON file with real_response_envelope (required when --mock-mode is unset).")
     eval_run.add_argument("--no-mock-mode", action="store_true",
         help="Disable mock mode; requires --real-envelope-file.")
+    eval_run.add_argument("--invocation-id", default=None,
+        help="Required in real mode: upstream invocation/lease id.")
+    eval_run.add_argument("--transcript-hash", default=None,
+        help="Required in real mode: sha256:<hex> transcript hash.")
+    eval_run.add_argument("--operator-approval-ref", default=None,
+        help="Optional operator provenance label recorded on real eval rows.")
+    eval_run.add_argument("--request-ledger-ref", default=None,
+        help="Real mode: SourceLedgerRef JSON or JSON file for request row.")
+    eval_run.add_argument("--claim-ledger-ref", default=None,
+        help="Real mode: SourceLedgerRef JSON or JSON file for claim row.")
+    eval_run.add_argument("--result-ledger-ref", default=None,
+        help="Real mode: SourceLedgerRef JSON or JSON file for result row.")
+    eval_run.add_argument("--fixture-ledger-ref", default=None,
+        help="Real mode: fixture SourceLedgerRef JSON or JSON file.")
+    eval_run.add_argument("--transcript-ledger-ref", default=None,
+        help="Real mode: SourceLedgerRef JSON or JSON file for transcript row.")
+    eval_run.add_argument("--operator-approval-ledger-ref", default=None,
+        help="Real mode: SourceLedgerRef JSON or JSON file for operator approval row.")
+    eval_run.add_argument("--context-ledger-ref", default=None,
+        help="Optional real mode: SourceLedgerRef JSON or JSON file for context row.")
+    eval_run.add_argument("--prompt-ledger-ref", default=None,
+        help="Optional real mode: SourceLedgerRef JSON or JSON file for prompt row.")
     eval_aggregate = add_subparser(eval_sub, "aggregate")
     eval_aggregate.add_argument("--target-agent", required=True)
     eval_aggregate.add_argument("--window-days", type=int, default=30)
@@ -1068,6 +1094,10 @@ def _main(argv: list[str] | None = None) -> int:
         help="Name of an environment variable that holds the lease_token.",
     )
     a_submit.add_argument("--output-path", required=True)
+    a_submit.add_argument("--context-hash", required=True)
+    a_submit.add_argument("--prompt-hash", required=True)
+    a_submit.add_argument("--transcript-hash", required=True)
+    a_submit.add_argument("--transcript-artifact-ref", required=True)
 
     a_reap = add_subparser(agent_sub, 
         "reap-stale",
@@ -1457,6 +1487,23 @@ def _main(argv: list[str] | None = None) -> int:
         "--artifact", default=None,
         help="Path to write full autonomy output when --output full is selected.",
     )
+    burn_in_parser = add_subparser(
+        autonomy_sub,
+        "burn-in",
+        help="Enterprise autonomy burn-in commands that do not dispatch agents.",
+    )
+    burn_in_sub = burn_in_parser.add_subparsers(dest="burn_in_command", required=True)
+    burn_in_observe = add_subparser(
+        burn_in_sub,
+        "observe",
+        help="Run discovery/memory/pressure/triage observe cycles with no agent/tool/PR actions.",
+    )
+    burn_in_observe.add_argument("--workspace-root", required=True)
+    burn_in_observe.add_argument("--workspace-base", required=True)
+    burn_in_observe.add_argument("--target-ref", required=True)
+    burn_in_observe.add_argument("--cycles", type=int, default=30)
+    burn_in_observe.add_argument("--min-valid-cycles", type=int, default=20)
+    burn_in_observe.add_argument("--output-dir", required=True)
     auto_status = add_subparser(
         autonomy_sub, "status",
         help="Print the canonical AutonomyState derived from autonomy_state.jsonl.",
@@ -2073,11 +2120,31 @@ def _main(argv: list[str] | None = None) -> int:
             if not args.real_envelope_file:
                 parser.error("--no-mock-mode requires --real-envelope-file")
             envelope = json.loads(Path(args.real_envelope_file).read_text(encoding="utf-8"))
+
+        def _source_ref_arg(value: str | None) -> dict[str, Any] | None:
+            if value is None:
+                return None
+            candidate = Path(value)
+            if candidate.exists():
+                return json.loads(candidate.read_text(encoding="utf-8"))
+            return json.loads(value)
+
         run = run_agent_eval(
             fixture_id=args.fixture_id,
             base_dir=args.tools_dir,
             mock_mode=mock_mode,
             real_response_envelope=envelope,
+            invocation_id=args.invocation_id,
+            transcript_hash=args.transcript_hash,
+            operator_approval_ref=args.operator_approval_ref,
+            request_ledger_ref=_source_ref_arg(args.request_ledger_ref),
+            claim_ledger_ref=_source_ref_arg(args.claim_ledger_ref),
+            result_ledger_ref=_source_ref_arg(args.result_ledger_ref),
+            fixture_ledger_ref=_source_ref_arg(args.fixture_ledger_ref),
+            transcript_ledger_ref=_source_ref_arg(args.transcript_ledger_ref),
+            operator_approval_ledger_ref=_source_ref_arg(args.operator_approval_ledger_ref),
+            context_ledger_ref=_source_ref_arg(args.context_ledger_ref),
+            prompt_ledger_ref=_source_ref_arg(args.prompt_ledger_ref),
         )
         print(json.dumps(run, indent=2, sort_keys=True))
         return 0
@@ -2816,6 +2883,10 @@ def _main(argv: list[str] | None = None) -> int:
                 output_path=args.output_path,
                 workspace_root=workspace,
                 base_dir=args.tools_dir,
+                context_hash=args.context_hash,
+                prompt_hash=args.prompt_hash,
+                transcript_hash=args.transcript_hash,
+                transcript_artifact_ref=args.transcript_artifact_ref,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1
@@ -3714,7 +3785,11 @@ def _main(argv: list[str] | None = None) -> int:
         # Tier-1). All three factories key off the runtime profile so
         # the operator never passes any dependency explicitly.
         from .autonomy_orchestrator import run_autonomy_orchestrator
-        from .auto_merge_runners import select_auto_merge_runner
+        from .auto_merge_runners import (
+            enumerate_prs_with_readiness_claims,
+            resolve_readiness_claim_id_from_claims,
+            select_auto_merge_runner,
+        )
         from .convergence_drainer import select_convergence_runner
         from .github_adapters import select_github_adapter
         from .review_runner import select_review_runner
@@ -3777,11 +3852,19 @@ def _main(argv: list[str] | None = None) -> int:
                     set_by="autonomy-cli",
                 )
             profile = args.profile
-        auto_merge_runner = select_auto_merge_runner(profile=profile)
         github_adapter = select_github_adapter(
             profile=profile,
             base_dir=args.tools_dir,
             cwd=str(args.workspace_root),
+        )
+        auto_merge_runner = select_auto_merge_runner(
+            profile=profile,
+            adapter_factory=lambda: github_adapter,
+            pr_enumerator=lambda adapter: enumerate_prs_with_readiness_claims(
+                adapter,
+                base_dir=args.tools_dir,
+            ),
+            readiness_claim_resolver=resolve_readiness_claim_id_from_claims,
         )
         # Plan ARIA-V8 §4 Phase 8.0 (B-V2-13) — fail-fast validation:
         # cycle_deadline must accommodate at least 3 envelope-mint
@@ -3890,6 +3973,31 @@ def _main(argv: list[str] | None = None) -> int:
             return 4
         print(encoded)
         return autonomy_exit_code(str(summary.get("overall_status") or "failed"))
+
+    if (
+        args.command == "autonomy"
+        and args.autonomy_command == "burn-in"
+        and args.burn_in_command == "observe"
+    ):
+        try:
+            result = run_observe_burn_in(
+                workspace_root=args.workspace_root,
+                workspace_base=args.workspace_base,
+                base_dir=args.tools_dir,
+                target_ref=args.target_ref,
+                cycles=args.cycles,
+                min_valid_cycles=args.min_valid_cycles,
+                output_dir=args.output_dir,
+            )
+        except GovernanceError as exc:
+            print(json.dumps({
+                "schema_version": "aria/autonomy-burn-in-report/v1",
+                "acceptance_verdict": "failed",
+                "error": str(exc),
+            }, indent=2, sort_keys=True))
+            return 4
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("acceptance_verdict") == "passed" else 1
 
     if args.command == "autonomy" and args.autonomy_command == "project-queue":
         from .next_cycle_queue import read_pending

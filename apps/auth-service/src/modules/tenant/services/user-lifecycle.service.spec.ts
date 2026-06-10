@@ -6,13 +6,19 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
 import { Role, SchemaManagerService } from '@platform/backend-common';
+import type { UserInvitedEvent } from '@platform/event-contracts';
+import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { ActionToken } from '../../authentication/entities/action-token.entity';
+import { Invitation } from '../../authentication/entities/invitation.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
+import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User } from '../../authentication/entities/user.entity';
+import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
+
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
 import { UserLifecycleService } from './user-lifecycle.service';
 
@@ -97,7 +103,16 @@ const createMockRoleWithDetails = (
 // Mock Setup
 // ============================================================================
 
-const createMockRepository = () => ({
+const createMockRepository = (): {
+  find: jest.Mock;
+  findOne: jest.Mock;
+  findAndCount: jest.Mock;
+  save: jest.Mock;
+  create: jest.Mock;
+  update: jest.Mock;
+  delete: jest.Mock;
+  count: jest.Mock;
+} => ({
   find: jest.fn(),
   findOne: jest.fn(),
   findAndCount: jest.fn(),
@@ -106,6 +121,13 @@ const createMockRepository = () => ({
   update: jest.fn(),
   delete: jest.fn(),
   count: jest.fn(),
+});
+
+const createMockTenantCounterBuilder = () => ({
+  update: jest.fn().mockReturnThis(),
+  set: jest.fn().mockReturnThis(),
+  where: jest.fn().mockReturnThis(),
+  execute: jest.fn().mockResolvedValue(undefined),
 });
 
 // ============================================================================
@@ -120,20 +142,29 @@ describe('UserLifecycleService', () => {
   let mockDataSource: jest.Mocked<Pick<DataSource, 'query' | 'transaction'>>;
   let mockSchemaManager: jest.Mocked<Pick<SchemaManagerService, 'getTenantSchemaName'>>;
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
-  let mockEventBus: { publish: jest.Mock };
+  let mockEventBus: { publish: jest.Mock<Promise<void>, [UserInvitedEvent]> };
   let mockAuditLogService: { log: jest.Mock };
 
   beforeEach(async () => {
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
     const mockRefreshTokenRepo = createMockRepository();
+    const mockMobileSettingsRepo = createMockRepository();
+    const mockInvitationRepo = createMockRepository();
+    const mockActionTokenRepo = createMockRepository();
+    const mockUserModuleAssignmentRepo = createMockRepository();
 
     mockDataSource = {
       query: jest.fn().mockResolvedValue([]),
-      transaction: jest.fn().mockImplementation(async (cb: (manager: unknown) => Promise<unknown>) => {
+      transaction: jest.fn().mockImplementation((cb: (manager: unknown) => Promise<unknown>) => {
         // Simulate transaction by passing a mock manager
         const mockManager = {
           getRepository: jest.fn().mockReturnValue(mockUserRepo),
+          create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
+          save: jest.fn((_entity: unknown, data: Record<string, unknown>) =>
+            Promise.resolve({ id: 'action-token-id', ...data }),
+          ),
+          createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
           query: mockDataSource.query,
         };
         return cb(mockManager);
@@ -149,7 +180,7 @@ describe('UserLifecycleService', () => {
     };
 
     mockEventBus = {
-      publish: jest.fn().mockResolvedValue(undefined),
+      publish: jest.fn<Promise<void>, [UserInvitedEvent]>().mockResolvedValue(undefined),
     };
 
     mockAuditLogService = {
@@ -162,6 +193,10 @@ describe('UserLifecycleService', () => {
         { provide: getRepositoryToken(User), useValue: mockUserRepo },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepo },
         { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepo },
+        { provide: getRepositoryToken(MobileUserSettings), useValue: mockMobileSettingsRepo },
+        { provide: getRepositoryToken(Invitation), useValue: mockInvitationRepo },
+        { provide: getRepositoryToken(ActionToken), useValue: mockActionTokenRepo },
+        { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepo },
         { provide: DataSource, useValue: mockDataSource },
         { provide: SchemaManagerService, useValue: mockSchemaManager },
         { provide: TenantRoleService, useValue: mockTenantRoleService },
@@ -238,6 +273,155 @@ describe('UserLifecycleService', () => {
       await expect(
         service.createUser(TENANT_ID, createInput, ADMIN_USER_ID),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ==========================================================================
+  // adminInviteUser
+  // ==========================================================================
+
+  describe('adminInviteUser', () => {
+    it('publishes a tokenless UserInvited event and returns no raw token', async () => {
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.count.mockResolvedValue(5);
+      userRepository.findOne
+        .mockResolvedValueOnce(createMockUser({
+          id: ADMIN_USER_ID,
+          role: Role.TENANT_ADMIN,
+          tenantId: TENANT_ID,
+        }))
+        .mockResolvedValueOnce(null);
+
+      const txUserModuleAssignmentRepo = createMockRepository();
+      const txTenantRepo = {
+        increment: jest.fn().mockResolvedValue(undefined),
+      };
+      const invitedUser = createMockUser({
+        id: 'invited-user-id',
+        email: 'newuser@tenant.com',
+        role: Role.MODULE_USER,
+      });
+      txUserModuleAssignmentRepo.save.mockResolvedValue([]);
+
+      // User + Invitation writes go through typed manager.create/save
+      // (cross-tenant auth tables — see service WHY note); only
+      // UserModuleAssignment still routes through getRepository via
+      // tenantManagerRepo.
+      const txManager = {
+        getRepository: jest.fn((entity: unknown) => {
+          if (entity === UserModuleAssignment) return txUserModuleAssignmentRepo;
+          if (entity === Tenant) return txTenantRepo;
+          throw new Error('Unexpected repository');
+        }),
+        create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
+        save: jest.fn((entity: unknown, data: Record<string, unknown>) => {
+          if (entity === User) return Promise.resolve(invitedUser);
+          if (entity === Invitation) return Promise.resolve({ id: 'invitation-id', ...data });
+          return Promise.resolve({ id: 'action-token-id', ...data });
+        }),
+        createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
+      };
+      mockDataSource.transaction.mockImplementationOnce(
+        async (...args: unknown[]) => {
+          const cb = args.find(
+            (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
+          );
+          if (!cb) throw new Error('Missing transaction callback');
+          return cb(txManager);
+        },
+      );
+
+      const result = await service.adminInviteUser({
+        tenantId: TENANT_ID,
+        email: 'newuser@tenant.com',
+        role: Role.MODULE_USER,
+        invitedBy: ADMIN_USER_ID,
+      });
+
+      expect(result).toEqual({
+        userId: 'invited-user-id',
+        invitationId: 'invitation-id',
+        actionTokenId: 'action-token-id',
+        deliveryStatus: 'queued',
+      });
+      expect(result).not.toHaveProperty('invitationToken');
+      expect(mockEventBus.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'UserInvited',
+          tenantId: TENANT_ID,
+          userId: 'invited-user-id',
+          role: Role.MODULE_USER,
+          invitedBy: ADMIN_USER_ID,
+          credentialType: 'reset_token',
+          actionTokenId: 'action-token-id',
+          cryptoShredKeyId: 'invited-user-id',
+        }),
+      );
+      const [publishedEvent] = mockEventBus.publish.mock.calls[0] ?? [];
+      expect(JSON.stringify(publishedEvent)).not.toContain('newuser@tenant.com');
+    });
+
+    it('does not publish UserInvited when delivery is not requested', async () => {
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.count.mockResolvedValue(5);
+      userRepository.findOne
+        .mockResolvedValueOnce(createMockUser({
+          id: ADMIN_USER_ID,
+          role: Role.TENANT_ADMIN,
+          tenantId: TENANT_ID,
+        }))
+        .mockResolvedValueOnce(null);
+
+      const txTenantRepo = {
+        increment: jest.fn().mockResolvedValue(undefined),
+      };
+      const invitedUser = createMockUser({
+        id: 'invited-user-id',
+        email: 'newuser@tenant.com',
+        role: Role.MODULE_USER,
+      });
+
+      // Same entity-aware manager shape as the previous test — User and
+      // Invitation persist through typed manager.create/save.
+      const txManager = {
+        getRepository: jest.fn((entity: unknown) => {
+          if (entity === UserModuleAssignment) return createMockRepository();
+          if (entity === Tenant) return txTenantRepo;
+          throw new Error('Unexpected repository');
+        }),
+        create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
+        save: jest.fn((entity: unknown, data: Record<string, unknown>) => {
+          if (entity === User) return Promise.resolve(invitedUser);
+          if (entity === Invitation) return Promise.resolve({ id: 'invitation-id', ...data });
+          return Promise.resolve({ id: 'action-token-id', ...data });
+        }),
+        createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
+      };
+      mockDataSource.transaction.mockImplementationOnce(
+        async (...args: unknown[]) => {
+          const cb = args.find(
+            (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
+          );
+          if (!cb) throw new Error('Missing transaction callback');
+          return cb(txManager);
+        },
+      );
+
+      const result = await service.adminInviteUser({
+        tenantId: TENANT_ID,
+        email: 'newuser@tenant.com',
+        role: Role.MODULE_USER,
+        invitedBy: ADMIN_USER_ID,
+        sendInvitation: false,
+      });
+
+      expect(result).toEqual({
+        userId: 'invited-user-id',
+        invitationId: 'invitation-id',
+        actionTokenId: 'action-token-id',
+      });
+      expect(result).not.toHaveProperty('invitationToken');
+      expect(mockEventBus.publish).not.toHaveBeenCalled();
     });
   });
 

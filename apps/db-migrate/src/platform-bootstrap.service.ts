@@ -14,18 +14,20 @@
  *
  * # Architecture
  *
- * The bootstrap is split into 7 ordered stages. Each stage is a single SQL
+ * The bootstrap is split into 9 ordered stages. Each stage is a single SQL
  * file under apps/db-migrate/src/sql/platform-bootstrap/, except stage 002
  * (roles) which carries env-substituted passwords and is generated in this
  * file. Order is load-bearing:
  *
  *   001  extensions       — CREATE EXTENSION IF NOT EXISTS x6
  *   002  roles            — CREATE ROLE + ALTER ROLE PASSWORD (env-aware)
- *   003  schemas          — CREATE SCHEMA IF NOT EXISTS x16 + AUTHORIZATION
+ *   003  schemas          — CREATE SCHEMA IF NOT EXISTS x17 + AUTHORIZATION
  *   004  schema-grants    — GRANT / ALTER DEFAULT PRIVILEGES idempotent
  *   005  platform-funcs   — CREATE OR REPLACE FUNCTION x4 + GRANT EXECUTE
  *   006  shared-tables    — CREATE TABLE IF NOT EXISTS x5 + RLS + triggers
  *   007  bootstrap-signal — INSERT ON CONFLICT DO UPDATE on platform.bootstrap_signal
+ *   008  least-privilege  — final runtime DML-only/schema-owner hardening
+ *   009  provisioner      — platform.tenant_schema_jobs request ledger
  *
  * # Why TypeScript wraps SQL files
  *

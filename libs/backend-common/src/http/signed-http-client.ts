@@ -1,4 +1,10 @@
-import { generateServiceIdentityHeadersV2 } from '../utils/service-identity.util';
+import { createHash, randomUUID } from 'crypto';
+
+import { serviceIdentityAudienceForService } from '../../../../platform/libs/service-catalog/src/index';
+import {
+  generateServiceIdentityHeadersV2,
+  parseServiceIdentityKeyring,
+} from '../utils/service-identity.util';
 
 /**
  * @module SignedHttpClient
@@ -14,10 +20,9 @@ import { generateServiceIdentityHeadersV2 } from '../utils/service-identity.util
  *    is a SEC-CRITICAL-001-class footgun.
  * 2. Mandatory tenantId parameter for tenant-scoped calls — callers
  *    cannot forget to include it.
- * 3. Hard-fails if INTERNAL_SERVICE_SECRET is not configured. The service
- *    bootstrap already requires this in production; this helper makes
- *    the requirement explicit at every call site (no silent
- *    "unsigned request").
+ * 3. Hard-fails if service-identity signing material is not configured.
+ *    Production requires SERVICE_IDENTITY_KEYRING and
+ *    SERVICE_IDENTITY_SIGNING_KID; local development may use a dev secret.
  * 4. v2 signatures bind method, path, and body — so a captured signature
  *    cannot be replayed against a different endpoint or with a tampered
  *    body. signedFetch reads method/body from the RequestInit and the
@@ -145,10 +150,24 @@ export interface SignedFetchOptions extends RequestInit {
    */
   tenantId: string;
   /**
-   * Override the environment-sourced INTERNAL_SERVICE_SECRET. For test
-   * fixtures only — real call sites rely on the env var.
+   * Test/dev-only secret override. Production rejects overrides and uses
+   * SERVICE_IDENTITY_KEYRING plus SERVICE_IDENTITY_SIGNING_KID.
    */
   secret?: string;
+  /** Service-identity key id override for tests/controlled rotations. */
+  keyId?: string;
+  /** Expected downstream service audience bound into the HMAC. */
+  audience?: string;
+  /** Exact request query string, including the leading '?' when present. */
+  query?: string;
+  /** Exact outbound Content-Type bound into the HMAC. */
+  contentType?: string;
+  /** SHA-256 hex digest of the gateway verified-user assertion header. */
+  assertionHash?: string;
+  /** Effective tenant, when distinct from tenantId. */
+  effectiveTenantId?: string;
+  /** Nonce override for deterministic tests. */
+  nonce?: string;
   /**
    * Optional canonical CircuitBreakerService integration
    * (CIRCUIT-MEDIUM-004 cure). When provided, the actual fetch is
@@ -174,8 +193,7 @@ export interface SignedFetchOptions extends RequestInit {
  * (e.g. for Apollo federation `willSendRequest` where the caller owns the
  * HTTP dispatch — see apps/gateway-api/src/app.module.ts).
  *
- * @throws Error if INTERNAL_SERVICE_SECRET is not configured and no
- *   `secret` override is provided.
+ * @throws Error if service-identity signing material is not configured.
  */
 export function buildSignedInternalHeaders(args: {
   serviceName: string;
@@ -192,22 +210,29 @@ export function buildSignedInternalHeaders(args: {
    */
   body: string | Buffer;
   secret?: string;
+  keyId?: string;
+  audience?: string;
+  query?: string;
+  contentType?: string;
+  assertionHash?: string;
+  effectiveTenantId?: string;
+  nonce?: string;
 }): Record<string, string> {
-  const secret = args.secret ?? process.env['INTERNAL_SERVICE_SECRET'];
-  if (!secret) {
-    throw new Error(
-      '[signed-http-client] INTERNAL_SERVICE_SECRET is not configured. ' +
-        'Every internal HTTP call must be HMAC-signed. Set the env var in ' +
-        'production, or pass the `secret` override in tests.',
-    );
-  }
+  const signingMaterial = resolveServiceIdentitySigningMaterial(args.secret, args.keyId);
   const v2 = generateServiceIdentityHeadersV2({
     serviceName: args.serviceName,
-    secret,
+    secret: signingMaterial.secret,
     tenantId: args.tenantId,
     method: args.method,
     path: args.path,
     body: args.body,
+    keyId: signingMaterial.keyId,
+    audience: args.audience,
+    query: args.query,
+    contentType: args.contentType,
+    effectiveTenantId: args.effectiveTenantId,
+    assertionHash: args.assertionHash,
+    nonce: args.nonce ?? randomUUID(),
   });
   const headers: Record<string, string> = {
     'X-Service-Identity': v2['X-Service-Identity'],
@@ -218,6 +243,20 @@ export function buildSignedInternalHeaders(args: {
     'X-Service-Path': v2['X-Service-Path'],
     'X-Service-Body-Hash': v2['X-Service-Body-Hash'],
   };
+  for (const optionalHeader of [
+    'X-Service-Key-Id',
+    'X-Service-Audience',
+    'X-Service-Query-Hash',
+    'X-Service-Content-Type',
+    'X-Service-Assertion-Hash',
+    'X-Service-Nonce',
+    'X-Service-Effective-Tenant-ID',
+  ] as const) {
+    const value = v2[optionalHeader];
+    if (value !== undefined) {
+      headers[optionalHeader] = value;
+    }
+  }
   if (args.tenantId) {
     // Only forward the tenant header when there is one — the signature was
     // computed against empty string otherwise, so sending an empty header
@@ -257,6 +296,8 @@ export async function signedFetch(
   const path = url.pathname;
   const body = normalizeBodyForSigning(options.body);
 
+  const merged = new Headers(options.headers);
+  const assertion = merged.get('x-verified-user-assertion') ?? undefined;
   const signedHeaders = buildSignedInternalHeaders({
     serviceName: options.serviceName,
     tenantId: options.tenantId,
@@ -264,11 +305,17 @@ export async function signedFetch(
     path,
     body,
     secret: options.secret,
+    keyId: options.keyId,
+    audience: options.audience ?? inferAudienceFromUrl(url),
+    query: options.query ?? url.search,
+    contentType: options.contentType ?? merged.get('content-type') ?? undefined,
+    assertionHash: options.assertionHash ?? (assertion ? sha256Hex(assertion) : undefined),
+    effectiveTenantId: options.effectiveTenantId,
+    nonce: options.nonce,
   });
 
   // Merge caller-supplied headers first, then overwrite the X-Service-*
   // and X-Tenant-ID keys so they always reflect the fresh signature.
-  const merged = new Headers(options.headers);
   for (const [name, value] of Object.entries(signedHeaders)) {
     merged.set(name, value);
   }
@@ -286,12 +333,29 @@ export async function signedFetch(
     serviceName: _s,
     tenantId: _t,
     secret: _sec,
+    keyId: _kid,
+    audience: _aud,
+    query: _q,
+    contentType: _ct,
+    assertionHash: _ah,
+    effectiveTenantId: _et,
+    nonce: _nonce,
     headers: _h,
     circuitBreaker,
     circuitBreakerOptions,
     ...init
   } = options;
-  void _s; void _t; void _sec; void _h;
+  void _s;
+  void _t;
+  void _sec;
+  void _kid;
+  void _aud;
+  void _q;
+  void _ct;
+  void _ah;
+  void _et;
+  void _nonce;
+  void _h;
 
   const finalInit = { ...init, headers: merged };
 
@@ -315,6 +379,10 @@ export async function signedFetch(
   return fetch(input, finalInit);
 }
 
+function inferAudienceFromUrl(url: URL): string | undefined {
+  return serviceIdentityAudienceForService(url.hostname) ?? undefined;
+}
+
 /**
  * Coerce a BodyInit-compatible value into the byte-stable form used by
  * the v2 signature canonical input. See module docblock for the full
@@ -325,6 +393,58 @@ export async function signedFetch(
  * latency expectations of streaming endpoints. We reject them explicitly
  * so the failure mode is loud, not a silent "" hash.
  */
+
+function resolveServiceIdentitySigningMaterial(
+  secretOverride?: string,
+  keyIdOverride?: string,
+): { keyId?: string; secret: string } {
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  if (secretOverride) {
+    if (isProduction) {
+      throw new Error(
+        '[signed-http-client] secret overrides are forbidden in production; use SERVICE_IDENTITY_KEYRING',
+      );
+    }
+    return { keyId: keyIdOverride ?? 'test', secret: secretOverride };
+  }
+
+  const keyring = parseServiceIdentityKeyring(process.env['SERVICE_IDENTITY_KEYRING']);
+  if (keyring.length > 0) {
+    const configuredKid = keyIdOverride ?? process.env['SERVICE_IDENTITY_SIGNING_KID'];
+    if (isProduction && !configuredKid) {
+      throw new Error(
+        '[signed-http-client] SERVICE_IDENTITY_SIGNING_KID is required in production',
+      );
+    }
+    const selected = configuredKid
+      ? keyring.find((entry) => entry.kid === configuredKid)
+      : keyring.find((entry) => entry.status === 'active');
+    if (!selected || selected.status !== 'active') {
+      throw new Error(
+        '[signed-http-client] SERVICE_IDENTITY_SIGNING_KID must resolve to an active key',
+      );
+    }
+    return { keyId: selected.kid, secret: selected.secret };
+  }
+
+  const devSecret =
+    process.env['SERVICE_IDENTITY_SIGNING_SECRET'] ?? process.env['INTERNAL_SERVICE_SECRET'];
+  if (devSecret && !isProduction) {
+    return { keyId: keyIdOverride ?? 'local-dev', secret: devSecret };
+  }
+
+  throw new Error(
+    '[signed-http-client] SERVICE_IDENTITY_KEYRING is not configured. ' +
+      'Every internal HTTP call must be HMAC-signed with a keyed v2 identity. ' +
+      'Set SERVICE_IDENTITY_KEYRING and SERVICE_IDENTITY_SIGNING_KID, or pass ' +
+      'the `secret` override in tests.',
+  );
+}
+
+function sha256Hex(value: string | Buffer): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
 function normalizeBodyForSigning(body: BodyInit | null | undefined): string | Buffer {
   if (body === undefined || body === null) return '';
   if (typeof body === 'string') return body;

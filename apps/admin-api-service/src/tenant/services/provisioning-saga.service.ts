@@ -32,10 +32,12 @@ export interface SagaResult {
   compensationErrors: Array<{ step: string; error: string }>;
 }
 
+type SagaStepAction = () => void | Promise<void>;
+
 interface InternalStep {
   name: string;
-  execute: () => Promise<void>;
-  compensate?: () => Promise<void>;
+  execute: SagaStepAction;
+  compensate?: SagaStepAction;
 }
 
 /**
@@ -70,8 +72,8 @@ export class ProvisioningSagaService {
    */
   addStep(
     name: string,
-    execute: () => Promise<void>,
-    compensate?: () => Promise<void>,
+    execute: SagaStepAction,
+    compensate?: SagaStepAction,
   ): void {
     this.steps.push({ name, execute, compensate });
   }

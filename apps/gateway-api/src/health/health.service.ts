@@ -59,14 +59,8 @@ export class HealthService {
   private readonly cacheTtlMs: number;
 
   constructor(@Inject(ConfigService) private readonly configService: ConfigService) {
-    this.healthCheckTimeout = this.configService.get<number>(
-      'HEALTH_CHECK_TIMEOUT_MS',
-      5000,
-    );
-    this.cacheTtlMs = this.configService.get<number>(
-      'HEALTH_CHECK_CACHE_TTL_MS',
-      5000,
-    );
+    this.healthCheckTimeout = this.configService.get<number>('HEALTH_CHECK_TIMEOUT_MS', 5000);
+    this.cacheTtlMs = this.configService.get<number>('HEALTH_CHECK_CACHE_TTL_MS', 5000);
 
     /**
      * ARCH-GW-003: Health check service URL map must mirror the subgraph list in
@@ -153,12 +147,8 @@ export class HealthService {
     };
   }
 
-  private computeOverallStatus(
-    services: ServiceHealth[],
-  ): 'healthy' | 'unhealthy' | 'degraded' {
-    const unhealthyCount = services.filter(
-      (s) => s.status === 'unhealthy',
-    ).length;
+  private computeOverallStatus(services: ServiceHealth[]): 'healthy' | 'unhealthy' | 'degraded' {
+    const unhealthyCount = services.filter((s) => s.status === 'unhealthy').length;
     const degradedCount = services.filter((s) => s.status === 'degraded').length;
 
     if (unhealthyCount > 0) {
@@ -181,9 +171,7 @@ export class HealthService {
       return this.cachedResults;
     }
 
-    const checks = Array.from(this.serviceUrls.keys()).map((name) =>
-      this.checkService(name),
-    );
+    const checks = Array.from(this.serviceUrls.keys()).map((name) => this.checkService(name));
 
     const results = await Promise.all(checks);
     this.cachedResults = results;
@@ -213,10 +201,7 @@ export class HealthService {
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(
-        () => controller.abort(),
-        this.healthCheckTimeout,
-      );
+      const timeout = setTimeout(() => controller.abort(), this.healthCheckTimeout);
 
       // SECURITY (HIGH-003): keep the platform invariant — every internal
       // HTTP call signed. Health probes use empty tenantId to declare
@@ -231,6 +216,7 @@ export class HealthService {
             tenantId: '',
             method: 'GET',
             path: new URL(healthUrl).pathname,
+            audience: name,
             body: '',
           }),
         },
@@ -252,8 +238,7 @@ export class HealthService {
       }
 
       // If response is slow, mark as degraded
-      const status: 'healthy' | 'degraded' =
-        responseTime > 2000 ? 'degraded' : 'healthy';
+      const status: 'healthy' | 'degraded' = responseTime > 2000 ? 'degraded' : 'healthy';
 
       return {
         name,
@@ -264,8 +249,7 @@ export class HealthService {
       };
     } catch (error) {
       const responseTime = Date.now() - startTime;
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
       this.logger.warn(`Health check failed for ${name}: ${errorMessage}`);
 

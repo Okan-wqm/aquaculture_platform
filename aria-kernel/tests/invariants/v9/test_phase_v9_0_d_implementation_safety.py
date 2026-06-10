@@ -133,7 +133,6 @@ class TestV9BashAllowlist(unittest.TestCase):
             ["git", "push", "origin", "aria-impl-abc123def456"],
             ["gh", "pr", "create", "--base", "main", "--head", "aria-impl-abc"],
             ["gh", "pr", "checks", "42"],
-            ["gh", "pr", "merge", "--squash", "42"],
             ["nx", "affected", "--target=test"],
             ["pytest", "tests/"],
             ["npm", "run", "type-check"],
@@ -142,6 +141,10 @@ class TestV9BashAllowlist(unittest.TestCase):
                 _is.verify_bash_command_allowed(argv)
             except (_is.BashAllowlistMiss, _is.BashDenylistHit) as exc:
                 self.fail(f"canonical argv {argv!r} unexpectedly rejected: {exc}")
+
+    def test_i_v9_bash_01_direct_gh_merge_denied(self):
+        with self.assertRaises(_is.BashDenylistHit):
+            _is.verify_bash_command_allowed(["gh", "pr", "merge", "--squash", "42"])
 
     def test_i_v9_bash_01_empty_argv_rejected(self):
         with self.assertRaises(_is.BashAllowlistMiss):
@@ -269,6 +272,28 @@ class TestV9GhApiForbidden(unittest.TestCase):
 
     def test_i_v9_gh_01_safe_path_permitted(self):
         self.assertFalse(_is.is_gh_api_path_forbidden("/repos/x/y/pulls/42"))
+
+    def test_i_v9_gh_01_merge_endpoint_variants_forbidden(self):
+        for path in (
+            "/repos/x/y/pulls/42/merge",
+            "repos/x/y/pulls/42/merge",
+            "/repos/x/y/pulls/42/merge/",
+            "/repos/x/y/pulls/42/merge?sha=abc",
+            "/repos/x/y/pulls/{number}/merge",
+            "/repos/x/y/pulls/$(number)/merge",
+        ):
+            self.assertTrue(_is.is_gh_api_path_forbidden(path), path)
+
+    def test_i_v9_bash_01_gh_api_merge_variants_denied(self):
+        for argv in (
+            ["gh", "api", "/repos/x/y/pulls/42/merge"],
+            ["gh", "api", "repos/x/y/pulls/42/merge"],
+            ["gh", "api", "/repos/x/y/pulls/42/merge/"],
+            ["gh", "api", "/repos/x/y/pulls/42/merge?sha=abc"],
+            ["bash", "-c", "gh api /repos/x/y/pulls/42/merge"],
+        ):
+            with self.assertRaises((_is.BashDenylistHit, _is.BashAllowlistMiss), msg=str(argv)):
+                _is.verify_bash_command_allowed(list(argv))
 
 
 class TestV9SizeCap(unittest.TestCase):

@@ -9,7 +9,12 @@ from typing import Any
 
 from .agent_priors import related_agents_for_paths
 from .auto_merge import evaluate_auto_merge
-from .ledger import append_jsonl, load_jsonl
+from .ledger import (
+    append_declared_jsonl,
+    append_jsonl as _append_jsonl,
+    load_declared_jsonl,
+    load_jsonl as _load_jsonl,
+)
 from .proposal import record_proposal
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -40,6 +45,39 @@ SUPPRESSION_PATTERNS = (
     "allow failure",
     "continue-on-error",
 )
+
+
+_CI_SURFACE_BY_FILENAME: dict[str, str] = {
+    "workflow-inventory.jsonl": "ci_workflow_inventory",
+    "workflow-runs.jsonl": "ci_workflow_runs",
+    "failures.jsonl": "ci_failures",
+    "ci-reports.jsonl": "ci_reports",
+    "pr-ci-gates.jsonl": "ci_pr_gates",
+    "agent-review-tasks.jsonl": "ci_agent_review_tasks",
+    "agent-reviews.jsonl": "ci_agent_reviews",
+    "remediation-proposals.jsonl": "ci_remediation_proposals",
+}
+
+
+def _ci_surface_name(path: str | Path) -> str | None:
+    concrete = Path(path)
+    if concrete.parent.name != "ci":
+        return None
+    return _CI_SURFACE_BY_FILENAME.get(concrete.name)
+
+
+def append_jsonl(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    surface = _ci_surface_name(path)
+    if surface is not None:
+        return append_declared_jsonl(path, record, expected_surface=surface)
+    return _append_jsonl(path, record)
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    surface = _ci_surface_name(path)
+    if surface is not None:
+        return load_declared_jsonl(path, expected_surface=surface)
+    return _load_jsonl(path)
 
 
 def inventory_workflows(

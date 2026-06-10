@@ -1,10 +1,5 @@
 import './e2e-env';
-import {
-  CanActivate,
-  ExecutionContext,
-  INestApplication,
-  ValidationPipe,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, INestApplication, ValidationPipe } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { Test } from '@nestjs/testing';
 import { Role } from '@aquaculture/backend-common/decorators';
@@ -25,12 +20,7 @@ import {
   RequestReplyOptions,
   RequestReplyResponderHandle,
 } from '@platform/event-bus';
-import {
-  FileMetadata,
-  MinioClientService,
-  UploadOptions,
-  UploadResult,
-} from '@platform/storage';
+import { FileMetadata, MinioClientService, UploadOptions, UploadResult } from '@platform/storage';
 import { Readable } from 'stream';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
@@ -57,9 +47,7 @@ export interface FarmE2eApp {
  * context for the farm auth double and as X-Tenant-ID because the service
  * identity HMAC binds tenant to signature.
  */
-export function farmE2eHeaders(
-  tenantId: string = FARM_E2E_TENANT_ID,
-): Record<string, string> {
+export function farmE2eHeaders(tenantId: string = FARM_E2E_TENANT_ID): Record<string, string> {
   const secret = process.env['INTERNAL_SERVICE_SECRET'];
   if (!secret) {
     throw new Error('INTERNAL_SERVICE_SECRET must be set before Farm E2E requests.');
@@ -69,11 +57,7 @@ export function farmE2eHeaders(
     ...generateServiceIdentityHeaders('gateway-api', secret, tenantId),
     'X-Tenant-ID': tenantId,
     'x-user-id': FARM_E2E_USER_ID,
-    'x-user-roles': JSON.stringify([
-      Role.TENANT_ADMIN,
-      Role.MODULE_MANAGER,
-      Role.MODULE_USER,
-    ]),
+    'x-user-roles': JSON.stringify([Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER]),
     'x-user-payload': JSON.stringify({
       sub: FARM_E2E_USER_ID,
       email: 'farm-e2e@example.test',
@@ -85,8 +69,7 @@ export function farmE2eHeaders(
   };
 }
 
-type E2eEventBusDouble = IEventBus &
-  Pick<NatsEventBus, 'getRawConnection' | 'publishCore'>;
+type E2eEventBusDouble = IEventBus & Pick<NatsEventBus, 'getRawConnection' | 'publishCore'>;
 
 type E2eMinioDouble = Pick<
   MinioClientService,
@@ -191,20 +174,15 @@ async function ensureFarmE2eTenantSchema(
   runtimeDataSource: DataSource,
   bypassRls: BypassRlsService,
 ): Promise<void> {
-  const provisioningDataSource =
-    await createFarmE2eProvisioningDataSource(runtimeDataSource);
+  const provisioningDataSource = await createFarmE2eProvisioningDataSource(runtimeDataSource);
   const ownsProvisioningDataSource = provisioningDataSource !== runtimeDataSource;
 
   try {
     process.env['DB_APPLICATION_ROLE'] =
-      process.env['DB_APPLICATION_ROLE'] ??
-      process.env['DATABASE_USER'] ??
-      'farm_service';
+      process.env['DB_APPLICATION_ROLE'] ?? process.env['DATABASE_USER'] ?? 'farm_service';
 
     const schemaManager = new SchemaManagerService(provisioningDataSource);
-    const result = await schemaManager.createTenantSchema(FARM_E2E_TENANT_ID, [
-      'farm',
-    ]);
+    const result = await schemaManager.createTenantSchema(FARM_E2E_TENANT_ID, ['farm']);
 
     if (!result.success) {
       const detail = result.errors.join('; ');
@@ -216,15 +194,14 @@ async function ensureFarmE2eTenantSchema(
             `for the provisioning role. Details: ${detail}`,
         );
       }
-      throw new Error(
-        `Failed to create Farm E2E tenant schema: ${detail}`,
-      );
+      throw new Error(`Failed to create Farm E2E tenant schema: ${detail}`);
     }
 
     if (result.alreadyExists) {
-      const sync = await schemaManager.syncTenantSchema(FARM_E2E_TENANT_ID, [
-        'farm',
-      ]);
+      const sync = await schemaManager.syncTenantSchema(FARM_E2E_TENANT_ID, ['farm'], {
+        allowExistingTenantRepair: true,
+        reason: 'farm-service e2e bootstrap refresh for disposable tenant schema',
+      });
       if (sync.errors.length > 0) {
         throw new Error(
           `Failed to sync existing Farm E2E tenant schema: ${sync.errors.join('; ')}`,
@@ -233,10 +210,7 @@ async function ensureFarmE2eTenantSchema(
     }
 
     await bypassRls.withBypass('farm-e2e:seed-tenant-reference-data', () =>
-      seedFarmE2eReferenceData(
-        runtimeDataSource,
-        getTenantSchemaName(FARM_E2E_TENANT_ID),
-      ),
+      seedFarmE2eReferenceData(runtimeDataSource, getTenantSchemaName(FARM_E2E_TENANT_ID)),
     );
   } finally {
     if (ownsProvisioningDataSource && provisioningDataSource.isInitialized) {
@@ -273,13 +247,9 @@ async function resetFarmE2eTenantSchemaBeforeAppInit(): Promise<void> {
   }
 }
 
-async function createStandaloneFarmE2eProvisioningDataSource(): Promise<
-  DataSource | undefined
-> {
-  const provisioningUser =
-    process.env['FARM_E2E_PROVISIONING_DATABASE_USER']?.trim();
-  const provisioningPassword =
-    process.env['FARM_E2E_PROVISIONING_DATABASE_PASSWORD']?.trim();
+async function createStandaloneFarmE2eProvisioningDataSource(): Promise<DataSource | undefined> {
+  const provisioningUser = process.env['FARM_E2E_PROVISIONING_DATABASE_USER']?.trim();
+  const provisioningPassword = process.env['FARM_E2E_PROVISIONING_DATABASE_PASSWORD']?.trim();
 
   if (!provisioningUser && !provisioningPassword) {
     return undefined;
@@ -294,19 +264,13 @@ async function createStandaloneFarmE2eProvisioningDataSource(): Promise<
 
   const dataSource = new DataSource({
     type: 'postgres',
-    host:
-      process.env['FARM_E2E_PROVISIONING_DATABASE_HOST'] ??
-      process.env['DATABASE_HOST'],
+    host: process.env['FARM_E2E_PROVISIONING_DATABASE_HOST'] ?? process.env['DATABASE_HOST'],
     port: Number(
-      process.env['FARM_E2E_PROVISIONING_DATABASE_PORT'] ??
-        process.env['DATABASE_PORT'] ??
-        5432,
+      process.env['FARM_E2E_PROVISIONING_DATABASE_PORT'] ?? process.env['DATABASE_PORT'] ?? 5432,
     ),
     username: provisioningUser,
     password: provisioningPassword,
-    database:
-      process.env['FARM_E2E_PROVISIONING_DATABASE_NAME'] ??
-      process.env['DATABASE_NAME'],
+    database: process.env['FARM_E2E_PROVISIONING_DATABASE_NAME'] ?? process.env['DATABASE_NAME'],
     ssl: process.env['DATABASE_SSL'] === 'true',
   });
 
@@ -391,10 +355,7 @@ function createEventBusDouble(): E2eEventBusDouble {
     async publishTo<TEvent extends IEvent>(_topic: string, _event: TEvent) {
       return undefined;
     },
-    async subscribe<TEvent extends IEvent>(
-      _eventType: string,
-      _handler: IEventHandler<TEvent>,
-    ) {
+    async subscribe<TEvent extends IEvent>(_eventType: string, _handler: IEventHandler<TEvent>) {
       return undefined;
     },
     async subscribeWildcard<TEvent extends IEvent>(
@@ -410,10 +371,7 @@ function createEventBusDouble(): E2eEventBusDouble {
     ) {
       return undefined;
     },
-    async subscribeTo<TEvent extends IEvent>(
-      _topic: string,
-      _handler: IEventHandler<TEvent>,
-    ) {
+    async subscribeTo<TEvent extends IEvent>(_topic: string, _handler: IEventHandler<TEvent>) {
       return undefined;
     },
     async unsubscribe(_eventType: string) {
@@ -504,14 +462,7 @@ function createMinioDouble(): E2eMinioDouble {
       buffer: Buffer,
       options?: UploadOptions,
     ) {
-      return uploadResult(
-        tenantId,
-        entityType,
-        entityId,
-        filename,
-        buffer.length,
-        options,
-      );
+      return uploadResult(tenantId, entityType, entityId, filename, buffer.length, options);
     },
     async uploadStream(
       tenantId: string,
@@ -535,11 +486,7 @@ function createMinioDouble(): E2eMinioDouble {
     ) {
       return undefined;
     },
-    async deleteEntityFiles(
-      _tenantId: string,
-      _entityType: string,
-      _entityId: string,
-    ) {
+    async deleteEntityFiles(_tenantId: string, _entityType: string, _entityId: string) {
       return 0;
     },
     async getPresignedUrl(path: string) {

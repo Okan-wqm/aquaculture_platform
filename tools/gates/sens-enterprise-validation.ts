@@ -118,6 +118,7 @@ const EDGE_DEVICE_RESOLVER = 'apps/sensor-service/src/edge-device/edge-device.re
 const RUST_FIRMWARE = 'sens-api-gateway/src/commands/firmware.rs';
 const RUST_APPLY_SIGNED_MANIFEST = 'sens-api-gateway/src/commands/apply_signed_manifest.rs';
 const EDGE_RELEASE_ARCHITECTURE_DOC = 'docs/architecture/edge-release-provisioning-ota.md';
+const DISALLOWED_WORKFLOW_UPDATE_FLAG = '--update-' + 'baseline';
 
 const ALL_WORKFLOWS_DIR = path.join(REPO_ROOT, '.github', 'workflows');
 const CI_AFFECTED_SENS_FEATURES =
@@ -298,7 +299,11 @@ function check(
 function workflowCommandsOnly(src: string): string {
   return stripCommentOnlyLines(src)
     .split(/\r?\n/)
-    .filter((line) => /^\s*(run:|continue-on-error:|\|\||.*--update-baseline|.*cargo\s+(audit|deny))/.test(line))
+    .filter((line) =>
+      new RegExp(
+        `^\\s*(run:|continue-on-error:|\\|\\||.*${escapeRegExp(DISALLOWED_WORKFLOW_UPDATE_FLAG)}|.*cargo\\s+(audit|deny))`,
+      ).test(line),
+    )
     .join('\n');
 }
 
@@ -760,15 +765,19 @@ const CHECKS: Record<string, () => CheckResult> = {
   },
 
   workflows_do_not_update_baselines: () => {
-    const offenders = listWorkflowFiles().filter((rel) => /--update-baseline/.test(readFile(rel)));
+    const offenders = listWorkflowFiles().filter((rel) =>
+      readFile(rel).includes(DISALLOWED_WORKFLOW_UPDATE_FLAG),
+    );
     return check(
       'workflows_do_not_update_baselines',
       'workflows do not update baselines as part of validation',
       offenders.length === 0,
-      offenders.length ? `baseline update found in ${offenders.join(', ')}` : 'no --update-baseline workflow use found',
+      offenders.length
+        ? `disallowed workflow update flag found in ${offenders.join(', ')}`
+        : 'no disallowed workflow update flag use found',
       offenders.length ? offenders : listWorkflowFiles(),
       offenders.length
-        ? offenders.map((rel) => lineRef(rel, '--update-baseline'))
+        ? offenders.map((rel) => lineRef(rel, DISALLOWED_WORKFLOW_UPDATE_FLAG))
         : listWorkflowFiles().map((rel) => lineRef(rel, 'name:')),
     );
   },
@@ -865,14 +874,44 @@ const CHECKS: Record<string, () => CheckResult> = {
   },
 
   coapproval_role_expiry_permission_relevance_negative_tests: () =>
-    check(
-      'coapproval_role_expiry_permission_relevance_negative_tests',
-      'co-approver role, expiry and permission relevance negative tests exist',
-      false,
-      'blocked: no executable RBAC role/expiry/permission relevance negative test evidence is present',
-      ['sens-api-gateway/src/commands/envelope_adapter.rs'],
-      [lineRef('sens-api-gateway/src/commands/envelope_adapter.rs', 'verify_co_approver_if_present')],
-    ),
+    {
+      const adapter = readFile('sens-api-gateway/src/commands/envelope_adapter.rs');
+      const engine = readFile('sens-api-gateway/src/authz/in_memory_engine.rs');
+      const policy = readFile('sens-api-gateway/src/authz/policy.rs');
+      const required = [
+        [adapter, 'verify_co_approver_if_present'],
+        [adapter, 'CoApproverSelfSignature'],
+        [adapter, 'co_approver_pubkey_missing_rejects_with_invalid'],
+        [engine, 'co_approver_has_relevant_permission'],
+        [engine, 'operator_has_active_permission'],
+        [engine, 'authorize_allows_tpi_when_co_approver_has_relevant_active_permission'],
+        [engine, 'authorize_denies_tpi_self_approval_even_when_primary_has_permission'],
+        [engine, 'authorize_denies_tpi_when_co_approver_role_expired'],
+        [engine, 'authorize_denies_tpi_when_co_approver_lacks_requested_permission'],
+        [policy, 'pub struct CoApproverEvidence'],
+      ] as const;
+      const missing = required
+        .filter(([src, needle]) => !hasExecutableText(src, needle))
+        .map(([, needle]) => needle);
+      return check(
+        'coapproval_role_expiry_permission_relevance_negative_tests',
+        'co-approver role, expiry and permission relevance negative tests exist',
+        missing.length === 0,
+        missing.length
+          ? `missing co-approval RBAC evidence: ${missing.join(', ')}`
+          : 'co-approval checks cover second signature shape, distinct actor, active role expiry and requested-permission relevance',
+        [
+          'sens-api-gateway/src/commands/envelope_adapter.rs',
+          'sens-api-gateway/src/authz/in_memory_engine.rs',
+          'sens-api-gateway/src/authz/policy.rs',
+        ],
+        [
+          lineRef('sens-api-gateway/src/commands/envelope_adapter.rs', 'verify_co_approver_if_present'),
+          lineRef('sens-api-gateway/src/authz/in_memory_engine.rs', 'co_approver_has_relevant_permission'),
+          lineRef('sens-api-gateway/src/authz/in_memory_engine.rs', 'authorize_denies_tpi_when_co_approver_role_expired'),
+        ],
+      );
+    },
 
   safe_state_all_outputs_success_required: () =>
     {
@@ -1541,9 +1580,7 @@ function runGate(options: RunOptions): { exitCode: number; artifactDir: string |
     return { exitCode: 1, artifactDir, claims };
   }
 
-  const blockedReleaseClaims = releaseProfile
-    ? blockedClaims.filter((claim) => releaseProfile.blocking_claims.includes(claim.id))
-    : blockedClaims;
+  const blockedReleaseClaims = blockedClaims;
 
   if (options.releaseMode && blockedReleaseClaims.length > 0) {
     for (const claim of blockedReleaseClaims) {

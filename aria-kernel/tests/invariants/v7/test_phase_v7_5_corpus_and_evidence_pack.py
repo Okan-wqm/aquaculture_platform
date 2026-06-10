@@ -83,7 +83,7 @@ class PhaseV7_5CorpusAndEvidencePack(unittest.TestCase):
     def _mint_request(self, request_id, *, corpus_path, claim_types=None,
                       declared_scope=None):
         from aria_kernel.tool_registry import ensure_tools_dir, utc_now
-        from aria_kernel.ledger import append_jsonl
+        from tests._helpers.declared_fixtures import append_declared_fixture
         root = ensure_tools_dir(self.base)
         path = root / "skill-genesis" / "requests.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -102,7 +102,11 @@ class PhaseV7_5CorpusAndEvidencePack(unittest.TestCase):
                 "calibration_corpus_path": corpus_path,
             },
         }
-        return append_jsonl(path, row)
+        return append_declared_fixture(
+            path,
+            row,
+            expected_surface="skill_genesis_requests",
+        )
 
     # I-V7.5-01 — missing corpus + sufficient evidence-pack → proceed.
     def test_i_v7_5_01_missing_corpus_evidence_pack_proceeds(self) -> None:

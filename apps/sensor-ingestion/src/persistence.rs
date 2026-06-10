@@ -366,11 +366,11 @@ impl PostgresSink {
             "BinaryCopyInWriter row count mismatch",
         );
 
-        // Upsert from stage to hypertable, then truncate the stage.
+        // Upsert from stage to hypertable, then clear the stage with DML.
         // batch_execute runs both in one round-trip.
         let upsert_sql = build_upsert_sql(&schema);
-        let truncate_sql = build_truncate_stage_sql(&schema);
-        let combined = format!("{upsert_sql};\n{truncate_sql};");
+        let clear_stage_sql = build_clear_stage_sql(&schema);
+        let combined = format!("{upsert_sql};\n{clear_stage_sql};");
         tx.batch_execute(&combined)
             .await
             .map_err(SinkError::Postgres)?;
@@ -428,10 +428,10 @@ pub fn build_upsert_sql(schema: &SchemaName) -> String {
     )
 }
 
-/// Truncate the staging table after a successful upsert.
+/// Clear the staging table after a successful upsert without DDL.
 #[must_use]
-pub fn build_truncate_stage_sql(schema: &SchemaName) -> String {
-    format!("TRUNCATE TABLE {schema}.sensor_metrics_stage")
+pub fn build_clear_stage_sql(schema: &SchemaName) -> String {
+    format!("DELETE FROM {schema}.sensor_metrics_stage")
 }
 
 #[cfg(test)]
@@ -507,11 +507,11 @@ mod tests {
     }
 
     #[test]
-    fn truncate_stage_sql_uses_correct_table() {
+    fn clear_stage_sql_uses_correct_table() {
         let tenant = TenantId::from_uuid(fixed_uuid(0xCC));
         let schema = SchemaName::from_tenant_id(tenant);
-        let sql = super::build_truncate_stage_sql(&schema);
-        assert!(sql.contains("TRUNCATE"));
+        let sql = super::build_clear_stage_sql(&schema);
+        assert!(sql.contains("DELETE FROM"));
         assert!(sql.contains(schema.as_str()));
         assert!(sql.contains("sensor_metrics_stage"));
         assert!(!sql.contains("sensor_metrics ")); // not the hypertable

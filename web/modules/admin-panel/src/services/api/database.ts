@@ -52,7 +52,7 @@ export const databaseApi = {
   getConnectionsByTenant: () =>
     apiFetch<Array<{ tenantId: string; schemaName: string; connectionCount: number }>>('/database/schemas/connections/by-tenant'),
 
-  // TODO: Backend endpoint gerekli -- resetSchema, optimizeSchema, analyzeSchema
+  // Backend endpoint coverage: resetSchema, optimizeSchema, analyzeSchema
   resetSchema: (tenantId: string) =>
     apiFetch<TenantSchema>(`/database/schemas/${tenantId}/reset`, { method: 'POST' }),
   optimizeSchema: (tenantId: string) =>
@@ -102,7 +102,7 @@ export const databaseApi = {
   getMigrationHistory: (params?: { status?: string; version?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<SchemaMigration>>(`/database/migrations/history?${buildQueryString(params || {})}`),
 
-  // Legacy wrappers (eski path'ler) -- TODO: Bu fonksiyonlari kullanan sayfalarda guncelle
+  // Legacy wrappers for older page integrations.
   getMigrations: (params?: { status?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<SchemaMigration>>(`/database/migrations/history?${buildQueryString(params || {})}`),
   getMigration: (id: string) => apiFetch<SchemaMigration>(`/database/migrations/${id}`),
@@ -131,7 +131,7 @@ export const databaseApi = {
     apiFetch<DatabaseBackup>('/database/backups', { method: 'POST', body: JSON.stringify(data) }),
   deleteBackup: (id: string) => apiFetch<void>(`/database/backups/${id}`, { method: 'DELETE' }),
   /** Backend: POST /database/backups/restore (backupId in body) */
-  restoreFromBackup: (data: { backupId: string; targetSchemaName?: string; tablesToRestore?: string[]; skipValidation?: boolean }) =>
+  restoreFromBackup: (data: { backupId: string; targetSchemaName?: string; tablesToRestore?: string[] }) =>
     apiFetch<{ success: boolean; message: string }>('/database/backups/restore', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -147,7 +147,7 @@ export const databaseApi = {
   getRestore: (restoreId: string) =>
     apiFetch<{ id: string; backupId: string; status: string; startedAt: string; completedAt?: string }>(`/database/backups/restores/${restoreId}`),
 
-  // Legacy wrappers -- TODO: Bu fonksiyonlari kullanan sayfalarda guncelle
+  // Legacy wrappers for older page integrations.
   restoreBackup: (id: string, targetSchema?: string) =>
     apiFetch<{ success: boolean; message: string }>('/database/backups/restore', {
       method: 'POST',
@@ -194,7 +194,7 @@ export const databaseApi = {
   getMetricsHistory: (params?: { hours?: number; tenantId?: string; metricType?: string }) =>
     apiFetch<Array<{ timestamp: string; metricType: string; value: number }>>(`/database/monitoring/metrics?${buildQueryString(params || {})}`),
 
-  // TODO: Backend endpoint gerekli -- getDatabaseStats, getTableStats, runVacuum, runAnalyze
+  // Backend endpoint coverage: getDatabaseStats, getTableStats, runVacuum, runAnalyze
   getDatabaseStats: () => apiFetch<DatabaseStats>('/database/monitoring/stats'),
   getTableStats: (schemaName?: string) =>
     apiFetch<Array<{ table: string; rows: number; size: string; deadTuples: number; lastVacuum?: string }>>(`/database/monitoring/tables${schemaName ? `?schema=${schemaName}` : ''}`),

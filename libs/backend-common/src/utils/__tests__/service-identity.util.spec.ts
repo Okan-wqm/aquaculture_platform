@@ -403,16 +403,20 @@ describe('service-identity unified verifier (verifyServiceIdentityRequest)', () 
       expectedAudiences: [AUDIENCE],
     };
 
+    const [primaryKey] = KEYRING;
+    if (!primaryKey) {
+      throw new Error('KEYRING fixture must contain at least one key');
+    }
     expect(
       verifyServiceIdentityRequest({
         ...baseArgs,
-        keyring: [{ ...KEYRING[0]!, status: 'previous' as const }],
+        keyring: [{ ...primaryKey, status: 'previous' as const }],
       }),
     ).toMatchObject({ valid: true, version: 'v2' });
     expect(
       verifyServiceIdentityRequest({
         ...baseArgs,
-        keyring: [{ ...KEYRING[0]!, status: 'disabled' as const }],
+        keyring: [{ ...primaryKey, status: 'disabled' as const }],
       }),
     ).toEqual({ valid: false, reason: 'key-not-active' });
   });

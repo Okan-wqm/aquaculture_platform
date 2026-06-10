@@ -24,11 +24,11 @@ describe('EventStore HealthController', () => {
     const controller = new HealthController(dataSource as unknown as DataSource);
     type TestResponse = {
       status: jest.Mock<TestResponse, [number]>;
-      json: jest.Mock<void, [ReadinessResponse]>;
+      json: jest.Mock<undefined, [ReadinessResponse]>;
     };
     const response: TestResponse = {
       status: jest.fn<TestResponse, [number]>(),
-      json: jest.fn<void, [ReadinessResponse]>(),
+      json: jest.fn<undefined, [ReadinessResponse]>(),
     };
     response.status.mockReturnValue(response);
 

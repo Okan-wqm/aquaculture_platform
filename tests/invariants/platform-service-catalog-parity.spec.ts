@@ -93,11 +93,13 @@ describe('platform service catalog parity', () => {
 
     const catalogSchemas = SCHEMA_REGISTRY.map((entry) => {
       const catalogEntry = catalog.get(entry.service);
-      expect(catalogEntry).toBeDefined();
+      if (!catalogEntry) {
+        throw new Error(`service catalog has no entry for schema-registry service ${entry.service}`);
+      }
       return [
-        catalogEntry!.serviceId,
-        catalogEntry!.schema,
-        [...(catalogEntry!.migration?.globs ?? [])],
+        catalogEntry.serviceId,
+        catalogEntry.schema,
+        [...(catalogEntry.migration?.globs ?? [])],
       ];
     });
 

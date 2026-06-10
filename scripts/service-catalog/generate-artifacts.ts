@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { BOOT_INVARIANT_SIGNALS } from '../../libs/backend-common/src/constants/boot-invariant-signals.ts';
 import {
   PLATFORM_SERVICE_CATALOG,
   activeDropletServices,
@@ -17,7 +19,6 @@ import {
   serviceDbRolePrefixes,
   validateServiceCatalog,
 } from '../../platform/libs/service-catalog/src/index.ts';
-import { BOOT_INVARIANT_SIGNALS } from '../../libs/backend-common/src/constants/boot-invariant-signals.ts';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CATALOG_PATH = 'platform/libs/service-catalog/src/index.ts';
@@ -41,7 +42,34 @@ function catalogHash(): string {
   return sha256(readFileSync(repoPath(CATALOG_PATH), 'utf8'));
 }
 
+/**
+ * Pretty-printed JSON for COMMITTED FILE ARTIFACTS (stable diffs,
+ * human review). This is the single indent-formatting site in the
+ * generator. The no-restricted-syntax ban on indented JSON.stringify
+ * targets multi-line LOG output breaking structured JSON logging —
+ * file-artifact generation is outside that rule's intent, hence the
+ * one documented exemption below.
+ */
+function prettyJson(value: Record<string, unknown>): string {
+  // eslint-disable-next-line no-restricted-syntax -- file-artifact formatting, not log output; see function header.
+  return JSON.stringify(value, null, 2);
+}
+
+function headerMetadata(): Record<string, unknown> {
+  return {
+    generatedFrom: CATALOG_PATH,
+    generator: GENERATOR_PATH,
+    generatorVersion: GENERATOR_VERSION,
+    catalogHash: catalogHash(),
+    note: 'do not edit by hand',
+  };
+}
+
 function header(format: 'json' | 'yaml'): string {
+  if (format === 'json') {
+    return prettyJson(headerMetadata());
+  }
+
   const lines = [
     'Generated from platform service catalog.',
     `source: ${CATALOG_PATH}`,
@@ -50,27 +78,11 @@ function header(format: 'json' | 'yaml'): string {
     `catalogHash: ${catalogHash()}`,
     'do not edit by hand',
   ];
-
-  if (format === 'json') {
-    return `${JSON.stringify(
-      {
-        generatedFrom: CATALOG_PATH,
-        generator: GENERATOR_PATH,
-        generatorVersion: GENERATOR_VERSION,
-        catalogHash: catalogHash(),
-        note: 'do not edit by hand',
-      },
-      null,
-      2,
-    )}`;
-  }
-
   return lines.map((line) => `# ${line}`).join('\n');
 }
 
 function jsonArtifact(value: Record<string, unknown>): string {
-  const metadata = JSON.parse(header('json')) as Record<string, unknown>;
-  return `${JSON.stringify({ metadata, ...value }, null, 2)}\n`;
+  return `${prettyJson({ metadata: headerMetadata(), ...value })}\n`;
 }
 
 function yamlString(value: string): string {
@@ -248,8 +260,9 @@ ${secretEntries.map((name) => renderEntry(name, 'secret deploy variable', 'secre
 function catalogDeployEnvArtifact(): Artifact {
   const frontendTargets = [...frontendImageBuildTargets()];
   const nxFrontend = activeDropletServices()
-    .filter((entry) => entry.buildKind === 'frontend' && entry.nxProject)
-    .map((entry) => entry.nxProject!)
+    .filter((entry) => entry.buildKind === 'frontend')
+    .map((entry) => entry.nxProject)
+    .filter((project): project is string => typeof project === 'string')
     .sort();
   const nonNxFrontend = frontendTargets.filter((target) => !nxFrontend.includes(target));
   const readySpecs = readinessServices().map((entry) => `${entry.serviceId}:${entry.port}`);
@@ -272,8 +285,9 @@ ${shellAssignment('CATALOG_READINESS_SERVICES', readySpecs)}
 function catalogGeneratedArtifact(): Artifact {
   const frontendTargets = [...frontendImageBuildTargets()];
   const nxFrontend = activeDropletServices()
-    .filter((entry) => entry.buildKind === 'frontend' && entry.nxProject)
-    .map((entry) => entry.nxProject!)
+    .filter((entry) => entry.buildKind === 'frontend')
+    .map((entry) => entry.nxProject)
+    .filter((project): project is string => typeof project === 'string')
     .sort();
   const nonNxFrontend = frontendTargets.filter((target) => !nxFrontend.includes(target));
 
@@ -362,7 +376,7 @@ function main(): void {
       continue;
     }
     writeFileSync(target, artifact.contents);
-    console.log(`generated ${artifact.path}`);
+    process.stdout.write(`generated ${artifact.path}\n`);
   }
 
   if (mismatches.length > 0) {
@@ -374,6 +388,6 @@ try {
   main();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
+  process.stderr.write(`${message}\n`);
   process.exit(1);
 }

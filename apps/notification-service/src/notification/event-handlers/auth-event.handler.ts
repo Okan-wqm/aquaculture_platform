@@ -1,10 +1,12 @@
+import { createHash } from 'node:crypto';
+
+import { signedFetch } from '@aquaculture/backend-common/http';
+import { maskEmail } from '@aquaculture/backend-common/utils';
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
 import type { PasswordResetRequestedEvent, UserInvitedEvent } from '@platform/event-contracts';
-import { maskEmail } from '@aquaculture/backend-common/utils';
-import { signedFetch } from '@aquaculture/backend-common/http';
-import { createHash } from 'node:crypto';
+
 import { EmailService } from '../services/email.service';
 
 // UUID v4 regex for tenant ID validation

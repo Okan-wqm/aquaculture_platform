@@ -22,9 +22,9 @@ export interface NotificationSendCommandBase {
   metadata?: Record<string, string | number | boolean | null>;
 }
 
-export interface NotificationSendEmailCommand extends NotificationSendCommandBase {}
+export type NotificationSendEmailCommand = NotificationSendCommandBase;
 
-export interface NotificationSendPushCommand extends NotificationSendCommandBase {}
+export type NotificationSendPushCommand = NotificationSendCommandBase;
 
 export type NotificationSendCommand = NotificationSendEmailCommand | NotificationSendPushCommand;
 

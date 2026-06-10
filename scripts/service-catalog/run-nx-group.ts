@@ -2,6 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { activeDropletServices, type BuildKind } from '../../platform/libs/service-catalog/src/index.ts';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -28,8 +29,9 @@ function projectKinds(group: ProjectGroup): readonly BuildKind[] {
 function projectsFor(group: ProjectGroup): string[] {
   const kinds = new Set(projectKinds(group));
   return activeDropletServices()
-    .filter((entry) => entry.nxProject && kinds.has(entry.buildKind))
-    .map((entry) => entry.nxProject!)
+    .filter((entry) => kinds.has(entry.buildKind))
+    .map((entry) => entry.nxProject)
+    .filter((project): project is string => typeof project === 'string')
     .sort();
 }
 
@@ -50,7 +52,7 @@ function main(): void {
     throw new Error(`Catalog project group ${group} is empty`);
   }
   if (process.argv.includes('--print')) {
-    console.log(projects.join(','));
+    process.stdout.write(`${projects.join(',')}\n`);
     return;
   }
 
@@ -64,6 +66,6 @@ try {
   main();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
+  process.stderr.write(`${message}\n`);
   process.exit(1);
 }

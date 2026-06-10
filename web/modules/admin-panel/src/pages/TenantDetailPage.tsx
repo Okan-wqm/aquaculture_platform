@@ -41,7 +41,7 @@ const SimpleTabs: React.FC<{
   onChange: (value: string) => void;
 }> = ({ tabs, activeTab, onChange }) => (
   <div className="border-b border-gray-200">
-    <nav className="-mb-px flex space-x-8" aria-label="Tabs" role="tablist">
+    <div className="-mb-px flex space-x-8" aria-label="Tabs" role="tablist">
       {tabs.map((tab) => (
         <button
           key={tab.value}
@@ -57,7 +57,7 @@ const SimpleTabs: React.FC<{
           {tab.label}
         </button>
       ))}
-    </nav>
+    </div>
   </div>
 );
 

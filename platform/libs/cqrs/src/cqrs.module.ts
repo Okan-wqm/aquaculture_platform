@@ -11,8 +11,8 @@ import { CommandBus } from './command/command-bus';
 import { QueryBus } from './query/query-bus';
 import { COMMAND_HANDLER_METADATA } from './decorators/command-handler.decorator';
 import { QUERY_HANDLER_METADATA } from './decorators/query-handler.decorator';
-import { ICommandHandler } from './command/command.interface';
-import { IQueryHandler } from './query/query.interface';
+import { ICommand, ICommandHandler } from './command/command.interface';
+import { IQuery, IQueryHandler } from './query/query.interface';
 
 /**
  * CQRS Module - Provides Command and Query buses
@@ -75,33 +75,52 @@ export class CqrsModule implements OnModuleInit {
         continue;
       }
 
-      // Register command handlers
-      const commandMetadata = Reflect.getMetadata(
+      // Register command handlers.
+      // Reflect.getMetadata is an `any` trust boundary — the decorator
+      // wrote the payload, but a foreign decorator could collide on the
+      // metadata key, so the shape is validated before registration.
+      const commandMetadata: unknown = Reflect.getMetadata(
         COMMAND_HANDLER_METADATA,
         metatype,
       );
 
-      if (commandMetadata) {
+      if (hasConstructorProperty(commandMetadata, 'command')) {
         this.commandBus.register(
-          commandMetadata.command,
+          commandMetadata.command as Type<ICommand>,
           metatype as Type<ICommandHandler>,
         );
       }
 
       // Register query handlers
-      const queryMetadata = Reflect.getMetadata(
+      const queryMetadata: unknown = Reflect.getMetadata(
         QUERY_HANDLER_METADATA,
         metatype,
       );
 
-      if (queryMetadata) {
+      if (hasConstructorProperty(queryMetadata, 'query')) {
         this.queryBus.register(
-          queryMetadata.query,
+          queryMetadata.query as Type<IQuery>,
           metatype as Type<IQueryHandler>,
         );
       }
     }
   }
+}
+
+/**
+ * Narrow decorator metadata to `{ [key]: constructor }` before handler
+ * registration — keeps the Reflect.getMetadata any-boundary out of the
+ * bus registration call sites.
+ */
+function hasConstructorProperty<K extends string>(
+  value: unknown,
+  key: K,
+): value is Record<K, new (...args: never[]) => unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>)[key] === 'function'
+  );
 }
 
 /**

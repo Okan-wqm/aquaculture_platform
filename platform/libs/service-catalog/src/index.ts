@@ -747,26 +747,30 @@ export function activeDropletComposeServices(): readonly string[] {
 
 export function imageBuildTargets(): readonly string[] {
   return activeDropletServices()
-    .filter((entry) => entry.imageTarget && entry.buildKind !== 'infra')
-    .map((entry) => entry.imageTarget!);
+    .filter((entry) => entry.buildKind !== 'infra')
+    .map((entry) => entry.imageTarget)
+    .filter((target): target is string => typeof target === 'string');
 }
 
 export function backendImageBuildTargets(): readonly string[] {
   return activeDropletServices()
-    .filter((entry) => entry.imageTarget && ['node-service', 'one-shot'].includes(entry.buildKind))
-    .map((entry) => entry.imageTarget!);
+    .filter((entry) => ['node-service', 'one-shot'].includes(entry.buildKind))
+    .map((entry) => entry.imageTarget)
+    .filter((target): target is string => typeof target === 'string');
 }
 
 export function frontendImageBuildTargets(): readonly string[] {
   return activeDropletServices()
-    .filter((entry) => entry.imageTarget && entry.buildKind === 'frontend')
-    .map((entry) => entry.imageTarget!);
+    .filter((entry) => entry.buildKind === 'frontend')
+    .map((entry) => entry.imageTarget)
+    .filter((target): target is string => typeof target === 'string');
 }
 
 export function infraImageBuildTargets(): readonly string[] {
   return activeDropletServices()
-    .filter((entry) => entry.imageTarget && entry.buildKind === 'docker-only')
-    .map((entry) => entry.imageTarget!);
+    .filter((entry) => entry.buildKind === 'docker-only')
+    .map((entry) => entry.imageTarget)
+    .filter((target): target is string => typeof target === 'string');
 }
 
 export function serviceDbRolePrefixes(): readonly string[] {
@@ -790,11 +794,9 @@ export function readinessServices(): readonly { serviceId: string; port: number 
 
 export function packageBuildProjects(): readonly string[] {
   return activeDropletServices()
-    .filter(
-      (entry) =>
-        entry.nxProject && ['node-service', 'frontend', 'one-shot'].includes(entry.buildKind),
-    )
-    .map((entry) => entry.nxProject!);
+    .filter((entry) => ['node-service', 'frontend', 'one-shot'].includes(entry.buildKind))
+    .map((entry) => entry.nxProject)
+    .filter((project): project is string => typeof project === 'string');
 }
 
 export function gatewaySubgraphs(): readonly GatewaySubgraphCatalogEntry[] {

@@ -20,9 +20,9 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 export class SourceSchemaWriteGuardService implements OnModuleInit {
   private readonly logger = new Logger(SourceSchemaWriteGuardService.name);
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     try {
-      await this.installWriteGuards();
+      this.installWriteGuards();
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to install source schema write guards (non-fatal): ${msg}`);
@@ -31,8 +31,10 @@ export class SourceSchemaWriteGuardService implements OnModuleInit {
 
   /**
    * Install write guard triggers on all non-reference tables in the service's source schema.
+   * Synchronous: runtime services only emit the ownership notice — the
+   * trigger DDL itself is owned by aqua-db-migrate.
    */
-  async installWriteGuards(): Promise<void> {
+  installWriteGuards(): void {
     this.logger.warn(
       'Source schema write guard installation is disabled in runtime services; ' +
         'aqua-db-migrate owns source-schema trigger hardening.',
@@ -43,7 +45,7 @@ export class SourceSchemaWriteGuardService implements OnModuleInit {
    * Temporarily disable write guards for DDL operations (e.g., synchronize).
    * Call this before SourceSchemaBootstrapService.synchronize() if needed.
    */
-  async disableGuards(sourceSchema: string, tables: string[]): Promise<void> {
+  disableGuards(sourceSchema: string, tables: string[]): void {
     void sourceSchema;
     void tables;
     throw new Error(
@@ -55,7 +57,7 @@ export class SourceSchemaWriteGuardService implements OnModuleInit {
   /**
    * Re-enable write guards after DDL operations.
    */
-  async enableGuards(sourceSchema: string, tables: string[]): Promise<void> {
+  enableGuards(sourceSchema: string, tables: string[]): void {
     void sourceSchema;
     void tables;
     throw new Error(

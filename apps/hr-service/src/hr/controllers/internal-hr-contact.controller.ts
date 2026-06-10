@@ -59,7 +59,7 @@ export class InternalHrContactController {
       throw new NotFoundException('Unsupported HR notification contact ref');
     }
     return {
-      kind: `${kind}.email` as HrNotificationContactKind,
+      kind: `${kind}.email`,
       employeeId,
     };
   }

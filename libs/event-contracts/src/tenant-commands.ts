@@ -262,7 +262,7 @@ export interface RollbackTenantProvisioningResult {
 
 // ==================== Tenant lifecycle status commands ====================
 
-export interface ActivateTenantCommand extends AuthTenantCommandMetadata {}
+export type ActivateTenantCommand = AuthTenantCommandMetadata;
 
 export interface FailProvisioningCommand extends AuthTenantCommandMetadata {
   reason: string;

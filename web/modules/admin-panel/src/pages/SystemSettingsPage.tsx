@@ -609,7 +609,7 @@ const SystemSettingsPage: React.FC = () => {
     try {
       const result = await settingsApi.testEmailConfig(emailConfig.fromAddress);
       if (result.success === false) {
-        throw new Error(String(result.error || 'SMTP test failed'));
+        throw new Error(typeof result.error === 'string' ? result.error : 'SMTP test failed');
       }
       setSuccess('SMTP test email sent');
     } catch (err) {
@@ -645,7 +645,13 @@ const SystemSettingsPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900">System Settings</h1>
           <p className="mt-1 text-sm text-gray-500">Platform configuration and settings</p>
         </div>
-        <Button variant="outline" onClick={refreshSettings} disabled={loading}>
+        <Button
+          variant="outline"
+          onClick={() => {
+            void refreshSettings();
+          }}
+          disabled={loading}
+        >
           <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>

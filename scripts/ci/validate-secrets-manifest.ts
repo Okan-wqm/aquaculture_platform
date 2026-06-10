@@ -144,7 +144,7 @@ function parseRequiredSecretsManifest(path: string, text: string): Manifest {
     if (Array.isArray(value)) {
       return value as NonNullable<Manifest[K]>;
     }
-    const next: NonNullable<Manifest[K]> = [] as unknown as NonNullable<Manifest[K]>;
+    const next: NonNullable<Manifest[K]> = [];
     manifest[key] = next;
     return next;
   };
@@ -187,7 +187,7 @@ function parseRequiredSecretsManifest(path: string, text: string): Manifest {
     }
 
     if (section === 'compose_files') {
-      const item = line.match(/^  -\s+(.+)$/);
+      const item = line.match(/^ {2}-\s+(.+)$/);
       if (!item) {
         failInvocation(`manifest ${path}:${lineNo} expected a compose_files list item`);
       }
@@ -197,7 +197,7 @@ function parseRequiredSecretsManifest(path: string, text: string): Manifest {
       continue;
     }
 
-    const entryStart = line.match(/^  -\s+([a-z_]+):\s*(.+)$/);
+    const entryStart = line.match(/^ {2}-\s+([a-z_]+):\s*(.+)$/);
     if (entryStart) {
       currentEntry = {};
       ensureSection(section).push(currentEntry as RequiredEnvEntry);
@@ -211,7 +211,7 @@ function parseRequiredSecretsManifest(path: string, text: string): Manifest {
       continue;
     }
 
-    const entryField = line.match(/^    ([a-z_]+):\s*(.+)$/);
+    const entryField = line.match(/^ {4}([a-z_]+):\s*(.+)$/);
     if (entryField && currentEntry) {
       setEntryValue(
         path,

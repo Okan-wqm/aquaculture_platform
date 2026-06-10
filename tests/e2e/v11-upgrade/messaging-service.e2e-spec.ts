@@ -838,9 +838,11 @@ describe('Messaging-Service E2E: NestJS v11 Upgrade Validation', () => {
 
       it('should publish from AppModule NATS client', () => {
         const proxy = moduleProxies.get('AppModule');
-        expect(proxy).toBeDefined();
-        proxy!.emit('events.messaging.test', { source: 'AppModule' });
-        expect(proxy!.emit).toHaveBeenCalledTimes(1);
+        if (!proxy) {
+          throw new Error('AppModule NATS proxy was not registered');
+        }
+        proxy.emit('events.messaging.test', { source: 'AppModule' });
+        expect(proxy.emit).toHaveBeenCalledTimes(1);
 
         const record = natsCallLog.find((r) => r.callerModule === 'AppModule');
         expect(record).toBeDefined();

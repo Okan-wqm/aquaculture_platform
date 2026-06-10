@@ -939,7 +939,7 @@ export class SchemaManagerService {
       // CLEANUP: Drop partial schema on failure
       this.logger.warn(`Cleaning up partial schema ${schemaName} after failure`);
       try {
-        await this.dropTenantSchema(
+        this.dropTenantSchema(
           schemaName,
           tenantId,
           this.createProvisioningRollbackDropProof(
@@ -1047,7 +1047,7 @@ export class SchemaManagerService {
       this.logger.log(
         `Deleting tenant schema ${schemaName} with cleanup proof ${dropProof.operationId} (${dropProof.purpose})`,
       );
-      await this.dropTenantSchema(schemaName, tenantId, dropProof);
+      this.dropTenantSchema(schemaName, tenantId, dropProof);
 
       // Invalidate cache entry for deleted schema
       this.schemaCache.invalidate(schemaName);

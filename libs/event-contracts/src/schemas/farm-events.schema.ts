@@ -959,7 +959,7 @@ export const tankDeletedSchema: JSONSchemaType<WireTankDeleted> = {
   required: [...SETUP_EVENT_REQUIRED, 'tankId', 'departmentId', 'name', 'code', 'deletedAt'],
 };
 
-export const equipmentCreatedSchema = {
+export const equipmentCreatedSchema: JSONSchemaType<WireEquipmentCreated> = {
   ...EVENT_OBJECT_OPTS,
   properties: {
     ...SETUP_EVENT_PROPERTIES,
@@ -985,7 +985,7 @@ export const equipmentCreatedSchema = {
   ],
 } as const;
 
-export const equipmentUpdatedSchema = {
+export const equipmentUpdatedSchema: JSONSchemaType<WireEquipmentUpdated> = {
   ...EVENT_OBJECT_OPTS,
   properties: {
     ...SETUP_EVENT_PROPERTIES,
@@ -998,7 +998,7 @@ export const equipmentUpdatedSchema = {
   required: [...SETUP_EVENT_REQUIRED, 'equipmentId'],
 } as const;
 
-export const equipmentDeletedSchema = {
+export const equipmentDeletedSchema: JSONSchemaType<WireEquipmentDeleted> = {
   ...EVENT_OBJECT_OPTS,
   properties: {
     ...SETUP_EVENT_PROPERTIES,
@@ -1012,7 +1012,7 @@ export const equipmentDeletedSchema = {
   required: [...SETUP_EVENT_REQUIRED, 'equipmentId', 'name', 'code', 'deletedAt'],
 } as const;
 
-export const subEquipmentCreatedSchema = {
+export const subEquipmentCreatedSchema: JSONSchemaType<WireSubEquipmentCreated> = {
   ...EVENT_OBJECT_OPTS,
   properties: {
     ...SETUP_EVENT_PROPERTIES,
@@ -1033,7 +1033,7 @@ export const subEquipmentCreatedSchema = {
   ],
 } as const;
 
-export const subEquipmentUpdatedSchema = {
+export const subEquipmentUpdatedSchema: JSONSchemaType<WireSubEquipmentUpdated> = {
   ...EVENT_OBJECT_OPTS,
   properties: {
     ...SETUP_EVENT_PROPERTIES,
@@ -1046,7 +1046,7 @@ export const subEquipmentUpdatedSchema = {
   required: [...SETUP_EVENT_REQUIRED, 'subEquipmentId', 'parentEquipmentId'],
 } as const;
 
-export const subEquipmentDeletedSchema = {
+export const subEquipmentDeletedSchema: JSONSchemaType<WireSubEquipmentDeleted> = {
   ...EVENT_OBJECT_OPTS,
   properties: {
     ...SETUP_EVENT_PROPERTIES,

@@ -110,6 +110,9 @@
       "@aquaculture/backend-common/resilience": [
         "libs/backend-common/src/resilience/index.ts"
       ],
+      "@aquaculture/backend-common/rate-limit": [
+        "libs/backend-common/src/rate-limit/index.ts"
+      ],
       "@aquaculture/backend-common/security": [
         "libs/backend-common/src/security/index.ts"
       ],

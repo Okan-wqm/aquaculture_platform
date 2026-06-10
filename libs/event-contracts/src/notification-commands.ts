@@ -22,11 +22,16 @@ export interface NotificationSendCommandBase {
   metadata?: Record<string, string | number | boolean | null>;
 }
 
+// Email and push commands intentionally share one payload shape — the
+// channel is carried by the NATS subject (SEND_EMAIL / SEND_PUSH), not
+// the payload. The named aliases keep call sites self-documenting; the
+// catch-all is the base itself (a union of identical aliases would just
+// duplicate constituents).
 export type NotificationSendEmailCommand = NotificationSendCommandBase;
 
 export type NotificationSendPushCommand = NotificationSendCommandBase;
 
-export type NotificationSendCommand = NotificationSendEmailCommand | NotificationSendPushCommand;
+export type NotificationSendCommand = NotificationSendCommandBase;
 
 export interface NotificationSendResult {
   success: boolean;

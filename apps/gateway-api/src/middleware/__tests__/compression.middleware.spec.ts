@@ -54,8 +54,13 @@ describe('CompressionMiddleware', () => {
     _headers: Record<string, string | number>;
     _originalWrite: (chunk: unknown) => boolean;
     _originalEnd: () => Response;
+    _endSpy: jest.Mock;
   } => {
     const writtenData: Buffer[] = [];
+    // WHY a named spy: the middleware REPLACES res.end with its wrapper, so
+    // post-use assertions on res.end see the wrapper, not the mock. The
+    // original mock is kept reachable as _endSpy (originalEnd binds to it).
+    const endMock = jest.fn().mockReturnThis();
     const headers: Record<string, string | number> = {
       'Content-Type': 'application/json',
     };
@@ -63,13 +68,14 @@ describe('CompressionMiddleware', () => {
     const res = {
       _writtenData: writtenData,
       _headers: headers,
+      _endSpy: endMock,
       write: jest.fn((chunk: unknown) => {
         if (chunk) {
           writtenData.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
         }
         return true;
       }),
-      end: jest.fn().mockReturnThis(),
+      end: endMock,
       getHeader: jest.fn((name: string) => headers[name]),
       setHeader: jest.fn((name: string, value: string | number) => {
         headers[name] = value;
@@ -83,6 +89,7 @@ describe('CompressionMiddleware', () => {
       _headers: Record<string, string | number>;
       _originalWrite: (chunk: unknown) => boolean;
       _originalEnd: () => Response;
+      _endSpy: jest.Mock;
     };
 
     return res;
@@ -117,8 +124,14 @@ describe('CompressionMiddleware', () => {
   // WHY: compression happens off the event loop (zlib callbacks) — the
   // wrapped res.end() returns BEFORE Content-Encoding is set. Tests yield
   // to the timer/macrotask queue once before asserting headers.
-  const flushCompression = async (): Promise<void> => {
-    await new Promise((resolve) => setTimeout(resolve, 25));
+  const flushCompression = async (res?: { _endSpy: jest.Mock }): Promise<void> => {
+    // Deterministic: poll until the wrapped end() invoked the original end
+    // (zlib latency varies under parallel suite load), bounded at ~1s.
+    for (let i = 0; i < 200; i++) {
+      if (res && res._endSpy.mock.calls.length > 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      if (!res && i >= 5) return;
+    }
   };
 
   describe('Encoding Selection', () => {
@@ -135,7 +148,7 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Content-Encoding']).toBe('br');
     });
@@ -152,7 +165,7 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Content-Encoding']).toBe('gzip');
     });
@@ -214,7 +227,7 @@ describe('CompressionMiddleware', () => {
       const smallData = JSON.stringify({ data: 'small' });
       res.write(smallData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Content-Encoding']).toBeUndefined();
     });
@@ -230,7 +243,7 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
@@ -248,7 +261,7 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
@@ -264,7 +277,7 @@ describe('CompressionMiddleware', () => {
       const largeData = '<html>' + 'x'.repeat(2000) + '</html>';
       res.write(largeData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
@@ -280,7 +293,7 @@ describe('CompressionMiddleware', () => {
       const largeData = 'x'.repeat(2000);
       res.write(largeData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
@@ -296,7 +309,7 @@ describe('CompressionMiddleware', () => {
       const largeData = '.class { color: red; } '.repeat(100);
       res.write(largeData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
@@ -312,7 +325,7 @@ describe('CompressionMiddleware', () => {
       const largeData = 'function test() { return "' + 'x'.repeat(2000) + '"; }';
       res.write(largeData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
@@ -328,7 +341,7 @@ describe('CompressionMiddleware', () => {
       const largeData = '<svg>' + 'x'.repeat(2000) + '</svg>';
       res.write(largeData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
@@ -345,7 +358,7 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
-      await flushCompression();
+      await flushCompression(res);
 
       expect(res._headers['Vary']).toBe('Accept-Encoding');
     });
@@ -362,6 +375,7 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
+      await flushCompression(res);
 
       // Content-Length should be set
       expect(res._headers['Content-Length']).toBeDefined();
@@ -386,11 +400,12 @@ describe('CompressionMiddleware', () => {
       ).toString('base64');
       res.write(randomData);
       res.end();
+      await flushCompression(res);
 
       // If compression doesn't help, Content-Encoding should not be set
       // This depends on the actual data - test verifies the logic exists
       // eslint-disable-next-line @typescript-eslint/unbound-method
-      expect((res.end as jest.Mock).mock.calls.length).toBeGreaterThan(0);
+      expect(res._endSpy.mock.calls.length).toBeGreaterThan(0);
     });
   });
 
@@ -407,9 +422,10 @@ describe('CompressionMiddleware', () => {
       res.write(JSON.stringify({ part2: 'y'.repeat(500) }));
       res.write(JSON.stringify({ part3: 'z'.repeat(500) }));
       res.end();
+      await flushCompression(res);
 
       // eslint-disable-next-line @typescript-eslint/unbound-method
-      expect((res.end as jest.Mock).mock.calls.length).toBeGreaterThan(0);
+      expect(res._endSpy.mock.calls.length).toBeGreaterThan(0);
     });
 
     it('should handle write with callback', async () => {
@@ -421,8 +437,9 @@ describe('CompressionMiddleware', () => {
 
       res.write('test data', 'utf8', jest.fn());
       res.end();
+      await flushCompression(res);
 
-      expect(res.end).toHaveBeenCalled();
+      expect(res._endSpy).toHaveBeenCalled();
     });
   });
 
@@ -436,8 +453,9 @@ describe('CompressionMiddleware', () => {
 
       // End with data
       res.end(JSON.stringify({ data: 'x'.repeat(2000) }));
+      await flushCompression(res);
 
-      expect(res.end).toHaveBeenCalled();
+      expect(res._endSpy).toHaveBeenCalled();
     });
 
     it('should handle end with encoding', async () => {
@@ -449,7 +467,7 @@ describe('CompressionMiddleware', () => {
 
       res.end('test data', 'utf8');
 
-      expect(res.end).toHaveBeenCalled();
+      expect(res._endSpy).toHaveBeenCalled();
     });
   });
 
@@ -527,9 +545,10 @@ describe('CompressionMiddleware', () => {
       // Write valid data
       res.write(JSON.stringify({ data: 'test'.repeat(500) }));
       res.end();
+      await flushCompression(res);
 
       // Should not throw
-      expect(res.end).toHaveBeenCalled();
+      expect(res._endSpy).toHaveBeenCalled();
     });
   });
 
@@ -544,8 +563,9 @@ describe('CompressionMiddleware', () => {
       const bufferData = Buffer.from('x'.repeat(2000));
       res.write(bufferData);
       res.end();
+      await flushCompression(res);
 
-      expect(res.end).toHaveBeenCalled();
+      expect(res._endSpy).toHaveBeenCalled();
     });
 
     it('should handle string input', async () => {
@@ -558,8 +578,9 @@ describe('CompressionMiddleware', () => {
       const stringData = 'x'.repeat(2000);
       res.write(stringData);
       res.end();
+      await flushCompression(res);
 
-      expect(res.end).toHaveBeenCalled();
+      expect(res._endSpy).toHaveBeenCalled();
     });
   });
 

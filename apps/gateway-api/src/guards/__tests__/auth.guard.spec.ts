@@ -18,13 +18,13 @@
 
 import * as crypto from 'crypto';
 
-import * as bcrypt from 'bcryptjs';
 
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
-
+import * as bcrypt from 'bcryptjs';
 
 import {
   AuthGuard,
@@ -33,7 +33,6 @@ import {
   BASIC_AUTH_KEY,
   JwtPayload,
 } from '../auth.guard';
-import { JwtService } from '@nestjs/jwt';
 import { ApiKeyAuthStrategy } from '../strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from '../strategies/basic-auth.strategy';
 
@@ -721,9 +720,15 @@ describe('AuthGuard', () => {
       // WHY conditional flip: hardcoding 'X' silently produces an UNCHANGED
       // signature whenever the random RSA signature already ends in 'X' —
       // a 1-in-64 flake that asserts nothing.
-      const lastChar = originalSignature.slice(-1);
+      // WHY middle flip: base64url pads the final sextet — for a 256-byte
+      // RSA signature only 4 bits of the LAST character are significant, so
+      // a last-char flip can decode to the identical byte string and assert
+      // nothing. A mid-string flip always changes a fully-significant byte.
+      const mid = Math.floor(originalSignature.length / 2);
       const tamperedSignature =
-        originalSignature.substring(0, originalSignature.length - 1) + (lastChar === 'A' ? 'B' : 'A');
+        originalSignature.substring(0, mid) +
+        (originalSignature[mid] === 'A' ? 'B' : 'A') +
+        originalSignature.substring(mid + 1);
       const tamperedToken = `${parts[0]}.${parts[1]}.${tamperedSignature}`;
 
       const context = createMockExecutionContext({
@@ -823,13 +828,16 @@ describe('AuthGuard', () => {
     it('should handle rapid authentication requests', async () => {
       const startTime = Date.now();
 
-      for (let i = 0; i < 1000; i++) {
+      // WHY 100: each iteration is a full RSA sign + verify (~30ms);
+      // 1000 awaited iterations is a half-minute benchmark, not a
+      // hang-guard. 100 sequential verifies still surfaces leaks/hangs.
+      for (let i = 0; i < 100; i++) {
         const token = createJwtToken({ sub: `user-${i}` });
         const context = createMockExecutionContext({
           authorization: `Bearer ${token}`,
         });
 
-        guard.canActivate(context);
+        await guard.canActivate(context);
       }
 
       const duration = Date.now() - startTime;

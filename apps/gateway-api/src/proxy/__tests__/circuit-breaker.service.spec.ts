@@ -426,6 +426,10 @@ describe('CircuitBreakerService', () => {
       await jest.advanceTimersByTimeAsync(250);
       await promise2;
 
+      // WHY 2-of-4: the trip check is inclusive (rate >= threshold), so
+      // exactly 50% slow against a 50% threshold opens the circuit on the
+      // second slow success — the production fix routes slow-success
+      // recordings through checkForTrip().
       // With 50% slow call rate (2 slow out of 4), should open
       expect(service.getCircuitState('slow-rate-service')).toBe(CircuitState.OPEN);
     });

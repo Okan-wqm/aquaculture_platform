@@ -427,13 +427,16 @@ describe('OpaClientService', () => {
       (error as Error & { status: number }).status = 500;
 
       // Simulate failures up to threshold
+      // WHY persistent reject + per-iteration timer advance: each attempt
+      // RETRIES with 100/200/400ms sleeps under fake timers — a single
+      // mockRejectedValueOnce leaves the retries hanging on an unprimed
+      // mock, and unadvanced timers hang the awaited sleep forever.
+      mockFetch.mockRejectedValue(error);
       for (let i = 0; i < 5; i++) {
-        mockFetch.mockRejectedValueOnce(error);
-        try {
-          await service.evaluatePolicy('authz/fail', { test: i });
-        } catch {
-          // Expected
-        }
+        const attempt = service.evaluatePolicy('authz/fail', { test: i });
+        const assertion = expect(attempt).rejects.toThrow('Server error');
+        await jest.advanceTimersByTimeAsync(800);
+        await assertion;
       }
 
       expect(service.getCircuitState()).toBe('open');
@@ -444,13 +447,16 @@ describe('OpaClientService', () => {
       const error = new Error('Server error');
       (error as Error & { status: number }).status = 500;
 
+      // WHY persistent reject + per-iteration timer advance: each attempt
+      // RETRIES with 100/200/400ms sleeps under fake timers — a single
+      // mockRejectedValueOnce leaves the retries hanging on an unprimed
+      // mock, and unadvanced timers hang the awaited sleep forever.
+      mockFetch.mockRejectedValue(error);
       for (let i = 0; i < 5; i++) {
-        mockFetch.mockRejectedValueOnce(error);
-        try {
-          await service.evaluatePolicy('authz/fail', { test: i });
-        } catch {
-          // Expected
-        }
+        const attempt = service.evaluatePolicy('authz/fail', { test: i });
+        const assertion = expect(attempt).rejects.toThrow('Server error');
+        await jest.advanceTimersByTimeAsync(800);
+        await assertion;
       }
 
       // Circuit should be open now
@@ -464,13 +470,16 @@ describe('OpaClientService', () => {
       const error = new Error('Server error');
       (error as Error & { status: number }).status = 500;
 
+      // WHY persistent reject + per-iteration timer advance: each attempt
+      // RETRIES with 100/200/400ms sleeps under fake timers — a single
+      // mockRejectedValueOnce leaves the retries hanging on an unprimed
+      // mock, and unadvanced timers hang the awaited sleep forever.
+      mockFetch.mockRejectedValue(error);
       for (let i = 0; i < 5; i++) {
-        mockFetch.mockRejectedValueOnce(error);
-        try {
-          await service.evaluatePolicy('authz/fail', { test: i });
-        } catch {
-          // Expected
-        }
+        const attempt = service.evaluatePolicy('authz/fail', { test: i });
+        const assertion = expect(attempt).rejects.toThrow('Server error');
+        await jest.advanceTimersByTimeAsync(800);
+        await assertion;
       }
 
       expect(service.getCircuitState()).toBe('open');
@@ -490,13 +499,16 @@ describe('OpaClientService', () => {
       const error = new Error('Server error');
       (error as Error & { status: number }).status = 500;
 
+      // WHY persistent reject + per-iteration timer advance: each attempt
+      // RETRIES with 100/200/400ms sleeps under fake timers — a single
+      // mockRejectedValueOnce leaves the retries hanging on an unprimed
+      // mock, and unadvanced timers hang the awaited sleep forever.
+      mockFetch.mockRejectedValue(error);
       for (let i = 0; i < 5; i++) {
-        mockFetch.mockRejectedValueOnce(error);
-        try {
-          await service.evaluatePolicy('authz/fail', { test: i });
-        } catch {
-          // Expected
-        }
+        const attempt = service.evaluatePolicy('authz/fail', { test: i });
+        const assertion = expect(attempt).rejects.toThrow('Server error');
+        await jest.advanceTimersByTimeAsync(800);
+        await assertion;
       }
 
       // Advance time to half-open
@@ -519,13 +531,16 @@ describe('OpaClientService', () => {
       const error = new Error('Server error');
       (error as Error & { status: number }).status = 500;
 
+      // WHY persistent reject + per-iteration timer advance: each attempt
+      // RETRIES with 100/200/400ms sleeps under fake timers — a single
+      // mockRejectedValueOnce leaves the retries hanging on an unprimed
+      // mock, and unadvanced timers hang the awaited sleep forever.
+      mockFetch.mockRejectedValue(error);
       for (let i = 0; i < 5; i++) {
-        mockFetch.mockRejectedValueOnce(error);
-        try {
-          await service.evaluatePolicy('authz/fail', { test: i });
-        } catch {
-          // Expected
-        }
+        const attempt = service.evaluatePolicy('authz/fail', { test: i });
+        const assertion = expect(attempt).rejects.toThrow('Server error');
+        await jest.advanceTimersByTimeAsync(800);
+        await assertion;
       }
 
       expect(stateHandler).toHaveBeenCalledWith('open');
@@ -639,10 +654,15 @@ describe('OpaClientService', () => {
 
   describe('Timeout Handling', () => {
     it('should abort request on timeout', async () => {
-      // Mock a slow response
-      mockFetch.mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
+      // WHY signal-respecting mock: the client enforces its timeout via
+      // AbortController — a mock that ignores opts.signal resolves at 10s
+      // and the abort is never observed.
+      mockFetch.mockImplementation(
+        (_url: string, opts: { signal?: AbortSignal }) =>
+          new Promise((resolve, reject) => {
+            opts.signal?.addEventListener('abort', () =>
+              reject(new Error('This operation was aborted')),
+            );
             setTimeout(
               () => resolve(createMockResponse({ result: true })),
               10000,
@@ -651,34 +671,44 @@ describe('OpaClientService', () => {
       );
 
       const promise = service.evaluatePolicy('authz/slow', { user: 'test' });
+      const assertion = expect(promise).rejects.toThrow();
 
-      // Advance past timeout
-      jest.advanceTimersByTime(6000);
+      // Advance past timeout (+ retry sleeps — an aborted attempt retries)
+      await jest.advanceTimersByTimeAsync(6000);
+      await jest.advanceTimersByTimeAsync(6000);
+      await jest.advanceTimersByTimeAsync(6000);
+      await jest.advanceTimersByTimeAsync(7000);
 
-      await expect(promise).rejects.toThrow();
+      await assertion;
     });
   });
 
   describe('Error Handling', () => {
     it('should handle non-OK responses', async () => {
-      mockFetch.mockResolvedValueOnce(createMockResponse({}, 500));
+      // WHY persistent + advance: a 500 is retried with 100/200/400ms sleeps
+      // under fake timers; a -Once mock leaves the retries unprimed.
+      mockFetch.mockResolvedValue(createMockResponse({}, 500));
 
-      await expect(
-        service.evaluatePolicy('authz/error', { user: 'test' }),
-      ).rejects.toThrow();
+      const promise = service.evaluatePolicy('authz/error', { user: 'test' });
+      const assertion = expect(promise).rejects.toThrow();
+      await jest.advanceTimersByTimeAsync(800);
+      await assertion;
     });
 
     it('should handle network errors', async () => {
-      mockFetch.mockRejectedValueOnce(new TypeError('Network error'));
+      // WHY persistent: every retry attempt re-fetches; -Once leaves
+      // attempts 2..n on an unprimed mock.
+      mockFetch.mockRejectedValue(new TypeError('Network error'));
 
       const promise = service.evaluatePolicy('authz/network', { user: 'test' });
+      const assertion = expect(promise).rejects.toThrow('Network error');
 
       // Advance through retries
       await jest.advanceTimersByTimeAsync(100);
       await jest.advanceTimersByTimeAsync(200);
       await jest.advanceTimersByTimeAsync(400);
 
-      await expect(promise).rejects.toThrow('Network error');
+      await assertion;
     });
 
     it('should handle malformed JSON responses', async () => {
@@ -686,11 +716,14 @@ describe('OpaClientService', () => {
         ...createMockResponse({}),
         json: jest.fn().mockRejectedValue(new Error('Invalid JSON')),
       };
-      mockFetch.mockResolvedValueOnce(badResponse);
+      // WHY: a JSON-parse failure carries no HTTP status, so the client
+      // retries it — prime every attempt and advance the retry sleeps.
+      mockFetch.mockResolvedValue(badResponse);
 
-      await expect(
-        service.evaluatePolicy('authz/bad-json', { user: 'test' }),
-      ).rejects.toThrow();
+      const promise = service.evaluatePolicy('authz/bad-json', { user: 'test' });
+      const assertion = expect(promise).rejects.toThrow();
+      await jest.advanceTimersByTimeAsync(800);
+      await assertion;
     });
   });
 

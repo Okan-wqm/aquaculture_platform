@@ -163,7 +163,10 @@ describe('DeviceFingerprintMiddleware', () => {
       expect(fingerprintedReq.deviceFingerprint?.acceptLanguage).toBeDefined();
       expect(fingerprintedReq.deviceFingerprint?.acceptEncoding).toBeDefined();
       expect(fingerprintedReq.deviceFingerprint?.ip).toBeDefined();
-      expect(fingerprintedReq.deviceFingerprint?.timestamp).toBeInstanceOf(Date);
+      // WHY string: the fingerprint is a JSON-safe DTO — timestamp is an
+      // ISO-8601 string by design, not a Date instance.
+      expect(typeof fingerprintedReq.deviceFingerprint?.timestamp).toBe('string');
+      expect(new Date(fingerprintedReq.deviceFingerprint?.timestamp ?? '').getTime()).not.toBeNaN();
     });
 
     it('should capture user agent', () => {

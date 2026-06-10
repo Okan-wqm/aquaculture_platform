@@ -114,8 +114,15 @@ describe('CompressionMiddleware', () => {
     middleware = module.get<CompressionMiddleware>(CompressionMiddleware);
   });
 
+  // WHY: compression happens off the event loop (zlib callbacks) — the
+  // wrapped res.end() returns BEFORE Content-Encoding is set. Tests yield
+  // to the timer/macrotask queue once before asserting headers.
+  const flushCompression = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  };
+
   describe('Encoding Selection', () => {
-    it('should prefer Brotli when supported', () => {
+    it('should prefer Brotli when supported', async () => {
       const req = createMockRequest({
         'accept-encoding': 'gzip, deflate, br',
       });
@@ -128,11 +135,12 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Content-Encoding']).toBe('br');
     });
 
-    it('should use Gzip when Brotli not supported', () => {
+    it('should use Gzip when Brotli not supported', async () => {
       const req = createMockRequest({
         'accept-encoding': 'gzip, deflate',
       });
@@ -144,11 +152,12 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Content-Encoding']).toBe('gzip');
     });
 
-    it('should skip compression when no Accept-Encoding', () => {
+    it('should skip compression when no Accept-Encoding', async () => {
       const req = createMockRequest({});
       delete req.headers['accept-encoding'];
       const res = createMockResponse();
@@ -194,7 +203,7 @@ describe('CompressionMiddleware', () => {
   });
 
   describe('Compression Threshold', () => {
-    it('should not compress responses below threshold', () => {
+    it('should not compress responses below threshold', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -205,11 +214,12 @@ describe('CompressionMiddleware', () => {
       const smallData = JSON.stringify({ data: 'small' });
       res.write(smallData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Content-Encoding']).toBeUndefined();
     });
 
-    it('should compress responses above threshold', () => {
+    it('should compress responses above threshold', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -220,13 +230,14 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
   });
 
   describe('Content Type Filtering', () => {
-    it('should compress application/json', () => {
+    it('should compress application/json', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       res._headers['Content-Type'] = 'application/json';
@@ -237,11 +248,12 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
 
-    it('should compress text/html', () => {
+    it('should compress text/html', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       res._headers['Content-Type'] = 'text/html';
@@ -252,11 +264,12 @@ describe('CompressionMiddleware', () => {
       const largeData = '<html>' + 'x'.repeat(2000) + '</html>';
       res.write(largeData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
 
-    it('should compress text/plain', () => {
+    it('should compress text/plain', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       res._headers['Content-Type'] = 'text/plain';
@@ -267,11 +280,12 @@ describe('CompressionMiddleware', () => {
       const largeData = 'x'.repeat(2000);
       res.write(largeData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
 
-    it('should compress text/css', () => {
+    it('should compress text/css', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       res._headers['Content-Type'] = 'text/css';
@@ -282,11 +296,12 @@ describe('CompressionMiddleware', () => {
       const largeData = '.class { color: red; } '.repeat(100);
       res.write(largeData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
 
-    it('should compress application/javascript', () => {
+    it('should compress application/javascript', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       res._headers['Content-Type'] = 'application/javascript';
@@ -297,11 +312,12 @@ describe('CompressionMiddleware', () => {
       const largeData = 'function test() { return "' + 'x'.repeat(2000) + '"; }';
       res.write(largeData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
 
-    it('should compress image/svg+xml', () => {
+    it('should compress image/svg+xml', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       res._headers['Content-Type'] = 'image/svg+xml';
@@ -312,13 +328,14 @@ describe('CompressionMiddleware', () => {
       const largeData = '<svg>' + 'x'.repeat(2000) + '</svg>';
       res.write(largeData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Content-Encoding']).toBeDefined();
     });
   });
 
   describe('Vary Header', () => {
-    it('should set Vary header when compressing', () => {
+    it('should set Vary header when compressing', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -328,13 +345,14 @@ describe('CompressionMiddleware', () => {
       const largeData = JSON.stringify({ data: 'x'.repeat(2000) });
       res.write(largeData);
       res.end();
+      await flushCompression();
 
       expect(res._headers['Vary']).toBe('Accept-Encoding');
     });
   });
 
   describe('Content-Length Header', () => {
-    it('should update Content-Length when compressing', () => {
+    it('should update Content-Length when compressing', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -351,7 +369,7 @@ describe('CompressionMiddleware', () => {
   });
 
   describe('Compression Effectiveness', () => {
-    it('should not use compression if it increases size', () => {
+    it('should not use compression if it increases size', async () => {
       const req = createMockRequest({
         'accept-encoding': 'gzip',
       });
@@ -377,7 +395,7 @@ describe('CompressionMiddleware', () => {
   });
 
   describe('Multiple Writes', () => {
-    it('should handle multiple write calls', () => {
+    it('should handle multiple write calls', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -394,7 +412,7 @@ describe('CompressionMiddleware', () => {
       expect((res.end as jest.Mock).mock.calls.length).toBeGreaterThan(0);
     });
 
-    it('should handle write with callback', () => {
+    it('should handle write with callback', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -409,7 +427,7 @@ describe('CompressionMiddleware', () => {
   });
 
   describe('End with Data', () => {
-    it('should handle end with data chunk', () => {
+    it('should handle end with data chunk', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -422,7 +440,7 @@ describe('CompressionMiddleware', () => {
       expect(res.end).toHaveBeenCalled();
     });
 
-    it('should handle end with encoding', () => {
+    it('should handle end with encoding', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -499,7 +517,7 @@ describe('CompressionMiddleware', () => {
   });
 
   describe('Error Handling', () => {
-    it('should handle compression errors gracefully', () => {
+    it('should handle compression errors gracefully', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -516,7 +534,7 @@ describe('CompressionMiddleware', () => {
   });
 
   describe('Buffer Handling', () => {
-    it('should handle Buffer input', () => {
+    it('should handle Buffer input', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -530,7 +548,7 @@ describe('CompressionMiddleware', () => {
       expect(res.end).toHaveBeenCalled();
     });
 
-    it('should handle string input', () => {
+    it('should handle string input', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -546,7 +564,7 @@ describe('CompressionMiddleware', () => {
   });
 
   describe('Middleware Flow', () => {
-    it('should call next function', () => {
+    it('should call next function', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();
@@ -556,7 +574,7 @@ describe('CompressionMiddleware', () => {
       expect(next).toHaveBeenCalled();
     });
 
-    it('should preserve original response methods', () => {
+    it('should preserve original response methods', async () => {
       const req = createMockRequest();
       const res = createMockResponse();
       const next = jest.fn();

@@ -50,6 +50,9 @@ describe('OpaPolicyGuard', () => {
       getHandler: () => jest.fn(),
       getClass: () => jest.fn(),
       getType: () => 'http',
+      // WHY: the guard routes through GqlExecutionContext.create(), which
+      // reads context.getArgs() even for http-typed contexts.
+      getArgs: () => [mockRequest, {}, {}, {}],
     } as unknown as ExecutionContext;
   };
 

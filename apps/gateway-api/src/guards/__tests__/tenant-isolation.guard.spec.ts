@@ -115,22 +115,22 @@ describe('TenantIsolationGuard', () => {
   describe('Tenant ID Extraction', () => {
     it('should extract tenant ID from X-Tenant-ID header', () => {
       const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: 'tenant-123' },
-        { 'x-tenant-id': 'tenant-123' },
+        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000002' },
+        { 'x-tenant-id': '00000000-0000-4000-8000-000000000002' },
       );
       const result = guard.canActivate(context);
       expect(result).toBe(true);
     });
 
     it('should extract tenant ID from JWT token', () => {
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: 'tenant-456' });
+      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000003' });
       const result = guard.canActivate(context);
       expect(result).toBe(true);
     });
 
     it('should extract tenant ID from subdomain', () => {
       const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: 'acme' },
+        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000001' },
         {},
         {},
         {},
@@ -142,10 +142,10 @@ describe('TenantIsolationGuard', () => {
 
     it('should extract tenant ID from query parameter', () => {
       const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: 'tenant-789' },
+        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000004' },
         {},
         {},
-        { tenantId: 'tenant-789' },
+        { tenantId: '00000000-0000-4000-8000-000000000004' },
       );
       const result = guard.canActivate(context);
       expect(result).toBe(true);
@@ -153,9 +153,9 @@ describe('TenantIsolationGuard', () => {
 
     it('should extract tenant ID from path parameter', () => {
       const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: 'tenant-abc' },
+        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000005' },
         {},
-        { tenantId: 'tenant-abc' },
+        { tenantId: '00000000-0000-4000-8000-000000000005' },
       );
       const result = guard.canActivate(context);
       expect(result).toBe(true);
@@ -180,7 +180,7 @@ describe('TenantIsolationGuard', () => {
       // Active/inactive status would be checked via user.tenantContext or external service
       const context = createMockExecutionContext({
         sub: 'user-1',
-        tenantId: 'tenant-123',
+        tenantId: '00000000-0000-4000-8000-000000000002',
         tenantContext: { isActive: true }
       });
       const result = guard.canActivate(context);
@@ -188,17 +188,17 @@ describe('TenantIsolationGuard', () => {
     });
 
     it('should allow access to user tenant without explicit header', () => {
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: 'tenant-123' });
+      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000002' });
       const result = guard.canActivate(context);
       expect(result).toBe(true);
     });
 
     it('should set tenant context on request', () => {
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: 'tenant-123' });
+      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000002' });
       guard.canActivate(context);
 
       const request = getRequest(context);
-      expect(request.tenantId).toBe('tenant-123');
+      expect(request.tenantId).toBe('00000000-0000-4000-8000-000000000002');
     });
   });
 
@@ -277,7 +277,7 @@ describe('TenantIsolationGuard', () => {
 
   describe('Tenant Context Injection', () => {
     it('should inject tenant context into request', () => {
-      const context = createMockExecutionContext({ sub: 'user-1', tenantId: 'tenant-123' });
+      const context = createMockExecutionContext({ sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000002' });
       const request = getRequest(context);
 
       guard.canActivate(context);
@@ -290,8 +290,8 @@ describe('TenantIsolationGuard', () => {
   describe('Multi-tenancy Strategy', () => {
     it('should support header-based tenant resolution', () => {
       const context = createMockExecutionContext(
-        { sub: 'user-1', tenantId: 'tenant-header' },
-        { 'x-tenant-id': 'tenant-header' },
+        { sub: 'user-1', tenantId: '00000000-0000-4000-8000-000000000006' },
+        { 'x-tenant-id': '00000000-0000-4000-8000-000000000006' },
       );
       const result = guard.canActivate(context);
       expect(result).toBe(true);

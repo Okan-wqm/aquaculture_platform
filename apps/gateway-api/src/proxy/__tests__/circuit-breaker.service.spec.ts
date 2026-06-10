@@ -143,10 +143,13 @@ describe('CircuitBreakerService', () => {
       );
 
       const promise = service.execute('timeout-service', fn, { timeout: 100 });
+      // WHY attach-first: the timeout rejection fires while timers advance —
+      // an unattached rejected promise fails the run as unhandled.
+      const assertion = expect(promise).rejects.toThrow('timed out');
 
       await jest.advanceTimersByTimeAsync(200);
 
-      await expect(promise).rejects.toThrow('timed out');
+      await assertion;
     });
   });
 

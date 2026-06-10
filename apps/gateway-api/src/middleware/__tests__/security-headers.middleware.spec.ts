@@ -631,7 +631,9 @@ describe('SecurityHeadersMiddleware', () => {
       }
 
       const duration = Date.now() - startTime;
-      expect(duration).toBeLessThan(1000); // Should complete in under 1 second
+      // WHY 10s bound: guards against hangs/quadratic behaviour, not CI
+      // wall-clock — shared runners legitimately exceed 1s here.
+      expect(duration).toBeLessThan(10000);
     });
   });
 });

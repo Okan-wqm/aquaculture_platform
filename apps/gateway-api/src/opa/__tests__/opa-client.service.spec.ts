@@ -577,13 +577,17 @@ describe('OpaClientService', () => {
       mockFetch.mockRejectedValue(error);
 
       const promise = service.evaluatePolicy('authz/always-fail', { user: 'test' });
+      // WHY attach-first: the rejection fires while timers advance — an
+      // unattached rejected promise is an unhandled rejection that fails
+      // the test run before the expectation ever binds.
+      const assertion = expect(promise).rejects.toThrow('Server error');
 
       // Advance through all retry delays
       await jest.advanceTimersByTimeAsync(100);
       await jest.advanceTimersByTimeAsync(200);
       await jest.advanceTimersByTimeAsync(400);
 
-      await expect(promise).rejects.toThrow('Server error');
+      await assertion;
     });
   });
 

@@ -601,7 +601,10 @@ mod tests {
 
         match engine.authorize(req).await.unwrap() {
             AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted) => {}
-            other => panic!("expected PermissionNotGranted for self-approval, got {:?}", other),
+            other => panic!(
+                "expected PermissionNotGranted for self-approval, got {:?}",
+                other
+            ),
         }
     }
 

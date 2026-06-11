@@ -3800,3 +3800,16 @@ It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCy
 **Fix (recommended, tracked for the admin-api-service audit):** repair the DI-drift specs (provide the `'EVENT_BUS'` / `explorer-readonlyDataSource` tokens), refresh the EmailSenderService mock, then triage the assertion failures for real regressions, and remove `admin-api-service` from the test quarantine so the suite gates again.
 
 **Status:** OPEN (quarantined — non-blocking).
+
+## ORPHAN-MEDIUM-089 — frontend TenantStatus: 3 hand-written drift copies + a lowercase bug
+
+**Found while:** consolidating the backend TenantStatus SSoT (MT-HIGH-003 W3.1). The backend now has a single canonical 9-value enum in `@platform/event-contracts`; the frontend cannot import it (event-contracts is a backend lib, not in the web build graph), and three web modules each hand-roll their own TenantStatus:
+- `web/shared-ui/src/types/index.ts:102` — `type TenantStatus = 'pending' | 'active' | 'suspended' | 'archived'` (**LOWERCASE** — a latent bug: the backend persists/serves UPPERCASE, so a value of `'ACTIVE'` is not assignable to this union; status-typed props silently accept a value the type says is impossible).
+- `web/modules/tenant-admin/src/lib/types.ts:18` — `'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED'` (4 of 9).
+- `web/modules/admin-panel/src/services/types/tenant.ts:9` — enum with 7 values (no CANCELLED/PURGED).
+
+The real frontend SSoT already exists: `web/shared-ui/src/generated/graphql-types.ts` is GraphQL-codegen output of the backend schema's `registerEnumType(TenantStatus)`. With the backend enum now canonical (9 values), the generated enum becomes canonical after the next `npm run codegen`.
+
+**Fix (recommended, frontend-audit-owned):** regenerate GraphQL codegen so `graphql-types.ts` carries the canonical 9 UPPERCASE values, then have the three hand-written copies re-export / consume the generated enum (deleting the local unions), and audit the consuming components for the lowercase assumption. Out of the auth-service-audit backend scope (separate web/MFE surface; frontend lint/test are quarantined in scripts/ci/affected-target-policy.json), tracked here.
+
+**Status:** OPEN.

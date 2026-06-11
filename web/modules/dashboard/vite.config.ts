@@ -3,7 +3,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
 import { resolve } from 'path';
-import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
+import { getSharedConfigWithRecharts } from '../../shared-ui/src/federation/federationSharedConfig';
 
 /**
  * Vite Konfigürasyonu - Dashboard Microfrontend
@@ -25,16 +25,10 @@ export default defineConfig({
         './DashboardPage': './src/pages/DashboardPage.tsx',
         './OverviewWidgets': './src/components/OverviewWidgets.tsx',
       },
-      // FE-HIGH-004: Single source of truth with strictVersion:true
-      shared: {
-        ...getCoreSharedConfig(),
-        // recharts is used heavily — share to avoid duplication across MF chunks
-        recharts: {
-          singleton: true,
-          strictVersion: true,
-          requiredVersion: '^2.10.0',
-        },
-      },
+      // FE-HIGH-004/FE-HIGH-005: single source of truth — recharts moved
+      // into federationSharedConfig so no shared-entry literal lives here
+      // (the federation invariant bans inline entries in vite configs).
+      shared: getSharedConfigWithRecharts(),
     }),
   ],
   resolve: {

@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import federation from '@originjs/vite-plugin-federation';
 import { resolve } from 'path';
-import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
+import { getSharedConfigWithLucide } from '../../shared-ui/src/federation/federationSharedConfig';
 
 /**
  * Vite Konfigürasyonu - Tenant Admin Microfrontend
@@ -22,37 +22,16 @@ export default defineConfig({
       exposes: {
         './Module': './src/Module.tsx',
       },
-      // FE-HIGH-004: Single source of truth with strictVersion:true
-      shared: {
-        ...getCoreSharedConfig(),
-        'lucide-react': {
-          singleton: true,
-          requiredVersion: '^18.2.0',
-        },
-        'react-dom': {
-          singleton: true,
-          requiredVersion: '^18.2.0',
-        },
-        'react-router-dom': {
-          singleton: true,
-          requiredVersion: '^6.21.0',
-        },
-        '@tanstack/react-query': {
-          singleton: true,
-          requiredVersion: '^5.17.0',
-        },
-        // CRITICAL: AuthContext ve TenantContext için zorunlu
-        // Bu olmadan useAuthContext() "must be used within AuthProvider" hatası verir
-        '@aquaculture/shared-ui': {
-          singleton: true,
-          import: true,
-          requiredVersion: '^1.0.0',
-        },
-        'lucide-react': {
-          singleton: true,
-          requiredVersion: '^0.469.0',
-        },
-      },
+      // FE-HIGH-004/FE-HIGH-005: shared deps come ONLY from the SSoT.
+      // The previous block spread getCoreSharedConfig() and then OVERRODE
+      // react-dom / react-router-dom / @tanstack/react-query /
+      // @aquaculture/shared-ui with strictVersion-less caret ranges (plus a
+      // duplicate lucide-react key whose first entry pinned '^18.2.0') —
+      // silently re-enabling the exact double-instance failure mode
+      // strictVersion exists to prevent. AuthContext/TenantContext singleton
+      // behaviour (shared-ui with import:true) is provided by the core
+      // config itself.
+      shared: getSharedConfigWithLucide(),
     }),
   ],
   resolve: {

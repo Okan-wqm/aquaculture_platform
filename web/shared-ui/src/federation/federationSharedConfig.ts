@@ -47,6 +47,13 @@ export const SHARED_VERSIONS = {
   '@aquaculture/shared-ui': '1.0.0',
   zustand: '4.5.7',
   reactflow: '11.11.4',
+  // C0 federation rails (FE-HIGH-005): these two were previously inline
+  // literals in dashboard/tenant-admin vite configs — the exact override
+  // class that produced the duplicate-key + strictVersion-less entries.
+  // Pins match the root-lockfile RESOLVED versions, so adopting them is a
+  // config-hygiene change with zero runtime delta.
+  'lucide-react': '0.469.0',
+  recharts: '2.15.4',
 } as const;
 
 // ============================================================================
@@ -110,6 +117,40 @@ export function getSharedConfigWithReactFlow(): Record<string, SharedDepConfig> 
       strictVersion: true,
       requiredVersion: SHARED_VERSIONS.reactflow,
       version: SHARED_VERSIONS.reactflow,
+    },
+  };
+}
+
+/**
+ * Extended shared config that includes recharts (dashboard charts).
+ *
+ * WHY here and not inline in dashboard's vite.config: the federation
+ * invariant (tests/invariants/federation-shared-singleton.spec.ts) bans
+ * shared-entry literals outside this file — inline entries are how the
+ * strictVersion-less override class (FE-HIGH-004/FE-HIGH-005) re-enters.
+ */
+export function getSharedConfigWithRecharts(): Record<string, SharedDepConfig> {
+  return {
+    ...getCoreSharedConfig(),
+    recharts: {
+      singleton: true,
+      strictVersion: true,
+      requiredVersion: SHARED_VERSIONS.recharts,
+    },
+  };
+}
+
+/**
+ * Extended shared config that includes lucide-react (tenant-admin icons).
+ * Same SSoT rationale as getSharedConfigWithRecharts above.
+ */
+export function getSharedConfigWithLucide(): Record<string, SharedDepConfig> {
+  return {
+    ...getCoreSharedConfig(),
+    'lucide-react': {
+      singleton: true,
+      strictVersion: true,
+      requiredVersion: SHARED_VERSIONS['lucide-react'],
     },
   };
 }

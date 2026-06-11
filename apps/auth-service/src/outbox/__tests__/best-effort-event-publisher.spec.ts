@@ -27,13 +27,14 @@ describe('BestEffortEventPublisher', () => {
     'PasswordResetRequested',
     'PasswordResetCompleted',
     'InvitationAccepted',
+    'UserInvited',
   ])('publishes the allowlisted telemetry/audit-backed event %s', async (eventType) => {
     const event = makeEvent(eventType);
     await publisher.publish(event);
     expect(eventBus.publish).toHaveBeenCalledWith(event);
   });
 
-  it.each(['UserInvited', 'TenantCreated', 'TenantStatusChanged', 'UserDeleted'])(
+  it.each(['TenantCreated', 'TenantStatusChanged', 'UserDeleted', 'TenantSuspended'])(
     'REFUSES the durable-required event %s (must use the outbox)',
     async (eventType) => {
       await expect(publisher.publish(makeEvent(eventType))).rejects.toThrow(

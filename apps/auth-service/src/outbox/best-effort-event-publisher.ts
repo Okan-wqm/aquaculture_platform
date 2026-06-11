@@ -58,6 +58,13 @@ export class BestEffortEventPublisher {
     // rows are already durably committed, the actor can be a platform admin
     // (NULL tenant), and the audit log records the acceptance — the event is a
     // downstream welcome-workflow trigger, retriable, not a durability vector.
+    'UserInvited', // notification trigger. The invitation row IS durably
+    // persisted; if the event is lost the admin sees the pending invitation and
+    // re-sends, so it is recoverable rather than a data-loss vector. NOTE: the
+    // *ideal* end-state is durable (outbox), but createUser is currently a
+    // non-transactional dual-write (ORPHAN-HIGH-090) — making UserInvited
+    // durable requires first wrapping the whole user-creation flow in a
+    // transaction, a focused change tracked separately.
   ]);
 
   constructor(@Inject('EVENT_BUS') private readonly eventBus: EventPublishPort) {}

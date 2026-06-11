@@ -5,18 +5,17 @@ import {
   ConflictException,
   ForbiddenException,
   BadRequestException,
-  Inject,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 import { SchemaManagerService, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { IEventBus } from '@platform/event-bus';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../../authentication/entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../../authentication/entities/invitation.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
@@ -92,7 +91,11 @@ export class UserLifecycleService {
     private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
     private readonly tenantRoleService: TenantRoleService,
-    @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
+    // DATA-HIGH-001: UserInvited is a notification trigger whose durable record
+    // is the invitation row — routed through the allowlisted best-effort path,
+    // not the raw event bus. (Durable upgrade tracked as ORPHAN-HIGH-090, which
+    // first needs createUser to become transactional.)
+    private readonly bestEffort: BestEffortEventPublisher,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -796,7 +799,7 @@ export class UserLifecycleService {
         actionTokenId: result.actionTokenId,
         cryptoShredKeyId: result.userId,
       };
-      await this.eventBus.publish(event);
+      await this.bestEffort.publish(event);
       this.logger.log(`Published UserInvitedEvent for userId=${result.userId}`);
     }
 
@@ -1011,7 +1014,7 @@ export class UserLifecycleService {
       cryptoShredKeyId: user.id,
     };
 
-    await this.eventBus.publish(event);
+    await this.bestEffort.publish(event);
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
     this.logger.log(`Published UserInvitedEvent for userId=${user.id}`);
   }

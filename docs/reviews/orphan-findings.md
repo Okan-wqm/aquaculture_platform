@@ -3813,3 +3813,17 @@ The real frontend SSoT already exists: `web/shared-ui/src/generated/graphql-type
 **Fix (recommended, frontend-audit-owned):** regenerate GraphQL codegen so `graphql-types.ts` carries the canonical 9 UPPERCASE values, then have the three hand-written copies re-export / consume the generated enum (deleting the local unions), and audit the consuming components for the lowercase assumption. Out of the auth-service-audit backend scope (separate web/MFE surface; frontend lint/test are quarantined in scripts/ci/affected-target-policy.json), tracked here.
 
 **Status:** OPEN.
+
+## ORPHAN-HIGH-090 — auth-service user creation is a non-transactional dual-write
+
+**Found while:** converting auth-service publish sites to the transactional outbox (DATA-HIGH-001 / W3.2).
+
+**Problem:** `UserLifecycleService.createUser` (and the invite paths that share it) creates a user as a sequence of UNWRAPPED writes — `userRepository.save(newUser)`, then mobile-settings provisioning, then role assignment, then (for invites) the invitation row — with NO surrounding `dataSource.transaction`. A crash between any two of these leaves a half-created user (e.g. a user row with no role, or a saved user with no invitation), and the `UserInvited` event is then published outside any transaction as a dual-write.
+
+This means W3.2 could only make `UserInvited` **best-effort** (it is allowlisted in BestEffortEventPublisher: the invitation row is the durable record and an admin can re-send). Making it genuinely durable via `OutboxPublisher.enqueue(..., manager)` first requires the user-creation flow to BE a transaction.
+
+**Fix (recommended, focused effort — high risk, core path):** wrap the full createUser sequence (user + mobile settings + role assignment + invitation) in a single `dataSource.transaction`, then enqueue `UserInvited` on that transaction's manager so the user, its dependent rows, and the event commit atomically. This closes both the half-created-user gap AND upgrades UserInvited to durable. It touches the most-exercised auth write path, so it is tracked separately rather than rushed alongside the event-routing migration.
+
+Adjacent cleanup: `sendInvitationEmail` uses `require('crypto')` (CommonJS) instead of the file's ESM `import * as crypto` — a lint/consistency smell to fix in the same pass.
+
+**Status:** OPEN.

@@ -107,6 +107,29 @@ describe('platform service catalog parity', () => {
     expect(catalogSchemas).toEqual(registrySchemas);
   });
 
+  it('keeps compose PORT env in sync with catalog containerPort (INFRA-HIGH-014)', () => {
+    // Readiness sweeps curl the catalog-declared containerPort INSIDE the
+    // container; a divergence between docker-compose.droplet.yml's PORT
+    // env and the catalog is a false-negative production verify (the
+    // 2026-06-11 class: catalog view hardcoded 3000 while observability
+    // listens on 3009). Default: a compose service that declares no PORT
+    // env listens on 3000.
+    const compose = readFileSync('docker-compose.droplet.yml', 'utf8');
+    for (const entry of readinessServices()) {
+      const block =
+        new RegExp(
+          `\\n  ${entry.serviceId}:\\n[\\s\\S]*?(?=\\n  [a-zA-Z0-9_-]+:\\n|$)`,
+        ).exec(`\n${compose}`)?.[0] ?? '';
+      expect(block).toContain(`${entry.serviceId}:`);
+      const portMatch = /\n\s+PORT:\s*["']?(\d+)["']?/.exec(block);
+      const composePort = portMatch ? Number(portMatch[1]) : 3000;
+      expect({ service: entry.serviceId, port: composePort }).toEqual({
+        service: entry.serviceId,
+        port: entry.port,
+      });
+    }
+  });
+
   it('keeps service criticality levels in sync', () => {
     const manifest = readYaml<CriticalityManifest>(
       'infrastructure/deploy/service-criticality.yaml',

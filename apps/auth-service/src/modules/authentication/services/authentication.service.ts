@@ -17,14 +17,14 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
-import { createBaseEvent } from '@platform/event-contracts';
+import { createBaseEvent, isLoginAllowed } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, EntityManager, EntityTarget, ObjectLiteral, Repository } from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { SECURITY_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
-import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import { AuthPayload, MePayload } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
 import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../entities/action-token.entity';
@@ -262,26 +262,28 @@ export class AuthenticationService {
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
-      // SECURITY: Check tenant status — block login for SUSPENDED/CANCELLED tenants (BULGU-008)
-      // SUPER_ADMIN users (tenantId is null) are exempt from this check
+      // SECURITY (MT-HIGH-003): only an ACTIVE tenant may authenticate.
+      // The previous check enumerated REJECTED statuses (SUSPENDED, CANCELLED),
+      // so DEACTIVATED, ARCHIVED, PENDING and PROVISIONING* tenants slipped
+      // through and could still log in. isLoginAllowed is the fail-closed
+      // allow-list (ACTIVE only) owned by the tenant-status machine — a new
+      // non-operational status is blocked by default, not by remembering to
+      // add it here. SUPER_ADMIN users (tenantId null) are exempt.
       if (user.tenantId) {
         const tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
-        if (
-          tenant &&
-          (tenant.status === TenantStatus.SUSPENDED || tenant.status === TenantStatus.CANCELLED)
-        ) {
+        if (tenant && !isLoginAllowed(tenant.status)) {
           await this.ensureMinDuration(startTime);
           this.logger.debug(`Login failed: tenant ${user.tenantId} is ${tenant.status}`);
-          await this.logSecurityEvent('LOGIN_BLOCKED_TENANT_SUSPENDED', {
+          await this.logSecurityEvent('LOGIN_BLOCKED_TENANT_INACTIVE', {
             userId: user.id,
             email: user.email,
             tenantId: user.tenantId,
             ipAddress,
             userAgent,
             success: false,
-            reason: `Tenant account is ${tenant.status.toLowerCase()}`,
+            reason: `Tenant account status is ${tenant.status}`,
           }, AuditLogSeverity.WARNING);
-          throw new UnauthorizedException('Tenant account is suspended');
+          throw new UnauthorizedException('Tenant account is not active');
         }
       }
 

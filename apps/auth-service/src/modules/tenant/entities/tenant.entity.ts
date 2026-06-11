@@ -1,4 +1,5 @@
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
+import { TenantPlan, TenantStatus } from '@platform/event-contracts';
 import {
   Entity,
   Column,
@@ -9,33 +10,22 @@ import {
   Index,
 } from 'typeorm';
 
-// DBR-HIGH-003 cure: canonical TenantPlan SSoT lives in event-contracts.
-// Pre-fix this service had its own copy missing FREE; the canonical
-// includes FREE so the auth-side path that lacked it picks it up
-// (strict superset, no service loses anything). Re-export keeps the
-// public API surface unchanged for downstream consumers that import
-// TenantPlan from this module.
-export { TenantPlan } from '@platform/event-contracts';
-import { TenantPlan } from '@platform/event-contracts';
+// Re-export the canonical SSoT enums so downstream consumers that import
+// TenantPlan / TenantStatus from this entity module keep working unchanged.
+//
+// WHY both enums are canonical in event-contracts (not here):
+// - TenantPlan (DBR-HIGH-003): pre-fix this service's private copy lacked
+//   FREE; the canonical is a strict superset.
+// - TenantStatus (MT-HIGH-003): pre-fix this service owned a private 8-value
+//   copy that lacked the PURGED terminal and had no transition-legality
+//   authority. The canonical lives beside the TenantStatusChanged event and
+//   the lifecycle machine that now gates every status change + login.
+export { TenantPlan, TenantStatus } from '@platform/event-contracts';
 
 registerEnumType(TenantPlan, {
   name: 'TenantPlan',
   description: 'Tenant subscription plans',
 });
-
-/**
- * Tenant status
- */
-export enum TenantStatus {
-  PENDING = 'PENDING',
-  PROVISIONING = 'PROVISIONING',
-  PROVISIONING_FAILED = 'PROVISIONING_FAILED',
-  ACTIVE = 'ACTIVE',
-  SUSPENDED = 'SUSPENDED',
-  CANCELLED = 'CANCELLED',
-  DEACTIVATED = 'DEACTIVATED',
-  ARCHIVED = 'ARCHIVED',
-}
 
 registerEnumType(TenantStatus, {
   name: 'TenantStatus',

@@ -54,6 +54,10 @@ export class BestEffortEventPublisher {
     'UserPasswordChanged', // security signal; audit log is the SoT
     'PasswordResetRequested', // email-delivery trigger; user can re-request
     'PasswordResetCompleted', // security signal; audit log is the SoT
+    'InvitationAccepted', // onboarding-complete signal; the user + invitation
+    // rows are already durably committed, the actor can be a platform admin
+    // (NULL tenant), and the audit log records the acceptance — the event is a
+    // downstream welcome-workflow trigger, retriable, not a durability vector.
   ]);
 
   constructor(@Inject('EVENT_BUS') private readonly eventBus: EventPublishPort) {}

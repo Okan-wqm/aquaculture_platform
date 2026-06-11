@@ -26,6 +26,7 @@ describe('BestEffortEventPublisher', () => {
     'UserPasswordChanged',
     'PasswordResetRequested',
     'PasswordResetCompleted',
+    'InvitationAccepted',
   ])('publishes the allowlisted telemetry/audit-backed event %s', async (eventType) => {
     const event = makeEvent(eventType);
     await publisher.publish(event);

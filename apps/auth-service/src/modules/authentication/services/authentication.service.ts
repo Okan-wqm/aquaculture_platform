@@ -16,7 +16,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent, isLoginAllowed } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, EntityManager, EntityTarget, ObjectLiteral, Repository } from 'typeorm';
@@ -24,6 +23,7 @@ import { DataSource, EntityManager, EntityTarget, ObjectLiteral, Repository } fr
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { SECURITY_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { AuthPayload, MePayload } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
@@ -79,7 +79,11 @@ export class AuthenticationService {
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-    @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
+    // DATA-HIGH-001: every event auth-service login/invitation/password-reset
+    // publishes is telemetry or audit-log-backed and can originate from a
+    // platform-level SUPER_ADMIN (tenantId NULL), so they route through the
+    // allowlisted best-effort path rather than the raw event bus.
+    private readonly bestEffort: BestEffortEventPublisher,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
     private readonly mfaService: MfaService,
@@ -399,9 +403,9 @@ export class AuthenticationService {
           userAgent,
           success: true,
         }),
-        this.eventBus.publish({
-          ...createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
-        }),
+        this.bestEffort.publish(
+          createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
+        ),
       ]);
 
       await this.ensureMinDuration(startTime);
@@ -618,9 +622,9 @@ export class AuthenticationService {
         success: true,
       }),
       // Publish event (outside transaction - events can be retried)
-      this.eventBus.publish({
-        ...createBaseEvent('InvitationAccepted', result.tenantId ?? 'system', { aggregateId: result.id, aggregateType: 'User', userId: result.id }),
-      }),
+      this.bestEffort.publish(
+        createBaseEvent('InvitationAccepted', result.tenantId ?? 'system', { aggregateId: result.id, aggregateType: 'User', userId: result.id }),
+      ),
     ]);
 
     return this.tokenService.generateTokens(result, ipAddress);
@@ -1226,7 +1230,7 @@ export class AuthenticationService {
       // actionTokenId is the opaque auth.action_tokens row id. The notification
       // service calls auth-service's internal API with this ID to get the action URL
       // without the raw token ever touching the event bus.
-      await this.eventBus.publish({
+      await this.bestEffort.publish({
         ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id, version: 2 }),
         actionTokenId: actionToken.id,
         cryptoShredKeyId: user.id,
@@ -1355,9 +1359,9 @@ export class AuthenticationService {
         userAgent,
         success: true,
       }),
-      this.eventBus.publish({
-        ...createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
-      }),
+      this.bestEffort.publish(
+        createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
+      ),
     ]);
 
     // Generate new tokens so user is immediately logged in

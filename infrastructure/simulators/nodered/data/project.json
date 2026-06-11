@@ -1,0 +1,17 @@
+{
+  "name": "node-red-project",
+  "$schema": "../../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "root": "infrastructure/simulators/nodered/data",
+  "tags": ["scope:simulator", "runtime:node-red", "lint-profile:js-node-commonjs"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "infrastructure/simulators/nodered/data",
+        "command": "eslint . --max-warnings=0"
+      },
+      "cache": true
+    }
+  }
+}

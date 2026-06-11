@@ -814,6 +814,41 @@ for SVC in ${SERVICE_DB_ROLES}; do
   generate_credential "${SVC}_SERVICE_DB_PASS" "${ENV_FILE}"
 done
 
+# Phase A2a — ensure required secrets exist in .env BEFORE interpolation.
+# ORDERING IS LOAD-BEARING (INFRA-HIGH-007, 2026-06-11): this bootstrap
+# used to run as Phase A4, AFTER the compose interpolation check — so a
+# missing :?-required secret aborted the deploy before its generator
+# ever ran, and #388's SERVICE_IDENTITY_KEYRING generator was dead code
+# on the deploy path. Worse, compose's env-map iteration reports an
+# ARBITRARY first-missing variable per run (Go map ordering), so serial
+# deploys surfaced a different name each time and masked the full
+# missing set. Generate-if-absent MUST precede the check that consumes
+# the values.
+#
+# The REQUIRED set lives in scripts/deploy/lib/required-env-secrets.sh
+# and is shared with droplet-bootstrap-env.sh so the preflight list and
+# the bootstrap generator cannot drift (Tier-1 SSoT architectural fix).
+# Bootstrap is strictly idempotent: generates only absent secrets,
+# never rotates (rotation stays an incident-response ceremony — see
+# docs/runbooks/secret-rotation.md).
+echo "=== Pre-flight: required secrets presence ==="
+bash /var/aqua-saas/scripts/deploy/droplet-bootstrap-env.sh
+# shellcheck disable=SC1091
+source /var/aqua-saas/scripts/deploy/lib/required-env-secrets.sh
+MISSING=()
+while IFS= read -r SECRET; do
+  if ! grep -q "^${SECRET}=" /var/aqua-saas/.env 2>/dev/null; then
+    MISSING+=("$SECRET")
+  fi
+done < <(required_env_secret_names)
+if [ ${#MISSING[@]} -gt 0 ]; then
+  echo "::error::Still missing after bootstrap: ${MISSING[*]}"
+  echo "  Bootstrap reported success but preflight re-check failed — investigate"
+  echo "  /var/aqua-saas/.env permissions and scripts/deploy/droplet-bootstrap-env.sh output."
+  exit 1
+fi
+echo "  OK: ${#REQUIRED_ENV_SECRETS[@]} required secrets present"
+
 echo "=== Pre-flight: compose interpolation ==="
 if ! docker compose -f docker-compose.droplet.yml config --quiet; then
   echo "::error::docker-compose.droplet.yml interpolation failed."
@@ -838,39 +873,8 @@ else
   echo "  SKIP: generator script not present (commit predates ADR-015)"
 fi
 
-# Phase A4 — ensure required secrets exist in .env.
-# The REQUIRED set lives in scripts/deploy/lib/required-env-secrets.sh and
-# is shared with droplet-bootstrap-env.sh so the preflight check and the
-# bootstrap generator cannot drift (Tier-1 SSoT architectural fix).
-#
-# Bootstrap is invoked UNCONDITIONALLY here and is safe by design because
-# droplet-bootstrap-env.sh is strictly idempotent: for each required
-# secret it `grep`s for an existing `^NAME=` line and skips if present.
-# A pre-existing PASSWORD_PEPPER is never overwritten — this path only
-# *generates if absent*, never *rotates*. Rotation (the dangerous
-# operation that invalidates every bcrypt hash) still requires explicit
-# incident-response — see docs/runbooks/secret-rotation.md#password-pepper.
-#
-# The post-bootstrap verify loop is defense-in-depth: if the generator
-# fails halfway, we catch the gap here rather than letting containers
-# boot with half-populated env.
-echo "=== Pre-flight: required secrets presence ==="
-bash /var/aqua-saas/scripts/deploy/droplet-bootstrap-env.sh
-# shellcheck disable=SC1091
-source /var/aqua-saas/scripts/deploy/lib/required-env-secrets.sh
-MISSING=()
-while IFS= read -r SECRET; do
-  if ! grep -q "^${SECRET}=" /var/aqua-saas/.env 2>/dev/null; then
-    MISSING+=("$SECRET")
-  fi
-done < <(required_env_secret_names)
-if [ ${#MISSING[@]} -gt 0 ]; then
-  echo "::error::Still missing after bootstrap: ${MISSING[*]}"
-  echo "  Bootstrap reported success but preflight re-check failed — investigate"
-  echo "  /var/aqua-saas/.env permissions and scripts/deploy/droplet-bootstrap-env.sh output."
-  exit 1
-fi
-echo "  OK: ${#REQUIRED_ENV_SECRETS[@]} required secrets present"
+# Phase A4 — (moved to Phase A2a above: generate-if-absent must precede
+# the interpolation check that consumes the values — INFRA-HIGH-007.)
 
 # End of pre-flight ──────────────────────────────────────────
 

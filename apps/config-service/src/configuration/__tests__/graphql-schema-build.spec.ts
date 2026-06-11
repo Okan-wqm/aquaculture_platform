@@ -1,5 +1,5 @@
-import { Test } from '@nestjs/testing';
 import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphql';
+import { Test } from '@nestjs/testing';
 
 import { ConfigurationResolver } from '../configuration.resolver';
 import { Configuration } from '../entities/configuration.entity';

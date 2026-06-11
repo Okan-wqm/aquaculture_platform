@@ -42,6 +42,7 @@ Environment:
   DEPLOY_SHA=<40-char sha>
   IMAGE_PREFIX=ghcr.io/owner/repo
   CAPACITY_GC_MODE=auto|off
+  GC_DRY_RUN=true|false   (gc only: enumerate removals without deleting)
 EOF
 }
 
@@ -292,19 +293,63 @@ is_protected_id() {
   grep -qx "${id}" "${file}" 2>/dev/null
 }
 
+gc_remove_ref() {
+  # GC_DRY_RUN=true lists what WOULD be removed without touching the
+  # daemon — operator-auditable enumeration before any destructive run.
+  local ref="$1"
+  if [ "${GC_DRY_RUN:-false}" = "true" ]; then
+    echo "  [dry-run] would remove ${ref}"
+    return 0
+  fi
+  docker rmi "${ref}" 2>&1 || true
+}
+
 safe_image_gc() {
   echo "=== Safe image-only GC ==="
-  echo "Policy: dangling images + unused old app SHA tags only; volumes/containers/networks/build-cache untouched."
+  echo "Policy: dangling images + unused old app SHA tags + superseded rollback retags; volumes/containers/networks/build-cache untouched."
   local before after reclaimed
   before=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
 
-  docker image prune -f --filter "dangling=true" 2>&1 || true
+  if [ "${GC_DRY_RUN:-false}" != "true" ]; then
+    docker image prune -f --filter "dangling=true" 2>&1 || true
+  fi
 
   local protected
   protected="$(mktemp)"
   protected_image_ids_file "${protected}"
 
-  local repo tag id ref removed=0 skipped=0
+  # Rollback-retag retention (INFRA-HIGH-013). Every deploy retags the
+  # previously-running generation as rollback-<sha>-<ts> — a full image
+  # set (~20GB) per deploy — and the SHA-only filter in the pass below
+  # never matches those tags, so generations accumulated until the
+  # capacity gate blocked the train (3x on 2026-06-11 alone). Retention
+  # policy: a rollback retag survives ONLY while the current rollback
+  # manifest (or a running container) references its image ID — i.e.
+  # exactly the newest generation. Older generations are LOCAL retags of
+  # images this droplet only ever PULLED from GHCR (pull-only runtime,
+  # ADR-033), so deletion loses nothing that is not re-pullable.
+  local repo tag id ref removed_rollback=0 skipped=0
+  while read -r repo tag id; do
+      [ -n "${repo:-}" ] || continue
+      case "${repo}" in
+        "${IMAGE_PREFIX}"/*) ;;
+        *) continue ;;
+      esac
+      case "${tag}" in
+        rollback-*) ;;
+        *) continue ;;
+      esac
+      if is_protected_id "${id}" "${protected}"; then
+        echo "  keep protected rollback retag ${repo}:${tag} ${id}"
+        skipped=$((skipped + 1))
+        continue
+      fi
+      echo "  remove superseded rollback retag ${repo}:${tag} ${id}"
+      gc_remove_ref "${repo}:${tag}"
+      removed_rollback=$((removed_rollback + 1))
+  done < <(docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' 2>/dev/null)
+
+  local removed=0
   while read -r repo tag id; do
       [ -n "${repo:-}" ] || continue
       case "${repo}" in
@@ -329,13 +374,21 @@ safe_image_gc() {
 
       ref="${repo}:${tag}"
       echo "  remove unused old app tag ${ref} ${id}"
-      docker rmi "${ref}" 2>&1 || true
+      gc_remove_ref "${ref}"
       removed=$((removed + 1))
   done < <(docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' 2>/dev/null)
 
   rm -f "${protected}"
+
+  # Untagging alone reclaims nothing while sibling tags or freshly
+  # orphaned layers remain — the historical before=after symptom. A final
+  # dangling-only prune converts the untag passes into actual bytes.
+  if [ "${GC_DRY_RUN:-false}" != "true" ]; then
+    docker image prune -f --filter "dangling=true" 2>&1 || true
+  fi
+
   after=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
-  echo "Safe GC complete; removed_tags=${removed:-0} skipped_protected=${skipped:-0} before=${before:-unknown} after=${after:-unknown}"
+  echo "Safe GC complete; removed_tags=${removed:-0} removed_rollback_retags=${removed_rollback:-0} skipped_protected=${skipped:-0} dry_run=${GC_DRY_RUN:-false} before=${before:-unknown} after=${after:-unknown}"
 }
 
 run_gate() {

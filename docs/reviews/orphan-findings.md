@@ -3764,3 +3764,17 @@ Root cause: the ownership transfer ("runtime services must not install trigger D
 Fix: (1) re-audit `MODULE_SCHEMAS` per schema against actual runtime write paths (outbox, inbox, reference seeds, ledger tables); (2) port `installSourceSchemaWriteGuards` from 8706e7a68 into `libs/backend-common` and add a `sourceWriteGuards` step to `SchemaPostMigrationHardening` + the db-migrate hardening executor (gated per-schema, staged rollout starting with farm); (3) extend `tests/invariants/authoritative-runtime-ddl-contract.spec.ts` to require the step for schema-per-tenant entries once enabled.
 
 Status: OPEN. Owner: data-expert. Deadline: 2026-07-15 (registry follow-up of DATA-HIGH-004; raised by docs/reviews/data-expert/2026-06-11-runtime-ddl-authority-port.md).
+
+## ORPHAN-HIGH-088 — Tenant-şema runtime yetkilerinin SSOT sahibi yok; production seremoni grant'leriyle ayakta
+
+Severity: HIGH. Stage-008 yalnız adlandırılmış servis şemalarını (15 spec + shared + platform) yönetir; `tenant_<uuid>` şemaları kapsam dışı. Tenant-schema-provisioner şemayı yaratır, tabloları fan-out eder, RLS/audit hardening uygular ve ledger READ erişimi verir — ama runtime rollerine (örn. `messaging_service`) tenant şeması üzerinde USAGE/DML/partition-CREATE GRANT'ini HİÇBİR bileşen vermez (`applyProvisionerHardening` yalnız RLS + audit kolonları; `sql-fragments.ts` grant primitifi taşımıyor).
+
+2026-06-11 production açılışında `tenant_7f6b...` erişimi elle verilen grant'lerle kurtarıldı; bu grant'ler hiçbir SSOT'ta yaşamıyor. Sonuç: (1) yeni provision edilen her tenant şeması runtime erişimsiz doğar — ilk tenant-scoped sorgu runtime'da patlar; (2) seremoni grant'leri bir restore/rebuild'de sessizce kaybolur.
+
+Kök neden: ADR-011 sahiplik modeli servis şemaları için 008'de yürütülürken, tenant şemaları için yetki katmanı provisioner'a hiç bağlanmamış — provisioning akışında `APPLYING_GRANTS` durumu var ama yalnız migration-ledger READ'i kapsıyor.
+
+Düzeltme yönü: provisioner `APPLYING_GRANTS` aşamasına tenant-şema runtime grant SSOT'u eklenir (servis kataloğundan türetilen rol→şema eşlemesiyle USAGE+DML; messaging partition'ları için DATA-HIGH-006 definer-fonksiyon deseni tenant şemalarını da kapsar); mevcut tenant şemaları için idempotent backfill ceremony'si aynı PR'da. Compliance-bootstrap-SSOT yapısal PR'ıyla birlikte ele alınmalı.
+
+Status: OPEN (2026-06-11; sahip: data-expert; kuyruktaki provisioner/compliance yapısal PR kapsamına bağlandı).
+
+Güncelleme (2026-06-11, DATA-HIGH-006 PR'ı): **messaging-partition dilimi SSOT'a bağlandı** — provisioner APPLYING_GRANTS artık `grantTenantMessagingPartitionAuthority` ile her yeni tenant şemasında messaging-domain ilişkilerini `messaging_schema_owner`'a re-own edip şema USAGE+CREATE veriyor; Stage-010 mevcut şemaları idempotent backfill'liyor. Kalan kapsam (diğer servislerin runtime-DML grant SSOT'u) bu bulguda AÇIK durmaya devam ediyor.

@@ -1,5 +1,5 @@
 -- ============================================================================
--- Platform Bootstrap — Stage 8 of 9: Least-Privilege Runtime Boundary
+-- Platform Bootstrap — Stage 8 of 10: Least-Privilege Runtime Boundary
 --
 -- Stage 004 intentionally preserved the historical broad grants so bootstrap
 -- could run against already-live databases. This final stage is the executable
@@ -54,27 +54,85 @@ BEGIN
 
     EXECUTE format('REASSIGN OWNED BY %I TO %I', spec.runtime_role, spec.owner_role);
     EXECUTE format('ALTER SCHEMA %I OWNER TO %I', spec.schema_name, spec.owner_role);
+
+    -- Ownership realignment, three passes (2026-06-11 production incident:
+    -- the original single loop ran ALTER SEQUENCE on column-linked serial/
+    -- identity sequences, which PostgreSQL refuses outright — "cannot change
+    -- owner of sequence ... linked to table" — even for a superuser. CI never
+    -- saw it because bootstrap-from-scratch runs this stage against EMPTY
+    -- schemas; only a pre-existing production database has relations here.)
+    --
+    --   Pass 1: tables / partitioned tables / foreign tables — ALTER TABLE
+    --           moves column-linked sequences along automatically.
+    --   Pass 2: views + materialized views.
+    --   Pass 3: free-standing sequences ONLY (pg_depend 'a'/'i' rows mark
+    --           column-linked sequences, which pass 1 already moved).
+    --
+    -- Every pass skips relations whose owner already matches (idempotent —
+    -- re-running the stage performs zero ALTERs on an aligned database, so
+    -- a least-privilege db_migrate run cannot trip over objects it could
+    -- not re-own anyway).
+    FOR relation IN
+      SELECT c.oid::regclass::text AS qualified_name
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
+      WHERE n.nspname = spec.schema_name
+        AND c.relkind IN ('r', 'p', 'f')
+        AND r.rolname IS DISTINCT FROM spec.owner_role
+    LOOP
+      EXECUTE format('ALTER TABLE %s OWNER TO %I', relation.qualified_name, spec.owner_role);
+    END LOOP;
+
     FOR relation IN
       SELECT c.relkind, c.oid::regclass::text AS qualified_name
       FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
       WHERE n.nspname = spec.schema_name
-        AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+        AND c.relkind IN ('v', 'm')
+        AND r.rolname IS DISTINCT FROM spec.owner_role
     LOOP
-      IF relation.relkind = 'S' THEN
-        EXECUTE format('ALTER SEQUENCE %s OWNER TO %I', relation.qualified_name, spec.owner_role);
-      ELSIF relation.relkind = 'v' THEN
-        EXECUTE format('ALTER VIEW %s OWNER TO %I', relation.qualified_name, spec.owner_role);
-      ELSIF relation.relkind = 'm' THEN
+      IF relation.relkind = 'm' THEN
         EXECUTE format('ALTER MATERIALIZED VIEW %s OWNER TO %I', relation.qualified_name, spec.owner_role);
       ELSE
-        EXECUTE format('ALTER TABLE %s OWNER TO %I', relation.qualified_name, spec.owner_role);
+        EXECUTE format('ALTER VIEW %s OWNER TO %I', relation.qualified_name, spec.owner_role);
       END IF;
+    END LOOP;
+
+    FOR relation IN
+      SELECT c.oid::regclass::text AS qualified_name
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
+      WHERE n.nspname = spec.schema_name
+        AND c.relkind = 'S'
+        AND r.rolname IS DISTINCT FROM spec.owner_role
+        AND NOT EXISTS (
+          SELECT 1
+          FROM pg_catalog.pg_depend d
+          WHERE d.classid = 'pg_catalog.pg_class'::regclass
+            AND d.objid = c.oid
+            AND d.refclassid = 'pg_catalog.pg_class'::regclass
+            AND d.deptype IN ('a', 'i')
+        )
+    LOOP
+      EXECUTE format('ALTER SEQUENCE %s OWNER TO %I', relation.qualified_name, spec.owner_role);
     END LOOP;
     EXECUTE format('REVOKE CREATE ON DATABASE %I FROM %I', current_database(), spec.runtime_role);
 
     EXECUTE format('REVOKE ALL ON SCHEMA %I FROM %I', spec.schema_name, spec.runtime_role);
     EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', spec.schema_name, spec.runtime_role);
+
+    -- NOTE (DATA-HIGH-006): the 2026-06-11 messaging CREATE carve-out that
+    -- lived here was dissolved by Stage 010 — partition DDL now runs through
+    -- platform.create_messaging_partition (SECURITY DEFINER owned by
+    -- messaging_schema_owner; ownership is the binding pg16 requirement,
+    -- proven empirically — schema CREATE alone cannot create a partition).
+    -- The messaging runtime holds EXECUTE only, so this REVOKE/GRANT pair
+    -- applies uniformly to every runtime role again. The idempotent re-run
+    -- of this stage is also what revokes the old carve-out grant on
+    -- already-bootstrapped databases (REVOKE ALL above).
 
     EXECUTE format(
       'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I FROM %I',

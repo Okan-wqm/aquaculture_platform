@@ -397,10 +397,124 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
       await expect(
         queryAsRole('farm_service', 'CREATE TABLE farm.__runtime_ddl_probe (id integer)'),
       ).rejects.toThrow(/permission denied/i);
+
+      // DATA-HIGH-006 closure: the 2026-06-11 DATA-HIGH-005 carve-out
+      // (schema CREATE for the messaging runtime) is dissolved — partition
+      // DDL now runs exclusively through the Stage-010 SECURITY DEFINER
+      // primitive, so the messaging runtime is back to USAGE+DML like every
+      // other role. This assertion is the bidirectional lock with the 008
+      // SQL: silent re-introduction of the grant fails here.
+      const messagingCreateRows = (await qr.query(
+        `SELECT has_schema_privilege('messaging_service', 'messaging', 'CREATE') AS has_create`,
+      )) as Array<{ has_create: boolean }>;
+      expect(messagingCreateRows[0]?.has_create).toBe(false);
+
+      // Counter-probe: the authority did not vanish — it moved to the
+      // definer function's owner role.
+      const ownerCreateRows = (await qr.query(
+        `SELECT has_schema_privilege('messaging_schema_owner', 'messaging', 'CREATE') AS has_create`,
+      )) as Array<{ has_create: boolean }>;
+      expect(ownerCreateRows[0]?.has_create).toBe(true);
+
+      const farmSchemaCreateRows = (await qr.query(
+        `SELECT has_schema_privilege('farm_service', 'farm', 'CREATE') AS has_create`,
+      )) as Array<{ has_create: boolean }>;
+      expect(farmSchemaCreateRows[0]?.has_create).toBe(false);
     } finally {
       await qr.query('RESET ROLE');
       await qr.query('DROP TABLE IF EXISTS farm.__runtime_privilege_probe');
       await qr.query('DROP TABLE IF EXISTS farm.__runtime_ddl_probe');
+      await qr.release();
+    }
+  }, 30_000);
+
+  it('installs the messaging partition definer primitive (DATA-HIGH-006)', async () => {
+    const qr = ctx.dataSource.createQueryRunner();
+    try {
+      // Function exists, is SECURITY DEFINER, owned by the schema-owner
+      // role (pg16 requires parent-table OWNERSHIP for PARTITION OF — not
+      // just schema CREATE; proven empirically on the pinned production
+      // image), and pins search_path.
+      const fnRows = (await qr.query(
+        `SELECT p.prosecdef,
+                p.proowner::regrole::text AS owner_name,
+                array_to_string(p.proconfig, ';') AS config
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'platform'
+            AND p.proname = 'create_messaging_partition'`,
+      )) as Array<{ prosecdef: boolean; owner_name: string; config: string }>;
+      expect(fnRows).toHaveLength(1);
+      expect(fnRows[0]).toMatchObject({
+        prosecdef: true,
+        owner_name: 'messaging_schema_owner',
+      });
+      expect(fnRows[0]?.config).toContain('search_path=pg_catalog, pg_temp');
+
+      // EXECUTE envelope: messaging runtime only; PUBLIC and other
+      // runtimes are out.
+      const execRows = (await qr.query(
+        `SELECT has_function_privilege('messaging_service',
+                  'platform.create_messaging_partition(text,text,integer,integer)', 'EXECUTE') AS msg,
+                has_function_privilege('farm_service',
+                  'platform.create_messaging_partition(text,text,integer,integer)', 'EXECUTE') AS farm`,
+      )) as Array<{ msg: boolean; farm: boolean }>;
+      expect(execRows[0]).toEqual({ msg: true, farm: false });
+
+      // The messaging parent tables exist only in live schemas — the
+      // bootstrap atom runs against an empty database, so create the
+      // parent as the owner role exactly like the Baseline DDL does.
+      await qr.query(`SET ROLE messaging_schema_owner`);
+      await qr.query(
+        `CREATE TABLE IF NOT EXISTS messaging.messages (
+           id integer, created_at timestamptz NOT NULL
+         ) PARTITION BY RANGE (created_at)`,
+      );
+      await qr.query('RESET ROLE');
+
+      // Smoke: the runtime role creates a partition THROUGH the primitive…
+      await queryAsRole(
+        'messaging_service',
+        `SELECT platform.create_messaging_partition('messaging', 'messages', 2031, 7)`,
+      );
+      const partRows = (await qr.query(
+        `SELECT c.relname
+           FROM pg_inherits i
+           JOIN pg_class c ON c.oid = i.inhrelid
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'messaging' AND c.relname = 'messages_2031_07'`,
+      )) as Array<{ relname: string }>;
+      expect(partRows).toHaveLength(1);
+
+      // …idempotently…
+      await queryAsRole(
+        'messaging_service',
+        `SELECT platform.create_messaging_partition('messaging', 'messages', 2031, 7)`,
+      );
+
+      // …while raw DDL and out-of-allowlist calls stay impossible.
+      await expect(
+        queryAsRole(
+          'messaging_service',
+          `CREATE TABLE messaging.messages_2031_08 PARTITION OF messaging.messages
+             FOR VALUES FROM ('2031-08-01') TO ('2031-09-01')`,
+        ),
+      ).rejects.toThrow(/permission denied|must be owner/i);
+      await expect(
+        queryAsRole(
+          'messaging_service',
+          `SELECT platform.create_messaging_partition('public', 'messages', 2031, 7)`,
+        ),
+      ).rejects.toThrow(/not in the allowlist/i);
+      await expect(
+        queryAsRole(
+          'messaging_service',
+          `SELECT platform.create_messaging_partition('messaging', 'users', 2031, 7)`,
+        ),
+      ).rejects.toThrow(/not partition-managed/i);
+    } finally {
+      await qr.query('RESET ROLE');
+      await qr.query('DROP TABLE IF EXISTS messaging.messages CASCADE');
       await qr.release();
     }
   }, 30_000);
@@ -463,6 +577,28 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
 
     const signal = await readBootstrapSignal();
     expect(signal?.schemaCount).toBe(PLATFORM_SCHEMAS.length);
+
+    // DATA-HIGH-006: the partition definer primitive lives in `platform`
+    // (dropped above) and MUST come back with the same security shape —
+    // losing it on a rebuild would resurrect the raw-runtime-DDL pressure
+    // the function exists to make impossible.
+    const fnQr = ctx.dataSource.createQueryRunner();
+    try {
+      const fnRows = (await fnQr.query(
+        `SELECT p.prosecdef, p.proowner::regrole::text AS owner_name
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'platform'
+            AND p.proname = 'create_messaging_partition'`,
+      )) as Array<{ prosecdef: boolean; owner_name: string }>;
+      expect(fnRows).toHaveLength(1);
+      expect(fnRows[0]).toEqual({
+        prosecdef: true,
+        owner_name: 'messaging_schema_owner',
+      });
+    } finally {
+      await fnQr.release();
+    }
   }, 120_000);
 });
 

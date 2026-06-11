@@ -70,61 +70,42 @@ export class PartitionManagerService implements OnApplicationBootstrap {
     const allSchemas = ['messaging', ...schemas];
 
     for (const schema of allSchemas) {
-      for (const { table, column } of PARTITIONED_TABLES) {
+      for (const { table } of PARTITIONED_TABLES) {
         for (const { year, month } of months) {
-          await this.createPartitionIfNotExists(schema, table, column, year, month);
+          await this.createPartitionIfNotExists(schema, table, year, month);
         }
       }
     }
   }
 
   /**
-   * Creates a single partition table if it does not already exist.
+   * Ensures a single monthly partition via the platform's SECURITY DEFINER
+   * primitive (DATA-HIGH-006).
+   *
+   * WHY no raw DDL here: pg16 requires schema CREATE (checked BEFORE the
+   * IF NOT EXISTS short-circuit) AND parent-table ownership to create a
+   * partition — both empirically proven on the production image. The
+   * runtime role deliberately holds neither; its entire DDL surface is
+   * EXECUTE on platform.create_messaging_partition, whose owner
+   * (messaging_schema_owner) carries the authority and whose body enforces
+   * the schema/table allowlists, month-boundary math, and idempotency.
+   * Errors propagate untouched: a failure here means the privilege SSoT is
+   * broken, which must fail the boot loudly (see class docblock on the
+   * deliberate absence of a DEFAULT partition).
    */
   private async createPartitionIfNotExists(
     schema: string,
     table: string,
-    _column: string,
     year: number,
     month: number,
   ): Promise<void> {
-    const paddedMonth = String(month).padStart(2, '0');
-    const partitionName = `${table}_${year}_${paddedMonth}`;
-
-    // Calculate range boundaries
-    const startDate = `${year}-${paddedMonth}-01`;
-    const nextMonth = month === 12 ? 1 : month + 1;
-    const nextYear = month === 12 ? year + 1 : year;
-    const paddedNextMonth = String(nextMonth).padStart(2, '0');
-    const endDate = `${nextYear}-${paddedNextMonth}-01`;
-
-    // Sanitize schema name — only allow alphanumeric + underscores
-    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema)) {
-      this.logger.warn(`Skipping invalid schema name: ${schema}`);
-      return;
-    }
-
-    const sql = `
-      CREATE TABLE IF NOT EXISTS "${schema}"."${partitionName}"
-        PARTITION OF "${schema}"."${table}"
-        FOR VALUES FROM ('${startDate}') TO ('${endDate}')
-    `;
-
-    try {
-      await this.dataSource.query(sql);
-      this.logger.log(`Partition ensured: ${schema}.${partitionName}`);
-    } catch (err) {
-      const message = (err as Error).message;
-      // PostgreSQL raises an error if the partition already overlaps — safe to ignore
-      if (message.includes('already exists') || message.includes('overlaps')) {
-        this.logger.debug(`Partition already exists: ${schema}.${partitionName}`);
-      } else {
-        this.logger.error(
-          `Failed to create partition ${schema}.${partitionName}: ${message}`,
-        );
-        throw err;
-      }
-    }
+    await this.dataSource.query(
+      'SELECT platform.create_messaging_partition($1, $2, $3, $4)',
+      [schema, table, year, month],
+    );
+    this.logger.log(
+      `Partition ensured: ${schema}.${table}_${year}_${String(month).padStart(2, '0')}`,
+    );
   }
 
   /**

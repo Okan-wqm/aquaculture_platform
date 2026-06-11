@@ -45,6 +45,12 @@ export type {
   TenantMigrationLedgerReadGrant,
   TenantMigrationLedgerReadGrantOptions,
 } from './tenant-migration-ledger-privileges';
+export { grantTenantMessagingPartitionAuthority } from './messaging-partition-privileges';
+export type {
+  MessagingPartitionAuthorityGrant,
+  MessagingPartitionAuthorityOptions,
+  MessagingPartitionAuthorityQueryExecutor,
+} from './messaging-partition-privileges';
 
 // Migration helpers — column/table existence guards. Shared across all
 // services for migrations that reference state created by squashed

@@ -3766,3 +3766,5 @@ Kök neden: ADR-011 sahiplik modeli servis şemaları için 008'de yürütülür
 Düzeltme yönü: provisioner `APPLYING_GRANTS` aşamasına tenant-şema runtime grant SSOT'u eklenir (servis kataloğundan türetilen rol→şema eşlemesiyle USAGE+DML; messaging partition'ları için DATA-HIGH-006 definer-fonksiyon deseni tenant şemalarını da kapsar); mevcut tenant şemaları için idempotent backfill ceremony'si aynı PR'da. Compliance-bootstrap-SSOT yapısal PR'ıyla birlikte ele alınmalı.
 
 Status: OPEN (2026-06-11; sahip: data-expert; kuyruktaki provisioner/compliance yapısal PR kapsamına bağlandı).
+
+Güncelleme (2026-06-11, DATA-HIGH-006 PR'ı): **messaging-partition dilimi SSOT'a bağlandı** — provisioner APPLYING_GRANTS artık `grantTenantMessagingPartitionAuthority` ile her yeni tenant şemasında messaging-domain ilişkilerini `messaging_schema_owner`'a re-own edip şema USAGE+CREATE veriyor; Stage-010 mevcut şemaları idempotent backfill'liyor. Kalan kapsam (diğer servislerin runtime-DML grant SSOT'u) bu bulguda AÇIK durmaya devam ediyor.

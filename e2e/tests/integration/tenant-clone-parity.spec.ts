@@ -250,6 +250,12 @@ describe('Tenant Clone Parity (per-tenant schema mirrors source 1:1)', () => {
       // The tenant schema holds tables from ALL tenant-scoped schemas.
       // Filter the clone set to entries whose name matches one in the
       // source schema — that's the per-source-schema parity check.
+      // NOTE (DATA-HIGH-006): monthly partition children
+      // (messages_YYYY_MM, message_receipts_YYYY_MM) are BASE TABLEs in
+      // information_schema but are intentionally excluded by this very
+      // sourceSet filter — they are runtime-lifecycle objects created by
+      // platform.create_messaging_partition, not part of the clone
+      // contract. Do not "fix" the filter to include them.
       const cloneSet = new Set(
         cloneTables.rows.map((r) => r.table_name).filter((t) => sourceSet.has(t)),
       );

@@ -31,6 +31,26 @@ describe('tenant schema provisioner contract', () => {
     expect(sql).not.toContain('GRANT CREATE ON DATABASE');
   });
 
+  it('pins search_path on every SECURITY DEFINER function (definer hardening)', () => {
+    // A SECURITY DEFINER function without a pinned search_path is the
+    // classic privilege-escalation footgun; the pin count must track the
+    // definer count exactly. Line-anchored so prose mentions in SQL
+    // comments don't inflate either side.
+    const definerCount = (sql.match(/^SECURITY DEFINER$/gm) ?? []).length;
+    const pinCount = (sql.match(/^SET search_path = pg_catalog, pg_temp$/gm) ?? []).length;
+    expect(definerCount).toBeGreaterThan(0);
+    expect(pinCount).toBe(definerCount);
+  });
+
+  it('grants messaging partition authority on every provisioned tenant schema (DATA-HIGH-006)', () => {
+    // pg16 requires parent-table OWNERSHIP for PARTITION OF; the fan-out
+    // creates clones under the bootstrap connection role, so APPLYING_GRANTS
+    // must re-own the messaging relations + grant schema CREATE to
+    // messaging_schema_owner — otherwise the first monthly partition for a
+    // new tenant fails and the unowned-ceremony-grant class returns.
+    expect(worker).toContain('grantTenantMessagingPartitionAuthority');
+  });
+
   it('prevents duplicate active schema jobs for the same tenant', () => {
     expect(sql).toContain('idx_tenant_schema_jobs_active_tenant');
     expect(sql).toContain("WHERE status IN (\n    'REQUESTED'");

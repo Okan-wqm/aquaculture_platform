@@ -44,6 +44,7 @@ import { MessagingModule } from './modules/messaging/messaging.module';
 import { SupportModule } from './modules/support/support.module';
 import { SystemModule } from './modules/system-module/system-module.module';
 import { TenantModule } from './modules/tenant/tenant.module';
+import { AuthOutboxModule } from './outbox/auth-outbox.module';
 
 const AuthMigrationRunnerService = createSchemaVersionGate('auth');
 
@@ -259,8 +260,10 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
     // the service Redis — login/MFA/reset budgets are shared across replicas.
     RateLimitModule.forRoot({ keyPrefix: 'ratelimit:' }),
 
-    // Event Bus
+    // Event Bus + transactional outbox (DATA-HIGH-001). AuthOutboxModule is
+    // @Global, so OutboxPublisher is injectable in every state-change writer.
     EventBusModule.forRoot(),
+    AuthOutboxModule,
 
     // Feature modules
     AuthenticationModule,

@@ -1,34 +1,13 @@
 /**
- * Canonical tenant lifecycle status.
+ * Tenant lifecycle status — re-export of the canonical SSoT.
  *
- * This is the single source of truth for tenant status values across the entire
- * platform. Both backend entities and frontend types MUST use this enum.
- *
- * ## Existing definitions reconciled
- * - auth-service `Tenant.status`: ACTIVE, SUSPENDED, PENDING, CANCELLED
- * - admin-api `Tenant.status`: PENDING, ACTIVE, SUSPENDED, CANCELLED, DEACTIVATED, ARCHIVED
- * - gateway-api `TenantStatus`: active, suspended, pending, trial, expired (lowercase drift)
- * - frontend `TenantStatus`: pending, active, suspended, deactivated, archived (lowercase drift)
- *
- * The canonical enum uses UPPER_CASE values to match the auth-service (source of truth
- * for tenant records). Services using lowercase must migrate to this enum.
+ * The canonical declaration moved to `@platform/event-contracts`
+ * (alongside {@link TenantPlan} and the TenantStatusChanged event that
+ * carries it) because shared-contracts is not wired into the tsconfig
+ * paths / nx graph, so backend services could never actually import this
+ * "SSoT". event-contracts is consumed by every service, so the canonical
+ * enum lives there and this module simply forwards it — keeping the old
+ * import path valid while guaranteeing a single definition (auth-audit
+ * HIGH-007).
  */
-export enum TenantStatus {
-  /** Tenant registration submitted but not yet activated by admin. */
-  PENDING = 'PENDING',
-
-  /** Tenant is fully operational. */
-  ACTIVE = 'ACTIVE',
-
-  /** Tenant temporarily suspended by admin (e.g. payment issue, policy violation). */
-  SUSPENDED = 'SUSPENDED',
-
-  /** Tenant explicitly deactivated by admin — data preserved but access revoked. */
-  DEACTIVATED = 'DEACTIVATED',
-
-  /** Tenant data archived and access fully revoked — precursor to deletion. */
-  ARCHIVED = 'ARCHIVED',
-
-  /** Tenant subscription cancelled — may still have access until period end. */
-  CANCELLED = 'CANCELLED',
-}
+export { TenantStatus } from '@platform/event-contracts';

@@ -38,9 +38,9 @@
  * the gate exports the full env contract.
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { resolve, join } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 

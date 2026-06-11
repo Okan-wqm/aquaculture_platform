@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { QueryRunner } from 'typeorm';
 
-import { hasDbMigrateDdlAuthority, isSchemaDdlOwnedByDbMigrate } from './db-migrate-authority.util';
+import { assertRuntimeDdlAllowed } from './db-migrate-authority.util';
 
 /**
  * convertAuditColumnsToTimestamptz
@@ -95,17 +95,14 @@ const SAFE_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  */
 const DEFAULT_AUDIT_COLUMNS = ['createdAt', 'updatedAt', 'created_at', 'updated_at'] as const;
 
+/**
+ * WHY delegation: the legality decision ("db-migrate container → allowed;
+ * authoritative runtime service → forbidden; local/test → allowed") lives
+ * ONCE in `assertRuntimeDdlAllowed` so this helper can never drift from
+ * the RLS bootstraps that consult the same contract.
+ */
 function assertDbMigrateDdlAuthority(operation: string): void {
-  if (hasDbMigrateDdlAuthority()) {
-    return;
-  }
-  if (!isSchemaDdlOwnedByDbMigrate()) {
-    return;
-  }
-  throw new Error(
-    `[db-migrate authority] ${operation} is disabled in runtime services when ` +
-      `schema DDL is owned by aqua-db-migrate. Run the db-migrate container instead.`,
-  );
+  assertRuntimeDdlAllowed({ serviceName: 'audit-columns-helper', operation });
 }
 
 export interface ConvertAuditColumnsOptions {

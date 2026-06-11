@@ -4,6 +4,7 @@ import {
   convertAuditColumnsToTimestamptz,
   ConvertAuditColumnsOptions,
 } from './convert-audit-columns-to-timestamptz.helper';
+import { assertRuntimeDdlAllowed } from './db-migrate-authority.util';
 
 /**
  * AuditColumnsBootstrap
@@ -87,6 +88,15 @@ export class AuditColumnsBootstrap implements OnApplicationBootstrap {
       );
       return;
     }
+
+    // Choke-point (PR#363 design): in authoritative mode fail fast BEFORE
+    // pinning a pool connection. The helper re-asserts internally (it is
+    // also called directly from migrations), so this is defense-in-depth
+    // plus a cheaper failure point.
+    assertRuntimeDdlAllowed({
+      serviceName: this.options.serviceName,
+      operation: 'audit-column TIMESTAMPTZ conversion',
+    });
 
     const queryRunner = this.dataSource.createQueryRunner();
 

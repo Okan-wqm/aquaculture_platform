@@ -95,6 +95,19 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 
 ---
 
+## DATA-HIGH-001 — Auth domain event'leri raw fire-and-forget event-bus ile yayınlanıyordu, durable garanti yoktu (W3.2)
+
+- **Durum:** IN-PROGRESS (PR #390 — outbox altyapısı + 5 mantıksal yayın-grubu taşındı; CI yeşil sha 013076226 + 780e0c0e). **Kalan:** `tenant.service` (~10 lifecycle event: TenantCreated/Activated/StatusChanged/Suspended/ModulesAssigned/UserInvited) + `tenant-provisioning-command.service` raw event-bus'tan W3.3'te (provisioning consolidation) çıkarılacak — bu event'ler outbox VE `TenantStatusMachine` üzerinden geçmek zorunda, ikisi de W3.3 işi olduğu için aynı dilime alındı (çift dönüşümden kaçınmak için).
+- **Sorun:** Auth domain servisleri durumu değiştiren event'leri (UserDeleted, UserInvited, profil/parola sinyalleri, tenant yaşam döngüsü) `eventBus.publish()` ile fire-and-forget yayınlıyordu. DB yazımı commit olup event NATS'a ulaşmadan process ölürse, yayın kaybı kalıcı: downstream servisler (messaging/hr/farm/sensor) tutarsız kalır. En kritik vektör UserDeleted — kaybı GDPR Art-17 cross-service silmeyi hiç tetiklemez, kişisel veri downstream'de kalıcı olarak kalır (dual-write tutarsızlığı).
+- **Çözüm (Tier-1/Tier-2):** `auth_outbox` tablosu + `AuthOutboxModule` (`OutboxModule.forFeature`, `@Global`) + `@SourceOnlyMigration` (messaging-outbox şablonu). İki yönlü yapısal politika: durable event'ler `OutboxPublisher.enqueue(event, manager)` ile yazma transaction'ı **içinde** (atomik commit, dual-write kaybı imkansız); audit-log-backed/platform-scoped telemetri `BestEffortEventPublisher` allowlist'i üzerinden (lossy-kabul = açık, reviewable, allowlist dışı event throw eder → durable-outbox'a zorlar). Raw `@Inject('EVENT_BUS')` auth domain servislerinden yapısal olarak kaldırılıyor.
+  - **UserDeleted → DURABLE:** gdpr-compliance, erasure transaction'ı içinde enqueue — UserDeleted ile anonimleştirme atomik commit, GDPR cross-service tetikleyici kaybı imkansız.
+  - **UserProfileUpdated/UserPasswordChanged** (account.service), **UserLoggedIn + PasswordReset{Requested,Completed}** (authentication.service) → BestEffortEventPublisher (audit log = durable SoT).
+  - **UserInvited** (user-lifecycle + tenant-user-management) → BestEffortEventPublisher (invitation row = durable kayıt; kayıp event admin'in pending davetiyeyi görüp yeniden göndermesiyle kurtarılabilir, veri-kaybı vektörü değil). Henüz durable DEĞİL: `createUser` non-transactional dual-write (**ORPHAN-HIGH-090**) — durable upgrade önce user-creation akışının tek transaction'a sarılmasını gerektiriyor.
+- **Değişen dosyalar:** `apps/auth-service/src/outbox/{auth-outbox.entity,auth-outbox.module,best-effort-event-publisher}.ts` (+spec'ler), `apps/auth-service/src/migrations/1800600000000-CreateAuthOutboxTable.ts`, `apps/auth-service/src/privacy/gdpr-compliance.service.ts` (+spec), `apps/auth-service/src/modules/authentication/services/{account,authentication}.service.ts`, `apps/auth-service/src/modules/tenant/services/{user-lifecycle,tenant-user-management}.service.ts` (+spec'ler).
+- **Doğrulama:** auth-service **303/303 test yeşil** (best-effort allowlist it.each + durable-required event'leri REFUSES eden it.each + gdpr UserDeleted'ın outbox+tx-manager ile enqueue edildiğini sabitleyen spec). GitHub CI PR #390 (sha 013076226 + 780e0c0e). `tenant.service` taşıması W3.3'te tamamlanınca RESOLVED'e geçecek.
+
+---
+
 ## Bekleyen bulgular (denetim kayıt defteri)
 
 | ID | Dalga | Durum |
@@ -102,5 +115,6 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 | AUDIT-CRITICAL-005 (reuse-detection test kapsamı) | W2 | OPEN |
 | SEC-HIGH-001..004, SEC-MEDIUM-001..004 | W2 | OPEN |
 | MT-HIGH-003 (TenantStatus SSoT + state machine) | W3.1 | IN-PROGRESS (PR #390) |
-| MT-HIGH-001..002, DATA-HIGH-001..003, MT-MEDIUM-001..002, DATA-MEDIUM-001..002, DATA-LOW-001 | W3 | OPEN |
+| DATA-HIGH-001 (transactional outbox adoption) | W3.2 | IN-PROGRESS (PR #390 — outbox + 5 grup taşındı; tenant.service W3.3'te) |
+| MT-HIGH-001..002, DATA-HIGH-002..003, MT-MEDIUM-001..002, DATA-MEDIUM-001..002, DATA-LOW-001 | W3 | OPEN |
 | PERF-HIGH-001..003, AUDIT-HIGH-009, PERF-MEDIUM-001..003, AUDIT-MEDIUM-015, SEC-LOW-001 | W4 | OPEN |

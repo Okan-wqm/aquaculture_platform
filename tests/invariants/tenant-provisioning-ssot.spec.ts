@@ -596,7 +596,12 @@ describe('INVARIANT: admin surfaces do not carry raw invite or reset token mater
     expect(resultContract).not.toContain('invitationToken');
     expect(resultContract).toContain('deliveryStatus');
     expect(handler).not.toMatch(/invitationToken\s*:/);
-    expect(lifecycle).toContain('eventBus.publish(event)');
+    // DATA-HIGH-001: the lifecycle service publishes the tokenless UserInvited
+    // delivery event through the allowlisted BestEffortEventPublisher, NOT the
+    // raw event bus. Asserting `bestEffort.publish` (and forbidding a raw
+    // `this.eventBus.publish`) locks the durable-discipline routing in place.
+    expect(lifecycle).toContain('bestEffort.publish(event)');
+    expect(lifecycle).not.toMatch(/this\.eventBus\.publish/);
     expect(lifecycle).toContain('actionTokenId: result.actionTokenId');
     expect(lifecycle).not.toContain('actionTokenId: tokenHash');
     expect(actionTokenEntity).toContain("@Entity('action_tokens', { schema: 'auth' })");

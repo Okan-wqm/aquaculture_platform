@@ -85,11 +85,22 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 
 ---
 
+## MT-HIGH-003 — Tenant yaşam döngüsünde ARCHIVED/PURGED terminali ve geçiş-yasallığı kontrolü YOKTU (W3.1)
+
+- **Durum:** IN-PROGRESS (PR #390 — foundation + auth consumer landed). Kalan: admin-api handler'ları + gateway + web + event tipleme. Registry close consumer wiring tamamlanınca.
+- **Sorun:** Tenant statüsü 8 ayrı yerde, 3'ü casing/değer-kümesi olarak uyumsuz kopyalanmıştı (shared-contracts unwired 6 değer; auth/admin 8 değer; gateway lowercase + non-canonical TRIAL/EXPIRED; 3 frontend kopyası). "Bu tenant suspended mı?" sorusunun cevabı modüle göre değişiyordu. GDPR Art-17 purge için temsil edilebilir bir terminal (PURGED) yoktu ve illegal sıçrama (örn. PURGED→ACTIVE) hiç engellenmiyordu. Login bloğu yalnız SUSPENDED+CANCELLED'ı reddediyordu — DEACTIVATED/ARCHIVED/PENDING/PROVISIONING* tenant'lar kimlik doğrulayabiliyordu (latent güvenlik açığı).
+- **Çözüm (Tier-1, make-it-impossible):** Canonical 9-değerli `TenantStatus` (+PURGED) + `TenantStatusMachine` `@platform/event-contracts`'ta (wired+her-yerde-tüketilen SSoT; shared-contracts unwired olduğu için orada değil). Makine tek geçiş matrisi: `canTransition`/`assertTransition` (yazımları kapılar), `isLoginAllowed` (fail-closed allow-list — yalnız ACTIVE, slip-through kapandı), `isTerminal` (PURGED). Yeni kural = tek satır tablo düzenlemesi. shared-contracts canonical'ı re-export ediyor. auth entity local enum'u bıraktı, canonical'ı re-export ediyor; login `isLoginAllowed`'a bağlandı. Test mock drift'i (`'active'`≠`'ACTIVE'`) düzeltildi.
+- **Değişen dosyalar:** `libs/event-contracts/src/enums/{tenant-status.enum,tenant-status.machine}.ts` (+spec), `libs/event-contracts/src/index.ts`, `libs/shared-contracts/src/enums/tenant-status.enum.ts` (re-export), `apps/auth-service/src/modules/tenant/entities/tenant.entity.ts`, `apps/auth-service/src/modules/authentication/services/authentication.service.ts`, `apps/auth-service/src/modules/authentication/__tests__/authentication.service.spec.ts`.
+- **Doğrulama:** event-contracts 217/217 (table-driven makine spec'i her legal/illegal çifti + login allow-list + terminallik + matris tamlığını sabitliyor); auth-service 287/287 (her non-ACTIVE statünün login'i blokladığını sabitleyen it.each). GitHub CI PR #390'da.
+
+---
+
 ## Bekleyen bulgular (denetim kayıt defteri)
 
 | ID | Dalga | Durum |
 |---|---|---|
 | AUDIT-CRITICAL-005 (reuse-detection test kapsamı) | W2 | OPEN |
 | SEC-HIGH-001..004, SEC-MEDIUM-001..004 | W2 | OPEN |
-| MT-HIGH-001..003, DATA-HIGH-001..003, MT-MEDIUM-001..002, DATA-MEDIUM-001..002, DATA-LOW-001 | W3 | OPEN |
+| MT-HIGH-003 (TenantStatus SSoT + state machine) | W3.1 | IN-PROGRESS (PR #390) |
+| MT-HIGH-001..002, DATA-HIGH-001..003, MT-MEDIUM-001..002, DATA-MEDIUM-001..002, DATA-LOW-001 | W3 | OPEN |
 | PERF-HIGH-001..003, AUDIT-HIGH-009, PERF-MEDIUM-001..003, AUDIT-MEDIUM-015, SEC-LOW-001 | W4 | OPEN |

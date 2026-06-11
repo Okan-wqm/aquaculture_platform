@@ -3767,3 +3767,20 @@ Status: RESOLVED on `feat/aria-control-plane-proof-20260606`.
 **Fix:** rewrite the spec to pin the command-receipt refusal contract (resolver rejects for ALL roles; tenant-isolation 403 still fires first). Applied identically in PR #383 (Wave-1 W1.3) and on the Wave-2 branch — identical content, conflict-free merge. The deeper affected-graph gap is tracked under AUDIT-CRITICAL-004's cross-service watch item.
 
 **Status:** RESOLVED on `fix/auth-audit-wave2-security` (and `security/rate-limit-sec-critical-002` / PR #383).
+
+## ORPHAN-MEDIUM-087 — `libs/shared-contracts` is an unwired, zero-consumer "SSoT" lib
+
+**Found while:** wiring the canonical TenantStatus for W3.1 (MT-HIGH-003).
+
+**Problem:** `libs/shared-contracts` advertises itself (its `index.ts` header) as "the single source of truth for cross-cutting domain concepts," but:
+- it has NO `tsconfig.base.json` path alias and NO nx `project.json`, so it is not in the affected-graph and backend services cannot import `@aquaculture/shared-contracts` through the normal alias;
+- its own `tsconfig.json` is deliberately isolated (`baseUrl: "."`, only `@/*` → `src/*`), so it cannot import any other lib — a re-export from it to `@platform/event-contracts` fails type-check with TS2307;
+- a repo-wide grep finds ZERO real importers of `@aquaculture/shared-contracts` / `@platform/shared-contracts` in `apps/`, `web/`, or `libs/` (the one farm-service "reference" is a code comment).
+
+It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCycle`, `PlanVisibility`, `ImpersonationStatus/Reason`, `DataRequestType/Status` — duplicate definitions that can silently drift from the wired SSoT in `@platform/event-contracts`, exactly the class of bug MT-HIGH-003 / DBR-HIGH-003 exist to kill.
+
+**Root cause:** the lib was created as an aspirational shared-contracts home but never wired into tsconfig paths / the nx graph, and the real platform SSoT consolidated into `@platform/event-contracts` instead. It is now dead weight that looks authoritative.
+
+**Fix (recommended, not done here):** delete `libs/shared-contracts` entirely after confirming each of its enums either already exists in `@platform/event-contracts` or has zero consumers; or, if it must stay, wire it (tsconfig path + project.json + extend the base tsconfig) and make every enum a re-export of the event-contracts canonical. Out of scope for the auth-service audit PR; tracked here so the drift surface is visible. W3.1 removed only its `TenantStatus` duplicate (the immediate type-check blocker).
+
+**Status:** OPEN.

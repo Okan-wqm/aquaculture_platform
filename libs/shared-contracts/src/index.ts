@@ -9,7 +9,12 @@
  */
 
 // ── Tenant ──
-export { TenantStatus } from './enums/tenant-status.enum';
+// TenantStatus is canonical in @platform/event-contracts (beside TenantPlan,
+// the TenantStatusChanged event, and the lifecycle machine). It is NOT
+// re-exported here: this lib's tsconfig is deliberately isolated (no cross-lib
+// paths) so it cannot import event-contracts, and nothing consumes this barrel
+// anyway. Keeping a second copy here would re-introduce the drift MT-HIGH-003
+// eliminated. See docs/reviews/orphan-findings.md (shared-contracts is unwired).
 
 // ── Plan & Billing ──
 export { PlanTier } from './enums/plan-tier.enum';

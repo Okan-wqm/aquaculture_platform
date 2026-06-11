@@ -308,6 +308,7 @@
     "@eslint/eslintrc": {
       "minimatch": "3.1.5"
     },
+    "@grpc/grpc-js": "^1.14.4",
     "@humanwhocodes/config-array": {
       "minimatch": "3.1.5"
     },

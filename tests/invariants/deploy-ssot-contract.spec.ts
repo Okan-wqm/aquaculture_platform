@@ -180,6 +180,20 @@ describe('deploy SSOT contract', () => {
     }
   });
 
+  it('gates post-deploy verification on an actual deployment (INFRA-MEDIUM-005)', () => {
+    // A reusable-workflow caller's `result == success` only proves the
+    // called workflow did not fail; the internal deploy job legitimately
+    // skips on docs/registry-only pushes. Verification must key on the
+    // explicit production-mutation contract or every ceremony commit
+    // goes red against an untouched, healthy production.
+    const deployWorkflow = read('.github/workflows/deploy-digitalocean.yml');
+    const ciAffected = read('.github/workflows/ci-affected.yml');
+    expect(deployWorkflow).toContain('deployed:');
+    expect(deployWorkflow).toContain("value: ${{ jobs.deploy.outputs.performed == 'true' }}");
+    expect(deployWorkflow).toContain('Mark deployment performed');
+    expect(ciAffected).toContain("needs.deploy.outputs.deployed == 'true'");
+  });
+
   it('verifies SHA images and capacity before SSH mutation', () => {
     const workflow = read('.github/workflows/deploy-digitalocean.yml');
     const maintenance = read('.github/workflows/deploy-capacity-maintenance.yml');

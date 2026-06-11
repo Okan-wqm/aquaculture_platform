@@ -4,6 +4,7 @@ import {
   applyTenantRlsToSchema,
   convertAuditColumnsToTimestamptz,
   getTenantSchemaName,
+  grantTenantMessagingPartitionAuthority,
   grantTenantMigrationLedgerReadAccess,
   MIGRATION_LEDGER_TABLE,
   tenantMigrationLedgerTable,
@@ -537,6 +538,19 @@ async function processJob(
         await applyProvisionerHardening(queryRunner, job.schemaName, entry.postMigrationHardening, options.log);
       }
     }
+
+    // DATA-HIGH-006: the messaging partition definer function
+    // (platform.create_messaging_partition, owner messaging_schema_owner)
+    // needs schema CREATE + messaging-relation ownership inside this tenant
+    // schema. pg16 requires parent-table OWNERSHIP for PARTITION OF (proven
+    // empirically; schema CREATE alone is not enough), and the fan-out above
+    // created the clones under the bootstrap connection's role — re-own +
+    // grant here so the first monthly partition for this tenant works
+    // without any manual ceremony. Stage 010 backfills pre-existing schemas.
+    await setJobStatus(queryRunner, job, 'APPLYING_GRANTS');
+    await grantTenantMessagingPartitionAuthority(queryRunner, {
+      tenantSchema: job.schemaName,
+    });
 
     await setJobStatus(queryRunner, job, 'SEEDING_LEDGER');
     tableCount = await countTenantTables(queryRunner, job.schemaName);

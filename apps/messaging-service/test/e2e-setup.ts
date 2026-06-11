@@ -14,6 +14,8 @@
  *   docker compose -f docker-compose.dev.yml up -d postgres redis nats
  */
 import * as crypto from 'crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import {
   applyTenantRlsToSchema,
@@ -121,6 +123,47 @@ async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
       await dataSource.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
       await dataSource.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
       await dataSource.query('CREATE EXTENSION IF NOT EXISTS "vector"');
+
+      // DATA-HIGH-006: PartitionManagerService's only DDL path is
+      // platform.create_messaging_partition (bootstrap Stage 010). The
+      // harness executes the REAL stage file so the function body has
+      // exactly one source of truth, minting just the two roles the
+      // stage's GRANTs reference — the full role topology belongs to
+      // stages 002/008, which this fixture intentionally does not run
+      // (same spirit as the hand-created schema above standing in for
+      // stage 003).
+      await dataSource.query('CREATE SCHEMA IF NOT EXISTS platform');
+      await dataSource.query(`
+        DO $e2e_partition_roles$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'messaging_schema_owner') THEN
+            CREATE ROLE messaging_schema_owner NOLOGIN;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'messaging_service') THEN
+            CREATE ROLE messaging_service NOLOGIN;
+          END IF;
+        END
+        $e2e_partition_roles$;
+      `);
+      await dataSource.query(
+        readFileSync(
+          resolve(
+            __dirname,
+            '../../db-migrate/src/sql/platform-bootstrap/010-messaging-partition-definer.sql',
+          ),
+          'utf8',
+        ),
+      );
+      // Harness adaptation, NOT production shape: migrations below run as
+      // the harness superuser, so the messaging parents end up
+      // superuser-owned — and pg16 PARTITION OF requires parent OWNERSHIP.
+      // The function therefore executes as the harness user here. The
+      // production ownership topology (owner = messaging_schema_owner end
+      // to end) is verified where it belongs:
+      // apps/db-migrate/src/__tests__/platform-bootstrap.integration.spec.ts.
+      await dataSource.query(
+        'ALTER FUNCTION platform.create_messaging_partition(text, text, integer, integer) OWNER TO CURRENT_USER',
+      );
 
       const runner = new MessagingE2eMigrationRunner(dataSource, e2eConfigService());
       await runner.onApplicationBootstrap();

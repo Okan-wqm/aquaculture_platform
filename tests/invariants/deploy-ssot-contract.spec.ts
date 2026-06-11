@@ -62,7 +62,7 @@ describe('deploy SSOT contract', () => {
     }
   });
 
-  it('covers platform bootstrap DDL authority stages 008 and 009', () => {
+  it('covers platform bootstrap DDL authority stages 008-010', () => {
     const leastPrivilege = read(
       'apps/db-migrate/src/sql/platform-bootstrap/008-least-privilege-hardening.sql',
     );
@@ -76,11 +76,33 @@ describe('deploy SSOT contract', () => {
       provisioner.split('CREATE OR REPLACE FUNCTION platform.request_tenant_schema_deletion')[1] ??
       '';
 
-    expect(leastPrivilege).toContain('Platform Bootstrap — Stage 8 of 9');
+    expect(leastPrivilege).toContain('Platform Bootstrap — Stage 8 of 10');
     expect(leastPrivilege).toContain('db_migrate is the only role granted schema-owner membership');
     expect(leastPrivilege).toContain('CREATE ROLE db_migrate NOLOGIN');
     expect(leastPrivilege).toContain("EXECUTE format('GRANT %I TO db_migrate'");
     expect(leastPrivilege).toContain("EXECUTE format('REVOKE CREATE ON DATABASE %I FROM %I'");
+
+    // Stage 010 (DATA-HIGH-006): partition DDL authority lives in a
+    // SECURITY DEFINER primitive owned by messaging_schema_owner; the
+    // runtime role holds EXECUTE only. The 008 carve-out must stay gone.
+    const partitionDefiner = read(
+      'apps/db-migrate/src/sql/platform-bootstrap/010-messaging-partition-definer.sql',
+    );
+    expect(partitionDefiner).toContain(
+      'CREATE OR REPLACE FUNCTION platform.create_messaging_partition',
+    );
+    expect(partitionDefiner).toContain('SECURITY DEFINER');
+    expect(partitionDefiner).toContain('SET search_path = pg_catalog, pg_temp');
+    expect(partitionDefiner).toContain('OWNER TO messaging_schema_owner');
+    expect(partitionDefiner).toContain(
+      'REVOKE ALL ON FUNCTION platform.create_messaging_partition(text, text, integer, integer) FROM PUBLIC',
+    );
+    expect(partitionDefiner).toContain(
+      'GRANT EXECUTE ON FUNCTION platform.create_messaging_partition(text, text, integer, integer) TO messaging_service',
+    );
+    expect(leastPrivilege).not.toContain(
+      "IF spec.schema_name = 'messaging' THEN",
+    );
 
     expect(provisioner).toContain('Platform Bootstrap — Stage 9');
     expect(provisioner).toContain('aqua-db-migrate provisioner is the sole DDL worker');

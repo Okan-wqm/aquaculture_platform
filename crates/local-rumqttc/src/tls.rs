@@ -67,9 +67,11 @@ pub enum Error {
     NoValidKeyInChain,
     // LOCAL FORK (RUST-CVE-001): new variant carrying rustls-pki-types PEM
     // decode errors — the rustls-pemfile path surfaced these as Io(_).
+    // Display ({0}) over Debug: pem::Error Debug-prints raw byte arrays
+    // for section-syntax variants; Display renders operator-readable text.
     #[cfg(feature = "use-rustls-no-provider")]
     /// PEM decoding error
-    #[error("PEM: {0:?}")]
+    #[error("PEM: {0}")]
     Pem(#[from] pem::Error),
     #[cfg(feature = "use-native-tls")]
     #[error("Native TLS error {0}")]

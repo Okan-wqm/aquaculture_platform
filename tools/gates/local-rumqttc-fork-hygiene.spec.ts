@@ -39,7 +39,22 @@ const MANIFEST = join(FORK_DIR, 'UPSTREAM-MANIFEST.sha256');
 const ALLOWED_DIVERGENT = new Set(['./Cargo.toml', './src/tls.rs']);
 
 /** Fork-owned files that do not exist upstream. */
-const FORK_OWNED = new Set(['./UPSTREAM.md', './UPSTREAM-MANIFEST.sha256']);
+const FORK_OWNED = new Set([
+  './UPSTREAM.md',
+  './UPSTREAM-MANIFEST.sha256',
+  './FORK-EDITS.sha256',
+]);
+
+/** Post-fork content pins for the two divergent files (EDGE-HIGH-002):
+ *  diverging from UPSTREAM is required, but the divergence itself must be
+ *  byte-exact against this manifest — so a regression INSIDE an
+ *  allowed-divergent file (e.g. weakening tls.rs) is a gate failure, not
+ *  a reviewer hope. Intentional edits update FORK-EDITS.sha256 +
+ *  UPSTREAM.md in the same reviewed commit. */
+const FORK_EDITS_MANIFEST = join(
+  REPO_ROOT,
+  'crates/local-rumqttc/FORK-EDITS.sha256',
+);
 
 const FORK_MARKER = 'LOCAL FORK (RUST-CVE-001)';
 
@@ -109,6 +124,27 @@ test('every deliberate fork edit carries the LOCAL FORK marker', () => {
   for (const file of ALLOWED_DIVERGENT) {
     const text = readFileSync(join(FORK_DIR, file), 'utf8');
     assert.ok(text.includes(FORK_MARKER), `${file} lost its "${FORK_MARKER}" marker comment`);
+  }
+});
+
+test('divergent files match the FORK-EDITS content pin byte-for-byte (EDGE-HIGH-002)', () => {
+  const pins = new Map<string, string>();
+  for (const line of readFileSync(FORK_EDITS_MANIFEST, 'utf8').split('\n')) {
+    const m = line.match(/^([0-9a-f]{64})\s+(\.\/.+)$/);
+    if (m) pins.set(m[2] as string, m[1] as string);
+  }
+  assert.deepEqual(
+    [...pins.keys()].sort(),
+    [...ALLOWED_DIVERGENT].sort(),
+    'FORK-EDITS.sha256 must pin exactly the allowed-divergent file set',
+  );
+  for (const [file, pinned] of pins) {
+    const actual = sha256(join(FORK_DIR, file));
+    assert.equal(
+      actual,
+      pinned,
+      `${file} drifted from its FORK-EDITS.sha256 content pin — a change inside an allowed-divergent file requires updating the pin + UPSTREAM.md in the same reviewed commit`,
+    );
   }
 });
 

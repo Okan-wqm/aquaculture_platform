@@ -49,6 +49,14 @@ const TOMBSTONED_GHSA = [
   'GHSA-pwjx-qhcg-rvj4',
 ] as const;
 
+/** GHSAs that MUST stay in dependency-review.yml allow-ghsas while their
+ *  upstream-blocked findings remain open (SUPPLY-LOW-001: accidental
+ *  removal would silently fail dependency-review on a tracked advisory). */
+const REQUIRED_GHSA: ReadonlyArray<{ id: string; finding: string }> = [
+  { id: 'GHSA-h395-gr6q-cpjc', finding: 'RUST-CVE-002 (jsonwebtoken < 10.3.0)' },
+  { id: 'GHSA-9q82-xgwf-vj6h', finding: 'Apollo Server 4 XS-Search (docs/bugs/2026-05-02)' },
+];
+
 /** Deadline markers that are valid without a calendar date — they encode
  *  an explicit review cadence instead (deny.toml rubric). */
 const NON_DATE_DEADLINE_MARKERS = ['RE-EVAL QUARTERLY', 'NO_FIX_AVAILABLE'];
@@ -116,12 +124,20 @@ function parseTomlIgnores(rel: string): Map<string, string> {
   return result;
 }
 
-/** Extract `--ignore RUSTSEC-XXXX-XXXX` flags from a workflow file. */
+/** Extract `--ignore RUSTSEC-XXXX-XXXX` flags from a workflow file.
+ *  SUPPLY-LOW-002: any `--ignore` whose value is NOT a literal RUSTSEC id
+ *  (env-var indirection, YAML anchor, glob) is itself a violation — a
+ *  static text scan cannot follow indirection, so indirection is banned. */
 function parseWorkflowIgnores(rel: string): Set<string> {
   const text = read(rel);
   const set = new Set<string>();
-  for (const m of text.matchAll(/--ignore\s+(RUSTSEC-\d{4}-\d{4})/g)) {
-    set.add(m[1] as string);
+  for (const m of text.matchAll(/--ignore[=\s]+(\S+)/g)) {
+    const value = (m[1] as string).replace(/\\$/, '');
+    if (/^RUSTSEC-\d{4}-\d{4}$/.test(value)) {
+      set.add(value);
+    } else {
+      violations.push({ surface: rel, reason: `--ignore with non-literal advisory value "${value}" — indirection defeats the lock-step gate; use a literal RUSTSEC id` });
+    }
   }
   return set;
 }
@@ -221,6 +237,11 @@ for (const ws of WORKSPACES) {
   for (const ghsa of allowed) {
     if ((TOMBSTONED_GHSA as readonly string[]).includes(ghsa)) {
       violations.push({ surface: rel, reason: `${ghsa} is a tombstoned rustls-webpki GHSA (RUST-CVE-001 resolved) — it must never be re-allow-listed` });
+    }
+  }
+  for (const { id, finding } of REQUIRED_GHSA) {
+    if (!allowed.includes(id)) {
+      violations.push({ surface: rel, reason: `${id} missing from allow-ghsas — its upstream-blocked finding ${finding} is still open; removing the allow-list entry breaks dependency-review without resolving the advisory` });
     }
   }
 }

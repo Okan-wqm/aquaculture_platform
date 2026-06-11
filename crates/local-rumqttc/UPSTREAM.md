@@ -41,6 +41,21 @@ Only these files may differ from `UPSTREAM-MANIFEST.sha256`:
 | `Cargo.toml` | `publish = false`; `rustls-webpki` `0.102.8` → `0.103`; `rustls-pemfile` dependency replaced by `rustls-pki-types = { version = "1.7", features = ["std"] }`; `use-rustls-no-provider` feature list updated accordingly. |
 | `src/tls.rs` | PEM decoding migrated from `rustls_pemfile` to `rustls_pki_types::pem::PemObject` (`CertificateDer::pem_reader_iter`, `PrivateKeyDer::from_pem_reader`); new `Error::Pem` variant; `NoItemsFound` mapped to the pre-existing `NoValidKeyInChain` so error semantics are preserved. |
 
+**Behavioural delta on the CERT path (EDGE-MEDIUM-004, deliberate):**
+upstream's `rustls_pemfile::certs` silently skipped malformed PEM blocks in
+CA / client-cert bundles; the fork's `pem_reader_iter(...).collect()?`
+fails the whole connection on the first malformed block (fail-closed).
+For the platform's pinned-internal-PKI posture this is the safer
+behaviour, and both production consumers construct
+`TlsConfiguration::Rustls(_)` directly — the forked `Simple` path is not
+exercised by our deployment. Key-path semantics are exact parity.
+
+The post-fork content of the two divergent files is pinned byte-for-byte
+in `FORK-EDITS.sha256`; the fork-hygiene gate fails CI if either file
+changes without that manifest (and this document) being updated in the
+same reviewed commit. rustls interop note: both workspaces resolve a
+single rustls 0.23-series node (root lock 0.23.40, edge lock 0.23.38).
+
 Every deliberate edit carries a `LOCAL FORK (RUST-CVE-001)` marker comment.
 Anything else diverging from the manifest is a gate failure — fix the drift
 or update this document **and** the manifest in the same reviewed commit.
@@ -49,7 +64,10 @@ Dropped at vendoring time (cargo packaging/cache artifacts, never part of
 the source tree contract): `Cargo.toml.orig`, `Cargo.lock`, `.cargo-ok`,
 `.cargo_vcs_info.json`. Upstream `Cargo.lock` is intentionally absent so
 filesystem security scanners do not re-flag the old `rustls-webpki 0.102.8`
-pin recorded inside it.
+pin recorded inside it. Also dropped: `certs/generate.sh` — the repo-level
+`.gitignore` blocks every `certs/` path (guard against committing real
+certificate material) and the script only regenerates upstream's local
+test certificates, which the excluded-from-workspace fork never runs.
 
 ## Consumption
 

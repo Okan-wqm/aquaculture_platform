@@ -210,8 +210,9 @@ optional = true
 # 0099/0049/0104. The only rumqttc use of this crate is the
 # `WebPki(#[from] webpki::Error)` error variant in src/tls.rs, and
 # `webpki::Error` is unchanged across the bump. 0.103.13 is already
-# resolved in both workspace lockfiles via rustls 0.23.40, so this bump
-# also removes the duplicate vulnerable instance from the graph.
+# resolved in both workspace lockfiles via the rustls 0.23 series (root
+# lock 0.23.40, edge lock 0.23.38), so this bump also removes the
+# duplicate vulnerable instance from the graph.
 [dependencies.rustls-webpki]
 version = "0.103"
 optional = true

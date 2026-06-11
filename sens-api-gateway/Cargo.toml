@@ -881,3 +881,16 @@ path = "tests/invariants/opc_ua_subscription_freshness.rs"
 [[test]]
 name = "opc_ua_reload_drains_writes"
 path = "tests/invariants/opc_ua_reload_drains_writes.rs"
+
+# =============================================================================
+# RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
+# =============================================================================
+# WHY: upstream rumqttc 0.25.1 pins rustls-webpki = "0.102.8" (RUSTSEC-2026-
+# 0098/0099/0049/0104, tracked here as EDGE-CI-001) and the unmaintained
+# rustls-pemfile (RUSTSEC-2025-0134 / EDGE-CI-005). The shared platform fork
+# bumps webpki to 0.103 and removes pemfile from the graph entirely. WHAT:
+# `rumqttc = "0.25"` above resolves to the patched path crate; the
+# SuderraServerCertVerifier interop (rustls 0.23 series) is unchanged.
+# Drop when upstream releases on webpki >= 0.103 (see UPSTREAM.md).
+[patch.crates-io]
+rumqttc = { path = "../crates/local-rumqttc" }

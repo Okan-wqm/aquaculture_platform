@@ -43,6 +43,23 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # RUST-CVE-001 make-it-detectable gate: the advisory ignore lists live in
+  # 8 surfaces (2 deny.toml, 2 .cargo/audit.toml, --ignore flags in 3
+  # workflow audit steps, dependency-review allow-ghsas). This job fails on
+  # lock-step drift, missing owner/deadline/finding-id metadata, expired
+  # deadlines, and re-ignoring of tombstoned (fork-resolved) advisories.
+  advisory-ignore-sync:
+    name: advisory ignore lock-step
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+      - name: check-advisory-ignore-sync
+        run: node scripts/ci/check-advisory-ignore-sync.ts
+
   fmt:
     name: cargo fmt --check
     runs-on: ubuntu-latest
@@ -119,18 +136,15 @@ jobs:
         uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1
         with:
           tool: cargo-audit
-      # Advisory ignores live in .cargo/audit.toml (mirrors deny.toml [advisories]).
-      # Passing --ignore here guarantees cargo-audit picks them up regardless of
-      # its config-file discovery behaviour in the taiki-e prebuilt binary.
-      # Each ignore MUST appear in BOTH deny.toml and .cargo/audit.toml —
-      # keep them in lock-step; full rationale lives in deny.toml.
+      # Advisory ignores live in .cargo/audit.toml (mirrors deny.toml
+      # [advisories]); any future --ignore flag added here MUST appear in
+      # both files too — scripts/ci/check-advisory-ignore-sync.ts enforces
+      # the lock-step and rejects entries with missing metadata or past
+      # deadlines. 2026-06-11: the RUST-CVE-001 rumqttc-chain ignores were
+      # removed (vendored fork crates/local-rumqttc, see UPSTREAM.md).
       - name: cargo audit
         run: |
-          cargo audit --deny warnings \
-            --ignore RUSTSEC-2026-0098 \
-            --ignore RUSTSEC-2026-0099 \
-            --ignore RUSTSEC-2026-0049 \
-            --ignore RUSTSEC-2025-0134
+          cargo audit --deny warnings
 
   drift:
     name: codec-drift

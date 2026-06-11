@@ -11,7 +11,6 @@ import { Repository, DataSource, MoreThan, Between } from 'typeorm';
 
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { User } from '../../authentication/entities/user.entity';
-import { Module } from '../../system-module/entities/module.entity';
 import { TenantStats, TenantDatabaseInfo, TableInfo, TableSchemaInfo, ColumnInfo, IndexInfo, ModuleUsageStatResponse } from '../dto/tenant-stats.dto';
 import { TenantModule } from '../entities/tenant-module.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';

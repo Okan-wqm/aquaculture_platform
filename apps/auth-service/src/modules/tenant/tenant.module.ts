@@ -1,7 +1,6 @@
 import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EventBusModule } from '@platform/event-bus';
 
 import { ActionToken } from '../authentication/entities/action-token.entity';
 import { Invitation } from '../authentication/entities/invitation.entity';
@@ -40,7 +39,6 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
       RefreshToken,
       Invitation,
     ]),
-    EventBusModule,
   ],
   // AuthAdminNatsHandler is declared in `controllers` (not `providers`) —
   // NestJS microservice transport discovers @MessagePattern subscribers by

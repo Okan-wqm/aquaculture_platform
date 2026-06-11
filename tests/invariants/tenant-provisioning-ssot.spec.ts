@@ -197,6 +197,29 @@ describe('INVARIANT: auth-service owns tenant lifecycle commands', () => {
     expect(service).not.toContain('command.targetStatus');
   });
 
+  it('routes tenant lifecycle + first-admin events through the durable outbox, not a raw event bus', () => {
+    const service = readRepoFile(
+      'apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts',
+    );
+
+    // DATA-HIGH-001 / W3.3: the command service is the sole writer of auth tenant
+    // state and emits its state-change events durably. It no longer injects the
+    // raw event bus; lifecycle status changes and the first-admin invite are
+    // enqueued to auth_outbox inside the SERIALIZABLE receipt transaction, so the
+    // write and its event commit atomically (no fire-and-forget dual-write).
+    expect(service).not.toContain("@Inject('EVENT_BUS')");
+    expect(service).not.toContain('this.eventBus.publish');
+    expect(service).toContain('private readonly outboxPublisher: OutboxPublisher');
+    expect(service).toMatch(/this\.outboxPublisher\.enqueue\(/);
+    // TenantStatusChanged is the single emission point for all five lifecycle
+    // transitions, enqueued at the status-persist site in transitionTenantStatus.
+    expect(service).toContain(
+      "createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged'",
+    );
+    // First-admin UserInvited is durable + atomic with the user/invitation write.
+    expect(service).toContain('enqueueFirstAdminInvite');
+  });
+
   it('does not send caller-owned receipt keys or payload hashes from admin auth-command facades', () => {
     const files = [
       'apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts',

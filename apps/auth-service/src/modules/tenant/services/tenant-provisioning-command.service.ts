@@ -1,9 +1,8 @@
 import * as crypto from 'crypto';
 
 import { Role } from '@aquaculture/backend-common/decorators';
-import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { IEventBus } from '@platform/event-bus';
 import {
   type ActivateTenantCommand,
   type ArchiveTenantLifecycleCommand,
@@ -19,8 +18,10 @@ import {
   type RollbackTenantProvisioningCommand,
   type SetupTenantRolesCommand,
   type SuspendTenantLifecycleCommand,
+  type TenantStatusChangedEvent,
   type UserInvitedEvent,
 } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../../authentication/entities/action-token.entity';
@@ -134,8 +135,10 @@ export class TenantProvisioningCommandService {
     private readonly invitationRepository: Repository<Invitation>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus,
+    // DATA-HIGH-001/W3.3: tenant lifecycle + first-admin events are enqueued to
+    // auth_outbox inside the command's SERIALIZABLE receipt transaction, so the
+    // status write and its event commit atomically (no raw fire-and-forget bus).
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async reserveTenant(command: ReserveTenantCommand): Promise<{ tenant: AuthTenantSnapshot; status: string }> {
@@ -384,18 +387,26 @@ export class TenantProvisioningCommandService {
               where: { userId: existingUser.id, tenantId: command.tenantId },
               order: { createdAt: 'DESC' },
             });
+            const actionTokenId = invitation
+              ? await this.ensureInvitationActionToken(manager, {
+                  tenantId: command.tenantId,
+                  userId: existingUser.id,
+                  tokenHash: invitation.token,
+                  expiresAt: invitation.expiresAt,
+                  source: 'first-admin-invite-replay',
+                })
+              : undefined;
+            // Re-notify (re-send invite) only when a deliverable invitation
+            // token exists. A pre-existing admin with no recoverable token has
+            // nothing to deliver, so skip the event rather than throw — the
+            // enqueue is atomic with the token refresh above via `manager`.
+            if (actionTokenId) {
+              await this.enqueueFirstAdminInvite(manager, command, existingUser.id, actionTokenId);
+            }
             return {
               userId: existingUser.id,
               invitationId: invitation?.id,
-              actionTokenId: invitation
-                ? await this.ensureInvitationActionToken(manager, {
-                    tenantId: command.tenantId,
-                    userId: existingUser.id,
-                    tokenHash: invitation.token,
-                    expiresAt: invitation.expiresAt,
-                    source: 'first-admin-invite-replay',
-                  })
-                : undefined,
+              actionTokenId,
               email: existingUser.email,
             };
           }
@@ -460,6 +471,11 @@ export class TenantProvisioningCommandService {
           [command.tenantId],
         );
 
+        // Durable, atomic-with-the-write UserInvited (replaces the post-commit
+        // raw eventBus.publish). The invitation/user/actionToken rows and this
+        // event commit together in the SERIALIZABLE receipt transaction.
+        await this.enqueueFirstAdminInvite(manager, command, savedUser.id, savedActionToken.id);
+
         return {
           userId: savedUser.id,
           invitationId: savedInvitation.id,
@@ -472,22 +488,6 @@ export class TenantProvisioningCommandService {
       },
     );
     const result = execution.result;
-
-    if (!execution.replayed) {
-      const event: UserInvitedEvent = {
-        ...createBaseEvent<UserInvitedEvent>('UserInvited', command.tenantId, {
-          aggregateId: result.userId,
-          aggregateType: 'User',
-        }),
-        userId: result.userId,
-        role: Role.TENANT_ADMIN,
-        invitedBy: command.invitedBy ?? command.actor.id,
-        credentialType: 'reset_token',
-        actionTokenId: this.requireActionTokenId(result.actionTokenId),
-        cryptoShredKeyId: result.userId,
-      };
-      await this.eventBus.publish(event);
-    }
 
     this.logger.log(`Created first tenant admin userId=${result.userId} tenantId=${command.tenantId}`);
     return {
@@ -654,6 +654,28 @@ export class TenantProvisioningCommandService {
 
         tenant.status = targetStatus as TenantStatus;
         await manager.save(Tenant, tenant);
+
+        // Durable TenantStatusChanged, atomic with the status write. The local
+        // lifecycle handlers previously emitted nothing on transition (events
+        // were dropped on the live path); routing through auth_outbox here is
+        // the single emission point for all five lifecycle transitions and
+        // commits in the same SERIALIZABLE receipt transaction.
+        await this.outboxPublisher.enqueue(
+          {
+            ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', command.tenantId, {
+              aggregateId: command.tenantId,
+              aggregateType: 'Tenant',
+            }),
+            previousStatus,
+            newStatus: targetStatus as TenantStatus,
+            reason,
+          },
+          manager,
+          {
+            aggregateId: command.tenantId,
+            idempotencyKey: `${command.operationId}:${commandType}:TenantStatusChanged`,
+          },
+        );
 
         return {
           operationId: command.operationId,
@@ -947,11 +969,34 @@ export class TenantProvisioningCommandService {
     };
   }
 
-  private requireActionTokenId(actionTokenId: string | undefined): string {
-    if (!actionTokenId) {
-      throw new Error('First-admin invitation handoff did not produce an auth.action_tokens id');
-    }
-    return actionTokenId;
+  /**
+   * Enqueue the durable UserInvited event for a first-admin invite, atomic with
+   * the user/invitation/action-token writes via the receipt transaction's
+   * `manager`. Only opaque references travel on the event (actionTokenId, userId,
+   * role) — the notification service resolves PII at delivery time.
+   */
+  private async enqueueFirstAdminInvite(
+    manager: EntityManager,
+    command: CreateTenantAdminCommand,
+    userId: string,
+    actionTokenId: string,
+  ): Promise<void> {
+    await this.outboxPublisher.enqueue(
+      {
+        ...createBaseEvent<UserInvitedEvent>('UserInvited', command.tenantId, {
+          aggregateId: userId,
+          aggregateType: 'User',
+        }),
+        userId,
+        role: Role.TENANT_ADMIN,
+        invitedBy: command.invitedBy ?? command.actor.id,
+        credentialType: 'reset_token',
+        actionTokenId,
+        cryptoShredKeyId: userId,
+      },
+      manager,
+      { aggregateId: userId, idempotencyKey: `${command.operationId}:UserInvited` },
+    );
   }
 
   private toReceiptResultSummary(result: unknown): unknown {

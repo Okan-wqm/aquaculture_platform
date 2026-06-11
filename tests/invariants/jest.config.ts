@@ -154,6 +154,7 @@ export default {
       displayName: 'registry',
       testMatch: [
         '<rootDir>/adoption-invariants.spec.ts',
+        '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',
         '<rootDir>/required-signals-vs-emitters.spec.ts',
         '<rootDir>/migration-registration-completeness.spec.ts',
         '<rootDir>/migration-glob-contract.spec.ts',
@@ -171,6 +172,7 @@ export default {
         '<rootDir>/entity-diff-implies-migration.spec.ts',
         '<rootDir>/tenant-fanout-entity-parity.spec.ts',
         '<rootDir>/tenant-aware-migration-ddl-guard.spec.ts',
+        '<rootDir>/messaging-partition-ddl-authority.spec.ts',
         '<rootDir>/shared-schema-canonical.spec.ts',
         '<rootDir>/audit-log-mandatory-shape.spec.ts',
         '<rootDir>/drift-repair-naming.spec.ts',

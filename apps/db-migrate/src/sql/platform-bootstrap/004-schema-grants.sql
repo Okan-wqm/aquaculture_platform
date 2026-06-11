@@ -205,6 +205,64 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO ev
 ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO config_service;
 
 -- ──────────────────────────────────────────────────────────────────────────
+-- Compliance schema grants (INFRA-HIGH-015)
+--
+-- `compliance` is a cross-service schema in the same class as `shared`:
+-- it carries the platform-wide legal-hold registry
+-- (compliance.legal_holds — DDL owned by the admin-api migration chain)
+-- consulted by destructive flows across services (messaging,
+-- observability, admin today). Stage 003 has always created the schema,
+-- but no stage ever granted access — the 2026-06-11 production opening
+-- surfaced it as the last schema running on unowned manual ceremony
+-- grants (admin-api drift validator fatal at boot). Same grant shape as
+-- `shared` above; the least-privilege boundary lands in stage 008.
+-- ──────────────────────────────────────────────────────────────────────────
+GRANT USAGE ON SCHEMA compliance TO auth_service;
+GRANT USAGE ON SCHEMA compliance TO farm_service;
+GRANT USAGE ON SCHEMA compliance TO sensor_service;
+GRANT USAGE ON SCHEMA compliance TO hr_service;
+GRANT USAGE ON SCHEMA compliance TO messaging_service;
+GRANT USAGE ON SCHEMA compliance TO hydroponics_service;
+GRANT USAGE ON SCHEMA compliance TO alert_service;
+GRANT USAGE ON SCHEMA compliance TO billing_service;
+GRANT USAGE ON SCHEMA compliance TO notification_service;
+GRANT USAGE ON SCHEMA compliance TO ai_service;
+GRANT USAGE ON SCHEMA compliance TO admin_service;
+GRANT USAGE ON SCHEMA compliance TO observability_service;
+GRANT USAGE ON SCHEMA compliance TO event_store_service;
+GRANT USAGE ON SCHEMA compliance TO config_service;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO auth_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO farm_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sensor_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO hr_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO messaging_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO hydroponics_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO alert_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO billing_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO notification_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ai_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO admin_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO observability_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO event_store_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO config_service;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO auth_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO farm_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO sensor_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO hr_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO messaging_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO hydroponics_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO alert_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO billing_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO notification_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO ai_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO admin_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO observability_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO event_store_service;
+ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT ON SEQUENCES TO config_service;
+
+-- ──────────────────────────────────────────────────────────────────────────
 -- Gateway schema grants
 -- ──────────────────────────────────────────────────────────────────────────
 GRANT USAGE ON SCHEMA gateway TO ${POSTGRES_USER};

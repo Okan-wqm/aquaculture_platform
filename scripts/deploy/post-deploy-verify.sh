@@ -21,6 +21,18 @@ if [ "${#TARGET_SHA}" -ne 40 ]; then
   exit 2
 fi
 
+# docker-compose.droplet.yml image refs interpolate ${TAG:?TAG required},
+# so EVERY compose invocation below (check-service-health.ts runs
+# `compose config --services`; the readiness sweep runs `compose ps -q`)
+# needs TAG in the environment. droplet-up.sh owns the same contract via
+# TAG="${TAG:-${DEPLOY_SHA}}"; the verifier's equivalent deploy identity
+# is the ledger-verified TARGET_SHA (images are SHA-tagged). Without this
+# export the whole health gate dies at interpolation before checking a
+# single container (INFRA-HIGH-012, first real full-stack verify run,
+# 2026-06-11).
+TAG="${TAG:-${TARGET_SHA}}"
+export TAG
+
 log() {
   printf '%s\n' "$*" >&2
 }

@@ -28,6 +28,9 @@
  *   007  bootstrap-signal — INSERT ON CONFLICT DO UPDATE on platform.bootstrap_signal
  *   008  least-privilege  — final runtime DML-only/schema-owner hardening
  *   009  provisioner      — platform.tenant_schema_jobs request ledger
+ *   010  partition-definer — platform.create_messaging_partition (SECURITY
+ *        DEFINER, owner messaging_schema_owner) + tenant-schema authority
+ *        backfill (DATA-HIGH-006)
  *
  * # Why TypeScript wraps SQL files
  *

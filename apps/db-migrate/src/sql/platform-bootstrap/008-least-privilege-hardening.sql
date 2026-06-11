@@ -124,6 +124,21 @@ BEGIN
     EXECUTE format('REVOKE ALL ON SCHEMA %I FROM %I', spec.schema_name, spec.runtime_role);
     EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', spec.schema_name, spec.runtime_role);
 
+    -- messaging carve-out (DATA-HIGH-005, 2026-06-11 production opening):
+    -- PartitionManagerService creates monthly RANGE partitions for
+    -- messages/message_receipts at bootstrap and on a monthly cron, and
+    -- PostgreSQL checks schema CREATE privilege BEFORE the IF NOT EXISTS
+    -- short-circuit — a USAGE-only messaging runtime crash-loops the
+    -- service (verified empirically in production). The shipped runtime
+    -- contract therefore requires CREATE on the messaging schema. The
+    -- two-stage closure is tracked in DATA-HIGH-005: a SECURITY DEFINER
+    -- partition function owned by messaging_schema_owner replaces the
+    -- raw runtime DDL (deadline 2026-06-18), after which this grant is
+    -- removed in the same change that migrates PartitionManagerService.
+    IF spec.schema_name = 'messaging' THEN
+      EXECUTE format('GRANT CREATE ON SCHEMA %I TO %I', spec.schema_name, spec.runtime_role);
+    END IF;
+
     EXECUTE format(
       'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I FROM %I',
       spec.schema_name,

@@ -3754,3 +3754,15 @@ Root cause: ARIA hardening had evolved across kernel code, GitHub workflows, run
 Fix: add workflow contract/preflight verification, evidence trust and ledger-reference checks, merge authority invariants, enterprise readiness/genesis lifecycle guards, observe burn-in artifact schema and verifier, ARIA operational proof workflow, docs/runtime SSoT cleanup, and hardened automation-report PR helpers. The SSoT invariant now verifies the documented authority target as a reachable ancestor instead of requiring an impossible self-referential commit hash.
 
 Status: RESOLVED on `feat/aria-control-plane-proof-20260606`.
+
+## ORPHAN-HIGH-088 — Tenant-şema runtime yetkilerinin SSOT sahibi yok; production seremoni grant'leriyle ayakta
+
+Severity: HIGH. Stage-008 yalnız adlandırılmış servis şemalarını (15 spec + shared + platform) yönetir; `tenant_<uuid>` şemaları kapsam dışı. Tenant-schema-provisioner şemayı yaratır, tabloları fan-out eder, RLS/audit hardening uygular ve ledger READ erişimi verir — ama runtime rollerine (örn. `messaging_service`) tenant şeması üzerinde USAGE/DML/partition-CREATE GRANT'ini HİÇBİR bileşen vermez (`applyProvisionerHardening` yalnız RLS + audit kolonları; `sql-fragments.ts` grant primitifi taşımıyor).
+
+2026-06-11 production açılışında `tenant_7f6b...` erişimi elle verilen grant'lerle kurtarıldı; bu grant'ler hiçbir SSOT'ta yaşamıyor. Sonuç: (1) yeni provision edilen her tenant şeması runtime erişimsiz doğar — ilk tenant-scoped sorgu runtime'da patlar; (2) seremoni grant'leri bir restore/rebuild'de sessizce kaybolur.
+
+Kök neden: ADR-011 sahiplik modeli servis şemaları için 008'de yürütülürken, tenant şemaları için yetki katmanı provisioner'a hiç bağlanmamış — provisioning akışında `APPLYING_GRANTS` durumu var ama yalnız migration-ledger READ'i kapsıyor.
+
+Düzeltme yönü: provisioner `APPLYING_GRANTS` aşamasına tenant-şema runtime grant SSOT'u eklenir (servis kataloğundan türetilen rol→şema eşlemesiyle USAGE+DML; messaging partition'ları için DATA-HIGH-006 definer-fonksiyon deseni tenant şemalarını da kapsar); mevcut tenant şemaları için idempotent backfill ceremony'si aynı PR'da. Compliance-bootstrap-SSOT yapısal PR'ıyla birlikte ele alınmalı.
+
+Status: OPEN (2026-06-11; sahip: data-expert; kuyruktaki provisioner/compliance yapısal PR kapsamına bağlandı).

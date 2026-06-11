@@ -397,6 +397,26 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
       await expect(
         queryAsRole('farm_service', 'CREATE TABLE farm.__runtime_ddl_probe (id integer)'),
       ).rejects.toThrow(/permission denied/i);
+
+      // DATA-HIGH-005 messaging carve-out: PartitionManagerService creates
+      // monthly RANGE partitions at bootstrap + on cron, and PostgreSQL
+      // checks schema CREATE BEFORE the IF NOT EXISTS short-circuit, so a
+      // USAGE-only messaging runtime crash-loops in production. Stage 008
+      // therefore grants CREATE on messaging (and ONLY messaging) until
+      // the SECURITY DEFINER partition function lands (DATA-HIGH-006,
+      // deadline 2026-06-18) — that PR removes the grant and flips this
+      // assertion to false.
+      const messagingCreateRows = (await qr.query(
+        `SELECT has_schema_privilege('messaging_service', 'messaging', 'CREATE') AS has_create`,
+      )) as Array<{ has_create: boolean }>;
+      expect(messagingCreateRows[0]?.has_create).toBe(true);
+
+      // Counter-probe: the carve-out must not widen — every other runtime
+      // role stays without schema CREATE.
+      const farmSchemaCreateRows = (await qr.query(
+        `SELECT has_schema_privilege('farm_service', 'farm', 'CREATE') AS has_create`,
+      )) as Array<{ has_create: boolean }>;
+      expect(farmSchemaCreateRows[0]?.has_create).toBe(false);
     } finally {
       await qr.query('RESET ROLE');
       await qr.query('DROP TABLE IF EXISTS farm.__runtime_privilege_probe');

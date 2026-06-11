@@ -3784,3 +3784,19 @@ It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCy
 **Fix (recommended, not done here):** delete `libs/shared-contracts` entirely after confirming each of its enums either already exists in `@platform/event-contracts` or has zero consumers; or, if it must stay, wire it (tsconfig path + project.json + extend the base tsconfig) and make every enum a re-export of the event-contracts canonical. Out of scope for the auth-service audit PR; tracked here so the drift surface is visible. W3.1 removed only its `TenantStatus` duplicate (the immediate type-check blocker).
 
 **Status:** OPEN.
+
+## ORPHAN-MEDIUM-088 — admin-api-service unit-test suite broken at baseline (quarantined)
+
+**Found while:** wiring the admin-api-service consumer of the TenantStatus machine (MT-HIGH-003 W3.1). Running `nx test admin-api-service` at the wave3 base surfaced dozens of failures UNRELATED to the TenantStatus work; confirmed pre-existing via `git stash` A/B at 596e63595.
+
+**Problem (distinct root causes observed):**
+- **58×** `Nest can't resolve dependencies of CreateTenantHandler … "EVENT_BUS" at index [1]`. CreateTenantHandler was migrated to `@Inject('EVENT_BUS')` (platform IEventBus) but `create-tenant.handler.spec.ts`, `tenant-creation.spec.ts`, and `tenant.integration.spec.ts` still provide the `EventBus` (cqrs) class token — a spec-vs-production DI drift from the enterprise-train lineage.
+- **83×** `Nest can't resolve dependencies of DatabaseExplorerController … "explorer-readonlyDataSource"` — missing custom DataSource token provider in that controller's spec.
+- **39×** `EmailSenderService … this.settingsService.getEmailConfigForSending is not a function` — stale mock (the settings service gained a method the spec mock lacks).
+- ~30 assorted assertion failures (circuit-breaker `open` vs `closed`, `toBe`/`toHaveBeenCalledWith`) that may include REAL regressions from the same lineage and need per-case triage.
+
+**Why not fixed here:** out of scope for the auth-service audit (Wave 3); it is admin-api-service's own audit surface. It does NOT block this PR — `scripts/ci/affected-target-policy.json` already quarantines the admin-api-service `test` target (and `auth-service`, `gateway-api`, and ~16 others) as known unit-test debt, so these failures are non-gating. The new `suspend-tenant.handler.spec.ts` added here passes in isolation (type-check clean, 0 errors).
+
+**Fix (recommended, tracked for the admin-api-service audit):** repair the DI-drift specs (provide the `'EVENT_BUS'` / `explorer-readonlyDataSource` tokens), refresh the EmailSenderService mock, then triage the assertion failures for real regressions, and remove `admin-api-service` from the test quarantine so the suite gates again.
+
+**Status:** OPEN (quarantined — non-blocking).

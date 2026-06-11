@@ -91,6 +91,9 @@ CREATE OR REPLACE FUNCTION platform.request_tenant_schema_provisioning(
 ) RETURNS UUID
 LANGUAGE plpgsql
 SECURITY DEFINER
+-- Pinned search_path: mandatory hardening for SECURITY DEFINER (the body
+-- references only schema-qualified objects, so the pin is behavior-neutral).
+SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
   v_job_id UUID;
@@ -180,6 +183,9 @@ CREATE OR REPLACE FUNCTION platform.request_tenant_schema_deletion(
 ) RETURNS UUID
 LANGUAGE plpgsql
 SECURITY DEFINER
+-- Pinned search_path: mandatory hardening for SECURITY DEFINER (the body
+-- references only schema-qualified objects, so the pin is behavior-neutral).
+SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
   v_job_id UUID;

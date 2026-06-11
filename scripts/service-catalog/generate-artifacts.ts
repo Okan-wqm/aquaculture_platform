@@ -10,7 +10,9 @@ import {
   activeDropletServices,
   backendImageBuildTargets,
   frontendImageBuildTargets,
+  frontendPrebuildPlan,
   gatewaySubgraphs,
+  getServiceCatalogEntry,
   imageBuildTargets,
   infraImageBuildTargets,
   readinessServices,
@@ -102,9 +104,13 @@ function shellAssignment(name: string, values: readonly string[]): string {
 }
 
 function frontendModulePath(serviceId: string): string {
-  if (serviceId === 'shell') return 'web/shell';
-  if (serviceId === 'aquamobil') return 'web/apps/aquamobil';
-  return `web/modules/${serviceId}`;
+  // Catalog entry is the SSOT for module paths (INFRA-HIGH-005: the old
+  // per-script convention diverged from the npm-workspace reality).
+  const modulePath = getServiceCatalogEntry(serviceId)?.modulePath;
+  if (!modulePath) {
+    throw new Error(`No catalog modulePath for frontend service ${serviceId}`);
+  }
+  return modulePath;
 }
 
 function frontendDockerfile(serviceId: string): string {
@@ -259,12 +265,12 @@ ${secretEntries.map((name) => renderEntry(name, 'secret deploy variable', 'secre
 
 function catalogDeployEnvArtifact(): Artifact {
   const frontendTargets = [...frontendImageBuildTargets()];
-  const nxFrontend = activeDropletServices()
-    .filter((entry) => entry.buildKind === 'frontend')
-    .map((entry) => entry.nxProject)
-    .filter((project): project is string => typeof project === 'string')
-    .sort();
-  const nonNxFrontend = frontendTargets.filter((target) => !nxFrontend.includes(target));
+  // frontendPrebuildPlan() is the SSOT split: dockerfile-self-build
+  // targets (aquamobil) appear in NEITHER list — their Dockerfile owns
+  // the asset build (INFRA-HIGH-005).
+  const prebuild = frontendPrebuildPlan();
+  const nxFrontend = prebuild.nxProjects;
+  const nonNxFrontend = prebuild.workspaceModules.map((entry) => entry.module);
   const readySpecs = readinessServices().map((entry) => `${entry.serviceId}:${entry.port}`);
 
   return {
@@ -284,12 +290,10 @@ ${shellAssignment('CATALOG_READINESS_SERVICES', readySpecs)}
 
 function catalogGeneratedArtifact(): Artifact {
   const frontendTargets = [...frontendImageBuildTargets()];
-  const nxFrontend = activeDropletServices()
-    .filter((entry) => entry.buildKind === 'frontend')
-    .map((entry) => entry.nxProject)
-    .filter((project): project is string => typeof project === 'string')
-    .sort();
-  const nonNxFrontend = frontendTargets.filter((target) => !nxFrontend.includes(target));
+  // Same SSOT split as catalogDeployEnvArtifact — one derivation, two artifacts.
+  const prebuild = frontendPrebuildPlan();
+  const nxFrontend = prebuild.nxProjects;
+  const nonNxFrontend = prebuild.workspaceModules.map((entry) => entry.module);
 
   return {
     path: 'infrastructure/deploy/service-catalog.generated.json',
@@ -306,6 +310,10 @@ function catalogGeneratedArtifact(): Artifact {
         serviceDbRolePrefixes: serviceDbRolePrefixes(),
         nxFrontendProjects: nxFrontend,
         nonNxFrontendProjects: nonNxFrontend,
+        // module → workspacePath pairs for the npm-workspace prebuild
+        // lane; deploy workflows MUST resolve build paths from here,
+        // never from a `web/modules/${mod}` convention (INFRA-HIGH-005).
+        nonNxFrontendBuild: prebuild.workspaceModules,
         readinessServices: readinessServices(),
         frontendImageMatrix: frontendTargets.map((target) => ({
           module: target,

@@ -278,9 +278,13 @@ describe('PolicyEnforcerService', () => {
     });
 
     it('should allow resource owner access', async () => {
+      // WHY cross-tenant fixture: fallback policies are OR-combined in
+      // order and tenantIsolation passes whenever the resource has no
+      // tenantId — to prove ownerAccess specifically, tenantIsolation must
+      // FAIL (mismatched tenants) while ownership matches.
       const context = createContext({
-        subject: createSubject({ id: 'user-owner' }),
-        resource: { type: 'farm', ownerId: 'user-owner' },
+        subject: createSubject({ id: 'user-owner', tenantId: 'tenant-b' }),
+        resource: { type: 'farm', tenantId: 'tenant-a', ownerId: 'user-owner' },
       });
 
       const decision = await service.isAuthorized(context);

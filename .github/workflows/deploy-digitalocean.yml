@@ -554,7 +554,9 @@ jobs:
             for nnx in "${NON_NX_FRONTEND[@]}"; do
               [ "$nnx" = "$mod" ] && NON_NX_FE_AFFECTED+=("$mod") && continue 2
             done
-            # aquamobil is neither NX nor non-NX (builds inside Dockerfile)
+            # dockerfile-self-build targets (catalog frontendAssets field,
+            # e.g. aquamobil) appear in neither generated list by design —
+            # their image build compiles the assets itself.
           done
           NX_FE_CSV=$(IFS=,; echo "${NX_FE_AFFECTED[*]}")
           NON_NX_FE_CSV=$(IFS=,; echo "${NON_NX_FE_AFFECTED[*]}")
@@ -699,10 +701,15 @@ jobs:
 
       # PERF-CI-001: Build only affected frontend modules (not all 8+aquamobil)
       #
-      # Build strategy:
-      #   - NX projects (have project.json): built via nx run-many
-      #   - Non-NX workspace modules (sensor/hr/hydroponics): built via npm workspaces
-      #   - aquamobil (web/apps/aquamobil): builds inside its own Dockerfile — skipped here
+      # Build strategy — encoded in the service catalog (frontendAssets
+      # field; frontendPrebuildPlan() is the SSOT split):
+      #   - NX projects: built via nx run-many
+      #   - Non-NX workspace modules: built via npm workspaces at the
+      #     workspacePath the catalog publishes in deploy.nonNxFrontendBuild
+      #   - dockerfile-self-build targets (aquamobil): in NEITHER list —
+      #     their Dockerfile compiles the assets (INFRA-HIGH-005: the old
+      #     `web/modules/${mod}` convention broke the first full deploy
+      #     that included aquamobil)
       - name: Build affected frontend modules
         run: |
           NX_CSV="${{ needs.prepare.outputs.nx_frontend_csv }}"
@@ -721,15 +728,17 @@ jobs:
 
           # Non-NX workspace modules (vite build, deps already hoisted to root node_modules)
           # These modules import from @aquaculture/shared-ui which resolves to web/shared-ui/dist,
-          # so shared-ui must be built first.
+          # so shared-ui must be built first. Workspace paths come from the
+          # generated catalog — never reconstructed by convention.
           if [ -n "$NON_NX_CSV" ]; then
             echo "Building shared-ui (dependency for non-NX modules)"
             npm run build --workspace="web/shared-ui"
 
             IFS=',' read -ra NON_NX_MODS <<< "$NON_NX_CSV"
             for mod in "${NON_NX_MODS[@]}"; do
-              echo "Building non-NX module: ${mod}"
-              npm run build --workspace="web/modules/${mod}"
+              MOD_PATH=$(node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("infrastructure/deploy/service-catalog.generated.json","utf8")); const entry=(data.deploy?.nonNxFrontendBuild ?? []).find((e)=>e.module===process.argv[1]); if(!entry){throw new Error(`module ${process.argv[1]} missing from deploy.nonNxFrontendBuild — regenerate the service catalog`);} console.log(entry.workspacePath);' "$mod")
+              echo "Building non-NX module: ${mod} (${MOD_PATH})"
+              npm run build --workspace="${MOD_PATH}"
             done
           else
             echo "No non-NX frontend modules affected — skipping"

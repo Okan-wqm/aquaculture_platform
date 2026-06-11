@@ -326,6 +326,14 @@ export class RateLimitGuard implements CanActivate {
       const now = Date.now();
       const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
 
+      // WHY header too: RFC 6585 clients (and proxies) honour the
+      // Retry-After HEADER — a body-only field is invisible to standard
+      // backoff middleware.
+      const response = request.res;
+      if (response?.setHeader) {
+        response.setHeader('Retry-After', retryAfter.toString());
+      }
+
       throw new HttpException(
         {
           statusCode: HttpStatus.TOO_MANY_REQUESTS,
@@ -504,7 +512,15 @@ export class RateLimitGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
-    if (customConfig) {
+    // WHY shape validation: reflector metadata is build-time input, not a
+    // trusted runtime value — a malformed @RateLimit() payload (or another
+    // decorator colliding on the key) must fall through to the URL/identity
+    // buckets instead of producing NaN windows and undefined limits.
+    if (
+      customConfig &&
+      typeof customConfig.limit === 'number' &&
+      typeof customConfig.windowMs === 'number'
+    ) {
       return customConfig;
     }
 

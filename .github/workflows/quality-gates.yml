@@ -88,6 +88,17 @@ jobs:
             tools/gates/banned-phrase.ts \
             --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
 
+      # Round-2 cluster-0: code-construct sibling of the phrase gate.
+      # Catches `as any` / ts-ignore / test-skip / eslint-disable / bare
+      # getRepository( on ADDED lines — including spec files, where
+      # .eslintrc relaxes no-explicit-any (the bypass this step closes).
+      - name: Run banned-construct gate
+        if: always()
+        run: |
+          ./node_modules/.bin/ts-node --project tools/gates/tsconfig.json \
+            tools/gates/banned-construct.ts \
+            --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+
       - name: Run dependency-policy gate
         if: always()
         run: node scripts/ci/check-dependency-policy.mjs

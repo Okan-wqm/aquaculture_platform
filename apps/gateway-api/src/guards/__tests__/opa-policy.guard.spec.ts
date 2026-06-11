@@ -36,6 +36,8 @@ describe('OpaPolicyGuard', () => {
     const mockRequest = {
       user,
       path,
+      // WHY url too: buildOpaInput reads request.url for context.path.
+      url: path,
       method,
       headers,
       params: {},
@@ -50,6 +52,9 @@ describe('OpaPolicyGuard', () => {
       getHandler: () => jest.fn(),
       getClass: () => jest.fn(),
       getType: () => 'http',
+      // WHY: the guard routes through GqlExecutionContext.create(), which
+      // reads context.getArgs() even for http-typed contexts.
+      getArgs: () => [mockRequest, {}, {}, {}],
     } as unknown as ExecutionContext;
   };
 
@@ -58,7 +63,7 @@ describe('OpaPolicyGuard', () => {
    */
   interface OpaInput {
     input: {
-      request: {
+      context: {
         path: string;
         method: string;
       };
@@ -102,7 +107,14 @@ describe('OpaPolicyGuard', () => {
         {
           provide: Reflector,
           useValue: {
-            getAllAndOverride: jest.fn().mockReturnValue(null),
+            // WHY keyed default: the guard only evaluates OPA when the
+            // handler carries an @OpaPolicy() config — without it,
+            // non-production short-circuits to allow. Every evaluation test
+            // therefore needs a policy on the handler; bypass/no-policy
+            // tests override this mock explicitly.
+            getAllAndOverride: jest.fn((key: unknown) =>
+              key === OPA_POLICY_KEY ? { policy: 'aquaculture/authz/api' } : null,
+            ),
           },
         },
         {
@@ -262,7 +274,7 @@ describe('OpaPolicyGuard', () => {
       await guard.canActivate(context);
 
       const callBody = getFetchRequestBody();
-      expect(callBody.input.request.path).toBe('/api/v1/sensitive');
+      expect(callBody.input.context.path).toBe('/api/v1/sensitive');
     });
 
     it('should include request method in input', async () => {
@@ -275,7 +287,7 @@ describe('OpaPolicyGuard', () => {
       await guard.canActivate(context);
 
       const callBody = getFetchRequestBody();
-      expect(callBody.input.request.method).toBe('DELETE');
+      expect(callBody.input.context.method).toBe('DELETE');
     });
   });
 
@@ -299,7 +311,12 @@ describe('OpaPolicyGuard', () => {
     });
 
     it('should deny if any policy denies (AND logic)', async () => {
-      jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(['policy1', 'policy2']);
+      // WHY keyed mock: a blanket mockReturnValue answers the BYPASS key
+      // with a truthy array too — short-circuiting the guard to allow
+      // before any policy evaluates.
+      jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key: unknown) =>
+        key === OPA_POLICY_KEY ? ['policy1', 'policy2'] : null,
+      );
 
       (global.fetch as jest.Mock)
         .mockResolvedValueOnce({
@@ -318,14 +335,28 @@ describe('OpaPolicyGuard', () => {
 
   describe('Policy Timeout Handling', () => {
     it('should timeout after configured duration', async () => {
+      jest.useFakeTimers();
+      // WHY signal-respecting mock: the guard enforces its timeout via
+      // AbortController — a mock that ignores opts.signal can never observe
+      // the abort, so the test would hang on real timers instead.
       (global.fetch as jest.Mock).mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 10000)),
+        (_url: string, opts: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            opts.signal?.addEventListener('abort', () =>
+              reject(new Error('This operation was aborted')),
+            );
+          }),
       );
 
       const context = createMockExecutionContext({ sub: 'user-1' });
 
-      // Should timeout before 10 seconds
-      await expect(guard.canActivate(context)).rejects.toThrow();
+      // Should timeout at the configured 5s budget
+      const promise = guard.canActivate(context);
+      const assertion = expect(promise).rejects.toThrow();
+      await jest.advanceTimersByTimeAsync(6000);
+      await assertion;
+
+      jest.useRealTimers();
     });
   });
 
@@ -344,8 +375,11 @@ describe('OpaPolicyGuard', () => {
   });
 
   describe('Policy Decision Audit Logging', () => {
-    it('should log policy decisions', async () => {
-      const logSpy = jest.spyOn(guard['logger'], 'debug');
+    it('should stay QUIET on allowed decisions (log-noise control)', async () => {
+      // WHY inverted contract: allowed decisions are the steady state — the
+      // guard logs denials (warn) and cache events only; per-request allow
+      // logging would flood production logs.
+      const warnSpy = jest.spyOn(guard['logger'], 'warn');
 
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
@@ -353,9 +387,10 @@ describe('OpaPolicyGuard', () => {
       });
 
       const context = createMockExecutionContext({ sub: 'user-1' });
-      await guard.canActivate(context);
+      const result = await guard.canActivate(context);
 
-      expect(logSpy).toHaveBeenCalled();
+      expect(result).toBe(true);
+      expect(warnSpy).not.toHaveBeenCalled();
     });
 
     it('should log policy denials as warnings', async () => {

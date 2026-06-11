@@ -19,38 +19,32 @@
  *
  * # MECHANICS
  *
- * The actual work is done by `tools/gates/entity-diff-witness.ts`. This
- * spec is a thin invariant wrapper that:
+ * The actual work is done by `tools/gates/entity-diff-witness.ts`. The
+ * gate RUNS in exactly ONE place: the dedicated `entity-diff-witness`
+ * job in `db-migration-check.yml`, which owns the gate's full env
+ * contract (PR_BODY for the ENTITY-DIFF-OK waiver + BASE_SHA for the
+ * diff base) and is path-filtered to exactly the file class the gate
+ * judges (entity + migration files).
  *
- *   1. In CI mode (BASE_SHA env present): invokes the gate as a subprocess
- *      and asserts exit code 0.
- *   2. In local-run mode (no BASE_SHA): the script self-resolves to
- *      `origin/main`, behaves the same way.
- *
- * The wrapper exists so `nx test invariants` includes this gate in the
- * standard CI shard — operators do not need to remember to run the gate
- * separately. The GHA workflow `db-migration-check.yml` also runs the gate
- * as a dedicated job for early-fail signal.
+ * WHY single-executor (INFRA-HIGH-010): this spec previously ALSO ran
+ * the gate as a subprocess from every Jest shard (`invariants-fast`,
+ * `nx affected test`). Those executors inherited whatever env their
+ * workflow happened to export — none exported PR_BODY — so a PR
+ * carrying a legitimate waiver was green in the dedicated job and
+ * structurally red everywhere else: one gate, N executors, forked
+ * verdicts. Copying the env into each workflow would leave the class
+ * open for the next executor; instead the gate run has one owner and
+ * this spec asserts, structurally, that every workflow step invoking
+ * the gate exports the full env contract.
  */
 
 import { execSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 describe('INVARIANT — entity-diff-implies-migration (KERNEL-CRITICAL-002)', () => {
-  // The gate only meaningfully runs in a PR context — it needs a base SHA
-  // to compare against. Without it the script defaults to `origin/main`,
-  // which is correct for local pre-commit runs but redundant for the
-  // standard `nx test invariants` invocation on main (no diff = no-op).
-  // GHA exports GITHUB_BASE_REF as just `main` (branch name, not ref) —
-  // we prepend `origin/` so the script can resolve it in shallow-fetched
-  // CI clones where the local `main` ref may not exist.
-  const rawBase = process.env.BASE_SHA ?? process.env.GITHUB_BASE_REF ?? '';
-  const baseSha = rawBase && !rawBase.includes('/') && !/^[0-9a-f]{7,40}$/.test(rawBase)
-    ? `origin/${rawBase}`
-    : rawBase;
-
   it('gate script exists and is executable', () => {
     // Just verify the script is on disk and accessible from REPO_ROOT.
     const exists = execSync(
@@ -79,31 +73,34 @@ describe('INVARIANT — entity-diff-implies-migration (KERNEL-CRITICAL-002)', ()
     expect(yml).toMatch(/gates:entity-diff-witness/);
   });
 
-  // The actual diff-vs-migration evaluation happens at PR time in CI.
-  // Running the gate here on `main` with no PR context would be vacuously
-  // green; skipping it preserves the standard `nx test invariants` SLO
-  // (every spec resolves in < 1s) without losing coverage — the GHA
-  // workflow job runs the gate against the real PR diff.
-  if (baseSha) {
-    it(`gate passes against PR base ${baseSha}`, () => {
-      // Execute the gate; expect exit code 0. The gate's stdout is logged
-      // by jest's default console capture.
-      try {
-        execSync(
-          `cd ${REPO_ROOT} && npm run gates:entity-diff-witness -- --diff-base "${baseSha}"`,
-          { encoding: 'utf8', stdio: 'pipe' },
-        );
-      } catch (err) {
-        const e = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
-        const out = (e.stdout?.toString() ?? '') + (e.stderr?.toString() ?? '');
-        throw new Error(
-          `entity-diff-witness gate FAILED with exit ${e.status ?? 'unknown'}:\n${out}`,
-        );
-      }
-    });
-  } else {
-    it.skip('gate run skipped (no BASE_SHA / GITHUB_BASE_REF in env)', () => {
-      // skipped on main branch / local nx test invariants runs
-    });
-  }
+  // Single-executor env contract (INFRA-HIGH-010): the gate's verdict
+  // depends on PR_BODY (waiver channel) and BASE_SHA (diff base). Any
+  // workflow step that invokes the gate without exporting BOTH forks
+  // the verdict from the dedicated job's. This meta-invariant makes
+  // the asymmetry class a CI failure: every `gates:entity-diff-witness`
+  // invocation across all workflows must carry the full env contract.
+  it('every workflow step invoking the gate exports PR_BODY and BASE_SHA', () => {
+    const wfDir = join(REPO_ROOT, '.github', 'workflows');
+    const invokers = readdirSync(wfDir)
+      .filter((f) => /\.ya?ml$/.test(f))
+      .filter((f) =>
+        readFileSync(join(wfDir, f), 'utf8').includes(
+          'gates:entity-diff-witness',
+        ),
+      );
+
+    // The dedicated job must exist — losing the single executor would
+    // silently disarm the invariant entirely.
+    expect(invokers).toContain('db-migration-check.yml');
+
+    for (const f of invokers) {
+      const yml = readFileSync(join(wfDir, f), 'utf8');
+      expect(yml).toMatch(
+        /PR_BODY:\s*\$\{\{\s*github\.event\.pull_request\.body\s*\}\}/,
+      );
+      expect(yml).toMatch(
+        /BASE_SHA:\s*\$\{\{\s*github\.event\.pull_request\.base\.sha\s*\}\}/,
+      );
+    }
+  });
 });

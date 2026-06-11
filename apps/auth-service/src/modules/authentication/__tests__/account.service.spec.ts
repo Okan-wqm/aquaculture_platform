@@ -6,6 +6,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
 import { AccountService } from '../services/account.service';
@@ -84,7 +85,7 @@ describe('AccountService', () => {
         { provide: ConfigService, useValue: configService },
         { provide: AuditLogService, useValue: auditLogService },
         { provide: MfaService, useValue: mfaService },
-        { provide: 'EVENT_BUS', useValue: eventBus },
+        { provide: BestEffortEventPublisher, useValue: new BestEffortEventPublisher(eventBus) },
         { provide: TOKEN_BLACKLIST, useValue: tokenBlacklist },
         { provide: SESSION_MANAGER, useValue: sessionManager },
       ],

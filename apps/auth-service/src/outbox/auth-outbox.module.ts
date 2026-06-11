@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { OutboxModule } from '@platform/outbox';
 
 import { AuthOutbox } from './auth-outbox.entity';
+import { BestEffortEventPublisher } from './best-effort-event-publisher';
 
 /**
  * @module AuthOutboxModule
@@ -22,6 +23,7 @@ import { AuthOutbox } from './auth-outbox.entity';
 @Global()
 @Module({
   imports: [OutboxModule.forFeature(AuthOutbox)],
-  exports: [OutboxModule],
+  providers: [BestEffortEventPublisher],
+  exports: [OutboxModule, BestEffortEventPublisher],
 })
 export class AuthOutboxModule {}

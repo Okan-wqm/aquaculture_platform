@@ -32,12 +32,41 @@
 #                             docs/runbooks/secret-rotation.md#password-pepper)
 #   MFA_ENCRYPTION_KEY      — AES-256-GCM root key for auth-service TOTP secrets
 #                             (production auth-service fails closed without it)
+#   SERVICE_IDENTITY_KEYRING — v2 HMAC keyring (JSON array) consumed by
+#                             libs/backend-common service-identity.util's
+#                             parseServiceIdentityKeyring(); five droplet
+#                             services interpolate it as `:?` required in
+#                             docker-compose.droplet.yml. Missing it aborts
+#                             the deploy at compose interpolation
+#                             (INFRA-HIGH-006, 2026-06-11 deploy red). Same
+#                             generate-if-absent / never-rotate semantics as
+#                             the other entries; key policy fields (callers /
+#                             audiences / tenantScopePolicy) are deliberately
+#                             omitted at bootstrap — parse treats them as
+#                             unrestricted, and tightening them is an
+#                             operator policy ceremony, not a bootstrap
+#                             concern.
+
+# Generator for SERVICE_IDENTITY_KEYRING — a shell function (not an inline
+# command string) because the value is structured JSON; quoting a printf
+# template inside the array literal would force escaped-quote soup AND
+# expand the $(...) substitutions at source time instead of generation
+# time. The function body runs only when the bootstrap loop eval-invokes
+# it for an absent var.
+generate_service_identity_keyring() {
+  local kid secret
+  kid="k-$(date -u +%Y%m%d)"
+  secret="$(openssl rand -hex 32)"
+  printf '[{"kid":"%s","secret":"%s","status":"active"}]' "${kid}" "${secret}"
+}
+
 REQUIRED_ENV_SECRETS=(
   "POSTGRES_PASSWORD:openssl rand -base64 32"
   "REDIS_PASSWORD:openssl rand -base64 32"
   "INTERNAL_SERVICE_SECRET:openssl rand -base64 32"
   "PASSWORD_PEPPER:openssl rand -base64 48"
   "MFA_ENCRYPTION_KEY:openssl rand -hex 32"
+  "SERVICE_IDENTITY_KEYRING:generate_service_identity_keyring"
 )
 
 # Convenience helper: extract just the names, for preflight checks.

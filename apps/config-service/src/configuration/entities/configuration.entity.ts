@@ -107,20 +107,27 @@ export class Configuration {
   @Field()
   isActive!: boolean;
 
+  // WHY the explicit `() => Type` thunks on the four soft-delete fields:
+  // their TS types are `T | null` unions, and NestJS GraphQL's
+  // design:type reflection cannot resolve a union — schema build dies at
+  // RUNTIME with "Undefined type error ... deletedAt of the Configuration
+  // class" (production boot-loop, 2026-06-11; shipped by the #375 train
+  // and invisible to CI because no job builds this subgraph's schema —
+  // INFRA-HIGH-009 tracks the schema-build smoke gate).
   @Column({ type: 'timestamp', nullable: true, name: 'deleted_at' })
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   deletedAt?: Date | null;
 
   @Column({ type: 'varchar', nullable: true, length: 100, name: 'deleted_by' })
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   deletedBy?: string | null;
 
   @Column({ type: 'varchar', nullable: true, length: 255, name: 'delete_reason' })
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   deleteReason?: string | null;
 
   @Column({ type: 'timestamp', nullable: true, name: 'retention_until' })
-  @Field({ nullable: true })
+  @Field(() => Date, { nullable: true })
   retentionUntil?: Date | null;
 
   @Column({ default: false, name: 'suppress_fallback' })

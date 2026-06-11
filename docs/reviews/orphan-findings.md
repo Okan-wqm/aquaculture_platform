@@ -3787,6 +3787,8 @@ It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCy
 
 ## ORPHAN-MEDIUM-088 — admin-api-service unit-test suite broken at baseline (quarantined)
 
+> Numbering note: this MEDIUM-088 and the unrelated `ORPHAN-HIGH-088` (tenant-schema runtime grants, data-expert) below were assigned `088` on two parallel lineages and merged here. They are distinct findings; the `{severity}-{number}` ID keeps them unique. MEDIUM-088 is referenced by commit e52ba895e, so it is not renumbered.
+
 **Found while:** wiring the admin-api-service consumer of the TenantStatus machine (MT-HIGH-003 W3.1). Running `nx test admin-api-service` at the wave3 base surfaced dozens of failures UNRELATED to the TenantStatus work; confirmed pre-existing via `git stash` A/B at 596e63595.
 
 **Problem (distinct root causes observed):**
@@ -3827,3 +3829,15 @@ This means W3.2 could only make `UserInvited` **best-effort** (it is allowlisted
 Adjacent cleanup: `sendInvitationEmail` uses `require('crypto')` (CommonJS) instead of the file's ESM `import * as crypto` — a lint/consistency smell to fix in the same pass.
 
 **Status:** OPEN.
+
+## ORPHAN-HIGH-088 — Tenant-şema runtime yetkilerinin SSOT sahibi yok; production seremoni grant'leriyle ayakta
+
+Severity: HIGH. Stage-008 yalnız adlandırılmış servis şemalarını (15 spec + shared + platform) yönetir; `tenant_<uuid>` şemaları kapsam dışı. Tenant-schema-provisioner şemayı yaratır, tabloları fan-out eder, RLS/audit hardening uygular ve ledger READ erişimi verir — ama runtime rollerine (örn. `messaging_service`) tenant şeması üzerinde USAGE/DML/partition-CREATE GRANT'ini HİÇBİR bileşen vermez (`applyProvisionerHardening` yalnız RLS + audit kolonları; `sql-fragments.ts` grant primitifi taşımıyor).
+
+2026-06-11 production açılışında `tenant_7f6b...` erişimi elle verilen grant'lerle kurtarıldı; bu grant'ler hiçbir SSOT'ta yaşamıyor. Sonuç: (1) yeni provision edilen her tenant şeması runtime erişimsiz doğar — ilk tenant-scoped sorgu runtime'da patlar; (2) seremoni grant'leri bir restore/rebuild'de sessizce kaybolur.
+
+Kök neden: ADR-011 sahiplik modeli servis şemaları için 008'de yürütülürken, tenant şemaları için yetki katmanı provisioner'a hiç bağlanmamış — provisioning akışında `APPLYING_GRANTS` durumu var ama yalnız migration-ledger READ'i kapsıyor.
+
+Düzeltme yönü: provisioner `APPLYING_GRANTS` aşamasına tenant-şema runtime grant SSOT'u eklenir (servis kataloğundan türetilen rol→şema eşlemesiyle USAGE+DML; messaging partition'ları için DATA-HIGH-006 definer-fonksiyon deseni tenant şemalarını da kapsar); mevcut tenant şemaları için idempotent backfill ceremony'si aynı PR'da. Compliance-bootstrap-SSOT yapısal PR'ıyla birlikte ele alınmalı.
+
+Status: OPEN (2026-06-11; sahip: data-expert; kuyruktaki provisioner/compliance yapısal PR kapsamına bağlandı).

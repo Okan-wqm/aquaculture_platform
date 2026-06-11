@@ -183,18 +183,54 @@ describe('INVARIANT: auth-service owns tenant lifecycle commands', () => {
     expect(service).toContain('idempotency key was reused with a different payload');
   });
 
-  it('keeps lifecycle transition policy owned by auth-service, not caller metadata', () => {
+  it('owns lifecycle legality via the canonical machine + command authorization, not a local copy or caller metadata', () => {
     const service = readRepoFile(
       'apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts',
     );
 
-    expect(service).toContain('lifecycleTransitionPolicy');
-    expect(service).toContain('getAllowedLifecycleTransition');
-    expect(service).toContain('const allowedFrom = defaultFrom');
+    // W3.3-c: edge legality is delegated to the canonical TenantStatusMachine
+    // (assertTransition); the local LIFECYCLE_COMMANDS map only narrows command
+    // authorization (a subset of the machine's edges, never a parallel legality
+    // table). The drifting local legality copy is gone.
+    expect(service).toContain('LIFECYCLE_COMMANDS');
+    expect(service).toContain('assertTransition(tenant.status, targetStatus)');
+    expect(service).toContain("from '@platform/event-contracts'");
+    expect(service).not.toContain('lifecycleTransitionPolicy');
+    expect(service).not.toContain('getAllowedLifecycleTransition');
+    // Caller metadata never decides transitions.
     expect(service).toContain('requestReference: _requestReference');
     expect(service).not.toContain('command.allowedTransition?.from ?? defaultFrom');
     expect(service).not.toContain('command.allowedTransition');
     expect(service).not.toContain('command.targetStatus');
+  });
+
+  it('wires the BeginProvisioning lifecycle command end-to-end so PROVISIONING is a real phase', () => {
+    const contracts = readRepoFile('libs/event-contracts/src/tenant-commands.ts');
+    const handler = readRepoFile(
+      'apps/auth-service/src/modules/tenant/handlers/auth-admin-nats.handler.ts',
+    );
+    const service = readRepoFile(
+      'apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts',
+    );
+    const client = readRepoFile(
+      'apps/admin-api-service/src/tenant/services/auth-tenant-provisioning-client.service.ts',
+    );
+    const workflow = readRepoFile(
+      'apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts',
+    );
+
+    // Canonical subject + command type.
+    expect(contracts).toContain("BEGIN_PROVISIONING: 'request.auth.tenant.BeginProvisioning'");
+    expect(contracts).toContain('BeginProvisioningCommand');
+    // auth-service is the sole writer: NATS handler -> command-service handler.
+    expect(handler).toContain('TENANT_COMMAND_SUBJECTS.BEGIN_PROVISIONING');
+    expect(handler).toContain('beginProvisioning(command)');
+    expect(service).toContain('async beginProvisioning(');
+    // admin-api stays a pure NATS client and inserts the PENDING->PROVISIONING
+    // step between reserve and the provisioning work.
+    expect(client).toContain('TENANT_COMMAND_SUBJECTS.BEGIN_PROVISIONING');
+    expect(workflow).toContain("'begin_provisioning'");
+    expect(workflow).toContain('this.beginProvisioning(run, tenant.id)');
   });
 
   it('routes tenant lifecycle + first-admin events through the durable outbox, not a raw event bus', () => {

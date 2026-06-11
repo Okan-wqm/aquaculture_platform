@@ -13,12 +13,59 @@ describe('parseArgs — default (no flags)', () => {
     expect(out).toEqual({});
   });
 
-  it('returns empty args on argv that has only non-flag tokens', () => {
-    // Non-flag tokens (bare positional args) are ignored — the CLI
-    // only consumes its known flags. Future positional arg support
-    // would land a separate commit + parser extension.
-    const out = parseArgs(['ignoreme', 'positional']);
-    expect(out).toEqual({});
+  it('rejects unknown positional tokens (PR#363 port — typo fail-loud)', () => {
+    // Pre-port behaviour silently ignored unknown positionals, so a
+    // typo'd subcommand (`tenant-schema-provisioneer`) degraded to the
+    // default up-all migration run. Operator CLIs fail at the boundary.
+    expect(() => parseArgs(['ignoreme', 'positional'])).toThrow(
+      /unexpected positional argument/i,
+    );
+  });
+});
+
+describe('parseArgs — duplicate and value-eating flags (PR#363 port)', () => {
+  it('rejects duplicate --down', () => {
+    expect(() => parseArgs(['--down', '2', '--down', '3', '--schema', 'farm'])).toThrow(
+      /duplicate cli flag: --down/i,
+    );
+  });
+
+  it('rejects duplicate --schema', () => {
+    expect(() => parseArgs(['--down', '2', '--schema', 'farm', '--schema', 'hr'])).toThrow(
+      /duplicate cli flag: --schema/i,
+    );
+  });
+
+  it('rejects duplicate --tenant', () => {
+    expect(() =>
+      parseArgs([
+        'tenant-schema-rollback',
+        '--tenant',
+        'tenant_4b529829ea7948da',
+        '--tenant',
+        'tenant_5c640940fb805aeb',
+        '--down',
+        '1',
+        '--schema',
+        'farm',
+      ]),
+    ).toThrow(/duplicate cli flag: --tenant/i);
+  });
+
+  it('rejects --down swallowing the next flag as its value', () => {
+    expect(() => parseArgs(['--down', '--schema', 'farm'])).toThrow(/requires an integer/i);
+  });
+
+  it('rejects --schema swallowing the next flag as its value', () => {
+    expect(() => parseArgs(['--down', '1', '--schema', '--down'])).toThrow(
+      /requires a schema name/i,
+    );
+  });
+
+  it('rejects --tenant swallowing the next flag as its value', () => {
+    expect(() =>
+      parseArgs(['tenant-schema-rollback', '--tenant', '--down', '1', '--schema', 'farm']),
+    ).toThrow(/requires a tenant id/i);
   });
 });
 

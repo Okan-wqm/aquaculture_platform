@@ -50,10 +50,18 @@ import {
   RlsModule,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
+  isSchemaDdlOwnedByDbMigrate,
 } from '@aquaculture/backend-common/database';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
+/**
+ * PR#363 port — runtime DDL authority gate. In authoritative deployments
+ * the per-tenant RLS sweep belongs to aqua-db-migrate's tenant fan-out
+ * hardening (SCHEMA_REGISTRY['farm'].postMigrationHardening); local/dev
+ * keeps syncTenantSchemas as the historical bootstrap convenience.
+ */
+const farmSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -452,7 +460,10 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     RlsModule.forPoolService({
       serviceName: 'farm',
       autoApply: false,
-      syncTenantSchemas: true,
+      // PR#363 port: runtime per-tenant RLS sweep only when db-migrate is
+      // NOT authoritative — production tenants get the same policies from
+      // the db-migrate tenant fan-out hardening.
+      syncTenantSchemas: !farmSchemaDdlOwnedByDbMigrate,
       excludeTables: [
         'farm_outbox',
         'outbox_events',

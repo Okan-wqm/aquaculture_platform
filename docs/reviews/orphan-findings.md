@@ -3755,6 +3755,16 @@ Fix: add workflow contract/preflight verification, evidence trust and ledger-ref
 
 Status: RESOLVED on `feat/aria-control-plane-proof-20260606`.
 
+## ORPHAN-HIGH-087 — Source-schema write-guard triggers (`guard_source_write`) are installed by nothing on main
+
+Severity: HIGH. The DB-level tenant-isolation defense layer (BEFORE-trigger `guard_source_write` + `block_source_writes()` rejecting INSERT/UPDATE/DELETE on source-schema template tables) is no longer installed by any active code path. `SourceSchemaWriteGuardService` was correctly neutered into a no-DDL runtime stub (commit 42695736f, "aqua-db-migrate owns source-schema trigger hardening"), but db-migrate never picked up the install side: `SchemaPostMigrationHardening` supports only `tenantRls` and `auditColumns` — there is no `sourceWriteGuards` step, and a repo-wide grep for `guard_source_write` / `block_source_writes` hits zero active files. Environments provisioned before the neutering retain stale triggers; fresh environments get none.
+
+Root cause: the ownership transfer ("runtime services must not install trigger DDL → db-migrate owns it") shipped only its prohibition half. The PR#363 branch (8706e7a68) contained the missing half as `source-schema-write-guards.helper.ts` (idempotent installer driven by `MODULE_SCHEMAS` tables minus referenceDataTables/infrastructureTables), but that branch was never merged and the 2026-06-11 C-2 port deliberately did not carry it: wiring an install step into `postMigrationHardening` would fire write-blocking triggers on the next production deploy for every hardened schema, and the `MODULE_SCHEMAS` reference/infrastructure classification has not been re-audited against today's runtime write paths (a misclassified outbox/reference table would brick legitimate writes platform-wide).
+
+Fix: (1) re-audit `MODULE_SCHEMAS` per schema against actual runtime write paths (outbox, inbox, reference seeds, ledger tables); (2) port `installSourceSchemaWriteGuards` from 8706e7a68 into `libs/backend-common` and add a `sourceWriteGuards` step to `SchemaPostMigrationHardening` + the db-migrate hardening executor (gated per-schema, staged rollout starting with farm); (3) extend `tests/invariants/authoritative-runtime-ddl-contract.spec.ts` to require the step for schema-per-tenant entries once enabled.
+
+Status: OPEN. Owner: data-expert. Deadline: 2026-07-15 (registry follow-up of DATA-HIGH-004; raised by docs/reviews/data-expert/2026-06-11-runtime-ddl-authority-port.md).
+
 ## ORPHAN-HIGH-088 — Tenant-şema runtime yetkilerinin SSOT sahibi yok; production seremoni grant'leriyle ayakta
 
 Severity: HIGH. Stage-008 yalnız adlandırılmış servis şemalarını (15 spec + shared + platform) yönetir; `tenant_<uuid>` şemaları kapsam dışı. Tenant-schema-provisioner şemayı yaratır, tabloları fan-out eder, RLS/audit hardening uygular ve ledger READ erişimi verir — ama runtime rollerine (örn. `messaging_service`) tenant şeması üzerinde USAGE/DML/partition-CREATE GRANT'ini HİÇBİR bileşen vermez (`applyProvisionerHardening` yalnız RLS + audit kolonları; `sql-fragments.ts` grant primitifi taşımıyor).

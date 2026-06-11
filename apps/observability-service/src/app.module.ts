@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
   RlsModule,
   SchemaDriftModule,
+  createSchemaVersionGate,
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
@@ -17,6 +18,19 @@ import { MigrationAuditModule } from './migration-audit/migration-audit.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { RetentionBootstrapModule } from './retention/retention-bootstrap.module';
 import { InternalApiGuard } from './guards/internal-api.guard';
+
+/**
+ * PR#363 port — observability joins the fleet-wide schema authority
+ * contract. In authoritative mode (production/staging) this is a
+ * READ-ONLY ledger gate: boot is refused until aqua-db-migrate has
+ * finalised the `observability` schema head. In dev it delegates to the
+ * standard MigrationRunnerService. `tenantAware: false` because
+ * observability deliberately has no tenant_<uuid> clones — it reads
+ * aggregated metrics cross-tenant via BypassRlsService.
+ */
+const ObservabilitySchemaVersionGate = createSchemaVersionGate('observability', {
+  tenantAware: false,
+});
 
 @Module({
   imports: [
@@ -49,6 +63,12 @@ import { InternalApiGuard } from './guards/internal-api.guard';
           // events, schema-object history, emergency overrides, migration
           // backfill progress) — none of them ran on a fresh deploy.
           migrations: [__dirname + '/database/migrations/[0-9]*.{js,ts}'],
+          // PR#363 port (INFRA-CRITICAL-020 contract): observability owns a
+          // real migration glob now, so it uses the same env-aware timing
+          // switch as the rest of the fleet — E2E harnesses set
+          // DATABASE_MIGRATIONS_RUN=true to apply migrations at DataSource
+          // init; production stays 'false' (db-migrate owns the ledger).
+          migrationsRunFromEnv: (cfg) => cfg.get('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     PrometheusModule,
@@ -95,6 +115,8 @@ import { InternalApiGuard } from './guards/internal-api.guard';
     SchemaDriftModule.forRoot({ serviceName: 'observability' }),
   ],
   providers: [
+    // Schema authority gate — see const declaration near top of file.
+    ObservabilitySchemaVersionGate,
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
     {
       provide: APP_GUARD,

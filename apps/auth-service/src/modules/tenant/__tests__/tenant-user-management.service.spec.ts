@@ -124,7 +124,10 @@ describe('TenantUserManagementService', () => {
   let service: TenantUserManagementService;
   let userRepository: jest.Mocked<Repository<User>>;
   let tenantRepository: jest.Mocked<Repository<Tenant>>;
-  let mockDataSource: jest.Mocked<Pick<DataSource, 'query' | 'transaction'>>;
+  // Local shape (not jest.Mocked<DataSource>) so the transaction stub need not
+  // satisfy DataSource.transaction's overload set — the DI token is provided by
+  // value, which is untyped, so a precise two-method double is enough. No cast.
+  let mockDataSource: { query: jest.Mock; transaction: jest.Mock };
   let mockSchemaManager: jest.Mocked<Pick<SchemaManagerService, 'getTenantSchemaName'>>;
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
   let mockEventBus: { publish: jest.Mock };
@@ -150,9 +153,9 @@ describe('TenantUserManagementService', () => {
       // per-test query chains stay valid) and exposes the audit log via the
       // real auditLogService mock.
       transaction: jest.fn(
-        (cb: (manager: { query: typeof mockDataSource.query }) => Promise<unknown>) =>
+        (cb: (manager: { query: jest.Mock }) => Promise<unknown>) =>
           cb({ query: mockDataSource.query }),
-      ) as unknown as jest.Mocked<Pick<DataSource, 'transaction'>>['transaction'],
+      ),
     };
 
     mockSchemaManager = {
@@ -655,7 +658,7 @@ describe('TenantUserManagementService', () => {
         (opts) =>
           Promise.resolve(
             usersById[(opts as { where: { id: string } }).where.id] ?? null,
-          ) as ReturnType<typeof userRepository.findOne>,
+          ),
       );
 
       // user-a + user-b each: [no-existing, INSERT]; user-c never reaches the

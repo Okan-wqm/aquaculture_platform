@@ -1,5 +1,6 @@
 import { ExecutionContext, HttpException, ServiceUnavailableException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 
 import { InMemoryRateLimitStore } from '../in-memory-rate-limit.store';
 import { RateLimitGuard } from '../rate-limit.guard';
@@ -12,38 +13,19 @@ interface MockRequest {
   res: { setHeader: jest.Mock };
 }
 
-// Empty resolver-host double so the mock ExecutionContext implements the FULL
-// ArgumentsHost surface. A structurally complete object is assignable to
-// ExecutionContext with NO cast — the banned-construct gate forbids the
-// double-cast-through-unknown shortcut even in spec files.
-class MockResolverHost {}
 const noopHandler = (): void => undefined;
 
-const buildContext = (
-  type: 'http' | 'graphql',
-  request: MockRequest,
-  gqlArgs: unknown[] = [],
-): ExecutionContext => ({
-  getType: () => type,
-  getHandler: () => noopHandler,
-  getClass: () => MockResolverHost,
-  getArgs: () => gqlArgs,
-  getArgByIndex: (index: number) => gqlArgs[index],
-  switchToHttp: () => ({
-    getRequest: () => request,
-    getResponse: () => request.res,
-    getNext: () => noopHandler,
-  }),
-  switchToRpc: () => ({
-    getData: () => ({}),
-    getContext: () => ({}),
-  }),
-  switchToWs: () => ({
-    getData: () => ({}),
-    getClient: () => ({}),
-    getPattern: () => '',
-  }),
-});
+// Build a REAL NestJS ExecutionContext: ExecutionContextHost is the exact class
+// the framework instantiates, so the guard's GqlExecutionContext.create() and
+// switchToHttp() paths behave identically to production — no hand-rolled mock
+// and no cast (the banned-construct gate forbids the double-cast-through-unknown
+// shortcut even in specs). HTTP args = [request, response]; GQL args = Apollo's
+// [root, args, ctx, info] tuple that GqlExecutionContext reads positionally.
+const buildContext = (type: 'http' | 'graphql', args: unknown[]): ExecutionContext => {
+  const host = new ExecutionContextHost(args, null, noopHandler);
+  host.setType(type);
+  return host;
+};
 
 describe('RateLimitGuard', () => {
   const buildHttpContext = (options: {
@@ -58,7 +40,7 @@ describe('RateLimitGuard', () => {
       body: options.body,
       res: { setHeader },
     };
-    return { context: buildContext('http', request), setHeader };
+    return { context: buildContext('http', [request, request.res]), setHeader };
   };
 
   const buildGqlContext = (options: {
@@ -73,12 +55,7 @@ describe('RateLimitGuard', () => {
     };
     // WHAT: GqlExecutionContext.create reads getArgs/getContext positions —
     // [root, args, ctx, info] mirrors Apollo's resolver signature.
-    return buildContext('graphql', request, [
-      undefined,
-      options.args ?? {},
-      { req: request },
-      undefined,
-    ]);
+    return buildContext('graphql', [undefined, options.args ?? {}, { req: request }, undefined]);
   };
 
   const guardWith = (

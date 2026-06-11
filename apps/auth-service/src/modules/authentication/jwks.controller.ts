@@ -1,9 +1,10 @@
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+
 import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
 import { Public } from '@aquaculture/backend-common/decorators';
 import { Controller, Get, Header, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as crypto from 'crypto';
-import * as fs from 'fs';
 
 /**
  * JWKS (JSON Web Key Set) Controller

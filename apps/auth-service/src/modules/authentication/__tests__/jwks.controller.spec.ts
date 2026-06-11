@@ -1,5 +1,6 @@
-import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+
+import { ConfigService } from '@nestjs/config';
 
 import { JwksController } from '../jwks.controller';
 
@@ -19,11 +20,11 @@ describe('JwksController (SEC-HIGH-003 / SEC-HIGH-004)', () => {
     privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
   });
 
+  // Real ConfigService over an internal-config object — its get(key, default)
+  // reads the same object reference live (cache defaults off), so a test can
+  // mutate the map to simulate an operator key rotation. No cast.
   const configWith = (overrides: Record<string, unknown>): ConfigService =>
-    ({
-      get: <T>(key: string, def?: T): T =>
-        (key in overrides ? (overrides[key] as T) : def) as T,
-    }) as unknown as ConfigService;
+    new ConfigService(overrides);
 
   it('publishes the current key under the active signing kid (SSoT JWT_KEY_ID)', () => {
     const controller = new JwksController(
@@ -69,10 +70,9 @@ describe('JwksController (SEC-HIGH-003 / SEC-HIGH-004)', () => {
         JWT_KEY_ID: 'key-1',
         JWKS_CACHE_TTL_MS: 5 * 60_000,
       };
-      const config = {
-        get: <T>(key: string, def?: T): T =>
-          (key in overrides ? (overrides[key] as T) : def) as T,
-      } as unknown as ConfigService;
+      // Live-reading real ConfigService: mutating `overrides` below rotates
+      // the reported kid, exactly as an operator env change would.
+      const config = new ConfigService(overrides);
       const controller = new JwksController(config);
 
       expect(controller.getJwks().keys[0]?.kid).toBe('key-1');

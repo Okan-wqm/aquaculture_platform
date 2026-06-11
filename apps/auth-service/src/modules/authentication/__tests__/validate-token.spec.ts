@@ -1,23 +1,24 @@
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
+
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import {
   TimingSafeService,
   SESSION_MANAGER,
   TOKEN_BLACKLIST,
 } from '@aquaculture/backend-common/security';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import { ActionToken } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
-import { User } from '../entities/user.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
+import { User } from '../entities/user.entity';
 import { AuthenticationService } from '../services/authentication.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
@@ -57,9 +58,8 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
     NODE_ENV: 'production',
     HASH_REFRESH_TOKENS: true,
   };
-  const mockConfigService = {
-    get: <T>(key: string, def?: T): T => (key in config ? (config[key] as T) : (def as T)),
-  } as unknown as ConfigService;
+  // Real ConfigService over the test config object — type-safe, no cast.
+  const mockConfigService = new ConfigService(config);
 
   const mockTokenBlacklist = {
     add: jest.fn(),

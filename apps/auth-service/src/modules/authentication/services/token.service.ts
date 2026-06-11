@@ -1,20 +1,20 @@
 import * as crypto from 'crypto';
-import * as bcrypt from 'bcryptjs';
 
+import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
+import * as bcrypt from 'bcryptjs';
 import { DataSource, Repository } from 'typeorm';
-import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
+import { AuthPayload } from '../dto/auth-response.dto';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
-import { AuthPayload } from '../dto/auth-response.dto';
 
 /**
  * JWT access token payload.

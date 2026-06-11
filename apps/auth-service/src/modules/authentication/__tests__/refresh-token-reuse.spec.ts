@@ -1,9 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-
 /**
  * WHY THIS FILE EXISTS (AUDIT-CRITICAL-005 + SEC-MEDIUM-003):
  *
@@ -19,12 +13,6 @@
  * blacklists the user's access tokens, kills sessions, and emits a
  * SecurityEvent carrying the family-id.
  */
-import { UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import * as bcrypt from 'bcryptjs';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import {
   TimingSafeService,
@@ -32,15 +20,21 @@ import {
   TOKEN_BLACKLIST,
   SecurityEventService,
 } from '@aquaculture/backend-common/security';
+import { UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { Tenant } from '../../tenant/entities/tenant.entity';
 import { ActionToken } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
-import { Tenant } from '../../tenant/entities/tenant.entity';
-import { User } from '../entities/user.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
+import { User } from '../entities/user.entity';
 import { AuthenticationService } from '../services/authentication.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
@@ -93,7 +87,10 @@ describe('AuthenticationService — refresh-token reuse (hashed path, SEC-MEDIUM
   // A RefreshToken repo whose query builder distinguishes the locked
   // active-scan (returns [] → no live match) from the unlocked reuse-scan
   // (returns the revoked suspect token).
-  const buildRefreshTokenRepo = () => ({
+  const buildRefreshTokenRepo = (): {
+    update: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  } => ({
     update: mockRefreshTokenRepository.update,
     createQueryBuilder: jest.fn(() => {
       const state = { locked: false };

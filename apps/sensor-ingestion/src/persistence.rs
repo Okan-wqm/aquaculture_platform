@@ -37,6 +37,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use deadpool_postgres::{ManagerConfig, Pool, RecyclingMethod, Runtime};
+// RUST-CVE-001: PemObject trait supplies pem_slice_iter on CertificateDer —
+// the first-party replacement for the unmaintained rustls-pemfile.
+use rustls_pki_types::CertificateDer;
+use rustls_pki_types::pem::PemObject;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio_postgres::types::{ToSql, Type as PgType};
@@ -232,8 +236,7 @@ impl PostgresSink {
                     source,
                 })?;
         let mut roots = rustls::RootCertStore::empty();
-        let mut pem_cursor = std::io::Cursor::new(pem_bytes);
-        for cert in rustls_pemfile::certs(&mut pem_cursor) {
+        for cert in CertificateDer::pem_slice_iter(&pem_bytes) {
             let cert = cert.map_err(|e| SinkError::Tls(e.to_string()))?;
             roots.add(cert).map_err(|e| SinkError::Tls(e.to_string()))?;
         }

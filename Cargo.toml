@@ -16,6 +16,11 @@ exclude = [
     # (libfuzzer-sys, requires nightly to run). Excluded from the
     # workspace so `cargo build --workspace` stays on stable.
     "crates/protocol-codec/fuzz",
+    # Vendored upstream fork (RUST-CVE-001) — consumed only via
+    # [patch.crates-io] at the bottom of this file. Excluded so upstream
+    # code is not subject to our workspace lints/tests; provenance and
+    # diff policy live in crates/local-rumqttc/UPSTREAM.md.
+    "crates/local-rumqttc",
 ]
 
 [workspace.package]
@@ -58,7 +63,9 @@ hex = "0.4"
 
 async-nats = "0.47"
 rustls = "0.23"
-rustls-pemfile = "2.2"
+# RUST-CVE-001: rustls-pemfile (unmaintained, RUSTSEC-2025-0134) replaced by
+# rustls-pki-types' first-party PEM decoding ("std" gates the slice/reader API).
+rustls-pki-types = { version = "1.7", features = ["std"] }
 rustls-native-certs = "0.8"
 
 proptest = "1.5"
@@ -126,3 +133,16 @@ too_long_first_doc_paragraph = "allow"
 # future evolution that needs heap allocation or non-const ops. Keep
 # ergonomic non-const signatures unless an explicit const need arises.
 missing_const_for_fn = "allow"
+
+# =============================================================================
+# RUST-CVE-001: rumqttc 0.25.1 vendored fork (crates/local-rumqttc)
+# =============================================================================
+# WHY: upstream rumqttc 0.25.1 pins rustls-webpki = "0.102.8" (RUSTSEC-2026-
+# 0098/0099/0049/0104) and the unmaintained rustls-pemfile (RUSTSEC-2025-0134).
+# The fork bumps webpki to 0.103 and replaces pemfile with rustls-pki-types'
+# first-party PEM decoding. WHAT: every `rumqttc = "0.25"` dependency in this
+# workspace resolves to the patched path crate; member manifests stay
+# untouched. Drop this patch when upstream cuts a release on webpki >= 0.103
+# (provenance + diff policy: crates/local-rumqttc/UPSTREAM.md).
+[patch.crates-io]
+rumqttc = { path = "crates/local-rumqttc" }

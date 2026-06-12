@@ -72,7 +72,9 @@ tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4"
 deadpool-postgres = { version = "0.14", features = ["rt_tokio_1"] }
 tokio-postgres-rustls = "0.13"
 rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
+# RUST-CVE-001: PEM decoding via rustls-pki-types (replaces unmaintained
+# rustls-pemfile — RUSTSEC-2025-0134; see crates/local-rumqttc/UPSTREAM.md).
+rustls-pki-types = { workspace = true }
 
 # Error + tracing.
 anyhow = { workspace = true }
@@ -100,7 +102,11 @@ metrics-util = { version = "0.20", features = ["debugging"] }
 # plaintext NATS broker per test; nats-client's `test-utils`
 # feature enables the non-TLS connect path that the integration
 # tests consume (production path stays mTLS-only).
-testcontainers = "0.22"
+# 0.27 bump (RUST-CVE-001 follow-through): testcontainers >= 0.27 pulls
+# bollard >= 0.20, which dropped the unmaintained rustls-pemfile
+# (RUSTSEC-2025-0134) — clearing the last pemfile consumer from this
+# workspace's dependency graph.
+testcontainers = "0.27"
 # The sensor-ingestion crate's own source does NOT enable test-utils
 # — only the dev-dep pulls it in so the plaintext connect path is
 # NEVER reachable from `cargo build --release`.

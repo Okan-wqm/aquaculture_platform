@@ -32,6 +32,22 @@ describe('deploy SSOT contract', () => {
     }
   });
 
+  it('builds staging frontends from the catalog SSOT, not a hardcoded list (INFRA-MEDIUM-002)', () => {
+    const staging = read('.github/workflows/deploy-staging.yml');
+    // The production deploy derives its frontend build lists from the
+    // generated service-catalog.deploy.vars; staging used to hardcode a
+    // DIFFERENT split (3 modules via npm workspace while prod builds all
+    // via NX), so staging could ship frontends compiled by a different
+    // toolchain than production. The staging build step must consume the
+    // same SSOT vars.
+    expect(staging).toContain('infrastructure/deploy/service-catalog.deploy.vars');
+    expect(staging).toContain('CATALOG_NX_FRONTEND_PROJECTS');
+    expect(staging).toContain('CATALOG_NON_NX_FRONTEND_PROJECTS');
+    // No hardcoded project list survives — the specific drifted list is gone.
+    expect(staging).not.toContain('--projects=shell,dashboard,farm-module,admin-panel,tenant-admin');
+    expect(staging).not.toMatch(/for mod in sensor-module hr-module hydroponics-module/);
+  });
+
   it('retains exactly the manifest-protected rollback generation in safe GC (INFRA-HIGH-013)', () => {
     const capacity = read('scripts/deploy/droplet-capacity.sh');
     // Every deploy retags the previous generation as rollback-<sha>-<ts>;

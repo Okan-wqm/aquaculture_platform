@@ -20,6 +20,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
@@ -175,6 +176,9 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     // Feature modules
     AlertModule,
     HealthModule,
+    // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
+    // middleware (self-contained platform module — controller is @Public()).
+    ServiceMetricsModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.

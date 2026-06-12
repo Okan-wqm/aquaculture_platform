@@ -3779,7 +3779,27 @@ Status: OPEN (2026-06-11; sahip: data-expert; kuyruktaki provisioner/compliance 
 
 Güncelleme (2026-06-11, DATA-HIGH-006 PR'ı): **messaging-partition dilimi SSOT'a bağlandı** — provisioner APPLYING_GRANTS artık `grantTenantMessagingPartitionAuthority` ile her yeni tenant şemasında messaging-domain ilişkilerini `messaging_schema_owner`'a re-own edip şema USAGE+CREATE veriyor; Stage-010 mevcut şemaları idempotent backfill'liyor. Kalan kapsam (diğer servislerin runtime-DML grant SSOT'u) bu bulguda AÇIK durmaya devam ediyor.
 
-## ORPHAN-HIGH-091 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
+## ORPHAN-MEDIUM-089 — messaging-service /metrics serves only the domain registry; http_*/nodejs_* families absent
+
+Severity: MEDIUM. `apps/messaging-service/src/metrics/metrics.controller.ts` serves `MessagingMetricsService`'s private registry only. The platform HTTP families (`http_request_duration_seconds`, `http_requests_total`, `http_requests_in_flight`) and Node.js runtime metrics are never collected or exposed for messaging-service — request-latency SLO dashboards have a blind spot on a criticality-critical service.
+
+Root cause: messaging built its scrape endpoint before the canonical `ServiceMetricsModule` became drop-in (OBS-HIGH-001); two controllers cannot share the GET /metrics route, so it could not simply add the canonical module on top.
+
+Fix direction: replace the bespoke controller with the canonical `ServiceMetricsModule` import and surface the messaging domain registry through `ServiceMetricsService.registerContributor('messaging-domain', registry)` — exactly the farm-service pattern landed in OBS-HIGH-001 (`apps/farm-service/src/common/metrics/farm-metrics.module.ts` is the reference). Scrape path and metric names are unchanged, output becomes a superset; the metrics-endpoint-adoption invariant accepts both shapes throughout the transition.
+
+Status: OPEN (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
+
+## ORPHAN-HIGH-090 — Droplet production runs NO metrics collector; every /metrics endpoint is unscraped
+
+Severity: HIGH. `docker-compose.droplet.yml` ships no Prometheus/agent container, and `infrastructure/monitoring/` (kube-prometheus-stack values, annotation-based discovery) targets a Kubernetes deployment that is not the droplet runtime. After OBS-HIGH-001 every backend exposes GET /metrics, but on the droplet nothing collects them — the series exist only at scrape-time and are lost.
+
+Root cause: the monitoring stack was designed for the K8s topology; the droplet path (ADR-033) never received a collector, and until OBS-HIGH-001 there was no catalog SSoT (`metricsExposure`/`metricsPort`) from which scrape targets could even be generated.
+
+Fix direction: add a Prometheus (or agent-mode) container to the droplet compose with a scrape config GENERATED from the service catalog (`generate-artifacts.ts` gains a scrape-targets artifact derived from `metricsExposure === 'prom-endpoint'` entries + `metricsPort`), including the `x-internal-api-key` header for observability-service's gated endpoint; wire retention/resource limits to droplet capacity constraints. The catalog fields landed in OBS-HIGH-001 are the designed input for exactly this generator.
+
+Status: OPEN (2026-06-11; owner: observability-expert; natural Wave B2 follow-on of the s1-remediation program).
+
+## ORPHAN-HIGH-092 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
 
 Severity: HIGH. A2 (ESLint 8→9 flat migration) sırasında firsthand keşfedildi: `tools/eslint-rules`'deki 6 mimari-invariant kuralı (`require-entity-schema`, `no-bare-tenant-query-key`, `no-direct-event-publish`, `no-high-cardinality-metric-label`, `no-claude-sdk-raw-call`, `no-bare-graphql-query-string`) root `.eslintrc.json`'da **override** olarak tanımlıydı; ama her proje (apps/*, libs/event-contracts, libs/node-components, web/*, mcp/*, scripts, tests/invariants, tools/eslint-rules — 31 dizin) kendi `root: true` `.eslintrc.cjs`'ine sahip olduğundan eslintrc cascade proje sınırında DURUYORDU → bu kurallar proje dosyalarına HİÇ uygulanmadı. ESLint 8 `calculateConfigForFile` ile doğrulandı: `aquaculture/require-entity-schema` + `no-direct-event-publish` 55 proje-probe'unun **0**'ında tanımlı. Kurallar yalnız non-cjs zonlarda (`platform/libs/**`, `libs/backend-common/**`, `web/apps/aquamobil/**`) canlı.
 
@@ -3791,7 +3811,7 @@ Düzeltme yönü: `eslint.config.mjs`'in `PROJECT_GLOBS`-gated custom-rule blokl
 
 Status: OPEN (2026-06-12; sahip: platform-kernel-expert; A2 PR-2 firsthand bulgusu; aktivasyon ayrı PR).
 
-## ORPHAN-MEDIUM-092 — `no-restricted-syntax` (JWT_SECRET + getRepository + JSON.stringify gate'leri) web modüllerinde ve e2e'de tutarsız
+## ORPHAN-MEDIUM-093 — `no-restricted-syntax` (JWT_SECRET + getRepository + JSON.stringify gate'leri) web modüllerinde ve e2e'de tutarsız
 
 Severity: MEDIUM. A2 firsthand: `no-restricted-syntax` (6 selector: getRepository, JSON.stringify>2, 4×JWT_SECRET) ESLint 8 resolved davranışında zon-bazında tutarsız: apps + 4 web modülü (dashboard/farm-module/hr-module/hydroponics-module) = 6 selector (tam gate); ama **5 web modülü (shell, shared-ui, admin-panel, sensor-module, tenant-admin) = `off`** (cjs'leri `no-restricted-syntax: 'off'` set ediyor) ve **e2e = yalnız 2 selector** (root test override JWT_SECRET'i düşürüyor). Yani JWT_SECRET okuma yasağı 5 web modülünde + tüm e2e'de etkisiz; getRepository IDOR yasağı bu 5 web modülünde etkisiz.
 
@@ -3801,4 +3821,4 @@ Kök neden: web modül cjs'leri React-ergonomisi için no-restricted-syntax'i to
 
 Düzeltme yönü: JWT_SECRET 4 selector'ını web + e2e'de yeniden aktive et; flat config'te ayrı bir "JWT_SECRET-everywhere" bloğu (`files: ['**/*.ts','**/*.tsx']`, ignore yok) tüm zonlarda 4 JWT_SECRET selector'ını zorlar — eslintrc'nin yapamadığı tutarlılık. Ölçülü PR: önce e2e, sonra web.
 
-Status: OPEN (2026-06-12; sahip: auth-security-expert; A2 PR-2 firsthand bulgusu; ORPHAN-HIGH-091 ile aynı aktivasyon dalgasında ele alınabilir).
+Status: OPEN (2026-06-12; sahip: auth-security-expert; A2 PR-2 firsthand bulgusu; ORPHAN-HIGH-092 ile aynı aktivasyon dalgasında ele alınabilir).

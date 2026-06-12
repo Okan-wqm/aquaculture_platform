@@ -233,6 +233,13 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   // findings. The finding JSON itself IS the structured form of the
   // owner+deadline+finding-ID compliance.
   /^aria-findings\/F-AUTO-V\d+-/,
+  // Vendored upstream fork (RUST-CVE-001): third-party prose (README,
+  // design.md, CHANGELOG) is upstream-authored text, not our discipline
+  // surface. Editing it would violate the fork-hygiene gate's 2-file diff
+  // policy (tools/gates/local-rumqttc-fork-hygiene.spec.ts), which is the
+  // stronger guarantee: any change to these files outside Cargo.toml +
+  // src/tls.rs fails CI.
+  /^crates\/local-rumqttc\//,
   /^CHANGELOG\.md$/,
   /^\.claude\/agents\.legacy\//,
   /^\.claude\/agents\//,

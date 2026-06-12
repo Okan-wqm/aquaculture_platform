@@ -47,7 +47,7 @@ A prior audit asserted "the JWT_SECRET selectors do NOT fire in test files (the 
 > sub-override doesn't touch the rule; web/shell=0 because web/shell's cjs sets
 > `no-restricted-syntax: 'off'`; e2e=2 because e2e is a non-project zone where
 > the ROOT test override (2-selector subset) DOES apply. These are now recorded
-> as faithfully-preserved policy (ORPHAN-MEDIUM-092), not quirks to "fix".
+> as faithfully-preserved policy (ORPHAN-MEDIUM-093), not quirks to "fix".
 
 The baseline pins the ACTUAL behaviour via a `SEMANTIC PIN` test + a per-path selector-count config snapshot. The PR-2 cutover reproduces every value EXACTLY (see Validation below).
 
@@ -90,7 +90,7 @@ A migration-time verifier captured the ESLint 8 **full resolved rule map** (492 
 - `custom-rules.spec.ts`: **17/17**.
 
 ### Findings spawned (firsthand, recorded — NOT smuggled into this migration)
-- **ORPHAN-HIGH-091** — the 6 custom `aquaculture/*` architectural-invariant rules are INERT inside all 31 projects (root:true shadowing); live only in non-project lib zones. `require-entity-schema` (ADR-011) never runs on any app entity. Activation is a separate, measured PR.
-- **ORPHAN-MEDIUM-092** — `no-restricted-syntax` (incl. the 4 JWT_SECRET selectors) is `off` in 5 web modules and 2-selector in e2e. Re-activation (JWT_SECRET-everywhere block) is a separate PR.
+- **ORPHAN-HIGH-092** — the 6 custom `aquaculture/*` architectural-invariant rules are INERT inside all 31 projects (root:true shadowing); live only in non-project lib zones. `require-entity-schema` (ADR-011) never runs on any app entity. Activation is a separate, measured PR.
+- **ORPHAN-MEDIUM-093** — `no-restricted-syntax` (incl. the 4 JWT_SECRET selectors) is `off` in 5 web modules and 2-selector in e2e. Re-activation (JWT_SECRET-everywhere block) is a separate PR.
 
 Both are faithfully PRESERVED here (zero-drift migration never "improves" silently) and tracked in `docs/reviews/orphan-findings.md`.

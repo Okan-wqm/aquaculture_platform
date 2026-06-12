@@ -28,6 +28,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { RolesGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import {
   CorrelationIdMiddleware,
   createTenantSchemaMiddleware,
@@ -246,6 +247,9 @@ type QueryComplexityOperationContext = {
     SensorConfigToolsModule,
     // Feature modules
     HealthModule,
+    // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
+    // middleware (self-contained platform module — controller is @Public()).
+    ServiceMetricsModule,
     ConversationModule,
     AgentConfigModule,
     AuditModule,

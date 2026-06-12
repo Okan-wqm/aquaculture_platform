@@ -36,12 +36,9 @@ export class MetricsMiddleware implements NestMiddleware {
     const startTime = process.hrtime.bigint();
     this.metricsService.incInFlight();
 
-    // Extract tenant identifier for per-tenant metrics dimensioning.
-    // Platform targets ~100 tenants, so direct tenantId is safe for label cardinality.
-    const tenantId =
-      (req as Request & { tenantId?: string }).tenantId
-      || (req.headers['x-tenant-id'] as string | undefined)
-      || 'system';
+    // No tenant dimension (OBS-HIGH-001 follow-up): the HTTP scrape family
+    // carries no tenant label, so the previously-extracted (and
+    // attacker-influenceable via x-tenant-id) tenant id is no longer read.
 
     // Use the 'finish' event to record metrics after the response is sent
     res.on('finish', () => {
@@ -57,13 +54,7 @@ export class MetricsMiddleware implements NestMiddleware {
           ? String(req.baseUrl || '') + String(req.route.path)
           : normalizeRoute((path.split('?')[0] ?? path) as string); // Strip query params
 
-      this.metricsService.recordHttpRequest(
-        req.method,
-        route,
-        res.statusCode,
-        durationSeconds,
-        tenantId,
-      );
+      this.metricsService.recordHttpRequest(req.method, route, res.statusCode, durationSeconds);
     });
 
     next();

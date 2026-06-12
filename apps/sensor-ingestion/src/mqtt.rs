@@ -16,13 +16,13 @@
 //!   same version. Sharing the MQTT client implementation between
 //!   edge and cloud means the QoS-1 inflight semantics match exactly.
 //!
-//! Security note: rumqttc 0.25.1 transitively pins rustls-webpki
-//! 0.102.8, which carries RUSTSEC-2026-0098/0099/0049 and the
-//! rustls-pemfile 2.2.0 unmaintained advisory (RUSTSEC-2025-0134).
-//! Tracked as finding RUST-CVE-001 (HIGH, owner Okan-Wqm, deadline
-//! 2026-06-30) with a full threat-model justification in
-//! `deny.toml`. Resolution requires an upstream rumqttc release, a
-//! local fork, or a migration to an alternative MQTT crate.
+//! Security note (RUST-CVE-001, resolved): rumqttc resolves to the
+//! vendored fork at `crates/local-rumqttc` via `[patch.crates-io]`.
+//! The fork bumps rustls-webpki to 0.103 (clears RUSTSEC-2026-0098/
+//! 0099/0049/0104) and drops the unmaintained rustls-pemfile
+//! (RUSTSEC-2025-0134) in favour of rustls-pki-types — the same PEM
+//! API this module uses below. Provenance + diff policy:
+//! `crates/local-rumqttc/UPSTREAM.md`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,6 +32,10 @@ use bytes::Bytes;
 use rumqttc::{
     AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS, TlsConfiguration, Transport,
 };
+// RUST-CVE-001: PemObject trait supplies pem_slice_iter/from_pem_slice on
+// the DER newtypes — the first-party replacement for rustls-pemfile.
+use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -239,8 +243,7 @@ async fn build_rustls_client_config(
             source,
         })?;
     let mut roots = rustls::RootCertStore::empty();
-    let mut ca_cursor = std::io::Cursor::new(ca_bytes);
-    for cert in rustls_pemfile::certs(&mut ca_cursor) {
+    for cert in CertificateDer::pem_slice_iter(&ca_bytes) {
         let cert = cert.map_err(|e| MqttError::Tls(e.to_string()))?;
         roots.add(cert).map_err(|e| MqttError::Tls(e.to_string()))?;
     }
@@ -257,8 +260,7 @@ async fn build_rustls_client_config(
             path: cert_path.clone(),
             source,
         })?;
-    let mut cert_cursor = std::io::Cursor::new(cert_bytes);
-    let cert_chain: Vec<_> = rustls_pemfile::certs(&mut cert_cursor)
+    let cert_chain: Vec<_> = CertificateDer::pem_slice_iter(&cert_bytes)
         .collect::<Result<_, _>>()
         .map_err(|e| MqttError::Tls(e.to_string()))?;
     if cert_chain.is_empty() {
@@ -267,18 +269,25 @@ async fn build_rustls_client_config(
         ));
     }
 
-    // 3. Client private key. rustls_pemfile::private_key already
-    //    accepts PKCS#1 / PKCS#8 / SEC-1 transparently.
+    // 3. Client private key. PrivateKeyDer::from_pem_slice accepts
+    //    PKCS#1 / PKCS#8 / SEC-1 transparently (parity with the old
+    //    rustls_pemfile::private_key); NoItemsFound keeps the explicit
+    //    "no private key" error message.
     let key_bytes = tokio::fs::read(key_path)
         .await
         .map_err(|source| MqttError::TlsMaterial {
             path: key_path.clone(),
             source,
         })?;
-    let mut key_cursor = std::io::Cursor::new(key_bytes);
-    let key = rustls_pemfile::private_key(&mut key_cursor)
-        .map_err(|e| MqttError::Tls(e.to_string()))?
-        .ok_or_else(|| MqttError::Tls("client_key_pem contained no private key".to_owned()))?;
+    let key = match PrivateKeyDer::from_pem_slice(&key_bytes) {
+        Ok(key) => key,
+        Err(rustls_pki_types::pem::Error::NoItemsFound) => {
+            return Err(MqttError::Tls(
+                "client_key_pem contained no private key".to_owned(),
+            ));
+        }
+        Err(e) => return Err(MqttError::Tls(e.to_string())),
+    };
 
     // 4. Final ClientConfig — the rumqttc TLS layer wraps this in
     //    Arc<ClientConfig> per its TlsConfiguration::Rustls signature.
@@ -410,10 +419,10 @@ mod tests {
     /// path deterministically.
     fn pem_stub(label: &str) -> NamedTempFile {
         let mut f = NamedTempFile::new().unwrap();
-        // Empty body — rustls_pemfile yields no items, which we map to
-        // MqttError::Tls("...zero certificates...") for the CA branch
-        // and to MqttError::Tls("...no private key...") for the key
-        // branch.
+        // Empty body — pem_slice_iter yields no items (CA branch maps
+        // that to MqttError::Tls("...zero certificates...")) and
+        // PrivateKeyDer::from_pem_slice returns NoItemsFound (key
+        // branch maps it to MqttError::Tls("...no private key...")).
         writeln!(f, "-----BEGIN {label}-----").unwrap();
         writeln!(f, "-----END {label}-----").unwrap();
         f
@@ -590,11 +599,11 @@ mod tests {
 
     #[tokio::test]
     async fn start_returns_tls_error_on_invalid_pem() {
-        // Empty PEM stubs: rustls_pemfile reads zero items from the
-        // CA file → build_rustls_client_config maps that to
-        // MqttError::Tls("...zero certificates..."). The point is to
-        // pin the rustls error path; the exact message is not part of
-        // the contract.
+        // Empty PEM stubs: CertificateDer::pem_slice_iter reads zero
+        // items from the CA file → build_rustls_client_config maps
+        // that to MqttError::Tls("...zero certificates..."). The point
+        // is to pin the rustls error path; the exact message is not
+        // part of the contract.
         let ca = pem_stub("CERTIFICATE");
         let cert = pem_stub("CERTIFICATE");
         let key = pem_stub("PRIVATE KEY");

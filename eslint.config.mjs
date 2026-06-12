@@ -33,10 +33,10 @@
  * silently "improved" inside a migration that promises zero drift):
  *  - The 6 custom `aquaculture/*` rules are INERT inside the 30 projects
  *    (root:true shadowed them) and live only in the non-project lib zones.
- *    Activating them platform-wide is ORPHAN-HIGH-091 (docs/reviews/orphan-findings.md).
+ *    Activating them platform-wide is ORPHAN-HIGH-092 (docs/reviews/orphan-findings.md).
  *  - `no-restricted-syntax` resolves inconsistently across web modules
  *    (shell/shared-ui/admin-panel/sensor-module/tenant-admin = off; the rest =
- *    the 6 selectors) and in e2e (2 selectors) — recorded as ORPHAN-MEDIUM-092.
+ *    the 6 selectors) and in e2e (2 selectors) — recorded as ORPHAN-MEDIUM-093.
  *
  * GLOB TRANSLATION (the #1 silent-gate-loss vector): eslintrc `files:["*.ts"]`
  * is a basename glob matching any depth; flat requires the recursive form

@@ -66,14 +66,17 @@ const REPO_ROOT = (() => {
  * below are unchanged across both configs; only the config-reader adapts.
  */
 function makeESLint(): ESLint {
-  const major = parseInt(require_('eslint/package.json').version, 10);
+  const pkg = require_('eslint/package.json') as { version: string };
+  const major = parseInt(pkg.version, 10);
   const hasFlat =
     existsSync(join(REPO_ROOT, 'eslint.config.mjs')) ||
     existsSync(join(REPO_ROOT, 'eslint.config.js')) ||
     existsSync(join(REPO_ROOT, 'eslint.config.cjs'));
   if (major < 9 && hasFlat) {
-    const { FlatESLint } = require_('eslint/use-at-your-own-risk');
-    return new FlatESLint({ cwd: REPO_ROOT }) as ESLint;
+    const { FlatESLint } = require_('eslint/use-at-your-own-risk') as {
+      FlatESLint: new (opts: { cwd: string }) => ESLint;
+    };
+    return new FlatESLint({ cwd: REPO_ROOT });
   }
   return new ESLint({ cwd: REPO_ROOT });
 }
@@ -83,7 +86,9 @@ const linter = new Linter();
 
 /** Run only the AST-selector gate rules from the file's REAL resolved config. */
 async function gateRuleIds(filePath: string, code: string): Promise<readonly string[]> {
-  const cfg = await eslint.calculateConfigForFile(filePath);
+  const cfg = (await eslint.calculateConfigForFile(filePath)) as {
+    rules?: Record<string, unknown>;
+  };
   const rules: Linter.RulesRecord = {};
   for (const key of ['no-restricted-syntax', 'no-restricted-imports'] as const) {
     const value = cfg.rules?.[key];
@@ -179,7 +184,7 @@ const CASES: readonly GateCase[] = [
 ];
 
 for (const c of CASES) {
-  test(c.label, async () => {
+  void test(c.label, async () => {
     const ids = await gateRuleIds(c.filePath, c.code);
     if (c.expect === 'silent') {
       assert.deepEqual(ids, [], `expected no gate to fire, got: ${ids.join(',')}`);
@@ -190,7 +195,7 @@ for (const c of CASES) {
 }
 
 // ── Cross-context: getRepository + JSON.stringify fire in BOTH src and test ──
-test('gate-3/4 getRepository + JSON.stringify fire in .spec.ts too (test override keeps them)', async () => {
+void test('gate-3/4 getRepository + JSON.stringify fire in .spec.ts too (test override keeps them)', async () => {
   const getRepo = await gateRuleIds('apps/farm-service/src/x.spec.ts', 'const r = ds.getRepository(User);');
   const jsonStr = await gateRuleIds('apps/farm-service/src/x.spec.ts', 'const j = JSON.stringify(o, null, 2);');
   assert.ok(getRepo.includes('no-restricted-syntax'), 'getRepository must fire in test files');
@@ -206,7 +211,7 @@ test('gate-3/4 getRepository + JSON.stringify fire in .spec.ts too (test overrid
 //    real cause is the per-project root:true config. The OBSERVED value, 6,
 //    was always correct.) The flat config's per-project auth block reproduces
 //    it exactly; this pin trips if a future change drops the gate in tests. ──
-test('SEMANTIC PIN: JWT_SECRET fires in .spec.ts (per-project config keeps all 6 selectors)', async () => {
+void test('SEMANTIC PIN: JWT_SECRET fires in .spec.ts (per-project config keeps all 6 selectors)', async () => {
   const ids = await gateRuleIds('apps/auth-service/src/x.spec.ts', "const s = cfg.get('JWT_SECRET');");
   assert.ok(
     ids.includes('no-restricted-syntax'),
@@ -239,8 +244,10 @@ const SNAPSHOT_PATHS: ReadonlyArray<{ path: string; selectorCount: number }> = [
 ];
 
 for (const { path, selectorCount } of SNAPSHOT_PATHS) {
-  test(`config snapshot: ${path} resolves ${selectorCount} no-restricted-syntax selectors`, async () => {
-    const cfg = await eslint.calculateConfigForFile(path);
+  void test(`config snapshot: ${path} resolves ${selectorCount} no-restricted-syntax selectors`, async () => {
+    const cfg = (await eslint.calculateConfigForFile(path)) as {
+      rules?: Record<string, unknown>;
+    };
     const nrs = cfg.rules?.['no-restricted-syntax'];
     const count = Array.isArray(nrs) ? nrs.length - 1 : 0; // minus the severity element
     assert.equal(count, selectorCount, `${path}: expected ${selectorCount} selectors, got ${count}`);

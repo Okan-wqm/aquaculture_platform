@@ -49,14 +49,17 @@ const REPO_ROOT = (() => {
 
 /** Config-format-agnostic ESLint instance (see lint-gates.spec.ts makeESLint). */
 function makeESLint(): ESLint {
-  const major = parseInt(require_('eslint/package.json').version, 10);
+  const pkg = require_('eslint/package.json') as { version: string };
+  const major = parseInt(pkg.version, 10);
   const hasFlat =
     existsSync(join(REPO_ROOT, 'eslint.config.mjs')) ||
     existsSync(join(REPO_ROOT, 'eslint.config.js')) ||
     existsSync(join(REPO_ROOT, 'eslint.config.cjs'));
   if (major < 9 && hasFlat) {
-    const { FlatESLint } = require_('eslint/use-at-your-own-risk');
-    return new FlatESLint({ cwd: REPO_ROOT }) as ESLint;
+    const { FlatESLint } = require_('eslint/use-at-your-own-risk') as {
+      FlatESLint: new (opts: { cwd: string }) => ESLint;
+    };
+    return new FlatESLint({ cwd: REPO_ROOT });
   }
   return new ESLint({ cwd: REPO_ROOT });
 }
@@ -75,7 +78,7 @@ const FIXTURE: readonly ParityProbe[] = JSON.parse(
 /** Normalise a rule entry to {0:off/undefined, 1:warn, 2:error}; -1 = unknown. */
 function severity(value: unknown): number {
   if (value === undefined || value === null) return 0;
-  const head = Array.isArray(value) ? value[0] : value;
+  const head = Array.isArray(value) ? (value as unknown[])[0] : value;
   if (head === 0 || head === 'off') return 0;
   if (head === 1 || head === 'warn') return 1;
   if (head === 2 || head === 'error') return 2;
@@ -90,9 +93,11 @@ function selectorCount(value: unknown): number {
 const eslint = makeESLint();
 
 for (const probe of FIXTURE) {
-  test(`parity: ${probe.zone} — ${probe.path}`, async () => {
-    const cfg = await eslint.calculateConfigForFile(join(REPO_ROOT, probe.path));
-    const rules = (cfg.rules ?? {}) as Record<string, unknown>;
+  void test(`parity: ${probe.zone} — ${probe.path}`, async () => {
+    const cfg = (await eslint.calculateConfigForFile(join(REPO_ROOT, probe.path))) as {
+      rules?: Record<string, unknown>;
+    };
+    const rules = cfg.rules ?? {};
 
     assert.equal(
       selectorCount(rules['no-restricted-syntax']),

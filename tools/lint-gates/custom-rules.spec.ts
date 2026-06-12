@@ -47,13 +47,14 @@ type RuleTesterStatic = typeof RuleTester & {
 // flat `languageOptions: { parser: <module> }`). The gate runs under whichever
 // ESLint is installed (8 in local dev, 9 in CI), so pick the shape by major.
 const require_ = createRequire(__filename);
-const eslintMajor = parseInt(require_('eslint/package.json').version as string, 10);
+const eslintPkg = require_('eslint/package.json') as { version: string };
+const eslintMajor = parseInt(eslintPkg.version, 10);
 type TesterConfig = ConstructorParameters<typeof RuleTester>[0];
 const ruleTesterConfig: TesterConfig =
   eslintMajor >= 9
     ? ({
         languageOptions: {
-          parser: require_('@typescript-eslint/parser'),
+          parser: require_('@typescript-eslint/parser') as object,
           ecmaVersion: 2022,
           sourceType: 'module',
         },

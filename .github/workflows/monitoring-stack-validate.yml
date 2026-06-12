@@ -56,10 +56,18 @@ jobs:
       - name: promtool check rules (pinned image)
         run: |
           set -euo pipefail
+          rules_dir=infrastructure/monitoring/droplet/rules
+          # Enumerate on the HOST (the glob cannot expand inside `docker run`
+          # args — it would resolve against the runner FS, not the container —
+          # and promtool itself does not glob), then map to container paths.
+          mapfile -t files < <(cd "$rules_dir" && ls -- *.yml)
+          test "${#files[@]}" -ge 1
+          targets=()
+          for f in "${files[@]}"; do targets+=("/rules/$f"); done
           docker run --rm --entrypoint promtool \
-            -v "$PWD/infrastructure/monitoring/droplet/rules:/rules:ro" \
+            -v "$PWD/$rules_dir:/rules:ro" \
             "${{ steps.images.outputs.prometheus }}" \
-            check rules /rules/*.yml
+            check rules "${targets[@]}"
 
       - name: promtool check config (file_sd + rule_files resolve)
         run: |

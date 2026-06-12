@@ -5,6 +5,7 @@ import Ajv, {
 } from 'ajv';
 import addFormats from 'ajv-formats';
 
+import { AUTH_EVENT_SCHEMAS, type AuthEventType } from './auth-events.schema';
 import { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
 import {
   INGEST_BACKEND_POLICY_EVENT_SCHEMAS,
@@ -125,6 +126,19 @@ const tenantValidators = new Map<TenantEventType, ValidateFunction>();
 for (const [eventType, schema] of Object.entries(TENANT_EVENT_SCHEMAS)) {
   const validator = ajv.compile(schema as AnySchema);
   tenantValidators.set(eventType as TenantEventType, validator);
+}
+
+/**
+ * Auth-domain validator cache (DATA-MEDIUM-001). Validates the auth events
+ * crossing the NATS trust boundary — GDPR cascade (UserDeleted), consent,
+ * password-reset, and the auth-published UserInvited delivery event — before a
+ * consumer (notification / ai / messaging) acts on them.
+ */
+const authValidators = new Map<AuthEventType, ValidateFunction>();
+
+for (const [eventType, schema] of Object.entries(AUTH_EVENT_SCHEMAS)) {
+  const validator = ajv.compile(schema as AnySchema);
+  authValidators.set(eventType as AuthEventType, validator);
 }
 
 /**
@@ -332,6 +346,42 @@ export function validateTenantEvent(
     return {
       valid: false,
       errors: `Unknown tenant event type: ${eventType}`,
+    };
+  }
+  if (typeof payload !== 'object' || payload === null) {
+    return {
+      valid: false,
+      errors: `Payload must be a JSON object (got ${typeof payload})`,
+    };
+  }
+  const isValid = validator(payload);
+  if (!isValid) {
+    return {
+      valid: false,
+      errors: formatFirstError(validator.errors),
+    };
+  }
+  return { valid: true };
+}
+
+export type AuthEventValidationResult =
+  | { valid: true }
+  | { valid: false; errors: string };
+
+/**
+ * Validate a decoded auth-domain event against its schema (DATA-MEDIUM-001).
+ * Mirrors [`validateTenantEvent`]; use at trust boundaries that decode untrusted
+ * auth-event JSON (notification / ai / messaging NATS consumers) before acting.
+ */
+export function validateAuthEvent(
+  eventType: string,
+  payload: unknown,
+): AuthEventValidationResult {
+  const validator = authValidators.get(eventType as AuthEventType);
+  if (!validator) {
+    return {
+      valid: false,
+      errors: `Unknown auth event type: ${eventType}`,
     };
   }
   if (typeof payload !== 'object' || payload === null) {

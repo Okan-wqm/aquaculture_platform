@@ -7,6 +7,8 @@ export {
   type MessagingEventValidationResult,
   validateTenantEvent,
   type TenantEventValidationResult,
+  validateAuthEvent,
+  type AuthEventValidationResult,
   validateIngestBackendPolicyEvent,
   type IngestBackendPolicyEventValidationResult,
 } from './validator';
@@ -27,6 +29,10 @@ export {
   TENANT_EVENT_SCHEMAS,
   type TenantEventType,
 } from './tenant-events.schema';
+export {
+  AUTH_EVENT_SCHEMAS,
+  type AuthEventType,
+} from './auth-events.schema';
 export {
   UUID_PATTERN,
   MAX_FREE_TEXT_LENGTH,

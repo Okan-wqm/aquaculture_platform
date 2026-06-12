@@ -1,7 +1,7 @@
 /**
  * Platform-wide invariant — AUDIT-MEDIUM-005 + historical IDOR findings:
  *
- * The root .eslintrc.json defines load-bearing lint rules that prevent
+ * The repo's ESLint config defines load-bearing lint rules that prevent
  * specific regression classes:
  *
  *   - `no-restricted-syntax::getRepository` — blocks the tenant-isolation
@@ -13,137 +13,67 @@
  *     root barrel split won by AUDIT-MEDIUM-005 phases 1-3.
  *
  * These rules were each added after a real incident. Losing any one of
- * them silently reopens the corresponding regression class, and in each
- * case the cost is paid at runtime (cross-tenant data leak / JWT
- * algorithm-confusion / wide build invalidation) — caught late or not at
- * all. This invariant runs on every PR in the fast shard so a
- * deletion / weakening of those rules fails CI at the config-diff step
- * rather than months later.
+ * them silently reopens the corresponding regression class.
+ *
+ * A2 (ESLint 8->9 flat config) MIGRATION NOTE: this invariant used to
+ * JSON-parse `.eslintrc.json` and walk its `overrides[].rules`. That file is
+ * gone — the policy now lives in the flat `eslint.config.mjs`. We assert
+ * against the config SOURCE (not a resolved config) on purpose: ESLint loads
+ * `eslint.config.mjs` via dynamic `import()`, which Jest cannot perform without
+ * `--experimental-vm-modules`, so a resolve-based check would crash the fast
+ * invariant shard. The DISTINCTIVE AST-selector substrings asserted below
+ * (`callee.property.name='getRepository'`, `arguments.0.value='JWT_SECRET'`,
+ * etc.) appear ONLY inside the rule's `selector` strings — never in the prose
+ * `message` — so source-text presence is a faithful deletion/weakening guard.
+ * The RESOLVED behaviour (which selectors apply to which zone, per-rule
+ * severity, zero-drift vs the old eslintrc) is proven separately and live by
+ * tools/lint-gates/eslintrc-flat-parity.spec.ts + lint-gates.spec.ts.
  *
  * What this invariant does NOT check:
- *   - Whether `nx affected -t lint` actually executes in CI (that is
- *     PROC-MEDIUM-006's responsibility — the amnesty flag on
- *     agentic-rust-unified still leaves this invariant live, which is
- *     deliberate).
- *   - Whether the rule fires on a crafted violation (rule-effect
- *     assertion — covered by targeted unit tests in tools/eslint-rules
- *     when rules graduate into that plugin).
- *   - Rule bodies in overrides that target narrower scopes — those are
- *     additive on top of the repo-wide rules validated here.
+ *   - Whether `nx affected -t lint` actually executes in CI (PROC-MEDIUM-006).
+ *   - Per-zone gate consistency / selector counts (eslintrc-flat-parity owns it).
  */
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-interface RestrictedSyntaxEntry {
-  selector?: string;
-  message?: string;
-}
-
-interface RestrictedImportsPath {
-  name?: string;
-  message?: string;
-}
-
-interface RestrictedImportsEntry {
-  paths?: RestrictedImportsPath[];
-}
-
-interface EslintRule {
-  rules?: Record<string, unknown>;
-}
-
-interface EslintConfig {
-  overrides?: EslintRule[];
-  rules?: Record<string, unknown>;
-}
-
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
-function loadConfig(): EslintConfig {
-  return JSON.parse(readFileSync(resolve(REPO_ROOT, '.eslintrc.json'), 'utf-8')) as EslintConfig;
+function loadFlatConfigSource(): string {
+  return readFileSync(resolve(REPO_ROOT, 'eslint.config.mjs'), 'utf-8');
 }
 
-function collectRule(cfg: EslintConfig, ruleName: string): unknown[] {
-  const hits: unknown[] = [];
-  if (cfg.rules?.[ruleName]) hits.push(cfg.rules[ruleName]);
-  for (const o of cfg.overrides ?? []) {
-    if (o.rules?.[ruleName]) hits.push(o.rules[ruleName]);
-  }
-  return hits;
-}
-
-function getRestrictedSyntaxSelectors(cfg: EslintConfig): string[] {
-  const out: string[] = [];
-  for (const hit of collectRule(cfg, 'no-restricted-syntax')) {
-    if (!Array.isArray(hit)) continue;
-    // hit[0] is severity, hit[1..] are entries
-    for (const e of hit.slice(1) as RestrictedSyntaxEntry[]) {
-      if (e?.selector) out.push(e.selector);
-    }
-  }
-  return out;
-}
-
-function getRestrictedImportsPaths(cfg: EslintConfig): string[] {
-  const out: string[] = [];
-  for (const hit of collectRule(cfg, 'no-restricted-imports')) {
-    if (!Array.isArray(hit)) continue;
-    for (const e of hit.slice(1) as RestrictedImportsEntry[]) {
-      for (const p of e?.paths ?? []) {
-        if (p?.name) out.push(p.name);
-      }
-    }
-  }
-  return out;
-}
-
-describe('INVARIANT: root .eslintrc.json carries the load-bearing regression-guard rules', () => {
-  const cfg = loadConfig();
+describe('INVARIANT: the flat eslint.config.mjs carries the load-bearing regression-guard rules', () => {
+  const source = loadFlatConfigSource();
 
   describe('no-restricted-syntax', () => {
-    const selectors = getRestrictedSyntaxSelectors(cfg);
-
     it('blocks direct `getRepository()` calls (tenant-isolation bypass)', () => {
-      const hit = selectors.find((s) => s.includes("callee.property.name='getRepository'"));
-      expect(hit).toBeDefined();
+      expect(source).toContain("callee.property.name='getRepository'");
     });
 
     it('blocks reading `JWT_SECRET` via ConfigService.get()', () => {
-      const hit = selectors.find(
-        (s) => s.includes("property.name='get'") && s.includes("arguments.0.value='JWT_SECRET'"),
-      );
-      expect(hit).toBeDefined();
+      expect(source).toContain("callee.property.name='get'");
+      expect(source).toContain("arguments.0.value='JWT_SECRET'");
     });
 
     it('blocks reading `JWT_SECRET` via ConfigService.getOrThrow()', () => {
-      const hit = selectors.find(
-        (s) =>
-          s.includes("property.name='getOrThrow'") && s.includes("arguments.0.value='JWT_SECRET'"),
-      );
-      expect(hit).toBeDefined();
+      expect(source).toContain("callee.property.name='getOrThrow'");
     });
 
     it('blocks reading `process.env.JWT_SECRET`', () => {
-      const hit = selectors.find(
-        (s) =>
-          s.includes("object.property.name='env'") &&
-          (s.includes("property.name='JWT_SECRET'") ||
-            s.includes("property.value='JWT_SECRET'")),
-      );
-      expect(hit).toBeDefined();
+      // both the dot-access and computed-access selectors must survive
+      expect(source).toContain("property.name='JWT_SECRET'");
+      expect(source).toContain("property.value='JWT_SECRET'");
     });
   });
 
   describe('no-restricted-imports', () => {
-    const paths = getRestrictedImportsPaths(cfg);
-
     it('blocks the `@aquaculture/backend-common` root barrel (AUDIT-MEDIUM-005)', () => {
-      expect(paths).toContain('@aquaculture/backend-common');
+      expect(source).toContain("name: '@aquaculture/backend-common'");
     });
 
     it('blocks the `@platform/backend-common` parity alias (AUDIT-MEDIUM-005)', () => {
-      expect(paths).toContain('@platform/backend-common');
+      expect(source).toContain("name: '@platform/backend-common'");
     });
   });
 });

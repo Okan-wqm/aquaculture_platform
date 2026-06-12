@@ -47,7 +47,7 @@ import { test } from 'node:test';
 
 import { ESLint, Linter } from 'eslint';
 
-const require_ = createRequire(import.meta.url);
+const require_ = createRequire(__filename);
 
 const REPO_ROOT = (() => {
   try {

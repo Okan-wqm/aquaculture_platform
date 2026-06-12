@@ -3,6 +3,7 @@
 
 import { spawnSync } from 'node:child_process';
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -290,6 +291,27 @@ function prepareBaseWorktree() {
   const baseNodeModules = join(worktree, 'node_modules');
   if (existsSync(rootNodeModules) && !existsSync(baseNodeModules)) {
     symlinkSync(rootNodeModules, baseNodeModules, 'dir');
+  }
+
+  // A2 (ESLint 8->9 flat-config cutover): the symlinked node_modules carries
+  // the HEAD's ESLint (9, flat-only). If the BASE ref predates the cutover it
+  // has only `.eslintrc.*` and no `eslint.config.*`, so ESLint 9 run in the
+  // base worktree aborts with "couldn't find an eslint.config file" (exit 2)
+  // before any rule runs — failing the gate on a config-format skew, not a real
+  // regression. When (and only when) the base lacks a flat config, copy HEAD's
+  // in so both sides lint under the SAME forward config. The migration is
+  // proven zero-drift (tools/lint-gates/eslintrc-flat-parity.spec.ts), so this
+  // yields the apples-to-apples baseline the gate intends. Once the cutover is
+  // on main this branch is dead (the base already ships eslint.config.mjs).
+  const flatConfigFiles = ['eslint.config.mjs', 'eslint.project-overrides.mjs'];
+  const baseHasFlatConfig = flatConfigFiles.some((file) =>
+    existsSync(join(worktree, file)),
+  );
+  if (!baseHasFlatConfig) {
+    for (const file of flatConfigFiles) {
+      const source = join(repoRoot, file);
+      if (existsSync(source)) copyFileSync(source, join(worktree, file));
+    }
   }
 
   return { parent, worktree };

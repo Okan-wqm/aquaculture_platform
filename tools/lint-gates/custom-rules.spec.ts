@@ -19,6 +19,7 @@
  * its `it`/`describe` hooks onto node:test — RuleTester then drives the cases.
  */
 
+import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 
 import { RuleTester } from 'eslint';
@@ -42,10 +43,26 @@ type RuleTesterStatic = typeof RuleTester & {
 (RuleTester as RuleTesterStatic).it = it;
 (RuleTester as RuleTesterStatic).describe = describe;
 
-const ruleTester = new RuleTester({
-  parser: require.resolve('@typescript-eslint/parser'),
-  parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
-});
+// RuleTester's config shape changed at ESLint v9 (eslintrc `parser: <path>` ->
+// flat `languageOptions: { parser: <module> }`). The gate runs under whichever
+// ESLint is installed (8 in local dev, 9 in CI), so pick the shape by major.
+const require_ = createRequire(__filename);
+const eslintMajor = parseInt(require_('eslint/package.json').version as string, 10);
+type TesterConfig = ConstructorParameters<typeof RuleTester>[0];
+const ruleTesterConfig: TesterConfig =
+  eslintMajor >= 9
+    ? ({
+        languageOptions: {
+          parser: require_('@typescript-eslint/parser'),
+          ecmaVersion: 2022,
+          sourceType: 'module',
+        },
+      } as TesterConfig)
+    : ({
+        parser: require_.resolve('@typescript-eslint/parser'),
+        parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
+      } as TesterConfig);
+const ruleTester = new RuleTester(ruleTesterConfig);
 
 // Each rule is an ESLintUtils.RuleCreator output (standard ESLint rule
 // object); the `as never` casts bridge the @typescript-eslint Rule type to

@@ -34,11 +34,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 
 import { ESLint } from 'eslint';
 
-const require_ = createRequire(import.meta.url);
+const require_ = createRequire(__filename);
 
 const REPO_ROOT = (() => {
   try {
@@ -70,10 +69,7 @@ interface ParityProbe {
 }
 
 const FIXTURE: readonly ParityProbe[] = JSON.parse(
-  readFileSync(
-    fileURLToPath(new URL('./fixtures/eslintrc-flat-parity.fixture.json', import.meta.url)),
-    'utf8',
-  ),
+  readFileSync(join(__dirname, 'fixtures', 'eslintrc-flat-parity.fixture.json'), 'utf8'),
 ) as ParityProbe[];
 
 /** Normalise a rule entry to {0:off/undefined, 1:warn, 2:error}; -1 = unknown. */

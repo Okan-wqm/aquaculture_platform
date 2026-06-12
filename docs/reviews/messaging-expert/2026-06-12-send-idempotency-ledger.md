@@ -53,3 +53,10 @@ bağımsız, aynı-transaction unique-claim ile yapısal imkansız.
 - apps/messaging-service/src/message/commands/send-message.handler.ts (claim bloğu + safe* fail-open sarmalayıcılar)
 - apps/messaging-service/src/message/entities/message.entity.ts:76-85 (partition/UNIQUE kısıtı)
 - Kaynak: origin'den silinmeden önce bundle'lanacak PR#354 dalı; hüküm: round2/verdict-table.md DİLİM-1
+
+## Denetim turu (messaging-expert, CONDITIONAL → koşullar aynı PR'da kapatıldı)
+
+- **MSG-MEDIUM-001 (ledger yaşam döngüsü):** partition seçeneği bilinçli RED — ledger'ın varlık sebebi partition-suz unique çapa; partition'lamak PK'ya partition kolonunu zorlar ve çözdüğü sorunu geri getirir. Çözüm: `IdempotencyLedgerGcService` (günlük 03:10 cron) — `IDEMPOTENCY_LEDGER_RETENTION_DAYS = 30` OTORİTER dedup penceresi (> Redis 7g TTL, belgeli); GC hatası bilinçli-dar fail-open (kaçırılan süpürme yalnız tabloyu büyütür, dedup garantisini GÜÇLENDİRİR — WHY kodda).
+- **MSG-MEDIUM-002 (anti-clone assertion):** migration'a messaging_outbox emsalini (1800400000000) aynalayan `postCondition` eklendi — kaynak-tablo varlığı + sıfır tenant-klon DB-düzeyi fail-loud.
+- **MSG-MEDIUM-003 (gerçek-DB kapsama):** messaging-core e2e'sine Redis-anahtar-silme + yeniden-gönderim testi — ON CONFLICT claim + partition-pruned lookup gerçek Postgres'e karşı orijinali döndürüyor; messages ve ledger satır sayıları 1 (şema adı SSOT helper'ı getTenantSchemaName ile).
+- Üç cross-tenant kayıt-gate'i bilinçli kayıtla güncellendi (gate'lerin amacı tam bu): routing gate allowlist'i, entity-schema-declaration + tenant-fanout-parity desen listeleri, MODULE_SCHEMAS.infrastructureTables.

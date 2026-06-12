@@ -4,6 +4,10 @@ import {
 } from '@aquaculture/backend-common/database';
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 /**
  * Authoritative send-idempotency ledger (cluster-8 / PR#354 DİLİM-1).
  *
@@ -49,6 +53,37 @@ export class CreateMessageSendIdempotencyLedger1800600000000
       CREATE INDEX IF NOT EXISTS idx_message_send_idempotency_message
         ON messaging.message_send_idempotency ("tenantId", "messageId", "messageCreatedAt")
     `);
+  }
+
+  /**
+   * Belt-and-braces DB assertion mirroring the messaging_outbox
+   * precedent (1800400000000): the decorator + orchestrator skip keep
+   * tenant clones from being CREATED, but only a post-condition makes a
+   * stray clone FAIL LOUD — a tenant-schema copy of this table would
+   * silently split the dedup authority per tenant and re-open
+   * duplicates (MSG-MEDIUM-002).
+   */
+  public async postCondition(queryRunner: QueryRunner): Promise<boolean> {
+    const sourceRows: unknown = await queryRunner.query(
+      `SELECT count(*)::text AS count
+         FROM information_schema.tables
+        WHERE table_schema = 'messaging'
+          AND table_name = 'message_send_idempotency'`,
+    );
+    const sourceRow: unknown = Array.isArray(sourceRows) ? sourceRows[0] : undefined;
+    if (!isRecord(sourceRow) || Number(sourceRow['count']) !== 1) {
+      return false;
+    }
+
+    const tenantRows: unknown = await queryRunner.query(
+      `SELECT count(*)::text AS count
+         FROM information_schema.tables
+        WHERE table_schema ~ '^tenant_[a-f0-9]{16}$'
+          AND table_name = 'message_send_idempotency'`,
+    );
+    const tenantRow: unknown = Array.isArray(tenantRows) ? tenantRows[0] : undefined;
+    const tenantCount = isRecord(tenantRow) ? tenantRow['count'] : '0';
+    return Number(tenantCount) === 0;
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

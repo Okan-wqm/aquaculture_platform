@@ -3882,6 +3882,21 @@ This branch (a) modified `.eslintrc.json` and (b) sits on a `tsconfig.base.json`
 **Known residual (tracked, non-blocking):** `@nx/enforce-module-boundaries` needs the cached nx ProjectGraph, which exists in the real repo but not the fresh worktree, so that one rule is base-skipped (it logs "No cached ProjectGraph … rule will be skipped"). It is a **warning**-level rule (report-only, never blocks), so the asymmetry is cosmetic; a complete fix would prime the nx graph in the worktree (`nx graph` / `NX_DAEMON`) — deferred as low-value vs. the blocking-error cascade this finding closes.
 
 **Status:** RESOLVED (this commit).
+
+## ORPHAN-HIGH-093 — E2E - Messaging Service workflow is dark on main: messaging-service `m.embedding` column is missing, then the suite times out
+
+**Severity:** HIGH (a CI E2E gate is non-green on `main` itself + an underlying messaging-service schema gap).
+
+**Found while:** pushing the Wave-3 auth-audit branch (PR #390). Every CI-Affected check + all invariant gates pass (30 SUCCESS), but the `E2E - Messaging Service` check reports `cancelled`. Investigation showed it is a **20-minute job timeout** (`e2e-messaging.yml timeout-minutes: 20`), not a concurrency cancel: step "Run E2E tests" ran 18:06→35:16 (~17 min, after ~3 min of container/install setup) and was killed by the timeout. GitHub surfaces a timeout-killed job as `cancelled`.
+
+**Not introduced by this PR — pre-existing on `main`:** `main`'s own last three `E2E - Messaging Service` runs (06-12 07:43 / 11:20 / 13:28) are all `cancelled` (timeout); only older runs (≤ 06-12 01:06) were green. The auth-audit diff touches no messaging-service logic, and `main` reproduces the failure on its own commits.
+
+**Root-cause signal in the log:** `ERROR [EmbeddingService] Embedding batch failed: column m.embedding does not exist`. The messaging-service `messages` table (alias `m`) is queried for an `embedding` column the migrated schema does not have — an embedding migration / entity-vs-schema drift. The failing path appears to leave the suite hanging (no `*.xml`/`*.json` results are produced: "No files were found with the provided path"), so the job burns the full 20-minute budget instead of failing fast.
+
+**Fix (recommended, messaging-service-owned):** (1) add/repair the migration that creates `messages.embedding` (pgvector or the intended type) so EmbeddingService's query resolves, OR guard EmbeddingService to no-op when the column is absent; (2) make the E2E fail FAST on an embedding/DB error instead of hanging to the timeout; (3) re-confirm green on `main`. Out of the auth-service audit scope (messaging-service + its E2E workflow); not a required check on `main` (no branch protection), so it does not block PR #390. Tracked here so the dark E2E gate + schema drift are not a blind spot.
+
+**Status:** OPEN. Owner: messaging-service. Pre-existing on `main`.
+
 ## ORPHAN-HIGH-087 — Source-schema write-guard triggers (`guard_source_write`) are installed by nothing on main
 
 Severity: HIGH. The DB-level tenant-isolation defense layer (BEFORE-trigger `guard_source_write` + `block_source_writes()` rejecting INSERT/UPDATE/DELETE on source-schema template tables) is no longer installed by any active code path. `SourceSchemaWriteGuardService` was correctly neutered into a no-DDL runtime stub (commit 42695736f, "aqua-db-migrate owns source-schema trigger hardening"), but db-migrate never picked up the install side: `SchemaPostMigrationHardening` supports only `tenantRls` and `auditColumns` — there is no `sourceWriteGuards` step, and a repo-wide grep for `guard_source_write` / `block_source_writes` hits zero active files. Environments provisioned before the neutering retain stale triggers; fresh environments get none.

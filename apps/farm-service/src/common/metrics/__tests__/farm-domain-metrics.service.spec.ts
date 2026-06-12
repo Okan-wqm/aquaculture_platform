@@ -7,6 +7,8 @@
  * onModuleInit / onModuleDestroy manually so the tests are
  * independent of the module life-cycle.
  */
+import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
+
 import { FarmDomainMetricsService } from '../farm-domain-metrics.service';
 
 describe('FarmDomainMetricsService', () => {
@@ -149,5 +151,30 @@ describe('FarmDomainMetricsService', () => {
 
   it('exposes the correct Prometheus content-type', () => {
     expect(service.getContentType()).toMatch(/^text\/plain/);
+  });
+
+  it('surfaces the domain registry on the platform /metrics output via contributeTo (OBS-HIGH-001)', async () => {
+    // WHY: pre-fix the farm domain registry had a getMetrics() dump but no
+    // controller serving it — Prometheus could never scrape farm_* series.
+    // contributeTo() plugs the registry into the platform scrape endpoint;
+    // this test proves the wiring end-to-end at the service level.
+    const platformMetrics = new ServiceMetricsService();
+    platformMetrics.onModuleInit();
+
+    service.recordMutation({
+      operation: 'contributeCheck',
+      durationSeconds: 0.02,
+      outcome: 'success',
+      tenantId: '33333333-3333-4333-8333-333333333333',
+    });
+    service.contributeTo(platformMetrics);
+
+    const scrape = await platformMetrics.getMetrics();
+    // Platform HTTP families AND farm domain families share ONE document.
+    expect(scrape).toContain('http_requests_total');
+    expect(scrape).toContain('farm_mutation_duration_seconds');
+    expect(scrape).toContain('operation="contributeCheck"');
+
+    platformMetrics.onModuleDestroy();
   });
 });

@@ -108,6 +108,32 @@ describe('EventStoreServiceIdentityGuard', () => {
     ).toThrow(UnauthorizedException);
   });
 
+  it('allows the exact Prometheus /metrics scrape path without authentication (OBS-HIGH-001)', () => {
+    process.env['NODE_ENV'] = 'test';
+    const guard = new EventStoreServiceIdentityGuard();
+
+    expect(
+      guard.canActivate(
+        contextForRequest({
+          originalUrl: '/metrics',
+          method: 'GET',
+          headers: {},
+        }),
+      ),
+    ).toBe(true);
+
+    // Prefix abuse stays rejected — only the exact scrape path is public.
+    expect(() =>
+      guard.canActivate(
+        contextForRequest({
+          originalUrl: '/metrics/extra',
+          method: 'GET',
+          headers: {},
+        }),
+      ),
+    ).toThrow(UnauthorizedException);
+  });
+
   it('rejects legacy internal API key', () => {
     process.env['NODE_ENV'] = 'production';
     process.env['SERVICE_IDENTITY_KEYRING'] = keyring();

@@ -47,6 +47,7 @@
  * Phase 5.3 of the "Farm modülü kalan kör noktalar" plan. Closes
  * Girdi 14d.
  */
+import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as client from 'prom-client';
 
@@ -91,6 +92,24 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
 
   getContentType(): string {
     return this.registry.contentType;
+  }
+
+  /**
+   * Surface this private registry through the platform scrape endpoint.
+   *
+   * WHY: until OBS-HIGH-001 this registry had a getMetrics() dump but NO
+   * controller serving it — every farm_* counter was recorded and then
+   * unreachable by Prometheus. The platform ServiceMetricsModule owns the
+   * single GET /metrics endpoint; domain registries plug into it via
+   * registerContributor instead of mounting a second controller on the
+   * same route.
+   *
+   * WHAT: hands the aggregator a live reference (not a merge snapshot), so
+   * metrics initialized in onModuleInit are visible regardless of hook
+   * ordering. Called by FarmMetricsModule.onModuleInit.
+   */
+  contributeTo(serviceMetrics: ServiceMetricsService): void {
+    serviceMetrics.registerContributor('farm-domain', this.registry);
   }
 
   recordMutation(params: {

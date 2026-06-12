@@ -6,6 +6,7 @@ import {
   createServiceTypeOrmConfig,
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -61,6 +62,10 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     EventStoreModule,
     ProjectionsModule,
     HealthModule,
+    // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
+    // middleware. /metrics is allowlisted in EventStoreServiceIdentityGuard
+    // (exact-match, no prefix) — this service's guard has no @Public() path.
+    ServiceMetricsModule,
     /**
      * SECURITY (HIGH-004): Tenant RLS on event-store ledger tables.
      * EventLedgerHardening1800100000000 owns policy installation and FORCE RLS.

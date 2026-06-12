@@ -20,6 +20,14 @@ export class ServiceMetricsService implements OnModuleInit, OnModuleDestroy {
   private readonly registry: client.Registry;
   private defaultMetricsDispose: (() => void) | null = null;
 
+  // Domain-metric registries contributed by feature modules (keyed by
+  // contributor name so re-registration is idempotent). WHY: services like
+  // farm-service keep label-isolated private prom-client registries for
+  // domain counters; the single /metrics scrape endpoint must still expose
+  // them (OBS-HIGH-001 — farm's domain registry was previously unreachable:
+  // a getMetrics() dump existed with no controller serving it).
+  private readonly contributorRegistries = new Map<string, client.Registry>();
+
   // Cached output to avoid blocking event loop on every scrape
   private cachedMetrics: string | null = null;
   private cacheTimestamp = 0;
@@ -66,6 +74,9 @@ export class ServiceMetricsService implements OnModuleInit, OnModuleDestroy {
       this.defaultMetricsDispose = null;
     }
     this.registry.clear();
+    // Contributors own their registries' lifecycles (they clear them in
+    // their own onModuleDestroy); we only drop the references here.
+    this.contributorRegistries.clear();
     this.logger.log('Service metrics cleaned up');
   }
 
@@ -100,6 +111,27 @@ export class ServiceMetricsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Register a domain-metric registry so the /metrics endpoint serves it.
+   *
+   * WHY a named, idempotent map instead of prom-client Registry.merge():
+   * merge() snapshots metric INSTANCES at merge time — counters registered
+   * later (or re-initialized in tests) would silently vanish from scrape
+   * output. Holding the live Registry reference keeps the scrape view
+   * exactly as current as the contributor's own state.
+   *
+   * WHAT: contributor output is concatenated after the service's own
+   * registry in getMetrics(). Metric-name collisions are the contributor's
+   * responsibility — domain registries use a domain prefix (farm_*) and the
+   * platform registry owns http_* / nodejs_*.
+   */
+  registerContributor(name: string, registry: client.Registry): void {
+    this.contributorRegistries.set(name, registry);
+    // Invalidate the scrape cache so a contributor registered between
+    // scrapes is visible on the next scrape, not up to cacheTtlMs later.
+    this.cachedMetrics = null;
+  }
+
+  /**
    * Get all metrics in Prometheus text exposition format.
    * Cached for 5 seconds to avoid blocking the event loop on large registries.
    */
@@ -108,7 +140,16 @@ export class ServiceMetricsService implements OnModuleInit, OnModuleDestroy {
     if (this.cachedMetrics && now - this.cacheTimestamp < this.cacheTtlMs) {
       return this.cachedMetrics;
     }
-    this.cachedMetrics = await this.registry.metrics();
+    const parts = [await this.registry.metrics()];
+    for (const registry of this.contributorRegistries.values()) {
+      parts.push(await registry.metrics());
+    }
+    // Blank lines are ignored by the Prometheus text-format parser, but we
+    // normalize block boundaries to exactly one newline for stable output.
+    this.cachedMetrics = `${parts
+      .map((part) => part.trimEnd())
+      .filter((part) => part.length > 0)
+      .join('\n')}\n`;
     this.cacheTimestamp = now;
     return this.cachedMetrics;
   }

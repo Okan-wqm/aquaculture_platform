@@ -159,7 +159,15 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
         .returning('"messageId"')
         .execute();
 
-      if (claim.identifiers.length === 0) {
+      // WHY raw, not identifiers: for a non-generated composite PK
+      // TypeORM fabricates InsertResult.identifiers from the VALUES
+      // passed in — they are non-empty even when ON CONFLICT DO NOTHING
+      // skipped the row. The RETURNING set (raw) is the only truthful
+      // conflict signal: empty ⇔ the claim was skipped. Proven by the
+      // real-DB e2e (a duplicate slipped through the identifiers check).
+      const claimedRows: unknown = claim.raw;
+      const claimCount = Array.isArray(claimedRows) ? claimedRows.length : 0;
+      if (claimCount === 0) {
         const prior = await manager.findOne(MessageSendIdempotency, {
           where: { tenantId, channelId, senderId, idempotencyKey },
         });

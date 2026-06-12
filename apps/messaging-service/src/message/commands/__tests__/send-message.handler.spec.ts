@@ -394,7 +394,7 @@ describe('SendMessageHandler', () => {
         messageId: existing.id,
         messageCreatedAt: existing.createdAt,
       };
-      ledgerInsertBuilder.execute.mockResolvedValue({ identifiers: [], raw: [], generatedMaps: [] });
+      ledgerInsertBuilder.execute.mockResolvedValue({ identifiers: [{}], raw: [], generatedMaps: [] });
       queryRunner.manager.findOne.mockImplementation(
         (entity: unknown) =>
           Promise.resolve(entity === MessageSendIdempotency ? ledgerRow : existing),
@@ -423,7 +423,9 @@ describe('SendMessageHandler', () => {
     });
 
     it('fails loud when the claim conflicts but the ledger row is unreadable', async () => {
-      ledgerInsertBuilder.execute.mockResolvedValue({ identifiers: [], raw: [], generatedMaps: [] });
+      // identifiers stay non-empty on conflict (TypeORM fabricates them
+      // from VALUES for non-generated PKs) — raw is the truth signal.
+      ledgerInsertBuilder.execute.mockResolvedValue({ identifiers: [{}], raw: [], generatedMaps: [] });
       queryRunner.manager.findOne.mockResolvedValue(null);
 
       await expect(handler.execute(makeCommand())).rejects.toThrow(ConflictException);

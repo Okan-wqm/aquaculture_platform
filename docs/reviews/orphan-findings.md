@@ -3799,7 +3799,31 @@ Fix direction: add a Prometheus (or agent-mode) container to the droplet compose
 
 Status: OPEN (2026-06-11; owner: observability-expert; natural Wave B2 follow-on of the s1-remediation program).
 
-## ORPHAN-HIGH-092 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
+---
+
+## ORPHAN-HIGH-092 — E2E - Messaging Service chronic cancellation flake (~50%)
+
+Severity: HIGH. The `E2E - Messaging Service` workflow (`E2E Tests` job) cancels on roughly half its runs — sampled last 18 = 9 cancelled / 8 success / 1 failure. Cancellations are the job hitting its own wall-clock after repeated `Exceeded timeout of 60000 ms for a hook` (Jest setup hooks), ending in `##[error]The operation was canceled` — reproduced identically on two consecutive runs of the SAME commit (B2 head 4699f72dc), so it is environmental, not a code regression. The suite is NOT in `branches/main/protection/required_status_checks`; K7 (#410, 807dc90a5) deployed to production with it never green. It therefore masks real messaging-E2E signal behind noise while blocking no merge.
+
+Root cause direction: container/service readiness race — the Jest global setup waits on TimescaleDB + Redis + NATS boot and exceeds 60s under CI load. Fix (highest tier first): (1) automatic readiness gate (healthcheck poll) before Jest starts; (2) detectable — budgeted hook timeout + loud container-state dump on timeout instead of silent cancel; (3) split container-boot out of the per-test hook budget.
+
+Discovered while gating B2 (#411). Pairs with ORPHAN-MEDIUM-055 (same E2E Postgres log surface).
+
+Status: OPEN (2026-06-12; owner: infra-expert + messaging-expert for the harness). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
+
+---
+
+## ORPHAN-MEDIUM-055 — messaging-service background sweep queries non-existent `m.embedding` column
+
+Severity: MEDIUM. The messaging-service E2E Postgres logs, on a fixed 5-minute cadence (12:50/12:55/13:00…): `ERROR: column m.embedding does not exist at character 138 … WHERE m."embedding" IS NULL`. A scheduled background worker / projection (an embedding-backfill or semantic-index sweep) filters on `m."embedding" IS NULL`, but the column does not exist in the schema the E2E migrations apply. Independent of B2 (zero embedding code touched); appears on every messaging E2E run.
+
+Query↔migration drift: either the `embedding` column migration is missing from the E2E path (the feature is silently dead) or the sweep must be feature-flag-gated until the column lands (it currently fires blindly every 5 minutes). Investigate why SchemaDriftValidator (ADR-012) does not fail-closed on the missing required column here.
+
+Discovered in the E2E Messaging logs during B2 (#411) gating. Pairs with ORPHAN-HIGH-092.
+
+Status: OPEN (2026-06-12; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.
+
+## ORPHAN-HIGH-093 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
 
 Severity: HIGH. A2 (ESLint 8→9 flat migration) sırasında firsthand keşfedildi: `tools/eslint-rules`'deki 6 mimari-invariant kuralı (`require-entity-schema`, `no-bare-tenant-query-key`, `no-direct-event-publish`, `no-high-cardinality-metric-label`, `no-claude-sdk-raw-call`, `no-bare-graphql-query-string`) root `.eslintrc.json`'da **override** olarak tanımlıydı; ama her proje (apps/*, libs/event-contracts, libs/node-components, web/*, mcp/*, scripts, tests/invariants, tools/eslint-rules — 31 dizin) kendi `root: true` `.eslintrc.cjs`'ine sahip olduğundan eslintrc cascade proje sınırında DURUYORDU → bu kurallar proje dosyalarına HİÇ uygulanmadı. ESLint 8 `calculateConfigForFile` ile doğrulandı: `aquaculture/require-entity-schema` + `no-direct-event-publish` 55 proje-probe'unun **0**'ında tanımlı. Kurallar yalnız non-cjs zonlarda (`platform/libs/**`, `libs/backend-common/**`, `web/apps/aquamobil/**`) canlı.
 
@@ -3811,7 +3835,7 @@ Düzeltme yönü: `eslint.config.mjs`'in `PROJECT_GLOBS`-gated custom-rule blokl
 
 Status: OPEN (2026-06-12; sahip: platform-kernel-expert; A2 PR-2 firsthand bulgusu; aktivasyon ayrı PR).
 
-## ORPHAN-MEDIUM-093 — `no-restricted-syntax` (JWT_SECRET + getRepository + JSON.stringify gate'leri) web modüllerinde ve e2e'de tutarsız
+## ORPHAN-MEDIUM-094 — `no-restricted-syntax` (JWT_SECRET + getRepository + JSON.stringify gate'leri) web modüllerinde ve e2e'de tutarsız
 
 Severity: MEDIUM. A2 firsthand: `no-restricted-syntax` (6 selector: getRepository, JSON.stringify>2, 4×JWT_SECRET) ESLint 8 resolved davranışında zon-bazında tutarsız: apps + 4 web modülü (dashboard/farm-module/hr-module/hydroponics-module) = 6 selector (tam gate); ama **5 web modülü (shell, shared-ui, admin-panel, sensor-module, tenant-admin) = `off`** (cjs'leri `no-restricted-syntax: 'off'` set ediyor) ve **e2e = yalnız 2 selector** (root test override JWT_SECRET'i düşürüyor). Yani JWT_SECRET okuma yasağı 5 web modülünde + tüm e2e'de etkisiz; getRepository IDOR yasağı bu 5 web modülünde etkisiz.
 
@@ -3821,4 +3845,4 @@ Kök neden: web modül cjs'leri React-ergonomisi için no-restricted-syntax'i to
 
 Düzeltme yönü: JWT_SECRET 4 selector'ını web + e2e'de yeniden aktive et; flat config'te ayrı bir "JWT_SECRET-everywhere" bloğu (`files: ['**/*.ts','**/*.tsx']`, ignore yok) tüm zonlarda 4 JWT_SECRET selector'ını zorlar — eslintrc'nin yapamadığı tutarlılık. Ölçülü PR: önce e2e, sonra web.
 
-Status: OPEN (2026-06-12; sahip: auth-security-expert; A2 PR-2 firsthand bulgusu; ORPHAN-HIGH-092 ile aynı aktivasyon dalgasında ele alınabilir).
+Status: OPEN (2026-06-12; sahip: auth-security-expert; A2 PR-2 firsthand bulgusu; ORPHAN-HIGH-093 ile aynı aktivasyon dalgasında ele alınabilir).

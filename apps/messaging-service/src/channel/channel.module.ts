@@ -7,6 +7,8 @@
  */
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ClientsModule, Transport } from '@nestjs/microservices';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { CqrsModule } from '@nestjs/cqrs';
 
 // Entities
@@ -17,6 +19,7 @@ import { Message } from '../message/entities/message.entity';
 // Command Handlers
 import { CreateChannelHandler } from './commands/create-channel.handler';
 import { AddMemberHandler } from './commands/add-member.handler';
+import { TenantUserAdmissionService } from './services/tenant-user-admission.service';
 import { RemoveMemberHandler } from './commands/remove-member.handler';
 import { UpdateChannelHandler } from './commands/update-channel.handler';
 import { ArchiveChannelHandler } from './commands/archive-channel.handler';
@@ -51,11 +54,21 @@ const queryHandlers = [
   imports: [
     TypeOrmModule.forFeature([Channel, ChannelMember, Message]),
     CqrsModule,
+    // ClientsModule.register() is NOT global — the admission gate's
+    // NATS round-trip to auth-service needs its own client here.
+    ClientsModule.register([
+      {
+        name: 'NATS_SERVICE',
+        transport: Transport.NATS,
+        options: buildNatsTransportOptions('messaging-service'),
+      },
+    ]),
     forwardRef(() => PresenceModule),
   ],
   providers: [
     ...commandHandlers,
     ...queryHandlers,
+    TenantUserAdmissionService,
     ChannelResolver,
     ChannelMemberResolver,
     ChannelService,

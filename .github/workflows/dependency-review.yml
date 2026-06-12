@@ -29,16 +29,15 @@ jobs:
           # produced a single blob string that the action could not parse.
           #
           # Inventory:
-          #   GHSA-xgp8-3hg3-c2mh  rustls-webpki wildcard name-constraint     (RUST-CVE-001 / RUSTSEC-2026-0098)
-          #   GHSA-965h-392x-2mh5  rustls-webpki URI name-constraint          (RUST-CVE-001 / RUSTSEC-2026-0099)
-          #   GHSA-pwjx-qhcg-rvj4  rustls-webpki CRL DP matching              (RUST-CVE-001 / RUSTSEC-2026-0049)
           #   GHSA-h395-gr6q-cpjc  jsonwebtoken < 10.3.0 Type Confusion       (RUST-CVE-002)
           #   GHSA-9q82-xgwf-vj6h  Apollo Server 4 XS-Search                 (docs/bugs/2026-05-02/apollo-graphql-eol-install-surface.md)
-          # The four Rust advisories live under edge-agent's parallel supply chain
-          # (sens-api-gateway is owned by the edge agent; cross-crate bump
-          # blocked upstream). Full rationale in deny.toml + .cargo/audit.toml.
+          # 2026-06-11 (RUST-CVE-001 RESOLVED): the three rustls-webpki GHSAs
+          # (GHSA-xgp8-3hg3-c2mh / GHSA-965h-392x-2mh5 / GHSA-pwjx-qhcg-rvj4)
+          # were removed — rumqttc resolves to the vendored fork at
+          # crates/local-rumqttc (rustls-webpki >= 0.103); deny.toml [bans]
+          # blocks reintroduction of the vulnerable line.
           # Apollo Server 4 is runtime-mitigated by explicit csrfPrevention:
           # true in every Apollo gateway/subgraph module and enforced by
           # scripts/ci/check-apollo-csrf-prevention.mjs. The permanent fix is
           # Apollo Router or peer-clean Apollo Server 5 migration.
-          allow-ghsas: GHSA-xgp8-3hg3-c2mh,GHSA-965h-392x-2mh5,GHSA-pwjx-qhcg-rvj4,GHSA-h395-gr6q-cpjc,GHSA-9q82-xgwf-vj6h
+          allow-ghsas: GHSA-h395-gr6q-cpjc,GHSA-9q82-xgwf-vj6h

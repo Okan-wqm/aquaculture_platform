@@ -7,9 +7,16 @@
  * validated tenant schema in AsyncLocalStorage.
  *
  * Phase 5.3 of the "Farm modülü kalan kör noktalar" plan.
+ *
+ * OBS-HIGH-001: imports the platform ServiceMetricsModule (which owns the
+ * GET /metrics scrape endpoint + HTTP metrics middleware) and contributes
+ * the farm domain registry to it in onModuleInit. Before this wiring the
+ * farm_* counters were recorded into a private registry that NO controller
+ * served — Prometheus could never scrape them.
  */
 import { TenantExecutionContextInterceptor } from '@aquaculture/backend-common/context';
-import { Global, Module } from '@nestjs/common';
+import { ServiceMetricsModule, ServiceMetricsService } from '@aquaculture/backend-common/metrics';
+import { Global, Module, OnModuleInit } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 
 import { FarmDomainMetricsService } from './farm-domain-metrics.service';
@@ -17,6 +24,7 @@ import { FarmMetricsInterceptor } from './farm-metrics.interceptor';
 
 @Global()
 @Module({
+  imports: [ServiceMetricsModule],
   providers: [
     FarmDomainMetricsService,
     {
@@ -30,4 +38,17 @@ import { FarmMetricsInterceptor } from './farm-metrics.interceptor';
   ],
   exports: [FarmDomainMetricsService],
 })
-export class FarmMetricsModule {}
+export class FarmMetricsModule implements OnModuleInit {
+  constructor(
+    private readonly farmDomainMetrics: FarmDomainMetricsService,
+    private readonly serviceMetrics: ServiceMetricsService,
+  ) {}
+
+  onModuleInit(): void {
+    // WHAT: plug the farm domain registry into the platform /metrics
+    // endpoint. WHY here (module hook, not service constructor): keeps
+    // FarmDomainMetricsService constructible without DI in unit tests
+    // while making the production wiring automatic and un-forgettable.
+    this.farmDomainMetrics.contributeTo(this.serviceMetrics);
+  }
+}

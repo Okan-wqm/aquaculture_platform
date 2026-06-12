@@ -32,17 +32,12 @@ version = 2
 # explicit owner + deadline + finding-ID + upstream blocker reference.
 ignore = [
     # -----------------------------------------------------------------
-    # EDGE-CI-001: rustls-webpki 0.102.8 × 3 advisories — rumqttc 0.25.1
-    # transitive. Owner: platform-team. Deadline: 2026-07-01.
-    # Upstream: rumqttc/bytebeamio main branch still on 0.102.8.
-    # Our Batch 11 mTLS uses SHA-256 fingerprint pinning (not name-
-    # constraint validation) so advisory code paths are not exercised.
-    # If rumqttc 0.26 misses deadline: suderra fork OR paho-mqtt-rust.
+    # EDGE-CI-001 RESOLVED 2026-06-11 (RUST-CVE-001): the four
+    # rustls-webpki 0.102.8 advisories (RUSTSEC-2026-0098/0099/0049/
+    # 0104) were removed — rumqttc resolves to the vendored fork at
+    # ../crates/local-rumqttc (rustls-webpki >= 0.103). Reintroduction
+    # is blocked by the [bans] table below.
     # -----------------------------------------------------------------
-    "RUSTSEC-2026-0098", # Name constraints for URI names incorrectly accepted
-    "RUSTSEC-2026-0099", # Name constraints accepted for wildcard cert asserts
-    "RUSTSEC-2026-0049", # CRLs not considered authoritative by Distribution Point
-    "RUSTSEC-2026-0104", # Reachable panic in CRL parsing; rumqttc upstream-blocked
 
     # -----------------------------------------------------------------
     # EDGE-CI-002: rsa 0.9.10 Marvin Attack — NO UPSTREAM FIX.
@@ -71,12 +66,11 @@ ignore = [
     "RUSTSEC-2024-0388",
 
     # -----------------------------------------------------------------
-    # EDGE-CI-005: rustls-pemfile 2.2.0 unmaintained (RUSTSEC-2025-0134).
-    # Owner: platform-team. Deadline: 2026-07-01 (with rumqttc 0.26).
-    # Same rumqttc 0.25.1 transitive as EDGE-CI-001; tied to its
-    # resolution.
+    # EDGE-CI-005 RESOLVED 2026-06-11 (RUST-CVE-001): RUSTSEC-2025-0134
+    # removed — the local-rumqttc fork decodes PEM via rustls-pki-types,
+    # which cleared rustls-pemfile from this workspace's graph entirely.
+    # Reintroduction is blocked by the [bans] table below.
     # -----------------------------------------------------------------
-    "RUSTSEC-2025-0134",
 
     # -----------------------------------------------------------------
     # EDGE-CI-006: atomic-polyfill 1.0.3 unmaintained (RUSTSEC-2023-0089).
@@ -162,6 +156,11 @@ deny = [
     # Cargo-deny's `skip` is for duplicate-version traversal, not for overriding
     # an explicit ban, so the architectural boundary must live at the crate ban.
     { name = "openssl", reason = "Use rustls for cross-platform TLS" },
+    # RUST-CVE-001 regression guards (EDGE-CI-001 + EDGE-CI-005): the
+    # vulnerable rustls-webpki line and the unmaintained rustls-pemfile
+    # must never re-enter the graph. Fix: ../crates/local-rumqttc fork.
+    { name = "rustls-webpki", version = "<0.103", reason = "RUSTSEC-2026-0098/0099/0049/0104 — use >= 0.103" },
+    { name = "rustls-pemfile", reason = "RUSTSEC-2025-0134 unmaintained — use rustls-pki-types pem API" },
 ]
 
 # Skip checking tree for these crates

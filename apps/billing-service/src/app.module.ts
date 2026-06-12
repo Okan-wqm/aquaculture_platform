@@ -15,6 +15,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import {
   UserContextMiddleware,
   TenantContextMiddleware,
@@ -167,6 +168,9 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
     BillingModule,
     MeteringModule,
     HealthModule,
+    // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
+    // middleware (self-contained platform module — controller is @Public()).
+    ServiceMetricsModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     /**

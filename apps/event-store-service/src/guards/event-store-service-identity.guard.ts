@@ -15,7 +15,20 @@ import {
 import { eventStoreTenantScopePolicyForService } from '@platform/service-catalog';
 import { Request } from 'express';
 
-const PUBLIC_HEALTH_PATHS = new Set(['/health', '/health/live', '/health/ready']);
+// Exact-match unauthenticated paths: docker healthchecks + the Prometheus
+// scrape endpoint (OBS-HIGH-001). WHY exact-match instead of honoring the
+// @Public() reflector metadata: this guard intentionally has no Reflector
+// dependency — its contract is "everything is service-identity-gated except
+// an explicit, reviewable allowlist", which is stricter than decorator-based
+// opt-out scattered across controllers. /metrics joins /health here because
+// the platform convention (every other backend service) serves the scrape
+// endpoint without auth on the internal docker network.
+const PUBLIC_OBSERVABILITY_PATHS = new Set([
+  '/health',
+  '/health/live',
+  '/health/ready',
+  '/metrics',
+]);
 const LEGACY_TENANT_SCOPE_POLICY_ENV = 'EVENT_STORE_ALLOWED_SERVICE_TENANT_SCOPES';
 const EVENT_STORE_SERVICE_AUDIENCE = 'event-store-service';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -77,7 +90,8 @@ export function assertEventStoreTenantScopePolicy(): void {
  * signature. Raw X-Tenant-Id is an HMAC-bound input, not a controller trust
  * source.
  *
- * Health check endpoints are excluded from authentication.
+ * Health check and Prometheus /metrics endpoints are excluded from
+ * authentication (exact-match allowlist, no prefix matching).
  */
 @Injectable()
 export class EventStoreServiceIdentityGuard implements CanActivate {
@@ -90,8 +104,9 @@ export class EventStoreServiceIdentityGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<RawBodyRequest & TenantRequest>();
     const observedPath = normalizePath(request);
 
-    // Allow only exact public health endpoints without authentication.
-    if (PUBLIC_HEALTH_PATHS.has(observedPath)) {
+    // Allow only exact public observability endpoints (health + Prometheus
+    // scrape) without authentication.
+    if (PUBLIC_OBSERVABILITY_PATHS.has(observedPath)) {
       return true;
     }
 

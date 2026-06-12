@@ -81,7 +81,9 @@ export interface ReserveTenantCommand extends AuthTenantCommandMetadata {
   plan: string;
   maxUsers?: number;
   maxStorage?: number;
-  isTrialActive?: boolean;
+  // MT-MEDIUM-001: trial state is derived from trialEndsAt (the SSoT). The
+  // redundant isTrialActive input was removed — a tenant is on trial iff
+  // trialEndsAt is set and in the future.
   trialEndsAt?: string;
   settings?: Record<string, unknown>;
   createdBy: string;

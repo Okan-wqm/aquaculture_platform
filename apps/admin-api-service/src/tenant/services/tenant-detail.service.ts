@@ -96,7 +96,9 @@ export class TenantDetailService {
       farmCount: resourceUsage.farms.count,
       sensorCount: resourceUsage.sensors.count,
       maxStorage: tenant.maxStorage,
-      isTrialActive: tenant.isTrialActive,
+      // MT-MEDIUM-001: derive trial state from trialEndsAt (the SSoT); the
+      // is_trial_active column was dropped from auth.tenants.
+      isTrialActive: tenant.trialEndsAt != null && tenant.trialEndsAt > new Date(),
 
       // Statistics
       userStats,

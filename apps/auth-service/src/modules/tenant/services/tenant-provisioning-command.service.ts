@@ -210,7 +210,9 @@ export class TenantProvisioningCommandService {
           status: TenantStatus.PENDING,
           maxUsers: command.maxUsers ?? 5,
           maxStorage: command.maxStorage ?? -1,
-          isTrialActive: command.isTrialActive ?? false,
+          // MT-MEDIUM-001: isTrialActive is no longer stored — trial state is
+          // derived from trialEndsAt (the SSoT), which is the only trial field
+          // the command carries.
           trialEndsAt: command.trialEndsAt ? new Date(command.trialEndsAt) : null,
           settings: command.settings ?? null,
           createdBy: command.createdBy,

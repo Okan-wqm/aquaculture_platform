@@ -118,6 +118,19 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 
 ---
 
+## MT-MEDIUM-001 — `PlanTier` non-ordinal + no `planLevel` JWT claim + `TRIAL`/`isTrialActive` dual representation (W3.4)
+
+- **Durum:** RESOLVED (PR #390 — W3.4, iki commit: ordinal + JWT claim, sonra TRIAL collapse).
+- **Sorun:** Üç ayrı kusur: (1) `TenantPlan` sırasız string enum'du — "en az PROFESSIONAL" tarzı tier-gating her callsite'ta ad-hoc bir rank map gerektiriyordu (drift vektörü). (2) JWT hiçbir plan-tier sinyali taşımıyordu — her tier kontrolü gateway'de request-başına tenant lookup demekti. (3) Trial-lik ÜÇ şekilde temsil ediliyordu: `plan === TRIAL`, stored `is_trial_active` boolean, ve `trialEndsAt` — ve bunlar drift ediyordu (canlı DB'de is_trial_active=false ama trialEndsAt set olan tenant var). En kötüsü: entity'nin `isOnTrial()` helper'ı `plan === TRIAL`'a kapı koyuyordu, ki canlı veride SIFIR satır eşleşiyor (tenant'lar gerçek tier'da trial yapıyor, plan='trial' değil) — yani her aktif trial sessizce "trial değil" olarak raporlanıyordu (latent bug).
+- **Çözüm (Tier-1):**
+  - **Ordinal SSoT:** `PLAN_LEVEL: Record<TenantPlan, number>` (`@platform/event-contracts`) — FREE/TRIAL=0, STARTER=1, PROFESSIONAL=2, ENTERPRISE=3. Tip-exhaustive (plan eklemek ama rank'lamamak compile error) + `planLevel()`/`planMeetsMinimum()`. TRIAL, FREE-eşdeğeri rank'lanır çünkü trial bir STATE'tir (trialEndsAt'tan türer), paid tier değil — plan string'i asla paid-tier minimum'u sağlamaz.
+  - **JWT claim:** `token.service` çözülen ordinal'i opsiyonel `planLevel` claim'i olarak access-token'a basar; `resolveTenantPlanLevel` mevcut module+permission read'leriyle **parallel** koşar (tek Promise.all, üçüncü serial round-trip değil); tenant'sız platform hesapları (SUPER_ADMIN) için omit edilir. Verify-side gateway JwtPayload eşleşen opsiyonel alanı kazanır.
+  - **TRIAL collapse:** `trialEndsAt` tek kaynak. `isOnTrial()`/`isTrialExpired()` yalnız trialEndsAt'tan türer (plan===TRIAL kapısı silindi — latent bug fix). auth entity'de `isTrialActive` derived getter (GraphQL @Field korunur, şema değişmez); admin-api read-replica entity'den TAMAMEN kaldırıldı (tenant-detail.service trialEndsAt'tan inline türetir — read-replica olmayan kolonu SELECT edemez). Stored `is_trial_active` kolonu drop edildi (idempotent migration). `ReserveTenantCommand`'dan redundant `isTrialActive` input'u + provisioning yazıcıları (auth handler, admin workflow ×3) kaldırıldı — command yalnız trialEndsAt taşır.
+- **Değişen dosyalar:** `libs/event-contracts/src/enums/tenant-plan.enum.ts` (+spec), `libs/event-contracts/src/tenant-commands.ts`, `apps/auth-service/src/modules/authentication/services/token.service.ts` (+spec), `apps/gateway-api/src/types/index.ts`, `apps/auth-service/src/modules/tenant/entities/tenant.entity.ts` (+spec), `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts`, `apps/auth-service/src/migrations/1801000000000-DropTenantIsTrialActive.ts` (yeni), `apps/admin-api-service/src/tenant/{entities/tenant.entity,services/tenant-detail.service,services/tenant-provisioning-workflow.service}.ts` (+ tenant.integration/tenant-provisioning spec fixture'ları).
+- **Doğrulama:** tenant-plan.enum.spec (7) ikinci-tanık ordinal matrisi + gating semantiği; token.service.spec (3) claim include/omit/0-fallback; tenant.entity.spec (5) trial türetme + **bug-fix regresyon guard'ı** (STARTER + future trialEndsAt → isOnTrial=true); lifecycle-commands (16) + tenant.integration (28) + tenant-api.integration (36) yeşil (regresyon yok); migration-sql-lint + canlı DB idempotency (residual 0); auth+admin+event-contracts type-check temiz. **is_trial_active full cross-service drop** operator kararıyla (Tam drop now) yapıldı. (`DATA-LOW-001` — trialEndsAt'ı billing.subscriptions projeksiyonu yapma — ayrı, hâlâ açık.)
+
+---
+
 ## Bekleyen bulgular (denetim kayıt defteri)
 
 | ID | Dalga | Durum |
@@ -132,5 +145,6 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 | DATA-HIGH-002 (timestamp → timestamptz) | W3.4 | RESOLVED — 27 auth cols converted (migration + entities); empirically verified vs live DB |
 | DATA-MEDIUM-002 (tenantId nullability) | W3.4 | RESOLVED — invitations.tenantId NOT NULL; refresh_tokens.tenantId stays nullable (all 317 NULL rows are SUPER_ADMIN, documented exception); broad camelCase/snake_case rename deliberately out of scope (cosmetic, high-risk) |
 | MT-MEDIUM-002 (unmaintained farm_count/sensor_count denormalization) | W3.4 | RESOLVED — dropped from auth.tenants; admin-api counts real-time from tenant_<uuid>.farms/.sensors (source-of-truth tables) |
-| MT-MEDIUM-001, DATA-LOW-001 | W3.4 | OPEN |
+| MT-MEDIUM-001 (PlanTier ordinal + planLevel JWT claim + TRIAL/isTrialActive collapse) | W3.4 | RESOLVED — PLAN_LEVEL SSoT + planLevel claim + trial derived from trialEndsAt (is_trial_active dropped) |
+| DATA-LOW-001 | W3.4 | OPEN |
 | PERF-HIGH-001..003, AUDIT-HIGH-009, PERF-MEDIUM-001..003, AUDIT-MEDIUM-015, SEC-LOW-001 | W4 | OPEN |

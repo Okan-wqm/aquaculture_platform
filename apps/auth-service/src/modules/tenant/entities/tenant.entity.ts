@@ -154,11 +154,18 @@ export class Tenant {
   maxStorage!: number;
 
   /**
-   * Whether tenant is currently on an active trial
+   * Whether the tenant is currently within an active trial window.
+   *
+   * MT-MEDIUM-001: trial is a STATE derived from the single source `trialEndsAt`
+   * — NOT a stored denormalization (the old `is_trial_active` column drifted from
+   * trialEndsAt) and NOT the plan tier (the `plan === TRIAL` representation is
+   * gone). Exposed as a computed GraphQL field so the public API shape is
+   * unchanged.
    */
   @Field()
-  @Column({ type: 'boolean', default: false, name: 'is_trial_active' })
-  isTrialActive!: boolean;
+  get isTrialActive(): boolean {
+    return this.isOnTrial();
+  }
 
   /**
    * Current user count (denormalized for quick access)
@@ -238,14 +245,19 @@ export class Tenant {
     return this.status === TenantStatus.PENDING;
   }
 
+  /**
+   * On trial ⟺ a trial window exists and has not elapsed. MT-MEDIUM-001: derived
+   * from `trialEndsAt` alone (the SSoT). The prior `plan === TRIAL` gate returned
+   * false for every real tenant — production tenants trial on a real tier (e.g.
+   * starter) with `trialEndsAt` set, never on `plan = 'trial'` — so the gate was
+   * a latent bug that hid every active trial.
+   */
   isOnTrial(): boolean {
-    if (this.plan !== TenantPlan.TRIAL) return false;
-    if (!this.trialEndsAt) return true;
+    if (!this.trialEndsAt) return false;
     return this.trialEndsAt > new Date();
   }
 
   isTrialExpired(): boolean {
-    if (this.plan !== TenantPlan.TRIAL) return false;
     if (!this.trialEndsAt) return false;
     return this.trialEndsAt < new Date();
   }

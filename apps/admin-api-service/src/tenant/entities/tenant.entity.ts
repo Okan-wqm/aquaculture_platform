@@ -70,8 +70,10 @@ export class Tenant {
   @Column({ type: 'int', default: -1, name: 'max_storage' })
   maxStorage!: number;
 
-  @Column({ type: 'boolean', default: false, name: 'is_trial_active' })
-  isTrialActive!: boolean;
+  // MT-MEDIUM-001: is_trial_active was dropped from auth.tenants (trial is
+  // derived from trialEndsAt, the SSoT). This read-replica therefore declares
+  // NO isTrialActive mapping — it would SELECT a non-existent column. Consumers
+  // derive trial state from trialEndsAt (see TenantDetailService.getTenantDetail).
 
   @Column({ type: 'int', default: 0, name: 'user_count' })
   userCount!: number;

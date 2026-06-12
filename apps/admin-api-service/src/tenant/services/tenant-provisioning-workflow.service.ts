@@ -699,7 +699,6 @@ export class TenantProvisioningWorkflowService {
       settings,
       maxUsers: data.maxUsers ?? data.limits?.maxUsers ?? 5,
       maxStorage: data.maxStorage ?? data.limits?.storageGb ?? -1,
-      isTrialActive: (data.trialDays ?? 0) > 0,
       trialEndsAt: this.getTrialEndsAt(data.trialDays),
       createdBy: actorUserId,
       userCount: 0,
@@ -746,7 +745,6 @@ export class TenantProvisioningWorkflowService {
       plan: tenantDraft.plan,
       maxUsers: tenantDraft.maxUsers,
       maxStorage: tenantDraft.maxStorage,
-      isTrialActive: tenantDraft.isTrialActive,
       trialEndsAt: tenantDraft.trialEndsAt?.toISOString(),
       settings: tenantDraft.settings as Record<string, unknown> | undefined,
       createdBy: run.actorUserId,
@@ -875,7 +873,10 @@ export class TenantProvisioningWorkflowService {
       createdBy: fallback.createdBy,
       maxUsers: fallback.maxUsers,
       maxStorage: fallback.maxStorage,
-      isTrialActive: fallback.isTrialActive,
+      // MT-MEDIUM-001: isTrialActive is now derived from trialEndsAt — copy the
+      // SSoT source, not the dropped boolean, so the rebuilt tenant keeps its
+      // trial window.
+      trialEndsAt: fallback.trialEndsAt,
       userCount: 0,
       createdAt: snapshot.createdAt ? new Date(snapshot.createdAt) : new Date(),
       updatedAt: snapshot.updatedAt ? new Date(snapshot.updatedAt) : new Date(),

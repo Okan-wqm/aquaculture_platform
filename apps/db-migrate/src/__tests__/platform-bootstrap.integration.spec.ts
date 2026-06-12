@@ -388,6 +388,46 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
       )) as Array<{ has_create: boolean }>;
       expect(dbCreateRows[0]?.has_create).toBe(false);
 
+      // Compliance schema (INFRA-HIGH-015): cross-service legal-hold
+      // registry — owned like `shared`, DML reachable by every runtime
+      // role through the 004 default-priv chain. The probe table stands
+      // in for compliance.legal_holds, which is created by the admin-api
+      // migration chain and therefore does not exist in the
+      // bootstrap-from-scratch database.
+      const complianceOwnerRows = (await qr.query(
+        `SELECT n.nspowner::regrole::text AS owner_name, r.rolcanlogin AS owner_can_login
+           FROM pg_namespace n
+           JOIN pg_roles r ON r.oid = n.nspowner
+          WHERE n.nspname = 'compliance'`,
+      )) as Array<{ owner_name: string; owner_can_login: boolean }>;
+      expect(complianceOwnerRows[0]).toEqual({
+        owner_name: 'compliance_schema_owner',
+        owner_can_login: false,
+      });
+      // The probe is created by the bootstrap/migration connection role —
+      // exactly how compliance.legal_holds lands in production (the
+      // admin-api migration chain runs over the db-migrate connection),
+      // so the 004 ALTER DEFAULT PRIVILEGES chain (which binds to the
+      // creating role) is what grants the services DML below.
+      await qr.query('DROP TABLE IF EXISTS compliance.__runtime_privilege_probe');
+      await qr.query(
+        'CREATE TABLE compliance.__runtime_privilege_probe (id integer PRIMARY KEY)',
+      );
+      await queryAsRole(
+        'messaging_service',
+        'INSERT INTO compliance.__runtime_privilege_probe (id) VALUES (1)',
+      );
+      await queryAsRole(
+        'admin_service',
+        'SELECT id FROM compliance.__runtime_privilege_probe',
+      );
+      await expect(
+        queryAsRole(
+          'messaging_service',
+          'CREATE TABLE compliance.__runtime_ddl_probe (id integer)',
+        ),
+      ).rejects.toThrow(/permission denied/i);
+
       await qr.query('DROP TABLE IF EXISTS farm.__runtime_privilege_probe');
       await qr.query('CREATE TABLE farm.__runtime_privilege_probe (id integer PRIMARY KEY)');
       await queryAsRole('farm_service', 'INSERT INTO farm.__runtime_privilege_probe (id) VALUES (1)');
@@ -424,6 +464,7 @@ describe('platform-bootstrap atom — restart-survive + idempotency (ADR-031)', 
       await qr.query('RESET ROLE');
       await qr.query('DROP TABLE IF EXISTS farm.__runtime_privilege_probe');
       await qr.query('DROP TABLE IF EXISTS farm.__runtime_ddl_probe');
+      await qr.query('DROP TABLE IF EXISTS compliance.__runtime_privilege_probe');
       await qr.release();
     }
   }, 30_000);

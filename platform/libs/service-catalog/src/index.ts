@@ -61,6 +61,14 @@ export interface ServiceCatalogEntry {
   gatewayParticipation: GatewayParticipation;
   deployProfiles: readonly DeployProfile[];
   healthEndpoint?: string;
+  /**
+   * Container-internal HTTP port the service listens on (compose `PORT`
+   * env). Readiness sweeps exec curl against this port INSIDE the
+   * container — a wrong value here is a false-negative production
+   * verify (INFRA-HIGH-014: the readiness view hardcoded 3000 while
+   * observability listens on 3009).
+   */
+  containerPort: number;
   readinessContract: ReadinessContract;
   schema?: string;
   dbSchema?: string;
@@ -105,6 +113,7 @@ type CatalogEntryInput = Omit<
   | 'gatewayParticipation'
   | 'deployProfiles'
   | 'readinessContract'
+  | 'containerPort'
   | 'dbSchema'
   | 'migrationGlobs'
   | 'entityGlobs'
@@ -121,6 +130,7 @@ type CatalogEntryInput = Omit<
       | 'gatewayParticipation'
       | 'deployProfiles'
       | 'readinessContract'
+      | 'containerPort'
       | 'dbSchema'
       | 'migrationGlobs'
       | 'entityGlobs'
@@ -176,6 +186,10 @@ function buildEntry(input: CatalogEntryInput): ServiceCatalogEntry {
       (input.deployTarget === 'droplet' && input.deploymentStatus === 'active'
         ? (['droplet'] as const)
         : ([] as const)),
+    // Platform default: every node-service listens on 3000 unless its
+    // compose service declares otherwise (PORT env) — deviations MUST be
+    // declared here so readiness/verify views stay truthful.
+    containerPort: input.containerPort ?? 3000,
     readinessContract:
       input.readinessContract ??
       (input.classification === 'one-shot'
@@ -654,6 +668,8 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     serviceId: 'observability-service',
     nxProject: 'observability-service',
     imageTarget: 'observability-service',
+    // docker-compose.droplet.yml sets PORT: 3009 for this service.
+    containerPort: 3009,
     schema: 'observability',
     schemaOwnerRole: 'observability_schema_owner',
     dbRoles: {
@@ -868,7 +884,7 @@ export function readinessServices(): readonly { serviceId: string; port: number 
         ['gateway', 'subgraph', 'internal-service'].includes(entry.classification) &&
         entry.buildKind === 'node-service',
     )
-    .map((entry) => ({ serviceId: entry.composeServiceName, port: 3000 }));
+    .map((entry) => ({ serviceId: entry.composeServiceName, port: entry.containerPort }));
 }
 
 export function packageBuildProjects(): readonly string[] {

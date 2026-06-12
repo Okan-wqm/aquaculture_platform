@@ -1228,7 +1228,13 @@ jobs:
   production-post-deploy-verify:
     needs:
       - deploy
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success'
+    # `needs.deploy.result == 'success'` alone is NOT "a deployment
+    # happened" — the deploy workflow legitimately no-ops on
+    # docs/registry-only pushes and still concludes success
+    # (INFRA-MEDIUM-005: every close-ceremony commit went red here while
+    # production was untouched and healthy). The `deployed` output is the
+    # explicit production-mutation contract.
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success' && needs.deploy.outputs.deployed == 'true'
     uses: ./.github/workflows/production-post-deploy-verify.yml
     secrets: inherit
     with:

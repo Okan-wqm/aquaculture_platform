@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+
+import { assertRuntimeDdlAllowed } from '../db-migrate-authority.util';
 import {
   applyTenantRlsToSchema,
   ApplyTenantRlsOptions,
@@ -132,6 +134,15 @@ export class TenantRlsSyncService implements OnApplicationBootstrap {
       );
       return;
     }
+
+    // Choke-point (PR#363 design): the per-tenant RLS sweep issues DDL
+    // (CREATE POLICY / ENABLE RLS) per tenant schema. In authoritative
+    // mode that DDL belongs to aqua-db-migrate's tenant fan-out
+    // hardening — fail fast BEFORE tenant discovery.
+    assertRuntimeDdlAllowed({
+      serviceName: this.options.serviceName,
+      operation: 'tenant RLS schema sync',
+    });
 
     let schemas: string[];
     try {

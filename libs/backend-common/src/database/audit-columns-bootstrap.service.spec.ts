@@ -153,8 +153,11 @@ describe('AuditColumnsBootstrap', () => {
         });
 
         await expect(bootstrap.onApplicationBootstrap()).rejects.toThrow(/db-migrate authority/);
-        expect(mock.createdRunners).toBe(1);
-        expect(mock.releasedRunners).toBe(1);
+        // PR#363 port: the bootstrap-level assertRuntimeDdlAllowed fires
+        // BEFORE createQueryRunner — an authority violation must not even
+        // pin a pool connection.
+        expect(mock.createdRunners).toBe(0);
+        expect(mock.releasedRunners).toBe(0);
       } finally {
         if (originalAuthoritative === undefined) {
           Reflect.deleteProperty(process.env, 'DB_MIGRATE_AUTHORITATIVE');

@@ -13,6 +13,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import { OutboxPublisher } from '@platform/outbox';
+import { TenantUserAdmissionService } from '../services/tenant-user-admission.service';
 import { createBaseEvent } from '@platform/event-contracts';
 import { CreateChannelCommand } from './create-channel.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
@@ -39,6 +40,7 @@ export class CreateChannelHandler
     private readonly channelService: ChannelService,
     private readonly metricsService: MessagingMetricsService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly admissionService: TenantUserAdmissionService,
   ) {}
 
   /**
@@ -93,6 +95,16 @@ export class CreateChannelHandler
           'DIRECT channel requires exactly 2 unique participants',
         );
       }
+
+      // Admission gate (DİLİM-2): the DM counterpart must be an active
+      // user of this tenant — userId is the authenticated actor and is
+      // excluded. channel.resolver.directChannel(targetUserId) accepts
+      // an arbitrary UUID, so this is the only barrier against opening a
+      // DM against another tenant's user. Fail-closed.
+      await this.admissionService.assertActiveTenantUsers(
+        tenantId,
+        peerIds.filter((id) => id !== userId),
+      );
 
       const dmPairKey = this.channelService.buildDmPairKey(peerIds[0], peerIds[1]);
 
@@ -206,7 +218,14 @@ export class CreateChannelHandler
     // Ensure creator is included in member list
     const memberIds = [...new Set([creatorId, ...input.memberIds])];
 
-    // TODO Phase 2: Validate all memberIds belong to same tenant via NATS request to auth-service.
+    // Admission gate (DİLİM-2): every invited member must be an active
+    // user of THIS tenant. creatorId is the authenticated actor — it is
+    // proven by the gateway, so only the invited ids need validation.
+    // Fail-closed: throws on any non-member / inactive / authority-down.
+    await this.admissionService.assertActiveTenantUsers(
+      tenantId,
+      input.memberIds,
+    );
 
     return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       // SECURITY: tenantId MUST be set on every channel row for RLS and event routing.

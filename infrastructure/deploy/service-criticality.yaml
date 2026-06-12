@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 2
-# catalogHash: 8f907156ef307ed6ce94bcd584cf9ef066da478d42c00d1a93a2dba25ceefcf2
+# catalogHash: 687602d0248e2a5561e363ad82aaa864d612a8abf834636dcf535f26efbe6d81
 # do not edit by hand
 schema_version: 1
 defaults:

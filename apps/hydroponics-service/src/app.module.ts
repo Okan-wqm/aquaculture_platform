@@ -18,6 +18,7 @@ import {
 import {
   createServiceTypeOrmConfig,
   createTenantConnectionBootstrap,
+  isSchemaDdlOwnedByDbMigrate,
   RlsModule,
   SchemaDriftModule,
   SourceSchemaBootstrapService,
@@ -40,6 +41,13 @@ import {
 } from '@aquaculture/backend-common/security';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
+/**
+ * PR#363 port — runtime DDL authority gate. In authoritative deployments
+ * the per-tenant RLS sweep belongs to aqua-db-migrate's tenant fan-out
+ * hardening (SCHEMA_REGISTRY['hydroponics'].postMigrationHardening);
+ * local/dev keeps syncTenantSchemas as the historical bootstrap convenience.
+ */
+const hydroponicsSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { HydroponicsSetupModule } from './setup/setup.module';
 import { HealthModule } from './health/health.module';
 
@@ -209,7 +217,10 @@ type QueryComplexityOperationContext = {
     /** SECURITY (HIGH-004): Tenant RLS (schema-per-tenant hydroponics). */
     RlsModule.forPoolService({
       serviceName: 'hydroponics',
-      syncTenantSchemas: true,
+      // PR#363 port: runtime per-tenant RLS sweep only when db-migrate is
+      // NOT authoritative — production tenants get the same policies from
+      // the db-migrate tenant fan-out hardening.
+      syncTenantSchemas: !hydroponicsSchemaDdlOwnedByDbMigrate,
       excludeTables: ['hydroponics_outbox'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */

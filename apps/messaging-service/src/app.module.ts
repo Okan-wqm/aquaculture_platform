@@ -73,6 +73,7 @@ import { Channel } from './channel/entities/channel.entity';
 import { ChannelMember } from './channel/entities/channel-member.entity';
 import { Message } from './message/entities/message.entity';
 import { MessageAttachment } from './message/entities/message-attachment.entity';
+import { MessageSendIdempotency } from './message/entities/message-send-idempotency.entity';
 import { MessageReceipt } from './message/entities/message-receipt.entity';
 import { MessageReaction } from './message/entities/message-reaction.entity';
 import { PinnedMessage } from './message/entities/pinned-message.entity';
@@ -98,6 +99,7 @@ import { CreateMessagingOutboxTable1800200000000 } from './migrations/1800200000
 import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800300000000-AddUserAiConsentTenantUserUnique';
 import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from './migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
 import { EnsureMessagingPartitionContract1800500000000 } from './migrations/1800500000000-EnsureMessagingPartitionContract';
+import { CreateMessageSendIdempotencyLedger1800600000000 } from './migrations/1800600000000-CreateMessageSendIdempotencyLedger';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -160,6 +162,7 @@ type QueryComplexityOperationContext = {
             ChannelMember,
             Message,
             MessageAttachment,
+            MessageSendIdempotency,
             MessageReceipt,
             MessageReaction,
             PinnedMessage,
@@ -182,6 +185,7 @@ type QueryComplexityOperationContext = {
             AddUserAiConsentTenantUserUnique1800300000000,
             EnforceSourceOnlyMessagingOutboxContract1800400000000,
             EnsureMessagingPartitionContract1800500000000,
+            CreateMessageSendIdempotencyLedger1800600000000,
           ],
         }),
     }),

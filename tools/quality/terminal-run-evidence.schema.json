@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminalRunEvidenceV1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "step",
+    "argv",
+    "exit_code",
+    "repo_sha",
+    "env_policy_hash",
+    "started_at",
+    "ended_at",
+    "sealed_log_path",
+    "log_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": "TerminalRunEvidenceV1" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "step": { "type": "string", "minLength": 1 },
+    "argv": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "exit_code": { "type": ["integer", "null"] },
+    "signal": { "type": ["string", "null"] },
+    "repo_sha": { "type": ["string", "null"], "pattern": "^[a-f0-9]{40}$" },
+    "aria_slice_hash": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+    "workflow_run_id": { "type": ["string", "null"] },
+    "workflow_job": { "type": ["string", "null"] },
+    "workflow_attempt": { "type": ["string", "null"] },
+    "runner_identity": { "type": "string", "minLength": 1 },
+    "env_policy_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "started_at": { "type": "string", "minLength": 1 },
+    "ended_at": { "type": "string", "minLength": 1 },
+    "sealed_log_path": { "type": "string", "minLength": 1 },
+    "log_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "proof_manifest_ref": { "type": ["string", "null"] }
+  },
+  "additionalProperties": false
+}

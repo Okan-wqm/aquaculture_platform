@@ -201,6 +201,16 @@ export interface TenantSubscriptionChangedEvent extends BaseEvent {
   previousPlan: string;
   newPlan: string;
   effectiveDate: Date;
+  /**
+   * DATA-LOW-001: the full subscription-projection state billing emits so
+   * auth.tenants can mirror it (billing.subscriptions is the SSoT). Optional +
+   * additive — older producers that only set previousPlan/newPlan/effectiveDate
+   * stay valid, and the auth projection skips any field left undefined.
+   */
+  trialEndsAt?: Date | null;
+  subscriptionEndsAt?: Date | null;
+  /** Subscription lifecycle status (e.g. 'trial' | 'active' | 'cancelled' | 'expired'). */
+  subscriptionStatus?: string;
 }
 
 /**

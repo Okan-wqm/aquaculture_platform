@@ -86,6 +86,12 @@ const VALID_FIXTURES: Record<TenantEventType, Record<string, unknown>> = {
     previousPlan: 'free',
     newPlan: 'professional',
     effectiveDate: '2026-06-12T12:00:00.000Z',
+    // DATA-LOW-001 projection fields — present here so the schema is proven to
+    // accept them (additionalProperties:false would otherwise reject extras).
+    // A null trialEndsAt (no trial) exercises the nullable date branch.
+    trialEndsAt: null,
+    subscriptionEndsAt: '2027-06-12T12:00:00.000Z',
+    subscriptionStatus: 'active',
   }),
   TenantSubscriptionRequested: withBase('TenantSubscriptionRequested', {
     tenantName: 'Acme Aqua',

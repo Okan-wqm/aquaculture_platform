@@ -57,6 +57,13 @@ const ISO_DATE_TIME = {
   format: 'date-time',
 } as const;
 
+// DATA-LOW-001: subscription projection dates serialize to an ISO string OR
+// null (a tenant with no trial / no fixed end date), so the schema admits both.
+const NULLABLE_ISO_DATE_TIME = {
+  type: ['string', 'null'],
+  format: 'date-time',
+} as const;
+
 const UUID_ARRAY = {
   type: 'array',
   items: UUID_SCHEMA,
@@ -174,7 +181,15 @@ export const TENANT_EVENT_SCHEMAS = {
   }),
   TenantSubscriptionChanged: tenantEventSchema(
     'TenantSubscriptionChanged',
-    { previousPlan: STRING, newPlan: STRING, effectiveDate: ISO_DATE_TIME },
+    {
+      previousPlan: STRING,
+      newPlan: STRING,
+      effectiveDate: ISO_DATE_TIME,
+      // DATA-LOW-001 projection fields (optional, additive).
+      trialEndsAt: NULLABLE_ISO_DATE_TIME,
+      subscriptionEndsAt: NULLABLE_ISO_DATE_TIME,
+      subscriptionStatus: STRING,
+    },
     ['previousPlan', 'newPlan', 'effectiveDate'],
   ),
   TenantSubscriptionRequested: tenantEventSchema(

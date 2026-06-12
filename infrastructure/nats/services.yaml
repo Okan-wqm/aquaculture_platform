@@ -318,6 +318,10 @@ services:
       - "AQUACULTURE_EVENTS.Subscription*.>"
       - "AQUACULTURE_EVENTS.Invoice*.>"
       - "AQUACULTURE_EVENTS.Payment*.>"
+      # DATA-LOW-001: billing is the SSoT for subscription state and emits this
+      # tenant-facing projection event so auth.tenants can mirror plan / trial /
+      # subscription-end (auth subscribes via its AQUACULTURE_EVENTS.> wildcard).
+      - "AQUACULTURE_EVENTS.TenantSubscriptionChanged.>"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:

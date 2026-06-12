@@ -41,7 +41,7 @@
 | PERF-MEDIUM-003 | MEDIUM | No tier-0 p99 SLO rule for token validation/login (must sit above the deliberate 200ms login floor) | | PERF |
 | AUDIT-MEDIUM-015 | MEDIUM | Jest config: no `restoreMocks`/`clearMocks`; 60% global coverage floor below §4 minimum; no mutation testing; 29 bare `toHaveBeenCalled()` assertions | | TEST |
 | MT-LOW-001 | LOW | `tenantBySlug` public query returns internal tenant `id` + `status` — UUID-harvest leg feeding SEC-CRITICAL-001 | | MT |
-| DATA-LOW-001 | LOW | `auth.tenants` carries subscription-state columns (`plan`, `trialEndsAt`, `subscriptionEndsAt`, …) overlapping billing SSoT with no reconciliation path | | DATA |
+| DATA-LOW-001 | LOW | `auth.tenants` carries subscription-state columns (`plan`, `trialEndsAt`, `subscriptionEndsAt`, …) overlapping billing SSoT with no reconciliation path | ✅ RESOLVED (PR #390 W3.4) | DATA |
 | SEC-LOW-001 | LOW | MFA challenge token lacks `type` claim; recovery-code `timingSafeEqual` can throw on corrupted hash; `users` RLS exclusion lacks architecture-test backstop; `$3::timestamp` cast drops tz on `lockedUntil`; migration spec discovery/compile-exclude mismatch | | SEC+PERF+TEST |
 
 ---

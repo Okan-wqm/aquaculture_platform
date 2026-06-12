@@ -12,6 +12,7 @@ import { Module as SystemModule } from '../system-module/entities/module.entity'
 import { MobileUserSettings } from './entities/mobile-user-settings.entity';
 import { TenantModule as TenantModuleEntity } from './entities/tenant-module.entity';
 import { Tenant } from './entities/tenant.entity';
+import { TenantSubscriptionProjectionHandler } from './event-handlers/tenant-subscription-projection.handler';
 import { AuthAdminNatsHandler } from './handlers/auth-admin-nats.handler';
 import { MobileSettingsResolver } from './resolvers/mobile-settings.resolver';
 import { TenantAdminResolver } from './resolvers/tenant-admin.resolver';
@@ -65,6 +66,9 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
     // increment/decrement. Replace-with-computed semantics, NOT
     // delta — single drift ring doesn't propagate forward.
     TenantUserCountReconcileService,
+    // DATA-LOW-001: projects billing.subscriptions state (the SSoT) onto the
+    // auth.tenants subscription columns via the TenantSubscriptionChanged event.
+    TenantSubscriptionProjectionHandler,
   ],
   exports: [TenantService, TenantAdminService, TenantRoleService, UserLifecycleService, TypeOrmModule],
 })

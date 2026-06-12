@@ -131,6 +131,20 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 
 ---
 
+## DATA-LOW-001 — `auth.tenants` subscription kolonları billing SSoT'sini reconciliation'sız kopyalıyordu (W3.4)
+
+- **Durum:** RESOLVED (PR #390 — W3.4, cross-service event-driven projeksiyon: contract + billing emit + auth consumer + NATS authz).
+- **Sorun:** `auth.tenants` `plan` / `trialEndsAt` / `subscriptionEndsAt` kolonlarını taşıyor — bunlar billing.subscriptions'ın (abonelik durumunun SSoT'su) bir kopyası. Hiçbir reconciliation yolu yoktu: provisioning anında set ediliyorlardı, sonra billing tarafında plan değişimi / trial bitişi / iptal olduğunda auth kopyası **drift ediyordu**. `plan`, MT-MEDIUM-001 `planLevel` JWT claim'ini beslediği için stale plan = yanlış tier-gating.
+- **Çözüm (Tier-2: olay-güdümlü tek-yönlü projeksiyon):** billing tam abonelik durumunu taşıyan bir tenant-facing event emit ediyor; auth onu tüketip kendi kopyasını billing'e aynalıyor.
+  - **Contract:** `TenantSubscriptionChangedEvent` opsiyonel additive `trialEndsAt` / `subscriptionEndsAt` / `subscriptionStatus` alanlarıyla zenginleştirildi (eski producer'lar geçerli kalır; JSON Schema nullable-date dalı + alanlar; coverage fixture'ı taşıyor).
+  - **billing emit (SSoT yayını):** `change-subscription-plan` (plan değişimi — birincil drift + JWT-relevant) ve `cancel-subscription` (status→cancelled + endDate) handler'ları, kaydedilmiş subscription'dan (planTier / status / trialEndDate / endDate) tam durumu okuyup `TenantSubscriptionChanged` co-emit ediyor (fail-soft, mevcut SubscriptionUpdated/Cancelled emit'leri gibi — publish hatası abonelik değişimini rollback etmez). Expire (scheduler) yalnız status değiştirir; auth subscription-status kolonu saklamadığı + endDate zaten change/cancel anında projekte edildiği için ek emit gerektirmez.
+  - **auth consumer (projeksiyon):** yeni `TenantSubscriptionProjectionHandler` `onModuleInit`'te `subscribeWildcard('TenantSubscriptionChanged', this)` (platform-genelindeki yerleşik desen) ile abone oluyor; `handle()` yalnız event'in taşıdığı alanları `auth.tenants`'a yazıyor (tanımsız bırakılanı atlar), bilinmeyen plan'ı projekte etmez (fail-loud log), geçersiz tenantId'yi reddeder (cross-tenant yazımı önler), affected=0'da throw etmez. Tek-yönlü — billing'e asla geri yazmaz.
+  - **NATS authz (ADR-015):** `services.yaml`'a billing publish `AQUACULTURE_EVENTS.TenantSubscriptionChanged.>` eklendi + `nats.conf` regen edildi (auth zaten `AQUACULTURE_EVENTS.>` wildcard ile subscribe ettiği için auth değişikliği gerekmedi).
+- **Değişen dosyalar:** `libs/event-contracts/src/{tenant-events.ts,schemas/tenant-events.schema.ts}` (+spec), `apps/auth-service/src/modules/tenant/event-handlers/tenant-subscription-projection.handler.ts` (yeni, +spec), `apps/auth-service/src/modules/tenant/tenant.module.ts`, `apps/billing-service/src/billing/handlers/{change-subscription-plan,cancel-subscription}.handler.ts`, `infrastructure/nats/services.yaml`, `infrastructure/docker/nats/nats.conf`.
+- **Doğrulama:** tenant-events.schema.spec (19) projeksiyon alanlarını kabul ediyor (nullable-date dahil); `tenant-subscription-projection.handler.spec` (6) — subscribe-on-boot, plan+trial+sub-end projeksiyonu, explicit-null trial, unknown-plan skip-but-project-dates, invalid-tenantId refüze, affected=0 no-throw; auth + billing + event-contracts type-check temiz; billing handler'larının pre-existing test failure'ları (`repository.create` mock eksiği) STASH ile pre-existing + quarantined (billing-service affected-target-policy) doğrulandı — co-emit regresyon değil.
+
+---
+
 ## Bekleyen bulgular (denetim kayıt defteri)
 
 | ID | Dalga | Durum |
@@ -146,5 +160,5 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 | DATA-MEDIUM-002 (tenantId nullability) | W3.4 | RESOLVED — invitations.tenantId NOT NULL; refresh_tokens.tenantId stays nullable (all 317 NULL rows are SUPER_ADMIN, documented exception); broad camelCase/snake_case rename deliberately out of scope (cosmetic, high-risk) |
 | MT-MEDIUM-002 (unmaintained farm_count/sensor_count denormalization) | W3.4 | RESOLVED — dropped from auth.tenants; admin-api counts real-time from tenant_<uuid>.farms/.sensors (source-of-truth tables) |
 | MT-MEDIUM-001 (PlanTier ordinal + planLevel JWT claim + TRIAL/isTrialActive collapse) | W3.4 | RESOLVED — PLAN_LEVEL SSoT + planLevel claim + trial derived from trialEndsAt (is_trial_active dropped) |
-| DATA-LOW-001 | W3.4 | OPEN |
+| DATA-LOW-001 (auth.tenants subscription columns vs billing SSoT) | W3.4 | RESOLVED — event-driven projection: billing emits TenantSubscriptionChanged on plan-change/cancel, auth TenantSubscriptionProjectionHandler mirrors plan/trialEndsAt/subscriptionEndsAt |
 | PERF-HIGH-001..003, AUDIT-HIGH-009, PERF-MEDIUM-001..003, AUDIT-MEDIUM-015, SEC-LOW-001 | W4 | OPEN |

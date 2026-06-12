@@ -163,6 +163,7 @@ export default {
         '<rootDir>/db-migrate-entity-metadata-contract.spec.ts',
         '<rootDir>/metrics-endpoint-adoption.spec.ts',
         '<rootDir>/monitoring-scrape-catalog-sync.spec.ts',
+        '<rootDir>/monitoring-alert-runbook-url.spec.ts',
         '<rootDir>/postgres-ddl-contract.spec.ts',
         '<rootDir>/service-criticality-profile-contract.spec.ts',
         '<rootDir>/edge-v2-plan-contract.spec.ts',

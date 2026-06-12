@@ -1,0 +1,142 @@
+# =============================================================================
+# Droplet monitoring stack (B2 / OBS-HIGH-002) — STACK AS CODE, activation-gated
+# =============================================================================
+# Deployed as a SEPARATE compose project so the application deploy
+# (scripts/deploy/droplet-up.sh, which runs `docker compose ... --remove-orphans`
+# on docker-compose.droplet.yml under project `aqua-saas`) can NEVER orphan-kill
+# the monitoring containers, and this stack can never orphan-kill an app
+# container. Bring it up ONLY via:
+#
+#   docker compose -p aqua-monitoring -f docker-compose.monitoring.yml \
+#     --profile monitoring up -d
+#
+# (scripts/monitoring/monitoring-up.sh — a later B2 slice — is the one supported
+# activation path, and it refuses to start unless `MemAvailable` clears a
+# Tier-1 preflight. Activation stays droplet-resize gated.)
+#
+# Profiles:
+#   monitoring       core: prometheus + alertmanager + node-exporter + cadvisor
+#                    (~640M cap — viable on today's 8GB droplet with preflight)
+#   monitoring-full  adds grafana + loki + alloy (16GB-gated; a later slice)
+#
+# Safety posture: pinned images, read-only rootfs (+ tmpfs/volumes for the few
+# writable paths), loopback-only port publish (reach the UIs via SSH tunnel, not
+# the public internet), and oom_score_adj=500 so the kernel sacrifices a
+# monitoring container before any application container under memory pressure.
+
+networks:
+  # The application networks, created by the `aqua-saas` app compose project.
+  # Joined as external so Prometheus can scrape app /metrics by compose service
+  # name (gateway-api:3000, …) — the D3 file_sd targets.
+  aqua-network:
+    external: true
+    name: aqua-saas_aqua-network
+  aqua-internal:
+    external: true
+    name: aqua-saas_aqua-internal
+  # Private network for monitoring-to-monitoring traffic (prometheus ->
+  # alertmanager / cadvisor / node-exporter), owned by this project.
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  alertmanager-data:
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: aqua-prometheus
+    profiles: [monitoring, monitoring-full]
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--storage.tsdb.retention.size=4GB'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./infrastructure/monitoring/droplet/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/monitoring/droplet/rules:/etc/prometheus/rules:ro
+      - ./infrastructure/monitoring/droplet/file_sd:/etc/prometheus/file_sd:ro
+      - prometheus-data:/prometheus
+    networks: [monitoring, aqua-internal, aqua-network]
+    ports:
+      - '127.0.0.1:9090:9090'
+    read_only: true
+    tmpfs:
+      - /tmp
+    oom_score_adj: 500
+    mem_limit: 384m
+    cpus: 0.75
+    security_opt:
+      - no-new-privileges:true
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    container_name: aqua-alertmanager
+    profiles: [monitoring, monitoring-full]
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./infrastructure/monitoring/droplet/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    # aqua-network gives the webhook egress the heartbeat/page receivers need;
+    # `monitoring` lets Prometheus reach it.
+    networks: [monitoring, aqua-network]
+    ports:
+      - '127.0.0.1:9093:9093'
+    read_only: true
+    tmpfs:
+      - /tmp
+    oom_score_adj: 500
+    mem_limit: 64m
+    cpus: 0.25
+    security_opt:
+      - no-new-privileges:true
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: aqua-node-exporter
+    profiles: [monitoring, monitoring-full]
+    restart: unless-stopped
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/host/root'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    networks: [monitoring]
+    read_only: true
+    oom_score_adj: 500
+    mem_limit: 32m
+    cpus: 0.15
+    security_opt:
+      - no-new-privileges:true
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: aqua-cadvisor
+    profiles: [monitoring, monitoring-full]
+    restart: unless-stopped
+    command:
+      - '--housekeeping_interval=30s'
+      - '--docker_only=true'
+      - '--store_container_labels=false'
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks: [monitoring]
+    oom_score_adj: 500
+    mem_limit: 160m
+    cpus: 0.40
+    security_opt:
+      - no-new-privileges:true

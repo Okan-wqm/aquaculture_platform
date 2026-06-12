@@ -1,0 +1,56 @@
+# Container resource alert rules for the DROPLET Prometheus (B2 / OBS-HIGH-002).
+#
+# REWRITTEN FOR cADVISOR (single-node Docker), not kube-state-metrics. The
+# dormant K8s rules used kube_pod_container_resource_limits + `by (pod)` — none
+# of which exist on the droplet. cAdvisor labels containers by `name`
+# (= the compose container_name, e.g. aqua-gateway), so these group by `name`
+# and only consider application containers (name=~"aqua-.+"). The PodRestarting
+# rule is dropped: kube_pod_container_status_restarts_total has no faithful
+# cAdvisor equivalent on Docker (a docker-restart alert belongs to a future
+# slice once a restarts exporter is wired).
+groups:
+  - name: aquaculture.resources
+    rules:
+      - alert: HighMemoryUsage
+        # Guard on a real limit (container_spec_memory_limit_bytes is 0 when no
+        # mem_limit is set) so unlimited containers never divide-by-zero/false-fire.
+        expr: |
+          (
+            container_memory_working_set_bytes{name=~"aqua-.+"}
+            /
+            container_spec_memory_limit_bytes{name=~"aqua-.+"}
+            > 0.85
+          ) and (
+            container_spec_memory_limit_bytes{name=~"aqua-.+"} > 0
+          )
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High memory usage on {{ $labels.name }}'
+          description: '{{ $labels.name }} is using more than 85% of its memory limit for 10 minutes.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/high-memory-usage.md'
+
+      - alert: HighCpuUsage
+        # CPU cores used vs the compose cpu limit (quota/period). Guarded on a
+        # real quota so unlimited containers do not fire.
+        expr: |
+          (
+            sum(rate(container_cpu_usage_seconds_total{name=~"aqua-.+"}[5m])) by (name)
+            /
+            (
+              container_spec_cpu_quota{name=~"aqua-.+"}
+              /
+              container_spec_cpu_period{name=~"aqua-.+"}
+            )
+            > 0.8
+          ) and (
+            container_spec_cpu_quota{name=~"aqua-.+"} > 0
+          )
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High CPU usage on {{ $labels.name }}'
+          description: '{{ $labels.name }} is using more than 80% of its CPU limit for 10 minutes.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/high-cpu-usage.md'

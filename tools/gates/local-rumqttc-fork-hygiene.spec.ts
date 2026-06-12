@@ -15,8 +15,8 @@
  */
 
 import { strict as assert } from 'node:assert';
-import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -81,7 +81,7 @@ function walk(dir: string): string[] {
   return out;
 }
 
-test('upstream manifest exists and covers the vendored tree', () => {
+void test('upstream manifest exists and covers the vendored tree', () => {
   const manifest = parseManifest();
   assert.ok(manifest.size >= 60, `manifest suspiciously small (${manifest.size} entries) — was it truncated?`);
 
@@ -100,7 +100,7 @@ test('upstream manifest exists and covers the vendored tree', () => {
   }
 });
 
-test('only Cargo.toml and src/tls.rs diverge from upstream hashes', () => {
+void test('only Cargo.toml and src/tls.rs diverge from upstream hashes', () => {
   const manifest = parseManifest();
   const divergent: string[] = [];
   for (const [file, upstreamHash] of manifest) {
@@ -120,14 +120,14 @@ test('only Cargo.toml and src/tls.rs diverge from upstream hashes', () => {
   }
 });
 
-test('every deliberate fork edit carries the LOCAL FORK marker', () => {
+void test('every deliberate fork edit carries the LOCAL FORK marker', () => {
   for (const file of ALLOWED_DIVERGENT) {
     const text = readFileSync(join(FORK_DIR, file), 'utf8');
     assert.ok(text.includes(FORK_MARKER), `${file} lost its "${FORK_MARKER}" marker comment`);
   }
 });
 
-test('divergent files match the FORK-EDITS content pin byte-for-byte (EDGE-HIGH-002)', () => {
+void test('divergent files match the FORK-EDITS content pin byte-for-byte (EDGE-HIGH-002)', () => {
   const pins = new Map<string, string>();
   for (const line of readFileSync(FORK_EDITS_MANIFEST, 'utf8').split('\n')) {
     const m = line.match(/^([0-9a-f]{64})\s+(\.\/.+)$/);
@@ -148,14 +148,14 @@ test('divergent files match the FORK-EDITS content pin byte-for-byte (EDGE-HIGH-
   }
 });
 
-test('fork is wired via [patch.crates-io] in both workspaces', () => {
+void test('fork is wired via [patch.crates-io] in both workspaces', () => {
   const root = readFileSync(resolve(REPO_ROOT, 'Cargo.toml'), 'utf8');
   const sens = readFileSync(resolve(REPO_ROOT, 'sens-api-gateway/Cargo.toml'), 'utf8');
   assert.match(root, /\[patch\.crates-io\][\s\S]*rumqttc\s*=\s*\{\s*path\s*=\s*"crates\/local-rumqttc"/, 'root Cargo.toml lost the rumqttc [patch.crates-io] entry');
   assert.match(sens, /\[patch\.crates-io\][\s\S]*rumqttc\s*=\s*\{\s*path\s*=\s*"\.\.\/crates\/local-rumqttc"/, 'sens-api-gateway Cargo.toml lost the rumqttc [patch.crates-io] entry');
 });
 
-test('fork Cargo.toml carries the dependency fixes it exists for', () => {
+void test('fork Cargo.toml carries the dependency fixes it exists for', () => {
   const toml = readFileSync(join(FORK_DIR, 'Cargo.toml'), 'utf8');
   assert.ok(!/\[dependencies\.rustls-pemfile\]/.test(toml), 'rustls-pemfile dependency reappeared in the fork');
   assert.match(toml, /\[dependencies\.rustls-webpki\]\n[^[]*version = "0\.103"/, 'rustls-webpki is not pinned to the patched 0.103 line');

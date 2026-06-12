@@ -1,0 +1,92 @@
+name: Monitoring Stack Validate
+
+# B2 / OBS-HIGH-002 — make the droplet observability stack self-validating.
+# Runs the REAL Prometheus/Alertmanager tooling (promtool / amtool) and
+# `docker compose config` against the committed configs on every change, so a
+# broken rule, an unresolvable file_sd, a malformed alertmanager route, or a
+# compose-syntax error fails at PR time — never at activation on the droplet.
+#
+# The tool images are read FROM docker-compose.monitoring.yml so the validator
+# can never drift from what the droplet actually runs (single source of truth
+# for the pinned versions).
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'infrastructure/monitoring/droplet/**'
+      - 'docker-compose.monitoring.yml'
+      - 'scripts/service-catalog/generate-artifacts.ts'
+      - '.github/workflows/monitoring-stack-validate.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'infrastructure/monitoring/droplet/**'
+      - 'docker-compose.monitoring.yml'
+      - 'scripts/service-catalog/generate-artifacts.ts'
+      - '.github/workflows/monitoring-stack-validate.yml'
+
+# Least privilege: this job only reads the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: monitoring-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve pinned tool images from the compose SSoT
+        id: images
+        run: |
+          set -euo pipefail
+          compose=docker-compose.monitoring.yml
+          prom=$(grep -E '^\s*image:\s*prom/prometheus:' "$compose" | head -1 | awk '{print $2}')
+          am=$(grep -E '^\s*image:\s*prom/alertmanager:' "$compose" | head -1 | awk '{print $2}')
+          test -n "$prom" && test -n "$am"
+          echo "prometheus=$prom" >> "$GITHUB_OUTPUT"
+          echo "alertmanager=$am" >> "$GITHUB_OUTPUT"
+          echo "Using prometheus=$prom alertmanager=$am"
+
+      - name: promtool check rules (pinned image)
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/infrastructure/monitoring/droplet/rules:/rules:ro" \
+            "${{ steps.images.outputs.prometheus }}" \
+            check rules /rules/*.yml
+
+      - name: promtool check config (file_sd + rule_files resolve)
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/infrastructure/monitoring/droplet:/etc/prometheus:ro" \
+            "${{ steps.images.outputs.prometheus }}" \
+            check config /etc/prometheus/prometheus.yml
+
+      - name: amtool check-config (pinned image)
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint amtool \
+            -v "$PWD/infrastructure/monitoring/droplet/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            "${{ steps.images.outputs.alertmanager }}" \
+            check-config /etc/alertmanager/alertmanager.yml
+
+      - name: docker compose config (both profiles)
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.monitoring.yml --profile monitoring config --quiet
+          docker compose -f docker-compose.monitoring.yml --profile monitoring-full config --quiet
+
+      - name: file_sd is valid JSON and non-empty
+        run: |
+          set -euo pipefail
+          file=infrastructure/monitoring/droplet/file_sd/aqua-services.json
+          count=$(jq 'length' "$file")
+          echo "file_sd target groups: $count"
+          test "$count" -ge 10

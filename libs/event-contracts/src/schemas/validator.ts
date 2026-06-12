@@ -18,6 +18,10 @@ import {
   SENSOR_EVENT_SCHEMAS,
   type SensorEventType,
 } from './sensor-events.schema';
+import {
+  TENANT_EVENT_SCHEMAS,
+  type TenantEventType,
+} from './tenant-events.schema';
 
 /**
  * @module EventContractsValidator
@@ -109,6 +113,18 @@ const messagingValidators = new Map<MessagingEventType, ValidateFunction>();
 for (const [eventType, schema] of Object.entries(MESSAGING_EVENT_SCHEMAS)) {
   const validator = ajv.compile(schema as AnySchema);
   messagingValidators.set(eventType as MessagingEventType, validator);
+}
+
+/**
+ * Tenant lifecycle / provisioning validator cache (MEDIUM-007). Drives
+ * trust-boundary validation of the durable tenant events the outbox publishes
+ * and that messaging / billing / farm / sensor consumers read.
+ */
+const tenantValidators = new Map<TenantEventType, ValidateFunction>();
+
+for (const [eventType, schema] of Object.entries(TENANT_EVENT_SCHEMAS)) {
+  const validator = ajv.compile(schema as AnySchema);
+  tenantValidators.set(eventType as TenantEventType, validator);
 }
 
 /**
@@ -279,6 +295,43 @@ export function validateMessagingEvent(
     return {
       valid: false,
       errors: `Unknown messaging event type: ${eventType}`,
+    };
+  }
+  if (typeof payload !== 'object' || payload === null) {
+    return {
+      valid: false,
+      errors: `Payload must be a JSON object (got ${typeof payload})`,
+    };
+  }
+  const isValid = validator(payload);
+  if (!isValid) {
+    return {
+      valid: false,
+      errors: formatFirstError(validator.errors),
+    };
+  }
+  return { valid: true };
+}
+
+export type TenantEventValidationResult =
+  | { valid: true }
+  | { valid: false; errors: string };
+
+/**
+ * Validate a decoded tenant lifecycle / provisioning event against its schema
+ * (MEDIUM-007). Mirrors [`validateMessagingEvent`]; use at trust boundaries that
+ * decode untrusted tenant-event JSON (NATS consumers, outbox-adjacent bridges)
+ * before acting on it.
+ */
+export function validateTenantEvent(
+  eventType: string,
+  payload: unknown,
+): TenantEventValidationResult {
+  const validator = tenantValidators.get(eventType as TenantEventType);
+  if (!validator) {
+    return {
+      valid: false,
+      errors: `Unknown tenant event type: ${eventType}`,
     };
   }
   if (typeof payload !== 'object' || payload === null) {

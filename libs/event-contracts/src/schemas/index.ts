@@ -5,6 +5,8 @@ export {
   type SensorEventValidationResult,
   validateMessagingEvent,
   type MessagingEventValidationResult,
+  validateTenantEvent,
+  type TenantEventValidationResult,
   validateIngestBackendPolicyEvent,
   type IngestBackendPolicyEventValidationResult,
 } from './validator';
@@ -21,6 +23,10 @@ export {
   MESSAGING_EVENT_SCHEMAS,
   type MessagingEventType,
 } from './messaging-events.schema';
+export {
+  TENANT_EVENT_SCHEMAS,
+  type TenantEventType,
+} from './tenant-events.schema';
 export {
   UUID_PATTERN,
   MAX_FREE_TEXT_LENGTH,

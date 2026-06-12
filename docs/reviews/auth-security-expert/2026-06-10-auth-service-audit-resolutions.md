@@ -116,5 +116,7 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 | SEC-HIGH-001..004, SEC-MEDIUM-001..004 | W2 | OPEN |
 | MT-HIGH-003 (TenantStatus SSoT + state machine) | W3.1+W3.3-c | RESOLVED — backend (PR #390); web copies → ORPHAN-MEDIUM-089 |
 | DATA-HIGH-001 (transactional outbox adoption) | W3.2+W3.3-a/b | RESOLVED (PR #390 — no auth domain service injects raw EventBus) |
-| MT-HIGH-001..002, DATA-HIGH-002..003, MT-MEDIUM-001..002, DATA-MEDIUM-001..002, DATA-LOW-001 | W3 | OPEN |
+| MT-HIGH-001..002 (dead sync-provisioning path + unsafe update) | W3.3-a | RESOLVED (PR #390, 883bbda9) |
+| DATA-MEDIUM-001 (JSON Schema validators, NATS trust boundary) | W3.4 | IN-PROGRESS — 13 tenant lifecycle events validated; auth boundary events (UserDeleted/UserInvited/…) remaining |
+| DATA-HIGH-002..003, MT-MEDIUM-001..002, DATA-MEDIUM-002, DATA-LOW-001 | W3.4 | OPEN |
 | PERF-HIGH-001..003, AUDIT-HIGH-009, PERF-MEDIUM-001..003, AUDIT-MEDIUM-015, SEC-LOW-001 | W4 | OPEN |

@@ -1,0 +1,169 @@
+/**
+ * Tenant lifecycle / provisioning event JSON-Schema validator tests (MEDIUM-007).
+ *
+ * Pins the contract for every tenant event the outbox publishes:
+ *   - A maximal valid fixture (ALL declared fields) validates — this also
+ *     catches a schema that is MISSING a real contract field, because
+ *     additionalProperties:false would reject the fixture.
+ *   - Every TENANT_EVENT_SCHEMAS key has a fixture (coverage guard).
+ *   - Unknown event type, extra field, and missing required field all reject.
+ *   - The wire shape (timestamp as an ISO string) is what is validated.
+ */
+import { TENANT_EVENT_SCHEMAS, type TenantEventType } from '../tenant-events.schema';
+import { validateTenantEvent, type TenantEventValidationResult } from '../validator';
+
+const TENANT_ID = '11111111-1111-4111-8111-111111111111';
+const USER_ID = '22222222-2222-4222-8222-222222222222';
+const OP_ID = '33333333-3333-4333-8333-333333333333';
+const MODULE_ID = '44444444-4444-4444-8444-444444444444';
+const EVENT_ID = '55555555-5555-4555-8555-555555555555';
+
+function withBase(eventType: TenantEventType, payload: Record<string, unknown>): Record<string, unknown> {
+  return {
+    eventId: EVENT_ID,
+    eventType,
+    timestamp: '2026-06-12T12:00:00.000Z',
+    tenantId: TENANT_ID,
+    version: 1,
+    ...payload,
+  };
+}
+
+// Maximal fixtures — every declared field present, so a schema missing a real
+// contract field fails here via additionalProperties:false.
+const VALID_FIXTURES: Record<TenantEventType, Record<string, unknown>> = {
+  TenantCreated: withBase('TenantCreated', {
+    name: 'Acme Aqua',
+    slug: 'acme-aqua',
+    plan: 'professional',
+    status: 'ACTIVE',
+  }),
+  TenantProvisioningRequested: withBase('TenantProvisioningRequested', {
+    operationId: OP_ID,
+    name: 'Acme Aqua',
+    slug: 'acme-aqua',
+    moduleIds: [MODULE_ID],
+  }),
+  TenantProvisioned: withBase('TenantProvisioned', {
+    operationId: OP_ID,
+    name: 'Acme Aqua',
+    slug: 'acme-aqua',
+  }),
+  TenantUpdated: withBase('TenantUpdated', {
+    name: 'Acme Aqua',
+    plan: 'professional',
+    status: 'ACTIVE',
+    maxUsers: 25,
+  }),
+  TenantStatusChanged: withBase('TenantStatusChanged', {
+    previousStatus: 'PROVISIONING',
+    newStatus: 'ACTIVE',
+    reason: 'provisioning completed',
+  }),
+  TenantSuspended: withBase('TenantSuspended', {
+    reason: 'non-payment',
+    suspendedBy: USER_ID,
+  }),
+  TenantActivated: withBase('TenantActivated', { activatedBy: USER_ID }),
+  TenantArchived: withBase('TenantArchived', { archivedBy: USER_ID }),
+  TenantErased: withBase('TenantErased', {
+    confirmedAt: '2026-06-12T12:00:00.000Z',
+    requestedBy: USER_ID,
+    totalDeleted: 42,
+    auditRowsAnonymised: 7,
+    tableCount: 9,
+  }),
+  TenantProvisioningFailed: withBase('TenantProvisioningFailed', {
+    error: 'schema creation failed',
+    stepCount: 5,
+    durationMs: 1200,
+    failedStepName: 'schema_creation',
+    failedStepError: 'permission denied',
+    failedStepIndex: 2,
+    completedStepCount: 2,
+  }),
+  TenantSubscriptionChanged: withBase('TenantSubscriptionChanged', {
+    previousPlan: 'free',
+    newPlan: 'professional',
+    effectiveDate: '2026-06-12T12:00:00.000Z',
+  }),
+  TenantSubscriptionRequested: withBase('TenantSubscriptionRequested', {
+    tenantName: 'Acme Aqua',
+    moduleIds: [MODULE_ID],
+    moduleQuantities: [{ moduleId: MODULE_ID, users: 25, sensors: 100 }],
+    trialDays: 14,
+    tier: 'PROFESSIONAL',
+    billingCycle: 'MONTHLY',
+    billingEmail: 'billing@acme.example',
+    createdBy: USER_ID,
+  }),
+  TenantModulesAssigned: withBase('TenantModulesAssigned', {
+    moduleIds: [MODULE_ID],
+    moduleCodes: ['FARM', 'SENSOR'],
+    pricingMonthlyTotal: 199,
+    pricingAnnualTotal: 1990,
+    pricingTier: 'professional',
+    pricingCurrency: 'USD',
+    assignedBy: USER_ID,
+  }),
+};
+
+function expectValid(result: TenantEventValidationResult): void {
+  if (!result.valid) {
+    throw new Error(`expected valid, got: ${result.errors}`);
+  }
+  expect(result.valid).toBe(true);
+}
+
+describe('validateTenantEvent (MEDIUM-007)', () => {
+  const schemaKeys = Object.keys(TENANT_EVENT_SCHEMAS) as TenantEventType[];
+
+  it('has a validator + fixture for every registered tenant event schema', () => {
+    expect(schemaKeys.length).toBe(13);
+    for (const key of schemaKeys) {
+      expect(VALID_FIXTURES[key]).toBeDefined();
+    }
+    // No orphan fixtures either.
+    for (const key of Object.keys(VALID_FIXTURES)) {
+      expect(schemaKeys).toContain(key as TenantEventType);
+    }
+  });
+
+  it.each(schemaKeys)('accepts a maximal valid %s event', (eventType) => {
+    expectValid(validateTenantEvent(eventType, VALID_FIXTURES[eventType]));
+  });
+
+  it('rejects an unknown tenant event type', () => {
+    const result = validateTenantEvent('NotATenantEvent', VALID_FIXTURES.TenantCreated);
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects an extra (unknown) field — additionalProperties:false closes the footgun', () => {
+    const result = validateTenantEvent('TenantCreated', {
+      ...VALID_FIXTURES.TenantCreated,
+      injectedField: 'evil',
+    });
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects a missing required payload field', () => {
+    const { slug: _omitted, ...withoutSlug } = VALID_FIXTURES.TenantCreated as {
+      slug: unknown;
+    } & Record<string, unknown>;
+    const result = validateTenantEvent('TenantCreated', withoutSlug);
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects a missing required base field (tenantId)', () => {
+    const { tenantId: _omitted, ...withoutTenant } = VALID_FIXTURES.TenantActivated as {
+      tenantId: unknown;
+    } & Record<string, unknown>;
+    const result = validateTenantEvent('TenantActivated', withoutTenant);
+    expect(result.valid).toBe(false);
+  });
+
+  it('rejects a non-object payload', () => {
+    expect(validateTenantEvent('TenantCreated', null).valid).toBe(false);
+    expect(validateTenantEvent('TenantCreated', 'string').valid).toBe(false);
+  });
+});

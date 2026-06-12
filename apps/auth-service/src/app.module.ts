@@ -33,7 +33,6 @@ import depthLimit from 'graphql-depth-limit';
 
 import { AuditModule } from './audit/audit.module';
 import { SECURITY_CONSTANTS } from './constants/auth.constants';
-import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
 import { HealthModule } from './health/health.module';
 import { AuthMetricsModule } from './metrics/metrics.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
@@ -86,9 +85,6 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
         }),
     }),
 
-    // Schema bootstrap — MUST be before any module that queries auth.users
-    // Ensures new columns (like accessType) exist before SeedService runs
-    AuthSchemaBootstrapModule,
 
     // GraphQL Federation
     GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({

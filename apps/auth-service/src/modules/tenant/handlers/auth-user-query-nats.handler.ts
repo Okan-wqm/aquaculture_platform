@@ -3,7 +3,8 @@ import { MessagePattern, Payload } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
-import { AuditLogService, AuditSeverity } from '@aquaculture/backend-common/audit';
+import { AuditLogService } from '../../../audit/audit-log.service';
+import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import {
   AUTH_USER_QUERY_SUBJECTS,
   ValidateTenantMembershipQuery,
@@ -99,12 +100,16 @@ export class AuthUserQueryNatsHandler {
         // awaited audit per the platform rule (cross-tenant access
         // attempts, allowed AND rejected, are recorded; fire-and-forget
         // audit is banned).
-        await this.auditLogService.recordAwait({
+        await this.auditLogService.log({
+          // performedBy is the cross-service caller — there is no end-user
+          // principal on an internal NATS membership query; the messaging
+          // service is the actor whose request triggered the rejection.
+          performedBy: 'messaging-service',
           action: 'auth.membership_validation.rejected',
-          resource: 'tenant_membership_query',
+          entityType: 'tenant_membership_query',
           tenantId,
-          severity: AuditSeverity.WARNING,
-          metadata: {
+          severity: AuditLogSeverity.WARNING,
+          details: {
             invalidCount: invalidUserIds.length,
             inactiveCount: inactiveUserIds.length,
             requireActive,

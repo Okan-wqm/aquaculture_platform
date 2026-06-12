@@ -24,25 +24,30 @@
  * This proves both the config RESOLUTION (which gates apply to which path)
  * and the firing BEHAVIOUR, without the type-aware-parser obstacle.
  *
- * VERIFIED-FIRSTHAND SEMANTIC (corrects a plan/audit claim): the test-file
- * override (`.eslintrc.json` lines 274-293) redefines `no-restricted-syntax`
- * with only getRepository + JSON.stringify, INTENDING to drop the 4
- * JWT_SECRET selectors in test files. In ESLint 8 eslintrc cascade this
- * redefinition is INEFFECTIVE: `calculateConfigForFile('x.spec.ts')`
- * resolves the FULL 6-selector set, so JWT_SECRET DOES fire in `.spec.ts`
- * today. We pin the ACTUAL behaviour (fires in both), not the intended one.
- * If the flat-config translation makes the test override actually take
- * effect (flat config "last object wins" is stricter than eslintrc cascade),
- * the JWT_SECRET-in-spec assertion below flips red — exactly the silent
- * behaviour change this baseline exists to catch. PR-2 must decide
- * consciously whether to preserve or change it; it cannot drift silently.
+ * VERIFIED-FIRSTHAND SEMANTIC (corrects an EARLIER claim in this very file):
+ * an earlier revision said JWT_SECRET fires in an app spec file because the
+ * root test override's `no-restricted-syntax` redefinition is "ineffective
+ * via a basename-glob quirk". That explanation was WRONG. The real cause,
+ * confirmed against the ESLint 8 resolved config: every app has a `root: true`
+ * `.eslintrc.cjs`, so the ROOT test override never reaches its files at all.
+ * The app's OWN cjs carries the 6-selector no-restricted-syntax (via its
+ * `typedRules`) and its cjs test sub-override does NOT touch that rule — so
+ * `.spec.ts` keeps all 6 selectors and JWT_SECRET fires. The OBSERVED value
+ * (6) was always correct; only the mechanism was mis-stated. The PR-2 flat
+ * config reproduces this per-project policy exactly (proven to zero drift by
+ * eslintrc-flat-parity); these assertions stay green across the cutover.
  */
 
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { ESLint, Linter } from 'eslint';
+
+const require_ = createRequire(import.meta.url);
 
 const REPO_ROOT = (() => {
   try {
@@ -52,7 +57,28 @@ const REPO_ROOT = (() => {
   }
 })();
 
-const eslint = new ESLint({ cwd: REPO_ROOT });
+/**
+ * Config-format-agnostic ESLint instance. This baseline is read by BOTH
+ * eslintrc (PR-1) and flat config (PR-2), under both ESLint 8 (where `new
+ * ESLint` is eslintrc-only and flat needs the use-at-your-own-risk
+ * `FlatESLint`) and ESLint 9 (where `new ESLint` IS flat). It picks the
+ * right reader from what's on disk + the installed major — the ASSERTIONS
+ * below are unchanged across both configs; only the config-reader adapts.
+ */
+function makeESLint(): ESLint {
+  const major = parseInt(require_('eslint/package.json').version, 10);
+  const hasFlat =
+    existsSync(join(REPO_ROOT, 'eslint.config.mjs')) ||
+    existsSync(join(REPO_ROOT, 'eslint.config.js')) ||
+    existsSync(join(REPO_ROOT, 'eslint.config.cjs'));
+  if (major < 9 && hasFlat) {
+    const { FlatESLint } = require_('eslint/use-at-your-own-risk');
+    return new FlatESLint({ cwd: REPO_ROOT }) as ESLint;
+  }
+  return new ESLint({ cwd: REPO_ROOT });
+}
+
+const eslint = makeESLint();
 const linter = new Linter();
 
 /** Run only the AST-selector gate rules from the file's REAL resolved config. */
@@ -171,39 +197,45 @@ test('gate-3/4 getRepository + JSON.stringify fire in .spec.ts too (test overrid
   assert.ok(jsonStr.includes('no-restricted-syntax'), 'JSON.stringify(>2) must fire in test files');
 });
 
-// ── The load-bearing semantic pin (see file header): JWT_SECRET fires in
-//    .spec.ts under the ESLint 8 eslintrc cascade because the test override's
-//    no-restricted-syntax redefinition is INEFFECTIVE. If a flat-config
-//    translation changes this, this test goes red and PR-2 must address it
-//    consciously. ──
-test('SEMANTIC PIN: JWT_SECRET fires in .spec.ts under eslintrc cascade (override redefinition ineffective)', async () => {
+// ── Semantic pin: JWT_SECRET fires in .spec.ts. The mechanism (verified
+//    firsthand against the ESLint 8 resolved config, then reproduced by the
+//    flat config) is the root:true `apps/auth-service/.eslintrc.cjs`: its
+//    `typedRules` carry the 6-selector no-restricted-syntax and its test
+//    sub-override does NOT touch that rule, so .spec.ts keeps all 6 selectors.
+//    (An earlier note mis-attributed this to a "basename-glob quirk" — the
+//    real cause is the per-project root:true config. The OBSERVED value, 6,
+//    was always correct.) The flat config's per-project auth block reproduces
+//    it exactly; this pin trips if a future change drops the gate in tests. ──
+test('SEMANTIC PIN: JWT_SECRET fires in .spec.ts (per-project config keeps all 6 selectors)', async () => {
   const ids = await gateRuleIds('apps/auth-service/src/x.spec.ts', "const s = cfg.get('JWT_SECRET');");
   assert.ok(
     ids.includes('no-restricted-syntax'),
-    'BASELINE: under ESLint 8 eslintrc, JWT_SECRET fires in .spec.ts (the test override does not drop it). ' +
-      'If this flipped, the flat-config translation changed override-cascade semantics — resolve consciously.',
+    'The JWT_SECRET ban must hold in apps/*/src/**/*.spec.ts. ' +
+      'If this flips, a config change dropped the security gate in test files — resolve consciously.',
   );
 });
 
-// ── Config-resolution snapshot: which gates resolve for representative paths.
-//    Pins the no-restricted-syntax selector COUNT per path-kind so a flat
-//    translation that adds/drops selectors anywhere is caught. ──
-// These counts are FIRSTHAND-MEASURED, not assumed — the eslintrc override
-// cascade resolves them inconsistently, and that inconsistency is precisely
-// what a flat-config translation can silently change:
-//   - backend src `.ts`        → 6 (main TS override)
-//   - `.spec.ts`               → 6 (test override's redefinition is INEFFECTIVE
-//                                   via basename `*.spec.ts` glob — see SEMANTIC PIN)
-//   - `e2e/**/*.ts`            → 2 (test override IS effective via path glob —
-//                                   the OPPOSITE resolution of `.spec.ts`!)
-//   - web `.tsx`              → 0 (no main no-restricted-syntax applies to web)
+// ── Config-resolution snapshot: the no-restricted-syntax selector COUNT per
+//    path-kind. These are FIRSTHAND-MEASURED ESLint 8 resolved values that the
+//    ESLint 9 flat config reproduces EXACTLY (zero drift — proven rule-for-rule
+//    by tools/lint-gates/eslintrc-flat-parity across 72 probes). The counts are
+//    deliberately NOT uniform: they encode the real, faithfully-preserved
+//    policy, including two quirks fixed separately (see ORPHAN-MEDIUM-092), so
+//    that any cutover that "tidied" them into consistency would trip here.
+//   path kind                | selectors | why
+//   apps src `.ts`           |    6      | auth root:true cjs typedRules (full gate)
+//   apps `.entity.ts`        |    6      | same
+//   libs/backend-common `.ts`|    6      | non-project zone → root main override (full gate)
+//   apps `.spec.ts`          |    6      | auth cjs test sub-override doesn't touch the rule
+//   `e2e/**` `.ts`           |    2      | non-project test → root test override (2-selector subset)
+//   web/shell `.tsx`         |    0      | web/shell root:true cjs sets no-restricted-syntax:off
 const SNAPSHOT_PATHS: ReadonlyArray<{ path: string; selectorCount: number }> = [
   { path: 'apps/auth-service/src/x.ts', selectorCount: 6 },
   { path: 'apps/auth-service/src/x.entity.ts', selectorCount: 6 },
   { path: 'libs/backend-common/src/x.ts', selectorCount: 6 },
-  { path: 'apps/auth-service/src/x.spec.ts', selectorCount: 6 }, // basename-glob: redefinition ineffective
-  { path: 'e2e/tests/x.ts', selectorCount: 2 }, // path-glob: redefinition effective — opposite of .spec.ts
-  { path: 'web/shell/src/x.tsx', selectorCount: 0 }, // no no-restricted-syntax on web
+  { path: 'apps/auth-service/src/x.spec.ts', selectorCount: 6 },
+  { path: 'e2e/tests/x.ts', selectorCount: 2 },
+  { path: 'web/shell/src/x.tsx', selectorCount: 0 },
 ];
 
 for (const { path, selectorCount } of SNAPSHOT_PATHS) {

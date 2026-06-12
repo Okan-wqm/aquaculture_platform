@@ -90,9 +90,9 @@ jobs:
               # tooling as deploy-config for path-filter purposes.
               - 'tools/eslint-rules/**'
               - 'tools/gates/**'
+              - 'tools/lint-gates/**'
               - 'tools/scripts/**'
-              - '.eslintrc.json'
-              - '.eslintrc.js'
+              - 'eslint.config.mjs'
               - 'tsconfig.base.json'
               # Root manifest + lockfile. Any change here rewires the
               # workspace graph OR the dependency tree — both invalidate

@@ -3778,3 +3778,27 @@ Düzeltme yönü: provisioner `APPLYING_GRANTS` aşamasına tenant-şema runtime
 Status: OPEN (2026-06-11; sahip: data-expert; kuyruktaki provisioner/compliance yapısal PR kapsamına bağlandı).
 
 Güncelleme (2026-06-11, DATA-HIGH-006 PR'ı): **messaging-partition dilimi SSOT'a bağlandı** — provisioner APPLYING_GRANTS artık `grantTenantMessagingPartitionAuthority` ile her yeni tenant şemasında messaging-domain ilişkilerini `messaging_schema_owner`'a re-own edip şema USAGE+CREATE veriyor; Stage-010 mevcut şemaları idempotent backfill'liyor. Kalan kapsam (diğer servislerin runtime-DML grant SSOT'u) bu bulguda AÇIK durmaya devam ediyor.
+
+## ORPHAN-HIGH-091 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
+
+Severity: HIGH. A2 (ESLint 8→9 flat migration) sırasında firsthand keşfedildi: `tools/eslint-rules`'deki 6 mimari-invariant kuralı (`require-entity-schema`, `no-bare-tenant-query-key`, `no-direct-event-publish`, `no-high-cardinality-metric-label`, `no-claude-sdk-raw-call`, `no-bare-graphql-query-string`) root `.eslintrc.json`'da **override** olarak tanımlıydı; ama her proje (apps/*, libs/event-contracts, libs/node-components, web/*, mcp/*, scripts, tests/invariants, tools/eslint-rules — 31 dizin) kendi `root: true` `.eslintrc.cjs`'ine sahip olduğundan eslintrc cascade proje sınırında DURUYORDU → bu kurallar proje dosyalarına HİÇ uygulanmadı. ESLint 8 `calculateConfigForFile` ile doğrulandı: `aquaculture/require-entity-schema` + `no-direct-event-publish` 55 proje-probe'unun **0**'ında tanımlı. Kurallar yalnız non-cjs zonlarda (`platform/libs/**`, `libs/backend-common/**`, `web/apps/aquamobil/**`) canlı.
+
+Sonuç: `require-entity-schema` (her `@Entity()` şema disiplinini zorlar — ADR-011) HİÇBİR `apps/*/src/**/*.entity.ts` üzerinde çalışmıyor; tenant-IDOR'a karşı `no-bare-tenant-query-key` hiçbir web modülünde çalışmıyor. PR-1 bu kurallar için RuleTester unit'leri ekledi (izole doğru çalışıyorlar) ama CI lint'inde tetiklenmiyorlar.
+
+Kök neden: nx'in proje-başına `root: true` `.eslintrc.cjs` üretme deseni, root-override-tabanlı custom kuralları yapısal olarak gölgeliyor. A2 flat migration bu davranışı SIFIR-DRIFT korudu (kurallar inert kalır) — aktivasyon bilinçli, ayrı, ölçülü bir değişiklik olmalı (platform genelinde binlerce yeni uyarı potansiyeli; her kural ayrı triyaj ister).
+
+Düzeltme yönü: `eslint.config.mjs`'in `PROJECT_GLOBS`-gated custom-rule bloklarındaki ignore'ı kaldırıp her kuralı tek tek aktive et + çıkan ihlalleri kural-bazında triyaj et (önce `require-entity-schema` — ADR-011 zaten zorunlu kılıyor, ihlal sayısı düşük olmalı). Make-it-detectable: aktivasyon sonrası bir invariant her kuralın ≥1 gerçek dosyada resolve olduğunu assert etsin.
+
+Status: OPEN (2026-06-12; sahip: platform-kernel-expert; A2 PR-2 firsthand bulgusu; aktivasyon ayrı PR).
+
+## ORPHAN-MEDIUM-092 — `no-restricted-syntax` (JWT_SECRET + getRepository + JSON.stringify gate'leri) web modüllerinde ve e2e'de tutarsız
+
+Severity: MEDIUM. A2 firsthand: `no-restricted-syntax` (6 selector: getRepository, JSON.stringify>2, 4×JWT_SECRET) ESLint 8 resolved davranışında zon-bazında tutarsız: apps + 4 web modülü (dashboard/farm-module/hr-module/hydroponics-module) = 6 selector (tam gate); ama **5 web modülü (shell, shared-ui, admin-panel, sensor-module, tenant-admin) = `off`** (cjs'leri `no-restricted-syntax: 'off'` set ediyor) ve **e2e = yalnız 2 selector** (root test override JWT_SECRET'i düşürüyor). Yani JWT_SECRET okuma yasağı 5 web modülünde + tüm e2e'de etkisiz; getRepository IDOR yasağı bu 5 web modülünde etkisiz.
+
+Sonuç: bu surface'lerde `process.env.JWT_SECRET` veya bare `getRepository()` lint'ten geçer. Frontend'de JWT_SECRET düşük risk (web'de secret okunmaz) ama asıl boşluk e2e testlerinde JWT_SECRET (test kodu secret pattern'i kopyalayabilir, sonra prod'a sızabilir).
+
+Kök neden: web modül cjs'leri React-ergonomisi için no-restricted-syntax'i toptan kapatmış (selector'lar AST gürültüsü üretiyordu); e2e override tarihsel olarak JWT_SECRET'i test-kolaylığı için düşürmüş. A2 bunu SIFIR-DRIFT korudu (faithful migration "iyileştirme" yapmaz).
+
+Düzeltme yönü: JWT_SECRET 4 selector'ını web + e2e'de yeniden aktive et; flat config'te ayrı bir "JWT_SECRET-everywhere" bloğu (`files: ['**/*.ts','**/*.tsx']`, ignore yok) tüm zonlarda 4 JWT_SECRET selector'ını zorlar — eslintrc'nin yapamadığı tutarlılık. Ölçülü PR: önce e2e, sonra web.
+
+Status: OPEN (2026-06-12; sahip: auth-security-expert; A2 PR-2 firsthand bulgusu; ORPHAN-HIGH-091 ile aynı aktivasyon dalgasında ele alınabilir).

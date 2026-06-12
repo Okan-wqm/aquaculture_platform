@@ -2,7 +2,7 @@
 # source: platform/libs/service-catalog/src/index.ts
 # generator: scripts/service-catalog/generate-artifacts.ts
 # generatorVersion: 2
-# catalogHash: 8f907156ef307ed6ce94bcd584cf9ef066da478d42c00d1a93a2dba25ceefcf2
+# catalogHash: f3209f7cff42e29292f7a2d84eb764aebae2f76d8a2bef6befb5738386c94ae7
 # do not edit by hand
 schema_version: 1
 defaults:
@@ -45,7 +45,7 @@ services:
     level: critical
     reason: "generated from messaging-service criticality in platform service catalog"
   - name: alert-engine
-    level: warning
+    level: critical
     reason: "generated from alert-engine criticality in platform service catalog"
   - name: billing-service
     level: critical

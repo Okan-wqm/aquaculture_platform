@@ -112,6 +112,20 @@ export interface BatchHarvestedEvent extends BaseEvent {
   harvestedAt: Date;
   averageWeight?: number;
   totalWeight?: number;
+  /**
+   * v2 (optional, additive): true when this harvest emptied the batch
+   * (currentQuantity reached 0) — the FINAL harvest, distinct from a
+   * partial one. It is a SIGNAL for a downstream batch-closure consumer;
+   * it does NOT itself close the batch (final FCR/mortality/days-in-
+   * production are frozen only by the separate CloseBatchCommand).
+   *
+   * TOLERANT READER (mandatory): a missing/undefined value MUST be read
+   * as `false` (treat unknown as partial). Defaulting to `true` would
+   * auto-close batches on replayed v1 events — a lifecycle-integrity
+   * hazard. v1 events legitimately lack this field; finality cannot be
+   * derived retroactively from a v1 payload.
+   */
+  isFinal?: boolean;
 }
 
 /**

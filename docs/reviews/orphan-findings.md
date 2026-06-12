@@ -3882,6 +3882,15 @@ This branch (a) modified `.eslintrc.json` and (b) sits on a `tsconfig.base.json`
 **Known residual (tracked, non-blocking):** `@nx/enforce-module-boundaries` needs the cached nx ProjectGraph, which exists in the real repo but not the fresh worktree, so that one rule is base-skipped (it logs "No cached ProjectGraph … rule will be skipped"). It is a **warning**-level rule (report-only, never blocks), so the asymmetry is cosmetic; a complete fix would prime the nx graph in the worktree (`nx graph` / `NX_DAEMON`) — deferred as low-value vs. the blocking-error cascade this finding closes.
 
 **Status:** RESOLVED (this commit).
+## ORPHAN-HIGH-087 — Source-schema write-guard triggers (`guard_source_write`) are installed by nothing on main
+
+Severity: HIGH. The DB-level tenant-isolation defense layer (BEFORE-trigger `guard_source_write` + `block_source_writes()` rejecting INSERT/UPDATE/DELETE on source-schema template tables) is no longer installed by any active code path. `SourceSchemaWriteGuardService` was correctly neutered into a no-DDL runtime stub (commit 42695736f, "aqua-db-migrate owns source-schema trigger hardening"), but db-migrate never picked up the install side: `SchemaPostMigrationHardening` supports only `tenantRls` and `auditColumns` — there is no `sourceWriteGuards` step, and a repo-wide grep for `guard_source_write` / `block_source_writes` hits zero active files. Environments provisioned before the neutering retain stale triggers; fresh environments get none.
+
+Root cause: the ownership transfer ("runtime services must not install trigger DDL → db-migrate owns it") shipped only its prohibition half. The PR#363 branch (8706e7a68) contained the missing half as `source-schema-write-guards.helper.ts` (idempotent installer driven by `MODULE_SCHEMAS` tables minus referenceDataTables/infrastructureTables), but that branch was never merged and the 2026-06-11 C-2 port deliberately did not carry it: wiring an install step into `postMigrationHardening` would fire write-blocking triggers on the next production deploy for every hardened schema, and the `MODULE_SCHEMAS` reference/infrastructure classification has not been re-audited against today's runtime write paths (a misclassified outbox/reference table would brick legitimate writes platform-wide).
+
+Fix: (1) re-audit `MODULE_SCHEMAS` per schema against actual runtime write paths (outbox, inbox, reference seeds, ledger tables); (2) port `installSourceSchemaWriteGuards` from 8706e7a68 into `libs/backend-common` and add a `sourceWriteGuards` step to `SchemaPostMigrationHardening` + the db-migrate hardening executor (gated per-schema, staged rollout starting with farm); (3) extend `tests/invariants/authoritative-runtime-ddl-contract.spec.ts` to require the step for schema-per-tenant entries once enabled.
+
+Status: OPEN. Owner: data-expert. Deadline: 2026-07-15 (registry follow-up of DATA-HIGH-004; raised by docs/reviews/data-expert/2026-06-11-runtime-ddl-authority-port.md).
 
 ## ORPHAN-HIGH-088 — Tenant-şema runtime yetkilerinin SSOT sahibi yok; production seremoni grant'leriyle ayakta
 
@@ -3894,3 +3903,49 @@ Kök neden: ADR-011 sahiplik modeli servis şemaları için 008'de yürütülür
 Düzeltme yönü: provisioner `APPLYING_GRANTS` aşamasına tenant-şema runtime grant SSOT'u eklenir (servis kataloğundan türetilen rol→şema eşlemesiyle USAGE+DML; messaging partition'ları için DATA-HIGH-006 definer-fonksiyon deseni tenant şemalarını da kapsar); mevcut tenant şemaları için idempotent backfill ceremony'si aynı PR'da. Compliance-bootstrap-SSOT yapısal PR'ıyla birlikte ele alınmalı.
 
 Status: OPEN (2026-06-11; sahip: data-expert; kuyruktaki provisioner/compliance yapısal PR kapsamına bağlandı).
+
+Güncelleme (2026-06-11, DATA-HIGH-006 PR'ı): **messaging-partition dilimi SSOT'a bağlandı** — provisioner APPLYING_GRANTS artık `grantTenantMessagingPartitionAuthority` ile her yeni tenant şemasında messaging-domain ilişkilerini `messaging_schema_owner`'a re-own edip şema USAGE+CREATE veriyor; Stage-010 mevcut şemaları idempotent backfill'liyor. Kalan kapsam (diğer servislerin runtime-DML grant SSOT'u) bu bulguda AÇIK durmaya devam ediyor.
+
+## ORPHAN-MEDIUM-089 — messaging-service /metrics serves only the domain registry; http_*/nodejs_* families absent
+
+Severity: MEDIUM. `apps/messaging-service/src/metrics/metrics.controller.ts` serves `MessagingMetricsService`'s private registry only. The platform HTTP families (`http_request_duration_seconds`, `http_requests_total`, `http_requests_in_flight`) and Node.js runtime metrics are never collected or exposed for messaging-service — request-latency SLO dashboards have a blind spot on a criticality-critical service.
+
+Root cause: messaging built its scrape endpoint before the canonical `ServiceMetricsModule` became drop-in (OBS-HIGH-001); two controllers cannot share the GET /metrics route, so it could not simply add the canonical module on top.
+
+Fix direction: replace the bespoke controller with the canonical `ServiceMetricsModule` import and surface the messaging domain registry through `ServiceMetricsService.registerContributor('messaging-domain', registry)` — exactly the farm-service pattern landed in OBS-HIGH-001 (`apps/farm-service/src/common/metrics/farm-metrics.module.ts` is the reference). Scrape path and metric names are unchanged, output becomes a superset; the metrics-endpoint-adoption invariant accepts both shapes throughout the transition.
+
+Status: OPEN (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
+
+## ORPHAN-HIGH-090 — Droplet production runs NO metrics collector; every /metrics endpoint is unscraped
+
+Severity: HIGH. `docker-compose.droplet.yml` ships no Prometheus/agent container, and `infrastructure/monitoring/` (kube-prometheus-stack values, annotation-based discovery) targets a Kubernetes deployment that is not the droplet runtime. After OBS-HIGH-001 every backend exposes GET /metrics, but on the droplet nothing collects them — the series exist only at scrape-time and are lost.
+
+Root cause: the monitoring stack was designed for the K8s topology; the droplet path (ADR-033) never received a collector, and until OBS-HIGH-001 there was no catalog SSoT (`metricsExposure`/`metricsPort`) from which scrape targets could even be generated.
+
+Fix direction: add a Prometheus (or agent-mode) container to the droplet compose with a scrape config GENERATED from the service catalog (`generate-artifacts.ts` gains a scrape-targets artifact derived from `metricsExposure === 'prom-endpoint'` entries + `metricsPort`), including the `x-internal-api-key` header for observability-service's gated endpoint; wire retention/resource limits to droplet capacity constraints. The catalog fields landed in OBS-HIGH-001 are the designed input for exactly this generator.
+
+Status: OPEN (2026-06-11; owner: observability-expert; natural Wave B2 follow-on of the s1-remediation program).
+
+---
+
+## ORPHAN-HIGH-092 — E2E - Messaging Service chronic cancellation flake (~50%)
+
+Severity: HIGH. The `E2E - Messaging Service` workflow (`E2E Tests` job) cancels on roughly half its runs — sampled last 18 = 9 cancelled / 8 success / 1 failure. Cancellations are the job hitting its own wall-clock after repeated `Exceeded timeout of 60000 ms for a hook` (Jest setup hooks), ending in `##[error]The operation was canceled` — reproduced identically on two consecutive runs of the SAME commit (B2 head 4699f72dc), so it is environmental, not a code regression. The suite is NOT in `branches/main/protection/required_status_checks`; K7 (#410, 807dc90a5) deployed to production with it never green. It therefore masks real messaging-E2E signal behind noise while blocking no merge.
+
+Root cause direction: container/service readiness race — the Jest global setup waits on TimescaleDB + Redis + NATS boot and exceeds 60s under CI load. Fix (highest tier first): (1) automatic readiness gate (healthcheck poll) before Jest starts; (2) detectable — budgeted hook timeout + loud container-state dump on timeout instead of silent cancel; (3) split container-boot out of the per-test hook budget.
+
+Discovered while gating B2 (#411). Pairs with ORPHAN-MEDIUM-055 (same E2E Postgres log surface).
+
+Status: OPEN (2026-06-12; owner: infra-expert + messaging-expert for the harness). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
+
+---
+
+## ORPHAN-MEDIUM-055 — messaging-service background sweep queries non-existent `m.embedding` column
+
+Severity: MEDIUM. The messaging-service E2E Postgres logs, on a fixed 5-minute cadence (12:50/12:55/13:00…): `ERROR: column m.embedding does not exist at character 138 … WHERE m."embedding" IS NULL`. A scheduled background worker / projection (an embedding-backfill or semantic-index sweep) filters on `m."embedding" IS NULL`, but the column does not exist in the schema the E2E migrations apply. Independent of B2 (zero embedding code touched); appears on every messaging E2E run.
+
+Query↔migration drift: either the `embedding` column migration is missing from the E2E path (the feature is silently dead) or the sweep must be feature-flag-gated until the column lands (it currently fires blindly every 5 minutes). Investigate why SchemaDriftValidator (ADR-012) does not fail-closed on the missing required column here.
+
+Discovered in the E2E Messaging logs during B2 (#411) gating. Pairs with ORPHAN-HIGH-092.
+
+Status: OPEN (2026-06-12; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.

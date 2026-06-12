@@ -86,6 +86,10 @@ services:
       # `request.auth.admin.resetUserPassword`. This replaces the
       # admin-api raw-SQL writes against `auth.users` that CRITICAL-001
       # flagged (docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md).
+      # AuthUserQueryNatsHandler (DİLİM-2) handles
+      # `request.auth.user.validateTenantMembership` — covered by the
+      # wildcard below; listed explicitly for audit visibility.
+      - "request.auth.user.validateTenantMembership"
       - "request.auth.>"
       - "$JS.API.>"
       - "_INBOX.>"
@@ -417,6 +421,10 @@ services:
       - "AQUACULTURE_EVENTS.Channel*.>"
       - "AQUACULTURE_EVENTS.RetentionPolicy*.>"
       - "commands.notification.sendPush"
+      # Channel-admission gate (DİLİM-2): request-reply to auth-service to
+      # validate that invited userIds belong to this tenant. Exactly one
+      # subject — NOT broad request.auth.> (least privilege).
+      - "request.auth.user.validateTenantMembership"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:

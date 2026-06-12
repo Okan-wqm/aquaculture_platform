@@ -1,5 +1,5 @@
 -- ============================================================================
--- Platform Bootstrap — Stage 8 of 9: Least-Privilege Runtime Boundary
+-- Platform Bootstrap — Stage 8 of 10: Least-Privilege Runtime Boundary
 --
 -- Stage 004 intentionally preserved the historical broad grants so bootstrap
 -- could run against already-live databases. This final stage is the executable
@@ -124,20 +124,15 @@ BEGIN
     EXECUTE format('REVOKE ALL ON SCHEMA %I FROM %I', spec.schema_name, spec.runtime_role);
     EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', spec.schema_name, spec.runtime_role);
 
-    -- messaging carve-out (DATA-HIGH-005, 2026-06-11 production opening):
-    -- PartitionManagerService creates monthly RANGE partitions for
-    -- messages/message_receipts at bootstrap and on a monthly cron, and
-    -- PostgreSQL checks schema CREATE privilege BEFORE the IF NOT EXISTS
-    -- short-circuit — a USAGE-only messaging runtime crash-loops the
-    -- service (verified empirically in production). The shipped runtime
-    -- contract therefore requires CREATE on the messaging schema. The
-    -- two-stage closure is tracked in DATA-HIGH-005: a SECURITY DEFINER
-    -- partition function owned by messaging_schema_owner replaces the
-    -- raw runtime DDL (deadline 2026-06-18), after which this grant is
-    -- removed in the same change that migrates PartitionManagerService.
-    IF spec.schema_name = 'messaging' THEN
-      EXECUTE format('GRANT CREATE ON SCHEMA %I TO %I', spec.schema_name, spec.runtime_role);
-    END IF;
+    -- NOTE (DATA-HIGH-006): the 2026-06-11 messaging CREATE carve-out that
+    -- lived here was dissolved by Stage 010 — partition DDL now runs through
+    -- platform.create_messaging_partition (SECURITY DEFINER owned by
+    -- messaging_schema_owner; ownership is the binding pg16 requirement,
+    -- proven empirically — schema CREATE alone cannot create a partition).
+    -- The messaging runtime holds EXECUTE only, so this REVOKE/GRANT pair
+    -- applies uniformly to every runtime role again. The idempotent re-run
+    -- of this stage is also what revokes the old carve-out grant on
+    -- already-bootstrapped databases (REVOKE ALL above).
 
     EXECUTE format(
       'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I FROM %I',
@@ -188,6 +183,54 @@ BEGIN
   GRANT shared_schema_owner TO db_migrate;
   ALTER SCHEMA shared OWNER TO shared_schema_owner;
 
+  -- Compliance schema (INFRA-HIGH-015): cross-service legal-hold registry,
+  -- same ownership discipline as `shared`. Relations are re-owned too —
+  -- compliance.legal_holds was created by the admin-api migration chain
+  -- under the migration connection's role, not by bootstrap.
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'compliance_schema_owner') THEN
+    CREATE ROLE compliance_schema_owner NOLOGIN;
+  END IF;
+  GRANT compliance_schema_owner TO db_migrate;
+  ALTER SCHEMA compliance OWNER TO compliance_schema_owner;
+  FOR relation IN
+    SELECT c.oid::regclass::text AS qualified_name
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
+    WHERE n.nspname = 'compliance'
+      AND c.relkind IN ('r', 'p', 'f')
+      AND r.rolname IS DISTINCT FROM 'compliance_schema_owner'
+  LOOP
+    EXECUTE format('ALTER TABLE %s OWNER TO compliance_schema_owner', relation.qualified_name);
+  END LOOP;
+  FOR relation IN
+    SELECT c.oid::regclass::text AS qualified_name
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
+    WHERE n.nspname = 'compliance'
+      AND c.relkind = 'S'
+      AND r.rolname IS DISTINCT FROM 'compliance_schema_owner'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_class'::regclass
+          AND d.objid = c.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::regclass
+          AND d.deptype IN ('a', 'i')
+      )
+  LOOP
+    EXECUTE format('ALTER SEQUENCE %s OWNER TO compliance_schema_owner', relation.qualified_name);
+  END LOOP;
+
+  REVOKE USAGE ON SCHEMA compliance FROM PUBLIC;
+  REVOKE SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA compliance FROM PUBLIC;
+  REVOKE USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA compliance FROM PUBLIC;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA compliance
+    REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM PUBLIC;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA compliance
+    REVOKE USAGE, SELECT, UPDATE ON SEQUENCES FROM PUBLIC;
+
   REVOKE USAGE ON SCHEMA shared FROM PUBLIC;
   REVOKE SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA shared FROM PUBLIC;
   REVOKE USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA shared FROM PUBLIC;
@@ -224,6 +267,24 @@ BEGIN
   LOOP
     EXECUTE format('REVOKE shared_schema_owner FROM %I', service_role);
     EXECUTE format('GRANT USAGE ON SCHEMA shared TO %I', service_role);
+    EXECUTE format('REVOKE compliance_schema_owner FROM %I', service_role);
+    EXECUTE format('GRANT USAGE ON SCHEMA compliance TO %I', service_role);
+    EXECUTE format(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA compliance TO %I',
+      service_role
+    );
+    EXECUTE format(
+      'GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA compliance TO %I',
+      service_role
+    );
+    EXECUTE format(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
+      service_role
+    );
+    EXECUTE format(
+      'ALTER DEFAULT PRIVILEGES IN SCHEMA compliance GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO %I',
+      service_role
+    );
     EXECUTE format(
       'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA shared TO %I',
       service_role

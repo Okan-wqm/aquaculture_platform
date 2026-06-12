@@ -23,6 +23,21 @@ export type BuildKind =
 export type ReadinessContract = 'docker-healthcheck' | 'one-shot-success' | 'none';
 export type EventStoreTenantScopePolicy = 'tenant-bound' | 'all-tenants' | 'none';
 /**
+ * Prometheus scrape surface of a service (OBS-HIGH-001).
+ *
+ *   - 'prom-endpoint' — the service serves GET /metrics in Prometheus
+ *     exposition format on its single HTTP listener (containerPort,
+ *     shared with /health). Derived
+ *     default for every node-service: validateServiceCatalog REJECTS a
+ *     node-service with 'none', so a new backend service cannot silently
+ *     opt out of observability. tests/invariants/metrics-endpoint-
+ *     adoption.spec.ts asserts the app.module.ts actually registers a
+ *     metrics module for each 'prom-endpoint' entry.
+ *   - 'none' — no scrape surface (frontends, infra containers, one-shot
+ *     jobs, the Rust sidecar).
+ */
+export type MetricsExposure = 'prom-endpoint' | 'none';
+/**
  * How a frontend image obtains its compiled assets.
  *
  *   - 'prebuilt-artifact'      — CI builds the module in the
@@ -61,7 +76,22 @@ export interface ServiceCatalogEntry {
   gatewayParticipation: GatewayParticipation;
   deployProfiles: readonly DeployProfile[];
   healthEndpoint?: string;
+  /**
+   * Container-internal HTTP port the service listens on (compose `PORT`
+   * env). Readiness sweeps exec curl against this port INSIDE the
+   * container — a wrong value here is a false-negative production
+   * verify (INFRA-HIGH-014: the readiness view hardcoded 3000 while
+   * observability listens on 3009).
+   */
+  containerPort: number;
   readinessContract: ReadinessContract;
+  /**
+   * Prometheus scrape surface — see MetricsExposure. Derived in buildEntry
+   * (node-service ⇒ 'prom-endpoint'). The scrape endpoint is served on the
+   * single Node HTTP listener (`containerPort`) — /metrics and /health share
+   * one port per service, so there is no separate metrics port.
+   */
+  metricsExposure: MetricsExposure;
   schema?: string;
   dbSchema?: string;
   schemaOwnerRole?: string;
@@ -105,6 +135,8 @@ type CatalogEntryInput = Omit<
   | 'gatewayParticipation'
   | 'deployProfiles'
   | 'readinessContract'
+  | 'containerPort'
+  | 'metricsExposure'
   | 'dbSchema'
   | 'migrationGlobs'
   | 'entityGlobs'
@@ -121,6 +153,8 @@ type CatalogEntryInput = Omit<
       | 'gatewayParticipation'
       | 'deployProfiles'
       | 'readinessContract'
+      | 'containerPort'
+      | 'metricsExposure'
       | 'dbSchema'
       | 'migrationGlobs'
       | 'entityGlobs'
@@ -163,6 +197,11 @@ function buildEntry(input: CatalogEntryInput): ServiceCatalogEntry {
       : input.classification === 'subgraph'
         ? 'apollo-subgraph'
         : 'none');
+  // OBS-HIGH-001: every NestJS backend exposes a Prometheus scrape surface
+  // by default — observability adoption is the zero-effort path, opt-out is
+  // structurally rejected for node-services by validateServiceCatalog.
+  const metricsExposure =
+    input.metricsExposure ?? (buildKind === 'node-service' ? 'prom-endpoint' : 'none');
 
   return {
     ...input,
@@ -176,6 +215,10 @@ function buildEntry(input: CatalogEntryInput): ServiceCatalogEntry {
       (input.deployTarget === 'droplet' && input.deploymentStatus === 'active'
         ? (['droplet'] as const)
         : ([] as const)),
+    // Platform default: every node-service listens on 3000 unless its
+    // compose service declares otherwise (PORT env) — deviations MUST be
+    // declared here so readiness/verify views stay truthful.
+    containerPort: input.containerPort ?? 3000,
     readinessContract:
       input.readinessContract ??
       (input.classification === 'one-shot'
@@ -183,6 +226,7 @@ function buildEntry(input: CatalogEntryInput): ServiceCatalogEntry {
         : input.deploymentStatus === 'active'
           ? 'docker-healthcheck'
           : 'none'),
+    metricsExposure,
     dbSchema: input.dbSchema ?? input.schema,
     migrationGlobs,
     entityGlobs,
@@ -506,7 +550,13 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     },
     deploymentStatus: 'active',
     deployTarget: 'droplet',
-    criticality: 'warning',
+    // OBS-HIGH-001 (OPERATOR-APPROVAL ITEM): raised from 'warning' to
+    // 'critical'. alert-engine produces life-safety alerts (dissolved-oxygen
+    // crash, equipment failure escalation) — a deploy that leaves it
+    // unhealthy must FAIL, not warn. Propagates through the generated
+    // service-criticality.yaml into scripts/deploy/check-service-health.ts:
+    // an unhealthy alert-engine now blocks the deploy gate.
+    criticality: 'critical',
     classification: 'subgraph',
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
     requiredEnv: ['ALERT_SERVICE_DB_PASS'],
@@ -654,6 +704,10 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     serviceId: 'observability-service',
     nxProject: 'observability-service',
     imageTarget: 'observability-service',
+    // The ONE backend that does not listen on 3000: docker-compose.droplet.yml
+    // sets PORT: 3009 and its healthcheck probes localhost:3009. Both the
+    // readiness sweep AND the Prometheus scrape target this single port.
+    containerPort: 3009,
     schema: 'observability',
     schemaOwnerRole: 'observability_schema_owner',
     dbRoles: {
@@ -868,7 +922,7 @@ export function readinessServices(): readonly { serviceId: string; port: number 
         ['gateway', 'subgraph', 'internal-service'].includes(entry.classification) &&
         entry.buildKind === 'node-service',
     )
-    .map((entry) => ({ serviceId: entry.composeServiceName, port: 3000 }));
+    .map((entry) => ({ serviceId: entry.composeServiceName, port: entry.containerPort }));
 }
 
 export function packageBuildProjects(): readonly string[] {
@@ -1009,6 +1063,20 @@ export function validateServiceCatalog(
         message: 'node service must declare a service identity audience',
       });
     }
+    // OBS-HIGH-001: metrics completeness is structural, not optional.
+    // A NestJS backend without a Prometheus scrape surface is an
+    // observability blind spot — rejected at the catalog level so the
+    // wrong state cannot be expressed.
+    if (entry.buildKind === 'node-service' && entry.metricsExposure !== 'prom-endpoint') {
+      errors.push({
+        serviceId: entry.serviceId,
+        message: 'node service must expose a Prometheus endpoint (metricsExposure prom-endpoint)',
+      });
+    }
+    // The scrape port is the single Node HTTP listener (`containerPort`),
+    // shared with /health — buildEntry defaults it to 3000, so a
+    // prom-endpoint entry always has a valid scrape target; no separate
+    // metrics port to validate.
   }
 
   return errors;

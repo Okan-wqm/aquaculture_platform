@@ -69,3 +69,75 @@ describe('ServiceMetricsService — registry isolation (PLAT-HIGH-006)', () => {
     b.onModuleDestroy();
   });
 });
+
+describe('ServiceMetricsService — contributor registries (OBS-HIGH-001)', () => {
+  it('serves contributor registry metrics alongside its own on the scrape output', async () => {
+    const svc = new ServiceMetricsService();
+    svc.onModuleInit();
+
+    // Simulate a domain module's private registry (farm-service pattern).
+    const domainRegistry = new client.Registry();
+    new client.Counter({
+      name: 'farm_capacity_block_total',
+      help: 'domain counter held in a private registry',
+      registers: [domainRegistry],
+    });
+
+    svc.registerContributor('farm-domain', domainRegistry);
+    const text = await svc.getMetrics();
+
+    // Both the platform HTTP families AND the contributed domain family
+    // appear in ONE exposition document — Prometheus scrapes a single
+    // endpoint per service.
+    expect(text).toContain('http_requests_total');
+    expect(text).toContain('farm_capacity_block_total');
+    // Exposition document stays well-formed: exactly one trailing newline.
+    expect(text.endsWith('\n')).toBe(true);
+    expect(text.endsWith('\n\n')).toBe(false);
+
+    svc.onModuleDestroy();
+  });
+
+  it('invalidates the scrape cache when a contributor registers between scrapes', async () => {
+    const svc = new ServiceMetricsService();
+    svc.onModuleInit();
+
+    // Prime the 5s output cache BEFORE the contributor exists.
+    const before = await svc.getMetrics();
+    expect(before).not.toContain('late_domain_counter_total');
+
+    const domainRegistry = new client.Registry();
+    new client.Counter({
+      name: 'late_domain_counter_total',
+      help: 'registered after the first scrape',
+      registers: [domainRegistry],
+    });
+    svc.registerContributor('late-domain', domainRegistry);
+
+    // WITHOUT cache invalidation in registerContributor this scrape would
+    // serve the stale pre-contributor document for up to cacheTtlMs.
+    const after = await svc.getMetrics();
+    expect(after).toContain('late_domain_counter_total');
+
+    svc.onModuleDestroy();
+  });
+
+  it('re-registering the same contributor name replaces, not duplicates', async () => {
+    const svc = new ServiceMetricsService();
+    svc.onModuleInit();
+
+    const first = new client.Registry();
+    new client.Counter({ name: 'replaced_total', help: 'first', registers: [first] });
+    const second = new client.Registry();
+    new client.Counter({ name: 'kept_total', help: 'second', registers: [second] });
+
+    svc.registerContributor('domain', first);
+    svc.registerContributor('domain', second);
+    const text = await svc.getMetrics();
+
+    expect(text).toContain('kept_total');
+    expect(text).not.toContain('replaced_total');
+
+    svc.onModuleDestroy();
+  });
+});

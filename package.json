@@ -154,7 +154,9 @@
     "aria:requests": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools agent-invocations list",
     "factory:reset:dry": "node --experimental-strip-types tools/factory-reset/factory-reset.ts --dry-run",
     "factory:reset:execute": "FACTORY_RESET_ALLOWED=1 node --experimental-strip-types tools/factory-reset/factory-reset.ts --execute",
-    "gates:farm-service": "ts-node --project tools/gates/tsconfig.json tools/gates/farm-service-enterprise-guardrails.ts"
+    "gates:farm-service": "ts-node --project tools/gates/tsconfig.json tools/gates/farm-service-enterprise-guardrails.ts",
+    "gates:enterprise-closure": "ts-node --project tools/gates/tsconfig.runtime.json tools/gates/enterprise-closure.ts",
+    "quality:closure-run": "node tools/quality/quality.mjs closure-run --profile gates-all"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",

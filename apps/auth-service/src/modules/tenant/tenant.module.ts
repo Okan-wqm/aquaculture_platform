@@ -14,6 +14,7 @@ import { TenantModule as TenantModuleEntity } from './entities/tenant-module.ent
 import { Tenant } from './entities/tenant.entity';
 import { TenantSubscriptionProjectionHandler } from './event-handlers/tenant-subscription-projection.handler';
 import { AuthAdminNatsHandler } from './handlers/auth-admin-nats.handler';
+import { AuthUserQueryNatsHandler } from './handlers/auth-user-query-nats.handler';
 import { MobileSettingsResolver } from './resolvers/mobile-settings.resolver';
 import { TenantAdminResolver } from './resolvers/tenant-admin.resolver';
 import { TenantRoleResolver } from './resolvers/tenant-role.resolver';
@@ -45,7 +46,7 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
   // NestJS microservice transport discovers @MessagePattern subscribers by
   // scanning `controllers`. Declaring it as a provider would make the DI
   // container happy but the NATS subscriber would never register.
-  controllers: [AuthAdminNatsHandler],
+  controllers: [AuthAdminNatsHandler, AuthUserQueryNatsHandler],
   providers: [
     TenantService,
     TenantAdminService,

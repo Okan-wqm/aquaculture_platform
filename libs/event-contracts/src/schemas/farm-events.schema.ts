@@ -110,6 +110,7 @@ interface WireBatchHarvested extends WireBaseEvent {
   harvestedAt: string;
   averageWeight?: number;
   totalWeight?: number;
+  isFinal?: boolean;
 }
 
 interface WireBatchStatusChanged extends WireBaseEvent {
@@ -528,6 +529,10 @@ export const batchHarvestedSchema: JSONSchemaType<WireBatchHarvested> = {
     harvestedAt: ISO_DATE_STRING,
     averageWeight: { ...NON_NEGATIVE_NUMBER, nullable: true },
     totalWeight: { ...NON_NEGATIVE_NUMBER, nullable: true },
+    // v2 additive (optional): in properties so a v2 event passes
+    // additionalProperties:false, but NOT in `required` so v1 events
+    // (no isFinal) still validate under this one schema.
+    isFinal: { type: 'boolean', nullable: true },
   },
   required: [...BASE_EVENT_REQUIRED, 'batchId', 'harvestedQuantity', 'harvestedAt'],
 };

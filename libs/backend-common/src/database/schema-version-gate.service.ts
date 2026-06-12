@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 
+import { resolveDbMigrateAuthoritativeFromConfig } from './db-migrate-authority.util';
 import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
 import { createMigrationRunnerService, type MigrationRunnerOptions } from './migration-runner';
 import { TENANT_AWARE_SCHEMAS } from './tenant-aware-schemas';
@@ -216,24 +217,29 @@ export function createSchemaVersionGate(
       if (forcedMode === 'gate' || forcedMode === 'runner') {
         return forcedMode;
       }
-      const explicit = this.configService.get<string>('DB_MIGRATE_AUTHORITATIVE');
-      if (explicit === 'true') return 'gate';
 
+      // Gate-specific hard rule (kept on top of the shared resolver):
+      // an EXPLICIT opt-out is forbidden in production-like environments.
+      // The shared resolver would honour `false`; for the migration
+      // ledger that is an unacceptable two-writer regression, so it is
+      // rejected here before the resolver is consulted.
+      const explicit = this.configService.get<string>('DB_MIGRATE_AUTHORITATIVE');
       const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
       const aquaEnv = this.configService.get<string>('AQUA_ENV', nodeEnv);
       const isProductionLike =
         nodeEnv === 'production' || aquaEnv === 'production' || aquaEnv === 'staging';
-      if (explicit === 'false') {
-        if (isProductionLike) {
-          throw new Error(
-            `DB_MIGRATE_AUTHORITATIVE=false is forbidden for schema "${sourceSchema}" ` +
-              `when NODE_ENV=${nodeEnv} AQUA_ENV=${aquaEnv}. ` +
-              'Production/staging services must run in read-only schema gate mode.',
-          );
-        }
-        return 'runner';
+      if (explicit === 'false' && isProductionLike) {
+        throw new Error(
+          `DB_MIGRATE_AUTHORITATIVE=false is forbidden for schema "${sourceSchema}" ` +
+            `when NODE_ENV=${nodeEnv} AQUA_ENV=${aquaEnv}. ` +
+            'Production/staging services must run in read-only schema gate mode.',
+        );
       }
-      return isProductionLike ? 'gate' : 'runner';
+
+      // SSOT resolution (PR#363 design): strict-parse resolver — a
+      // malformed DB_MIGRATE_AUTHORITATIVE value throws instead of
+      // silently degrading to the environment default.
+      return resolveDbMigrateAuthoritativeFromConfig(this.configService) ? 'gate' : 'runner';
     }
 
     /**

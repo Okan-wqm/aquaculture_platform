@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+
+import { assertRuntimeDdlAllowed } from '../db-migrate-authority.util';
 import {
   applyTenantRlsToSchema,
   ApplyTenantRlsOptions,
@@ -11,20 +13,20 @@ import {
  *
  * Startup-time installer for tenant Row-Level Security policies.
  *
- * # Why a runtime bootstrap instead of a TypeORM migration?
+ * # Why does this runtime bootstrap still exist?
  *
- * The global-schema services (billing, ai, notification, alert, config,
- * event-store) currently have **no migration runner wired in** — TypeORM
- * `synchronize` was removed in commit `5ce2b127` for production safety, but
- * a replacement migration system has not yet been added (out of scope for
- * this RLS work). Tables are created by deploy scripts and `SourceSchemaBootstrapService`.
+ * Production-like environments use `aqua-db-migrate` as the single source
+ * of truth for schema changes and post-migration hardening
+ * (`SCHEMA_REGISTRY.postMigrationHardening`). In that mode this provider
+ * fails fast (see `assertRuntimeDdlAllowed`) before opening a query runner,
+ * so application startup cannot mutate schema state.
  *
- * Adding a migration runner to six services to deliver RLS would be a major
- * scope expansion and would change the deploy story for each service.
- * Instead, we follow the **same pattern as `SourceSchemaBootstrapService`**:
- * a small `OnApplicationBootstrap` provider that runs the idempotent helper
- * once per process, after the rest of the application is wired but before
- * any HTTP handler can serve a request.
+ * Local and test environments may run without authoritative `db-migrate`
+ * ownership. For those environments this bootstrap keeps the historical
+ * developer workflow intact: a small `OnApplicationBootstrap` provider that
+ * runs the idempotent helper once per process, after the rest of the
+ * application is wired but before any HTTP handler can serve a request —
+ * the **same pattern as `SourceSchemaBootstrapService`**.
  *
  * # Why `OnApplicationBootstrap` and not `OnModuleInit`?
  *
@@ -53,11 +55,18 @@ import {
  *
  * # Failure handling
  *
- * RLS install failures are LOGGED but **not fatal** — the service still
- * boots. Rationale: if startup hard-fails on RLS install, a partial outage
- * (one badly-named table, a missing extension, anything) takes down the
- * whole service. The risk of a brief window without RLS during recovery is
- * lower than the risk of a global outage.
+ * In AUTHORITATIVE mode (`DB_MIGRATE_AUTHORITATIVE=true` or production/
+ * staging default) runtime RLS installation is FATAL by contract:
+ * `assertRuntimeDdlAllowed` throws BEFORE a QueryRunner is opened, because
+ * schema hardening must run in aqua-db-migrate
+ * (`SCHEMA_REGISTRY.postMigrationHardening`), never from service boot.
+ *
+ * In non-authoritative local/test mode, RLS install failures are LOGGED
+ * but **not fatal** — the service still boots. Rationale: if startup
+ * hard-fails on RLS install, a partial outage (one badly-named table, a
+ * missing extension, anything) takes down the whole service. The risk of
+ * a brief window without RLS during recovery is lower than the risk of a
+ * global outage.
  *
  * **Operational note**: this means RLS install errors MUST be alerted on
  * via the `rls.bootstrap.failed` log event so an operator notices the
@@ -96,6 +105,14 @@ export class RlsSchemaBootstrap implements OnApplicationBootstrap {
       );
       return;
     }
+
+    // Choke-point (PR#363 design): authoritative deployments must not
+    // reach the DDL helper at all — fail fast BEFORE a QueryRunner is
+    // opened so the violation is a boot error, not a swallowed log line.
+    assertRuntimeDdlAllowed({
+      serviceName: this.options.serviceName,
+      operation: 'RLS schema auto-apply',
+    });
 
     const queryRunner = this.dataSource.createQueryRunner();
 

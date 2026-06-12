@@ -38,3 +38,4 @@ export {
   MAX_FREE_TEXT_LENGTH,
   MAX_SHORT_CODE_LENGTH,
 } from './common.schema';
+export * from './auth-user-queries.schema';

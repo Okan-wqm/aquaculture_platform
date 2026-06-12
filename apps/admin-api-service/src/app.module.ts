@@ -8,6 +8,7 @@ import {
   SchemaDriftModule,
 } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { ThrottlerGuard, ThrottlerModule } from '@aquaculture/backend-common/security';
@@ -219,6 +220,10 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     AdminApiRetentionBootstrapModule,
     SystemMetricsModule,
     HealthModule,
+    // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
+    // middleware. SystemMetricsModule above is the admin ANALYTICS API
+    // (/system/metrics, JSON) — it is not a Prometheus scrape surface.
+    ServiceMetricsModule,
     UsersModule,
     SystemModulesModule,
     SettingsModule,

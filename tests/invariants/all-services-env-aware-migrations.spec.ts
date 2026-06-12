@@ -32,8 +32,9 @@
  *     runner in prod, no MigrationRunnerService factory provider).
  *   - auth-service: uses static `migrationsRun: true` for the same
  *     legacy reason.
- *   - observability-service: declares `migrations: []` (no DDL); the
- *     env-aware switch would be a no-op.
+ *   - observability-service: owns its migration glob since ORPHAN-HIGH-001
+ *     and (PR#363 port) must use the same env-aware timing contract as the
+ *     rest of the fleet.
  *
  * The invariant scans for the literal `migrationsRunFromEnv` token and
  * accepts the allowlisted alternatives.
@@ -46,7 +47,7 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 
 interface ServiceContract {
   service: string;
-  pattern: 'migrationsRunFromEnv' | 'migrationsRun-true' | 'no-migrations';
+  pattern: 'migrationsRunFromEnv' | 'migrationsRun-true';
 }
 
 const CONTRACTS: readonly ServiceContract[] = [
@@ -66,8 +67,9 @@ const CONTRACTS: readonly ServiceContract[] = [
   { service: 'event-store-service', pattern: 'migrationsRunFromEnv' },
   // auth-service: legacy migrationsRun:true (different mechanism, same effect).
   { service: 'auth-service', pattern: 'migrationsRun-true' },
-  // observability-service: migrations:[] (no DDL).
-  { service: 'observability-service', pattern: 'no-migrations' },
+  // observability-service: owns a real migration glob since ORPHAN-HIGH-001;
+  // PR#363 port aligned it with the fleet-wide env-aware contract.
+  { service: 'observability-service', pattern: 'migrationsRunFromEnv' },
 ];
 
 describe('INVARIANT (INFRA-CRITICAL-020 propagation): every service declares migration timing', () => {
@@ -92,16 +94,6 @@ describe('INVARIANT (INFRA-CRITICAL-020 propagation): every service declares mig
             throw new Error(
               `${service}/src/app.module.ts: legacy contract requires \`migrationsRun: true\` ` +
                 `(static — service uses TypeORM's built-in runner in prod, no MigrationRunnerService factory).`,
-            );
-          }
-          break;
-        }
-        case 'no-migrations': {
-          if (!/migrations\s*:\s*\[\s*\]/.test(src)) {
-            throw new Error(
-              `${service}/src/app.module.ts: contract requires explicit \`migrations: []\` ` +
-                `(no-DDL service). Either declare migrations and switch to migrationsRunFromEnv, ` +
-                `or keep the empty array.`,
             );
           }
           break;

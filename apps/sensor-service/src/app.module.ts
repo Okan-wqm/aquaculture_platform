@@ -11,6 +11,7 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import {
   createServiceTypeOrmConfig,
+  isSchemaDdlOwnedByDbMigrate,
   RlsModule,
   SourceSchemaBootstrapService,
 } from '@aquaculture/backend-common/database';
@@ -75,6 +76,13 @@ import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middle
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
 const SensorSchemaVersionGate = createSchemaVersionGate('sensor');
+/**
+ * PR#363 port — runtime DDL authority gate. In authoritative deployments
+ * the per-tenant RLS sweep belongs to aqua-db-migrate's tenant fan-out
+ * hardening (SCHEMA_REGISTRY['sensor'].postMigrationHardening); local/dev
+ * keeps syncTenantSchemas as the historical bootstrap convenience.
+ */
+const sensorSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 
 type QueryComplexityOperationContext = {
   request: {
@@ -369,7 +377,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
      */
     RlsModule.forPoolService({
       serviceName: 'sensor',
-      syncTenantSchemas: true,
+      // PR#363 port: runtime per-tenant RLS sweep only when db-migrate is
+      // NOT authoritative — production tenants get the same policies from
+      // the db-migrate tenant fan-out hardening.
+      syncTenantSchemas: !sensorSchemaDdlOwnedByDbMigrate,
       excludeTables: ['sensor_outbox'],
     }),
 

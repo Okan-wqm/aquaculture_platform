@@ -11,12 +11,12 @@
  * ranges partition the growth curve (no gaps, no overlaps unless
  * priority disambiguates).
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useAuth,
   graphqlClient,
   createTenantQueryKey,
 } from '@aquaculture/shared-ui';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 export interface FeedAssignmentEntry {
   feedId: string;
@@ -53,7 +53,7 @@ export interface UpdateBatchFeedAssignmentInput {
 
 const GET_BATCH_FEED_ASSIGNMENT_QUERY = `
   query GetBatchFeedAssignment($batchId: ID!) {
-    batchFeedAssignmentForBatch(batchId: $batchId) {
+    batchFeedAssignment(batchId: $batchId) {
       id
       batchId
       feedAssignments {
@@ -126,9 +126,9 @@ export function useBatchFeedAssignment(batchId: string | undefined) {
     queryFn: async () => {
       if (!batchId) return null;
       const data = await graphqlClient.request<{
-        batchFeedAssignmentForBatch: BatchFeedAssignment | null;
+        batchFeedAssignment: BatchFeedAssignment | null;
       }>(GET_BATCH_FEED_ASSIGNMENT_QUERY, { batchId });
-      return data.batchFeedAssignmentForBatch;
+      return data.batchFeedAssignment;
     },
     enabled: !!tenantId && !!batchId,
   });

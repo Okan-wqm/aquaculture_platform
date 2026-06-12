@@ -310,8 +310,12 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       batch.retentionRate = batch.getRetentionRate();
       batch.updatedBy = recordedBy;
 
-      // Tüm stok hasad edildiyse batch'i HARVESTED olarak işaretle
-      if (batch.currentQuantity <= 0) {
+      // Tüm stok hasad edildiyse batch'i HARVESTED olarak işaretle.
+      // Single source for the BatchHarvested.isFinal signal (FARM-LOW-004):
+      // the SAME post-decrement value gates the HARVESTED status below AND
+      // the event field — no recompute, no drift.
+      const isFinalHarvest = batch.currentQuantity <= 0;
+      if (isFinalHarvest) {
         batch.status = BatchStatus.HARVESTED;
         batch.statusChangedAt = new Date();
         batch.actualHarvestDate = new Date();
@@ -370,13 +374,14 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       // `totalQuantity`/`totalBiomassKg` — none of those are contract fields,
       // so consumers reading `event.harvestedQuantity` got `undefined`.
       const harvestEvent: BatchHarvestedEvent = {
-        ...createBaseEvent<BatchHarvestedEvent>('BatchHarvested', tenantId, { aggregateId: harvestRecord.batchId, aggregateType: 'Batch' }),
+        ...createBaseEvent<BatchHarvestedEvent>('BatchHarvested', tenantId, { aggregateId: harvestRecord.batchId, aggregateType: 'Batch', version: 2 }),
         userId: recordedBy,
         batchId: harvestRecord.batchId,
         harvestedQuantity: harvestRecord.quantityHarvested,
         harvestedAt: harvestRecord.harvestDate,
         averageWeight: harvestRecord.averageWeight,
         totalWeight: harvestRecord.totalBiomass,
+        isFinal: isFinalHarvest,
       };
       await this.outboxPublisher.enqueue(harvestEvent, queryRunner.manager);
       await this.mobileCommandReceipts.complete(queryRunner.manager, {

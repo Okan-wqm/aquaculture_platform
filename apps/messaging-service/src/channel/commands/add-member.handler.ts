@@ -10,6 +10,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
+import { TenantUserAdmissionService } from '../services/tenant-user-admission.service';
 import { createBaseEvent } from '@platform/event-contracts';
 import { AddMemberCommand } from './add-member.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
@@ -46,6 +47,7 @@ export class AddMemberHandler
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly admissionService: TenantUserAdmissionService,
   ) {}
 
   /**
@@ -56,6 +58,12 @@ export class AddMemberHandler
    */
   async execute(command: AddMemberCommand): Promise<ChannelMember> {
     const { tenantId, actorUserId, channelId, targetUserId, role } = command;
+
+    // Admission gate (DİLİM-2): the role-hierarchy check below proves the
+    // ACTOR's authority but never proved targetUserId belongs to this
+    // tenant — an ADMIN could otherwise inject another tenant's user.
+    // Fail-closed before any membership write.
+    await this.admissionService.assertActiveTenantUsers(tenantId, [targetUserId]);
 
     return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       // Load channel

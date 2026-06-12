@@ -167,19 +167,10 @@ export class Tenant {
   @Column({ type: 'int', default: 0, name: 'user_count' })
   userCount!: number;
 
-  /**
-   * Current farm count (denormalized for quick access)
-   */
-  @Field()
-  @Column({ type: 'int', default: 0, name: 'farm_count' })
-  farmCount!: number;
-
-  /**
-   * Current sensor count (denormalized for quick access)
-   */
-  @Field()
-  @Column({ type: 'int', default: 0, name: 'sensor_count' })
-  sensorCount!: number;
+  // MT-MEDIUM-002: farm_count/sensor_count removed — they were unmaintained
+  // (always 0) denormalizations. Farms and sensors are owned by the per-tenant
+  // tenant_<uuid>.farms / .sensors tables; admin-api computes the real counts at
+  // read time from there.
 
   /**
    * Trial end date (if on trial)

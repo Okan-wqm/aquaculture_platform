@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -90,8 +91,10 @@ export class TenantDetailService {
       settings: tenant.settings as TenantDetailDto['settings'],
       limits: tenant.limits,
       userCount: tenant.userCount,
-      farmCount: tenant.farmCount,
-      sensorCount: tenant.sensorCount,
+      // MT-MEDIUM-002: real counts computed in getResourceUsage from the
+      // per-tenant schema, not the dropped auth.tenants denormalization.
+      farmCount: resourceUsage.farms.count,
+      sensorCount: resourceUsage.sensors.count,
       maxStorage: tenant.maxStorage,
       isTrialActive: tenant.isTrialActive,
 
@@ -233,6 +236,36 @@ export class TenantDetailService {
   /**
    * Get resource usage statistics
    */
+  /**
+   * Count a tenant's resources from its OWN per-tenant schema (the SSoT for
+   * farms/sensors), replacing the dropped auth.tenants denormalization
+   * (MT-MEDIUM-002). Returns 0 when the schema/table is not yet provisioned — a
+   * PENDING/PROVISIONING tenant legitimately has none — checked via
+   * information_schema rather than swallowing a query error. The schema name is
+   * derived from the validated tenant UUID and the table is a fixed literal, so
+   * the identifier interpolation carries no injection surface.
+   */
+  private async countTenantResource(
+    tenantId: string,
+    table: 'farms' | 'sensors',
+  ): Promise<number> {
+    const schema = getTenantSchemaName(tenantId);
+    // Existence check first: a tenant whose schema has not been provisioned yet
+    // (or a SUPER_ADMIN pseudo-tenant) has no farms/sensors table — that is 0
+    // resources, not an error, so we never let a missing table throw.
+    const exists = await this.dataSource.query<unknown[]>(
+      `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2 LIMIT 1`,
+      [schema, table],
+    );
+    if (exists.length === 0) {
+      return 0;
+    }
+    const rows = await this.dataSource.query<Array<{ c: number }>>(
+      `SELECT COUNT(*)::int AS c FROM "${schema}"."${table}"`,
+    );
+    return rows[0]?.c ?? 0;
+  }
+
   private async getResourceUsage(tenant: Tenant): Promise<ResourceUsage> {
     const limits = tenant.limits || {
       maxUsers: 0,
@@ -270,6 +303,11 @@ export class TenantDetailService {
       // Ignore - metrics may not be available
     }
 
+    // MT-MEDIUM-002: real farm/sensor counts from the per-tenant schema (the
+    // owning SSoT) instead of the dropped, always-0 auth.tenants denormalization.
+    const farmCount = await this.countTenantResource(tenant.id, 'farms');
+    const sensorCount = await this.countTenantResource(tenant.id, 'sensors');
+
     return {
       storage: {
         usedGb: 0, // Would calculate from actual storage usage
@@ -282,14 +320,14 @@ export class TenantDetailService {
         percentage: calculatePercentage(tenant.userCount, limits.maxUsers),
       },
       farms: {
-        count: tenant.farmCount,
+        count: farmCount,
         limit: limits.maxFarms,
-        percentage: calculatePercentage(tenant.farmCount, limits.maxFarms),
+        percentage: calculatePercentage(farmCount, limits.maxFarms),
       },
       sensors: {
-        count: tenant.sensorCount,
+        count: sensorCount,
         limit: limits.maxSensors,
-        percentage: calculatePercentage(tenant.sensorCount, limits.maxSensors),
+        percentage: calculatePercentage(sensorCount, limits.maxSensors),
       },
       apiCalls: {
         last24h: apiCalls24h,

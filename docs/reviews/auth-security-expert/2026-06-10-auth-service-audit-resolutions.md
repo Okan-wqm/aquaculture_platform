@@ -108,6 +108,16 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 
 ---
 
+## MT-MEDIUM-002 — `auth.tenants.farm_count` / `sensor_count`: SSoT'su olmayan, hep-0 denormalizasyon (W3.4)
+
+- **Durum:** RESOLVED (PR #390 — W3.4). Stale denormalizasyon kolonları `auth.tenants`'tan kaldırıldı; admin-api gerçek sayıları okuma-anında **kaynak-tablolardan** (`tenant_<uuid>.farms` / `.sensors`) hesaplıyor.
+- **Sorun:** `auth.tenants` `farm_count` / `sensor_count` kolonlarını taşıyordu ama **hiçbir yazıcı bunları güncellemiyordu** — her provisioning yolu 0 yazıyor, tenant kendi şemasında farm/sensor oluşturdukça hiçbir şey reconcile etmiyordu. admin-api tenant-detail resource-usage görünümü bu kolonları okuyup kalıcı-0 bir kullanım rakamı gösteriyordu (canlı şemaya karşı doğrulandı: hep 0). `user_count`'tan farklı olarak (auth user-creation anında bakımlı), farms/sensors per-tenant `tenant_<uuid>.farms`/`.sensors` tablolarının sahipliğinde — auth bunları cross-service event tüketmeden bakamaz.
+- **Çözüm (Tier-1: doğru SSoT'yu yapısal kıl):** sahip per-tenant tablolar tek doğru kaynak. Migration `auth.tenants`'tan stale denormalizasyonu düşürüyor (`DROP COLUMN IF EXISTS` → idempotent, replay no-op; `-- DESTRUCTIVE:` marker + pg_dump/ops stage-gate). admin-api `TenantDetailService.countTenantResource()` ile gerçek sayıyı okuma-anında hesaplıyor: önce `information_schema` varlık-kontrolü (provisioning'i tamamlanmamış tenant / SUPER_ADMIN pseudo-tenant = 0 kaynak, hata değil), sonra `COUNT(*)` — auth user-stats için zaten kullandığı aynı cross-schema analitik deseni. Hiçbir hata yutulmuyor (tablo eksikliği fail-loud değil, kontrollü 0). Entity alanları + her iki servisteki provisioning yazıcıları + test fixture'ları (caller-update) temizlendi.
+- **Değişen dosyalar:** `apps/auth-service/src/migrations/1800900000000-DropTenantFarmSensorCounts.ts` (yeni), `apps/auth-service/src/modules/tenant/entities/tenant.entity.ts`, `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts`, `apps/admin-api-service/src/tenant/entities/tenant.entity.ts`, `apps/admin-api-service/src/tenant/services/{tenant-detail,tenant-provisioning-workflow}.service.ts`, `apps/admin-api-service/src/tenant/__tests__/{tenant-api.integration,tenant-provisioning.service}.spec.ts`.
+- **Doğrulama:** migration-sql-lint geçti (R1 marker + IF EXISTS idempotency); type-check her iki servis temiz; canlı DB'de çift-çalıştırma idempotency kanıtlandı (residual 0); gerçek-kaynak `COUNT` `tenant_<uuid>.farms`/`.sensors`'a karşı çalışıyor; `tenant-api.integration.spec.ts` PASS; diff-lint değişen dosyalarımda temiz (`countTenantResource` generic-typed query, cast yok). Reader düşürmeden önce 2-3× doğrulandı — kör drop değil, kaynak-tablo SSoT'su.
+
+---
+
 ## Bekleyen bulgular (denetim kayıt defteri)
 
 | ID | Dalga | Durum |
@@ -121,5 +131,6 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 | DATA-HIGH-003 (AuthSchemaBootstrapService — un-versioned schema writer) | W3.4 | RESOLVED — runtime DDL already gone (no-DDL guard); redundant with SchemaDriftModule, deleted |
 | DATA-HIGH-002 (timestamp → timestamptz) | W3.4 | RESOLVED — 27 auth cols converted (migration + entities); empirically verified vs live DB |
 | DATA-MEDIUM-002 (tenantId nullability) | W3.4 | RESOLVED — invitations.tenantId NOT NULL; refresh_tokens.tenantId stays nullable (all 317 NULL rows are SUPER_ADMIN, documented exception); broad camelCase/snake_case rename deliberately out of scope (cosmetic, high-risk) |
-| MT-MEDIUM-001..002, DATA-LOW-001 | W3.4 | OPEN |
+| MT-MEDIUM-002 (unmaintained farm_count/sensor_count denormalization) | W3.4 | RESOLVED — dropped from auth.tenants; admin-api counts real-time from tenant_<uuid>.farms/.sensors (source-of-truth tables) |
+| MT-MEDIUM-001, DATA-LOW-001 | W3.4 | OPEN |
 | PERF-HIGH-001..003, AUDIT-HIGH-009, PERF-MEDIUM-001..003, AUDIT-MEDIUM-015, SEC-LOW-001 | W4 | OPEN |

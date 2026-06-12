@@ -703,8 +703,6 @@ export class TenantProvisioningWorkflowService {
       trialEndsAt: this.getTrialEndsAt(data.trialDays),
       createdBy: actorUserId,
       userCount: 0,
-      farmCount: 0,
-      sensorCount: 0,
     };
   }
 
@@ -879,8 +877,6 @@ export class TenantProvisioningWorkflowService {
       maxStorage: fallback.maxStorage,
       isTrialActive: fallback.isTrialActive,
       userCount: 0,
-      farmCount: 0,
-      sensorCount: 0,
       createdAt: snapshot.createdAt ? new Date(snapshot.createdAt) : new Date(),
       updatedAt: snapshot.updatedAt ? new Date(snapshot.updatedAt) : new Date(),
     });

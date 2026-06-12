@@ -33,7 +33,7 @@
 | SEC-MEDIUM-003 | MEDIUM | Refresh reuse revocation is per-user not per-family (no `familyId` column) — over-revokes, SecurityEvent lacks family-id | ✅ (grep) | SEC |
 | SEC-MEDIUM-004 | MEDIUM | `validateToken` query omits `enforceAccessTokenType` — refresh/MFA tokens introspect as `valid:true` | | SEC |
 | MT-MEDIUM-001 | MEDIUM | `PlanTier` non-ordinal string enum; no `planLevel` JWT claim; `TRIAL` vs `isTrialActive` dual representation | | MT |
-| MT-MEDIUM-002 | MEDIUM | `farmCount`/`sensorCount` denormalized on `auth.tenants` with no maintainer/reconcile (only `userCount` has one) | | MT |
+| MT-MEDIUM-002 | MEDIUM | `farmCount`/`sensorCount` denormalized on `auth.tenants` with no maintainer/reconcile (only `userCount` has one) | ✅ RESOLVED (PR #390 W3.4) | MT |
 | DATA-MEDIUM-001 | MEDIUM | No JSON Schema validators for any of the 13 auth/tenant event types crossing the NATS trust boundary | | DATA |
 | DATA-MEDIUM-002 | MEDIUM | `RefreshToken.tenantId`/`Invitation.tenantId` nullable on tenant-bound rows; mixed camelCase/snake_case naming in `auth` schema | | DATA |
 | PERF-MEDIUM-001 | MEDIUM | `getJwtVerifyOptions()` rebuilds (and in PATH mode `readFileSync`s) the public key per request — fix lands in backend-common, benefits all consumer services | | PERF |

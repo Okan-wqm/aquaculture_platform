@@ -215,8 +215,6 @@ export class TenantProvisioningCommandService {
           settings: command.settings ?? null,
           createdBy: command.createdBy,
           userCount: 0,
-          farmCount: 0,
-          sensorCount: 0,
         });
 
         const saved = await manager.save(Tenant, tenant);

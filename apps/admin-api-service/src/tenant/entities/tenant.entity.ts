@@ -76,11 +76,9 @@ export class Tenant {
   @Column({ type: 'int', default: 0, name: 'user_count' })
   userCount!: number;
 
-  @Column({ type: 'int', default: 0, name: 'farm_count' })
-  farmCount!: number;
-
-  @Column({ type: 'int', default: 0, name: 'sensor_count' })
-  sensorCount!: number;
+  // MT-MEDIUM-002: farm_count/sensor_count dropped from auth.tenants (unmaintained
+  // denormalization). Real counts are computed at read time from the per-tenant
+  // tenant_<uuid>.farms / .sensors tables in TenantDetailService.
 
   @Column({ type: 'timestamptz', nullable: true })
   trialEndsAt?: Date;

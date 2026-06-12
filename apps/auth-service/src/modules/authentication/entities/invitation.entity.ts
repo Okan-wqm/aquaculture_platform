@@ -126,11 +126,11 @@ export class Invitation {
   acceptedFromIp?: string | null;
 
   @Field(() => Date)
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   @Field(() => Date)
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 
   // Helper Methods

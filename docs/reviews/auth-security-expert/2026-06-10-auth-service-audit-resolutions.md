@@ -119,5 +119,6 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 | MT-HIGH-001..002 (dead sync-provisioning path + unsafe update) | W3.3-a | RESOLVED (PR #390, 883bbda9) |
 | DATA-MEDIUM-001 (JSON Schema validators, NATS trust boundary) | W3.4 | RESOLVED — 13 tenant + 10 auth events (23) validated; coverage specs green |
 | DATA-HIGH-003 (AuthSchemaBootstrapService — un-versioned schema writer) | W3.4 | RESOLVED — runtime DDL already gone (no-DDL guard); redundant with SchemaDriftModule, deleted |
-| DATA-HIGH-002, MT-MEDIUM-001..002, DATA-MEDIUM-002, DATA-LOW-001 | W3.4 | OPEN |
+| DATA-HIGH-002 (timestamp → timestamptz) | W3.4 | RESOLVED — 27 auth cols converted (migration + entities); empirically verified vs live DB |
+| MT-MEDIUM-001..002, DATA-MEDIUM-002, DATA-LOW-001 | W3.4 | OPEN |
 | PERF-HIGH-001..003, AUDIT-HIGH-009, PERF-MEDIUM-001..003, AUDIT-MEDIUM-015, SEC-LOW-001 | W4 | OPEN |

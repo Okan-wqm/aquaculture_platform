@@ -221,11 +221,11 @@ export class Tenant {
   // ============================================
 
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   @Field()
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 
   @VersionColumn({ name: 'version' })

@@ -90,7 +90,7 @@ export class TicketComment {
   @Field(() => [TicketAttachment], { nullable: true })
   attachments?: TicketAttachment[] | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   @Field()
   createdAt!: Date;
 }

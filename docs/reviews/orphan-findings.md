@@ -3865,6 +3865,24 @@ Adjacent cleanup: `sendInvitationEmail` uses `require('crypto')` (CommonJS) inst
 
 **Status:** RESOLVED for the production service. The spec phantom-fixtures + admin-api mock-`any` debt stay with ORPHAN-MEDIUM-088 (quarantined, non-blocking).
 
+## ORPHAN-MEDIUM-092 — diff-lint gate linted base and head with DIFFERENT configs → a lint-config refactor flagged pre-existing debt as new regressions
+
+**Found while:** resolving the diff-lint cascade that MT-MEDIUM-001 / MT-MEDIUM-002 kept hitting (3× this session). Every time a commit touched a file that already carried lint debt, the blocking diff-lint gate (`scripts/ci/lint-changed-files.mjs`; `ci-affected.yml` line 209 — "lint failures must block PR merge") reported that file's FULL pre-existing debt as "new error-level findings" (e.g. 72 findings across two admin-api specs the MT-MEDIUM-001 entity drop forced me to touch).
+
+**Problem (root cause):** the gate measures whether a change introduces *new* lint errors by linting each changed file at base and at head and diffing the per-rule counts. But it linted the two sides with DIFFERENT configs:
+- **head** — in the real repo, with head's `.eslintrc.json` + head's tsconfigs.
+- **base** — in a detached worktree checked out at `origin/main`, with **origin/main's** config.
+
+This branch (a) modified `.eslintrc.json` and (b) sits on a `tsconfig.base.json` that advanced on `origin/main` after the branch's merge-base. So base linted these specs with the OLD, looser ruleset and found **0** type-aware errors, while head linted them with the NEW ruleset and found **N** — a pure CONFIG delta the gate mis-attributed to the code. Empirically reproduced: `tenant.integration.spec.ts` base-lint = 0 errors with base config, = 39 with head's config. A lint-config refactor therefore made every newly-linted pre-existing issue look like a regression on whatever commit happened to touch the file.
+
+**Fix (Tier-1, make-the-gate-correct):** `syncLintConfigFromHead()` overlays head's lint configuration onto the base worktree before base-linting — eslint configs (`**/.eslintrc*`, `**/eslint.config.*`, `**/.eslintignore`) + the tsconfigs its type-aware rules resolve (`**/tsconfig*.json`). It uses a **two-dot** `base..head` diff (NOT three-dot): the worktree is checked out at `origin/main` itself, so a config that advanced on base after the merge-base must still be overlaid — a three-dot diff would miss it. Now both sides lint with the SAME ruleset, so the base-vs-head delta isolates CODE changes from CONFIG changes; the gate flags only errors the diff actually introduced.
+
+**Verification:** the same branch HEAD that produced 72 false error-level findings now reports **"No new error-level lint findings relative to origin/main"** (NODE_EXIT=0). The gate's own unit suite (parseArgs / parseDiffHunkLines / range + prepush helpers, 25 tests) stays green. The two admin specs' pre-existing debt is correctly recognised as pre-existing (base=head=39) and left to its ORPHAN-MEDIUM-088 quarantine owner.
+
+**Known residual (tracked, non-blocking):** `@nx/enforce-module-boundaries` needs the cached nx ProjectGraph, which exists in the real repo but not the fresh worktree, so that one rule is base-skipped (it logs "No cached ProjectGraph … rule will be skipped"). It is a **warning**-level rule (report-only, never blocks), so the asymmetry is cosmetic; a complete fix would prime the nx graph in the worktree (`nx graph` / `NX_DAEMON`) — deferred as low-value vs. the blocking-error cascade this finding closes.
+
+**Status:** RESOLVED (this commit).
+
 ## ORPHAN-HIGH-088 — Tenant-şema runtime yetkilerinin SSOT sahibi yok; production seremoni grant'leriyle ayakta
 
 Severity: HIGH. Stage-008 yalnız adlandırılmış servis şemalarını (15 spec + shared + platform) yönetir; `tenant_<uuid>` şemaları kapsam dışı. Tenant-schema-provisioner şemayı yaratır, tabloları fan-out eder, RLS/audit hardening uygular ve ledger READ erişimi verir — ama runtime rollerine (örn. `messaging_service`) tenant şeması üzerinde USAGE/DML/partition-CREATE GRANT'ini HİÇBİR bileşen vermez (`applyProvisionerHardening` yalnız RLS + audit kolonları; `sql-fragments.ts` grant primitifi taşımıyor).

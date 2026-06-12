@@ -318,15 +318,35 @@ jobs:
 
       - name: Build all frontend modules
         run: |
-          # NX-managed
-          npx nx run-many -t build \
-            --projects=shell,dashboard,farm-module,admin-panel,tenant-admin \
-            --parallel=3
-          # Non-NX workspace modules — depend on shared-ui dist, build that first
-          npm run build --workspace="web/shared-ui"
-          for mod in sensor-module hr-module hydroponics-module; do
-            npm run build --workspace="web/modules/${mod}"
-          done
+          set -euo pipefail
+          # INFRA-MEDIUM-002: build lists come from the SAME service-catalog
+          # SSOT the production deploy consumes — staging previously
+          # hardcoded a DIFFERENT split (3 modules built via npm workspace
+          # while production builds all of them via NX), so staging could
+          # ship frontends compiled by a different toolchain than prod.
+          CATALOG_DEPLOY_ENV="infrastructure/deploy/service-catalog.deploy.vars"
+          if [ ! -r "${CATALOG_DEPLOY_ENV}" ]; then
+            echo "::error::Missing generated service catalog deploy artifact: ${CATALOG_DEPLOY_ENV}"
+            echo "Run npm run service-catalog:generate and commit the generated artifact."
+            exit 1
+          fi
+          # shellcheck source=infrastructure/deploy/service-catalog.deploy.vars
+          . "${CATALOG_DEPLOY_ENV}"
+          read -r -a NX_FRONTEND <<< "${CATALOG_NX_FRONTEND_PROJECTS:-}"
+          read -r -a NON_NX_FRONTEND <<< "${CATALOG_NON_NX_FRONTEND_PROJECTS:-}"
+
+          if [ "${#NX_FRONTEND[@]}" -gt 0 ]; then
+            npx nx run-many -t build \
+              --projects="$(IFS=,; echo "${NX_FRONTEND[*]}")" \
+              --parallel=3
+          fi
+          if [ "${#NON_NX_FRONTEND[@]}" -gt 0 ]; then
+            # Non-NX workspace modules depend on shared-ui dist — build it first.
+            npm run build --workspace="web/shared-ui"
+            for mod in "${NON_NX_FRONTEND[@]}"; do
+              npm run build --workspace="web/modules/${mod}"
+            done
+          fi
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
           NX_DAEMON: 'false'

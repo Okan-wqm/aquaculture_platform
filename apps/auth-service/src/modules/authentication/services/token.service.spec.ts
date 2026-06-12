@@ -22,11 +22,17 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
   let service: TokenService;
   let signAsync: jest.Mock;
   let query: jest.Mock;
+  // The signAsync mock captures its typed payload here, so the assertion helper
+  // reads a JwtPayload-typed value rather than an `any` from mock.calls.
+  let lastPayload: JwtPayload | undefined;
 
-  /** Capture the payload handed to jwtService.signAsync. */
+  /** The payload handed to jwtService.signAsync on the single expected call. */
   const capturedPayload = (): JwtPayload => {
     expect(signAsync).toHaveBeenCalledTimes(1);
-    return signAsync.mock.calls[0][0] as JwtPayload;
+    if (!lastPayload) {
+      throw new Error('signAsync was not called with a payload');
+    }
+    return lastPayload;
   };
 
   const buildUser = (overrides: Partial<User>): User =>
@@ -38,7 +44,11 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
     });
 
   beforeEach(async () => {
-    signAsync = jest.fn().mockResolvedValue('signed.access.token');
+    lastPayload = undefined;
+    signAsync = jest.fn((payload: JwtPayload) => {
+      lastPayload = payload;
+      return Promise.resolve('signed.access.token');
+    });
     // Route the two reads generateTokens performs: the tenant_modules lookup
     // (empty) and the auth.tenants plan lookup (professional → ordinal 2).
     query = jest.fn((sql: string) => {

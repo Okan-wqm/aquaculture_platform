@@ -1,6 +1,6 @@
 #!/usr/bin/env ts-node
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -52,7 +52,7 @@ function catalogHash(): string {
  * file-artifact generation is outside that rule's intent, hence the
  * one documented exemption below.
  */
-function prettyJson(value: Record<string, unknown>): string {
+function prettyJson(value: unknown): string {
   // eslint-disable-next-line no-restricted-syntax -- file-artifact formatting, not log output; see function header.
   return JSON.stringify(value, null, 2);
 }
@@ -349,6 +349,38 @@ function catalogGeneratedArtifact(): Artifact {
   };
 }
 
+/**
+ * Prometheus file_sd scrape targets for the droplet (D3 / ORPHAN-HIGH-090:
+ * the droplet runs no collector because nothing generated scrape targets).
+ * Every catalog service that exposes a Prometheus endpoint becomes a target
+ * keyed by its compose service name + the shared HTTP port (containerPort —
+ * /metrics and /health share one listener; there is no separate metricsPort).
+ * The catalog is the SSoT, so the scrape config CANNOT drift from the running
+ * service set — the generator --check gate fails CI on any unregenerated edit.
+ * The injected `app` + `namespace` labels are exactly what the dormant alert
+ * rules (aquaculture-rules.yaml) group by; `criticality` lets Alertmanager
+ * route by service importance without a second source of truth. Output is the
+ * native Prometheus file_sd shape (a bare array of target groups) — provenance
+ * is enforced by the generator, not by an in-file metadata object the scraper
+ * would reject.
+ */
+function prometheusScrapeTargetsArtifact(): Artifact {
+  const targetGroups = activeDropletServices()
+    .filter((entry) => entry.metricsExposure === 'prom-endpoint')
+    .map((entry) => ({
+      targets: [`${entry.composeServiceName}:${entry.containerPort}`],
+      labels: {
+        app: entry.serviceId,
+        namespace: 'aquaculture',
+        criticality: entry.criticality,
+      },
+    }));
+  return {
+    path: 'infrastructure/monitoring/droplet/file_sd/aqua-services.json',
+    contents: `${prettyJson(targetGroups)}\n`,
+  };
+}
+
 function artifacts(): readonly Artifact[] {
   const errors = validateServiceCatalog();
   if (errors.length > 0) {
@@ -363,6 +395,7 @@ function artifacts(): readonly Artifact[] {
     requiredSecretsArtifact(),
     catalogDeployEnvArtifact(),
     catalogGeneratedArtifact(),
+    prometheusScrapeTargetsArtifact(),
   ];
 }
 
@@ -383,6 +416,7 @@ function main(): void {
       }
       continue;
     }
+    mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, artifact.contents);
     process.stdout.write(`generated ${artifact.path}\n`);
   }

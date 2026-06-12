@@ -39,6 +39,7 @@ import { CreateMessagingOutboxTable1800200000000 } from '../src/migrations/18002
 import { AddUserAiConsentTenantUserUnique1800300000000 } from '../src/migrations/1800300000000-AddUserAiConsentTenantUserUnique';
 import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from '../src/migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
 import { EnsureMessagingPartitionContract1800500000000 } from '../src/migrations/1800500000000-EnsureMessagingPartitionContract';
+import { CreateMessageSendIdempotencyLedger1800600000000 } from '../src/migrations/1800600000000-CreateMessageSendIdempotencyLedger';
 import { PartitionManagerService } from '../src/partition/partition-manager.service';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
 
@@ -114,6 +115,7 @@ async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
         AddUserAiConsentTenantUserUnique1800300000000,
         EnforceSourceOnlyMessagingOutboxContract1800400000000,
         EnsureMessagingPartitionContract1800500000000,
+        CreateMessageSendIdempotencyLedger1800600000000,
       ],
     });
 

@@ -5,10 +5,11 @@ jest.mock('sanitize-html', () => {
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { Message, MessageContentType } from '../../entities/message.entity';
+import { MessageSendIdempotency } from '../../entities/message-send-idempotency.entity';
 import { MessageAttachment } from '../../entities/message-attachment.entity';
 import { ChannelMember } from '../../../channel/entities/channel-member.entity';
 // MessagingOutbox import dropped: outbox writes go through
@@ -55,6 +56,14 @@ describe('SendMessageHandler', () => {
   let mediaService: { validateAttachmentKey: jest.Mock; extractVoiceDuration: jest.Mock };
   let metricsService: { incrementMessages: jest.Mock };
   let outboxPublisher: { enqueue: jest.Mock };
+  let ledgerInsertBuilder: {
+    insert: jest.Mock;
+    into: jest.Mock;
+    values: jest.Mock;
+    orIgnore: jest.Mock;
+    returning: jest.Mock;
+    execute: jest.Mock;
+  };
 
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const channelId = fakeUuid('ch');
@@ -74,6 +83,19 @@ describe('SendMessageHandler', () => {
     channelMemberRepo.find.mockResolvedValue([]);
     queryRunner = createMockQueryRunner();
     queryRunner.manager.find.mockResolvedValue([]);
+    // Ledger-claim fluent builder (cluster-8 DİLİM-1): every send now
+    // claims message_send_idempotency via INSERT ... ON CONFLICT DO
+    // NOTHING at transaction start. Default: claim SUCCEEDS (fresh send).
+    // Duplicate-path tests override execute() with empty identifiers.
+    ledgerInsertBuilder = {
+      insert: jest.fn().mockReturnThis(),
+      into: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      orIgnore: jest.fn().mockReturnThis(),
+      returning: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ identifiers: [{}], raw: [{}], generatedMaps: [] }),
+    };
+    queryRunner.manager.createQueryBuilder.mockReturnValue(ledgerInsertBuilder);
     mockDataSource = createMockDataSource(queryRunner);
     redisClient = createMockRedis();
 
@@ -344,5 +366,68 @@ describe('SendMessageHandler', () => {
     expect(payload.eventType).toBe('MessageSent');
     expect(payload.tenantId).toBe(tenantId);
     expect(payload.channelId).toBe(channelId);
+  });
+
+  // ── Cluster-8 DİLİM-1: authoritative DB idempotency ledger ──────────
+  describe('idempotency ledger (message_send_idempotency)', () => {
+    function makeCommand(): SendMessageCommand {
+      return new SendMessageCommand(
+        tenantId,
+        senderId,
+        channelId,
+        'hello',
+        MessageContentType.TEXT,
+        idempotencyKey,
+        null,
+        [],
+        null,
+      );
+    }
+
+    it('returns the original message when the ledger claim conflicts (no new insert, no metric)', async () => {
+      const existing = createMockMessage({ tenantId, channelId, senderId });
+      const ledgerRow = {
+        tenantId,
+        channelId,
+        senderId,
+        idempotencyKey,
+        messageId: existing.id,
+        messageCreatedAt: existing.createdAt,
+      };
+      ledgerInsertBuilder.execute.mockResolvedValue({ identifiers: [], raw: [], generatedMaps: [] });
+      queryRunner.manager.findOne.mockImplementation(
+        (entity: unknown) =>
+          Promise.resolve(entity === MessageSendIdempotency ? ledgerRow : existing),
+      );
+
+      const result = await handler.execute(makeCommand());
+
+      expect(result).toBe(existing);
+      expect(queryRunner.manager.save).not.toHaveBeenCalled();
+      expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+      expect(metricsService.incrementMessages).not.toHaveBeenCalled();
+    });
+
+    it('stays idempotent with Redis fully down — the ledger claim is the authority', async () => {
+      // Both safe* wrappers swallow Redis failures (fail-open cache);
+      // the DB claim must still run and gate the send.
+      redisClient.set.mockRejectedValue(new Error('redis down'));
+      redisClient.get.mockRejectedValue(new Error('redis down'));
+      redisClient.setex.mockRejectedValue(new Error('redis down'));
+
+      const result = await handler.execute(makeCommand());
+
+      expect(result).toBeDefined();
+      expect(ledgerInsertBuilder.execute).toHaveBeenCalledTimes(1);
+      expect(ledgerInsertBuilder.orIgnore).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails loud when the claim conflicts but the ledger row is unreadable', async () => {
+      ledgerInsertBuilder.execute.mockResolvedValue({ identifiers: [], raw: [], generatedMaps: [] });
+      queryRunner.manager.findOne.mockResolvedValue(null);
+
+      await expect(handler.execute(makeCommand())).rejects.toThrow(ConflictException);
+      expect(queryRunner.manager.save).not.toHaveBeenCalled();
+    });
   });
 });

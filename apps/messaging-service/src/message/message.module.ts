@@ -26,6 +26,7 @@ import { QueryHandlers } from './queries';
 
 // Services
 import { MessageService } from './services/message.service';
+import { IdempotencyLedgerGcService } from './services/idempotency-ledger-gc.service';
 import { MediaService } from './services/media.service';
 import { S3StorageObjectVerifier } from './services/s3-storage-object-verifier.service';
 import { STORAGE_OBJECT_VERIFIER } from './services/storage-object-verifier.port';
@@ -66,6 +67,7 @@ import { MessageResolver } from './resolvers/message.resolver';
     ComplianceModule,
   ],
   providers: [
+    IdempotencyLedgerGcService,
     // CQRS handlers
     ...CommandHandlers,
     ...QueryHandlers,

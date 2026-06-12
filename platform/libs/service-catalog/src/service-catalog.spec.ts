@@ -15,6 +15,7 @@ import {
   serviceIdentityAudiencesForService,
   serviceIdentityAudienceForService,
   validateServiceCatalog,
+  readinessServices,
 } from './index';
 
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
@@ -56,6 +57,18 @@ describe('platform service catalog executable views', () => {
     expect(requiredRuntimeSecrets()).toContain('EVENT_STORE_SERVICE_DB_PASS');
     expect(requiredRuntimeSecrets()).toContain('SERVICE_IDENTITY_KEYRING');
     expect(requiredRuntimeSecrets()).toContain('CONFIG_SERVICE_DB_PASS');
+  });
+
+  it('exposes container ports through the readiness view (INFRA-HIGH-014)', () => {
+    const ready = new Map(readinessServices().map((entry) => [entry.serviceId, entry.port]));
+    // Platform default stays 3000…
+    expect(ready.get('gateway-api')).toBe(3000);
+    expect(ready.get('messaging-service')).toBe(3000);
+    // …and the one declared deviation flows through instead of a
+    // hardcoded constant (compose sets PORT: 3009 for observability —
+    // the hardcoded-3000 view produced a false-negative production
+    // verify on 2026-06-11).
+    expect(ready.get('observability-service')).toBe(3009);
   });
 
   it('declares one migration authority for every schema-owning runtime service', () => {

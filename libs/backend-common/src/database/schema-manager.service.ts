@@ -564,7 +564,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
   {
     moduleName: 'messaging',
     sourceSchema: 'messaging',
-    infrastructureTables: ['migrations', 'messaging_outbox', 'embeddings_metadata'],
+    infrastructureTables: ['migrations', 'messaging_outbox', 'embeddings_metadata', 'message_send_idempotency'],
     referenceDataTables: [],
     tables: [
       // Core messaging tables (migration 1711800000000)

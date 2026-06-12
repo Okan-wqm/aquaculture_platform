@@ -32,6 +32,22 @@ describe('deploy SSOT contract', () => {
     }
   });
 
+  it('retains exactly the manifest-protected rollback generation in safe GC (INFRA-HIGH-013)', () => {
+    const capacity = read('scripts/deploy/droplet-capacity.sh');
+    // Every deploy retags the previous generation as rollback-<sha>-<ts>;
+    // without an explicit retention pass those retags never match the
+    // SHA-only filter and accumulate ~a full image set per deploy (the
+    // capacity gate blocked the merge train 3x on 2026-06-11).
+    expect(capacity).toContain('rollback-*)');
+    expect(capacity).toContain('remove superseded rollback retag');
+    expect(capacity).toContain('keep protected rollback retag');
+    // Untag passes must convert into reclaimed bytes — the final
+    // dangling-only prune is what fixes the historical before=after
+    // symptom.
+    expect(capacity).toContain('removed_rollback_retags=');
+    expect(capacity).toContain('GC_DRY_RUN');
+  });
+
   it('keeps production deploy scripts away from local builds and volume pruning', () => {
     const script = [
       read('scripts/deploy/droplet-up.sh'),
@@ -162,6 +178,20 @@ describe('deploy SSOT contract', () => {
         expect(block).toMatch(/DATABASE_MIGRATIONS_RUN:\s*["']false["']/);
       }
     }
+  });
+
+  it('gates post-deploy verification on an actual deployment (INFRA-MEDIUM-005)', () => {
+    // A reusable-workflow caller's `result == success` only proves the
+    // called workflow did not fail; the internal deploy job legitimately
+    // skips on docs/registry-only pushes. Verification must key on the
+    // explicit production-mutation contract or every ceremony commit
+    // goes red against an untouched, healthy production.
+    const deployWorkflow = read('.github/workflows/deploy-digitalocean.yml');
+    const ciAffected = read('.github/workflows/ci-affected.yml');
+    expect(deployWorkflow).toContain('deployed:');
+    expect(deployWorkflow).toContain("value: ${{ jobs.deploy.outputs.performed == 'true' }}");
+    expect(deployWorkflow).toContain('Mark deployment performed');
+    expect(ciAffected).toContain("needs.deploy.outputs.deployed == 'true'");
   });
 
   it('verifies SHA images and capacity before SSH mutation', () => {

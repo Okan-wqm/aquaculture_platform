@@ -6,6 +6,7 @@ import {
   SchemaDriftModule,
   createSchemaVersionGate,
   createServiceTypeOrmConfig,
+  isSchemaDdlOwnedByDbMigrate,
 } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
@@ -46,6 +47,16 @@ import { SystemModule } from './modules/system-module/system-module.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 
 const AuthMigrationRunnerService = createSchemaVersionGate('auth');
+
+/**
+ * PR#363 port — runtime DDL authority gate. When aqua-db-migrate owns
+ * schema DDL (production/staging default, explicit via
+ * DB_MIGRATE_AUTHORITATIVE), the RLS auto-apply bootstrap is NOT
+ * registered: auth's RLS hardening runs from
+ * SCHEMA_REGISTRY['auth'].postMigrationHardening instead. Local/dev
+ * keeps autoApply as the historical bootstrap convenience.
+ */
+const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 
 @Module({
   imports: [
@@ -338,7 +349,10 @@ const AuthMigrationRunnerService = createSchemaVersionGate('auth');
      */
     RlsModule.forPoolService({
       serviceName: 'auth',
-      autoApply: true,
+      // PR#363 port: autoApply only when db-migrate is NOT authoritative.
+      // Production/staging get the same policies from
+      // SCHEMA_REGISTRY['auth'].postMigrationHardening (same excludeTables).
+      autoApply: !authSchemaDdlOwnedByDbMigrate,
       excludeTables: ['auth_outbox', 'audit_log', 'audit_logs', 'users', 'tenants'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */

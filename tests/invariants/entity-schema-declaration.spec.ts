@@ -132,6 +132,8 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   /stripe-webhook-event\.entity\.ts$/i,
   /audit-entry\.entity\.ts$/i,
   /embeddings-metadata\.entity\.ts$/i,
+  // Send-idempotency ledger (DATA-HIGH-007): cross-tenant unique anchor.
+  /message-send-idempotency\.entity\.ts$/i,
 ];
 
 const TENANT_OWNED_FILENAME_OVERRIDES = new Set<string>([
@@ -165,7 +167,7 @@ function listEntityFiles(): string[] {
 
 function getServiceFromPath(relativePath: string): string | null {
   const m = /^apps\/([^/]+)\//.exec(relativePath);
-  return m ? m[1] : null;
+  return m?.[1] ?? null;
 }
 
 function isCrossTenantFilename(relativePath: string): boolean {
@@ -261,7 +263,7 @@ describe('INVARIANT — entity-schema-declaration (ADR-011)', () => {
         const schemaMatch = args.match(
           /\bschema\s*:\s*['"]([a-z_][a-z0-9_]*)['"]/i,
         );
-        const declaredSchema = schemaMatch ? schemaMatch[1] : null;
+        const declaredSchema = schemaMatch?.[1] ?? null;
 
         if (shouldDeclareSchema && !hasSchema) {
           violations.push({

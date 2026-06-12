@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import type { EntitySchema, MixedList } from 'typeorm';
 
+import {
+  hasDbMigrateDdlAuthority,
+  resolveDbMigrateAuthoritativeFromConfig,
+} from './db-migrate-authority.util';
 import { MIGRATION_LEDGER_TABLE } from './migration-ledger';
 import { buildDatabaseSslConfig } from './ssl-config';
 
@@ -232,17 +236,16 @@ export function createServiceTypeOrmConfig(
       : opts.migrationsRun ?? false;
   const nodeEnv = process.env['NODE_ENV'];
   const aquaEnv = configService.get<string>('AQUA_ENV', nodeEnv ?? 'development');
-  const dbMigrateAuthoritative =
-    configService.get<string>(
-      'DB_MIGRATE_AUTHORITATIVE',
-      nodeEnv === 'production' ? 'true' : 'false',
-    ) === 'true';
+  // SSOT resolution (PR#363 design): authority comes from the shared
+  // strict-parse resolver — a malformed DB_MIGRATE_AUTHORITATIVE value
+  // throws here, at DataSource-config time, before any pool is opened.
+  const dbMigrateAuthoritative = resolveDbMigrateAuthoritativeFromConfig(configService);
   const isProductionLike =
     nodeEnv === 'production' ||
     aquaEnv === 'production' ||
     aquaEnv === 'staging';
   const synchronize = configService.get('DATABASE_SYNC', 'false') === 'true';
-  if (process.env['DB_MIGRATE_DDL_AUTHORITY'] === '1') {
+  if (hasDbMigrateDdlAuthority()) {
     throw new Error(
       `[${opts.serviceName}] DB_MIGRATE_DDL_AUTHORITY=1 is only valid inside aqua-db-migrate; ` +
         'runtime services must not receive DDL-authority credentials or env.',

@@ -113,9 +113,17 @@ jobs:
             fuzz-st-parser-
 
       - name: Install cargo-fuzz (if not cached)
+        # +nightly is load-bearing: this step runs at the repo root, where
+        # rust-toolchain.toml pins channel 1.88.0 — a bare `cargo install`
+        # resolves through that pin and dies the moment cargo-fuzz's locked
+        # dependency tree raises its MSRV (2026-06-11: cargo-platform@0.3.3
+        # requires rustc 1.91, EDGE-MEDIUM-002). The fuzz-run step below
+        # already invokes `cargo +nightly fuzz` for the same reason; the
+        # install step now follows the same convention, so the workflow is
+        # immune to both the root pin and future MSRV bumps.
         run: |
           if ! command -v cargo-fuzz >/dev/null 2>&1; then
-            cargo install cargo-fuzz --locked
+            cargo +nightly install cargo-fuzz --locked
           fi
 
       - name: Run fuzz cycle

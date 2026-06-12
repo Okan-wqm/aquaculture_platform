@@ -106,8 +106,16 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (args.tenantRollbackTarget === 'all') {
         throw new Error('[db-migrate] tenant-schema-rollback accepts only one of --tenant or --all.');
       }
+      // PR#363 port: duplicate value-flags must fail loud — silently
+      // letting the LAST occurrence win hides operator typos on a
+      // rollback CLI where the wrong target is a data-loss event.
+      if (args.tenantRollbackTenant !== undefined) {
+        throw new Error('[db-migrate] Duplicate CLI flag: --tenant');
+      }
       const raw = argv[i + 1];
-      if (raw === undefined || raw.length === 0) {
+      // PR#363 port: a `--`-prefixed lookahead means the VALUE is missing
+      // and the next flag would be swallowed as the value.
+      if (raw === undefined || raw.length === 0 || raw.startsWith('--')) {
         throw new Error('[db-migrate] --tenant requires a tenant id or tenant schema name.');
       }
       args.tenantRollbackTarget = 'tenant';
@@ -119,8 +127,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           '[db-migrate] tenant-schema-provisioner cannot be combined with rollback flags.',
         );
       }
+      if (args.down !== undefined) {
+        throw new Error('[db-migrate] Duplicate CLI flag: --down');
+      }
       const raw = argv[i + 1];
-      if (raw === undefined) {
+      if (raw === undefined || raw.startsWith('--')) {
         throw new Error(
           '[db-migrate] --down requires an integer argument: --down <N>',
         );
@@ -139,8 +150,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           '[db-migrate] tenant-schema-provisioner cannot be combined with rollback flags.',
         );
       }
+      if (args.schema !== undefined) {
+        throw new Error('[db-migrate] Duplicate CLI flag: --schema');
+      }
       const raw = argv[i + 1];
-      if (raw === undefined || raw.length === 0) {
+      if (raw === undefined || raw.length === 0 || raw.startsWith('--')) {
         throw new Error(
           '[db-migrate] --schema requires a schema name: --schema <name>',
         );
@@ -149,6 +163,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       i += 1;
     } else if (flag !== undefined && flag.startsWith('--')) {
       throw new Error(`[db-migrate] Unknown CLI flag: ${flag}`);
+    } else if (flag !== undefined) {
+      // PR#363 port: an unknown positional was previously IGNORED — a
+      // typo'd subcommand (`tenant-schema-provisioneer`) silently fell
+      // through to the default up-all migration run. Operator CLIs fail
+      // loud at the boundary.
+      throw new Error(`[db-migrate] Unexpected positional argument: ${flag}`);
     }
   }
   if (args.down !== undefined && args.schema === undefined) {

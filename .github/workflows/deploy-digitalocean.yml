@@ -33,6 +33,18 @@ on:
   # if it cannot start, CI Affected itself fails (visible signal),
   # rather than the deploy silently no-firing (invisible failure mode).
   workflow_call:
+    # WHY `deployed` exists (INFRA-MEDIUM-005): the caller's
+    # `needs.deploy.result == 'success'` only proves this WORKFLOW did not
+    # fail — the internal `deploy` job is legitimately SKIPPED on no-op
+    # pushes (docs/registry-only), yet the workflow still concludes
+    # success and the caller would run post-deploy verification against a
+    # deployment that never happened (false-negative red on every
+    # ceremony commit). This output is the explicit "production was
+    # actually mutated" contract.
+    outputs:
+      deployed:
+        description: 'true only when the production droplet deploy step ran and succeeded'
+        value: ${{ jobs.deploy.outputs.performed == 'true' }}
     inputs:
       services:
         description: 'Services to deploy (comma-separated, "all", or "auto")'
@@ -1155,6 +1167,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 80
     environment: production
+    outputs:
+      # Set by the final step of this job — only a job that reached the
+      # end of an actual droplet mutation reports performed=true.
+      performed: ${{ steps.mark_performed.outputs.performed }}
     permissions:
       contents: write
       packages: read
@@ -1225,6 +1241,10 @@ jobs:
           git push -f origin deployed/production
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Mark deployment performed
+        id: mark_performed
+        run: echo "performed=true" >> "$GITHUB_OUTPUT"
 
       # SEC-CI-005: Removed echo of DROPLET_HOST to prevent leaking server IP in logs
       - name: Verify deployment

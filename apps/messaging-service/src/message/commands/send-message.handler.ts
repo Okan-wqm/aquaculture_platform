@@ -1,5 +1,5 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { Logger, BadRequestException, Inject } from '@nestjs/common';
+import { Logger, BadRequestException, ConflictException, Inject } from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
 import { randomUUID as uuidv4 } from 'crypto';
 import Redis from 'ioredis';
@@ -12,6 +12,7 @@ import { Message, MessageContentType } from '../entities/message.entity';
 import { MessageAttachment } from '../entities/message-attachment.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
+import { MessageSendIdempotency } from '../entities/message-send-idempotency.entity';
 import { sanitizeContent, validateUrlSchemes } from '../../shared/sanitize';
 import { MentionService } from '../services/mention.service';
 import { MediaService } from '../services/media.service';
@@ -25,11 +26,17 @@ const IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
  * Handler for SendMessageCommand — the most critical handler in the system.
  *
  * Flow:
- * 1. Check Redis idempotency key; if exists, return existing message (no duplicate)
+ * 1. Check Redis idempotency key (fast-path CACHE only); if it resolves
+ *    to an existing message, return it without touching the DB
  * 2. Sanitize content (strip HTML, validate URL schemes)
- * 3. Inside a single DB transaction: INSERT message + INSERT outbox event
+ * 3. Inside a single DB transaction: claim the partition-free
+ *    message_send_idempotency ledger row via INSERT ... ON CONFLICT DO
+ *    NOTHING (the AUTHORITY — Redis is fail-open by design, and the
+ *    partitioned messages table cannot carry a global UNIQUE on the
+ *    idempotency key), then INSERT message + INSERT outbox event; a
+ *    conflicted claim returns the original message instead
  * 4. After transaction: SET Redis idempotency key with 7-day TTL
- * 5. Return created message
+ * 5. Return created (or original) message
  */
 @CommandHandler(SendMessageCommand)
 export class SendMessageHandler implements ICommandHandler<SendMessageCommand, Message> {
@@ -123,8 +130,67 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     const messageId = uuidv4();
     const now = new Date();
 
+    let reusedExisting = false;
+
     const createdMessage = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       const { manager } = queryRunner;
+
+      // ── 4a-0. Authoritative idempotency claim (cluster-8 DİLİM-1) ──
+      // The ledger row is claimed in the SAME transaction as the message
+      // insert: if this transaction commits, claim+message are atomic; if
+      // a concurrent send holds the claim, our INSERT waits on the unique
+      // index until that transaction commits, then conflicts — so the
+      // read below always sees the committed original. Redis above is
+      // only a fast-path cache (fail-open by design); this is the
+      // authority that makes duplicates structurally impossible.
+      const claim = await manager
+        .createQueryBuilder()
+        .insert()
+        .into(MessageSendIdempotency)
+        .values({
+          tenantId,
+          channelId,
+          senderId,
+          idempotencyKey,
+          messageId,
+          messageCreatedAt: now,
+        })
+        .orIgnore()
+        .returning('"messageId"')
+        .execute();
+
+      // WHY raw, not identifiers: for a non-generated composite PK
+      // TypeORM fabricates InsertResult.identifiers from the VALUES
+      // passed in — they are non-empty even when ON CONFLICT DO NOTHING
+      // skipped the row. The RETURNING set (raw) is the only truthful
+      // conflict signal: empty ⇔ the claim was skipped. Proven by the
+      // real-DB e2e (a duplicate slipped through the identifiers check).
+      const claimedRows: unknown = claim.raw;
+      const claimCount = Array.isArray(claimedRows) ? claimedRows.length : 0;
+      if (claimCount === 0) {
+        const prior = await manager.findOne(MessageSendIdempotency, {
+          where: { tenantId, channelId, senderId, idempotencyKey },
+        });
+        if (!prior) {
+          throw new ConflictException(
+            'Idempotency claim conflicted but the ledger row is unreadable.',
+          );
+        }
+        const existing = await manager.findOne(Message, {
+          // messageCreatedAt narrows the partition scan to the original
+          // message's partition (createdAt is the partition key).
+          where: { tenantId, id: prior.messageId, createdAt: prior.messageCreatedAt },
+          relations: ['attachments'],
+        });
+        if (!existing) {
+          throw new ConflictException(
+            'Idempotency ledger references a message that no longer exists.',
+          );
+        }
+        reusedExisting = true;
+        return existing;
+      }
+
       let mentionedUserIds: string[] = [];
 
       if (sanitizedContent) {
@@ -217,8 +283,11 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     // ── 5. Set idempotency key in Redis (after successful transaction) ─
     await this.safeRedisSetEx(idemKey, IDEMPOTENCY_TTL_SECONDS, createdMessage.id);
 
-    // ── 6. Record Prometheus metric ──────────────────────────────────────
-    this.metricsService.incrementMessages(tenantId, contentType, 'unknown');
+    // ── 6. Record Prometheus metric (new sends only — a reused original
+    // is not a new message) ──────────────────────────────────────────────
+    if (!reusedExisting) {
+      this.metricsService.incrementMessages(tenantId, contentType, 'unknown');
+    }
 
     this.logger.debug(
       `Message created: id=${createdMessage.id}, channel=${channelId}, sender=${senderId}`,

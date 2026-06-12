@@ -85,6 +85,8 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   /stripe-webhook-event\.entity\.ts$/i,
   /audit-entry\.entity\.ts$/i,
   /embeddings-metadata\.entity\.ts$/i,
+  // Send-idempotency ledger (DATA-HIGH-007): cross-tenant unique anchor.
+  /message-send-idempotency\.entity\.ts$/i,
 ];
 
 const TENANT_OWNED_FILENAME_OVERRIDES = new Set<string>([

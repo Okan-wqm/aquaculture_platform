@@ -130,6 +130,32 @@ function makeMockDataSource(opts: {
 }
 
 describe('TenantRlsSyncService', () => {
+  // Pre-existing red fixed with the PR#363 port: `applyTenantRlsToSchema`
+  // hard-requires the db-migrate capability env (DB_MIGRATE_DDL_AUTHORITY=1)
+  // since the helper-level authority guard landed, so the sweep-mechanics
+  // tests must run in the ONLY context where the DDL path is legal (the
+  // same context messaging-service uses to gate syncTenantSchemas). The
+  // authoritative-mode test below overrides both keys explicitly.
+  const originalEnv = {
+    DB_MIGRATE_DDL_AUTHORITY: process.env['DB_MIGRATE_DDL_AUTHORITY'],
+    DB_MIGRATE_AUTHORITATIVE: process.env['DB_MIGRATE_AUTHORITATIVE'],
+  };
+
+  beforeEach(() => {
+    process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
+    Reflect.deleteProperty(process.env, 'DB_MIGRATE_AUTHORITATIVE');
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+
   describe('onApplicationBootstrap', () => {
     it('runs no-op gracefully when no tenant schemas exist', async () => {
       const mock = makeMockDataSource({ schemas: [] });
@@ -224,6 +250,26 @@ describe('TenantRlsSyncService', () => {
       // No discovery, no runners.
       expect(mock.createdRunners).toBe(0);
       expect(mock.releasedRunners).toBe(0);
+    });
+
+    it('fails before tenant discovery in authoritative mode (PR#363 port)', async () => {
+      // Runtime-service context: no db-migrate capability env, explicit
+      // authoritative mode → the choke-point must throw before discovery.
+      // (Suite-level afterEach restores both keys.)
+      Reflect.deleteProperty(process.env, 'DB_MIGRATE_DDL_AUTHORITY');
+      process.env['DB_MIGRATE_AUTHORITATIVE'] = 'true';
+
+      const mock = makeMockDataSource({
+        schemas: ['tenant_4b529829ea7948da'],
+      });
+      const service = new TenantRlsSyncService(mock.ds, {
+        serviceName: 'farm',
+      });
+
+      await expect(service.onApplicationBootstrap()).rejects.toThrow(/Runtime DDL operation/i);
+      // Fail-fast contract: no QueryRunner may be created — the
+      // violation surfaces before any tenant schema is enumerated.
+      expect(mock.createdRunners).toBe(0);
     });
   });
 });

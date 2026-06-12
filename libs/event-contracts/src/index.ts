@@ -50,6 +50,7 @@ export * from './ingest-backend-policy';
 export * from './upcasters';
 
 // Runtime JSON Schema validators for trust-boundary crossing (H-3)
+export * from './auth-user-queries';
 export * from './schemas';
 
 // Re-export all domain union types for convenience

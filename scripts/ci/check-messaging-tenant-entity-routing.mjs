@@ -7,6 +7,10 @@ const serviceRoot = join(repoRoot, 'apps/messaging-service/src');
 const allowedSourceEntities = new Set([
   'apps/messaging-service/src/ai/entities/embeddings-metadata.entity.ts',
   'apps/messaging-service/src/outbox/messaging-outbox.entity.ts',
+  // Cross-tenant send-idempotency ledger (DATA-HIGH-007): explicit
+  // schema 'messaging', SourceOnlyMigration — the partition-free unique
+  // anchor for send dedup.
+  'apps/messaging-service/src/message/entities/message-send-idempotency.entity.ts',
 ]);
 
 function walk(dir, files = []) {

@@ -6,6 +6,7 @@
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import Redis from 'ioredis';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import {
   createE2eTestApp,
   gqlRequest,
@@ -129,6 +130,44 @@ describe('Messaging Core (E2E)', () => {
 
       expect(res.body.errors).toBeUndefined();
       expect(res.body.data.sendMessage.id).toBe(messageId);
+    });
+
+    it('stays idempotent through the DB ledger when the Redis fast-path is gone (MSG-MEDIUM-003)', async () => {
+      // The Redis-hit branch above never reaches the ledger; this test
+      // exercises the ledger's entire reason to exist — evict the cache
+      // key and prove the ON CONFLICT claim + partition-pruned lookup
+      // return the ORIGINAL message against a real Postgres.
+      await redis.del(`msg:${TENANT_A}:idem:${idemKey}`);
+
+      const res = await gqlRequest(httpServer, TENANT_A, USER_A1)
+        .query(`
+          mutation SendMessage($input: SendMessageInput!) {
+            sendMessage(input: $input) { id }
+          }
+        `, {
+          input: {
+            channelId,
+            content: 'Redis silindikten sonra tekrar',
+            contentType: 'TEXT',
+            idempotencyKey: idemKey,
+          },
+        })
+        .expect(200);
+
+      expect(res.body.errors).toBeUndefined();
+      expect(res.body.data.sendMessage.id).toBe(messageId);
+
+      const msgRows = (await dataSource.query(
+        `SELECT count(*)::int AS count FROM "${getTenantSchemaName(TENANT_A)}"."messages" WHERE "idempotencyKey" = $1`,
+        [idemKey],
+      )) as Array<{ count: number }>;
+      expect(msgRows[0]?.count).toBe(1);
+
+      const ledgerRows = (await dataSource.query(
+        `SELECT count(*)::int AS count FROM messaging.message_send_idempotency WHERE "idempotencyKey" = $1`,
+        [idemKey],
+      )) as Array<{ count: number }>;
+      expect(ledgerRows[0]?.count).toBe(1);
     });
 
     it('should edit own message', async () => {

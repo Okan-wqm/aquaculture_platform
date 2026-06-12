@@ -50,15 +50,21 @@ const require_ = createRequire(__filename);
 const eslintPkg = require_('eslint/package.json') as { version: string };
 const eslintMajor = parseInt(eslintPkg.version, 10);
 type TesterConfig = ConstructorParameters<typeof RuleTester>[0];
+// The two config shapes are mutually-exclusive types across ESLint majors, and
+// which branch needs a cast flips with the installed major. CI runs ESLint 9
+// (the gate authority): the v9 flat shape is assignable to RuleTester.Config
+// as-is, while the v8 eslintrc shape needs the assertion. (Under local ESLint 8
+// the necessity flips, but the husky gate runs these specs, it does not lint
+// them — CI is where no-unnecessary-type-assertion adjudicates.)
 const ruleTesterConfig: TesterConfig =
   eslintMajor >= 9
-    ? ({
+    ? {
         languageOptions: {
           parser: require_('@typescript-eslint/parser') as object,
           ecmaVersion: 2022,
           sourceType: 'module',
         },
-      } as TesterConfig)
+      }
     : ({
         parser: require_.resolve('@typescript-eslint/parser'),
         parserOptions: { ecmaVersion: 2022, sourceType: 'module' },

@@ -12,56 +12,19 @@ yanked = "deny"
 # Each ignored advisory MUST carry: (a) a tracking finding id, (b) an
 # explicit owner, (c) a deadline, (d) the threat-model justification.
 # Anything that cannot satisfy all four belongs in the build, not in
-# this list. Ignores are reviewed at every quarterly security audit.
+# this list. Ignores are reviewed at every quarterly security audit, and
+# scripts/ci/check-advisory-ignore-sync.ts fails CI on any entry whose
+# deadline has passed or that drifts from .cargo/audit.toml / the CI
+# --ignore flags.
 #
-# RUSTSEC-2026-0098 / RUSTSEC-2026-0099 — rustls-webpki 0.102.8 wildcard
-#   cert name-constraint validation bugs.
-#   Reachable via: rumqttc 0.25.1 -> rustls-webpki 0.102.8.
-#   Upstream blocker: rumqttc master (commit 2167da05a66) still pins
-#     rustls-webpki = "0.102.8" — bumping it requires an upstream PR
-#     (https://github.com/bytebeamio/rumqtt) and a release. async-nats
-#     0.47 is already on rustls-webpki 0.103.12, so the workspace
-#     resolves both versions side-by-side; only the rumqttc-fed
-#     instance is vulnerable.
-#   Threat model justification: the CVEs allow a misissued certificate
-#     with permitted-subtree name constraints to validate when it
-#     should not. Our MQTT connection trusts the platform's internal
-#     PKI (we issue every cert), not a public CA. An attacker would
-#     have to compromise the platform CA to mint such a cert — at
-#     which point this CVE is the least of our problems.
-#   Tracking: docs/reviews/_registry/findings.jsonl  RUST-CVE-001 (HIGH)
-#   Owner: Okan-Wqm
-#   Deadline: 2026-06-30 (re-evaluate when rumqttc cuts a release with
-#     bumped webpki, OR fork rumqttc to crates/local-rumqttc, OR move
-#     to mqtt-async-client / paho-mqtt-rs alternative).
-ignore = [
-    "RUSTSEC-2026-0098",
-    "RUSTSEC-2026-0099",
-    # RUSTSEC-2026-0049 — rustls-webpki CRL Distribution Point matching
-    #   bug. Same upstream blocker (rumqttc 0.25.1 -> webpki 0.102.8).
-    #   Same threat model justification: we trust the platform PKI, we
-    #   do not consume third-party CRLs in the MQTT path. Covered by
-    #   the same finding RUST-CVE-001.
-    "RUSTSEC-2026-0049",
-    # RUSTSEC-2026-0104 — rustls-webpki reachable panic in CRL parsing.
-    #   Published 2026-04-22. The rustls-webpki 0.103.12 instance was
-    #   upgraded to 0.103.13 (patched) via `cargo update -p
-    #   rustls-webpki@0.103.12 --precise 0.103.13`. Only the 0.102.8
-    #   instance remains, locked by rumqttc 0.25.1's pin — same
-    #   upstream blocker as the other rumqttc-chain advisories.
-    #   Threat model: the CRL parser panic requires an attacker-
-    #   controlled CRL to reach rustls-webpki. The MQTT broker is the
-    #   only party in a position to send a CRL on the vulnerable path,
-    #   and it is operated by us — a malicious CRL would require
-    #   compromising our broker first. Covered by RUST-CVE-001.
-    "RUSTSEC-2026-0104",
-    # RUSTSEC-2025-0134 — rustls-pemfile unmaintained advisory.
-    #   Same upstream chain: rumqttc 0.25.1 pins
-    #   rustls-pemfile = "2.2.0", reported unmaintained. Not a
-    #   vulnerability, just an unmaintained notice. Same finding
-    #   RUST-CVE-001 covers the replacement strategy.
-    "RUSTSEC-2025-0134",
-]
+# 2026-06-11 — RUST-CVE-001 RESOLVED: the rumqttc-chain ignores
+# (RUSTSEC-2026-0098/0099/0049/0104, RUSTSEC-2025-0134) were removed.
+# rumqttc now resolves to the vendored fork at crates/local-rumqttc
+# (rustls-webpki >= 0.103, PEM decoding via rustls-pki-types), and the
+# testcontainers 0.27 bump cleared the last rustls-pemfile consumer
+# (bollard >= 0.20). The [bans] table below makes reintroduction of
+# either vulnerable line a build failure, not an audit warning.
+ignore = []
 
 [licenses]
 allow = [
@@ -103,6 +66,12 @@ deny = [
     { name = "openssl" },
     { name = "openssl-sys" },
     { name = "native-tls" },
+    # RUST-CVE-001 regression guards: the vulnerable rustls-webpki line
+    # (RUSTSEC-2026-0098/0099/0049/0104) and the unmaintained
+    # rustls-pemfile (RUSTSEC-2025-0134) must never re-enter the graph.
+    # The fix lives in crates/local-rumqttc (see UPSTREAM.md).
+    { name = "rustls-webpki", version = "<0.103" },
+    { name = "rustls-pemfile" },
 ]
 
 [sources]

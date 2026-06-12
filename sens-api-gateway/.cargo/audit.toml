@@ -30,25 +30,12 @@
 # has not yet released a version with the fix). Each must be tracked.
 ignore = [
     # -----------------------------------------------------------------
-    # rustls-webpki 0.102.8 advisory chain — rumqttc 0.25.1 transitive
+    # EDGE-CI-001 RESOLVED 2026-06-11 (RUST-CVE-001): the rustls-webpki
+    # 0.102.8 chain (RUSTSEC-2026-0098/0099/0049/0104) was removed —
+    # rumqttc resolves to the vendored fork at ../crates/local-rumqttc
+    # (decision path (a) from the original entry: suderra fork bumping
+    # rustls-webpki to >= 0.103). Regression blocked by deny.toml [bans].
     # -----------------------------------------------------------------
-    # Finding: EDGE-CI-001
-    # Owner:   platform-team (okan@noras-wt.com)
-    # Deadline: 2026-07-01
-    # Upstream: rumqttc/bytebeamio — main branch (2026-04-20 check) still
-    #   carries rustls-webpki 0.102.8. A rumqttc 0.26+ release is expected
-    #   but not yet shipped. Impact on us: we pin leaf cert fingerprints
-    #   (Batch 11 mTLS types) so name-constraint / CRL validation code
-    #   paths are NOT exercised by our deployment — the advisories are
-    #   theoretical risk only.
-    # Mitigation: Sprint 6.8 mTLS runtime wiring uses SHA-256 fingerprint
-    #   pinning, not name-constraint validation. If rumqttc 0.26 does not
-    #   ship by 2026-07-01, decision path: (a) suderra fork of rumqttc
-    #   bumping rustls-webpki, OR (b) replace with paho-mqtt-rust.
-    "RUSTSEC-2026-0098", # Name constraints for URI names incorrectly accepted
-    "RUSTSEC-2026-0099", # Name constraints accepted for wildcard cert asserts
-    "RUSTSEC-2026-0049", # CRLs not considered authoritative by Distribution Point
-    "RUSTSEC-2026-0104", # Reachable panic in CRL parsing; rumqttc upstream-blocked
 
     # -----------------------------------------------------------------
     # rsa 0.9.10 Marvin Attack (RUSTSEC-2023-0071) — NO UPSTREAM FIX
@@ -93,12 +80,10 @@ ignore = [
     #   an issue tracking this migration.
     "RUSTSEC-2024-0388",
 
-    # Finding: EDGE-CI-005 — rustls-pemfile 2.2.0 unmaintained
-    # Owner: platform-team; Deadline: 2026-07-01 (with rumqttc 0.26)
-    # Why: Same rumqttc 0.25.1 transitive as rustls-webpki 0.102.8.
-    #   rumqttc 0.26 is expected to switch to `rustls-pki-types` (the
-    #   successor). Removal tied to EDGE-CI-001 resolution.
-    "RUSTSEC-2025-0134",
+    # Finding: EDGE-CI-005 RESOLVED 2026-06-11 (RUST-CVE-001) —
+    #   RUSTSEC-2025-0134 removed; the local-rumqttc fork decodes PEM
+    #   via rustls-pki-types, clearing rustls-pemfile from this
+    #   workspace's graph. Regression blocked by deny.toml [bans].
 
     # Finding: EDGE-CI-006 — atomic-polyfill 1.0.3 unmaintained
     # Owner: platform-team; Deadline: 2026-09-01
@@ -106,4 +91,13 @@ ignore = [
     #   to std::sync::atomic in nightly but stable API still uses
     #   atomic-polyfill. No active vulnerability.
     "RUSTSEC-2023-0089",
+
+    # Finding: EDGE-CI-007 — proc-macro-error2 2.0.1 unmaintained
+    # Owner: platform-team; Deadline: 2026-10-01
+    # Why: Build-time-only transitive (proc-macro-error2 <- defmt-macros <-
+    #   defmt <- lorawan stack); never reaches the shipped binary. This
+    #   entry was present in deny.toml + sens-api-gateway-ci.yml but had
+    #   never been mirrored here — drift caught 2026-06-11 by
+    #   scripts/ci/check-advisory-ignore-sync.ts on its first run.
+    "RUSTSEC-2026-0173",
 ]

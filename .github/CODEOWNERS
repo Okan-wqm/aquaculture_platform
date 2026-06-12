@@ -53,6 +53,14 @@ tools/gates/migration-sql-lint.ts            @Okan-wqm
 docs/reviews/_registry/          @Okan-wqm
 docs/reviews/overrides/          @Okan-wqm
 
+# ── Vendored upstream forks (supply chain) ────────────────────────────
+# RUST-CVE-001 / SUPPLY-MEDIUM-002: a [patch.crates-io] path crate has no
+# registry checksum — code shipped under the upstream name changes with a
+# plain file edit. Owner review + the fork-hygiene CI gate are the
+# compensating controls.
+crates/local-rumqttc/            @Okan-wqm
+scripts/ci/check-advisory-ignore-sync.ts     @Okan-wqm
+
 # ── Invariant test suite ──────────────────────────────────────────────
 # Constants file is the single source of truth for schema-owning-services
 # allowlist; edits cascade to adoption-invariants + provision-tenant skill.

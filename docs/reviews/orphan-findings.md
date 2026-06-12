@@ -3778,3 +3778,23 @@ Düzeltme yönü: provisioner `APPLYING_GRANTS` aşamasına tenant-şema runtime
 Status: OPEN (2026-06-11; sahip: data-expert; kuyruktaki provisioner/compliance yapısal PR kapsamına bağlandı).
 
 Güncelleme (2026-06-11, DATA-HIGH-006 PR'ı): **messaging-partition dilimi SSOT'a bağlandı** — provisioner APPLYING_GRANTS artık `grantTenantMessagingPartitionAuthority` ile her yeni tenant şemasında messaging-domain ilişkilerini `messaging_schema_owner`'a re-own edip şema USAGE+CREATE veriyor; Stage-010 mevcut şemaları idempotent backfill'liyor. Kalan kapsam (diğer servislerin runtime-DML grant SSOT'u) bu bulguda AÇIK durmaya devam ediyor.
+
+## ORPHAN-MEDIUM-089 — messaging-service /metrics serves only the domain registry; http_*/nodejs_* families absent
+
+Severity: MEDIUM. `apps/messaging-service/src/metrics/metrics.controller.ts` serves `MessagingMetricsService`'s private registry only. The platform HTTP families (`http_request_duration_seconds`, `http_requests_total`, `http_requests_in_flight`) and Node.js runtime metrics are never collected or exposed for messaging-service — request-latency SLO dashboards have a blind spot on a criticality-critical service.
+
+Root cause: messaging built its scrape endpoint before the canonical `ServiceMetricsModule` became drop-in (OBS-HIGH-001); two controllers cannot share the GET /metrics route, so it could not simply add the canonical module on top.
+
+Fix direction: replace the bespoke controller with the canonical `ServiceMetricsModule` import and surface the messaging domain registry through `ServiceMetricsService.registerContributor('messaging-domain', registry)` — exactly the farm-service pattern landed in OBS-HIGH-001 (`apps/farm-service/src/common/metrics/farm-metrics.module.ts` is the reference). Scrape path and metric names are unchanged, output becomes a superset; the metrics-endpoint-adoption invariant accepts both shapes throughout the transition.
+
+Status: OPEN (2026-06-11; owner: messaging-expert; surfaced during OBS-HIGH-001 Wave B1 verification).
+
+## ORPHAN-HIGH-090 — Droplet production runs NO metrics collector; every /metrics endpoint is unscraped
+
+Severity: HIGH. `docker-compose.droplet.yml` ships no Prometheus/agent container, and `infrastructure/monitoring/` (kube-prometheus-stack values, annotation-based discovery) targets a Kubernetes deployment that is not the droplet runtime. After OBS-HIGH-001 every backend exposes GET /metrics, but on the droplet nothing collects them — the series exist only at scrape-time and are lost.
+
+Root cause: the monitoring stack was designed for the K8s topology; the droplet path (ADR-033) never received a collector, and until OBS-HIGH-001 there was no catalog SSoT (`metricsExposure`/`metricsPort`) from which scrape targets could even be generated.
+
+Fix direction: add a Prometheus (or agent-mode) container to the droplet compose with a scrape config GENERATED from the service catalog (`generate-artifacts.ts` gains a scrape-targets artifact derived from `metricsExposure === 'prom-endpoint'` entries + `metricsPort`), including the `x-internal-api-key` header for observability-service's gated endpoint; wire retention/resource limits to droplet capacity constraints. The catalog fields landed in OBS-HIGH-001 are the designed input for exactly this generator.
+
+Status: OPEN (2026-06-11; owner: observability-expert; natural Wave B2 follow-on of the s1-remediation program).

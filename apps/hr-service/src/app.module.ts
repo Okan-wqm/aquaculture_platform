@@ -20,6 +20,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import {
   CorrelationIdMiddleware,
   createTenantSchemaMiddleware,
@@ -295,6 +296,9 @@ interface ApolloGraphQLContext {
     SchedulingModule,
     PerformanceModule,
     HealthModule,
+    // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
+    // middleware (self-contained platform module — controller is @Public()).
+    ServiceMetricsModule,
     /**
      * HR-HIGH-015: Transactional outbox for at-least-once event delivery.
      * Replaces fire-and-forget EventBus.publish() with outbox pattern.

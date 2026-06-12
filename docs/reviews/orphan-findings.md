@@ -3798,3 +3798,27 @@ Root cause: the monitoring stack was designed for the K8s topology; the droplet 
 Fix direction: add a Prometheus (or agent-mode) container to the droplet compose with a scrape config GENERATED from the service catalog (`generate-artifacts.ts` gains a scrape-targets artifact derived from `metricsExposure === 'prom-endpoint'` entries + `metricsPort`), including the `x-internal-api-key` header for observability-service's gated endpoint; wire retention/resource limits to droplet capacity constraints. The catalog fields landed in OBS-HIGH-001 are the designed input for exactly this generator.
 
 Status: OPEN (2026-06-11; owner: observability-expert; natural Wave B2 follow-on of the s1-remediation program).
+
+---
+
+## ORPHAN-HIGH-092 — E2E - Messaging Service chronic cancellation flake (~50%)
+
+Severity: HIGH. The `E2E - Messaging Service` workflow (`E2E Tests` job) cancels on roughly half its runs — sampled last 18 = 9 cancelled / 8 success / 1 failure. Cancellations are the job hitting its own wall-clock after repeated `Exceeded timeout of 60000 ms for a hook` (Jest setup hooks), ending in `##[error]The operation was canceled` — reproduced identically on two consecutive runs of the SAME commit (B2 head 4699f72dc), so it is environmental, not a code regression. The suite is NOT in `branches/main/protection/required_status_checks`; K7 (#410, 807dc90a5) deployed to production with it never green. It therefore masks real messaging-E2E signal behind noise while blocking no merge.
+
+Root cause direction: container/service readiness race — the Jest global setup waits on TimescaleDB + Redis + NATS boot and exceeds 60s under CI load. Fix (highest tier first): (1) automatic readiness gate (healthcheck poll) before Jest starts; (2) detectable — budgeted hook timeout + loud container-state dump on timeout instead of silent cancel; (3) split container-boot out of the per-test hook budget.
+
+Discovered while gating B2 (#411). Pairs with ORPHAN-MEDIUM-055 (same E2E Postgres log surface).
+
+Status: OPEN (2026-06-12; owner: infra-expert + messaging-expert for the harness). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
+
+---
+
+## ORPHAN-MEDIUM-055 — messaging-service background sweep queries non-existent `m.embedding` column
+
+Severity: MEDIUM. The messaging-service E2E Postgres logs, on a fixed 5-minute cadence (12:50/12:55/13:00…): `ERROR: column m.embedding does not exist at character 138 … WHERE m."embedding" IS NULL`. A scheduled background worker / projection (an embedding-backfill or semantic-index sweep) filters on `m."embedding" IS NULL`, but the column does not exist in the schema the E2E migrations apply. Independent of B2 (zero embedding code touched); appears on every messaging E2E run.
+
+Query↔migration drift: either the `embedding` column migration is missing from the E2E path (the feature is silently dead) or the sweep must be feature-flag-gated until the column lands (it currently fires blindly every 5 minutes). Investigate why SchemaDriftValidator (ADR-012) does not fail-closed on the missing required column here.
+
+Discovered in the E2E Messaging logs during B2 (#411) gating. Pairs with ORPHAN-HIGH-092.
+
+Status: OPEN (2026-06-12; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.

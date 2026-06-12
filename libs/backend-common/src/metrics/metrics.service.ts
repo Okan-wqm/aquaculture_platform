@@ -84,7 +84,14 @@ export class ServiceMetricsService implements OnModuleInit, OnModuleDestroy {
     this.httpRequestDuration = new client.Histogram({
       name: 'http_request_duration_seconds',
       help: 'Duration of HTTP requests in seconds',
-      labelNames: ['method', 'route', 'status_code', 'tenant'],
+      // SECURITY/CARDINALITY (OBS-HIGH-001 follow-up): NO `tenant` label.
+      // A raw tenant id on this platform-wide, high-traffic family is both a
+      // cardinality-explosion vector (tenant × route × status × method) AND a
+      // tenant-enumeration leak on the unauthenticated /metrics surface — an
+      // unauthenticated x-tenant-id header would mint a permanent series.
+      // Per-tenant HTTP attribution belongs in traces / a bounded
+      // plan_tier-keyed family, never a raw-id scrape label.
+      labelNames: ['method', 'route', 'status_code'],
       buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
       registers: [this.registry],
     });
@@ -92,7 +99,9 @@ export class ServiceMetricsService implements OnModuleInit, OnModuleDestroy {
     this.httpRequestsTotal = new client.Counter({
       name: 'http_requests_total',
       help: 'Total number of HTTP requests',
-      labelNames: ['method', 'route', 'status_code', 'tenant'],
+      // SECURITY/CARDINALITY (OBS-HIGH-001 follow-up): no `tenant` label — see
+      // the histogram above.
+      labelNames: ['method', 'route', 'status_code'],
       registers: [this.registry],
     });
 
@@ -165,21 +174,20 @@ export class ServiceMetricsService implements OnModuleInit, OnModuleDestroy {
    * Record an HTTP request observation.
    * Called by MetricsMiddleware on response finish.
    *
-   * The tenant label enables per-tenant monitoring and alerting.
-   * Platform targets ~100 tenants max, so label cardinality is safe.
+   * No tenant dimension (OBS-HIGH-001 follow-up): per-tenant attribution on
+   * an unauthenticated, high-traffic scrape family is a cardinality +
+   * enumeration hazard. Operators slice by method/route/status_code only.
    */
   recordHttpRequest(
     method: string,
     route: string,
     statusCode: number,
     durationSeconds: number,
-    tenant: string = 'system',
   ): void {
     const labels = {
       method,
       route,
       status_code: String(statusCode),
-      tenant,
     };
     this.httpRequestDuration.observe(labels, durationSeconds);
     this.httpRequestsTotal.inc(labels);

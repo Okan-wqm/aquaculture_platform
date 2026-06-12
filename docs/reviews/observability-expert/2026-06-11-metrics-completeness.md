@@ -166,3 +166,18 @@ consciously accept it.
 - Platform-wide `npm run type-check` green.
 - Negative invariant proof: billing registration removed → spec fails;
   restored → spec green.
+
+---
+
+## Post-merge specialist audit (2026-06-12) + tenant-label security fix
+
+Two independent CATCHER audits ran on commit 46586323d:
+
+- **observability-expert:** catalog reconciliation, drop-in contract, adoption invariant, and alert-engine criticality change all PASS. Flagged the `tenant` label cardinality (OBS-HIGH-001) + the ESLint denylist gap.
+- **access-boundary-auditor:** `@Public()` mechanism is correctly scoped (exact single-route, no prefix escape; every guard short-circuits on `isPublic`); the real boundary hole is the raw-tenant label enabling enumeration. NOTE: its ABA-HIGH-002 ("worktree divergence — canonical controller un-decorated, 5 controllers, no ServiceMetricsModule import, event-store carve-out absent") was a **false negative — the agent read the main checkout, not this worktree**; firsthand verification confirms canonical `metrics.controller.ts:30` carries `@Public()`, 9 services import `ServiceMetricsModule`, and the event-store `/metrics` allowlist entry exists. ABA-HIGH-002 is INVALID.
+
+**Disposition (firsthand-verified):** the tenant-label cardinality + enumeration finding is **pre-existing** — `origin/main` already carried `tenant` on `http_*` (metrics.service.ts) and `farm_*` (farm-domain-metrics). B1 did not create it but made those families scrapeable. Per operator decision, the fix was pulled into this wave:
+
+- Removed the `tenant` label from `http_request_duration_seconds` / `http_requests_total` (`metrics.service.ts`, `metrics.middleware.ts`) and from all 7 `farm_*` series (`farm-domain-metrics.service.ts`); `sanitizeTenant()` deleted. The emit APIs still accept `tenantId` for forward-compat (a bounded `plan_tier` dimension may land in B2) but never label with it. Specs updated to assert the tenant label/value is ABSENT.
+- Added `tenant`/`tenant_id`/`farm_id`/`device_id`/`sensor_id` to the `no-high-cardinality-metric-label` ESLint denylist (it previously omitted exactly these).
+- **ORPHAN-HIGH-091** (registered): `messaging-metrics.service.ts` (5 series) + gateway-api `farm.gateway.ts` (2 series) still carry a raw `tenant` label — B1 did not touch these and messaging `/metrics` is currently unreachable. Once cleared, promote the ESLint rule from `warn` to `error` for metrics paths (tier-1). Deadline 2026-07-15.

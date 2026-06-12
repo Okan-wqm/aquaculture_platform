@@ -8,41 +8,42 @@
  * registry and the per-service HTTP metrics provided by
  * `@aquaculture/backend-common/metrics`.
  *
+ * Label discipline (OBS-HIGH-001): NONE of these series carry a tenant
+ * label. The /metrics scrape surface is unauthenticated, so a raw (or even
+ * truncated) tenant id would both explode cardinality and let any scraper
+ * enumerate active tenants. The emit methods still accept `tenantId` for
+ * forward-compatibility (a bounded plan_tier dimension may land in B2) but
+ * never put it on a series. Per-tenant abuse detection is a logs/traces
+ * concern, not a metric label.
+ *
  * Metrics exposed:
  *
  *   farm_mutation_duration_seconds  (histogram)
- *     Wall-clock duration of each GraphQL mutation, labelled by
- *     operation name, tenant (hashed to /24-equivalent), and outcome
- *     (`success` / `error`).
+ *     Wall-clock duration of each GraphQL mutation. Labels: operation,
+ *     outcome (`success` / `error`).
  *
  *   farm_mutation_errors_total      (counter)
- *     Mutation failures, labelled by operation name + error class
+ *     Mutation failures. Labels: operation, error_class
  *     (BadRequestException, ConflictException, GraphQLError, …).
- *     Surfaces abuse patterns (one endpoint erroring 100x on a
- *     single tenant) and regressions (one class dominating across
- *     operations).
  *
  *   farm_capacity_block_total       (counter)
- *     TankCapacityService rejections. Labels: tenant, mode
+ *     TankCapacityService rejections. Labels: mode
  *     (hard / admin-override / soft), axis (biomass / density / status).
- *     High counts on a single tenant = operator consistently over-
- *     allocating, worth a UI prompt.
  *
  *   farm_withdrawal_block_total     (counter)
  *     BatchHarvestEligibilityService rejections on closeBatch /
  *     createHarvestRecord / createHarvestPlan when an active
- *     medicine withdrawal period still covers the batch. Labels:
- *     tenant, surface (close / harvest / plan).
+ *     medicine withdrawal period still covers the batch. Labels: surface.
  *
  *   farm_backdate_rejected_total    (counter)
- *     BackdatePolicyService rejections. Labels: tenant, context
+ *     BackdatePolicyService rejections. Labels: context
  *     (feeding / growth / mortality / harvest).
  *
  *   farm_setup_legacy_write_total   (counter)
  *   farm_setup_legacy_read_total    (counter)
  *     Runtime baseline for the /sites/setup remediation. Labels:
- *     surface, operation, contract, tenant. These counters are the
- *     zero-use evidence source for legacy setup API removal gates.
+ *     surface, operation, contract. Zero-use evidence for legacy setup
+ *     API removal gates.
  *
  * Phase 5.3 of the "Farm modülü kalan kör noktalar" plan. Closes
  * Girdi 14d.
@@ -118,11 +119,14 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     outcome: MutationOutcome;
     tenantId?: string;
   }): void {
+    // OBS-HIGH-001: tenantId is accepted for forward-compat (a bounded
+    // plan_tier dimension may land in B2) but NOT emitted as a label — a
+    // raw/truncated tenant id on a scrape series enables tenant enumeration
+    // and unbounded cardinality.
     this.mutationDuration.observe(
       {
         operation: params.operation,
         outcome: params.outcome,
-        tenant: this.sanitizeTenant(params.tenantId),
       },
       params.durationSeconds,
     );
@@ -132,7 +136,6 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     this.mutationErrors.inc({
       operation: params.operation,
       error_class: params.errorClass,
-      tenant: this.sanitizeTenant(params.tenantId),
     });
   }
 
@@ -142,7 +145,6 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     axis: CapacityBlockAxis;
   }): void {
     this.capacityBlocks.inc({
-      tenant: this.sanitizeTenant(params.tenantId),
       mode: params.mode,
       axis: params.axis,
     });
@@ -150,14 +152,12 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
 
   incWithdrawalBlock(params: { tenantId?: string; surface: WithdrawalBlockSurface }): void {
     this.withdrawalBlocks.inc({
-      tenant: this.sanitizeTenant(params.tenantId),
       surface: params.surface,
     });
   }
 
   incBackdateRejection(params: { tenantId?: string; context: BackdateContext }): void {
     this.backdateRejections.inc({
-      tenant: this.sanitizeTenant(params.tenantId),
       context: params.context,
     });
   }
@@ -172,7 +172,6 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
       surface: params.surface,
       operation: params.operation,
       contract: params.contract,
-      tenant: this.sanitizeTenant(params.tenantId),
     });
   }
 
@@ -186,7 +185,6 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
       surface: params.surface,
       operation: params.operation,
       contract: params.contract,
-      tenant: this.sanitizeTenant(params.tenantId),
     });
   }
 
@@ -194,7 +192,7 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     this.mutationDuration = new client.Histogram({
       name: 'farm_mutation_duration_seconds',
       help: 'Duration of farm-service GraphQL mutations in seconds',
-      labelNames: ['operation', 'outcome', 'tenant'],
+      labelNames: ['operation', 'outcome'],
       buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
       registers: [this.registry],
     });
@@ -202,55 +200,44 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     this.mutationErrors = new client.Counter({
       name: 'farm_mutation_errors_total',
       help: 'Total number of farm-service mutation failures by error class',
-      labelNames: ['operation', 'error_class', 'tenant'],
+      labelNames: ['operation', 'error_class'],
       registers: [this.registry],
     });
 
     this.capacityBlocks = new client.Counter({
       name: 'farm_capacity_block_total',
       help: 'TankCapacityService rejections by mode and failing axis',
-      labelNames: ['tenant', 'mode', 'axis'],
+      labelNames: ['mode', 'axis'],
       registers: [this.registry],
     });
 
     this.withdrawalBlocks = new client.Counter({
       name: 'farm_withdrawal_block_total',
       help: 'Active medicine-withdrawal-period rejections by entry surface',
-      labelNames: ['tenant', 'surface'],
+      labelNames: ['surface'],
       registers: [this.registry],
     });
 
     this.backdateRejections = new client.Counter({
       name: 'farm_backdate_rejected_total',
       help: 'BackdatePolicyService rejections by domain context',
-      labelNames: ['tenant', 'context'],
+      labelNames: ['context'],
       registers: [this.registry],
     });
 
     this.setupLegacyWrites = new client.Counter({
       name: 'farm_setup_legacy_write_total',
       help: 'Runtime baseline count for legacy setup GraphQL/REST write usage before SSOT cutover',
-      labelNames: ['surface', 'operation', 'contract', 'tenant'],
+      labelNames: ['surface', 'operation', 'contract'],
       registers: [this.registry],
     });
 
     this.setupLegacyReads = new client.Counter({
       name: 'farm_setup_legacy_read_total',
       help: 'Runtime baseline count for legacy setup GraphQL/REST read usage before SSOT cutover',
-      labelNames: ['surface', 'operation', 'contract', 'tenant'],
+      labelNames: ['surface', 'operation', 'contract'],
       registers: [this.registry],
     });
   }
 
-  /**
-   * Reduce tenant id to a low-cardinality label value so the
-   * metric's label-set never explodes. The tenant id is still
-   * labelled so operators can group by tenant in dashboards, but we
-   * never emit the raw UUID — a short prefix keeps the cardinality
-   * bounded while preserving the dimension.
-   */
-  private sanitizeTenant(tenantId?: string): string {
-    if (!tenantId) return 'unknown';
-    return tenantId.slice(0, 8);
-  }
 }

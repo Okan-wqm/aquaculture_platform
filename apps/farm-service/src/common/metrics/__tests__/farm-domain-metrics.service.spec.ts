@@ -23,7 +23,7 @@ describe('FarmDomainMetricsService', () => {
     service.onModuleDestroy();
   });
 
-  it('records mutation duration with operation + outcome + tenant labels', async () => {
+  it('records mutation duration with operation + outcome labels (no tenant label)', async () => {
     service.recordMutation({
       operation: 'createBatch',
       durationSeconds: 0.12,
@@ -41,7 +41,10 @@ describe('FarmDomainMetricsService', () => {
     expect(dump).toContain('operation="createBatch"');
     expect(dump).toContain('outcome="success"');
     expect(dump).toContain('outcome="error"');
-    expect(dump).toContain('tenant="11111111"');
+    // OBS-HIGH-001: tenantId is accepted by the API but MUST NOT appear as a
+    // label (cardinality + tenant-enumeration hazard on the scrape surface).
+    expect(dump).not.toContain('tenant=');
+    expect(dump).not.toContain('11111111');
   });
 
   it('records mutation errors with classified error_class', async () => {
@@ -120,24 +123,14 @@ describe('FarmDomainMetricsService', () => {
     expect(dump).toContain('farm_setup_legacy_write_total');
     expect(dump).toContain('farm_setup_legacy_read_total');
     expect(dump).toMatch(
-      /farm_setup_legacy_write_total\{surface="site",operation="createSite",contract="graphql",tenant="22222222"} 1/,
+      /farm_setup_legacy_write_total\{surface="site",operation="createSite",contract="graphql"} 1/,
     );
     expect(dump).toMatch(
-      /farm_setup_legacy_read_total\{surface="farm_workers",operation="workers",contract="graphql",tenant="22222222"} 1/,
+      /farm_setup_legacy_read_total\{surface="farm_workers",operation="workers",contract="graphql"} 1/,
     );
   });
 
-  it('labels unknown tenant as "unknown" instead of empty string', async () => {
-    service.recordMutation({
-      operation: 'noTenant',
-      durationSeconds: 0.01,
-      outcome: 'success',
-    });
-    const dump = await service.getMetrics();
-    expect(dump).toContain('tenant="unknown"');
-  });
-
-  it('truncates tenant UUIDs to the first 8 chars to bound label cardinality', async () => {
+  it('never emits a tenant label or any part of the tenant id (OBS-HIGH-001)', async () => {
     service.recordMutation({
       operation: 'cardinalityCheck',
       durationSeconds: 0.01,
@@ -145,8 +138,10 @@ describe('FarmDomainMetricsService', () => {
       tenantId: 'abcdef12-3456-4789-8abc-def123456789',
     });
     const dump = await service.getMetrics();
-    expect(dump).toContain('tenant="abcdef12"');
-    expect(dump).not.toContain('abcdef12-3456-4789-8abc-def123456789');
+    // No tenant label, and no truncated prefix either — an 8-char prefix is
+    // still 1 series per distinct tenant (enumeration), so it is forbidden.
+    expect(dump).not.toContain('tenant=');
+    expect(dump).not.toContain('abcdef12');
   });
 
   it('exposes the correct Prometheus content-type', () => {

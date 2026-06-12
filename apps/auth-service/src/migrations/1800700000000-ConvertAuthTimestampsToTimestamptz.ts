@@ -66,23 +66,44 @@ export class ConvertAuthTimestampsToTimestamptz1800700000000 implements Migratio
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     for (const [table, column] of ConvertAuthTimestampsToTimestamptz1800700000000.COLUMNS) {
+      // R10 idempotency: convert ONLY a column still typed `timestamp without
+      // time zone`. Re-running an unconditional `... TYPE timestamptz USING <col>
+      // AT TIME ZONE 'UTC'` on an already-timestamptz column would reinterpret it
+      // under the session TZ and shift the instant — corruption on replay. The
+      // information_schema guard makes a replay (e.g. ledger reset) a clean no-op.
       // Existing values are UTC wall-clock; interpret them as UTC and pin the
       // instant as a timestamptz.
-      await queryRunner.query(
-        `ALTER TABLE "auth"."${table}" ALTER COLUMN "${column}" TYPE timestamptz ` +
-          `USING "${column}" AT TIME ZONE 'UTC'`,
-      );
+      await queryRunner.query(`
+        DO $$ BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'auth' AND table_name = '${table}'
+              AND column_name = '${column}'
+              AND data_type = 'timestamp without time zone'
+          ) THEN
+            EXECUTE 'ALTER TABLE "auth"."${table}" ALTER COLUMN "${column}" TYPE timestamptz USING "${column}" AT TIME ZONE ''UTC''';
+          END IF;
+        END $$;
+      `);
     }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     for (const [table, column] of ConvertAuthTimestampsToTimestamptz1800700000000.COLUMNS) {
       // Reverse: project the timestamptz back to its UTC wall-clock as a
-      // tz-naive timestamp (the pre-migration representation).
-      await queryRunner.query(
-        `ALTER TABLE "auth"."${table}" ALTER COLUMN "${column}" TYPE timestamp ` +
-          `USING "${column}" AT TIME ZONE 'UTC'`,
-      );
+      // tz-naive timestamp. Guarded so a replay is a clean no-op.
+      await queryRunner.query(`
+        DO $$ BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'auth' AND table_name = '${table}'
+              AND column_name = '${column}'
+              AND data_type = 'timestamp with time zone'
+          ) THEN
+            EXECUTE 'ALTER TABLE "auth"."${table}" ALTER COLUMN "${column}" TYPE timestamp USING "${column}" AT TIME ZONE ''UTC''';
+          END IF;
+        END $$;
+      `);
     }
   }
 }

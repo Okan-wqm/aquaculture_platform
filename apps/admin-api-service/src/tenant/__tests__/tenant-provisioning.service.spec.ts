@@ -70,6 +70,8 @@ const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
       role: 'admin',
     },
     userCount: 0,
+    farmCount: 0,
+    sensorCount: 0,
     createdAt: new Date(),
     updatedAt: new Date(),
     version: 1,

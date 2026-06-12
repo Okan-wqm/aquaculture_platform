@@ -3851,6 +3851,20 @@ Adjacent cleanup: `sendInvitationEmail` uses `require('crypto')` (CommonJS) inst
 
 **Status:** RESOLVED (this commit). The deeper `createUser` non-transactional dual-write (ORPHAN-HIGH-090) is a separate, still-open finding.
 
+## ORPHAN-MEDIUM-091 — admin-api tenant-detail any-leak query debt surfaced by MT-MEDIUM-002 (+ spec-fixture phantom-field decision)
+
+**Found while:** MT-MEDIUM-002 (W3.4) touched `tenant-detail.service.ts` (real-source farm/sensor counting) and the two tenant provisioning specs (fixture caller-update). The blocking diff-lint gate (`scripts/ci/lint-changed-files.sh`; `ci-affected.yml` line 209 — "lint failures must block PR merge") re-lints any touched file head-vs-base. Its base worktree cannot run type-aware ESLint rules (the TS project is not built there), so it reports `base=0` for every type-aware rule and flags each touched file's FULL pre-existing type-aware debt as "new." Touching these files therefore dragged their unrelated, pre-existing debt into the gate.
+
+**Problem:**
+- `tenant-detail.service.ts` (production): `getUserStats` / `getModuleUsage` / `getResourceUsage` used untyped `dataSource.query` (an `any` leak feeding `result[0].x` / `result.map`), two `t.status === 'ACTIVE' | 'SUSPENDED'` string-literal comparisons (`no-unsafe-enum-comparison` vs the canonical `TenantStatus` enum), and two unused `catch (error)` bindings.
+- `tenant-api.integration.spec.ts` + `tenant-provisioning.service.spec.ts` (admin-api **quarantined broken test debt — ORPHAN-MEDIUM-088**, one crashes at runtime on an unhandled rejection): deep mock `any` (`as any`, `callback: any`, untyped `jest.fn()`), non-null assertions, and unused imports.
+
+**Fix:**
+- `tenant-detail.service.ts` (DONE — Tier-3 type, behavior-preserving): typed all three query results with local row types (`UserStatsRow`, `ModuleUsageRow`, `{ calls_24h; calls_7d }`) via the `dataSource.query<T>()` generic, dropping the field-level `as` casts in the `.map`; `'ACTIVE'`/`'SUSPENDED'` → `TenantStatus.ACTIVE` / `TenantStatus.SUSPENDED`; logged the previously-discarded `getModuleUsage` catch error (consistency with the `getUserStats` BUG-007 pattern) and bare-caught the genuinely-ignored metrics catch. 0 lint errors; admin-api type-check clean.
+- the two provisioning specs (REVERTED to origin/main): the MT-MEDIUM-002 fixture edit only removed the now-phantom `farmCount: 0` / `sensorCount: 0` lines from an `Object.assign(tenant, {...})` that tolerates excess props harmlessly. Cleaning their full pre-existing mock-`any` debt is high-churn / high-risk surgery on quarantined broken specs owned by ORPHAN-MEDIUM-088 — out of MT-MEDIUM-002's scope. Reverting returns them to a net-zero diff (out of the gate). The reverted fixtures still set `farmCount`/`sensorCount` via `Object.assign` — a harmless phantom property after the entity drop, to be removed when the admin-api specs are de-quarantined (ORPHAN-MEDIUM-088).
+
+**Status:** RESOLVED for the production service. The spec phantom-fixtures + admin-api mock-`any` debt stay with ORPHAN-MEDIUM-088 (quarantined, non-blocking).
+
 ## ORPHAN-HIGH-088 — Tenant-şema runtime yetkilerinin SSOT sahibi yok; production seremoni grant'leriyle ayakta
 
 Severity: HIGH. Stage-008 yalnız adlandırılmış servis şemalarını (15 spec + shared + platform) yönetir; `tenant_<uuid>` şemaları kapsam dışı. Tenant-schema-provisioner şemayı yaratır, tabloları fan-out eder, RLS/audit hardening uygular ve ledger READ erişimi verir — ama runtime rollerine (örn. `messaging_service`) tenant şeması üzerinde USAGE/DML/partition-CREATE GRANT'ini HİÇBİR bileşen vermez (`applyProvisionerHardening` yalnız RLS + audit kolonları; `sql-fragments.ts` grant primitifi taşımıyor).

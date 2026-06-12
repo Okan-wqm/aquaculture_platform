@@ -71,6 +71,8 @@ const createMockTenant = (overrides: Record<string, any> = {}): Tenant => {
     isTrialActive: false,
     trialEndsAt: null,
     userCount: 0,
+    farmCount: 0,
+    sensorCount: 0,
     version: 1,
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-01'),

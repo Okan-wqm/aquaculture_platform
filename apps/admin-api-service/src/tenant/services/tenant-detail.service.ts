@@ -147,7 +147,18 @@ export class TenantDetailService {
     try {
       // Query auth-service database for user stats
       // In a real implementation, this would call auth-service API or use shared DB
-      const result = await this.dataSource.query(
+      // pg returns COUNT(*) as a numeric string, so each column is typed string.
+      type UserStatsRow = {
+        total: string;
+        active: string;
+        inactive: string;
+        admin_count: string;
+        manager_count: string;
+        user_count: string;
+        recently_active: string;
+        new_users: string;
+      };
+      const result = await this.dataSource.query<UserStatsRow[]>(
         `
         SELECT
           COUNT(*) as total,
@@ -164,7 +175,7 @@ export class TenantDetailService {
         [tenantId],
       );
 
-      const stats = result[0] || {};
+      const stats: Partial<UserStatsRow> = result[0] ?? {};
 
       return {
         total: parseInt(stats.total || '0', 10),
@@ -203,7 +214,15 @@ export class TenantDetailService {
    */
   private async getModuleUsage(tenantId: string): Promise<ModuleUsageStats[]> {
     try {
-      const result = await this.dataSource.query(
+      type ModuleUsageRow = {
+        moduleId: string;
+        moduleCode: string;
+        moduleName: string;
+        isActive: boolean;
+        assignedAt: Date;
+        expiresAt: Date | null;
+      };
+      const result = await this.dataSource.query<ModuleUsageRow[]>(
         `
         SELECT
           tm."moduleId" as "moduleId",
@@ -220,15 +239,17 @@ export class TenantDetailService {
         [tenantId],
       );
 
-      return result.map((row: Record<string, unknown>) => ({
-        moduleId: row['moduleId'] as string,
-        moduleCode: row['moduleCode'] as string,
-        moduleName: row['moduleName'] as string,
-        isActive: row['isActive'] as boolean,
-        assignedAt: row['assignedAt'] as Date,
+      return result.map((row) => ({
+        moduleId: row.moduleId,
+        moduleCode: row.moduleCode,
+        moduleName: row.moduleName,
+        isActive: row.isActive,
+        assignedAt: row.assignedAt,
       }));
     } catch (error) {
-      this.logger.warn(`Could not fetch module usage for tenant ${tenantId}`);
+      this.logger.warn(
+        `Could not fetch module usage for tenant ${tenantId}: ${(error as Error).message}`,
+      );
       return [];
     }
   }
@@ -285,7 +306,9 @@ export class TenantDetailService {
     let apiCalls24h = 0;
     let apiCalls7d = 0;
     try {
-      const apiResult = await this.dataSource.query(
+      const apiResult = await this.dataSource.query<
+        Array<{ calls_24h: string; calls_7d: string }>
+      >(
         `
         SELECT
           COUNT(*) FILTER (WHERE "createdAt" > NOW() - INTERVAL '24 hours') as calls_24h,
@@ -299,7 +322,7 @@ export class TenantDetailService {
         apiCalls24h = parseInt(apiResult[0].calls_24h || '0', 10);
         apiCalls7d = parseInt(apiResult[0].calls_7d || '0', 10);
       }
-    } catch (error) {
+    } catch {
       // Ignore - metrics may not be available
     }
 
@@ -413,7 +436,7 @@ export class TenantDetailService {
       const foundIds = new Set(existingTenants.map(t => t.id));
       const activeIds = new Set(
         existingTenants
-          .filter(t => t.status === 'ACTIVE')
+          .filter(t => t.status === TenantStatus.ACTIVE)
           .map(t => t.id),
       );
       const failed  = tenantIds.filter(id => !foundIds.has(id) || !activeIds.has(id));
@@ -499,7 +522,7 @@ export class TenantDetailService {
       const foundIds = new Set(existingTenants.map(t => t.id));
       const suspendedIds = new Set(
         existingTenants
-          .filter(t => t.status === 'SUSPENDED')
+          .filter(t => t.status === TenantStatus.SUSPENDED)
           .map(t => t.id),
       );
       const failed  = tenantIds.filter(id => !foundIds.has(id) || !suspendedIds.has(id));

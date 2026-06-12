@@ -1,5 +1,5 @@
-import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
   Column,

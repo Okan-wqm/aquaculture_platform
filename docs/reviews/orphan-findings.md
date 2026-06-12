@@ -3826,9 +3826,30 @@ This means W3.2 could only make `UserInvited` **best-effort** (it is allowlisted
 
 **Fix (recommended, focused effort — high risk, core path):** wrap the full createUser sequence (user + mobile settings + role assignment + invitation) in a single `dataSource.transaction`, then enqueue `UserInvited` on that transaction's manager so the user, its dependent rows, and the event commit atomically. This closes both the half-created-user gap AND upgrades UserInvited to durable. It touches the most-exercised auth write path, so it is tracked separately rather than rushed alongside the event-routing migration.
 
-Adjacent cleanup: `sendInvitationEmail` uses `require('crypto')` (CommonJS) instead of the file's ESM `import * as crypto` — a lint/consistency smell to fix in the same pass.
+Adjacent cleanup: `sendInvitationEmail` uses `require('crypto')` (CommonJS) instead of the file's ESM `import * as crypto` — a lint/consistency smell to fix in the same pass. **(DONE — the `require('crypto')` was replaced with the file's existing `import * as crypto` as part of ORPHAN-MEDIUM-090. The main dual-write finding below stays OPEN.)**
 
-**Status:** OPEN.
+**Status:** OPEN (the non-transactional dual-write itself is unresolved; only the adjacent crypto-import cleanup is done).
+
+## ORPHAN-MEDIUM-090 — auth-service tenant consumer files carry diff-lint regressions (import-order + pre-existing type-safety debt)
+
+**Found while:** running the diff-lint gate (`scripts/ci/lint-changed-files.mjs`) over the Wave-3 branch (W3.4). The gate reported 32 new error-level findings across six auth-service files that the Wave-3 consumer refactors touched: `user-lifecycle.service.ts` (the bulk) plus the `invitation`, `webauthn-credential`, `module`, and `mobile-user-settings` entities and `tenant-update-consolidation.spec.ts`.
+
+**Problem (two lineages, same files):**
+- **Branch-introduced (import-order):** the DATA-HIGH-001 outbox migration swapped `@Inject('EVENT_BUS') IEventBus` for `BestEffortEventPublisher` and the MT-HIGH-003/DATA-HIGH-002 entity work changed entity imports — both reshuffled import blocks without re-running `import/order`. 8 import-order errors in `user-lifecycle.service.ts` + one each in the five other files; `tenant-update-consolidation.spec.ts` also imported `Role` from the non-canonical `@platform/backend-common` barrel (no-restricted-imports).
+- **Pre-existing type-safety debt surfaced by the diff (type-aware rules):** `require('crypto')` (no-require-imports + 3× unsafe-call/member), a non-null assertion `input.moduleIds!`, an `: boolean` inferrable annotation, an untyped `dataSource.query` result feeding `insertResult[0].id` (unsafe-assignment/member), and four `string === Role` enum comparisons (`no-unsafe-enum-comparison`) that became visible once `Role`/`TenantStatus` were typed as the canonical enums.
+
+**Fix (DONE in this commit — Tier-1/Tier-3, behavior-preserving):**
+- import-order auto-fixed across all six files; the spec's `Role` import re-pointed to the canonical `@aquaculture/backend-common/decorators`.
+- `require('crypto')` → the file's existing ESM `import * as crypto` (closes the ORPHAN-HIGH-090 adjacent-cleanup note).
+- a module-level `isCanonicalRole(value): value is Role` type guard replaces the `(Object.values(Role) as string[]).includes(...)` validation at both invite/create sites; the throwing negative branch narrows `input.role` to `Role`, which structurally removes the four `string === Role` comparisons AND three `as Role` assertions (Tier-1 make-impossible).
+- `assertRoleHierarchy(targetRole)` retyped `string → Role` (callers now pass the narrowed value).
+- the module-assignment presence check inlined into its `if` so TS narrows `input.moduleIds` (no non-null assertion).
+- `dataSource.query<Array<{ id: string }>>()` generic + a fail-loud empty-row guard replaces the untyped result + `insertResult[0].id` member access.
+- `sendInvitation: boolean = true` → `sendInvitation = true`.
+
+**Verification:** all six files lint clean (0 errors); auth-service type-check clean (only the pre-existing `@nestjs/apollo` module-resolution noise remains); `user-lifecycle.service.spec.ts` + `tenant-user-management.service.spec.ts` + `tenant-update-consolidation.spec.ts` = 45/45 green (behavior preserved).
+
+**Status:** RESOLVED (this commit). The deeper `createUser` non-transactional dual-write (ORPHAN-HIGH-090) is a separate, still-open finding.
 
 ## ORPHAN-HIGH-088 — Tenant-şema runtime yetkilerinin SSOT sahibi yok; production seremoni grant'leriyle ayakta
 

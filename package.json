@@ -132,6 +132,7 @@
     "gates:clippy-affected:test": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.spec.ts",
     "gates:commit-msg:test": "ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.spec.ts",
     "gates:banned-phrase:test": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.spec.ts",
+    "gates:lint-baseline:test": "ts-node --project tools/gates/tsconfig.json tools/lint-gates/lint-gates.spec.ts && ts-node --project tools/gates/tsconfig.json tools/lint-gates/custom-rules.spec.ts",
     "gates:tier-claim": "ts-node --project tools/gates/tsconfig.json tools/gates/tier-claim-lint.ts",
     "gates:deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/main-deletion-witness.ts",
     "gates:migration-deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-deletion-witness.ts",

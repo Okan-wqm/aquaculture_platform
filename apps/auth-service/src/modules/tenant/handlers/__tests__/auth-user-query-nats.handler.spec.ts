@@ -1,5 +1,12 @@
+import { Test } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
+
 import { AUTH_USER_QUERY_SUBJECTS } from '@platform/event-contracts';
 
+import { AuditModule } from '../../../../audit/audit.module';
+import { AuditLog } from '../../../../audit/audit-log.entity';
+import { User } from '../../../authentication/entities/user.entity';
 import { AuthUserQueryNatsHandler } from '../auth-user-query-nats.handler';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -14,11 +21,11 @@ interface UserRow {
 
 function makeHandler(rows: UserRow[]): {
   handler: AuthUserQueryNatsHandler;
-  audit: { recordAwait: jest.Mock };
+  audit: { log: jest.Mock };
   find: jest.Mock;
 } {
   const find = jest.fn().mockResolvedValue(rows);
-  const audit = { recordAwait: jest.fn().mockResolvedValue(undefined) };
+  const audit = { log: jest.fn().mockResolvedValue(undefined) };
   const handler = new AuthUserQueryNatsHandler(
     { find } as never,
     audit as never,
@@ -61,7 +68,7 @@ describe('AuthUserQueryNatsHandler', () => {
     expect(result.validUserIds).toEqual([U1]);
     expect(result.invalidUserIds).toEqual([U2]);
     // A rejected validation is an awaited security audit.
-    expect(audit.recordAwait).toHaveBeenCalledTimes(1);
+    expect(audit.log).toHaveBeenCalledTimes(1);
   });
 
   it('requireActive=true pushes inactive members to inactiveUserIds AND forces allValid=false', async () => {
@@ -76,6 +83,40 @@ describe('AuthUserQueryNatsHandler', () => {
     expect(result.allValid).toBe(false);
     expect(result.inactiveUserIds).toEqual([U1]);
     expect(result.validUserIds).toEqual([]);
+  });
+
+  // DI-resolution smoke (FARM-/AUTH-hotfix): the unit cases above
+  // construct the handler by hand and so cannot catch a wrong-token
+  // injection. This compiles the handler against the REAL AuditModule
+  // (@Global, provides auth-service's local AuditLogService) the way the
+  // app does — a regression to the backend-common AuditLogService import
+  // (the 2026-06-12 production crash-loop) fails this test at boot, not
+  // in production.
+  it('resolves via NestJS DI with the AuditModule-provided AuditLogService', async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        // ConfigModule is global in the app (AppModule isGlobal:true); make
+        // it global here too so AuditModule's AuditLogService resolves its
+        // ConfigService dependency. The smoke focuses on the
+        // handler↔AuditLogService wiring.
+        ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }),
+        AuditModule,
+      ],
+      controllers: [AuthUserQueryNatsHandler],
+      providers: [
+        // User repo is consumed by the handler directly (not via a module
+        // here); AuditLog repo is consumed by AuditModule's service.
+        { provide: getRepositoryToken(User), useValue: { find: jest.fn().mockResolvedValue([]) } },
+      ],
+    })
+      .overrideProvider(getRepositoryToken(AuditLog))
+      .useValue({ create: jest.fn(), save: jest.fn() })
+      .compile();
+
+    expect(moduleRef.get(AuthUserQueryNatsHandler)).toBeInstanceOf(
+      AuthUserQueryNatsHandler,
+    );
+    await moduleRef.close();
   });
 
   it('requireActive=false keeps an inactive member valid', async () => {

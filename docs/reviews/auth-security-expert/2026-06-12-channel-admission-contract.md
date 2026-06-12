@@ -70,3 +70,27 @@ PR#354 dalının port'lanacak içeriği tükendi → dal seremoniyle silinir.
 - `apps/messaging-service/src/channel/commands/add-member.handler.ts` (targetUserId gate)
 - `apps/auth-service/src/modules/tenant/handlers/auth-user-query-nats.handler.ts`
 - `infrastructure/nats/services.yaml` + `infrastructure/docker/nats/nats.conf` (GENERATED)
+
+## SEC-HIGH-010 — DİLİM-2 deploy postmortem: iki-AuditLogService DI tuzağı (production-down)
+
+**Severity:** HIGH · **Owner:** auth-security-expert · **Cycle:** 2026-06-12-production-opening
+
+DİLİM-2 (#406) merge sonrası ilk production deploy'u auth-service boot'ta
+crash-loop'la (24 restart) kritik-health gate'i düşürdü → fail-closed
+rollback (production PRE-#406'da sağlıklı kaldı). `AuthUserQueryNatsHandler`
+`AuditLogService`'i `@aquaculture/backend-common/audit`'ten import etmişti;
+oysa `TenantModule` yalnız auth-service'in KENDİ `@Global` yerel
+`AuditLogService`'ini (`apps/auth-service/src/audit`) sağlıyor —
+`tenant.resolver` aynı modülde onu başarıyla enjekte ediyor. İki sınıf aynı
+isimde, farklı DI token'ı; NestJS backend-common token'ını resolve edemedi.
+
+**CI kör-noktası (INFRA-HIGH-009 sınıfı):** unit testler handler'ı elle
+`new`'liyor (DI baypas); tsc+lint backend-common tipini geçerli kabul ediyor;
+hiçbir CI testi auth-service DI graph'ını boot etmiyordu.
+
+**Fix (#408):** yerel `AuditLogService` + `AuditLogSeverity` import,
+`log(CreateAuditLogDto)` uyarlaması; ve **DI-resolution smoke testi** —
+`Test.createTestingModule` handler'ı GERÇEK `AuditModule`'e (global
+ConfigModule + stub repo'lar) karşı derler; yanlış-token enjeksiyonu
+test-time'da kırmızı (gold-standard: yanlış import suite'i geçmiyor).
+Tier-3 (make it detectable) — runtime-DI hatası artık CI'da görünür.

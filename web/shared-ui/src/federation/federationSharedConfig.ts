@@ -106,7 +106,7 @@ export function getCoreSharedConfig(): Record<string, SharedDepConfig> {
  * Extended shared config that includes reactflow (for sensor-module SCADA).
  *
  * Explicit `version` is REQUIRED because reactflow v11's package.json exports
- * map omits "./package.json", which @originjs/vite-plugin-federation uses to
+ * map omits "./package.json", which the Module Federation plugin uses to
  * auto-detect the version. Providing `version` bypasses that resolution.
  */
 export function getSharedConfigWithReactFlow(): Record<string, SharedDepConfig> {

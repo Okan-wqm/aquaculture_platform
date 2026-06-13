@@ -1,7 +1,7 @@
 /**
  * Remote Module Integrity Guard
  *
- * SH-SEC-04: Vite Module Federation (@originjs/vite-plugin-federation) does not
+ * SH-SEC-04: Vite Module Federation (@module-federation/vite) does not
  * generate or validate Subresource Integrity (SRI) hashes for remote entry files.
  * This module provides two layers of defense:
  *

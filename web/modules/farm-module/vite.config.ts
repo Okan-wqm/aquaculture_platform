@@ -1,7 +1,7 @@
 import { resolve } from 'path';
 
 import { getCoreSharedConfig } from '@aquaculture/shared-ui/federation/federationSharedConfig';
-import federation from '@originjs/vite-plugin-federation';
+import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type PluginOption } from 'vite';
 

@@ -49,13 +49,13 @@ OUTPUT_FILE="${OUTPUT_DIR}/remoteHashes.json"
 # Module names and their dist paths (relative to BASE_DIR)
 # Order: module-name -> path-to-remoteEntry.js relative to dist
 declare -A MODULES=(
-  ["dashboard"]="web/modules/dashboard/dist/assets/remoteEntry.js"
-  ["farm-module"]="web/modules/farm-module/dist/assets/remoteEntry.js"
-  ["sensor-module"]="web/modules/sensor-module/dist/assets/remoteEntry.js"
-  ["admin-panel"]="web/modules/admin-panel/dist/assets/remoteEntry.js"
-  ["hr-module"]="web/modules/hr-module/dist/assets/remoteEntry.js"
-  ["hydroponics-module"]="web/modules/hydroponics-module/dist/assets/remoteEntry.js"
-  ["tenant-admin"]="web/modules/tenant-admin/dist/assets/remoteEntry.js"
+  ["dashboard"]="web/modules/dashboard/dist/remoteEntry.js"
+  ["farm-module"]="web/modules/farm-module/dist/remoteEntry.js"
+  ["sensor-module"]="web/modules/sensor-module/dist/remoteEntry.js"
+  ["admin-panel"]="web/modules/admin-panel/dist/remoteEntry.js"
+  ["hr-module"]="web/modules/hr-module/dist/remoteEntry.js"
+  ["hydroponics-module"]="web/modules/hydroponics-module/dist/remoteEntry.js"
+  ["tenant-admin"]="web/modules/tenant-admin/dist/remoteEntry.js"
 )
 
 # ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ first=true
 for module in $(echo "${!MODULES[@]}" | tr ' ' '\n' | sort); do
   entry_path="${BASE_DIR}/${MODULES[$module]}"
   # The URL path that the shell app uses to load this remote entry
-  url_path="/remotes/${module}/assets/remoteEntry.js"
+  url_path="/remotes/${module}/remoteEntry.js"
 
   if [ -f "$entry_path" ]; then
     hash=$(generate_sha384 "$entry_path")

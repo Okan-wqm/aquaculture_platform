@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import federation from '@originjs/vite-plugin-federation';
+import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getSharedConfigWithReactFlow } from '../shared-ui/src/federation/federationSharedConfig';
 
@@ -23,15 +23,16 @@ export default defineConfig(({ command }) => {
     plugins: [
       react(),
       federation({
+        dts: false,
         name: 'shell',
         remotes: {
-          dashboard: `${remoteBase}/dashboard/assets/remoteEntry.js`,
-          farmModule: `${remoteBase}/farm-module/assets/remoteEntry.js`,
-          hrModule: `${remoteBase}/hr-module/assets/remoteEntry.js`,
-          sensorModule: `${remoteBase}/sensor-module/assets/remoteEntry.js`,
-          hydroponicsModule: `${remoteBase}/hydroponics-module/assets/remoteEntry.js`,
-          adminPanel: `${remoteBase}/admin-panel/assets/remoteEntry.js`,
-          tenantAdmin: `${remoteBase}/tenant-admin/assets/remoteEntry.js`,
+          dashboard: { type: 'module', name: 'dashboard', entry: `${remoteBase}/dashboard/remoteEntry.js` },
+          farmModule: { type: 'module', name: 'farmModule', entry: `${remoteBase}/farm-module/remoteEntry.js` },
+          hrModule: { type: 'module', name: 'hrModule', entry: `${remoteBase}/hr-module/remoteEntry.js` },
+          sensorModule: { type: 'module', name: 'sensorModule', entry: `${remoteBase}/sensor-module/remoteEntry.js` },
+          hydroponicsModule: { type: 'module', name: 'hydroponicsModule', entry: `${remoteBase}/hydroponics-module/remoteEntry.js` },
+          adminPanel: { type: 'module', name: 'adminPanel', entry: `${remoteBase}/admin-panel/remoteEntry.js` },
+          tenantAdmin: { type: 'module', name: 'tenantAdmin', entry: `${remoteBase}/tenant-admin/remoteEntry.js` },
         },
         // FE-HIGH-004: Single source of truth — includes reactflow for SCADA
         shared: getSharedConfigWithReactFlow(),

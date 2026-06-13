@@ -1,6 +1,6 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
-import federation from '@originjs/vite-plugin-federation';
+import { federation } from '@module-federation/vite';
 import svgr from 'vite-plugin-svgr';
 import { resolve } from 'path';
 import { getSharedConfigWithReactFlow } from '../../shared-ui/src/federation/federationSharedConfig';
@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
         include: '**/*.svg?react',
       }),
       federation({
+        dts: false,
         name: 'sensorModule',
         filename: 'remoteEntry.js',
         exposes: {

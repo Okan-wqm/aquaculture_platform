@@ -1,7 +1,7 @@
 /**
  * Remote Module Integrity Guard
  *
- * SH-SEC-04: Vite Module Federation (@originjs/vite-plugin-federation) does not
+ * SH-SEC-04: Vite Module Federation (@module-federation/vite) does not
  * generate or validate Subresource Integrity (SRI) hashes for remote entry files.
  * This module provides two layers of defense:
  *
@@ -54,7 +54,7 @@ const REMOTE_SCRIPT_ALLOWLIST: RegExp[] = [
 // That file is gitignored; on local dev the catch below returns an empty map
 // and hash verification is skipped (allowlist guard still applies).
 //
-// Format: { '/remotes/<module>/assets/remoteEntry.js': 'sha384-<base64>' }
+// Format: { '/remotes/<module>/remoteEntry.js': 'sha384-<base64>' }
 // ---------------------------------------------------------------------------
 let REMOTE_HASH_PINS: Record<string, string> = {};
 const generatedHashPins = import.meta.glob<Record<string, string>>(

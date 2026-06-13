@@ -17,7 +17,7 @@
  * Usage: ts-node ... emit-subgraph-sdl.ts <subgraph-name> <service-dir>
  *   e.g. emit-subgraph-sdl.ts auth apps/auth-service
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 
@@ -25,7 +25,6 @@ import { buildSubgraphSchema, printSubgraphSchema } from '@apollo/subgraph';
 import { printSchemaWithDirectives } from '@graphql-tools/utils';
 import { NestFactory } from '@nestjs/core';
 import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphql';
-import { sync as globSync } from 'glob';
 import { gql } from 'graphql-tag';
 
 // Federation v2 link — the directives a NestJS code-first subgraph can emit.
@@ -50,10 +49,12 @@ async function main(): Promise<void> {
   // Import every resolver in the service. Each resolver file transitively
   // imports the @ObjectType/@InputType return + argument types it references,
   // so this populates the global TypeMetadataStorage for the whole subgraph.
-  const resolverFiles = globSync('src/**/*.resolver.ts', {
-    cwd: join(root, serviceDir),
-    absolute: true,
-  });
+  // Recursive readdir (typed via @types/node, no glob dependency) — collect
+  // every *.resolver.ts under the service's src/.
+  const srcDir = join(root, serviceDir, 'src');
+  const resolverFiles = readdirSync(srcDir, { recursive: true, encoding: 'utf8' })
+    .filter((entry): entry is string => typeof entry === 'string' && entry.endsWith('.resolver.ts'))
+    .map((entry) => join(srcDir, entry));
   if (resolverFiles.length === 0) {
     process.stderr.write(`no *.resolver.ts found under ${serviceDir}/src\n`);
     process.exit(1);

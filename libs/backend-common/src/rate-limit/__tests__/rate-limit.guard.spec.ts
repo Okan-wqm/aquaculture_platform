@@ -1,9 +1,31 @@
 import { ExecutionContext, HttpException, ServiceUnavailableException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 
 import { InMemoryRateLimitStore } from '../in-memory-rate-limit.store';
 import { RateLimitGuard } from '../rate-limit.guard';
 import { RateLimitRouteConfig, RateLimitStore } from '../rate-limit.types';
+
+interface MockRequest {
+  ip?: string;
+  user?: { sub?: string; tenantId?: string };
+  body?: Record<string, unknown>;
+  res: { setHeader: jest.Mock };
+}
+
+const noopHandler = (): void => undefined;
+
+// Build a REAL NestJS ExecutionContext: ExecutionContextHost is the exact class
+// the framework instantiates, so the guard's GqlExecutionContext.create() and
+// switchToHttp() paths behave identically to production — no hand-rolled mock
+// and no cast (the banned-construct gate forbids the double-cast-through-unknown
+// shortcut even in specs). HTTP args = [request, response]; GQL args = Apollo's
+// [root, args, ctx, info] tuple that GqlExecutionContext reads positionally.
+const buildContext = (type: 'http' | 'graphql', args: unknown[]): ExecutionContext => {
+  const host = new ExecutionContextHost(args, null, noopHandler);
+  host.setType(type);
+  return host;
+};
 
 describe('RateLimitGuard', () => {
   const buildHttpContext = (options: {
@@ -12,19 +34,13 @@ describe('RateLimitGuard', () => {
     body?: Record<string, unknown>;
   } = {}): { context: ExecutionContext; setHeader: jest.Mock } => {
     const setHeader = jest.fn();
-    const request = {
+    const request: MockRequest = {
       ip: options.ip ?? '203.0.113.1',
       user: options.user,
       body: options.body,
       res: { setHeader },
     };
-    const context = {
-      getType: () => 'http',
-      getHandler: () => jest.fn(),
-      getClass: () => jest.fn(),
-      switchToHttp: () => ({ getRequest: () => request }),
-    } as unknown as ExecutionContext;
-    return { context, setHeader };
+    return { context: buildContext('http', [request, request.res]), setHeader };
   };
 
   const buildGqlContext = (options: {
@@ -32,29 +48,24 @@ describe('RateLimitGuard', () => {
     args?: Record<string, unknown>;
     user?: { sub?: string };
   } = {}): ExecutionContext => {
-    const request = {
+    const request: MockRequest = {
       ip: options.ip ?? '203.0.113.2',
       user: options.user,
       res: { setHeader: jest.fn() },
     };
-    return {
-      getType: () => 'graphql',
-      getHandler: () => jest.fn(),
-      getClass: () => jest.fn(),
-      // WHAT: GqlExecutionContext.create reads getArgs/getContext positions —
-      // [root, args, ctx, info] mirrors Apollo's resolver signature.
-      getArgs: () => [undefined, options.args ?? {}, { req: request }, undefined],
-      switchToHttp: () => ({ getRequest: () => request }),
-    } as unknown as ExecutionContext;
+    // WHAT: GqlExecutionContext.create reads getArgs/getContext positions —
+    // [root, args, ctx, info] mirrors Apollo's resolver signature.
+    return buildContext('graphql', [undefined, options.args ?? {}, { req: request }, undefined]);
   };
 
   const guardWith = (
     config: RateLimitRouteConfig | undefined,
     store?: RateLimitStore,
   ): RateLimitGuard => {
-    const reflector = {
-      getAllAndOverride: jest.fn().mockReturnValue(config),
-    } as unknown as Reflector;
+    // Real Reflector instance + a typed spy — no cast. The guard only reads
+    // getAllAndOverride; spying returns the per-test route config.
+    const reflector = new Reflector();
+    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(config);
     return new RateLimitGuard(reflector, store);
   };
 

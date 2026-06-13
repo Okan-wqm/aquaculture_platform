@@ -169,3 +169,18 @@ export function getJwtVerifyOptions(configService: ConfigService): JwtVerifyConf
     audience: configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
   };
 }
+
+/**
+ * SSoT for the active signing key id (SEC-HIGH-003).
+ *
+ * WHY one function: the JWKS endpoint advertises keys keyed by `kid`, but the
+ * signer historically omitted the `kid` header — so a verifier in a rotation
+ * overlap window could not deterministically select the right public key and
+ * had to try-all (weakening the rotation story to best-effort). The token
+ * signer and the JWKS controller MUST derive `kid` from this single function
+ * so the header on every issued token always matches a published JWKS entry.
+ * Drift becomes impossible rather than merely detectable (Tier-1).
+ */
+export function getActiveSigningKid(configService: ConfigService): string {
+  return configService.get<string>('JWT_KEY_ID', 'key-1');
+}

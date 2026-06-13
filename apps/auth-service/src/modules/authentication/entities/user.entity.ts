@@ -224,6 +224,17 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   mfaLockedUntil?: Date | null;
 
+  /**
+   * SECURITY (SEC-HIGH-001): last consumed TOTP time-step (counter).
+   * A TOTP code is single-use — verification persists the matched step here
+   * and rejects any later code whose step is ≤ this value, so a captured code
+   * cannot be replayed within its ±window validity. bigint (epoch/period)
+   * never wraps in practice. Hidden from GraphQL — internal security state.
+   */
+  @HideField()
+  @Column({ type: 'bigint', nullable: true })
+  lastUsedTotpStep?: string | null;
+
   @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   lastLoginAt?: Date | null;
@@ -252,11 +263,11 @@ export class User {
   // ============================================
 
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   @Field()
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 
   // ============================================

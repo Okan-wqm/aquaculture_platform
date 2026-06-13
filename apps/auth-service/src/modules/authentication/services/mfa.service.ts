@@ -168,13 +168,18 @@ function generateTOTP(
  * @param secret - The shared secret key (raw bytes)
  * @param code - The code to verify
  * @param window - Number of periods before/after to check (default: 1)
- * @returns true if the code matches any period in the window
+ * @returns the matched time-step (counter) on success, or null on no match.
+ *
+ * SECURITY (SEC-HIGH-001): returning the STEP (not just a boolean) is what
+ * makes one-time-use enforceable — the caller persists the consumed step and
+ * rejects any code whose step is ≤ the last consumed one, so a captured code
+ * cannot be replayed within its ±window validity.
  */
 function verifyTOTP(
   secret: Buffer,
   code: string,
   window: number = TOTP_WINDOW,
-): boolean {
+): number | null {
   const now = Math.floor(Date.now() / 1000);
 
   for (let i = -window; i <= window; i++) {
@@ -186,11 +191,11 @@ function verifyTOTP(
       code.length === expected.length &&
       crypto.timingSafeEqual(Buffer.from(code), Buffer.from(expected))
     ) {
-      return true;
+      return Math.floor(time / TOTP_PERIOD);
     }
   }
 
-  return false;
+  return null;
 }
 
 // ============================================================================
@@ -295,6 +300,38 @@ export class MfaService {
    *
    * The secret is stored encrypted but mfaEnabled remains false until verification.
    */
+  /**
+   * SECURITY (SEC-HIGH-001): verify a TOTP code AND atomically consume its
+   * time-step so it can never be replayed.
+   *
+   * The conditional UPDATE is the race-proof primitive: two concurrent
+   * verifications of the same code compute the same step, but only the first
+   * UPDATE (affected=1) wins; the second observes affected=0 and is rejected.
+   * Returns true only when the code matched AND its step had not yet been
+   * consumed (step > lastUsedTotpStep).
+   */
+  private async verifyAndConsumeTotp(
+    user: User,
+    code: string,
+    secretBuffer: Buffer,
+  ): Promise<boolean> {
+    const matchedStep = verifyTOTP(secretBuffer, code);
+    if (matchedStep === null) {
+      return false;
+    }
+    const result = await this.userRepository
+      .createQueryBuilder()
+      .update(User)
+      .set({ lastUsedTotpStep: String(matchedStep) })
+      .where('id = :id', { id: user.id })
+      .andWhere(
+        '("lastUsedTotpStep" IS NULL OR "lastUsedTotpStep" < CAST(:step AS bigint))',
+        { step: String(matchedStep) },
+      )
+      .execute();
+    return (result.affected ?? 0) > 0;
+  }
+
   async setupMfa(userId: string): Promise<SetupMfaResponse> {
     if (this.mfaDisabled) {
       throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
@@ -359,9 +396,9 @@ export class MfaService {
     const secretBase32 = this.decrypt(user.mfaSecret);
     const secretBuffer = base32Decode(secretBase32);
 
-    // Verify the TOTP code
-    if (!verifyTOTP(secretBuffer, code)) {
-      await this.logMfaEvent('MFA_SETUP_VERIFY_FAILED', user, false, 'Invalid TOTP code');
+    // Verify the TOTP code (and consume its step — one-time-use)
+    if (!(await this.verifyAndConsumeTotp(user, code, secretBuffer))) {
+      await this.logMfaEvent('MFA_SETUP_VERIFY_FAILED', user, false, 'Invalid or replayed TOTP code');
       throw new BadRequestException('Invalid TOTP code. Please try again with a new code from your authenticator app.');
     }
 
@@ -547,7 +584,7 @@ export class MfaService {
     if (isTotpCode) {
       const secretBase32 = this.decrypt(user.mfaSecret);
       const secretBuffer = base32Decode(secretBase32);
-      verified = verifyTOTP(secretBuffer, code);
+      verified = await this.verifyAndConsumeTotp(user, code, secretBuffer);
     }
 
     // If TOTP didn't match, try recovery code
@@ -644,7 +681,7 @@ export class MfaService {
     if (isTotpCode) {
       const secretBase32 = this.decrypt(user.mfaSecret);
       const secretBuffer = base32Decode(secretBase32);
-      verified = verifyTOTP(secretBuffer, code);
+      verified = await this.verifyAndConsumeTotp(user, code, secretBuffer);
     }
 
     // ── Recovery code fallback ──────────────────────────────────────────────

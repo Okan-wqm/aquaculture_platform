@@ -199,7 +199,8 @@
         "**/*.e2e.ts",
         "**/__tests__/**",
         "**/__mocks__/**",
-        "platform/libs/outbox/**"
+        "platform/libs/outbox/**",
+        "apps/auth-service/src/outbox/best-effort-event-publisher.ts"
       ],
       "rules": {
         "aquaculture/no-direct-event-publish": "warn"

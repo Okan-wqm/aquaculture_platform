@@ -31,6 +31,12 @@ interface DeffeyesChartProps {
   maxDIC?: number;
   maxALK?: number;
   onDemandPath?: OnDemandStep[];
+  /**
+   * When true, force the safety overlays (NH₃/CO₂/H₂S toxic zones + safe zone)
+   * visible regardless of the user's per-layer toggles. Used for the printed
+   * report so the exported chart always shows the toxicity bands.
+   */
+  forceSafetyOverlays?: boolean;
 }
 
 type AlkDicPoint = { CT: number; AT: number };
@@ -413,12 +419,21 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
   maxDIC = 6,
   maxALK = 6,
   onDemandPath,
+  forceSafetyOverlays = false,
 }) => {
   const [showIsolines, setShowIsolines] = useState(true);
   const [showSafeZone, setShowSafeZone] = useState(false);
   const [showNH3Zone, setShowNH3Zone] = useState(false);
   const [showCO2Zone, setShowCO2Zone] = useState(false);
+  const [showH2SZone, setShowH2SZone] = useState(false);
   const [showOmega, setShowOmega] = useState(false);
+
+  // Render flags: the per-layer checkboxes drive normal display, but a report
+  // export forces every toxicity overlay on without mutating user toggle state.
+  const renderSafeZone = showSafeZone || forceSafetyOverlays;
+  const renderNH3Zone = showNH3Zone || forceSafetyOverlays;
+  const renderCO2Zone = showCO2Zone || forceSafetyOverlays;
+  const renderH2SZone = showH2SZone || forceSafetyOverlays;
   const [showTarget, setShowTarget] = useState(true);
   const [showDosing, setShowDosing] = useState(true);
   const [showCurrentPoint, setShowCurrentPoint] = useState(true);
@@ -462,6 +477,14 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
     return clipped.length >= 2 ? clipped : null;
   }, [data.co2ToxicZone, maxDIC, maxALK]);
 
+  // H₂S toxic zone fills downward to the X-axis (low-pH region), exactly like
+  // CO₂, so it reuses clipCO2Boundary + an Area with baseValue={0}.
+  const h2sAreaData = useMemo(() => {
+    if (!data.h2sToxicZone) return null;
+    const clipped = clipCO2Boundary(data.h2sToxicZone.points, maxDIC, maxALK);
+    return clipped.length >= 2 ? clipped : null;
+  }, [data.h2sToxicZone, maxDIC, maxALK]);
+
   // Compute arrowhead for reagent line tip
   // The angle is in SVG coords (Y down), computed from last 2 data points
   const reagentArrow = useMemo(() => {
@@ -501,6 +524,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
           <LayerToggle label="Safe Zone" color="#22c55e" checked={showSafeZone} onChange={setShowSafeZone} />
           <LayerToggle label="NH₃ Toxic" color="#ef4444" checked={showNH3Zone} onChange={setShowNH3Zone} />
           <LayerToggle label="CO₂ Toxic" color="#f97316" checked={showCO2Zone} onChange={setShowCO2Zone} />
+          <LayerToggle label="H₂S Toxic" color="#b91c1c" checked={showH2SZone} onChange={setShowH2SZone} />
           <LayerToggle label="Ω Calcite/Ar" color="#8b5cf6" checked={showOmega} onChange={setShowOmega} />
           <LayerToggle label="Current" color="#2563eb" checked={showCurrentPoint} onChange={setShowCurrentPoint} />
           <LayerToggle label="Dosing Path" color="#f59e0b" checked={showDosing} onChange={setShowDosing} />
@@ -536,7 +560,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             />
 
             {/* CO2 Toxic Zone - filled area between curve and X-axis */}
-            {showCO2Zone && co2AreaData && (
+            {renderCO2Zone && co2AreaData && (
               <Area
                 data={co2AreaData}
                 dataKey="AT"
@@ -553,8 +577,26 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
               />
             )}
 
+            {/* H₂S Toxic Zone - filled area between critical-pH isoline and X-axis */}
+            {renderH2SZone && h2sAreaData && (
+              <Area
+                data={h2sAreaData}
+                dataKey="AT"
+                baseValue={0}
+                fill="rgba(185, 28, 28, 0.15)"
+                stroke="#b91c1c"
+                strokeWidth={1.5}
+                strokeDasharray="6 3"
+                dot={false}
+                type="monotone"
+                legendType="none"
+                name="H₂S Toxic Zone"
+                isAnimationActive={false}
+              />
+            )}
+
             {/* NH3 Toxic Zone - filled wedge between NH3 line and Y=maxALK */}
-            {showNH3Zone && nh3AreaData && (
+            {renderNH3Zone && nh3AreaData && (
               <Area
                 data={nh3AreaData}
                 dataKey="AT"
@@ -572,7 +614,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             )}
 
             {/* Safe Zone (quadrilateral bounded by NH3 line, CO2 line, alkMin, alkMax) */}
-            {showSafeZone && SafeZoneLayer && <Customized component={SafeZoneLayer} />}
+            {renderSafeZone && SafeZoneLayer && <Customized component={SafeZoneLayer} />}
 
             {/* Minor pH isolines (thin, transparent) */}
             {showIsolines && visibleMinor.map((iso) => (

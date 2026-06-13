@@ -10,13 +10,12 @@
  * - Current and target operating points
  */
 
-import { calcTotalSulfide, fractionH2S, fractionNH3, criticalPHforNH3 } from './ammonia-calc.js';
+import { calcTotalSulfide, criticalPHforH2S, fractionH2S, fractionNH3, criticalPHforNH3 } from './ammonia-calc.js';
 import { criticalPHforCO2 } from './co2-calc.js';
 import {
   DEFFEYES_CHART_MAX_DIC,
   DEFFEYES_CHART_PH_DOMAIN,
   DEFFEYES_LEGACY_PH_DOMAIN,
-  DEFFEYES_SOLVER_PH_DOMAIN,
 } from './domains.js';
 import {
   PHIsoline,
@@ -25,15 +24,6 @@ import {
   OperatingPoint,
   OmegaIsopleth,
   DeffeyesChartData,
-  DeffeyesPHChartData,
-  DeffeyesPHLimits,
-  DicPhSegment,
-  DicPhLine,
-  DicPhPoint,
-  DicPhSafeBand,
-  DicPhToxicZone,
-  ProjectionLayerStats,
-  ProjectionStats,
   WaterParams,
   TargetParams,
   ToxicLimits,
@@ -195,6 +185,58 @@ export function generateCO2ToxicZone(
   return {
     label: `CO₂ Toxic (>${co2CritMg} mg/L)`,
     color: 'rgba(239, 68, 68, 0.15)',
+    points: boundaryPoints,
+  };
+}
+
+/**
+ * Generate H₂S toxic zone boundary on the Deffeyes (ALK vs DIC) diagram.
+ *
+ * WHY: Un-ionized H₂S rises as pH falls, so H₂S becomes toxic BELOW a critical
+ * pH (the opposite end of the scale from NH₃, and the same low-pH side as CO₂).
+ * On a Deffeyes diagram a constant pH is an isoline, so the toxic boundary is
+ * the pH isoline at the H₂S critical pH and the danger region is everything
+ * below it (lower ALK at a given DIC). This mirrors `generateCO2ToxicZone`; the
+ * component fills it downward to the X-axis with `baseValue={0}`.
+ *
+ * WHAT: Returns the boundary points tracing the critical-pH isoline, or null
+ * when H₂S can never reach the limit within the chart's pH domain (whole chart
+ * safe) or inputs are non-physical.
+ *
+ * @param h2sMeasured   Measured H₂S in µg/L
+ * @param h2sMeasuredAtPH pH (NBS) at which h2sMeasured was sampled
+ * @param h2sLimit      Toxic H₂S limit in µg/L
+ */
+export function generateH2SToxicZone(
+  tempC: number,
+  S: number,
+  h2sMeasured: number,
+  h2sMeasuredAtPH: number,
+  h2sLimit: number,
+  maxDIC = 6
+): ToxicZone | null {
+  const critPH = criticalPHforH2S(h2sMeasured, h2sMeasuredAtPH, h2sLimit, tempC, S);
+  if (!isFinite(critPH)) return null;
+  // critPH below the chart floor → no visible danger band (chart fully safe).
+  if (critPH < DEFFEYES_LEGACY_PH_DOMAIN.minPH) return null;
+  // Clamp the drawn boundary to the chart ceiling so a very-high critical pH
+  // (chart effectively all-toxic) still renders a boundary at the top edge.
+  const boundaryPH = Math.min(DEFFEYES_LEGACY_PH_DOMAIN.maxPH, critPH);
+
+  const scanMax = maxDIC * 3;
+  const boundaryPoints: Array<{ CT: number; AT: number }> = [];
+  for (let ct = 0.01; ct <= scanMax; ct += scanMax / 200) {
+    const at = calcAlkOfDicPh(ct, boundaryPH, tempC, S);
+    if (isFinite(at)) {
+      boundaryPoints.push({ CT: parseFloat(ct.toFixed(4)), AT: parseFloat(at.toFixed(4)) });
+    }
+  }
+
+  if (boundaryPoints.length < 2) return null;
+
+  return {
+    label: `H₂S Toxic (pH < ${critPH.toFixed(2)})`,
+    color: 'rgba(185, 28, 28, 0.15)',
     points: boundaryPoints,
   };
 }
@@ -451,6 +493,9 @@ export function generateDeffeyesChartData(
   const co2ToxicZone = generateCO2ToxicZone(
     tempC, salinity, alkalinity, limits.co2Toxic, maxDIC
   );
+  const h2sToxicZone = generateH2SToxicZone(
+    tempC, salinity, limits.h2sMeasuredUgL, limits.h2sMeasuredAtPH, limits.h2sLimitUgL, maxDIC
+  );
 
   // Safe zone
   const safeZoneData = generateSafeZone(
@@ -474,6 +519,7 @@ export function generateDeffeyesChartData(
     isolines,
     nh3ToxicZone,
     co2ToxicZone,
+    h2sToxicZone,
     safeZone: safeZoneData,
     currentPoint,
     targetPoint,
@@ -485,113 +531,16 @@ export function generateDeffeyesChartData(
 }
 
 // ============================================================================
-// DIC / PH CHART DATA ASSEMBLY
+// PH-DOMAIN CRITICAL-PH HELPERS
+//
+// Consumed by the water-chemistry status panel (UIA / H₂S status readouts).
+// The former DIC/pH Deffeyes chart and its projection machinery were removed
+// (single ALK/DIC Deffeyes chart only); just these two pure critical-pH
+// solvers remain because the status panel still needs them.
 // ============================================================================
 
 const PH_CHART_MIN = DEFFEYES_CHART_PH_DOMAIN.minPH;
 const PH_CHART_MAX = DEFFEYES_CHART_PH_DOMAIN.maxPH;
-const PH_SOLVER_MIN = DEFFEYES_SOLVER_PH_DOMAIN.minPH;
-const PH_SOLVER_MAX = DEFFEYES_SOLVER_PH_DOMAIN.maxPH;
-const PH_LEGACY_MIN = DEFFEYES_LEGACY_PH_DOMAIN.minPH;
-const PH_LEGACY_MAX = DEFFEYES_LEGACY_PH_DOMAIN.maxPH;
-const PH_PROJECTION_TOLERANCE = 0.01;
-
-type ProjectionStatus = 'projected' | 'rejected' | 'clipped';
-type ProjectionCounters = ProjectionLayerStats;
-export interface ProjectedDicPhLine {
-  points: DicPhPoint[];
-  segments: DicPhSegment[];
-  stats: ProjectionLayerStats;
-}
-
-function isPHInChartDomain(value: number | undefined): value is number {
-  return (
-    value != null &&
-    isFinite(value) &&
-    value >= PH_CHART_MIN &&
-    value <= PH_CHART_MAX
-  );
-}
-
-function resolveH2SMeasuredAtPH(limits: DeffeyesPHLimits, fallbackPH: number): number {
-  if (isPHInChartDomain(limits.h2sMeasuredAtPH)) return limits.h2sMeasuredAtPH;
-  if (isPHInChartDomain(limits.currentPH)) return limits.currentPH;
-  return isPHInChartDomain(fallbackPH) ? fallbackPH : PH_CHART_MIN;
-}
-
-function emptyProjectionCounters(): ProjectionCounters {
-  return { projected: 0, rejected: 0, clipped: 0, segments: 0 };
-}
-
-function mergeProjectionCounters(layers: ProjectionCounters[]): ProjectionCounters {
-  return layers.reduce((sum, layer) => ({
-    projected: sum.projected + layer.projected,
-    rejected: sum.rejected + layer.rejected,
-    clipped: sum.clipped + layer.clipped,
-    segments: sum.segments + layer.segments,
-  }), emptyProjectionCounters());
-}
-
-function segmentLayerStats(segments: DicPhSegment[]): ProjectionCounters {
-  return {
-    projected: segments.reduce((sum, segment) => sum + segment.length, 0),
-    rejected: 0,
-    clipped: 0,
-    segments: segments.length,
-  };
-}
-
-function roundedPoint(point: DicPhPoint): DicPhPoint {
-  return {
-    CT: parseFloat(point.CT.toFixed(4)),
-    pH: parseFloat(point.pH.toFixed(4)),
-    ...(point.AT == null ? {} : { AT: parseFloat(point.AT.toFixed(4)) }),
-    ...(point.sourceIndex == null ? {} : { sourceIndex: point.sourceIndex }),
-  };
-}
-
-function solvePHForAlkDic(
-  alkMeq: number,
-  dicMM: number,
-  tempC: number,
-  S: number,
-  minPH = PH_CHART_MIN,
-  maxPH = PH_CHART_MAX
-): number {
-  if (!isFinite(alkMeq) || !isFinite(dicMM) || dicMM <= 0 || alkMeq < 0) return NaN;
-
-  const alkAtMin = calcAlkOfDicPh(dicMM, minPH, tempC, S);
-  const alkAtMax = calcAlkOfDicPh(dicMM, maxPH, tempC, S);
-  if (!isFinite(alkAtMin) || !isFinite(alkAtMax)) return NaN;
-  if (alkMeq < Math.min(alkAtMin, alkAtMax) - PH_PROJECTION_TOLERANCE) return NaN;
-  if (alkMeq > Math.max(alkAtMin, alkAtMax) + PH_PROJECTION_TOLERANCE) return NaN;
-
-  let lo = minPH;
-  let hi = maxPH;
-  for (let i = 0; i < 100; i++) {
-    const mid = (lo + hi) / 2;
-    const calcAlk = calcAlkOfDicPh(dicMM, mid, tempC, S);
-    if (calcAlk < alkMeq) {
-      lo = mid;
-    } else {
-      hi = mid;
-    }
-    if (hi - lo < 1e-8) break;
-  }
-
-  const pH = (lo + hi) / 2;
-  const residual = Math.abs(calcAlkOfDicPh(dicMM, pH, tempC, S) - alkMeq);
-  return residual <= PH_PROJECTION_TOLERANCE ? pH : NaN;
-}
-
-function solvePHForAlkDicUnbounded(
-  alkMeq: number,
-  dicMM: number,
-  tempC: number,
-  S: number
-): number {
-  return solvePHForAlkDic(alkMeq, dicMM, tempC, S, PH_SOLVER_MIN, PH_SOLVER_MAX);
-}
 
 export function criticalPHforNH3PHChartDomain(
   tan: number,
@@ -663,541 +612,4 @@ export function criticalPHforH2SPHChartDomain(
     if (hi - lo < 1e-8) break;
   }
   return (lo + hi) / 2;
-}
-
-/** @deprecated Use criticalPHforNH3PHChartDomain. */
-export function criticalPHforNH3InPHRange(
-  tan: number,
-  nh3Limit: number,
-  tempC: number,
-  S: number,
-  minPH = PH_LEGACY_MIN,
-  maxPH = PH_LEGACY_MAX
-): number {
-  return criticalPHforNH3PHChartDomain(tan, nh3Limit, tempC, S, minPH, maxPH);
-}
-
-/** @deprecated Use criticalPHforH2SPHChartDomain. */
-export function criticalPHforH2SInPHRange(
-  h2sMeasured: number,
-  h2sMeasuredAtPH: number,
-  h2sLimit: number,
-  tempC: number,
-  S: number,
-  minPH = PH_LEGACY_MIN,
-  maxPH = PH_LEGACY_MAX
-): number {
-  return criticalPHforH2SPHChartDomain(h2sMeasured, h2sMeasuredAtPH, h2sLimit, tempC, S, minPH, maxPH);
-}
-
-export function projectAlkDicPointToDicPh(
-  point: { CT: number; AT: number },
-  tempC: number,
-  S: number,
-  options: { minPH?: number; maxPH?: number; sourceIndex?: number; tolerance?: number } = {}
-): DicPhPoint | null {
-  const minPH = options.minPH ?? PH_CHART_MIN;
-  const maxPH = options.maxPH ?? PH_CHART_MAX;
-  const tolerance = options.tolerance ?? PH_PROJECTION_TOLERANCE;
-
-  if (!isFinite(point.CT) || !isFinite(point.AT) || point.CT <= 0 || point.AT < 0) {
-    return null;
-  }
-
-  const pH = solvePHForAlkDic(point.AT, point.CT, tempC, S, minPH, maxPH);
-  if (!isFinite(pH) || pH < minPH - 1e-8 || pH > maxPH + 1e-8) return null;
-
-  const residual = Math.abs(calcAlkOfDicPh(point.CT, pH, tempC, S) - point.AT);
-  if (residual > tolerance) return null;
-
-  return roundedPoint({
-    CT: point.CT,
-    pH,
-    AT: point.AT,
-    sourceIndex: options.sourceIndex,
-  });
-}
-
-export function projectAlkDicLineToDicPh(
-  points: Array<{ CT: number; AT: number }>,
-  tempC: number,
-  S: number,
-  options: { minPH?: number; maxPH?: number; truncateOnInvalid?: boolean } = {}
-): DicPhPoint[] {
-  return projectAlkDicLineWithStats(points, tempC, S, options).points;
-}
-
-export function projectAlkDicLineSegmentsToDicPh(
-  points: Array<{ CT: number; AT: number }>,
-  tempC: number,
-  S: number,
-  options: { minPH?: number; maxPH?: number; truncateOnInvalid?: boolean } = {}
-): DicPhSegment[] {
-  return projectAlkDicLineWithStats(points, tempC, S, options).segments;
-}
-
-function projectAlkDicPointWithStatus(
-  point: { CT: number; AT: number },
-  tempC: number,
-  S: number,
-  options: { minPH?: number; maxPH?: number; sourceIndex?: number; tolerance?: number } = {}
-): { point: DicPhPoint | null; status: ProjectionStatus } {
-  const minPH = options.minPH ?? PH_CHART_MIN;
-  const maxPH = options.maxPH ?? PH_CHART_MAX;
-
-  if (!isFinite(point.CT) || !isFinite(point.AT) || point.CT <= 0 || point.AT < 0) {
-    return { point: null, status: 'rejected' };
-  }
-
-  const fullDomainPH = solvePHForAlkDicUnbounded(point.AT, point.CT, tempC, S);
-  if (!isFinite(fullDomainPH)) {
-    return { point: null, status: 'rejected' };
-  }
-  if (fullDomainPH < minPH - 1e-8 || fullDomainPH > maxPH + 1e-8) {
-    return { point: null, status: 'clipped' };
-  }
-
-  const projected = projectAlkDicPointToDicPh(point, tempC, S, options);
-  if (!projected) {
-    return { point: null, status: 'rejected' };
-  }
-
-  return { point: projected, status: 'projected' };
-}
-
-export function projectAlkDicLineWithStats(
-  points: Array<{ CT: number; AT: number }>,
-  tempC: number,
-  S: number,
-  options: { minPH?: number; maxPH?: number; truncateOnInvalid?: boolean } = {}
-): ProjectedDicPhLine {
-  const segments: DicPhSegment[] = [];
-  let currentSegment: DicPhPoint[] = [];
-  const stats = emptyProjectionCounters();
-  const flush = (): void => {
-    if (currentSegment.length >= 2) {
-      segments.push(currentSegment);
-    }
-    currentSegment = [];
-  };
-
-  for (let i = 0; i < points.length; i++) {
-    const point = points[i];
-    if (!point) continue;
-    const mapped = projectAlkDicPointWithStatus(point, tempC, S, {
-      minPH: options.minPH,
-      maxPH: options.maxPH,
-      sourceIndex: i,
-    });
-    stats[mapped.status] += 1;
-    if (!mapped.point) {
-      const hadVisibleSegment = currentSegment.length > 0 || segments.length > 0;
-      flush();
-      if (options.truncateOnInvalid && hadVisibleSegment) break;
-      continue;
-    }
-    currentSegment.push(mapped.point);
-  }
-  flush();
-  stats.segments = segments.length;
-  return { points: segments.flat(), segments, stats };
-}
-
-export function sampleAlkDicSegmentToDicPh(
-  start: { CT: number; AT: number },
-  end: { CT: number; AT: number },
-  tempC: number,
-  S: number,
-  options: { steps?: number; minPH?: number; maxPH?: number } = {}
-): DicPhPoint[] {
-  return sampleAlkDicSegmentSegmentsToDicPh(start, end, tempC, S, options).flat();
-}
-
-export function sampleAlkDicSegmentSegmentsToDicPh(
-  start: { CT: number; AT: number },
-  end: { CT: number; AT: number },
-  tempC: number,
-  S: number,
-  options: { steps?: number; minPH?: number; maxPH?: number } = {}
-): DicPhSegment[] {
-  const steps = options.steps ?? 32;
-  const samples: Array<{ CT: number; AT: number }> = [];
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    samples.push({
-      CT: start.CT + (end.CT - start.CT) * t,
-      AT: start.AT + (end.AT - start.AT) * t,
-    });
-  }
-  return projectAlkDicLineWithStats(samples, tempC, S, {
-    minPH: options.minPH,
-    maxPH: options.maxPH,
-  }).segments;
-}
-
-function lineFromPoints(label: string, color: string, points: DicPhPoint[], value?: number, segments?: DicPhSegment[]): DicPhLine {
-  return { label, color, points, ...(segments == null ? {} : { segments }), ...(value == null ? {} : { value }) };
-}
-
-function makeHorizontalZone(
-  label: string,
-  color: string,
-  fillColor: string,
-  criticalPH: number,
-  direction: 'above' | 'below',
-  maxDIC: number,
-  minPH: number,
-  maxPH: number
-): DicPhToxicZone | null {
-  if (!isFinite(criticalPH)) return null;
-
-  if (direction === 'above' && criticalPH > maxPH) return null;
-  if (direction === 'below' && criticalPH < minPH) return null;
-
-  const boundaryPH = Math.max(minPH, Math.min(maxPH, criticalPH));
-  const boundary = [
-    roundedPoint({ CT: 0, pH: boundaryPH }),
-    roundedPoint({ CT: maxDIC, pH: boundaryPH }),
-  ];
-
-  const polygon = direction === 'above'
-    ? [
-        roundedPoint({ CT: 0, pH: boundaryPH }),
-        roundedPoint({ CT: maxDIC, pH: boundaryPH }),
-        roundedPoint({ CT: maxDIC, pH: maxPH }),
-        roundedPoint({ CT: 0, pH: maxPH }),
-      ]
-    : [
-        roundedPoint({ CT: 0, pH: minPH }),
-        roundedPoint({ CT: maxDIC, pH: minPH }),
-        roundedPoint({ CT: maxDIC, pH: boundaryPH }),
-        roundedPoint({ CT: 0, pH: boundaryPH }),
-      ];
-
-  return { label, color, fillColor, boundary, polygons: [polygon], criticalPH: boundaryPH };
-}
-
-function generateCO2PHToxicZone(
-  tempC: number,
-  S: number,
-  co2CritMg: number,
-  maxDIC: number,
-  minPH: number,
-  maxPH: number
-): DicPhToxicZone | null {
-  const boundarySegments: DicPhSegment[] = [];
-  let currentSegment: DicPhPoint[] = [];
-  const flush = (): void => {
-    if (currentSegment.length >= 2) {
-      boundarySegments.push(currentSegment);
-    }
-    currentSegment = [];
-  };
-
-  const step = maxDIC / 200;
-  for (let ct = Math.max(step, 0.01); ct <= maxDIC + 1e-8; ct += step) {
-    const pH = criticalPHforCO2AtDIC(ct, co2CritMg, tempC, S, minPH, maxPH);
-    if (!isFinite(pH) || pH < minPH) {
-      flush();
-      continue;
-    }
-    const boundaryPH = Math.min(maxPH, pH);
-    currentSegment.push(roundedPoint({
-      CT: ct,
-      pH: boundaryPH,
-      AT: calcAlkOfDicPh(ct, boundaryPH, tempC, S),
-    }));
-  }
-  flush();
-
-  if (boundarySegments.length === 0) return null;
-
-  const polygons = boundarySegments.map(segment => [
-    ...segment.map(p => roundedPoint({ CT: p.CT, pH: minPH })),
-    ...[...segment].reverse(),
-  ]);
-
-  return {
-    label: `CO₂ Toxic (>${co2CritMg} mg/L)`,
-    color: '#f97316',
-    fillColor: 'rgba(249, 115, 22, 0.15)',
-    boundary: boundarySegments.flat(),
-    boundarySegments,
-    polygons,
-  };
-}
-
-function generateAlkalinityLines(
-  tempC: number,
-  S: number,
-  alkalinities: Array<{ label: string; value: number; color: string }>,
-  maxDIC: number,
-  minPH: number,
-  maxPH: number
-): { lines: DicPhLine[]; stats: ProjectionCounters } {
-  const stats = emptyProjectionCounters();
-  const lines = alkalinities.map(({ label, value, color }) => {
-    const rawPoints: Array<{ CT: number; AT: number }> = [];
-    const step = maxDIC / 160;
-    for (let ct = step; ct <= maxDIC + 1e-8; ct += step) {
-      rawPoints.push({ CT: ct, AT: value });
-    }
-    const projected = projectAlkDicLineWithStats(rawPoints, tempC, S, { minPH, maxPH });
-    stats.projected += projected.stats.projected;
-    stats.rejected += projected.stats.rejected;
-    stats.clipped += projected.stats.clipped;
-    stats.segments += projected.stats.segments;
-    return lineFromPoints(label, color, projected.points, value, projected.segments);
-  }).filter(line => line.points.length >= 2);
-  return { lines, stats };
-}
-
-function generatePHReferenceLines(maxDIC: number, minPH: number, maxPH: number): DicPhLine[] {
-  const lines: DicPhLine[] = [];
-  for (const pH of rangeValues(minPH, maxPH, 0.5)) {
-    lines.push(lineFromPoints(`pH ${pH.toFixed(1)}`, '#94a3b8', [
-      roundedPoint({ CT: 0, pH }),
-      roundedPoint({ CT: maxDIC, pH }),
-    ], pH));
-  }
-  return lines;
-}
-
-function generateSafeBands(
-  tempC: number,
-  S: number,
-  limits: DeffeyesPHLimits,
-  h2sMeasuredAtPH: number,
-  alkMinMeq: number,
-  alkMaxMeq: number,
-  maxDIC: number,
-  minPH: number,
-  maxPH: number
-): DicPhSafeBand[] {
-  const nh3Critical = criticalPHforNH3PHChartDomain(limits.tanMgL, limits.unIonizedNH3MgL, tempC, S, minPH, maxPH);
-  const h2sCritical = criticalPHforH2SPHChartDomain(
-    limits.h2sMeasuredUgL,
-    h2sMeasuredAtPH,
-    limits.h2sLimitUgL,
-    tempC,
-    S,
-    minPH,
-    maxPH
-  );
-
-  const bands: DicPhPoint[][] = [];
-  let lower: DicPhPoint[] = [];
-  let upper: DicPhPoint[] = [];
-  const step = maxDIC / 160;
-
-  const flush = (): void => {
-    if (lower.length >= 2 && upper.length >= 2) {
-      bands.push([...lower, ...upper.reverse()]);
-    }
-    lower = [];
-    upper = [];
-  };
-
-  for (let ct = step; ct <= maxDIC + 1e-8; ct += step) {
-    const alkMinPH = solvePHForAlkDic(alkMinMeq, ct, tempC, S, minPH, maxPH);
-    const alkMaxPH = solvePHForAlkDic(alkMaxMeq, ct, tempC, S, minPH, maxPH);
-    const co2PH = criticalPHforCO2AtDIC(ct, limits.co2ToxicMgL, tempC, S, minPH, maxPH);
-
-    if (!isFinite(alkMinPH) || !isFinite(alkMaxPH)) {
-      flush();
-      continue;
-    }
-
-    const lowerPH = Math.max(
-      minPH,
-      alkMinPH,
-      isFinite(co2PH) ? co2PH : minPH,
-      isFinite(h2sCritical) ? h2sCritical : minPH
-    );
-    const upperPH = Math.min(maxPH, alkMaxPH, isFinite(nh3Critical) ? nh3Critical : maxPH);
-
-    if (!isFinite(lowerPH) || !isFinite(upperPH) || lowerPH > upperPH) {
-      flush();
-      continue;
-    }
-
-    lower.push(roundedPoint({ CT: ct, pH: lowerPH, AT: calcAlkOfDicPh(ct, lowerPH, tempC, S) }));
-    upper.push(roundedPoint({ CT: ct, pH: upperPH, AT: calcAlkOfDicPh(ct, upperPH, tempC, S) }));
-  }
-  flush();
-
-  return bands.length > 0 ? [{ label: 'Safe Zone', color: '#22c55e', polygons: bands }] : [];
-}
-
-export function generateDeffeyesPHChartData(
-  params: WaterParams,
-  target: TargetParams | null,
-  limits: DeffeyesPHLimits,
-  alkMinMeq: number,
-  alkMaxMeq: number,
-  caMgL = 0,
-  showTarget = true
-): DeffeyesPHChartData {
-  const { tempC, pH, salinity, alkalinity } = params;
-  const maxDIC = DEFFEYES_CHART_MAX_DIC;
-  const minPH = PH_CHART_MIN;
-  const maxPH = PH_CHART_MAX;
-  const h2sMeasuredAtPH = resolveH2SMeasuredAtPH(limits, pH);
-
-  const legacyData = generateDeffeyesChartData(
-    params,
-    target,
-    {
-      tan: limits.tanMgL,
-      unIonizedNH3: limits.unIonizedNH3MgL,
-      co2Toxic: limits.co2ToxicMgL,
-      h2s: 0,
-    },
-    alkMinMeq,
-    alkMaxMeq,
-    caMgL,
-    showTarget
-  );
-
-  const currentPoint = roundedPoint({
-    CT: legacyData.currentPoint.DIC,
-    pH,
-    AT: legacyData.currentPoint.ALK,
-  });
-
-  const targetPoint = legacyData.targetPoint && target && showTarget
-    ? roundedPoint({ CT: legacyData.targetPoint.DIC, pH: target.targetpH, AT: legacyData.targetPoint.ALK })
-    : null;
-  const legacyTargetPoint = legacyData.targetPoint;
-  const targetPathProjection: ProjectedDicPhLine = legacyTargetPoint && targetPoint
-    ? projectAlkDicLineWithStats(
-        Array.from({ length: 49 }, (_, i) => {
-          const t = i / 48;
-          return {
-            CT: legacyData.currentPoint.DIC + (legacyTargetPoint.DIC - legacyData.currentPoint.DIC) * t,
-            AT: legacyData.currentPoint.ALK + (legacyTargetPoint.ALK - legacyData.currentPoint.ALK) * t,
-          };
-        }),
-        tempC,
-        salinity,
-        { minPH, maxPH }
-      )
-    : { points: [], segments: [], stats: emptyProjectionCounters() };
-  const targetPath = targetPathProjection.points;
-  const targetPathSegments = targetPathProjection.segments;
-
-  const h2sCritical = criticalPHforH2SPHChartDomain(
-    limits.h2sMeasuredUgL,
-    h2sMeasuredAtPH,
-    limits.h2sLimitUgL,
-    tempC,
-    salinity,
-    minPH,
-    maxPH
-  );
-
-  const alkalinityValues = [
-    { label: `Alk min ${alkMinMeq.toFixed(2)} meq/L`, value: alkMinMeq, color: '#16a34a' },
-    { label: `Current Alk ${alkalinity.toFixed(2)} meq/L`, value: alkalinity, color: '#2563eb' },
-    { label: `Alk max ${alkMaxMeq.toFixed(2)} meq/L`, value: alkMaxMeq, color: '#16a34a' },
-    ...(target && showTarget ? [{ label: `Target Alk ${target.targetAlkalinity.toFixed(2)} meq/L`, value: target.targetAlkalinity, color: '#111827' }] : []),
-  ];
-
-  const omegaCalciteProjection: ProjectedDicPhLine = legacyData.omegaCalcite
-    ? projectAlkDicLineWithStats(legacyData.omegaCalcite.points, tempC, salinity, { minPH, maxPH })
-    : { points: [], segments: [], stats: emptyProjectionCounters() };
-  const omegaAragoniteProjection: ProjectedDicPhLine = legacyData.omegaAragonite
-    ? projectAlkDicLineWithStats(legacyData.omegaAragonite.points, tempC, salinity, { minPH, maxPH })
-    : { points: [], segments: [], stats: emptyProjectionCounters() };
-  const omegaCalcitePoints = omegaCalciteProjection.points;
-  const omegaAragonitePoints = omegaAragoniteProjection.points;
-
-  const nh3Critical = criticalPHforNH3PHChartDomain(limits.tanMgL, limits.unIonizedNH3MgL, tempC, salinity, minPH, maxPH);
-  const nh3BoundaryPH = Math.max(minPH, Math.min(maxPH, nh3Critical));
-  const nh3ToxicZone = makeHorizontalZone(
-    isFinite(nh3Critical) ? `NH₃ Toxic (pH > ${nh3BoundaryPH.toFixed(2)})` : 'NH₃ Toxic',
-    '#ef4444',
-    'rgba(239, 68, 68, 0.18)',
-    nh3Critical,
-    'above',
-    maxDIC,
-    minPH,
-    maxPH
-  );
-
-  const h2sBoundaryPH = Math.max(minPH, Math.min(maxPH, h2sCritical));
-  const h2sToxicZone = makeHorizontalZone(
-    isFinite(h2sCritical) ? `H₂S Toxic (pH < ${h2sBoundaryPH.toFixed(2)})` : 'H₂S Toxic',
-    '#b91c1c',
-    'rgba(185, 28, 28, 0.16)',
-    h2sCritical,
-    'below',
-    maxDIC,
-    minPH,
-    maxPH
-  );
-
-  const co2ToxicZone = generateCO2PHToxicZone(
-    tempC,
-    salinity,
-    limits.co2ToxicMgL,
-    maxDIC,
-    minPH,
-    maxPH
-  );
-
-  const pHReferences = generatePHReferenceLines(maxDIC, minPH, maxPH);
-  const alkalinityProjection = generateAlkalinityLines(tempC, salinity, alkalinityValues, maxDIC, minPH, maxPH);
-  const alkalinityLines = alkalinityProjection.lines;
-  const safeBands = generateSafeBands(tempC, salinity, limits, h2sMeasuredAtPH, alkMinMeq, alkMaxMeq, maxDIC, minPH, maxPH);
-
-  const omegaCalciteStats = omegaCalciteProjection.stats;
-  const omegaAragoniteStats = omegaAragoniteProjection.stats;
-  const layers: Record<string, ProjectionLayerStats> = {
-    alkalinity: alkalinityProjection.stats,
-    omegaCalcite: omegaCalciteStats,
-    omegaAragonite: omegaAragoniteStats,
-    targetPath: targetPathProjection.stats,
-    pHReferences: {
-      projected: pHReferences.reduce((sum, line) => sum + line.points.length, 0),
-      rejected: 0,
-      clipped: 0,
-      segments: pHReferences.length,
-    },
-    safeBands: segmentLayerStats(safeBands.flatMap(band => band.polygons)),
-    co2Toxic: segmentLayerStats(co2ToxicZone?.polygons ?? []),
-    h2sToxic: segmentLayerStats(h2sToxicZone?.polygons ?? []),
-    nh3Toxic: segmentLayerStats(nh3ToxicZone?.polygons ?? []),
-  };
-  const aggregateProjectionStats = mergeProjectionCounters([
-    alkalinityProjection.stats,
-    omegaCalciteStats,
-    omegaAragoniteStats,
-    targetPathProjection.stats,
-  ]);
-
-  const stats: ProjectionStats = {
-    ...aggregateProjectionStats,
-    toxicSegments: (nh3ToxicZone?.polygons.length ?? 0) + (co2ToxicZone?.polygons.length ?? 0) + (h2sToxicZone?.polygons.length ?? 0),
-    layers,
-  };
-
-  return {
-    domain: { maxDIC, minPH, maxPH },
-    pHReferences,
-    alkalinityLines,
-    nh3ToxicZone,
-    co2ToxicZone,
-    h2sToxicZone,
-    safeBands,
-    currentPoint,
-    targetPoint,
-    targetPath,
-    targetPathSegments,
-    reagentLine: null,
-    dosingVisualization: null,
-    omegaCalcite: omegaCalcitePoints.length >= 2 ? lineFromPoints('Ω-Calcite=1', '#2563eb', omegaCalcitePoints, undefined, omegaCalciteProjection.segments) : null,
-    omegaAragonite: omegaAragonitePoints.length >= 2 ? lineFromPoints('Ω-Aragonite=1', '#d946ef', omegaAragonitePoints, undefined, omegaAragoniteProjection.segments) : null,
-    projectionStats: stats,
-  };
 }

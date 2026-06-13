@@ -1,3 +1,4 @@
+import { TenantPlan, TenantStatus } from '@platform/event-contracts';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -7,23 +8,17 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
-import { TenantPlan } from '@platform/event-contracts';
 
-export enum TenantStatus {
-  PENDING = 'PENDING',
-  PROVISIONING = 'PROVISIONING',
-  PROVISIONING_FAILED = 'PROVISIONING_FAILED',
-  ACTIVE = 'ACTIVE',
-  SUSPENDED = 'SUSPENDED',
-  CANCELLED = 'CANCELLED',
-  DEACTIVATED = 'DEACTIVATED',
-  ARCHIVED = 'ARCHIVED',
-}
-
-// DBR-HIGH-003 cure: canonical TenantPlan SSoT lives in event-contracts.
-// Re-export the type + alias so this module's public surface stays the
-// same for downstream consumers that import { TenantPlan, TenantTier }.
-export { TenantPlan, TenantTier } from '@platform/event-contracts';
+// Re-export the canonical SSoT enums so this module's public surface stays the
+// same for downstream consumers that import { TenantPlan, TenantTier,
+// TenantStatus } from this entity.
+//
+// WHY canonical (not a local copy):
+// - TenantPlan (DBR-HIGH-003): the canonical includes FREE.
+// - TenantStatus (MT-HIGH-003): pre-fix this read-replica entity owned a
+//   private 8-value copy with no PURGED terminal and no transition authority.
+//   The canonical lives beside the lifecycle machine in event-contracts.
+export { TenantPlan, TenantTier, TenantStatus } from '@platform/event-contracts';
 
 export interface TenantSettings {
   timezone?: string;
@@ -59,8 +54,12 @@ export class Tenant {
   @Column({ type: 'varchar', length: 100, unique: true })
   slug!: string;
 
+  // Typed as the canonical TenantStatus (not bare string) so the lifecycle
+  // machine's canTransition/assertTransition type-check at every call site
+  // (MT-HIGH-003). The column stays VARCHAR(20); the persisted values ARE
+  // TenantStatus values.
   @Column({ type: 'varchar', length: 20, default: TenantStatus.PENDING })
-  status!: string;
+  status!: TenantStatus;
 
   @Column({ type: 'varchar', length: 20, default: TenantPlan.STARTER })
   plan!: string;
@@ -71,17 +70,17 @@ export class Tenant {
   @Column({ type: 'int', default: -1, name: 'max_storage' })
   maxStorage!: number;
 
-  @Column({ type: 'boolean', default: false, name: 'is_trial_active' })
-  isTrialActive!: boolean;
+  // MT-MEDIUM-001: is_trial_active was dropped from auth.tenants (trial is
+  // derived from trialEndsAt, the SSoT). This read-replica therefore declares
+  // NO isTrialActive mapping — it would SELECT a non-existent column. Consumers
+  // derive trial state from trialEndsAt (see TenantDetailService.getTenantDetail).
 
   @Column({ type: 'int', default: 0, name: 'user_count' })
   userCount!: number;
 
-  @Column({ type: 'int', default: 0, name: 'farm_count' })
-  farmCount!: number;
-
-  @Column({ type: 'int', default: 0, name: 'sensor_count' })
-  sensorCount!: number;
+  // MT-MEDIUM-002: farm_count/sensor_count dropped from auth.tenants (unmaintained
+  // denormalization). Real counts are computed at read time from the per-tenant
+  // tenant_<uuid>.farms / .sensors tables in TenantDetailService.
 
   @Column({ type: 'timestamptz', nullable: true })
   trialEndsAt?: Date;
@@ -181,11 +180,14 @@ export class Tenant {
 
   // Helper methods
   isActive(): boolean {
-    return this.status === TenantStatus.ACTIVE || this.status === 'ACTIVE';
+    // The redundant `|| this.status === 'ACTIVE'` guard is gone: status is now
+    // typed TenantStatus, so the enum comparison is exhaustive (and the string
+    // literal no longer overlaps the type).
+    return this.status === TenantStatus.ACTIVE;
   }
 
   isSuspended(): boolean {
-    return this.status === TenantStatus.SUSPENDED || this.status === 'SUSPENDED';
+    return this.status === TenantStatus.SUSPENDED;
   }
 
   isTrialExpired(): boolean {

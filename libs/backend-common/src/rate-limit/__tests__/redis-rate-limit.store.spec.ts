@@ -1,12 +1,13 @@
-import { RedisService } from '../../redis/redis.service';
-import { RedisRateLimitStore } from '../redis-rate-limit.store';
+import { RateLimitRedisPort, RedisRateLimitStore } from '../redis-rate-limit.store';
 
 describe('RedisRateLimitStore', () => {
-  const buildRedisService = (evalImpl: jest.Mock): RedisService =>
-    ({
-      getClient: () => ({ eval: evalImpl }),
-      deletePattern: jest.fn().mockResolvedValue(0),
-    }) as unknown as RedisService;
+  // Two-method double against the segregated port — no cast: a `jest.Mock`
+  // is assignable to ioredis' overloaded `eval`, and the literal satisfies
+  // RateLimitRedisPort structurally (the same surface RedisService exposes).
+  const buildRedisService = (evalImpl: jest.Mock): RateLimitRedisPort => ({
+    getClient: () => ({ eval: evalImpl }),
+    deletePattern: jest.fn().mockResolvedValue(0),
+  });
 
   it('runs the atomic Lua increment and maps [count, pttl] to an entry', async () => {
     const evalMock = jest.fn().mockResolvedValue([3, 45_000]);

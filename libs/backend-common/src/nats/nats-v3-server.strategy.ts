@@ -1,0 +1,145 @@
+/**
+ * NatsV3Server — a platform-owned NATS `CustomTransportStrategy` on @nats-io/* v3.
+ *
+ * WHY (PLAT-HIGH-003): @nestjs/microservices' built-in `ServerNats` constructs its
+ * serializers with `require('nats').JSONCodec()`, removed in the v3 split. This is a
+ * faithful port of `ServerNats` (node_modules/@nestjs/microservices/server/server-nats.js)
+ * that swaps only the nats-v2 client API for `@nats-io/{nats-core,transport-node}` and
+ * the JSONCodec serializers for the byte-compatible `nats-v3-codec` (proven in
+ * nats-v3-wire-compat.spec.ts). The wire payload, subject naming (`normalizePattern`,
+ * inherited from the Nest `Server` base), queue groups, and reply protocol are
+ * unchanged, so a migrated v3 service answers an un-migrated v2 caller during a
+ * rolling deploy with zero broker migration.
+ *
+ * WHAT: extends the Nest `Server` base (reusing `messageHandlers`, `getHandlerByPattern`,
+ * `handleEvent`, `transformToObservable`, `send`, `normalizePattern`) and implements
+ * `listen`/`close`/`unwrap`. The connection options are supplied by the cutover site
+ * (`buildNatsTransportOptions(serviceName)`, the ADR-015 cert-is-identity SSoT), so this
+ * strategy stays identity-agnostic.
+ */
+import type { ConnectionOptions, Msg, NatsConnection, Subscription } from '@nats-io/nats-core';
+import { connect } from '@nats-io/transport-node';
+import {
+  CustomTransportStrategy,
+  IncomingRequest,
+  NatsContext,
+  Server,
+  WritePacket,
+} from '@nestjs/microservices';
+
+import { NatsV3RequestDeserializer, NatsV3ResponseSerializer } from './nats-v3-codec';
+
+// Nest's exact constants.NO_MESSAGE_HANDLER string, inlined so the error envelope a v3
+// server returns is byte-identical to what v2 callers expect.
+const NO_MESSAGE_HANDLER = 'There is no matching message handler defined in the remote service.';
+
+/**
+ * @nats-io connection options plus the Nest-specific default `queue` group. The cutover
+ * site builds these via `buildNatsTransportOptions(serviceName)`.
+ */
+export interface NatsV3ServerOptions extends ConnectionOptions {
+  queue?: string;
+}
+
+export class NatsV3Server extends Server implements CustomTransportStrategy {
+  private natsConnection: NatsConnection | null = null;
+  private readonly subscriptions: Subscription[] = [];
+
+  constructor(private readonly options: NatsV3ServerOptions = {}) {
+    super();
+    // Drop-in for Nest's JSONCodec serializers; the Server base invokes these.
+    this.serializer = new NatsV3ResponseSerializer();
+    this.deserializer = new NatsV3RequestDeserializer();
+  }
+
+  public async listen(callback: (...optionalParams: unknown[]) => void): Promise<void> {
+    try {
+      this.natsConnection = await this.createNatsConnection();
+      this.bindHandlers(this.natsConnection);
+      callback();
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  public async close(): Promise<void> {
+    for (const subscription of this.subscriptions) {
+      subscription.unsubscribe();
+    }
+    await this.natsConnection?.close();
+    this.natsConnection = null;
+  }
+
+  /**
+   * Escape hatch declared abstract by the Nest `Server` base (server.d.ts:37) as the
+   * unsound generic `unwrap<T>(): T` — the caller asserts the concrete client type. We
+   * surface the live `NatsConnection` through an `unknown` intermediate, mirroring
+   * Nest's own `ServerNats.unwrap`; the single framework-mandated assertion is explicit.
+   */
+  public unwrap<T>(): T {
+    if (!this.natsConnection) {
+      throw new Error('NatsV3Server is not initialized — call listen() first.');
+    }
+    const connection: unknown = this.natsConnection;
+    return connection as T;
+  }
+
+  private createNatsConnection(): Promise<NatsConnection> {
+    const { queue: _queue, ...connectionOptions } = this.options;
+    return connect(connectionOptions);
+  }
+
+  private bindHandlers(nc: NatsConnection): void {
+    const defaultQueue = this.options.queue;
+    for (const channel of this.messageHandlers.keys()) {
+      const handlerRef = this.messageHandlers.get(channel);
+      const queue = handlerRef?.extras?.queue ?? defaultQueue;
+      const subscription = nc.subscribe(channel, {
+        ...(queue ? { queue } : {}),
+        callback: (err: Error | null, msg: Msg): void => {
+          if (err) {
+            this.logger.error(err.message, err.stack);
+            return;
+          }
+          void this.handleNatsMessage(channel, msg);
+        },
+      });
+      this.subscriptions.push(subscription);
+    }
+  }
+
+  private async handleNatsMessage(channel: string, natsMsg: Msg): Promise<void> {
+    const natsCtx = new NatsContext([natsMsg.subject, natsMsg.headers]);
+    const message = (await this.deserializer.deserialize(natsMsg.data, {
+      channel,
+      replyTo: natsMsg.reply,
+    })) as IncomingRequest;
+
+    // No id ⇒ fire-and-forget event (no reply expected).
+    if (message.id === undefined) {
+      await this.handleEvent(channel, message, natsCtx);
+      return;
+    }
+
+    const publish = this.buildPublisher(natsMsg, message.id);
+    const handler = this.getHandlerByPattern(channel);
+    if (!handler) {
+      publish({ status: 'error', err: NO_MESSAGE_HANDLER });
+      return;
+    }
+
+    const response$ = this.transformToObservable(await handler(message.data, natsCtx));
+    this.send(response$, publish);
+  }
+
+  private buildPublisher(natsMsg: Msg, id: string): (response: WritePacket) => void {
+    return (response: WritePacket): void => {
+      // Reply only when the caller supplied a reply inbox (request/response).
+      if (!natsMsg.reply) {
+        return;
+      }
+      const outgoing = this.serializer.serialize({ ...response, id });
+      natsMsg.respond(outgoing.data);
+    };
+  }
+}

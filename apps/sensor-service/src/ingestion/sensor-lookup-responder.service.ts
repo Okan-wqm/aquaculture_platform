@@ -1,3 +1,11 @@
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
+// nats-core (connection + Msg/Subscription primitives) and transport-node
+// (Node connect). StringCodec was REMOVED — encode a string by passing it
+// directly to respond(), decode via msg.string(). The wire bytes are UTF-8
+// either way, so this stays byte-for-byte compatible with the Rust sidecar.
+import type { Msg, NatsConnection, Subscription } from '@nats-io/nats-core';
+import { connect } from '@nats-io/transport-node';
 import {
   Injectable,
   Logger,
@@ -5,15 +13,6 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  connect,
-  type Msg,
-  type NatsConnection,
-  StringCodec,
-  type Subscription,
-} from 'nats';
-
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
 
@@ -91,7 +90,6 @@ export class SensorLookupResponderService
 
   private connection: NatsConnection | null = null;
   private readonly subscriptions: Subscription[] = [];
-  private readonly codec = StringCodec();
   private readonly natsUrl: string;
 
   constructor(
@@ -153,7 +151,7 @@ export class SensorLookupResponderService
   async handleLookupRequest(msg: Msg): Promise<void> {
     let request: { tenantId?: unknown; sensorId?: unknown };
     try {
-      request = JSON.parse(this.codec.decode(msg.data)) as {
+      request = JSON.parse(msg.string()) as {
         tenantId?: unknown;
         sensorId?: unknown;
       };
@@ -271,17 +269,21 @@ export class SensorLookupResponderService
 
   private async connectAndSubscribe(): Promise<void> {
     /** SEC-H01: shared NATS connection factory for consistent auth. */
-    this.connection = await connect({
+    // Hold the connection in a local so it narrows to non-null for subscribe()
+    // below — the intervening logger.log() call resets TS property narrowing on
+    // the `NatsConnection | null` field.
+    const connection = await connect({
       ...buildNatsConnectionOptions(
         `sensor-service-lookup-responder-${process.pid}`,
       ),
       maxReconnectAttempts: -1,
     });
+    this.connection = connection;
     this.logger.log(
       `Connected to NATS for sensor.lookup.by-topic responder (url=${this.natsUrl})`,
     );
 
-    const sub = this.connection.subscribe(
+    const sub = connection.subscribe(
       SensorLookupResponderService.SUBJECT,
       {
         queue: SensorLookupResponderService.QUEUE_GROUP,
@@ -326,7 +328,7 @@ export class SensorLookupResponderService
    */
   private respondNull(msg: Msg): void {
     if (msg.reply) {
-      msg.respond(this.codec.encode('null'));
+      msg.respond('null');
     }
   }
 
@@ -336,7 +338,7 @@ export class SensorLookupResponderService
    */
   private respond(msg: Msg, reply: unknown): void {
     if (msg.reply) {
-      msg.respond(this.codec.encode(JSON.stringify(reply)));
+      msg.respond(JSON.stringify(reply));
     }
   }
 }

@@ -30,8 +30,6 @@ export interface SharedDepConfig {
   requiredVersion: string;
   /** Explicit version for deps whose package.json lacks exports["./package.json"] */
   version?: string;
-  /** Whether the remote should eagerly import this dep */
-  import?: boolean;
 }
 
 // ============================================================================
@@ -92,7 +90,6 @@ export function getCoreSharedConfig(): Record<string, SharedDepConfig> {
       singleton: true,
       strictVersion: true,
       requiredVersion: SHARED_VERSIONS['@aquaculture/shared-ui'],
-      import: true,
     },
     zustand: {
       singleton: true,
@@ -106,7 +103,7 @@ export function getCoreSharedConfig(): Record<string, SharedDepConfig> {
  * Extended shared config that includes reactflow (for sensor-module SCADA).
  *
  * Explicit `version` is REQUIRED because reactflow v11's package.json exports
- * map omits "./package.json", which @originjs/vite-plugin-federation uses to
+ * map omits "./package.json", which the Module Federation plugin uses to
  * auto-detect the version. Providing `version` bypasses that resolution.
  */
 export function getSharedConfigWithReactFlow(): Record<string, SharedDepConfig> {

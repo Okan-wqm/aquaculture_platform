@@ -3814,6 +3814,18 @@ Status: OPEN (2026-06-11; owner: observability-expert; natural Wave B2 follow-on
 
 ---
 
+## ORPHAN-MEDIUM-093 — Platform libs lack a selected eslint-project tsconfig; lib files importing exports-only packages can't be type-resolved by @typescript-eslint
+
+Severity: MEDIUM. `.eslintrc.json` `parserOptions.project` lists `tsconfig.base.json` FIRST, then the per-project globs (`apps/*/tsconfig.json`, `platform/libs/*/tsconfig.json`, …). @typescript-eslint resolves each file to the FIRST listed project that includes it; `tsconfig.base.json` has no `include`, so it matches every `.ts` file and always wins. App files resolve modern packages anyway, but a platform LIB file type-checked standalone against bare `tsconfig.base.json` (moduleResolution:node) cannot resolve `@nats-io/*` (exports-only ESM, with a broken `types: ./lib/mod.d.js` field) — its imports widen to `any`/`error` and trip `@typescript-eslint/no-unsafe-*`. Surfaced by A3 (the first platform lib to import @nats-io): `platform/libs/event-bus/src/nats/nats-event-bus.ts` `connect()` is a verified false positive — the platform `type-check`, the `build`, and the event-bus unit tests all PASS (they run in the consumer context where @nats-io resolves). Suppressed via a scoped `.eslintrc.json` override (`no-unsafe-assignment` OFF for that one file) — the in-line `eslint-disable` form is banned by the repo's banned-construct gate, which directs false-positive suppressions to the .eslintrc lint-policy SSoT.
+
+Root cause: eslint project-selection order. Fix (highest tier first): (1) reorder `parserOptions.project` so the per-project globs precede `tsconfig.base.json` (or drop base if every linted file is covered by a project), so lib files type-check against a proper project where node_modules resolves; (2) failing that, give each platform lib a selected `tsconfig.json` (references its lib + spec). A3 created `platform/libs/event-bus/tsconfig.json` + `tsconfig.lib.json` but they were NOT selected (base wins) and were reverted pending the reorder. Cross-cutting eslint-config change — must be validated against the full lint surface, not one lib.
+
+Discovered while driving A3 (NATS v3, PR #424) to green. The `eslint-disable` is removable once the project-order fix lands.
+
+Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-093.
+
+---
+
 ## ORPHAN-HIGH-092 — E2E - Messaging Service chronic cancellation flake (~50%)
 
 Severity: HIGH. The `E2E - Messaging Service` workflow (`E2E Tests` job) cancels on roughly half its runs — sampled last 18 = 9 cancelled / 8 success / 1 failure. Cancellations are the job hitting its own wall-clock after repeated `Exceeded timeout of 60000 ms for a hook` (Jest setup hooks), ending in `##[error]The operation was canceled` — reproduced identically on two consecutive runs of the SAME commit (B2 head 4699f72dc), so it is environmental, not a code regression. The suite is NOT in `branches/main/protection/required_status_checks`; K7 (#410, 807dc90a5) deployed to production with it never green. It therefore masks real messaging-E2E signal behind noise while blocking no merge.
@@ -4018,7 +4030,7 @@ Status: OPEN (2026-06-13; owner: auth-security-expert + data-expert).
 
 ---
 
-## ORPHAN-MEDIUM-102 — Topology migration de-dup picks an arbitrary tenant for a multi-tenant user (silent permission loss)
+## ORPHAN-MEDIUM-104 — Topology migration de-dup picks an arbitrary tenant for a multi-tenant user (silent permission loss)
 
 Severity: MEDIUM. Surfaced by the ORPHAN-CRITICAL-100 security review. The `1800500000000` backfill enforces `UNIQUE(user_id)` on `auth.user_role_assignments` via `NOT EXISTS (... au.user_id = a.user_id)` while iterating tenant schemas in an UNORDERED loop. If the same `user_id` had an active assignment in two tenant schemas (a multi-tenant user), the migration keeps whichever tenant the loop reached first and silently discards the rest — that user then resolves permissions only for the surviving tenant (and the fail-loud catch will NOT surface it: the query succeeds, returns `[]`).
 
@@ -4028,7 +4040,7 @@ Status: OPEN (2026-06-13; owner: data-expert).
 
 ---
 
-## ORPHAN-MEDIUM-103 — Missing index on `auth.tenant_role_permissions(role_id)` (token-mint JOIN seq-scans)
+## ORPHAN-MEDIUM-105 — Missing index on `auth.tenant_role_permissions(role_id)` (token-mint JOIN seq-scans)
 
 Severity: MEDIUM (perf). The PERF-HIGH-001 token-mint JOIN `auth.user_role_assignments ⋈ auth.tenant_role_permissions ON role_id` has no index on `tenant_role_permissions(role_id)` — the table (created in `1800200000000-CreateAdminEntitySurfaceTables`) has only the PK on `id` + an FK on `role_id` (Postgres FKs are not auto-indexed). `user_role_assignments` already has its indexes (UNIQUE user_id, role_id, is_active). The W4 PERF-HIGH-001 cache (60s TTL) mitigates per-mint cost; the index is the durable fix.
 
@@ -4036,3 +4048,70 @@ Fix direction: a new auth-schema migration `CREATE INDEX IF NOT EXISTS "idx_tena
 
 Status: OPEN (2026-06-13; owner: auth-security-expert; pairs with ORPHAN-CRITICAL-100's tenant-role.service repoint PR).
 
+---
+
+## ORPHAN-HIGH-100 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
+
+Severity: HIGH. A2 (ESLint 8→9 flat migration) sırasında firsthand keşfedildi: `tools/eslint-rules`'deki 6 mimari-invariant kuralı (`require-entity-schema`, `no-bare-tenant-query-key`, `no-direct-event-publish`, `no-high-cardinality-metric-label`, `no-claude-sdk-raw-call`, `no-bare-graphql-query-string`) root `.eslintrc.json`'da **override** olarak tanımlıydı; ama her proje (apps/*, libs/event-contracts, libs/node-components, web/*, mcp/*, scripts, tests/invariants, tools/eslint-rules — 31 dizin) kendi `root: true` `.eslintrc.cjs`'ine sahip olduğundan eslintrc cascade proje sınırında DURUYORDU → bu kurallar proje dosyalarına HİÇ uygulanmadı. ESLint 8 `calculateConfigForFile` ile doğrulandı: `aquaculture/require-entity-schema` + `no-direct-event-publish` 55 proje-probe'unun **0**'ında tanımlı. Kurallar yalnız non-cjs zonlarda (`platform/libs/**`, `libs/backend-common/**`, `web/apps/aquamobil/**`) canlı.
+
+Sonuç: `require-entity-schema` (her `@Entity()` şema disiplinini zorlar — ADR-011) HİÇBİR `apps/*/src/**/*.entity.ts` üzerinde çalışmıyor; tenant-IDOR'a karşı `no-bare-tenant-query-key` hiçbir web modülünde çalışmıyor. PR-1 bu kurallar için RuleTester unit'leri ekledi (izole doğru çalışıyorlar) ama CI lint'inde tetiklenmiyorlar.
+
+Kök neden: nx'in proje-başına `root: true` `.eslintrc.cjs` üretme deseni, root-override-tabanlı custom kuralları yapısal olarak gölgeliyor. A2 flat migration bu davranışı SIFIR-DRIFT korudu (kurallar inert kalır) — aktivasyon bilinçli, ayrı, ölçülü bir değişiklik olmalı (platform genelinde binlerce yeni uyarı potansiyeli; her kural ayrı triyaj ister).
+
+Düzeltme yönü: `eslint.config.mjs`'in `PROJECT_GLOBS`-gated custom-rule bloklarındaki ignore'ı kaldırıp her kuralı tek tek aktive et + çıkan ihlalleri kural-bazında triyaj et (önce `require-entity-schema` — ADR-011 zaten zorunlu kılıyor, ihlal sayısı düşük olmalı). Make-it-detectable: aktivasyon sonrası bir invariant her kuralın ≥1 gerçek dosyada resolve olduğunu assert etsin.
+
+Status: OPEN (2026-06-12; sahip: platform-kernel-expert; A2 PR-2 firsthand bulgusu; aktivasyon ayrı PR).
+
+## ORPHAN-MEDIUM-101 — `no-restricted-syntax` (JWT_SECRET + getRepository + JSON.stringify gate'leri) web modüllerinde ve e2e'de tutarsız
+
+Severity: MEDIUM. A2 firsthand: `no-restricted-syntax` (6 selector: getRepository, JSON.stringify>2, 4×JWT_SECRET) ESLint 8 resolved davranışında zon-bazında tutarsız: apps + 4 web modülü (dashboard/farm-module/hr-module/hydroponics-module) = 6 selector (tam gate); ama **5 web modülü (shell, shared-ui, admin-panel, sensor-module, tenant-admin) = `off`** (cjs'leri `no-restricted-syntax: 'off'` set ediyor) ve **e2e = yalnız 2 selector** (root test override JWT_SECRET'i düşürüyor). Yani JWT_SECRET okuma yasağı 5 web modülünde + tüm e2e'de etkisiz; getRepository IDOR yasağı bu 5 web modülünde etkisiz.
+
+Sonuç: bu surface'lerde `process.env.JWT_SECRET` veya bare `getRepository()` lint'ten geçer. Frontend'de JWT_SECRET düşük risk (web'de secret okunmaz) ama asıl boşluk e2e testlerinde JWT_SECRET (test kodu secret pattern'i kopyalayabilir, sonra prod'a sızabilir).
+
+Kök neden: web modül cjs'leri React-ergonomisi için no-restricted-syntax'i toptan kapatmış (selector'lar AST gürültüsü üretiyordu); e2e override tarihsel olarak JWT_SECRET'i test-kolaylığı için düşürmüş. A2 bunu SIFIR-DRIFT korudu (faithful migration "iyileştirme" yapmaz).
+
+Düzeltme yönü: JWT_SECRET 4 selector'ını web + e2e'de yeniden aktive et; flat config'te ayrı bir "JWT_SECRET-everywhere" bloğu (`files: ['**/*.ts','**/*.tsx']`, ignore yok) tüm zonlarda 4 JWT_SECRET selector'ını zorlar — eslintrc'nin yapamadığı tutarlılık. Ölçülü PR: önce e2e, sonra web.
+
+Status: OPEN (2026-06-12; sahip: auth-security-expert; A2 PR-2 firsthand bulgusu; ORPHAN-HIGH-100 ile aynı aktivasyon dalgasında ele alınabilir).
+
+## ORPHAN-MEDIUM-094 — CI affected-lint step lacks a NODE_OPTIONS heap bump; type-aware ESLint OOMs at the runner default
+
+Severity: MEDIUM. The `Run linter (affected only)` step in `.github/workflows/ci-affected.yml:250` ran type-aware ESLint over the changed-file set with only `NX_DAEMON`/`NX_NO_CLOUD` in its env — no `NODE_OPTIONS`. Type-aware linting builds the full TypeScript project graph, which exceeds the runner's ~4GB default V8 heap: `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory`, and the wrapper reports `lint-changed-files: ESLint produced no JSON for HEAD (exit=null, signal=SIGABRT)`. The lint gate then fails with **no code defect**. Every other heavy step in the same workflow (type-check, build, test — lines 316/407/417/431/538/609) already declares `--max-old-space-size=4096`; the lint step was the lone omission, so it sits at the ceiling and OOMs flakily under runner memory pressure.
+
+Root cause: a TS-heavy CI step without a heap ceiling sized for the project-graph build. Fix (highest tier — make-it-automatic): add `NODE_OPTIONS: '--max-old-space-size=6144'` to the lint step env. 6144 matches the B1 wave's measurement (it clears the full-repo lint) and is safe on the 7GB ubuntu runner.
+
+Discovered gating C1 PR-1a (#429): the 10-file federation lint surface (8 `vite.config.ts` + `federationSharedConfig.ts` + a spec) tipped the type-aware lint over the default heap; the prior C1 iteration's lint job failed identically. Fixed in the same C1 commit that surfaced it (C1 is blocked by it); the A2 ESLint flat-config wave owns broader lint configuration but does not modify this step.
+
+Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-094.
+
+---
+
+## ORPHAN-MEDIUM-100 — messaging unread count disagrees between the Redis HASH counter and the DB subquery on a member's OWN messages
+
+Severity: MEDIUM. Discovered 2026-06-13 while implementing Wave-6 M2 (mobile read-cursor), messaging-expert.
+
+**Problem:** The two unread-count code paths apply different sender semantics:
+- `message.service.ts` `incrementUnreadForChannelMembers(channelId, senderId, tenantId)` increments the per-user Redis HASH for all members **except the sender** — so the Redis-backed `getUnreadCount` (total badge, also used for push `badge:`) EXCLUDES the user's own messages.
+- `get-channels.handler.ts:60` computes the per-channel badge as `SELECT COUNT(*) FROM messages m WHERE ... AND m."createdAt" > COALESCE(membership."lastReadAt", '1970-01-01')` — **no `senderId` filter** — so it INCLUDES the user's own messages until `lastReadAt` passes them. The DB fallback `getUnreadCountFromDb` shares this no-sender-filter shape.
+
+**Effect:** A user who sends a message can see a non-zero per-channel unread badge (DB subquery counts their own send) while the global Redis badge shows zero, until their read cursor advances past their own message. The two surfaces disagree. Wave-6 M2 masks the user-visible symptom (the mobile client now advances `lastReadAt` to the newest message *including own sends*, so the badge clears on view), but the underlying server-side inconsistency remains: anything that reads the DB subquery without an advanced cursor (e.g. a freshly-sent-then-backgrounded channel, or a non-mobile client) still mis-counts.
+
+**Fix direction (architectural, not masked):** make the two paths agree on sender semantics. Either (a) add `AND m."senderId" <> membership."userId"` to the `get-channels` + `getUnreadCountFromDb` subqueries so the DB matches Redis (own messages never count as unread — the semantically correct choice), or (b) decide own-messages DO count and increment Redis for the sender too. Option (a) is preferred: a user's own message is never "unread" to them. Requires updating both subqueries + a regression test asserting own-message sends do not inflate the per-channel badge.
+
+Status: OPEN (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.
+
+---
+
+## ORPHAN-MEDIUM-102 — 108 dead FE GraphQL operation contracts shipped across the four frontends
+
+Severity: MEDIUM. Discovered 2026-06-13 while building the dead-contract ratchet gate (Tier-3 follow-up to Wave-6 M2 / MSG-CRITICAL-001), messaging-expert.
+
+**Problem:** A token-frequency scan of `web/**` (`tests/invariants/lib/dead-contract-scan.ts`) found **108 exported GraphQL operation consts (68 mutations + 40 queries) of 584 total that are referenced nowhere** — defined in operation files, shipped to the bundle, reachable by no call site. This is the exact failure mode of M2 (`MARK_MESSAGES_READ` existed + had an offline-replay branch but no trigger, so mobile read state never advanced); M2 was one symptomatic instance of a systemic 108-wide debt. Each dead contract is either (a) a feature wired on the backend but never reachable from the UI (a silent product gap like M2), or (b) genuinely abandoned code (bundle bloat + reviewer noise). Without triage we cannot tell which.
+
+**Effect:** Latent — any of the 108 could be a non-functional feature a user expects to work (the M2 class), and all of them inflate the bundle and obscure which operations are live. Distribution skews to farm-module feedingProgram (15+) and hr-module operations (20+).
+
+**Containment (done):** the dead-contract ratchet invariant (`tests/invariants/dead-contract-fe-operations.spec.ts` + `dead-contract-fe-operations.baseline.json`) FREEZES these 108 and fails CI on any NEW dead contract or any baseline entry that has since been wired/deleted — so the set can only shrink. The bleeding is stopped; this finding tracks the burn-down.
+
+**Fix direction (burn-down, per-module owners):** for each baseline entry, either wire the operation to its intended call site (if it backs a real feature — the M2 fix shape) or delete it (if abandoned), then remove it from the baseline. Owners: farm-module (feedingProgram.mutations), hr-module (attendance/certification/leave/performance operations), aquamobil (messaging-operations residue), sensor-module. No silent baseline padding — the gate's honesty check forbids it.
+
+Status: OPEN (2026-06-13; owner: frontend-expert; burn-down tracked, no deadline). Registry: orphan-findings.md (not dual-registered to findings.jsonl — keeps the gate PR's findings.jsonl footprint zero to avoid the registry chain-conflict cascade).

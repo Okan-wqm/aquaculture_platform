@@ -244,9 +244,14 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       equipmentRepository,
       outboxPublisher,
     );
+    // Final-harvest auto-close (CloseBatchCommand) is dispatched via the
+    // CommandBus and exercised by the unit spec; this DB-isolation e2e stubs
+    // it as a no-op so the harvest path under test is unaffected.
+    const commandBus = { execute: jest.fn().mockResolvedValue(undefined) };
     createHarvest = new CreateHarvestRecordHandler(
       dataSource,
       outboxPublisher,
+      commandBus as never,
       harvestEligibility as never,
       backdatePolicy as never,
       harvestPolicy as never,

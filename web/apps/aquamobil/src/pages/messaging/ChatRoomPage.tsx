@@ -113,6 +113,46 @@ export function ChatRoomPage() {
     }
   }, [channelId, isConnected, joinChannel, leaveChannel]);
 
+  // Mark the channel read. WHY (MSG-CRITICAL-051): the read path was dead — neither
+  // the markMessagesRead mutation nor the socket markRead was ever invoked from the
+  // chat screen, so opening a channel never advanced the read cursor and the unread
+  // badge never cleared. The read-path SSoT is the markMessagesRead GraphQL mutation
+  // (the socket-level handler was removed in #426 / G1); WHAT: fire it on open and
+  // whenever the newest server-persisted message changes while the chat is mounted,
+  // then converge the unread surfaces. Skipped offline (the cursor advances on the
+  // next online focus) and against optimistic (not-yet-persisted) messages whose id
+  // is a client idempotencyKey the server would reject.
+  const newestMessage = messages.length > 0 ? messages[messages.length - 1] : undefined;
+  const newestServerMessageId =
+    newestMessage && newestMessage._status !== 'pending' && newestMessage._status !== 'failed'
+      ? newestMessage.id
+      : undefined;
+  useEffect(() => {
+    if (!channelId || !tenantId || !newestServerMessageId || !isOnline) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { graphqlRequest } = await import('@/services/authenticated-fetch');
+        const { MARK_MESSAGES_READ } = await import('@/graphql/messaging-operations');
+        await graphqlRequest(MARK_MESSAGES_READ, {
+          input: { channelId, messageId: newestServerMessageId },
+        });
+        if (cancelled) return;
+        queryClient.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount'),
+        });
+        queryClient.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+        });
+      } catch {
+        // Non-fatal: the read cursor advances on the next focus / message.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, tenantId, newestServerMessageId, isOnline, queryClient]);
+
   // Group messages by date
   const messageGroups = useMemo(
     () => groupMessagesByDate(messages),

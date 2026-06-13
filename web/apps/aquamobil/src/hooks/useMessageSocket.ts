@@ -37,6 +37,7 @@ import type {
   ReadReceiptEvent,
   Message,
   MessagePage,
+  ChannelMember,
 } from '@/types/messaging';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -102,6 +103,43 @@ function upsertMessageIntoChannelCache(
   );
 }
 
+
+/**
+ * WHY (MSG-MEDIUM-052, WS-half): the live WS envelope carries `sender: { id }`
+ * only — the gateway never broadcasts display PII to channel members (no-PII
+ * oracle; `getMessageForBroadcast` returns `sender:{id}` exclusively). The client
+ * enriches the sender's display fields from the channelMembers cache, which IS
+ * authorized to hold them (federation-resolved firstName/lastName/profileImageUrl
+ * via GET_CHANNEL → CHANNEL_FIELDS.members.user). Without this, a live message —
+ * and a live edit, whose `messageUpdated` handler spreads the WS sender over the
+ * cached one — renders "Unknown" until the next GraphQL refetch.
+ *
+ * No-op when the message already carries a display name (a GraphQL-fetched M3
+ * reconnect message, whose sender is federation-resolved) or when the member is
+ * not in cache (channel never opened) — the message still renders, and the
+ * eventual GraphQL fetch supplies the name. This keeps the WS path PII-free while
+ * making live names correct: the display name is decoupled from the wire payload.
+ */
+function enrichSenderFromMembers(
+  qc: QueryClient,
+  tenantId: string,
+  channelId: string,
+  message: Message,
+): Message {
+  if (
+    message.sender?.firstName ||
+    message.sender?.lastName ||
+    message.sender?.displayName
+  ) {
+    return message;
+  }
+  const members = qc.getQueryData<ChannelMember[]>(
+    createTenantQueryKey(tenantId, 'messaging', 'channelMembers', channelId, tenantId),
+  );
+  const member = members?.find((m) => m.userId === message.senderId);
+  if (!member?.user) return message;
+  return { ...message, sender: { ...member.user, id: message.senderId } };
+}
 
 // WHY: io is dynamically imported from socket.io-client. If the package is not
 // installed, the hook gracefully degrades to a disconnected state. The import
@@ -302,8 +340,10 @@ export function useMessageSocket(): UseMessageSocketResult {
         const event = data as NewMessageEvent;
         const qc = queryClientRef.current;
         // Update messages cache for this channel — shared upsert, identical to
-        // the M3 reconnect reconciliation path.
-        upsertMessageIntoChannelCache(qc, tenantId, event.channelId, event.message);
+        // the M3 reconnect reconciliation path. Enrich the id-only WS sender
+        // from the channelMembers cache first (no-PII oracle; MSG-MEDIUM-052).
+        const incoming = enrichSenderFromMembers(qc, tenantId, event.channelId, event.message);
+        upsertMessageIntoChannelCache(qc, tenantId, event.channelId, incoming);
         // Invalidate channel list to update lastMessage / unread counts
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
         // Increment unread count
@@ -319,7 +359,13 @@ export function useMessageSocket(): UseMessageSocketResult {
 
       nextSocket.on('messageUpdated', (data: unknown) => {
         const event = data as MessageUpdatedEvent;
-        queryClientRef.current.setQueryData(
+        const qc = queryClientRef.current;
+        // The WS edit envelope carries sender:{id}; enrich it before the spread
+        // below, otherwise `{ ...m, ...incoming }` would overwrite the cached
+        // message's federation-resolved sender with the id-only one and the name
+        // would vanish on every edit (no-PII oracle; MSG-MEDIUM-052).
+        const incoming = enrichSenderFromMembers(qc, tenantId, event.channelId, event.message);
+        qc.setQueryData(
           createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
           (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
             if (!old?.pages) return old;
@@ -328,7 +374,7 @@ export function useMessageSocket(): UseMessageSocketResult {
               pages: old.pages.map((page: MessagePage) => ({
                 ...page,
                 items: page.items.map((m: Message) =>
-                  m.id === event.message.id ? { ...m, ...event.message } : m,
+                  m.id === incoming.id ? { ...m, ...incoming } : m,
                 ),
               })),
             };

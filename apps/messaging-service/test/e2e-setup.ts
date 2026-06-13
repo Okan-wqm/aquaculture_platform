@@ -276,6 +276,12 @@ export async function createE2eTestApp(
     // IEventSubscriber
     subscribe: jest.fn().mockResolvedValue(undefined),
     subscribeTo: jest.fn().mockResolvedValue(undefined),
+    // subscribeWildcard is the durable cross-tenant fan-out subscription that
+    // MessagingPushNatsHandler.onModuleInit uses (MSG-HIGH-004). It was missing
+    // from this "full" IEventBus mock, so app bootstrap threw
+    // `subscribeWildcard is not a function` for every E2E spec — invisible until
+    // the ORPHAN-HIGH-092 flake fix let the suite run to completion (111/111).
+    subscribeWildcard: jest.fn().mockResolvedValue(undefined),
     unsubscribe: jest.fn().mockResolvedValue(undefined),
     unsubscribeFrom: jest.fn().mockResolvedValue(undefined),
     // IEventBus

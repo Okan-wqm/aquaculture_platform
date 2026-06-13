@@ -23,6 +23,8 @@ export * from './edge-device-events';
 export * from './water-quality-events';
 export * from './messaging-events';
 export * from './messaging-event-registry';
+// Socket.IO wire envelopes (gateway → client) — SSoT for hydrated WS payloads.
+export * from './websocket-envelopes';
 export * from './platform-event-registry';
 export * from './storage-events';
 

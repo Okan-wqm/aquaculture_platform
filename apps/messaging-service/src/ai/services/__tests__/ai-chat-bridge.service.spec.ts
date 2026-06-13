@@ -1,13 +1,24 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  InputFilterService,
+  OutputPiiScannerService,
+  SsrfValidatorService,
+} from '@aquaculture/backend-common/ai-safety';
 import { AiChatBridgeService } from '../ai-chat-bridge.service';
+import { AiPersonasRegistryService } from '../ai-personas-registry.service';
+import { InstructionHierarchyService } from '../../safety/instruction-hierarchy.service';
+import { ToolSchemaValidatorService } from '../../safety/tool-schema-validator.service';
 import { Channel, ChannelType } from '../../../channel/entities/channel.entity';
+import { ChannelMember } from '../../../channel/entities/channel-member.entity';
 import { Message, MessageContentType } from '../../../message/entities/message.entity';
 import {
   createMockRepository,
   createMockNatsClient,
   createMockChannel,
+  createMockChannelMember,
   createMockMessage,
   createMockQueryBuilder,
   createMockQueryRunner,
@@ -28,9 +39,20 @@ describe('AiChatBridgeService', () => {
   let service: AiChatBridgeService;
   let channelRepo: MockRepository<Channel>;
   let messageRepo: MockRepository<Message>;
+  let channelMemberRepo: MockRepository<ChannelMember>;
   let natsClient: MockNatsClient;
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
+  // The service-under-test gained AI-safety, persona, and outbox collaborators
+  // (constructor indices 5-11). London-School TDD: each gets a typed mock with
+  // a safe default that keeps the happy path flowing through to NATS + persist.
+  let inputFilter: { scanInput: jest.Mock };
+  let outputPiiScanner: { redact: jest.Mock };
+  let ssrfValidator: { validateUrl: jest.Mock; getSafeFetchOptions: jest.Mock };
+  let instructionHierarchy: { buildHardenedSystemPrompt: jest.Mock };
+  let toolSchemaValidator: Record<string, jest.Mock>;
+  let personasRegistry: { getPersonaSystemPrompt: jest.Mock };
+  let outboxPublisher: { enqueue: jest.Mock };
 
   const tenantId = 'tenant-0001-0001-0001-000000000001';
   const aiChannelId = fakeUuid('ch');
@@ -43,9 +65,38 @@ describe('AiChatBridgeService', () => {
 
     channelRepo = createMockRepository<Channel>();
     messageRepo = createMockRepository<Message>();
+    channelMemberRepo = createMockRepository<ChannelMember>();
     natsClient = createMockNatsClient();
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
+
+    // Safe defaults: input is clean, no PII in output, persona prompts resolve.
+    inputFilter = {
+      scanInput: jest.fn().mockReturnValue({
+        safe: true,
+        reason: undefined,
+        flaggedPatterns: [],
+        severity: 'none',
+      }),
+    };
+    outputPiiScanner = {
+      redact: jest.fn().mockImplementation((text: string) => ({
+        redactedText: text,
+        scanResult: { hasPii: false, detections: [], countByType: {} },
+      })),
+    };
+    ssrfValidator = {
+      validateUrl: jest.fn().mockResolvedValue({ safe: true }),
+      getSafeFetchOptions: jest.fn().mockReturnValue({ redirect: 'error' }),
+    };
+    instructionHierarchy = {
+      buildHardenedSystemPrompt: jest.fn().mockReturnValue('hardened-prompt'),
+    };
+    toolSchemaValidator = {};
+    personasRegistry = {
+      getPersonaSystemPrompt: jest.fn().mockReturnValue('base-system-prompt'),
+    };
+    outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     // Setup createQueryBuilder for context message fetching
     const qb = createMockQueryBuilder<Message>();
@@ -59,8 +110,16 @@ describe('AiChatBridgeService', () => {
         AiChatBridgeService,
         { provide: getRepositoryToken(Message), useValue: messageRepo },
         { provide: getRepositoryToken(Channel), useValue: channelRepo },
+        { provide: getRepositoryToken(ChannelMember), useValue: channelMemberRepo },
         { provide: DataSource, useValue: mockDataSource },
         { provide: 'NATS_SERVICE', useValue: natsClient },
+        { provide: InputFilterService, useValue: inputFilter },
+        { provide: OutputPiiScannerService, useValue: outputPiiScanner },
+        { provide: SsrfValidatorService, useValue: ssrfValidator },
+        { provide: InstructionHierarchyService, useValue: instructionHierarchy },
+        { provide: ToolSchemaValidatorService, useValue: toolSchemaValidator },
+        { provide: AiPersonasRegistryService, useValue: personasRegistry },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
     }).compile();
 
@@ -229,6 +288,16 @@ describe('AiChatBridgeService', () => {
       metadata: { status: 'proposed', actionType: 'create_alert', params: {} },
     });
     messageRepo.findOne.mockResolvedValue(actionMsg);
+    // confirmAiAction now verifies the requesting user is an active member of the
+    // action message's channel (leftAt IS NULL) before executing — return a member
+    // so the happy path proceeds past the membership guard.
+    channelMemberRepo.findOne.mockResolvedValue(
+      createMockChannelMember({
+        channelId: actionMsg.channelId,
+        userId: senderId,
+        leftAt: null,
+      }),
+    );
     natsClient.send.mockReturnValue(of({ success: true, result: 'Alert created.' }));
 
     const result = await service.confirmAiAction(tenantId, actionMsgId, senderId);

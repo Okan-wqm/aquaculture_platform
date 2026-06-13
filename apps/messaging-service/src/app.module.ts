@@ -100,6 +100,7 @@ import { AddUserAiConsentTenantUserUnique1800300000000 } from './migrations/1800
 import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from './migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
 import { EnsureMessagingPartitionContract1800500000000 } from './migrations/1800500000000-EnsureMessagingPartitionContract';
 import { CreateMessageSendIdempotencyLedger1800600000000 } from './migrations/1800600000000-CreateMessageSendIdempotencyLedger';
+import { AddMessagesEmbeddingColumn1800700000000 } from './migrations/1800700000000-AddMessagesEmbeddingColumn';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -186,6 +187,7 @@ type QueryComplexityOperationContext = {
             EnforceSourceOnlyMessagingOutboxContract1800400000000,
             EnsureMessagingPartitionContract1800500000000,
             CreateMessageSendIdempotencyLedger1800600000000,
+            AddMessagesEmbeddingColumn1800700000000,
           ],
         }),
     }),

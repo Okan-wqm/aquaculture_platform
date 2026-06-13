@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { Channel, ChannelType } from '../../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../../entities/channel-member.entity';
+import { TenantUserAdmissionService } from '../../services/tenant-user-admission.service';
 import { AddMemberHandler } from '../add-member.handler';
 import { AddMemberCommand } from '../add-member.command';
 import {
@@ -25,6 +26,7 @@ describe('AddMemberHandler', () => {
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
   let outboxPublisher: { enqueue: jest.Mock };
+  let admissionService: { assertActiveTenantUsers: jest.Mock };
 
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const channelId = fakeUuid('ch');
@@ -37,12 +39,18 @@ describe('AddMemberHandler', () => {
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    // DİLİM-2 admission gate: the handler asserts targetUserId belongs to the
+    // tenant (fail-closed) BEFORE opening the transaction. Default to allow
+    // (assert resolves) so the role-hierarchy cases exercise the membership
+    // write path; a deny-path case would override this to reject.
+    admissionService = { assertActiveTenantUsers: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AddMemberHandler,
         { provide: DataSource, useValue: mockDataSource },
         { provide: OutboxPublisher, useValue: outboxPublisher },
+        { provide: TenantUserAdmissionService, useValue: admissionService },
       ],
     }).compile();
 

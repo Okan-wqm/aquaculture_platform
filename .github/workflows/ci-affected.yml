@@ -256,6 +256,12 @@ jobs:
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
+          # ORPHAN-MEDIUM-094: type-aware ESLint over the changed-file set builds the
+          # full TS project graph and OOMs at the runner's ~4GB default heap (SIGABRT,
+          # "ESLint produced no JSON"). Every other heavy step in this workflow already
+          # declares a NODE_OPTIONS ceiling; this lint step was the lone omission. 6144
+          # is the measured-sufficient size and is safe on the 7GB ubuntu runner.
+          NODE_OPTIONS: '--max-old-space-size=6144'
 
   type-check:
     needs: [install, detect-changes]

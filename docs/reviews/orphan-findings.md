@@ -3822,3 +3822,13 @@ Query↔migration drift: either the `embedding` column migration is missing from
 Discovered in the E2E Messaging logs during B2 (#411) gating. Pairs with ORPHAN-HIGH-092.
 
 Status: OPEN (2026-06-12; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.
+
+## ORPHAN-MEDIUM-094 — CI affected-lint step lacks a NODE_OPTIONS heap bump; type-aware ESLint OOMs at the runner default
+
+Severity: MEDIUM. The `Run linter (affected only)` step in `.github/workflows/ci-affected.yml:250` ran type-aware ESLint over the changed-file set with only `NX_DAEMON`/`NX_NO_CLOUD` in its env — no `NODE_OPTIONS`. Type-aware linting builds the full TypeScript project graph, which exceeds the runner's ~4GB default V8 heap: `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory`, and the wrapper reports `lint-changed-files: ESLint produced no JSON for HEAD (exit=null, signal=SIGABRT)`. The lint gate then fails with **no code defect**. Every other heavy step in the same workflow (type-check, build, test — lines 316/407/417/431/538/609) already declares `--max-old-space-size=4096`; the lint step was the lone omission, so it sits at the ceiling and OOMs flakily under runner memory pressure.
+
+Root cause: a TS-heavy CI step without a heap ceiling sized for the project-graph build. Fix (highest tier — make-it-automatic): add `NODE_OPTIONS: '--max-old-space-size=6144'` to the lint step env. 6144 matches the B1 wave's measurement (it clears the full-repo lint) and is safe on the 7GB ubuntu runner.
+
+Discovered gating C1 PR-1a (#429): the 10-file federation lint surface (8 `vite.config.ts` + `federationSharedConfig.ts` + a spec) tipped the type-aware lint over the default heap; the prior C1 iteration's lint job failed identically. Fixed in the same C1 commit that surfaced it (C1 is blocked by it); the A2 ESLint flat-config wave owns broader lint configuration but does not modify this step.
+
+Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-094.

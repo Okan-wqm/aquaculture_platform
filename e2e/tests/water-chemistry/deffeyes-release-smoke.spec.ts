@@ -124,7 +124,7 @@ test('Deffeyes chart mode, report print, and CSP stay release-safe', async ({ pa
   });
   page.on('pageerror', (error) => pageErrors.push(error.message));
   page.on('request', (request) => {
-    if (new URL(request.url()).pathname === '/remotes/farm-module/assets/remoteEntry.js') {
+    if (new URL(request.url()).pathname === '/remotes/farm-module/remoteEntry.js') {
       remoteEntryRequests.push(request.url());
     }
   });

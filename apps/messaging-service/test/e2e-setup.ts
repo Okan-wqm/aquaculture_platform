@@ -98,18 +98,19 @@ async function withE2eDdlAuthority<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Apply the messaging source-schema migrations once per process (memoised).
+ * Apply the messaging source-schema migrations once per process (memoised),
+ * called from `createE2eTestApp`'s beforeAll.
  *
- * Exported so the Jest `globalSetup` (e2e-global-setup.ts) can run it ONCE,
- * before any test, OUTSIDE the per-hook `testTimeout` budget — the heavy
- * DataSource.initialize() + CREATE EXTENSION vector + partition bootstrap +
- * full migration run otherwise overran the 60s hook budget under cold-container
- * CI load and cancelled ~50% of E2E runs (ORPHAN-HIGH-092). After globalSetup
- * has applied them, the per-spec `createE2eTestApp` call here is a fast,
- * idempotent no-op (CREATE ... IF NOT EXISTS + the runner skips applied
- * migrations), so it stays as a safe fallback.
+ * ORPHAN-HIGH-092: this used to overrun the 60s per-hook `testTimeout` on the
+ * FIRST spec because it bore the cold-container boot wait. The Jest globalSetup
+ * (e2e-global-setup.ts) now polls Postgres readiness and pre-creates the heavy
+ * extensions OUTSIDE the per-hook budget, so by the time this runs the DB is
+ * warm + the extensions exist (CREATE ... IF NOT EXISTS), keeping it well under
+ * 60s. globalSetup is deliberately self-contained (it cannot import this module
+ * without dragging the AppModule graph into a context where workspace-subpath
+ * imports do not resolve), so the migration run stays here.
  */
-export async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
+async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
   sourceMigrationPromise ??= withE2eDdlAuthority(async () => {
     const dataSource = new DataSource({
       type: 'postgres',

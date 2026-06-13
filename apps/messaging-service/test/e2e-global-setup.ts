@@ -1,30 +1,41 @@
 /**
  * Jest globalSetup for the messaging E2E suite (ORPHAN-HIGH-092 fix).
  *
- * The suite was cancelling on ~50% of CI runs: the heavy one-time bootstrap
+ * The suite cancelled on ~50% of CI runs: the first spec's `beforeAll`
  * (DataSource.initialize waiting on a cold TimescaleDB-HA + `CREATE EXTENSION
- * vector` + partition bootstrap + full migration run) ran inside the FIRST
- * spec's `beforeAll`, under the 60s per-hook `testTimeout`. Under cold-container
- * CI load it exceeded 60s → "Exceeded timeout of 60000 ms for a hook" → the job
- * hit its wall-clock → silent `##[error]The operation was canceled`.
+ * vector` + partition bootstrap + full migration run) overran the 60s per-hook
+ * `testTimeout` under cold-container load → "Exceeded timeout of 60000 ms for a
+ * hook" → the job hit its wall-clock → silent `##[error]The operation was
+ * canceled`. `pg_isready` (the workflow service healthcheck) returns ready
+ * before the engine can service heavy DDL, so the boot wait landed inside the
+ * hook budget.
  *
- * globalSetup runs ONCE before any test and is NOT bound by `testTimeout` (only
- * by the job's `timeout-minutes`), so:
- *   - Tier-2 (automatic readiness gate): poll Postgres until it actually accepts
- *     queries — TimescaleDB-HA's `pg_isready` healthcheck returns ready before
- *     the engine can service heavy DDL, so the workflow service gate is not
- *     sufficient on its own.
- *   - Tier-3 (split boot out of the hook budget + detectable): run the migration
- *     bootstrap here, loudly, with an explicit failure instead of a silent
- *     cancel. The per-spec `createE2eTestApp` call to the same memoised function
- *     is then a fast, idempotent no-op.
+ * globalSetup runs ONCE before any test and is NOT bound by `testTimeout`, so it
+ * absorbs the cold-start cost OUTSIDE the per-hook budget:
+ *   - Tier-2 readiness gate: poll until Postgres actually services a query.
+ *   - Tier-3 detectability + pre-warm: create the heavy extensions (esp.
+ *     pgvector) here, loudly, failing explicitly rather than silently cancelling.
+ *
+ * IMPORTANT — this module is intentionally self-contained (only `pg`). Jest
+ * loads globalSetup OUTSIDE jest-runtime, so its transitive `require`s bypass
+ * `moduleNameMapper`/tsconfig-paths. Importing `e2e-setup` here drags in the
+ * whole AppModule graph (→ `@aquaculture/backend-common/database`), which then
+ * fails to resolve. The migration run therefore stays in `createE2eTestApp`'s
+ * `beforeAll` — but now runs against an already-warm DB with extensions
+ * pre-created, so it completes well within the 60s budget.
  */
 import { Client } from 'pg';
 
-import { ensureMessagingSourceMigrationsApplied } from './e2e-setup';
-
 const READINESS_BUDGET_MS = 120_000;
 const READINESS_INTERVAL_MS = 2_000;
+
+interface PgConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+}
 
 function log(message: string): void {
   // globalSetup runs before the Nest app exists, so the structured Logger is
@@ -33,13 +44,7 @@ function log(message: string): void {
   process.stdout.write(`[e2e globalSetup] ${message}\n`);
 }
 
-function pgConfig(): {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-  database: string;
-} {
+function pgConfig(): PgConfig {
   return {
     host: process.env['DATABASE_HOST'] ?? 'localhost',
     port: Number(process.env['DATABASE_PORT'] ?? '5432'),
@@ -56,7 +61,6 @@ const sleep = (ms: number): Promise<void> =>
 async function waitForPostgresReady(): Promise<void> {
   const deadline = Date.now() + READINESS_BUDGET_MS;
   let attempts = 0;
-  let lastError: unknown;
 
   for (;;) {
     attempts += 1;
@@ -68,7 +72,6 @@ async function waitForPostgresReady(): Promise<void> {
       log(`Postgres ready after ${attempts} attempt(s).`);
       return;
     } catch (error) {
-      lastError = error;
       try {
         await client.end();
       } catch {
@@ -86,10 +89,29 @@ async function waitForPostgresReady(): Promise<void> {
   }
 }
 
+/**
+ * Pre-create the extensions the messaging migrations need. pgvector's first
+ * `CREATE EXTENSION vector` is the slowest single DDL in the bootstrap; paying
+ * it here (outside the hook budget) keeps the per-spec `beforeAll` migration
+ * run fast. All `IF NOT EXISTS`, so the beforeAll re-issue is a no-op.
+ */
+async function prewarmExtensions(): Promise<void> {
+  const client = new Client(pgConfig());
+  await client.connect();
+  try {
+    await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
+    await client.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"');
+    await client.query('CREATE EXTENSION IF NOT EXISTS "vector"');
+    log('extensions pre-created (uuid-ossp, pgcrypto, vector).');
+  } finally {
+    await client.end();
+  }
+}
+
 export default async function globalSetup(): Promise<void> {
   log('waiting for Postgres readiness…');
   await waitForPostgresReady();
-  log('applying messaging source migrations (once, outside the per-hook budget)…');
-  await ensureMessagingSourceMigrationsApplied();
-  log('messaging source migrations applied; suite is ready.');
+  log('pre-warming extensions outside the per-hook budget…');
+  await prewarmExtensions();
+  log('DB warm; suite is ready.');
 }

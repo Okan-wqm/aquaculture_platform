@@ -40,6 +40,7 @@ import { AddUserAiConsentTenantUserUnique1800300000000 } from '../src/migrations
 import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from '../src/migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
 import { EnsureMessagingPartitionContract1800500000000 } from '../src/migrations/1800500000000-EnsureMessagingPartitionContract';
 import { CreateMessageSendIdempotencyLedger1800600000000 } from '../src/migrations/1800600000000-CreateMessageSendIdempotencyLedger';
+import { AddMessagesEmbeddingColumn1800700000000 } from '../src/migrations/1800700000000-AddMessagesEmbeddingColumn';
 import { PartitionManagerService } from '../src/partition/partition-manager.service';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
 
@@ -96,7 +97,19 @@ async function withE2eDdlAuthority<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
+/**
+ * Apply the messaging source-schema migrations once per process (memoised).
+ *
+ * Exported so the Jest `globalSetup` (e2e-global-setup.ts) can run it ONCE,
+ * before any test, OUTSIDE the per-hook `testTimeout` budget — the heavy
+ * DataSource.initialize() + CREATE EXTENSION vector + partition bootstrap +
+ * full migration run otherwise overran the 60s hook budget under cold-container
+ * CI load and cancelled ~50% of E2E runs (ORPHAN-HIGH-092). After globalSetup
+ * has applied them, the per-spec `createE2eTestApp` call here is a fast,
+ * idempotent no-op (CREATE ... IF NOT EXISTS + the runner skips applied
+ * migrations), so it stays as a safe fallback.
+ */
+export async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
   sourceMigrationPromise ??= withE2eDdlAuthority(async () => {
     const dataSource = new DataSource({
       type: 'postgres',
@@ -116,6 +129,11 @@ async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
         EnforceSourceOnlyMessagingOutboxContract1800400000000,
         EnsureMessagingPartitionContract1800500000000,
         CreateMessageSendIdempotencyLedger1800600000000,
+        // ORPHAN-MEDIUM-055: the embedding column was missing from the E2E
+        // migration path, so the embedding-backfill sweep logged
+        // `column m.embedding does not exist` every 5 min. Keeping the E2E
+        // source-schema migrations in lockstep with production fixes that.
+        AddMessagesEmbeddingColumn1800700000000,
       ],
     });
 

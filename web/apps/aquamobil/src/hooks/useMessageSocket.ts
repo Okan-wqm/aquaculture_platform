@@ -28,6 +28,8 @@ import type { MutableRefObject } from 'react';
 
 import { useAuth } from './useAuth';
 
+import { ALL_MESSAGES_SINCE } from '@/graphql/messaging-operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type {
   NewMessageEvent,
   MessageUpdatedEvent,
@@ -37,8 +39,6 @@ import type {
   MessagePage,
 } from '@/types/messaging';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { graphqlRequest } from '@/services/authenticated-fetch';
-import { ALL_MESSAGES_SINCE } from '@/graphql/messaging-operations';
 
 /** Shape of the per-channel infinite-message-list react-query cache entry. */
 type MessagesQueryData = {

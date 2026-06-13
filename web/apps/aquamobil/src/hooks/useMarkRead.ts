@@ -30,13 +30,15 @@
  * uses — so both write paths converge on one invalidation map (SSoT).
  */
 
-import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
+
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
 import { useOfflineQueue } from './useOfflineQueue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { MARK_MESSAGES_READ } from '@/graphql/messaging-operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
 export interface UseMarkReadResult {

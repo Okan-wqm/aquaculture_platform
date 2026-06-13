@@ -11,8 +11,8 @@
  *   - reconnect      → allMessagesSince delta + cache upsert + badge invalidation
  */
 
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // --------------------------------------------------------------------------
 // Controllable fake Socket.IO socket — captures registered event handlers.
@@ -39,7 +39,9 @@ vi.mock('socket.io-client', () => ({ io: mockIo }));
 // --------------------------------------------------------------------------
 const mockSetQueryData = vi.fn();
 const mockInvalidateQueries = vi.fn();
-const mockGraphqlRequest = vi.fn();
+// Typed so the mocked graphqlRequest returns Promise<unknown> (not any) — keeps
+// the mock factory + .mock.calls destructuring free of no-unsafe-* lint.
+const mockGraphqlRequest = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 
 vi.mock('../useAuth', () => ({
   useAuth: () => ({
@@ -71,6 +73,7 @@ vi.mock('@/services/authenticated-fetch', () => ({
 
 // Import after mocks.
 import { useMessageSocket } from '../useMessageSocket';
+
 import { ALL_MESSAGES_SINCE } from '@/graphql/messaging-operations';
 
 async function fireConnect(): Promise<void> {
@@ -124,7 +127,6 @@ describe('useMessageSocket — Wave-6 M3 reconnect reconciliation', () => {
     renderHook(() => useMessageSocket());
     await waitFor(() => expect(handlers.get('connect')).toBeDefined());
 
-    // First connect establishes the watermark; reconnect triggers reconcile.
     // First connect establishes the watermark; reconnect triggers reconcile.
     await fireConnect();
     await fireConnect();

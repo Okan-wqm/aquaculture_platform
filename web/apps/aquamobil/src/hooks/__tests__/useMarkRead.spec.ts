@@ -9,6 +9,7 @@
  *   - disabled (no channel / unauthenticated) → no-op
  */
 
+import { renderHook } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // --------------------------------------------------------------------------
@@ -17,7 +18,9 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 const mockAddToQueue = vi.fn();
 const mockInvalidateQueries = vi.fn();
-const mockGraphqlRequest = vi.fn();
+// Typed so the mocked graphqlRequest returns Promise<unknown> (not any) — keeps
+// the mock factory + .mock.calls destructuring free of no-unsafe-* lint.
+const mockGraphqlRequest = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 
 let mockIsOnline = true;
 let mockTenantId: string | null = 'tenant-1';
@@ -56,7 +59,6 @@ vi.mock('@/services/authenticated-fetch', () => ({
 
 // Import after mocks.
 import { useMarkRead } from '../useMarkRead';
-import { renderHook } from '@testing-library/react';
 
 describe('useMarkRead — Wave-6 M2 read-cursor advance', () => {
   beforeEach(() => {

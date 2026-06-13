@@ -3,6 +3,14 @@
  * Supports infinite scroll, optimistic send, typing indicators, and iOS keyboard handling.
  */
 
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  Settings,
+  Send,
+  ChevronDown,
+  AlertCircle,
+} from 'lucide-react';
 import {
   useState,
   useCallback,
@@ -11,34 +19,27 @@ import {
   useRef,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import {
-  ArrowLeft,
-  Settings,
-  Send,
-  ChevronDown,
-  AlertCircle,
-} from 'lucide-react';
+
+import { AttachmentPicker } from '@/components/messaging/AttachmentPicker';
+import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
+import { ForwardModal } from '@/components/messaging/ForwardModal';
+import { MessageBubble } from '@/components/messaging/MessageBubble';
+import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
+import { MessageInput } from '@/components/messaging/MessageInput';
+import { TypingIndicator } from '@/components/messaging/TypingIndicator';
 import { useAuth } from '@/hooks/useAuth';
+import { useChannelDetail } from '@/hooks/useChannelDetail';
+import { useMarkRead } from '@/hooks/useMarkRead';
+import { useMediaUpload } from '@/hooks/useMediaUpload';
 import { useMessages } from '@/hooks/useMessages';
 import { useMessageSocket } from '@/hooks/useMessageSocket';
-import { useSendMessage } from '@/hooks/useSendMessage';
-import { useMarkRead } from '@/hooks/useMarkRead';
-import { useTypingIndicator } from '@/hooks/useTypingIndicator';
-import { useChannelDetail } from '@/hooks/useChannelDetail';
-import { useMediaUpload } from '@/hooks/useMediaUpload';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { MessageBubble } from '@/components/messaging/MessageBubble';
-import { TypingIndicator } from '@/components/messaging/TypingIndicator';
-import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
-import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
-import { MessageInput } from '@/components/messaging/MessageInput';
-import { ForwardModal } from '@/components/messaging/ForwardModal';
-import { AttachmentPicker } from '@/components/messaging/AttachmentPicker';
-import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
+import { useSendMessage } from '@/hooks/useSendMessage';
+import { useTypingIndicator } from '@/hooks/useTypingIndicator';
 import type { Message } from '@/types/messaging';
+import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /**
  * Distance (px) from the bottom of the scroll container within which the

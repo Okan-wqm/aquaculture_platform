@@ -36,6 +36,9 @@
     "importHelpers": true,
     "baseUrl": ".",
     "paths": {
+      "@nats-io/nats-core": ["node_modules/@nats-io/nats-core/lib/mod"],
+      "@nats-io/jetstream": ["node_modules/@nats-io/jetstream/lib/mod"],
+      "@nats-io/transport-node": ["node_modules/@nats-io/transport-node/lib/mod"],
       "@platform/shared": ["libs/shared/src/index.ts"],
       "@platform/shared-ui": ["web/shared-ui/src/index.ts"],
       "@platform/shared-ui/*": ["web/shared-ui/src/*"],

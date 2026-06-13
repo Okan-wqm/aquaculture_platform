@@ -8,7 +8,7 @@ import 'reflect-metadata';
 // REMOVED in favour of discrete error classes — a request timeout is
 // `TimeoutError`, a no-responders failure is `NoRespondersError`.
 import { NoRespondersError, TimeoutError } from '@nats-io/nats-core';
-import type { Msg, MsgHdrs, NatsConnection } from '@nats-io/nats-core';
+import type { Msg, NatsConnection } from '@nats-io/nats-core';
 import { NatsEventBus } from '../nats-event-bus';
 import {
   NatsRequestReply,

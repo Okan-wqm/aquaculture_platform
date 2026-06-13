@@ -4068,3 +4068,19 @@ Severity: MEDIUM. Discovered 2026-06-13 while building the dead-contract ratchet
 **Fix direction (burn-down, per-module owners):** for each baseline entry, either wire the operation to its intended call site (if it backs a real feature — the M2 fix shape) or delete it (if abandoned), then remove it from the baseline. Owners: farm-module (feedingProgram.mutations), hr-module (attendance/certification/leave/performance operations), aquamobil (messaging-operations residue), sensor-module. No silent baseline padding — the gate's honesty check forbids it.
 
 Status: OPEN (2026-06-13; owner: frontend-expert; burn-down tracked, no deadline). Registry: orphan-findings.md (not dual-registered to findings.jsonl — keeps the gate PR's findings.jsonl footprint zero to avoid the registry chain-conflict cascade).
+
+---
+
+## ORPHAN-MEDIUM-103 — two messaging CI gate scripts are registered but executed by nothing (dead gates)
+
+Severity: MEDIUM. Discovered 2026-06-13 during Wave-2 close-out (verifying the source branch's "CI invariant" slice vs main), messaging-expert.
+
+**Problem:** `scripts/ci/check-messaging-source-outbox.mjs` and `scripts/ci/check-messaging-canary-metrics.mjs` exist on main and are registered as `package.json` scripts (`gates:messaging-source-outbox`, `gates:messaging-canary-metrics`), but **no workflow, deploy script, husky hook, or aggregate gate invokes them** — only `check-messaging-tenant-entity-routing.mjs` is CI-wired (`quality-gates.yml:112`). The workflow that was meant to run them — `messaging-enterprise-release.yml` from `fix/messaging-enterprise-gates-2026-05-29` — was never ported to main (main uses the unified ADR-033 deploy instead). This is the same dead-artifact class as MSG-HIGH-004 (a complete check with no runner) and the Wave-6 M2 dead trigger.
+
+**Effect:** Limited, because the protected invariants are belt-and-suspandered elsewhere: the source-only-outbox contract is enforced at DDL/migration level by `1800400000000-EnforceSourceOnlyMessagingOutboxContract.ts` (`@SourceOnlyMigration`), so the dead `source-outbox` CI check is a redundant early-warning, not the only guard. `canary-metrics` is a post-deploy canary check that simply never runs, so messaging deploys get no canary-metric gate.
+
+**Why not fixed inline:** unlike `tenant-entity-routing` (static-only → runs in the no-DB `quality-gates` job), `check-messaging-source-outbox.mjs` also opens a live `pg.Client` (DATABASE_URL) and `canary-metrics` queries live deploy metrics — so wiring them needs a DB-backed gate job (or a static/live split of the source-outbox script) and a deploy-time canary step. That is a focused CI-infra change, not a safe session-end one-liner; rushing a DB-backed gate risks a broken required check.
+
+**Fix direction:** either (a) add a DB-backed messaging-gates job (postgres service + migrations) that runs `gates:messaging-source-outbox`, and a post-deploy canary step (deploy workflow) that runs `gates:messaging-canary-metrics`; or (b) refactor `check-messaging-source-outbox.mjs` to split its static asserts (runnable in `quality-gates`) from its live-DB asserts. Then remove the dead `package.json` entries if a script is dropped, so no gate is registered-but-unrun.
+
+Status: OPEN (2026-06-13; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.

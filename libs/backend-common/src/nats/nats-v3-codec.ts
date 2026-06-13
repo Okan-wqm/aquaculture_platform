@@ -16,8 +16,9 @@
  * bytes is what lets a rolling deploy run mixed v2/v3 services: a migrated v3
  * service answers an un-migrated v2 caller and vice-versa, with zero broker
  * migration. The byte-for-byte claim is enforced by the golden parity test
- * (__tests__/nats-v3-wire-compat.spec.ts), which serializes the same packets
- * through the real Nest NatsRecordSerializer and asserts equality.
+ * (__tests__/nats-v3-wire-compat.spec.ts), which asserts byte-identity against
+ * nats v2 `JSONCodec().encode` — the exact codec @nestjs/microservices'
+ * `NatsRecordSerializer` wraps — plus static JSON fixtures that survive PR-C.
  *
  * Custom NatsRecord headers are intentionally unsupported: a repo-wide audit
  * (2026-06-13) found zero NatsRecordBuilder/NatsRecord callsites, so the wire

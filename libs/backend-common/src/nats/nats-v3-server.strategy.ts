@@ -142,13 +142,23 @@ export class NatsV3Server extends Server implements CustomTransportStrategy {
       return;
     }
 
-    const publish = this.buildPublisher(natsMsg, message.id);
     const handler = this.getHandlerByPattern(channel);
     if (!handler) {
-      publish({ status: 'error', err: NO_MESSAGE_HANDLER });
+      // Byte-identical to Nest's no-handler envelope: id FIRST, then status, err
+      // (Nest hand-builds `{ id, status, err }`; routing it through buildPublisher's
+      // `{ ...response, id }` spread would put id LAST and diverge on the wire).
+      if (natsMsg.reply) {
+        const outgoing = this.serializer.serialize({
+          id: message.id,
+          status: 'error',
+          err: NO_MESSAGE_HANDLER,
+        });
+        natsMsg.respond(outgoing.data);
+      }
       return;
     }
 
+    const publish = this.buildPublisher(natsMsg, message.id);
     const response$ = this.transformToObservable(await handler(message.data, natsCtx));
     this.send(response$, publish);
   }

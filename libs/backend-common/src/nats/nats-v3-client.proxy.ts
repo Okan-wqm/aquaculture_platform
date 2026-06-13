@@ -15,7 +15,7 @@
  * `buildNatsConnectionOptions(serviceName)` (the ADR-015 cert-is-identity SSoT), so the
  * registration site passes only `{ serviceName, inboxPrefix }`.
  */
-import type { ConnectionOptions, Msg, MsgCallback, NatsConnection } from '@nats-io/nats-core';
+import type { ConnectionOptions, Msg, NatsConnection } from '@nats-io/nats-core';
 import { createInbox } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
 import {
@@ -94,8 +94,14 @@ export class NatsV3Client extends ClientProxy {
       const channel = this.normalizePattern(partialPacket.pattern);
       const serialized = this.serializer.serialize(packet);
       const inbox = createInbox(this.options.inboxPrefix);
+      // Inline non-async callback (contextually typed by @nats-io MsgCallback) that
+      // fire-and-forgets the async reply handling — mirrors the server strategy's
+      // subscribe pattern and avoids the Promise<void>-vs-void mismatch a returned
+      // async MsgCallback hits.
       const subscription = nc.subscribe(inbox, {
-        callback: this.buildReplyHandler(packet.id, channel, callback),
+        callback: (err, natsMsg) => {
+          void this.handleReply(err, natsMsg, packet.id, channel, callback);
+        },
       });
       nc.publish(channel, serialized.data, { reply: inbox });
       return () => subscription.unsubscribe();
@@ -117,37 +123,39 @@ export class NatsV3Client extends ClientProxy {
     return Promise.resolve() as Promise<T>;
   }
 
-  private buildReplyHandler(
+  private async handleReply(
+    err: unknown,
+    natsMsg: Msg,
     requestId: string,
     channel: string,
     callback: (packet: WritePacket) => void,
-  ): MsgCallback<Msg> {
-    // err/natsMsg infer from @nats-io's MsgCallback<Msg>.
-    return async (err, natsMsg) => {
-      if (err) {
-        callback({ err });
-        return;
-      }
-      if (natsMsg.data.length === 0) {
-        callback({
-          err: new Error(`Empty NATS response for pattern "${channel}".`),
-          isDisposed: true,
-        });
-        return;
-      }
-      const message = (await this.deserializer.deserialize(natsMsg.data)) as IncomingResponse;
-      // The inbox is unique per request; a mismatched id can only be a stray
-      // late delivery — ignore it defensively (mirrors Nest's ClientNats).
-      if (message.id && message.id !== requestId) {
-        return;
-      }
-      const { err: responseErr, response, isDisposed } = message;
+  ): Promise<void> {
+    if (err) {
+      callback({ err });
+      return;
+    }
+    if (natsMsg.data.length === 0) {
+      // Functionally equivalent to Nest's EmptyResponseException (isDisposed + error
+      // path); that class is not re-exported from the package root, and nothing
+      // catches it by type, so a plain Error with the same message suffices.
       callback({
-        err: responseErr,
-        response,
-        isDisposed: Boolean(isDisposed) || Boolean(responseErr),
+        err: new Error(`Empty NATS response for pattern "${channel}".`),
+        isDisposed: true,
       });
-    };
+      return;
+    }
+    const message = (await this.deserializer.deserialize(natsMsg.data)) as IncomingResponse;
+    // The inbox is unique per request; a mismatched id can only be a stray
+    // late delivery — ignore it defensively (mirrors Nest's ClientNats).
+    if (message.id && message.id !== requestId) {
+      return;
+    }
+    const { err: responseErr, response, isDisposed } = message;
+    callback({
+      err: responseErr,
+      response,
+      isDisposed: Boolean(isDisposed) || Boolean(responseErr),
+    });
   }
 
   private assertConnection(): NatsConnection {

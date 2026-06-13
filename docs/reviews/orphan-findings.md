@@ -3897,3 +3897,23 @@ Severity: LOW. `scripts/deploy/lib/required-env-secrets.sh` claimed "five drople
 Fix (RESOLVED): corrected both comments to state twelve services and that policy lives in the service-catalog SSoT (verifier-enforced, fail-closed), with an explicit "do not re-add policy fields to this generator" note.
 
 Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-LOW-099.
+
+---
+
+## ORPHAN-MEDIUM-100 — Config SSoT debt: `platform/configs/` empty, services read `process.env` ad-hoc
+
+**Severity:** MEDIUM
+**Discovered:** 2026-06-13, AquaMobil end-to-end audit (Explore: RS256/config SSoT pass)
+**File:** `platform/configs/` (all files 0 bytes); per-service `app.module.ts` `ConfigModule.forRoot({...})`
+
+**Evidence:** The `platform/configs/` directory exists as a placeholder but every file inside is empty (0 bytes). Each of the 17 services loads configuration via NestJS `ConfigModule.forRoot({ isGlobal: true, envFilePath: [...] })` and reads individual keys ad-hoc through `configService.get<T>(key, default)` (e.g. `apps/auth-service/src/app.module.ts:64-68`, `apps/gateway-api/src/app.module.ts:89-93`). There is no typed, validated, single-source config schema (no Joi/zod env schema).
+
+**Problem:** Config keys (JWT_*, DATABASE_URL, REDIS_URL, NATS_URL, MINIO_*, etc.) form an implicit SSoT enforced only by code review. Breaking changes (renamed/removed key) are caught only at runtime, per service. No compile-time guarantee that a service has all required env.
+
+**Risk:** A renamed/missing env var surfaces as a runtime boot failure (or a silent default) on a single service rather than a build/test-time error. Drift between services on shared keys is undetectable until production.
+
+**Why out of scope here:** This AquaMobil-audit initiative is scoped to the mobile findings. The **RS256 key SSoT is already correct** (auth-service signs with `JWT_PRIVATE_KEY`; all verifiers use one `getJwtVerifyOptions()` pinned to `algorithms:['RS256']`; JWKS rotation; `tests/invariants/jwt-rs256-only.spec.ts` bans HS256 — further hardened by #428 removing the HS256 signing fallback). So there is no security risk in deferring this. Operator-confirmed out of scope (2026-06-13).
+
+**Recommendation:** Separate platform-wide initiative — populate `@platform/configs` with a typed, zod-validated config schema loaded at bootstrap (fail-fast on missing/invalid keys), and migrate each service's `process.env` reads to it. Add a CI invariant asserting no service reads `process.env` outside the config module.
+
+**Status:** OPEN (out of scope for the AquaMobil audit; tracked for a future config-SSoT initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.

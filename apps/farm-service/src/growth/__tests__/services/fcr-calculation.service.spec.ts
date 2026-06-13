@@ -8,14 +8,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
-import { FCRCalculationService, FCRCalculationInput } from '../../services/fcr-calculation.service';
-import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
-import { GrowthMeasurement } from '../../entities/growth-measurement.entity';
-import { Batch } from '../../../batch/entities/batch.entity';
-import { Species } from '../../../species/entities/species.entity';
+
 import { BatchLocation } from '../../../batch/entities/batch-location.entity';
-import { FeedingProgram } from '../../../feeding/entities/feeding-program.entity';
+import { Batch } from '../../../batch/entities/batch.entity';
+import { TankOperation } from '../../../batch/entities/tank-operation.entity';
 import { FeedingProgramTank } from '../../../feeding/entities/feeding-program-tank.entity';
+import { FeedingProgram } from '../../../feeding/entities/feeding-program.entity';
+import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
+import { Species } from '../../../species/entities/species.entity';
+import { GrowthMeasurement } from '../../entities/growth-measurement.entity';
+import { FCRCalculationService, FCRCalculationInput } from '../../services/fcr-calculation.service';
 
 describe('FCRCalculationService', () => {
   let service: FCRCalculationService;
@@ -65,6 +67,20 @@ describe('FCRCalculationService', () => {
     getOne: jest.fn(),
   };
 
+  // Ayrı builder: TankOperation ledger sorgusu (net çıkan biyokütle).
+  // Varsayılan 0 — ledger'ı umursamayan testler etkilenmez.
+  const mockLedgerQueryBuilder = {
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    setParameter: jest.fn().mockReturnThis(),
+    getRawOne: jest.fn(),
+  };
+
+  const mockTankOperationRepository = {
+    createQueryBuilder: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -97,6 +113,10 @@ describe('FCRCalculationService', () => {
           provide: getRepositoryToken(FeedingProgramTank),
           useValue: mockFeedingProgramTankRepository,
         },
+        {
+          provide: getRepositoryToken(TankOperation),
+          useValue: mockTankOperationRepository,
+        },
       ],
     }).compile();
 
@@ -110,6 +130,8 @@ describe('FCRCalculationService', () => {
     // Setup default query builder mocks
     mockFeedingRecordRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
     mockGrowthMeasurementRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+    mockTankOperationRepository.createQueryBuilder.mockReturnValue(mockLedgerQueryBuilder);
+    mockLedgerQueryBuilder.getRawOne.mockResolvedValue({ netRemovedKg: 0 });
   });
 
   describe('calculatePeriodFCR', () => {
@@ -325,6 +347,67 @@ describe('FCRCalculationService', () => {
 
       expect(result.fcr).toBe(0);
       expect(result.totalGrowth).toBe(0);
+    });
+
+    it('should add back biomass removed by mortality/cull/harvest to realized growth', async () => {
+      mockBatchRepository.findOne.mockResolvedValue({
+        id: batchId,
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } }, // 1000kg start
+      });
+
+      mockQueryBuilder.getRawOne.mockResolvedValue({ totalFeed: 600 });
+      // Latest measurement: 1400kg in the water…
+      mockQueryBuilder.getOne.mockResolvedValue({ estimatedBiomass: 1400 });
+      // …but 200kg left the system (mortality + partial harvest). Those fish
+      // ate feed and grew before exiting — naive (current − start) hides that
+      // growth and inflates FCR (600/400=1.5 instead of the true 600/600=1.0).
+      mockLedgerQueryBuilder.getRawOne.mockResolvedValue({ netRemovedKg: 200 });
+
+      const result = await service.calculateCumulativeFCR(batchId, tenantId);
+
+      expect(result.totalGrowth).toBe(600); // (1400 + 200) − 1000
+      expect(result.removedBiomassKg).toBe(200);
+      expect(result.fcr).toBe(1.0);
+    });
+
+    it('should subtract transfer-in biomass (entered without consuming feed)', async () => {
+      mockBatchRepository.findOne.mockResolvedValue({
+        id: batchId,
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } }, // 1000kg start
+      });
+
+      mockQueryBuilder.getRawOne.mockResolvedValue({ totalFeed: 300 });
+      mockQueryBuilder.getOne.mockResolvedValue({ estimatedBiomass: 1400 });
+      // Net negative ledger: 100kg more came IN via transfer than left.
+      // That biomass did not grow on this batch's feed.
+      mockLedgerQueryBuilder.getRawOne.mockResolvedValue({ netRemovedKg: -100 });
+
+      const result = await service.calculateCumulativeFCR(batchId, tenantId);
+
+      expect(result.totalGrowth).toBe(300); // (1400 − 100) − 1000
+      expect(result.fcr).toBe(1.0);
+    });
+
+    it('should apply endDate to the tank-operation ledger query', async () => {
+      const endDate = new Date('2024-01-15');
+
+      mockBatchRepository.findOne.mockResolvedValue({
+        id: batchId,
+        initialQuantity: 10000,
+        weight: { initial: { avgWeight: 100 } },
+      });
+
+      mockQueryBuilder.getRawOne.mockResolvedValue({ totalFeed: 300 });
+      mockQueryBuilder.getOne.mockResolvedValue({ estimatedBiomass: 1200 });
+
+      await service.calculateCumulativeFCR(batchId, tenantId, endDate);
+
+      expect(mockLedgerQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'op.operationDate <= :endDate',
+        { endDate },
+      );
     });
   });
 

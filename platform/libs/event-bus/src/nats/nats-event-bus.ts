@@ -24,7 +24,6 @@ import {
   type JsMsg,
   type StreamConfig,
 } from '@nats-io/jetstream';
-import type { ConnectionOptions, NatsConnection } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
 import {
   Injectable,
@@ -55,6 +54,19 @@ import {
 
 
 import type { EventBusModuleOptions } from './nats.module';
+
+// @nats-io/nats-core ships a broken `types` field (./lib/mod.d.js — an invalid
+// .d.ts extension) with a bare-string `exports` and no `types` condition. Under
+// the event-bus lib's eslint type resolution (which falls back to
+// tsconfig.base.json's `moduleResolution: node`), nats-core-sourced types
+// resolve to `any`/`error` and trip no-unsafe-assignment on the connect() call.
+// Derive the connection + options types from `connect` itself — its package
+// (@nats-io/transport-node) ships a valid `types` field — so the connect
+// critical path never depends on the broken package's types. Runtime behaviour
+// and the consumer-context type-check are unaffected (the types are
+// structurally identical to nats-core's).
+type NatsConnection = Awaited<ReturnType<typeof connect>>;
+type NatsConnectOptions = NonNullable<Parameters<typeof connect>[0]>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -290,7 +302,7 @@ export class NatsEventBus
       // `{ authMode, ...rest }` rest-spread made the connect() call resolve to an
       // `error`/`any`-typed value under the type-aware lint (the gateway bridges
       // that spread the whole factory result are clean).
-      const connectionOptions: ConnectionOptions = {
+      const connectionOptions: NatsConnectOptions = {
         ...factoryOptions,
         name: this.clientId,
         maxReconnectAttempts: this.maxReconnectAttempts,

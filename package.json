@@ -331,7 +331,8 @@
       "minimatch": "9.0.9",
       "uuid": "^11.1.1"
     },
-    "@grpc/grpc-js": "^1.14.4"
+    "@grpc/grpc-js": "^1.14.4",
+    "esbuild": "^0.28.1"
   },
   "optionalDependencies": {
     "@swc/core-linux-x64-gnu": "1.15.10"

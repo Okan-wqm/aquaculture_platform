@@ -3834,7 +3834,7 @@ Root cause direction: container/service readiness race — the Jest global setup
 
 Discovered while gating B2 (#411). Pairs with ORPHAN-MEDIUM-055 (same E2E Postgres log surface).
 
-Status: OPEN (2026-06-12; owner: infra-expert + messaging-expert for the harness). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
+Status: RESOLVED (2026-06-13; #441 b4f484130). The heavy one-time bootstrap moved to Jest `globalSetup` (outside the 60s per-hook budget) behind a Postgres readiness poll with a loud explicit failure; the per-spec beforeAll is now a fast idempotent no-op. Root cause (boot cost inside the hook budget) eliminated. NOTE: flake-RATE reduction confirms over several post-merge E2E runs (the suite was ~50%; one green run is necessary but not sufficient) — re-open if cancellations persist. Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
 
 ---
 
@@ -3846,7 +3846,7 @@ Query↔migration drift: either the `embedding` column migration is missing from
 
 Discovered in the E2E Messaging logs during B2 (#411) gating. Pairs with ORPHAN-HIGH-092.
 
-Status: OPEN (2026-06-12; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.
+Status: RESOLVED (2026-06-13; #441 b4f484130). Root cause was query↔migration drift: the E2E migration array stopped at 1800600000000 and omitted `1800700000000-AddMessagesEmbeddingColumn` (#423), so the E2E schema lacked `messages.embedding` while the backfill sweep filtered on it. Added the migration to the E2E path (`e2e-setup.ts`) → E2E schema in lockstep with production, column present, no more `m.embedding does not exist`. Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.
 
 ---
 
@@ -4068,3 +4068,19 @@ Severity: MEDIUM. Discovered 2026-06-13 while building the dead-contract ratchet
 **Fix direction (burn-down, per-module owners):** for each baseline entry, either wire the operation to its intended call site (if it backs a real feature — the M2 fix shape) or delete it (if abandoned), then remove it from the baseline. Owners: farm-module (feedingProgram.mutations), hr-module (attendance/certification/leave/performance operations), aquamobil (messaging-operations residue), sensor-module. No silent baseline padding — the gate's honesty check forbids it.
 
 Status: OPEN (2026-06-13; owner: frontend-expert; burn-down tracked, no deadline). Registry: orphan-findings.md (not dual-registered to findings.jsonl — keeps the gate PR's findings.jsonl footprint zero to avoid the registry chain-conflict cascade).
+
+---
+
+## ORPHAN-MEDIUM-103 — two messaging CI gate scripts are registered but executed by nothing (dead gates)
+
+Severity: MEDIUM. Discovered 2026-06-13 during Wave-2 close-out (verifying the source branch's "CI invariant" slice vs main), messaging-expert.
+
+**Problem:** `scripts/ci/check-messaging-source-outbox.mjs` and `scripts/ci/check-messaging-canary-metrics.mjs` exist on main and are registered as `package.json` scripts (`gates:messaging-source-outbox`, `gates:messaging-canary-metrics`), but **no workflow, deploy script, husky hook, or aggregate gate invokes them** — only `check-messaging-tenant-entity-routing.mjs` is CI-wired (`quality-gates.yml:112`). The workflow that was meant to run them — `messaging-enterprise-release.yml` from `fix/messaging-enterprise-gates-2026-05-29` — was never ported to main (main uses the unified ADR-033 deploy instead). This is the same dead-artifact class as MSG-HIGH-004 (a complete check with no runner) and the Wave-6 M2 dead trigger.
+
+**Effect:** Limited, because the protected invariants are belt-and-suspandered elsewhere: the source-only-outbox contract is enforced at DDL/migration level by `1800400000000-EnforceSourceOnlyMessagingOutboxContract.ts` (`@SourceOnlyMigration`), so the dead `source-outbox` CI check is a redundant early-warning, not the only guard. `canary-metrics` is a post-deploy canary check that simply never runs, so messaging deploys get no canary-metric gate.
+
+**Why not fixed inline:** unlike `tenant-entity-routing` (static-only → runs in the no-DB `quality-gates` job), `check-messaging-source-outbox.mjs` also opens a live `pg.Client` (DATABASE_URL) and `canary-metrics` queries live deploy metrics — so wiring them needs a DB-backed gate job (or a static/live split of the source-outbox script) and a deploy-time canary step. That is a focused CI-infra change, not a safe session-end one-liner; rushing a DB-backed gate risks a broken required check.
+
+**Fix direction:** either (a) add a DB-backed messaging-gates job (postgres service + migrations) that runs `gates:messaging-source-outbox`, and a post-deploy canary step (deploy workflow) that runs `gates:messaging-canary-metrics`; or (b) refactor `check-messaging-source-outbox.mjs` to split its static asserts (runnable in `quality-gates`) from its live-DB asserts. Then remove the dead `package.json` entries if a script is dropped, so no gate is registered-but-unrun.
+
+Status: OPEN (2026-06-13; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.

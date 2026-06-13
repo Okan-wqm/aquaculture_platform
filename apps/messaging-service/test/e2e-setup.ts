@@ -40,6 +40,7 @@ import { AddUserAiConsentTenantUserUnique1800300000000 } from '../src/migrations
 import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from '../src/migrations/1800400000000-EnforceSourceOnlyMessagingOutboxContract';
 import { EnsureMessagingPartitionContract1800500000000 } from '../src/migrations/1800500000000-EnsureMessagingPartitionContract';
 import { CreateMessageSendIdempotencyLedger1800600000000 } from '../src/migrations/1800600000000-CreateMessageSendIdempotencyLedger';
+import { AddMessagesEmbeddingColumn1800700000000 } from '../src/migrations/1800700000000-AddMessagesEmbeddingColumn';
 import { PartitionManagerService } from '../src/partition/partition-manager.service';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
 
@@ -96,6 +97,19 @@ async function withE2eDdlAuthority<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Apply the messaging source-schema migrations once per process (memoised),
+ * called from `createE2eTestApp`'s beforeAll.
+ *
+ * ORPHAN-HIGH-092: this used to overrun the 60s per-hook `testTimeout` on the
+ * FIRST spec because it bore the cold-container boot wait. The Jest globalSetup
+ * (e2e-global-setup.ts) now polls Postgres readiness and pre-creates the heavy
+ * extensions OUTSIDE the per-hook budget, so by the time this runs the DB is
+ * warm + the extensions exist (CREATE ... IF NOT EXISTS), keeping it well under
+ * 60s. globalSetup is deliberately self-contained (it cannot import this module
+ * without dragging the AppModule graph into a context where workspace-subpath
+ * imports do not resolve), so the migration run stays here.
+ */
 async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
   sourceMigrationPromise ??= withE2eDdlAuthority(async () => {
     const dataSource = new DataSource({
@@ -116,6 +130,11 @@ async function ensureMessagingSourceMigrationsApplied(): Promise<void> {
         EnforceSourceOnlyMessagingOutboxContract1800400000000,
         EnsureMessagingPartitionContract1800500000000,
         CreateMessageSendIdempotencyLedger1800600000000,
+        // ORPHAN-MEDIUM-055: the embedding column was missing from the E2E
+        // migration path, so the embedding-backfill sweep logged
+        // `column m.embedding does not exist` every 5 min. Keeping the E2E
+        // source-schema migrations in lockstep with production fixes that.
+        AddMessagesEmbeddingColumn1800700000000,
       ],
     });
 
@@ -257,6 +276,12 @@ export async function createE2eTestApp(
     // IEventSubscriber
     subscribe: jest.fn().mockResolvedValue(undefined),
     subscribeTo: jest.fn().mockResolvedValue(undefined),
+    // subscribeWildcard is the durable cross-tenant fan-out subscription that
+    // MessagingPushNatsHandler.onModuleInit uses (MSG-HIGH-004). It was missing
+    // from this "full" IEventBus mock, so app bootstrap threw
+    // `subscribeWildcard is not a function` for every E2E spec — invisible until
+    // the ORPHAN-HIGH-092 flake fix let the suite run to completion (111/111).
+    subscribeWildcard: jest.fn().mockResolvedValue(undefined),
     unsubscribe: jest.fn().mockResolvedValue(undefined),
     unsubscribeFrom: jest.fn().mockResolvedValue(undefined),
     // IEventBus

@@ -3755,6 +3755,19 @@ Fix: add workflow contract/preflight verification, evidence trust and ledger-ref
 
 Status: RESOLVED on `feat/aria-control-plane-proof-20260606`.
 
+## ORPHAN-063 — main carries a RED test: tenant-update-consolidation.spec asserts the superseded delegation contract
+
+**Severity:** HIGH (broken test on main — the CI gate is dark for this suite)
+**Discovered:** 2026-06-10, during Wave-2 auth audit remediation (branched off origin/main).
+
+**Evidence:** `apps/auth-service/src/modules/tenant/__tests__/tenant-update-consolidation.spec.ts` on origin/main expects `resolver.updateTenant` to delegate to `TenantService.update(id, input, role)`, but the resolver (`apps/auth-service/src/modules/tenant/resolvers/tenant.resolver.ts`) was converted by the enterprise-train lineage to REJECT outright (`BadRequestException('… command-receipt owned …')`). The spec and the implementation disagree → 3 failing tests (`should call TenantService.update with role parameter`, `should enforce tenant isolation`, `should allow SUPER_ADMIN`). Verified PRE-EXISTING on clean origin/main via `git stash` A/B.
+
+**Root cause:** the command-receipt/FSM ownership migration changed the resolver behaviour but did not update its consolidation spec — a half-landed migration from a parallel work lineage. CI's `nx affected -t test` did not re-run this suite for the resolver-only change (the same affected-graph gap as AUDIT-CRITICAL-004/006).
+
+**Fix:** rewrite the spec to pin the command-receipt refusal contract (resolver rejects for ALL roles; tenant-isolation 403 still fires first). Applied identically in PR #383 (Wave-1 W1.3) and on the Wave-2 branch — identical content, conflict-free merge. The deeper affected-graph gap is tracked under AUDIT-CRITICAL-004's cross-service watch item.
+
+**Status:** RESOLVED on `fix/auth-audit-wave2-security` (and `security/rate-limit-sec-critical-002` / PR #383).
+
 ## ORPHAN-HIGH-087 — Source-schema write-guard triggers (`guard_source_write`) are installed by nothing on main
 
 Severity: HIGH. The DB-level tenant-isolation defense layer (BEFORE-trigger `guard_source_write` + `block_source_writes()` rejecting INSERT/UPDATE/DELETE on source-schema template tables) is no longer installed by any active code path. `SourceSchemaWriteGuardService` was correctly neutered into a no-DDL runtime stub (commit 42695736f, "aqua-db-migrate owns source-schema trigger hardening"), but db-migrate never picked up the install side: `SchemaPostMigrationHardening` supports only `tenantRls` and `auditColumns` — there is no `sourceWriteGuards` step, and a repo-wide grep for `guard_source_write` / `block_source_writes` hits zero active files. Environments provisioned before the neutering retain stale triggers; fresh environments get none.

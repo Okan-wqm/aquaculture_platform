@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 
+import { hashPassword, verifyPassword, enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
@@ -52,6 +53,17 @@ export class AuthenticationService {
   private readonly lockoutDurationMinutes: number;
   private readonly hashRefreshTokens: boolean;
   private readonly minLoginDurationMs: number;
+
+  /**
+   * SECURITY (SEC-HIGH-002): a VALID peppered dummy hash, lazily computed
+   * once, used to run the user-not-found login branch through the EXACT same
+   * verifyPassword (applyPepper → bcrypt.compare) pipeline as a real user.
+   * The previous code compared against a MALFORMED bcrypt string AND skipped
+   * the pepper HMAC, leaving a measurable timing asymmetry that leaks user
+   * existence. Computing it of random material means it never matches any
+   * real password.
+   */
+  private dummyPasswordHash: string | null = null;
 
   constructor(
     @InjectRepository(User)
@@ -113,6 +125,20 @@ export class AuthenticationService {
   ): Repository<T> {
     const getRepository = manager.getRepository.bind(manager);
     return getRepository(entity);
+  }
+
+  /**
+   * SECURITY (SEC-HIGH-002): lazily compute (once) a VALID peppered dummy
+   * hash of random material. The user-not-found login branch verifies the
+   * supplied password against it through the real verifyPassword pipeline so
+   * the timing/instruction path is identical to a real user — and it can
+   * never match because no user knows the random secret.
+   */
+  private async getDummyPasswordHash(): Promise<string> {
+    if (this.dummyPasswordHash === null) {
+      this.dummyPasswordHash = await hashPassword(crypto.randomBytes(32).toString('hex'));
+    }
+    return this.dummyPasswordHash;
   }
 
   /**
@@ -180,11 +206,13 @@ export class AuthenticationService {
         where: { email: input.email.toLowerCase() },
       });
 
-      // SECURITY: Perform dummy password check even if user not found
-      // This prevents timing-based user enumeration
+      // SECURITY (SEC-HIGH-002): user-not-found runs the SAME peppered verify
+      // pipeline as a real user (applyPepper → bcrypt.compare) against a
+      // valid dummy hash — identical instruction sequence, no timing/path
+      // asymmetry that could leak account existence. The prior malformed
+      // dummy hash + skipped pepper HMAC was the enumeration vector.
       if (!user) {
-        // Simulate password check timing
-        await bcrypt.compare(input.password, '$2a$12$dummy.hash.to.prevent.timing.attacks');
+        await verifyPassword(input.password, await this.getDummyPasswordHash());
         await this.ensureMinDuration(startTime);
         this.logger.debug(`Login failed: user not found`);
         // SECURITY AUDIT: Log failed login attempt
@@ -775,7 +803,7 @@ export class AuthenticationService {
             tokenPart,
           );
           if (revokedMatch) {
-            await this.revokeAllUserTokensOnReuseDetection(
+            await this.revokeTokenFamilyOnReuseDetection(
               manager,
               userIdPrefix,
               revokedMatch,
@@ -804,10 +832,14 @@ export class AuthenticationService {
       matchedToken.revokedReason = 'Token refreshed';
       await tokenRepo.save(matchedToken);
 
+      // SECURITY (SEC-MEDIUM-003): the rotated token inherits the family of
+      // the token it replaces, so reuse-detection can scope revocation to
+      // this lineage instead of the whole user.
       return this.tokenService.generateTokens(
         user,
         matchedToken.ipAddress ?? undefined,
         matchedToken.userAgent ?? undefined,
+        { familyId: matchedToken.familyId ?? undefined },
       );
     });
   }
@@ -841,26 +873,39 @@ export class AuthenticationService {
   }
 
   /**
-   * SEC-HIGH-009 cure helper: when reuse is detected, revoke every
-   * active refresh token for the user (best-effort family invalidation
-   * — without an explicit familyId column we revoke the entire user's
-   * chain), blacklist all outstanding access tokens, revoke all
-   * sessions, and emit RefreshTokenReuseDetected SecurityEvent.
+   * SEC-HIGH-009 + SEC-MEDIUM-003 cure: when reuse is detected, revoke the
+   * suspect token's FAMILY (its rotation lineage) — not the whole user's
+   * chain. A single stale-cookie replay therefore invalidates only the
+   * compromised lineage, leaving the user's other devices logged in, while
+   * the emitted SecurityEvent carries a true family-id for correlation.
    *
-   * Defense layers fail open independently — if SecurityEventService
-   * is down, the token revocations still land. If sessionManager /
-   * tokenBlacklist are missing (local-dev), the refresh-token revoke
-   * still happens.
+   * Blacklisting outstanding access tokens + session revocation remain
+   * user-scoped on purpose: an access token in the wild carries no family
+   * id, so the blacklist cannot be family-narrowed; revoking the user's
+   * access tokens + sessions is the correct conservative response to a
+   * confirmed captured-token replay.
+   *
+   * Defense layers fail open independently — if SecurityEventService is
+   * down, the token revocations still land. If sessionManager /
+   * tokenBlacklist are missing (local-dev), the refresh-token revoke still
+   * happens.
+   *
+   * Legacy rows pre-dating the familyId column have familyId=NULL; for those
+   * we fall back to the user-wide revoke (the old behaviour) so a
+   * pre-migration token replay is still fully contained.
    */
-  private async revokeAllUserTokensOnReuseDetection(
+  private async revokeTokenFamilyOnReuseDetection(
     manager: import('typeorm').EntityManager,
     userId: string,
     suspectToken: RefreshToken,
   ): Promise<void> {
     const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
-    const revokeReason = `Reuse detected: revoked token id=${suspectToken.id} replayed`;
+    const familyId = suspectToken.familyId ?? null;
+    const revokeReason = familyId
+      ? `Reuse detected: family ${familyId} revoked (token id=${suspectToken.id} replayed)`
+      : `Reuse detected: revoked token id=${suspectToken.id} replayed (legacy no-family)`;
     await tokenRepo.update(
-      { userId, isRevoked: false },
+      familyId ? { userId, familyId, isRevoked: false } : { userId, isRevoked: false },
       { isRevoked: true, revokedAt: new Date(), revokedReason: revokeReason },
     );
 
@@ -879,7 +924,8 @@ export class AuthenticationService {
     }
 
     this.logger.warn(
-      `Refresh-token reuse detected for user ${userId}; all tokens revoked. ` +
+      `Refresh-token reuse detected for user ${userId}; ` +
+        `${familyId ? `family ${familyId}` : 'all (legacy no-family)'} tokens revoked. ` +
         `Suspect token id=${suspectToken.id} (revoked at ${suspectToken.revokedAt?.toISOString() ?? 'unknown'}, reason='${suspectToken.revokedReason ?? 'unknown'}'). ` +
         `Source IP=${suspectToken.ipAddress ?? 'unknown'}.`,
     );
@@ -893,6 +939,8 @@ export class AuthenticationService {
         userId,
         userAgent: suspectToken.userAgent ?? undefined,
         description: 'refresh-token-reuse-detected',
+        // SEC-MEDIUM-003: carry the true family-id for incident correlation.
+        familyId: familyId ?? undefined,
         suspectTokenId: suspectToken.id,
         suspectTokenRevokedAt: suspectToken.revokedAt?.toISOString(),
         suspectTokenRevokedReason: suspectToken.revokedReason ?? undefined,
@@ -971,7 +1019,22 @@ export class AuthenticationService {
    */
   async validateToken(token: string): Promise<{ valid: boolean; payload?: JwtPayload }> {
     try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
+      // SECURITY: verify with the SAME options the guard uses (RS256 pinned,
+      // issuer + audience enforced) — not a bare verifyAsync that would skip
+      // algorithm/issuer/audience checks.
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(
+        token,
+        getJwtVerifyOptions(this.configService),
+      );
+
+      // SECURITY (SEC-MEDIUM-004): this is a bearer-token introspection
+      // surface. Without a type check it returns valid:true (plus role +
+      // tenantId) for a REFRESH or MFA-challenge token — an oracle that
+      // treats a non-access token as a usable access token. Reject anything
+      // whose type !== 'access', matching the JwtAuthGuard contract.
+      const isProduction =
+        this.configService.get<string>('NODE_ENV', 'development') === 'production';
+      enforceAccessTokenType(payload, this.logger, isProduction);
 
       // Check if token is blacklisted (by JTI or user-level blacklist)
       if (this.tokenBlacklist && payload.jti) {

@@ -1,8 +1,28 @@
 import { Logger } from '@nestjs/common';
-
-import { RedisService } from '../redis/redis.service';
+import type { Redis } from 'ioredis';
 
 import { RateLimitIncrementResult, RateLimitStore } from './rate-limit.types';
+
+/**
+ * Narrow Redis surface the rate-limit store depends on (Interface
+ * Segregation, CLAUDE.md Code Quality). The store needs exactly two
+ * capabilities: the raw client's `eval` (atomic Lua) and `deletePattern`
+ * (window clear).
+ *
+ * WHY a port and not the full RedisService: the fat service has ~25 methods;
+ * depending on the whole surface forces every test to fake all of them (or
+ * reach for a banned double-cast through unknown). RedisService satisfies
+ * this port structurally, so production wiring is unchanged while a test
+ * supplies a two-method double with zero casts.
+ *
+ * `getClient(): Pick<Redis, 'eval'>` re-uses ioredis' own (overloaded) `eval`
+ * type so the production call site type-checks identically and a `jest.Mock`
+ * double stays assignable in tests.
+ */
+export interface RateLimitRedisPort {
+  getClient(): Pick<Redis, 'eval'>;
+  deletePattern(pattern: string): Promise<number>;
+}
 
 /**
  * Lua script executed atomically on the Redis server.
@@ -37,7 +57,7 @@ export class RedisRateLimitStore implements RateLimitStore {
   private healthy = true;
 
   constructor(
-    private readonly redisService: RedisService,
+    private readonly redisService: RateLimitRedisPort,
     /** Key namespace; combined with the service-level Redis keyPrefix. */
     private readonly keyPrefix = 'ratelimit:',
   ) {}

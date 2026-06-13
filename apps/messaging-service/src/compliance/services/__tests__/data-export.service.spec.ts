@@ -9,9 +9,12 @@ import {
   createMockRepository,
   createMockMessage,
   createMockAttachment,
+  createMockDataSource,
+  createMockQueryRunner,
   fakeUuid,
   resetUuidCounter,
   MockRepository,
+  MockQueryRunner,
   TENANT_A,
 } from '../../../__tests__/test-helpers';
 
@@ -20,7 +23,8 @@ describe('DataExportService', () => {
   let messageRepo: MockRepository<Message>;
   let legalHoldService: jest.Mocked<Pick<LegalHoldService, 'isUnderLegalHold'>>;
   let auditService: jest.Mocked<Pick<ComplianceAuditService, 'log'>>;
-  let mockDataSource: { query: jest.Mock };
+  let mockQueryRunner: MockQueryRunner;
+  let mockDataSource: ReturnType<typeof createMockDataSource>;
 
   const channelId = fakeUuid('ch');
   const userId = fakeUuid('usr');
@@ -31,7 +35,12 @@ describe('DataExportService', () => {
     messageRepo = createMockRepository<Message>();
     legalHoldService = { isUnderLegalHold: jest.fn().mockResolvedValue(false) };
     auditService = { log: jest.fn().mockResolvedValue(undefined) };
-    mockDataSource = { query: jest.fn() };
+    // The service opens a QueryRunner to SET search_path for tenant routing
+    // (cross-service / cron contexts), then connects / queries / releases it.
+    // The current createMockDataSource API takes a MockQueryRunner and exposes
+    // createQueryRunner() returning it, so the spec must supply both.
+    mockQueryRunner = createMockQueryRunner();
+    mockDataSource = createMockDataSource(mockQueryRunner);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

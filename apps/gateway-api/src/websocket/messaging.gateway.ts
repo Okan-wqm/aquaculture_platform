@@ -46,7 +46,6 @@ interface ConnectedClient {
 interface JoinChannelPayload { channelId: string }
 interface LeaveChannelPayload { channelId: string }
 interface TypingPayload { channelId: string }
-interface MarkReadPayload { channelId: string; messageId: string }
 interface ResolveNotificationRefPayload { notificationRef: string }
 interface ResolveNotificationRefResult {
   channelId: string;
@@ -354,30 +353,16 @@ export class MessagingGateway
     return { success: true };
   }
 
-  @SubscribeMessage('markRead')
-  handleMarkRead(
-    client: Socket,
-    payload: MarkReadPayload,
-  ): { success: boolean; reason?: string } {
-    const clientData = this.clients.get(client.id);
-    if (!clientData) {
-      return { success: false, reason: 'Not authenticated' };
-    }
-
-    if (!payload?.channelId || !payload?.messageId) {
-      return { success: false, reason: 'Invalid payload' };
-    }
-
-    // Broadcast read receipt to channel
-    this.server.to(`channel:${clientData.tenantId}:${payload.channelId}`).emit('readReceipt', {
-      userId: clientData.userId,
-      channelId: payload.channelId,
-      messageId: payload.messageId,
-      timestamp: new Date().toISOString(),
-    });
-
-    return { success: true };
-  }
+  // G1 removed (read-path SSoT): the socket-level `markRead` handler was
+  // deleted. It broadcast a `readReceipt` to the channel room WITHOUT
+  // persisting anything (no mark-read.handler, no outbox, no NATS) and always
+  // returned { success: true } — producing fake "read" signals on the SAME
+  // event + room as the real ones, so clients could not tell them apart.
+  // The single read-receipt SSoT is the PERSISTENT path: MarkMessagesRead
+  // mutation -> mark-read.handler (channel_members.lastReadAt + message_receipts
+  // + outbox MessageRead, one transaction) -> NATS -> messaging-nats-bridge
+  // `case 'MessageRead'` -> broadcastReadReceipt. Clients mark-as-read via that
+  // mutation, never a socket emit.
 
   @SubscribeMessage('resolveNotificationRef')
   async handleResolveNotificationRef(

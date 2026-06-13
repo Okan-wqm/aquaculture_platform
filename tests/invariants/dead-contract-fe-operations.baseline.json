@@ -1,0 +1,547 @@
+{
+  "_comment": "Ratchet baseline for the FE dead-contract invariant. Each entry is a GraphQL operation const DEFINED in web/** but referenced nowhere (a dead contract). FROZEN: the gate fails on any NEW dead contract, and on any entry here since wired or deleted (forcing this list to shrink). Burn-down owned per-module; see ORPHAN-MEDIUM-102. Do NOT add entries to silence the gate — wire or delete the operation instead.",
+  "generated_against": "origin/main @ #432 (da590d886)",
+  "count": 108,
+  "entries": [
+    {
+      "id": "ACTIVATE_FEEDING_PROGRAM",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "ACTIVATE_SENSOR",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "ACTIVE_FEEDING_PROGRAMS_QUERY",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.queries.ts",
+      "kind": "query"
+    },
+    {
+      "id": "ADD_FEED_ASSIGNMENT",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "ADD_KEY_RESULT",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "ADD_MILESTONE",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "ADD_REACTION",
+      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "ADD_TANK_TO_PROGRAM",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "ADD_TANKS_TO_PROGRAM",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "ALARM_COUNT_BY_SEVERITY_QUERY",
+      "file": "web/modules/sensor-module/src/graphql/plc.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "APPLY_PROTOCOL_DEFAULTS",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "ASSIGN_TEMPERATURE_SENSOR",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "BIOMASS_REPORT_QUERY",
+      "file": "web/modules/farm-module/src/graphql/regulatory.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "BIOMASS_REPORTS_QUERY",
+      "file": "web/modules/farm-module/src/graphql/regulatory.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "BULK_CREATE_REVIEWS",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "BULK_CREATE_ROTATIONS",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "BULK_CREATE_SAFETY_TRAINING",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "BULK_CREATE_SCHEDULE_ENTRIES",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "BULK_ENROLL_IN_TRAINING",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "CANCEL_FEEDING_PROGRAM",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "CARRY_OVER_LEAVE_BALANCES",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "CLONE_FEEDING_PROGRAM",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "COMPLETE_FEEDING_PROGRAM",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "COMPLETE_MILESTONE",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "CREATE_CERTIFICATION_TYPE",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "CREATE_HARVEST_RECORD",
+      "file": "web/apps/aquamobil/src/graphql/operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "CREATE_LEAVE_TYPE",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "CREATE_SCHEDULE",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "CREATE_SCHEDULE_ENTRY",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "CREATE_TRAINING_COURSE",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "DELETE_SCHEDULE_ENTRY",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "DELETE_SENSOR",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "EDGE_DEVICE_IO_TAGS_QUERY",
+      "file": "web/modules/sensor-module/src/graphql/device-tags.queries.ts",
+      "kind": "query"
+    },
+    {
+      "id": "EDIT_MESSAGE",
+      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "FEEDING_PROGRAMS_QUERY",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.queries.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GENERATE_DAILY_PLAN",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "GET_ATTENDANCE_RECORD",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_CATEGORY_STATS",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_CERTIFICATION_TYPE",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_CERTIFICATIONS_FOR_WORK_AREA",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_DEPARTMENT_KPIS",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_GOAL_PROGRESS_TREND",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_LEAVE_TYPE",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_OFFSHORE_HEADCOUNT",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_PINNED_MESSAGES",
+      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_PROTOCOL_CAPABILITIES",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_PROTOCOL_DEFAULTS",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_PROTOCOL_DETAILS",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_PROTOCOL_SCHEMA",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_PROTOCOL_SUMMARIES",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_PROTOCOLS",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_REVIEW_CYCLE_STATUS",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_SAFETY_COMPLIANCE",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_SCHEDULE_ENTRIES",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_SEA_LAND_SPLIT",
+      "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_SENSOR",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_SENSOR_STATS",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_SENSORS",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_TANKS_WITH_BATCHES",
+      "file": "web/apps/aquamobil/src/graphql/operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_TODAYS_TASKS",
+      "file": "web/apps/aquamobil/src/graphql/operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_TRAINING_CALENDAR",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "GET_TRAINING_COURSE",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "HAS_CONSENT_QUERY",
+      "file": "web/shell/src/graphql/consent.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "INITIALIZE_LEAVE_BALANCES",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "LATEST_PLC_TELEMETRY_QUERY",
+      "file": "web/modules/sensor-module/src/graphql/plc.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "MESSAGES_SINCE",
+      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "PAUSE_FEEDING_PROGRAM",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "PIN_MESSAGE",
+      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "PLC_CONNECTIONS_BY_SITE_QUERY",
+      "file": "web/modules/sensor-module/src/graphql/plc.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "REACTIVATE_SENSOR",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "REACTIVATE_TANK_IN_PROGRAM",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "RECALCULATE_DAILY_PLAN",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "RECENT_PLC_ALARMS_QUERY",
+      "file": "web/modules/sensor-module/src/graphql/plc.operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "RECORD_BULK_FEEDING",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "RECORD_CULL",
+      "file": "web/apps/aquamobil/src/graphql/operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "RECORD_MORTALITY",
+      "file": "web/apps/aquamobil/src/graphql/operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "RECORD_TRANSFER",
+      "file": "web/apps/aquamobil/src/graphql/operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "REGISTER_DEVICE_TOKEN",
+      "file": "web/apps/aquamobil/src/graphql/operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "REGISTER_PARENT_WITH_CHILDREN",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "REGISTER_SENSOR",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "REMOVE_FEED_ASSIGNMENT",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "REMOVE_REACTION",
+      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "REMOVE_TANK_FROM_PROGRAM",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "REOPEN_REVIEW",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "SEARCH_MESSAGES",
+      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "SKIP_DAILY_FEEDING",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "SUSPEND_SENSOR",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "TEST_PROTOCOL_CONNECTION",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "TEST_SENSOR_CONNECTION",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "TODAYS_FEEDING_PLAN_QUERY",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.queries.ts",
+      "kind": "query"
+    },
+    {
+      "id": "TRANSITION_TANK_FEED",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UNPIN_MESSAGE",
+      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_CERTIFICATION_TYPE",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_CHANNEL",
+      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_EMERGENCY_INFO",
+      "file": "web/modules/hr-module/src/graphql/employee.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_EMPLOYEE_AVATAR",
+      "file": "web/modules/hr-module/src/graphql/employee.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_FCR_TABLE",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_FEED_ASSIGNMENT",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_KEY_RESULT",
+      "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_LEAVE_TYPE",
+      "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_PROGRAM_SETTINGS",
+      "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_SCHEDULE",
+      "file": "web/modules/hr-module/src/graphql/attendance.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_SENSOR_INFO",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_SENSOR_PROTOCOL",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "UPDATE_TRAINING_COURSE",
+      "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "USER_PRESENCE",
+      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
+      "kind": "query"
+    },
+    {
+      "id": "VALIDATE_PROTOCOL_CONFIG",
+      "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
+      "kind": "mutation"
+    },
+    {
+      "id": "VALIDATE_ST_MUTATION",
+      "file": "web/modules/sensor-module/src/graphql/automation.queries.ts",
+      "kind": "mutation"
+    }
+  ]
+}

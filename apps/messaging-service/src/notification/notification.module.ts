@@ -13,6 +13,7 @@ import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { PresenceModule } from '../presence/presence.module';
 import { MessageModule } from '../message/message.module';
 import { MessagingPushService } from './messaging-push.service';
+import { MessagingPushNatsHandler } from './messaging-push-nats.handler';
 
 @Module({
   imports: [
@@ -28,7 +29,10 @@ import { MessagingPushService } from './messaging-push.service';
     PresenceModule,
     MessageModule,
   ],
-  providers: [MessagingPushService],
+  // MessagingPushNatsHandler owns the durable MessageSent subscription that
+  // drives MessagingPushService.handleMessageSent (MSG-HIGH-004). EVENT_BUS is
+  // provided by the global EventBusModule registered in app.module.
+  providers: [MessagingPushService, MessagingPushNatsHandler],
   exports: [MessagingPushService],
 })
 export class MessagingNotificationModule {}

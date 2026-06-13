@@ -16,9 +16,11 @@ import {
   createSchemaVersionGate,
   SchemaDriftModule,
   createServiceTypeOrmConfig,
+  isSchemaDdlOwnedByDbMigrate,
 } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
@@ -48,6 +50,14 @@ const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
  * reviving the hand-applied-psql anti-pattern.
  */
 const AlertMigrationRunnerService = createSchemaVersionGate('alert');
+
+/**
+ * PR#363 port — runtime DDL authority gate. In authoritative deployments
+ * the per-tenant RLS sweep belongs to aqua-db-migrate's tenant fan-out
+ * hardening (SCHEMA_REGISTRY['alert'].postMigrationHardening); local/dev
+ * keeps syncTenantSchemas as the historical bootstrap convenience.
+ */
+const alertSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
 import { EventBusModule } from '@platform/event-bus';
 import { AlertModule } from './alert/alert.module';
 import { HealthModule } from './health/health.module';
@@ -166,6 +176,9 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     // Feature modules
     AlertModule,
     HealthModule,
+    // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
+    // middleware (self-contained platform module — controller is @Public()).
+    ServiceMetricsModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
@@ -173,7 +186,10 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     /** SECURITY (HIGH-004): Tenant RLS (schema-per-tenant alert). */
     RlsModule.forPoolService({
       serviceName: 'alert',
-      syncTenantSchemas: true,
+      // PR#363 port: runtime per-tenant RLS sweep only when db-migrate is
+      // NOT authoritative — production tenants get the same policies from
+      // the db-migrate tenant fan-out hardening.
+      syncTenantSchemas: !alertSchemaDdlOwnedByDbMigrate,
       excludeTables: ['alert_outbox'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */

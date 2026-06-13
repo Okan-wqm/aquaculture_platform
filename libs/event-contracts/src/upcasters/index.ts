@@ -4,12 +4,14 @@ export type { EventUpcaster } from './event-upcaster';
 export { sensorReadingUpcaster } from './sensor-reading.upcaster';
 export { sensorReadingV2ToV3Upcaster } from './sensor-reading-v2-to-v3.upcaster';
 export { alertTriggeredUpcaster } from './alert-triggered.upcaster';
+export { batchHarvestedUpcaster } from './batch-harvested-v1-to-v2.upcaster';
 export { createTimestampUpcaster } from './timestamp-to-string.upcaster';
 
 import { EventUpcasterRegistry } from './event-upcaster';
 import { sensorReadingUpcaster } from './sensor-reading.upcaster';
 import { sensorReadingV2ToV3Upcaster } from './sensor-reading-v2-to-v3.upcaster';
 import { alertTriggeredUpcaster } from './alert-triggered.upcaster';
+import { batchHarvestedUpcaster } from './batch-harvested-v1-to-v2.upcaster';
 import { createTimestampUpcaster } from './timestamp-to-string.upcaster';
 
 /**
@@ -47,6 +49,7 @@ export function createDefaultRegistry(): EventUpcasterRegistry {
   // up both transforms.
   registry.register(sensorReadingV2ToV3Upcaster);
   registry.register(alertTriggeredUpcaster);
+  registry.register(batchHarvestedUpcaster);
 
   // Timestamp + aggregateId version bump upcasters (v1→v2)
   for (const eventType of TIMESTAMP_BUMP_EVENTS) {

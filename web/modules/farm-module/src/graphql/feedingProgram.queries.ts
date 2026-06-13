@@ -194,80 +194,6 @@ export const TODAYS_FEEDING_PLAN_QUERY = gql`
 `;
 
 /**
- * Program istatistiklerini getir
- *
- * DEAD-CODE: Backend resolver feedingProgramStats does NOT exist yet.
- * This query is pre-defined for a planned analytics feature. Do NOT call until backend implements it.
- */
-export const FEEDING_PROGRAM_STATS_QUERY = gql`
-  query FeedingProgramStats($programId: ID!, $startDate: DateTime, $endDate: DateTime) {
-    feedingProgramStats(
-      programId: $programId
-      startDate: $startDate
-      endDate: $endDate
-    ) {
-      programId
-      programName
-      dateRange {
-        start
-        end
-      }
-      totalFeedingDays
-      totalFeedConsumedKg
-      avgDailyFeedKg
-      totalBiomassGrowthKg
-      avgFCR
-      feedTransitions
-      completionRate
-      varianceStats {
-        avgVariancePercent
-        daysUnderPlan
-        daysOverPlan
-      }
-      byTank {
-        tankId
-        tankName
-        feedConsumedKg
-        avgFCR
-        transitions
-      }
-      byFeed {
-        feedId
-        feedCode
-        feedName
-        totalKg
-        daysUsed
-      }
-    }
-  }
-`;
-
-/**
- * Program takvimini getir (ay bazli)
- *
- * DEAD-CODE: Backend resolver feedingProgramCalendar does NOT exist yet.
- * This query is pre-defined for a planned calendar feature. Do NOT call until backend implements it.
- */
-export const FEEDING_PROGRAM_CALENDAR_QUERY = gql`
-  query FeedingProgramCalendar($programId: ID!, $year: Int!, $month: Int!) {
-    feedingProgramCalendar(programId: $programId, year: $year, month: $month) {
-      programId
-      year
-      month
-      days {
-        date
-        status
-        totalPlannedKg
-        totalActualKg
-        completedTanks
-        totalTanks
-        hasWarnings
-      }
-    }
-  }
-`;
-
-/**
  * Aktif programlari getir (dashboard icin)
  *
  * SCHEMA-CONTRACT: Backend returns [FeedingProgram], no todaysSummary sub-field.
@@ -287,25 +213,4 @@ export const ACTIVE_FEEDING_PROGRAMS_QUERY = gql`
     }
   }
   ${FEEDING_PROGRAM_BASIC_FRAGMENT}
-`;
-
-/**
- * Tank icin uygun programlari getir
- *
- * DEAD-CODE: Backend resolver availableProgramsForTank does NOT exist yet.
- * This query is pre-defined for a planned tank-program assignment feature.
- * Do NOT call until backend implements it.
- */
-export const AVAILABLE_PROGRAMS_FOR_TANK_QUERY = gql`
-  query AvailableProgramsForTank($equipmentId: ID!) {
-    availableProgramsForTank(equipmentId: $equipmentId) {
-      id
-      name
-      code
-      status
-      startDate
-      endDate
-      feedAssignments
-    }
-  }
 `;

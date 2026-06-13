@@ -7,9 +7,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
+import { DataSource } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { StorageQuotaService } from '../storage-quota.service';
 import { MessageAttachment } from '../../entities/message-attachment.entity';
 import { REDIS_CLIENT } from '../../../shared/redis.provider';
+import {
+  createMockDataSource,
+  createMockQueryRunner,
+  MockQueryRunner,
+} from '../../../__tests__/test-helpers';
 
 describe('StorageQuotaService', () => {
   let service: StorageQuotaService;
@@ -39,9 +46,34 @@ describe('StorageQuotaService', () => {
     getRawOne: jest.fn().mockResolvedValue({ total: '5000000000' }), // 5GB
   };
 
+  // StorageWarning is now routed through the transactional outbox
+  // (OutboxPublisher.enqueue inside dataSource.transaction), NOT a direct
+  // NATS emit. The publisher is mocked so its real tenantId/eventType
+  // validation does not run — the spec only asserts enqueue was/was not
+  // invoked. @see MSG-MEDIUM-008.
+  const mockOutboxPublisher = {
+    enqueue: jest.fn().mockResolvedValue(undefined),
+  };
+
+  // The mock DataSource.transaction invokes the callback with the
+  // queryRunner's manager (local test-helper contract), giving the service
+  // an active-transaction manager to hand to OutboxPublisher.enqueue.
+  let mockQueryRunner: MockQueryRunner;
+  let mockDataSource: ReturnType<typeof createMockDataSource>;
+
   beforeEach(async () => {
     jest.clearAllMocks();
     mockAttachmentRepo.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+    // jest.clearAllMocks() resets call history but NOT implementations set
+    // via mockResolvedValue. The cache-hit test below overrides
+    // mockRedis.get to a non-null value; without re-establishing the
+    // default cache-miss (null) here, that implementation leaks into later
+    // tests and corrupts both the usage and quota reads (both go through
+    // redis.get). Re-pin the cache-miss default per test.
+    mockRedis.get.mockResolvedValue(null);
+
+    mockQueryRunner = createMockQueryRunner();
+    mockDataSource = createMockDataSource(mockQueryRunner);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -50,6 +82,8 @@ describe('StorageQuotaService', () => {
         { provide: REDIS_CLIENT, useValue: mockRedis },
         { provide: 'NATS_SERVICE', useValue: mockNatsClient },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: DataSource, useValue: mockDataSource },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
       ],
     }).compile();
 
@@ -89,27 +123,34 @@ describe('StorageQuotaService', () => {
   });
 
   it('should publish StorageWarning event when usage exceeds 80%', async () => {
-    // 5GB used, adding 3.5GB = 8.5GB = 85% of 10GB -> should warn
+    // 5GB used, adding 3.5GB = 8.5GB = 85% of 10GB -> should warn.
+    // The warning is enqueued on the transactional outbox (at-least-once),
+    // not emitted directly to NATS, and the enqueue runs inside an active
+    // transaction opened via dataSource.transaction.
     const threeAndHalfGb = 3.5 * 1024 * 1024 * 1024;
 
     await service.enforceQuota('tenant-1', threeAndHalfGb);
 
-    expect(mockNatsClient.emit).toHaveBeenCalledWith(
-      'events.StorageWarning',
+    expect(mockDataSource.transaction).toHaveBeenCalled();
+    expect(mockOutboxPublisher.enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
+        eventType: 'StorageWarning',
         tenantId: 'tenant-1',
         usagePercentage: expect.any(Number),
       }),
+      mockQueryRunner.manager,
     );
   });
 
   it('should not warn when usage is below 80%', async () => {
-    // 5GB used, adding 1GB = 6GB = 60% of 10GB -> no warning
+    // 5GB used, adding 1GB = 6GB = 60% of 10GB -> no warning, so nothing
+    // is enqueued and no transaction is opened for the warning path.
     const oneGb = 1 * 1024 * 1024 * 1024;
 
     await service.enforceQuota('tenant-1', oneGb);
 
-    expect(mockNatsClient.emit).not.toHaveBeenCalled();
+    expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
+    expect(mockDataSource.transaction).not.toHaveBeenCalled();
   });
 
   it('should invalidate cache', async () => {

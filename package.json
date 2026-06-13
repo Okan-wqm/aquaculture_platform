@@ -154,7 +154,9 @@
     "aria:requests": "cd aria-kernel && PYTHONPATH=. python3 -m aria_kernel --tools-dir ../aria-tools agent-invocations list",
     "factory:reset:dry": "node --experimental-strip-types tools/factory-reset/factory-reset.ts --dry-run",
     "factory:reset:execute": "FACTORY_RESET_ALLOWED=1 node --experimental-strip-types tools/factory-reset/factory-reset.ts --execute",
-    "gates:farm-service": "ts-node --project tools/gates/tsconfig.json tools/gates/farm-service-enterprise-guardrails.ts"
+    "gates:farm-service": "ts-node --project tools/gates/tsconfig.json tools/gates/farm-service-enterprise-guardrails.ts",
+    "gates:enterprise-closure": "ts-node --project tools/gates/tsconfig.runtime.json tools/gates/enterprise-closure.ts",
+    "quality:closure-run": "node tools/quality/quality.mjs closure-run --profile gates-all"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",
@@ -225,7 +227,6 @@
     "prom-client": "^15.1.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "redis": "^5.11.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "sanitize-html": "^2.17.4",
@@ -328,7 +329,9 @@
     "typeorm": {
       "minimatch": "9.0.9",
       "uuid": "^11.1.1"
-    }
+    },
+    "@grpc/grpc-js": "^1.14.4",
+    "esbuild": "^0.28.1"
   },
   "optionalDependencies": {
     "@swc/core-linux-x64-gnu": "1.15.10"

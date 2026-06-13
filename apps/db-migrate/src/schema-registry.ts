@@ -159,6 +159,25 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     service: 'auth-service',
     schema: 'auth',
     migrationsGlob: ['apps/auth-service/src/migrations/[0-9]*{.ts,.js}'],
+    postMigrationHardening: {
+      tenantRls: {
+        // Mirrors the RlsModule.forPoolService excludeTables declared in
+        // apps/auth-service/src/app.module.ts. `users`/`tenants` are
+        // identity primitives (pre-auth lookups; SUPER_ADMIN rows carry
+        // tenantId=NULL) — the helper also auto-skips them via
+        // DEFAULT_IDENTITY_TABLES; listing them keeps the registry the
+        // audit-visible declaration. Outbox + audit tables are
+        // cross-tenant infrastructure by design.
+        excludeTables: ['auth_outbox', 'audit_log', 'audit_logs', 'users', 'tenants'],
+      },
+      reason:
+        'PR#363 port: auth runtime RLS auto-apply is gated off when ' +
+        'aqua-db-migrate is authoritative (applyTenantRlsToSchema refuses ' +
+        'runtime callers outright), so the canonical tenant_isolation_policy ' +
+        'on auth tenant-scoped tables (invitations, refresh_tokens, ' +
+        'announcements, …) must be installed here — the only legitimate ' +
+        'DDL writer in production.',
+    },
     reason:
       'Tenant trust root. auth.tenants is referenced (by tenantId FK) from ' +
       'every other service, so its migrations MUST settle before downstream ' +

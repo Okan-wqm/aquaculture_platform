@@ -1,6 +1,8 @@
 import { Controller, Get, Res, Header } from '@nestjs/common';
 import { Response } from 'express';
 
+import { Public } from '../decorators/roles.decorator';
+
 import { ServiceMetricsService } from './metrics.service';
 
 /**
@@ -8,20 +10,24 @@ import { ServiceMetricsService } from './metrics.service';
  *
  * Exposes the /metrics endpoint for Prometheus scraping.
  *
- * SECURITY: This endpoint must be @Public() so Prometheus can scrape without
- * authentication. The guard decorators are applied from the consuming service's
- * own @Public() decorator (gateway uses its own, subservices use backend-common's).
+ * SECURITY (OBS-HIGH-001): the endpoint carries @Public() directly so the
+ * module is genuinely drop-in. WHY this is universally correct: every guard
+ * chain in the platform keys public-route bypass on the same `'isPublic'`
+ * reflector metadata — backend-common TenantGuard / RolesGuard
+ * (IS_PUBLIC_KEY in decorators/roles.decorator.ts), gateway-api's own
+ * AuthGuard (apps/gateway-api/src/guards/auth.guard.ts:45), billing's local
+ * JwtAuthGuard, and admin-api's PlatformAdminGuard all read 'isPublic'.
+ * @Public() additionally sets 'skipTenantGuard', so TenantGuard is bypassed
+ * without a second decorator. The pre-fix doc-comment here claimed a
+ * "properly decorated controller factory" that never existed — that lie is
+ * the root cause of 10 services shipping with no scrape endpoint at all.
  *
- * Note: We intentionally do NOT import @Public() here because:
- * - gateway-api has its own @Public() in auth.guard.ts
- * - subservices use @Public() from backend-common
- * Instead, the consuming module must apply @Public() at the controller or method level
- * when registering this controller, OR the controller must be excluded from global guards.
- *
- * The MetricsModule handles this by providing a factory that creates a properly
- * decorated controller for each service context.
+ * The endpoint is reachable at /metrics (not /api/v1/metrics) because
+ * bootstrap/create-service-app.ts excludes 'metrics' from the global prefix
+ * by default (DEFAULT_PREFIX_EXCLUSIONS).
  */
 @Controller('metrics')
+@Public()
 export class MetricsController {
   constructor(private readonly metricsService: ServiceMetricsService) {}
 

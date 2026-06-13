@@ -134,17 +134,23 @@ describe('RetentionPolicyService', () => {
   // Nightly cleanup deletes expired messages
   // -----------------------------------------------------------------------
   it('deletes expired messages during nightly cleanup', async () => {
-    // Channel-scoped policy → slow path (row DELETE via
-    // queryRunner). Tenant-wide policies take the dropChunks
-    // TimescaleDB fast path which doesn't run a DELETE query.
+    // Tenant-wide policy (channelId === null) with no held channels
+    // takes the TimescaleDB drop_chunks() fast path. The fast path
+    // re-checks the legal-hold registry inside the advisory lock; an
+    // empty result lets the drop proceed. Channel-scoped policies take
+    // the row-DELETE slow path instead (covered elsewhere).
     const policy = createMockRetentionPolicy({
       retentionDays: 90,
-      channelId,
+      channelId: null,
     });
     policyRepo.find.mockResolvedValue([policy]);
     legalHoldService.isUnderLegalHold.mockResolvedValue(false);
+    legalHoldService.getHeldChannelIds.mockResolvedValue([]);
 
-    queryRunner.query.mockResolvedValue([{ drop_chunks: 'chunk_1' }]);
+    // Every in-transaction query (SET search_path, advisory lock, the
+    // legal-hold re-check, and drop_chunks) resolves to an empty array.
+    // The empty legal-hold re-check is what allows the drop to proceed.
+    queryRunner.query.mockResolvedValue([]);
 
     await service.executeRetentionCleanup();
 
@@ -178,14 +184,18 @@ describe('RetentionPolicyService', () => {
   // Cascades deletion to attachments
   // -----------------------------------------------------------------------
   it('deletes attachments before deleting messages', async () => {
-    // Channel-scoped policy → slow path (DELETE FROM
-    // message_attachments runs only on the row-DELETE branch).
+    // Tenant-wide policy (channelId === null) with no held channels
+    // takes the drop_chunks() fast path, which drops the
+    // message_attachments chunks BEFORE the messages chunks (child
+    // table first, then parent). An empty legal-hold re-check lets the
+    // drop proceed.
     const policy = createMockRetentionPolicy({
       retentionDays: 30,
-      channelId,
+      channelId: null,
     });
     policyRepo.find.mockResolvedValue([policy]);
     legalHoldService.isUnderLegalHold.mockResolvedValue(false);
+    legalHoldService.getHeldChannelIds.mockResolvedValue([]);
     queryRunner.query.mockResolvedValue([]);
 
     await service.executeRetentionCleanup();

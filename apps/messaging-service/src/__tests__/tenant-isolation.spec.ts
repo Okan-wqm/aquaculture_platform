@@ -4,26 +4,27 @@
  * Multi-tenant security is the #1 priority in a SaaS platform.
  */
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException } from '@nestjs/common';
 import { Message } from '../message/entities/message.entity';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
-import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 import {
   createMockChannelMember,
   createMockMessage,
   createMockRepository,
   createMockQueryBuilder,
+  createMockQueryRunner,
+  createMockDataSource,
   createMockRedis,
   fakeUuid,
   resetUuidCounter,
   TENANT_A,
   TENANT_B,
   MockRepository,
+  MockQueryRunner,
   MockRedis,
 } from './test-helpers';
-import { SelectQueryBuilder } from 'typeorm';
+import { DataSource } from 'typeorm';
 
 // Import handlers/services under test
 import { GetMessagesHandler } from '../message/queries/get-messages.handler';
@@ -31,9 +32,19 @@ import { GetMessagesQuery } from '../message/queries/get-messages.query';
 import { PresenceService } from '../presence/presence.service';
 
 describe('Tenant Isolation', () => {
-  let messageRepo: MockRepository<Message>;
   let memberRepo: MockRepository<ChannelMember>;
   let redisClient: MockRedis;
+
+  // GetMessagesHandler now runs every read inside runInTenantTransaction, which
+  // pins the tenant search_path and therefore asserts tenantId is a real UUID
+  // (withTenantContext + pinTenantTransactionSearchPath both reject non-UUIDs).
+  // The opaque TENANT_A/TENANT_B Redis-key strings are not UUIDs, so the two
+  // handler-driven tests use valid-UUID tenant identifiers that still keep
+  // tenant A distinct from tenant B. The Redis/presence/outbox tests below keep
+  // using TENANT_A/TENANT_B because there the tenant id is only a Redis-key
+  // segment, never fed through the transaction's UUID validation.
+  const TENANT_A_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const TENANT_B_UUID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
   const tenantAChannelId = fakeUuid('ch');
   const tenantBChannelId = fakeUuid('ch');
@@ -42,7 +53,6 @@ describe('Tenant Isolation', () => {
 
   beforeEach(() => {
     resetUuidCounter();
-    messageRepo = createMockRepository<Message>();
     memberRepo = createMockRepository<ChannelMember>();
     redisClient = createMockRedis();
   });
@@ -56,19 +66,19 @@ describe('Tenant Isolation', () => {
   // -----------------------------------------------------------------------
   describe('message visibility', () => {
     it('messages from tenant A are NOT visible to tenant B', async () => {
+      const queryRunner: MockQueryRunner = createMockQueryRunner();
+      const mockDataSource = createMockDataSource(queryRunner);
       const qb = createMockQueryBuilder<Message>();
-      messageRepo.createQueryBuilder.mockReturnValue(
-        qb as unknown as SelectQueryBuilder<Message>,
-      );
+      queryRunner.manager.createQueryBuilder.mockReturnValue(qb);
 
-      // When tenant B queries, membership check fails
-      memberRepo.findOne.mockResolvedValue(null);
+      // When tenant B queries tenant A's channel, the in-transaction membership
+      // lookup finds no row, so the handler must refuse before reading messages.
+      queryRunner.manager.findOne.mockResolvedValue(null);
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           GetMessagesHandler,
-          { provide: getRepositoryToken(Message), useValue: messageRepo },
-          { provide: getRepositoryToken(ChannelMember), useValue: memberRepo },
+          { provide: DataSource, useValue: mockDataSource },
         ],
       }).compile();
 
@@ -76,7 +86,7 @@ describe('Tenant Isolation', () => {
 
       // Tenant B user tries to read tenant A channel
       const query = new GetMessagesQuery(
-        TENANT_B, tenantBUserId, tenantAChannelId, 20, null, null, null,
+        TENANT_B_UUID, tenantBUserId, tenantAChannelId, 20, null, null, null,
       );
 
       await expect(handler.execute(query)).rejects.toThrow(ForbiddenException);
@@ -155,10 +165,10 @@ describe('Tenant Isolation', () => {
   // -----------------------------------------------------------------------
   describe('search scoping', () => {
     it('search results are scoped to user tenant via membership check', async () => {
+      const queryRunner: MockQueryRunner = createMockQueryRunner();
+      const mockDataSource = createMockDataSource(queryRunner);
       const qb = createMockQueryBuilder<Message>();
-      messageRepo.createQueryBuilder.mockReturnValue(
-        qb as unknown as SelectQueryBuilder<Message>,
-      );
+      queryRunner.manager.createQueryBuilder.mockReturnValue(qb);
 
       const tenantAMsg = createMockMessage({
         channelId: tenantAChannelId,
@@ -166,8 +176,9 @@ describe('Tenant Isolation', () => {
       });
       qb.getMany.mockResolvedValue([tenantAMsg]);
 
-      // Tenant A user IS a member
-      memberRepo.findOne.mockResolvedValue(
+      // Tenant A user IS a member, so the in-transaction membership lookup
+      // resolves and the scoped message read returns the tenant A row.
+      queryRunner.manager.findOne.mockResolvedValue(
         createMockChannelMember({
           channelId: tenantAChannelId,
           userId: tenantAUserId,
@@ -177,15 +188,14 @@ describe('Tenant Isolation', () => {
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           GetMessagesHandler,
-          { provide: getRepositoryToken(Message), useValue: messageRepo },
-          { provide: getRepositoryToken(ChannelMember), useValue: memberRepo },
+          { provide: DataSource, useValue: mockDataSource },
         ],
       }).compile();
 
       const handler = module.get(GetMessagesHandler);
 
       const query = new GetMessagesQuery(
-        TENANT_A, tenantAUserId, tenantAChannelId, 50, null, null, null,
+        TENANT_A_UUID, tenantAUserId, tenantAChannelId, 50, null, null, null,
       );
 
       const result = await handler.execute(query);

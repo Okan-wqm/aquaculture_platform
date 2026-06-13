@@ -1,6 +1,7 @@
 import { EventUpcasterRegistry, createDefaultRegistry } from '../index';
 import { sensorReadingUpcaster } from '../sensor-reading.upcaster';
 import { alertTriggeredUpcaster } from '../alert-triggered.upcaster';
+import { batchHarvestedUpcaster } from '../batch-harvested-v1-to-v2.upcaster';
 import { createTimestampUpcaster } from '../timestamp-to-string.upcaster';
 
 describe('EventUpcasterRegistry', () => {
@@ -498,5 +499,64 @@ describe('createTimestampUpcaster factory', () => {
     expect(v2['batchId']).toBe('b-42');
     expect(v2['status']).toBe('HARVESTED');
     expect(v2['tenantId']).toBe('tenant-xyz');
+  });
+});
+
+describe('BatchHarvested v1→v2 upcaster (arbiter B2 — identity, additive isFinal)', () => {
+  it('is an identity upcaster: bumps version only, preserves every field', () => {
+    const v1 = {
+      eventType: 'BatchHarvested',
+      version: 1,
+      eventId: 'evt-1',
+      tenantId: 'tenant-xyz',
+      batchId: 'b-42',
+      harvestedQuantity: 1000,
+      harvestedAt: '2026-06-12T00:00:00.000Z',
+      averageWeight: 0.45,
+      totalWeight: 450,
+    };
+
+    const v2 = batchHarvestedUpcaster.upcast({ ...v1 });
+
+    expect(v2['version']).toBe(2);
+    // No isFinal fabricated — finality is unknown for a v1 event.
+    expect(v2['isFinal']).toBeUndefined();
+    // Every original field preserved (incl. branded eventId).
+    expect(v2['eventId']).toBe('evt-1');
+    expect(v2['batchId']).toBe('b-42');
+    expect(v2['harvestedQuantity']).toBe(1000);
+    expect(v2['tenantId']).toBe('tenant-xyz');
+    expect(v2['totalWeight']).toBe(450);
+  });
+
+  it('preserves an already-present isFinal (no overwrite)', () => {
+    const v2in = {
+      eventType: 'BatchHarvested',
+      version: 1,
+      batchId: 'b-43',
+      isFinal: true,
+    };
+    const out = batchHarvestedUpcaster.upcast(v2in);
+    expect(out['version']).toBe(2);
+    expect(out['isFinal']).toBe(true);
+  });
+
+  it('declares the contiguous 1→2 step the chain invariant requires', () => {
+    expect(batchHarvestedUpcaster.eventType).toBe('BatchHarvested');
+    expect(batchHarvestedUpcaster.fromVersion).toBe(1);
+    expect(batchHarvestedUpcaster.toVersion).toBe(2);
+  });
+
+  it('round-trips through the default registry', () => {
+    const registry = createDefaultRegistry();
+    const out = registry.upcast({
+      eventType: 'BatchHarvested',
+      version: 1,
+      batchId: 'b-44',
+      harvestedQuantity: 5,
+      harvestedAt: '2026-06-12T00:00:00.000Z',
+    });
+    expect(out['version']).toBe(2);
+    expect(out['batchId']).toBe('b-44');
   });
 });

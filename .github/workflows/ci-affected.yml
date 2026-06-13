@@ -362,6 +362,23 @@ jobs:
           restore-keys: |
             nx-ci-${{ runner.os }}-
 
+      # INFRA-HIGH-011: prewarm follows the IMAGE dependency, not one
+      # consumer. bootPostgresContainer() (image pin SSOT in
+      # libs/migration-harness/src/setup.ts) is consumed by every
+      # Testcontainers integration suite — db-migrate's specs included.
+      # The previous prewarm lived inside the harness step below and only
+      # fired when migration-harness itself was affected, so a PR that
+      # affected db-migrate but not the harness paid the multi-GB pull
+      # inside Jest's 120s beforeAll budget on a cold runner. This step
+      # asks the Nx graph which affected test projects transitively
+      # depend on migration-harness and pulls once, before any Jest run.
+      - name: Prewarm PostgreSQL testcontainer image (dependency-aware)
+        run: node scripts/ci/prewarm-postgres-testcontainer.ts --base "origin/${{ github.base_ref || 'main' }}"
+        timeout-minutes: 10
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+
       - name: Run migration harness tests (affected, isolated)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
@@ -376,24 +393,9 @@ jobs:
           AFFECTED_TEST_PROJECTS="$(npx nx show projects --affected --files="$FILES_ARG" --with-target=test)"
 
           if printf '%s\n' "$AFFECTED_TEST_PROJECTS" | grep -Fxq 'migration-harness'; then
-            # 2026-05-06: Pull the harness-owned pinned PG image before Jest
-            # starts. Otherwise a cold GitHub runner can spend the 90s
-            # beforeAll budget downloading the image, then continue async boot
-            # after Jest has torn the environment down.
-            MIGRATION_HARNESS_POSTGRES_IMAGE="$(node scripts/ci/print-migration-harness-postgres-image.mjs)"
-            echo "Prewarming migration-harness PostgreSQL image from canonical setup.ts"
-            for attempt in 1 2 3; do
-              if docker pull "$MIGRATION_HARNESS_POSTGRES_IMAGE"; then
-                break
-              fi
-              if [ "$attempt" = "3" ]; then
-                echo "Migration harness PostgreSQL image pull failed after 3 attempts."
-                exit 1
-              fi
-              delay=$((attempt * 10))
-              echo "Migration harness PostgreSQL image pull failed on attempt ${attempt}; retrying in ${delay}s."
-              sleep "$delay"
-            done
+            # Image prewarm happens in the dedicated dependency-aware step
+            # above (INFRA-HIGH-011) — single prewarm owner for every
+            # bootPostgresContainer consumer, this project included.
             npx nx run migration-harness:test
           else
             echo "migration-harness is not affected; skipping isolated Testcontainers gate."
@@ -1226,7 +1228,13 @@ jobs:
   production-post-deploy-verify:
     needs:
       - deploy
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success'
+    # `needs.deploy.result == 'success'` alone is NOT "a deployment
+    # happened" — the deploy workflow legitimately no-ops on
+    # docs/registry-only pushes and still concludes success
+    # (INFRA-MEDIUM-005: every close-ceremony commit went red here while
+    # production was untouched and healthy). The `deployed` output is the
+    # explicit production-mutation contract.
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success' && needs.deploy.outputs.deployed == 'true'
     uses: ./.github/workflows/production-post-deploy-verify.yml
     secrets: inherit
     with:

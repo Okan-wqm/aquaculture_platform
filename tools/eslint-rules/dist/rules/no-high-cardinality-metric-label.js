@@ -50,6 +50,20 @@ const createRule = utils_1.ESLintUtils.RuleCreator((name) => `https://github.com
  * but is intentionally bucketed and bounded).
  */
 const UNBOUNDED_LABELS = new Set([
+    // Tenant / domain-entity identity (OBS-HIGH-001) — one series per distinct
+    // tenant/farm/device, AND a tenant-enumeration leak on the unauthenticated
+    // /metrics surface. A truncated prefix does NOT bound it (UUID prefixes do
+    // not collide at platform scale). Per-tenant attribution belongs in
+    // traces / a bounded plan_tier family, never a raw-id scrape label.
+    'tenant',
+    'tenantid',
+    'tenant_id',
+    'farmid',
+    'farm_id',
+    'deviceid',
+    'device_id',
+    'sensorid',
+    'sensor_id',
     // User identity — bounded only by total user count, which is unbounded.
     'userid',
     'user_id',

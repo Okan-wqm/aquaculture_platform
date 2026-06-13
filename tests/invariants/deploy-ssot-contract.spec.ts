@@ -32,6 +32,38 @@ describe('deploy SSOT contract', () => {
     }
   });
 
+  it('builds staging frontends from the catalog SSOT, not a hardcoded list (INFRA-MEDIUM-002)', () => {
+    const staging = read('.github/workflows/deploy-staging.yml');
+    // The production deploy derives its frontend build lists from the
+    // generated service-catalog.deploy.vars; staging used to hardcode a
+    // DIFFERENT split (3 modules via npm workspace while prod builds all
+    // via NX), so staging could ship frontends compiled by a different
+    // toolchain than production. The staging build step must consume the
+    // same SSOT vars.
+    expect(staging).toContain('infrastructure/deploy/service-catalog.deploy.vars');
+    expect(staging).toContain('CATALOG_NX_FRONTEND_PROJECTS');
+    expect(staging).toContain('CATALOG_NON_NX_FRONTEND_PROJECTS');
+    // No hardcoded project list survives — the specific drifted list is gone.
+    expect(staging).not.toContain('--projects=shell,dashboard,farm-module,admin-panel,tenant-admin');
+    expect(staging).not.toMatch(/for mod in sensor-module hr-module hydroponics-module/);
+  });
+
+  it('retains exactly the manifest-protected rollback generation in safe GC (INFRA-HIGH-013)', () => {
+    const capacity = read('scripts/deploy/droplet-capacity.sh');
+    // Every deploy retags the previous generation as rollback-<sha>-<ts>;
+    // without an explicit retention pass those retags never match the
+    // SHA-only filter and accumulate ~a full image set per deploy (the
+    // capacity gate blocked the merge train 3x on 2026-06-11).
+    expect(capacity).toContain('rollback-*)');
+    expect(capacity).toContain('remove superseded rollback retag');
+    expect(capacity).toContain('keep protected rollback retag');
+    // Untag passes must convert into reclaimed bytes — the final
+    // dangling-only prune is what fixes the historical before=after
+    // symptom.
+    expect(capacity).toContain('removed_rollback_retags=');
+    expect(capacity).toContain('GC_DRY_RUN');
+  });
+
   it('keeps production deploy scripts away from local builds and volume pruning', () => {
     const script = [
       read('scripts/deploy/droplet-up.sh'),
@@ -62,7 +94,7 @@ describe('deploy SSOT contract', () => {
     }
   });
 
-  it('covers platform bootstrap DDL authority stages 008 and 009', () => {
+  it('covers platform bootstrap DDL authority stages 008-010', () => {
     const leastPrivilege = read(
       'apps/db-migrate/src/sql/platform-bootstrap/008-least-privilege-hardening.sql',
     );
@@ -76,11 +108,33 @@ describe('deploy SSOT contract', () => {
       provisioner.split('CREATE OR REPLACE FUNCTION platform.request_tenant_schema_deletion')[1] ??
       '';
 
-    expect(leastPrivilege).toContain('Platform Bootstrap — Stage 8 of 9');
+    expect(leastPrivilege).toContain('Platform Bootstrap — Stage 8 of 10');
     expect(leastPrivilege).toContain('db_migrate is the only role granted schema-owner membership');
     expect(leastPrivilege).toContain('CREATE ROLE db_migrate NOLOGIN');
     expect(leastPrivilege).toContain("EXECUTE format('GRANT %I TO db_migrate'");
     expect(leastPrivilege).toContain("EXECUTE format('REVOKE CREATE ON DATABASE %I FROM %I'");
+
+    // Stage 010 (DATA-HIGH-006): partition DDL authority lives in a
+    // SECURITY DEFINER primitive owned by messaging_schema_owner; the
+    // runtime role holds EXECUTE only. The 008 carve-out must stay gone.
+    const partitionDefiner = read(
+      'apps/db-migrate/src/sql/platform-bootstrap/010-messaging-partition-definer.sql',
+    );
+    expect(partitionDefiner).toContain(
+      'CREATE OR REPLACE FUNCTION platform.create_messaging_partition',
+    );
+    expect(partitionDefiner).toContain('SECURITY DEFINER');
+    expect(partitionDefiner).toContain('SET search_path = pg_catalog, pg_temp');
+    expect(partitionDefiner).toContain('OWNER TO messaging_schema_owner');
+    expect(partitionDefiner).toContain(
+      'REVOKE ALL ON FUNCTION platform.create_messaging_partition(text, text, integer, integer) FROM PUBLIC',
+    );
+    expect(partitionDefiner).toContain(
+      'GRANT EXECUTE ON FUNCTION platform.create_messaging_partition(text, text, integer, integer) TO messaging_service',
+    );
+    expect(leastPrivilege).not.toContain(
+      "IF spec.schema_name = 'messaging' THEN",
+    );
 
     expect(provisioner).toContain('Platform Bootstrap — Stage 9');
     expect(provisioner).toContain('aqua-db-migrate provisioner is the sole DDL worker');
@@ -140,6 +194,20 @@ describe('deploy SSOT contract', () => {
         expect(block).toMatch(/DATABASE_MIGRATIONS_RUN:\s*["']false["']/);
       }
     }
+  });
+
+  it('gates post-deploy verification on an actual deployment (INFRA-MEDIUM-005)', () => {
+    // A reusable-workflow caller's `result == success` only proves the
+    // called workflow did not fail; the internal deploy job legitimately
+    // skips on docs/registry-only pushes. Verification must key on the
+    // explicit production-mutation contract or every ceremony commit
+    // goes red against an untouched, healthy production.
+    const deployWorkflow = read('.github/workflows/deploy-digitalocean.yml');
+    const ciAffected = read('.github/workflows/ci-affected.yml');
+    expect(deployWorkflow).toContain('deployed:');
+    expect(deployWorkflow).toContain("value: ${{ jobs.deploy.outputs.performed == 'true' }}");
+    expect(deployWorkflow).toContain('Mark deployment performed');
+    expect(ciAffected).toContain("needs.deploy.outputs.deployed == 'true'");
   });
 
   it('verifies SHA images and capacity before SSH mutation', () => {

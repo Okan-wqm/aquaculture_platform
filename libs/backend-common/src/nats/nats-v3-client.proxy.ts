@@ -14,7 +14,7 @@
  * `dispatchEvent`/`unwrap`. Connection options come from the registration site
  * (`buildNatsTransportOptions(serviceName)`, the ADR-015 cert-is-identity SSoT).
  */
-import type { ConnectionOptions, Msg, NatsConnection } from '@nats-io/nats-core';
+import type { ConnectionOptions, Msg, MsgCallback, NatsConnection } from '@nats-io/nats-core';
 import { createInbox } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
 import {
@@ -112,8 +112,9 @@ export class NatsV3Client extends ClientProxy {
     requestId: string,
     channel: string,
     callback: (packet: WritePacket) => void,
-  ): (err: Error | null, msg: Msg) => Promise<void> {
-    return async (err: Error | null, natsMsg: Msg): Promise<void> => {
+  ): MsgCallback<Msg> {
+    // err/natsMsg infer from @nats-io's MsgCallback<Msg>.
+    return async (err, natsMsg) => {
       if (err) {
         callback({ err });
         return;

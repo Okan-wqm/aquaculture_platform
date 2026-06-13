@@ -84,6 +84,19 @@ export class NatsV3Server extends Server implements CustomTransportStrategy {
     return connection as T;
   }
 
+  /**
+   * Abstract on the Nest `Server` base (server.d.ts:32). PR-B surfaces no transport
+   * status events — @nats-io owns reconnect — so this is a no-op. The signature
+   * mirrors the base's default `EventsMap = Record<string, Function>` instantiation
+   * exactly so it satisfies the abstract member.
+   */
+  public on<
+    EventKey extends keyof Record<string, Function> = keyof Record<string, Function>,
+    EventCallback extends Record<string, Function>[EventKey] = Record<string, Function>[EventKey],
+  >(_event: EventKey, _callback: EventCallback): void {
+    /* intentionally empty — see doc comment */
+  }
+
   private createNatsConnection(): Promise<NatsConnection> {
     const { queue: _queue, ...connectionOptions } = this.options;
     return connect(connectionOptions);
@@ -96,9 +109,10 @@ export class NatsV3Server extends Server implements CustomTransportStrategy {
       const queue = handlerRef?.extras?.queue ?? defaultQueue;
       const subscription = nc.subscribe(channel, {
         ...(queue ? { queue } : {}),
-        callback: (err: Error | null, msg: Msg): void => {
+        // err/msg infer from @nats-io's MsgCallback<Msg> via the subscribe options.
+        callback: (err, msg) => {
           if (err) {
-            this.logger.error(err.message, err.stack);
+            this.logger.error(err instanceof Error ? err.message : String(err));
             return;
           }
           void this.handleNatsMessage(channel, msg);

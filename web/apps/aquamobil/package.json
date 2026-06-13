@@ -9,7 +9,7 @@
     "build": "npm run typecheck && vite build",
     "build:quick": "vite build",
     "preview": "vite preview",
-    "lint": "eslint src --ext .ts,.tsx",
+    "lint": "eslint src",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.sw.json",
     "postinstall": "node scripts/patch-konsta.cjs"
   },

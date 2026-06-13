@@ -157,6 +157,18 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^tools\/gates\/banned-construct\.ts$/,
   /^tools\/gates\/banned-construct\.spec\.ts$/,
   /^tests\/invariants\/fixtures\//,
+  // The ESLint gate-preservation baseline (A2) embeds the very constructs
+  // it tests as fixture STRINGS — getRepository(), JSON.stringify(x,y,2),
+  // JWT_SECRET reads — to prove the no-restricted-* gates fire on them.
+  // Same self-exemption rationale as banned-construct.spec.ts above.
+  /^tools\/lint-gates\//,
+  // The flat ESLint config + its per-project policy data DEFINE the
+  // no-restricted-syntax gates; their human-readable messages necessarily
+  // quote the banned constructs (e.g. "Direct getRepository() bypasses…").
+  // These files are the gate SSOT — exempting them is the same precedent as
+  // .eslintrc.json was implicitly exempt (the gate cannot ban its own text).
+  /^eslint\.config\.mjs$/,
+  /^eslint\.project-overrides\.mjs$/,
 ];
 
 /** Constructs are TypeScript/JavaScript concepts; other files are out of the gate's domain (prose discussion lives in docs and is banned-phrase territory). */

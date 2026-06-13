@@ -304,6 +304,12 @@ function syncLintConfigFromHead(worktree) {
   const configPathspecs = [
     ':(glob)**/.eslintrc*',
     ':(glob)**/eslint.config.*',
+    // The flat config is split: eslint.config.mjs `import`s eslint.project-overrides.mjs
+    // (the translated per-project .eslintrc.cjs overrides). Without this pathspec the
+    // base worktree gets eslint.config.mjs but not the module it imports, so ESLint 9
+    // aborts with ERR_MODULE_NOT_FOUND before any rule runs. Match every eslint*.mjs
+    // sibling so future config splits stay covered automatically.
+    ':(glob)**/eslint.*.mjs',
     ':(glob)**/tsconfig*.json',
     ':(glob)**/.eslintignore',
   ];

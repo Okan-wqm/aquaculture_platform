@@ -99,7 +99,7 @@ export class AuditLog {
   @Column({ type: 'varchar', length: 500, nullable: true })
   userAgent?: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   /**

@@ -11,6 +11,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, SelectQueryBuilder } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { ActionToken } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
@@ -189,6 +190,10 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
+        {
+          provide: BestEffortEventPublisher,
+          useValue: new BestEffortEventPublisher(mockEventBus),
+        },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
         { provide: MfaService, useValue: mockMfaService },

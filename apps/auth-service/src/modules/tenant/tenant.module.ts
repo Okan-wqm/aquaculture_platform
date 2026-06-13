@@ -1,7 +1,6 @@
 import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EventBusModule } from '@platform/event-bus';
 
 import { ActionToken } from '../authentication/entities/action-token.entity';
 import { Invitation } from '../authentication/entities/invitation.entity';
@@ -13,6 +12,7 @@ import { Module as SystemModule } from '../system-module/entities/module.entity'
 import { MobileUserSettings } from './entities/mobile-user-settings.entity';
 import { TenantModule as TenantModuleEntity } from './entities/tenant-module.entity';
 import { Tenant } from './entities/tenant.entity';
+import { TenantSubscriptionProjectionHandler } from './event-handlers/tenant-subscription-projection.handler';
 import { AuthAdminNatsHandler } from './handlers/auth-admin-nats.handler';
 import { AuthUserQueryNatsHandler } from './handlers/auth-user-query-nats.handler';
 import { MobileSettingsResolver } from './resolvers/mobile-settings.resolver';
@@ -41,7 +41,6 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
       RefreshToken,
       Invitation,
     ]),
-    EventBusModule,
   ],
   // AuthAdminNatsHandler is declared in `controllers` (not `providers`) —
   // NestJS microservice transport discovers @MessagePattern subscribers by
@@ -68,6 +67,9 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
     // increment/decrement. Replace-with-computed semantics, NOT
     // delta — single drift ring doesn't propagate forward.
     TenantUserCountReconcileService,
+    // DATA-LOW-001: projects billing.subscriptions state (the SSoT) onto the
+    // auth.tenants subscription columns via the TenantSubscriptionChanged event.
+    TenantSubscriptionProjectionHandler,
   ],
   exports: [TenantService, TenantAdminService, TenantRoleService, UserLifecycleService, TypeOrmModule],
 })

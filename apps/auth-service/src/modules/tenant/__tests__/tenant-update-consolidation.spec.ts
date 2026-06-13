@@ -1,10 +1,10 @@
 import 'reflect-metadata';
+import { Role } from '@aquaculture/backend-common/decorators';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Role } from '@platform/backend-common';
 
+import { AuditLogService } from '../../../audit/audit-log.service';
 import { TenantResolver } from '../resolvers/tenant.resolver';
 import { TenantService } from '../services/tenant.service';
-import { AuditLogService } from '../../../audit/audit-log.service';
 
 /**
  * Verify the updateTenant mutation consolidation.

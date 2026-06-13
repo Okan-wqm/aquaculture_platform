@@ -29,6 +29,7 @@ import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { ActionToken } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
@@ -157,6 +158,10 @@ describe('AuthenticationService — refresh-token reuse (hashed path, SEC-MEDIUM
         { provide: JwtService, useValue: { signAsync: jest.fn() } },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: 'EVENT_BUS', useValue: { publish: jest.fn() } },
+        {
+          provide: BestEffortEventPublisher,
+          useValue: new BestEffortEventPublisher({ publish: jest.fn() }),
+        },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: mockTokenService },
         { provide: MfaService, useValue: { isMfaAvailable: jest.fn() } },

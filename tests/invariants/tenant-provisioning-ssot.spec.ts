@@ -183,18 +183,77 @@ describe('INVARIANT: auth-service owns tenant lifecycle commands', () => {
     expect(service).toContain('idempotency key was reused with a different payload');
   });
 
-  it('keeps lifecycle transition policy owned by auth-service, not caller metadata', () => {
+  it('owns lifecycle legality via the canonical machine + command authorization, not a local copy or caller metadata', () => {
     const service = readRepoFile(
       'apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts',
     );
 
-    expect(service).toContain('lifecycleTransitionPolicy');
-    expect(service).toContain('getAllowedLifecycleTransition');
-    expect(service).toContain('const allowedFrom = defaultFrom');
+    // W3.3-c: edge legality is delegated to the canonical TenantStatusMachine
+    // (assertTransition); the local LIFECYCLE_COMMANDS map only narrows command
+    // authorization (a subset of the machine's edges, never a parallel legality
+    // table). The drifting local legality copy is gone.
+    expect(service).toContain('LIFECYCLE_COMMANDS');
+    expect(service).toContain('assertTransition(tenant.status, targetStatus)');
+    expect(service).toContain("from '@platform/event-contracts'");
+    expect(service).not.toContain('lifecycleTransitionPolicy');
+    expect(service).not.toContain('getAllowedLifecycleTransition');
+    // Caller metadata never decides transitions.
     expect(service).toContain('requestReference: _requestReference');
     expect(service).not.toContain('command.allowedTransition?.from ?? defaultFrom');
     expect(service).not.toContain('command.allowedTransition');
     expect(service).not.toContain('command.targetStatus');
+  });
+
+  it('wires the BeginProvisioning lifecycle command end-to-end so PROVISIONING is a real phase', () => {
+    const contracts = readRepoFile('libs/event-contracts/src/tenant-commands.ts');
+    const handler = readRepoFile(
+      'apps/auth-service/src/modules/tenant/handlers/auth-admin-nats.handler.ts',
+    );
+    const service = readRepoFile(
+      'apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts',
+    );
+    const client = readRepoFile(
+      'apps/admin-api-service/src/tenant/services/auth-tenant-provisioning-client.service.ts',
+    );
+    const workflow = readRepoFile(
+      'apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts',
+    );
+
+    // Canonical subject + command type.
+    expect(contracts).toContain("BEGIN_PROVISIONING: 'request.auth.tenant.BeginProvisioning'");
+    expect(contracts).toContain('BeginProvisioningCommand');
+    // auth-service is the sole writer: NATS handler -> command-service handler.
+    expect(handler).toContain('TENANT_COMMAND_SUBJECTS.BEGIN_PROVISIONING');
+    expect(handler).toContain('beginProvisioning(command)');
+    expect(service).toContain('async beginProvisioning(');
+    // admin-api stays a pure NATS client and inserts the PENDING->PROVISIONING
+    // step between reserve and the provisioning work.
+    expect(client).toContain('TENANT_COMMAND_SUBJECTS.BEGIN_PROVISIONING');
+    expect(workflow).toContain("'begin_provisioning'");
+    expect(workflow).toContain('this.beginProvisioning(run, tenant.id)');
+  });
+
+  it('routes tenant lifecycle + first-admin events through the durable outbox, not a raw event bus', () => {
+    const service = readRepoFile(
+      'apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts',
+    );
+
+    // DATA-HIGH-001 / W3.3: the command service is the sole writer of auth tenant
+    // state and emits its state-change events durably. It no longer injects the
+    // raw event bus; lifecycle status changes and the first-admin invite are
+    // enqueued to auth_outbox inside the SERIALIZABLE receipt transaction, so the
+    // write and its event commit atomically (no fire-and-forget dual-write).
+    expect(service).not.toContain("@Inject('EVENT_BUS')");
+    expect(service).not.toContain('this.eventBus.publish');
+    expect(service).toContain('private readonly outboxPublisher: OutboxPublisher');
+    expect(service).toMatch(/this\.outboxPublisher\.enqueue\(/);
+    // TenantStatusChanged is the single emission point for all five lifecycle
+    // transitions, enqueued at the status-persist site in transitionTenantStatus.
+    expect(service).toContain(
+      "createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged'",
+    );
+    // First-admin UserInvited is durable + atomic with the user/invitation write.
+    expect(service).toContain('enqueueFirstAdminInvite');
   });
 
   it('does not send caller-owned receipt keys or payload hashes from admin auth-command facades', () => {
@@ -596,7 +655,12 @@ describe('INVARIANT: admin surfaces do not carry raw invite or reset token mater
     expect(resultContract).not.toContain('invitationToken');
     expect(resultContract).toContain('deliveryStatus');
     expect(handler).not.toMatch(/invitationToken\s*:/);
-    expect(lifecycle).toContain('eventBus.publish(event)');
+    // DATA-HIGH-001: the lifecycle service publishes the tokenless UserInvited
+    // delivery event through the allowlisted BestEffortEventPublisher, NOT the
+    // raw event bus. Asserting `bestEffort.publish` (and forbidding a raw
+    // `this.eventBus.publish`) locks the durable-discipline routing in place.
+    expect(lifecycle).toContain('bestEffort.publish(event)');
+    expect(lifecycle).not.toMatch(/this\.eventBus\.publish/);
     expect(lifecycle).toContain('actionTokenId: result.actionTokenId');
     expect(lifecycle).not.toContain('actionTokenId: tokenHash');
     expect(actionTokenEntity).toContain("@Entity('action_tokens', { schema: 'auth' })");

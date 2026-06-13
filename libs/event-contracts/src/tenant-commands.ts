@@ -18,6 +18,7 @@ export const TENANT_COMMAND_SUBJECTS = {
   SETUP_TENANT_ROLES: 'request.auth.tenant.SetupRoles',
   ASSIGN_TENANT_MODULES: 'request.auth.tenant.AssignModules',
   CREATE_FIRST_ADMIN_INVITE: 'request.auth.tenant.CreateFirstAdminInvite',
+  BEGIN_PROVISIONING: 'request.auth.tenant.BeginProvisioning',
   ACTIVATE_TENANT: 'request.auth.tenant.ActivateTenant',
   FAIL_PROVISIONING: 'request.auth.tenant.FailProvisioning',
   DEPROVISION_TENANT: 'request.auth.tenant.DeprovisionTenant',
@@ -80,7 +81,9 @@ export interface ReserveTenantCommand extends AuthTenantCommandMetadata {
   plan: string;
   maxUsers?: number;
   maxStorage?: number;
-  isTrialActive?: boolean;
+  // MT-MEDIUM-001: trial state is derived from trialEndsAt (the SSoT). The
+  // redundant isTrialActive input was removed — a tenant is on trial iff
+  // trialEndsAt is set and in the future.
   trialEndsAt?: string;
   settings?: Record<string, unknown>;
   createdBy: string;
@@ -261,6 +264,15 @@ export interface RollbackTenantProvisioningResult {
 }
 
 // ==================== Tenant lifecycle status commands ====================
+
+/**
+ * Marks a reserved (PENDING) tenant as PROVISIONING — the saga's first
+ * lifecycle action, issued after ReserveTenant and before the provisioning
+ * work steps. Makes the in-flight provisioning phase a real, observable status
+ * (PENDING → PROVISIONING → ACTIVE) so the canonical TenantStatusMachine is the
+ * truthful single authority over the lifecycle, with no PENDING→ACTIVE skip.
+ */
+export type BeginProvisioningCommand = AuthTenantCommandMetadata;
 
 export type ActivateTenantCommand = AuthTenantCommandMetadata;
 

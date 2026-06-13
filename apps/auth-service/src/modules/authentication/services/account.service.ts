@@ -1,14 +1,13 @@
-/* eslint-disable aquaculture/no-direct-event-publish -- Account events are non-transactional notifications; audit log is the persistent account trail. */
 import { SESSION_MANAGER, TOKEN_BLACKLIST, ISessionManager, ITokenBlacklist } from '@aquaculture/backend-common/security';
-import { BadRequestException, Inject, Injectable, Logger, Optional, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional, Inject, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { Repository } from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import {
   ChangeMyPasswordInput,
   ChangeMyPasswordResponse,
@@ -33,7 +32,12 @@ export class AccountService {
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
     private readonly mfaService: MfaService,
-    @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
+    // DATA-HIGH-001: account events are audit-log-backed notifications (the
+    // audit log is the durable source-of-truth) and can originate from a
+    // platform-level SUPER_ADMIN (tenantId NULL, which the durable outbox
+    // cannot key). They route through the allowlisted best-effort path
+    // instead of the raw event bus.
+    private readonly bestEffort: BestEffortEventPublisher,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
     @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
   ) {}
@@ -69,13 +73,13 @@ export class AccountService {
 
     await Promise.allSettled([
       this.auditAccountEvent('USER_PROFILE_UPDATED', savedUser),
-      this.eventBus.publish({
-        ...createBaseEvent('UserProfileUpdated', savedUser.tenantId ?? 'system', {
+      this.bestEffort.publish(
+        createBaseEvent('UserProfileUpdated', savedUser.tenantId ?? 'system', {
           aggregateId: savedUser.id,
           aggregateType: 'User',
           userId: savedUser.id,
         }),
-      }),
+      ),
     ]);
 
     return savedUser;
@@ -99,13 +103,13 @@ export class AccountService {
 
     await Promise.allSettled([
       this.auditAccountEvent('PASSWORD_CHANGED', user),
-      this.eventBus.publish({
-        ...createBaseEvent('UserPasswordChanged', user.tenantId ?? 'system', {
+      this.bestEffort.publish(
+        createBaseEvent('UserPasswordChanged', user.tenantId ?? 'system', {
           aggregateId: user.id,
           aggregateType: 'User',
           userId: user.id,
         }),
-      }),
+      ),
     ]);
 
     this.logger.log(`Password changed: userId=${user.id}`);

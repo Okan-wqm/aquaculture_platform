@@ -32,6 +32,7 @@ import * as bcrypt from 'bcryptjs';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { ActionToken } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
@@ -97,7 +98,11 @@ const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
   Object.assign(tenant, {
     id: 'tenant-uuid-123',
     name: 'Test Tenant',
-    status: 'active',
+    // Canonical UPPERCASE — the lowercase 'active' the mock used before never
+    // matched the persisted 'ACTIVE', so the old block-list passed login for
+    // the WRONG reason (active simply wasn't in the reject set). The allow-list
+    // (isLoginAllowed) requires the real value.
+    status: TenantStatus.ACTIVE,
     ...overrides,
   });
   return tenant;
@@ -339,6 +344,10 @@ describe('AuthenticationService', () => {
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
+        {
+          provide: BestEffortEventPublisher,
+          useValue: new BestEffortEventPublisher(mockEventBus),
+        },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
         { provide: MfaService, useValue: mockMfaService },
@@ -442,14 +451,39 @@ describe('AuthenticationService', () => {
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
     });
 
-    it('throws ForbiddenException or UnauthorizedException when tenant is suspended', async () => {
+    // MT-HIGH-003: login is gated by the fail-closed allow-list (ACTIVE only).
+    // The old block-list rejected just SUSPENDED + CANCELLED, so every other
+    // non-operational status authenticated. Pin that EVERY non-ACTIVE status
+    // is now blocked — a regression that re-opens the slip-through fails here.
+    it.each([
+      TenantStatus.PENDING,
+      TenantStatus.PROVISIONING,
+      TenantStatus.PROVISIONING_FAILED,
+      TenantStatus.SUSPENDED,
+      TenantStatus.DEACTIVATED,
+      TenantStatus.CANCELLED,
+      TenantStatus.ARCHIVED,
+      TenantStatus.PURGED,
+    ])('blocks login when tenant status is %s', async (status) => {
       const user = createMockUser();
-      const suspendedTenant = createMockTenant({ status: TenantStatus.SUSPENDED });
       mockUserRepository.findOne.mockResolvedValue(user);
-      mockTenantRepository.findOne.mockResolvedValue(suspendedTenant);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant({ status }));
       mockBcryptCompare.mockResolvedValue(true);
 
-      await expect(service.login(validInput)).rejects.toThrow();
+      await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('allows an ACTIVE tenant past the status gate', async () => {
+      const user = createMockUser();
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(
+        createMockTenant({ status: TenantStatus.ACTIVE }),
+      );
+      mockBcryptCompare.mockResolvedValue(true);
+      mockUserRepository.save.mockResolvedValue(user);
+
+      const result = await service.login(validInput, '127.0.0.1', 'test-agent');
+      expect(result.accessToken).toBeDefined();
     });
 
     it('throws UnauthorizedException for pending-invitation user', async () => {

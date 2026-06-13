@@ -48,7 +48,6 @@ const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
     plan: TenantPlan.STARTER,
     maxUsers: 10,
     maxStorage: -1,
-    isTrialActive: false,
     settings: {
       timezone: 'UTC',
       locale: 'en-US',

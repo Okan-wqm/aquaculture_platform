@@ -161,11 +161,11 @@ export class SupportTicket {
   @Field(() => [String], { nullable: true })
   tags?: string[] | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   @Field()
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   @Field()
   updatedAt!: Date;
 

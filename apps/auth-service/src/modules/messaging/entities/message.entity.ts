@@ -124,7 +124,7 @@ export class Message {
   @Field(() => Date, { nullable: true })
   readAt?: Date | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   @Field()
   createdAt!: Date;
 }

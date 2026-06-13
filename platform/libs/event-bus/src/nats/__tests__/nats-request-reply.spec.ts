@@ -78,7 +78,7 @@ function replyMsg(bodyJson: string): Msg {
     respond: jest.fn(),
     headers: undefined as unknown as MsgHdrs,
     sid: 0,
-  } as unknown as Msg;
+  };
 }
 
 describe('NatsRequestReply — requestTyped', () => {

@@ -24,8 +24,8 @@ import {
   type JsMsg,
   type StreamConfig,
 } from '@nats-io/jetstream';
-import type { ConnectionOptions, NatsConnection } from '@nats-io/nats-core';
-import { connect } from '@nats-io/transport-node';
+import type { NatsConnection } from '@nats-io/nats-core';
+import { connect, type NodeConnectionOptions } from '@nats-io/transport-node';
 import {
   Injectable,
   OnModuleInit,
@@ -286,7 +286,12 @@ export class NatsEventBus
       // (see ARCH-020 comment in constructor).
       const factoryOptions = buildNatsConnectionOptions(this.clientId);
       const { authMode: _authMode, ...natsJsOptions } = factoryOptions;
-      const connectionOptions: ConnectionOptions = {
+      // Type as NodeConnectionOptions (connect's own param type) rather than
+      // nats-core's ConnectionOptions — the two are distinct nominal copies and
+      // mixing them makes the connect() call resolve to `error`/`any` under the
+      // type-aware lint. Sourcing the options type from the same package as
+      // connect keeps the assignment provably type-safe.
+      const connectionOptions: NodeConnectionOptions = {
         ...natsJsOptions,
         name: this.clientId,
         maxReconnectAttempts: this.maxReconnectAttempts,

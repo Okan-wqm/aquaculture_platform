@@ -269,17 +269,21 @@ export class SensorLookupResponderService
 
   private async connectAndSubscribe(): Promise<void> {
     /** SEC-H01: shared NATS connection factory for consistent auth. */
-    this.connection = await connect({
+    // Hold the connection in a local so it narrows to non-null for subscribe()
+    // below — the intervening logger.log() call resets TS property narrowing on
+    // the `NatsConnection | null` field.
+    const connection = await connect({
       ...buildNatsConnectionOptions(
         `sensor-service-lookup-responder-${process.pid}`,
       ),
       maxReconnectAttempts: -1,
     });
+    this.connection = connection;
     this.logger.log(
       `Connected to NATS for sensor.lookup.by-topic responder (url=${this.natsUrl})`,
     );
 
-    const sub = this.connection.subscribe(
+    const sub = connection.subscribe(
       SensorLookupResponderService.SUBJECT,
       {
         queue: SensorLookupResponderService.QUEUE_GROUP,

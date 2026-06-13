@@ -16,7 +16,9 @@ jest.mock('@aquaculture/backend-common/nats', () => ({
 }));
 
 jest.mock('@nats-io/transport-node', () => {
-  const actual = jest.requireActual('@nats-io/transport-node');
+  const actual = jest.requireActual<typeof import('@nats-io/transport-node')>(
+    '@nats-io/transport-node',
+  );
   return {
     ...actual,
     connect: jest.fn(),

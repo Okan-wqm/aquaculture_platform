@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { SentimentAnalysisService } from '../sentiment-analysis.service';
-import { AiPrivacyService } from '../ai-privacy.service';
+import { AiEgressGateService } from '../ai-egress-gate.service';
 import { MessageAnalysis } from '../../entities/message-analysis.entity';
 import {
   createMockRepository,
@@ -20,7 +20,7 @@ describe('SentimentAnalysisService', () => {
   let analysisRepo: MockRepository<MessageAnalysis>;
   let natsClient: MockNatsClient;
   let mockDataSource: { query: jest.Mock };
-  let privacyService: jest.Mocked<Pick<AiPrivacyService, 'canAnalyzeMessage'>>;
+  let egressGate: jest.Mocked<Pick<AiEgressGateService, 'isAllowed'>>;
 
   const channelId = fakeUuid('ch');
   const senderId = fakeUuid('usr');
@@ -33,8 +33,8 @@ describe('SentimentAnalysisService', () => {
     analysisRepo = createMockRepository<MessageAnalysis>();
     natsClient = createMockNatsClient();
     mockDataSource = { query: jest.fn().mockResolvedValue([]) };
-    privacyService = {
-      canAnalyzeMessage: jest.fn().mockResolvedValue(true),
+    egressGate = {
+      isAllowed: jest.fn().mockResolvedValue(true),
     };
 
     // analysisRepo.create returns the input as-is
@@ -51,7 +51,7 @@ describe('SentimentAnalysisService', () => {
         { provide: getRepositoryToken(MessageAnalysis), useValue: analysisRepo },
         { provide: DataSource, useValue: mockDataSource },
         { provide: 'NATS_SERVICE', useValue: natsClient },
-        { provide: AiPrivacyService, useValue: privacyService },
+        { provide: AiEgressGateService, useValue: egressGate },
       ],
     }).compile();
 
@@ -134,7 +134,7 @@ describe('SentimentAnalysisService', () => {
   // Skips messages from non-consented users
   // -----------------------------------------------------------------------
   it('skips analysis when user has not consented', async () => {
-    privacyService.canAnalyzeMessage.mockResolvedValue(false);
+    egressGate.isAllowed.mockResolvedValue(false);
 
     await service.analyzeMessage(
       TENANT_A, channelId, messageId, messageCreatedAt, senderId, 'Hello',

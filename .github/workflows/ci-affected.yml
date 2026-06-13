@@ -256,6 +256,12 @@ jobs:
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
+          # ORPHAN-MEDIUM-094: type-aware ESLint over the changed-file set builds the
+          # full TS project graph and OOMs at the runner's ~4GB default heap (SIGABRT,
+          # "ESLint produced no JSON"). Every other heavy step in this workflow already
+          # declares a NODE_OPTIONS ceiling; this lint step was the lone omission. 6144
+          # is the measured-sufficient size and is safe on the 7GB ubuntu runner.
+          NODE_OPTIONS: '--max-old-space-size=6144'
 
   type-check:
     needs: [install, detect-changes]
@@ -490,7 +496,7 @@ jobs:
           npx nx build farm-module
 
           mkdir -p web/shell/src/generated
-          FARM_REMOTE_ENTRY="web/modules/farm-module/dist/assets/remoteEntry.js"
+          FARM_REMOTE_ENTRY="web/modules/farm-module/dist/remoteEntry.js"
           if [ ! -f "$FARM_REMOTE_ENTRY" ]; then
             echo "Missing farm remote entry at $FARM_REMOTE_ENTRY"
             exit 1
@@ -498,7 +504,7 @@ jobs:
           FARM_REMOTE_HASH="$(openssl dgst -sha256 -binary "$FARM_REMOTE_ENTRY" | openssl base64 -A)"
           cat > web/shell/src/generated/remoteHashes.json <<JSON
           {
-            "/remotes/farm-module/assets/remoteEntry.js": "sha256-${FARM_REMOTE_HASH}"
+            "/remotes/farm-module/remoteEntry.js": "sha256-${FARM_REMOTE_HASH}"
           }
           JSON
 
@@ -510,7 +516,7 @@ jobs:
 
           for _ in $(seq 1 90); do
             if curl -fsS http://127.0.0.1:4302/sites/water-chemistry >/dev/null \
-              && curl -fsS http://127.0.0.1:4302/remotes/farm-module/assets/remoteEntry.js >/dev/null; then
+              && curl -fsS http://127.0.0.1:4302/remotes/farm-module/remoteEntry.js >/dev/null; then
               ready=true
               break
             fi

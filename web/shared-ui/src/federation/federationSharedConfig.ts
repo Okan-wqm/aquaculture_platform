@@ -30,8 +30,6 @@ export interface SharedDepConfig {
   requiredVersion: string;
   /** Explicit version for deps whose package.json lacks exports["./package.json"] */
   version?: string;
-  /** Whether the remote should eagerly import this dep */
-  import?: boolean;
 }
 
 // ============================================================================
@@ -92,7 +90,6 @@ export function getCoreSharedConfig(): Record<string, SharedDepConfig> {
       singleton: true,
       strictVersion: true,
       requiredVersion: SHARED_VERSIONS['@aquaculture/shared-ui'],
-      import: true,
     },
     zustand: {
       singleton: true,

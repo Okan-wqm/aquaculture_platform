@@ -17,7 +17,7 @@
  * @returns socketRef — ref to the underlying socket instance for use by other hooks
  */
 
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 
@@ -30,8 +30,50 @@ import type {
   ReadReceiptEvent,
   Message,
   MessagePage,
+  AllMessagesSinceResponse,
 } from '@/types/messaging';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
+/**
+ * Insert-or-replace a message into its channel's cached page list. Dedups by
+ * server id OR the client's optimistic idempotencyKey (the sender receives its
+ * own echo over the channel room). Shared by the live `newMessage` handler and
+ * the reconnect delta-resync (MSG-HIGH-053), so both converge identically.
+ */
+function mergeIncomingMessage(
+  qc: QueryClient,
+  tenantId: string | null,
+  incoming: Message,
+): void {
+  const matches = (m: Message): boolean =>
+    m.id === incoming.id ||
+    (incoming.idempotencyKey != null && m._idempotencyKey === incoming.idempotencyKey);
+  qc.setQueryData(
+    createTenantQueryKey(tenantId, 'messaging', 'messages', incoming.channelId),
+    (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
+      if (!old?.pages?.length) return old;
+      const firstPage = old.pages[0];
+      if (!firstPage) return old;
+      const exists = old.pages.some((page) => page.items.some(matches));
+      if (exists) {
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            items: page.items.map((m) => (matches(m) ? incoming : m)),
+          })),
+        };
+      }
+      return {
+        ...old,
+        pages: [
+          { ...firstPage, items: [...firstPage.items, incoming] },
+          ...old.pages.slice(1),
+        ],
+      };
+    },
+  );
+}
 
 
 // WHY: io is dynamically imported from socket.io-client. If the package is not
@@ -92,6 +134,11 @@ export function useMessageSocket(): UseMessageSocketResult {
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<SocketInstance | null>(null);
   const joinedChannelsRef = useRef<Set<string>>(new Set());
+  // M3 (MSG-HIGH-053): distinguish the first connect from a reconnect, and
+  // remember when the socket dropped, so a reconnect pulls the gap via
+  // allMessagesSince instead of silently losing messages.
+  const firstConnectRef = useRef(true);
+  const disconnectedAtRef = useRef<string | null>(null);
   // WHY: Ref tracks the latest accessToken for use inside the reAuth callback.
   // refreshAuth() updates React state, but the callback needs the new token
   // in the same tick without waiting for a re-render.
@@ -119,6 +166,38 @@ export function useMessageSocket(): UseMessageSocketResult {
     let mounted = true;
     let socket: SocketInstance | null = null;
 
+    // M3 (MSG-HIGH-053): drain the messages that arrived while the socket was down
+    // via allMessagesSince (multi-channel, cursor-paged) and merge them. The merge
+    // dedups against what is already cached, so re-delivered messages are no-ops.
+    const resyncSince = async (since: string): Promise<void> => {
+      if (!mounted) return;
+      const qc = queryClientRef.current;
+      try {
+        const { graphqlRequest } = await import('@/services/authenticated-fetch');
+        const { ALL_MESSAGES_SINCE } = await import('@/graphql/messaging-operations');
+        let syncToken: string | null = null;
+        let merged = 0;
+        for (let page = 0; page < 20 && mounted; page++) {
+          const data: { allMessagesSince: AllMessagesSinceResponse } = await graphqlRequest(
+            ALL_MESSAGES_SINCE,
+            { since, limit: 200, syncToken },
+          );
+          const resp: AllMessagesSinceResponse = data.allMessagesSince;
+          const msgs = resp?.messages ?? [];
+          for (const msg of msgs) mergeIncomingMessage(qc, tenantId, msg);
+          merged += msgs.length;
+          if (!resp?.hasMore || !resp.syncToken) break;
+          syncToken = resp.syncToken;
+        }
+        if (merged > 0 && mounted) {
+          void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+          void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        }
+      } catch {
+        // Non-fatal: the staleTime refetch eventually converges.
+      }
+    };
+
     const connect = async (): Promise<void> => {
       const io = await getIo();
       if (!io || !mounted) return;
@@ -144,51 +223,30 @@ export function useMessageSocket(): UseMessageSocketResult {
         for (const channelId of joinedChannelsRef.current) {
           nextSocket.emit('joinChannel', { channelId });
         }
+        // On a RECONNECT (not the first connect), drain the gap so messages that
+        // arrived while the socket was down are not silently lost (MSG-HIGH-053).
+        const since = disconnectedAtRef.current;
+        if (!firstConnectRef.current && since) {
+          void resyncSince(since);
+        }
+        firstConnectRef.current = false;
+        disconnectedAtRef.current = null;
       });
 
       nextSocket.on('disconnect', () => {
         if (mounted) setIsConnected(false);
+        // Mark the start of the gap; the next reconnect resyncs from here.
+        disconnectedAtRef.current = new Date().toISOString();
       });
 
       // --- Domain events ---
 
       nextSocket.on('newMessage', (data: unknown) => {
         const event = data as NewMessageEvent;
-        const incoming = event.message;
         const qc = queryClientRef.current;
-        // Match an existing row by server id OR by the client's optimistic
-        // idempotencyKey, so the sender's own echo (the gateway broadcasts to the
-        // whole channel room, including the sender) REPLACES its optimistic bubble
-        // instead of appending a duplicate.
-        const matches = (m: Message): boolean =>
-          m.id === incoming.id ||
-          (incoming.idempotencyKey != null && m._idempotencyKey === incoming.idempotencyKey);
-        // Update messages cache for this channel
-        qc.setQueryData(
-          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
-          (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
-            if (!old?.pages?.length) return old;
-            const firstPage = old.pages[0];
-            if (!firstPage) return old;
-            const exists = old.pages.some((page: MessagePage) => page.items.some(matches));
-            if (exists) {
-              return {
-                ...old,
-                pages: old.pages.map((page: MessagePage) => ({
-                  ...page,
-                  items: page.items.map((m: Message) => (matches(m) ? incoming : m)),
-                })),
-              };
-            }
-            return {
-              ...old,
-              pages: [
-                { ...firstPage, items: [...firstPage.items, incoming] },
-                ...old.pages.slice(1),
-              ],
-            };
-          },
-        );
+        // Insert-or-replace via the shared merge (dedups the sender's own echo by
+        // idempotencyKey); the reconnect resync uses the SAME merge.
+        mergeIncomingMessage(qc, tenantId, event.message);
         // Invalidate channel list to update lastMessage / unread counts
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
         // Increment unread count

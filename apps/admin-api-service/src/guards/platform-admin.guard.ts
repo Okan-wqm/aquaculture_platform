@@ -115,7 +115,7 @@ export class PlatformAdminGuard implements CanActivate {
     try {
       // BEFORE: jwt.verify() — synchronous, no algorithm restriction, no iss/aud validation.
       // AFTER: JwtService.verifyAsync() with getJwtVerifyOptions() — async (non-blocking),
-      // HS256 algorithm enforced, issuer and audience validated at jsonwebtoken library level.
+      // RS256 algorithm enforced, issuer and audience validated at jsonwebtoken library level.
       const payload = await this.jwtService.verifyAsync<JwtPayload>(
         token,
         getJwtVerifyOptions(this.configService),

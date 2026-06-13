@@ -6,7 +6,7 @@
  * connected Socket.IO clients filtered by tenant.
  *
  * Pattern mirrors `SensorReadingsGateway`:
- *   - JWT auth on connect (HS256, issuer + audience claim verification)
+ *   - JWT auth on connect (RS256, issuer + audience claim verification)
  *   - Per-client tenant isolation via `tenant:{tenantId}` Socket.IO room
  *   - Production CORS origin allow-list (WS_CORS_ORIGINS env var)
  *   - Query-parameter tokens rejected in production
@@ -405,7 +405,7 @@ export class FarmGateway
    *
    * Uses `getJwtVerifyOptions(configService)` to enforce — at the
    * jsonwebtoken library level, not by conditional checks — the
-   * HS256 algorithm, the issuer claim, and the audience claim. This
+   * RS256 algorithm, the issuer claim, and the audience claim. This
    * closes the "conditional `if (payload.iss && ...)` bypass" where
    * tokens without `iss` or `aud` were silently accepted by the
    * previous inline implementation.

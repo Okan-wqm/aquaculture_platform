@@ -364,7 +364,7 @@ export class SensorReadingsGateway
    * implementation mirrors it so every gateway applies the same
    * security policy.
    *
-   * `getJwtVerifyOptions` enforces HS256 + issuer + audience at the
+   * `getJwtVerifyOptions` enforces RS256 + issuer + audience at the
    * jsonwebtoken library level (not a conditional check). The
    * subsequent `enforceAccessTokenType` rejects refresh and
    * MFA-challenge tokens at handshake (H-1).

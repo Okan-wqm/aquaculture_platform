@@ -18,8 +18,8 @@
  *     sidecar's tokio timeout fires).
  */
 
+import type { Msg } from '@nats-io/nats-core';
 import { ConfigService } from '@nestjs/config';
-import { type Msg, StringCodec } from 'nats';
 
 import { SensorLookupResponderService } from '../sensor-lookup-responder.service';
 import { SensorMetaCacheService } from '../sensor-meta-cache.service';
@@ -33,8 +33,6 @@ const CHANNEL_ID_A = '44444444-4444-4444-4444-444444444444';
 const CHANNEL_ID_B = '55555555-5555-5555-5555-555555555555';
 const FARM_ID = '66666666-6666-6666-6666-666666666666';
 const POND_ID = '77777777-7777-7777-7777-777777777777';
-
-const codec = StringCodec();
 
 function fakeSensor(overrides: Partial<Sensor> = {}): Sensor {
   return {
@@ -100,18 +98,19 @@ function makeCache(opts?: {
 
 /**
  * Build a mock NATS Msg with a request body. The mock implements only
- * the surface the responder reaches for: `data` (encoded body),
- * `reply` (subject the responder publishes the reply to), and
- * `respond` (the call we assert on).
+ * the surface the responder reaches for: `string()` (decoded UTF-8 body
+ * — v3 replaces v2's StringCodec.decode(msg.data)), `reply` (subject the
+ * responder publishes the reply to), and `respond` (the call we assert
+ * on — v3 respond() accepts a string directly).
  */
 function makeMsg(body: unknown, hasReply = true): Msg & { _replies: string[] } {
   const replies: string[] = [];
-  const data = codec.encode(typeof body === 'string' ? body : JSON.stringify(body));
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
   return {
-    data,
+    string: jest.fn(() => text),
     reply: hasReply ? '_INBOX.test.0' : '',
-    respond: jest.fn((bytes: Uint8Array) => {
-      replies.push(codec.decode(bytes));
+    respond: jest.fn((payload: string) => {
+      replies.push(payload);
       return true;
     }),
     _replies: replies,

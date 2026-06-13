@@ -509,4 +509,19 @@ export default [
       ],
     },
   },
+
+  // ── A3 (NATS v3): the event-bus connect() call trips no-unsafe-assignment because
+  //    @nats-io/* exports-only ESM does not type-resolve in the event-bus lib's
+  //    standalone eslint project context (ORPHAN-MEDIUM-093 — a verified false
+  //    positive; platform-wide type-check + build + unit tests all pass). Carried
+  //    from the .eslintrc.json override A3 added (A2's flat cutover deleted that
+  //    file), so the migration preserves A3's lint behavior byte-for-byte. Override
+  //    last so it wins for this one file; removable once the parserOptions.project
+  //    ordering fix (ORPHAN-MEDIUM-093) lands. ──
+  {
+    files: ['platform/libs/event-bus/src/nats/nats-event-bus.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+    },
+  },
 ];

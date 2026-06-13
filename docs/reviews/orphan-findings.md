@@ -3814,6 +3814,18 @@ Status: OPEN (2026-06-11; owner: observability-expert; natural Wave B2 follow-on
 
 ---
 
+## ORPHAN-MEDIUM-093 — Platform libs lack a selected eslint-project tsconfig; lib files importing exports-only packages can't be type-resolved by @typescript-eslint
+
+Severity: MEDIUM. `.eslintrc.json` `parserOptions.project` lists `tsconfig.base.json` FIRST, then the per-project globs (`apps/*/tsconfig.json`, `platform/libs/*/tsconfig.json`, …). @typescript-eslint resolves each file to the FIRST listed project that includes it; `tsconfig.base.json` has no `include`, so it matches every `.ts` file and always wins. App files resolve modern packages anyway, but a platform LIB file type-checked standalone against bare `tsconfig.base.json` (moduleResolution:node) cannot resolve `@nats-io/*` (exports-only ESM, with a broken `types: ./lib/mod.d.js` field) — its imports widen to `any`/`error` and trip `@typescript-eslint/no-unsafe-*`. Surfaced by A3 (the first platform lib to import @nats-io): `platform/libs/event-bus/src/nats/nats-event-bus.ts` `connect()` is a verified false positive — the platform `type-check`, the `build`, and the event-bus unit tests all PASS (they run in the consumer context where @nats-io resolves). Suppressed via a scoped `.eslintrc.json` override (`no-unsafe-assignment` OFF for that one file) — the in-line `eslint-disable` form is banned by the repo's banned-construct gate, which directs false-positive suppressions to the .eslintrc lint-policy SSoT.
+
+Root cause: eslint project-selection order. Fix (highest tier first): (1) reorder `parserOptions.project` so the per-project globs precede `tsconfig.base.json` (or drop base if every linted file is covered by a project), so lib files type-check against a proper project where node_modules resolves; (2) failing that, give each platform lib a selected `tsconfig.json` (references its lib + spec). A3 created `platform/libs/event-bus/tsconfig.json` + `tsconfig.lib.json` but they were NOT selected (base wins) and were reverted pending the reorder. Cross-cutting eslint-config change — must be validated against the full lint surface, not one lib.
+
+Discovered while driving A3 (NATS v3, PR #424) to green. The `eslint-disable` is removable once the project-order fix lands.
+
+Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-093.
+
+---
+
 ## ORPHAN-HIGH-092 — E2E - Messaging Service chronic cancellation flake (~50%)
 
 Severity: HIGH. The `E2E - Messaging Service` workflow (`E2E Tests` job) cancels on roughly half its runs — sampled last 18 = 9 cancelled / 8 success / 1 failure. Cancellations are the job hitting its own wall-clock after repeated `Exceeded timeout of 60000 ms for a hook` (Jest setup hooks), ending in `##[error]The operation was canceled` — reproduced identically on two consecutive runs of the SAME commit (B2 head 4699f72dc), so it is environmental, not a code regression. The suite is NOT in `branches/main/protection/required_status_checks`; K7 (#410, 807dc90a5) deployed to production with it never green. It therefore masks real messaging-E2E signal behind noise while blocking no merge.

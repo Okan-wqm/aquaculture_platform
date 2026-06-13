@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   PLATFORM_SERVICE_CATALOG,
   activeDropletComposeServices,
+  activeDropletServices,
   frontendImageBuildTargets,
   frontendPrebuildPlan,
   gatewaySubgraphs,
@@ -14,6 +15,7 @@ import {
   schemaOwningServices,
   serviceIdentityAudiencesForService,
   serviceIdentityAudienceForService,
+  serviceIdentityCallers,
   validateServiceCatalog,
   readinessServices,
 } from './index';
@@ -49,6 +51,50 @@ describe('platform service catalog executable views', () => {
     expect(serviceIdentityAudiencesForService('event-store-service')).toEqual([
       'event-store-service',
     ]);
+  });
+
+  it('derives the service-identity CALLER allowlist from the catalog (single SSoT, #388 regression)', () => {
+    const callers = serviceIdentityCallers();
+
+    // Every real signer binds its catalog serviceId into X-Service-Identity
+    // (verified against buildSignedInternalHeaders/signedFetch callsites):
+    // gateway-api, admin-api-service, notification-service. Plus every backend
+    // that holds the shared keyring and can sign.
+    expect(callers).toEqual(
+      expect.arrayContaining([
+        'gateway-api',
+        'auth-service',
+        'admin-api-service',
+        'notification-service',
+        'event-store-service',
+      ]),
+    );
+
+    // Non-empty, sorted, de-duplicated. An EMPTY allowlist is the #388 outage
+    // shape — it would fail-close every caller, so this pins it can never be [].
+    expect(callers.length).toBeGreaterThan(0);
+    expect([...callers]).toEqual([...callers].sort());
+    expect(new Set(callers).size).toBe(callers.length);
+
+    // Equals exactly the active-droplet backend node-service set, so adding a
+    // service to the catalog auto-extends the allowlist (zero-effort default).
+    const expected = [
+      ...new Set(
+        activeDropletServices()
+          .filter(
+            (entry) =>
+              entry.buildKind === 'node-service' &&
+              ['gateway', 'subgraph', 'internal-service'].includes(entry.classification),
+          )
+          .map((entry) => entry.serviceId),
+      ),
+    ].sort();
+    expect([...callers]).toEqual(expected);
+
+    // Frontends, infra and one-shot jobs are NOT signers.
+    expect(callers).not.toContain('shell');
+    expect(callers).not.toContain('postgres');
+    expect(callers).not.toContain('db-migrate');
   });
 
   it('separates operator-provided runtime env from secret material', () => {

@@ -982,6 +982,46 @@ export function serviceIdentityAudiencesForService(serviceId: string): readonly 
   ];
 }
 
+/**
+ * SSoT allowlist of known service-identity CALLER names.
+ *
+ * WHAT: the sorted, de-duplicated set of catalog `serviceId`s for every
+ * active-droplet backend that holds the shared HMAC keyring and can SIGN an
+ * inter-service request (classification gateway / subgraph / internal-service,
+ * buildKind node-service). The `serviceId` is the exact value each signer binds
+ * into the `X-Service-Identity` header via buildSignedInternalHeaders/signedFetch
+ * (e.g. gateway-api, admin-api-service, notification-service).
+ *
+ * WHY it lives here and is read by the verifier (not stamped into the keyring
+ * JSON): `callers`/`audiences` are NON-secret authorization policy. The deploy
+ * secret bootstrap mints a single shared keyring entry that transports only
+ * {kid,secret,status}. Copying policy into that JSON lets it silently drift from
+ * the catalog — exactly what regression #388 did (a policy-less entry made the
+ * verifier fail-closed `caller-not-allowed` on every gateway→subgraph call → a
+ * total login outage). Deriving the allowlist from this single SSoT means the
+ * keyring never carries policy, so the drift is structurally impossible, and
+ * adding a new backend to the catalog auto-extends the allowlist.
+ *
+ * This is a known-name allowlist under a shared secret (any secret holder can
+ * assert any name), i.e. defense-in-depth — NOT a per-caller crypto boundary.
+ * The real per-receiver audience check is matchesExpectedAudience in
+ * libs/backend-common service-identity.util. Unforgeable per-caller identity
+ * (per-service keys / mTLS) is tracked hardening, not provided here.
+ */
+export function serviceIdentityCallers(): readonly string[] {
+  return [
+    ...new Set(
+      activeDropletServices()
+        .filter(
+          (entry) =>
+            entry.buildKind === 'node-service' &&
+            ['gateway', 'subgraph', 'internal-service'].includes(entry.classification),
+        )
+        .map((entry) => entry.serviceId),
+    ),
+  ].sort();
+}
+
 export interface CatalogValidationError {
   serviceId: string;
   message: string;

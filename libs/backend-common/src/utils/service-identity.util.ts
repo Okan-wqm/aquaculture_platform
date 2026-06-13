@@ -1,5 +1,11 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 
+// Service-catalog is the SSoT for service-identity caller policy (see
+// serviceIdentityCallers). The sibling guard already imports the catalog at the
+// same depth (guards/service-identity.guard.ts), so this adds no new cross-lib
+// edge. The catalog lib has zero imports of its own → no circular dependency.
+import { serviceIdentityCallers } from '../../../../platform/libs/service-catalog/src/index';
+
 /**
  * Service Identity Headers — HMAC-signed headers for inter-service authentication.
  *
@@ -639,10 +645,25 @@ function resolveVerificationKey(args: {
     if (status !== 'active' && status !== 'previous') {
       return { valid: false, reason: 'key-not-active' };
     }
-    if (!entry.callers || !entry.callers.includes(args.serviceName)) {
+    // callers: an explicit per-entry list wins (operator-tightened entry, or the
+    // event-store all-tenants caller binding). When the entry carries no policy of
+    // its own — the shared bootstrap keyring transports only {kid,secret,status} —
+    // fall back to the catalog's known-caller allowlist (the single SSoT). Stays
+    // fail-closed: an unknown service identity is rejected, a catalogued one is
+    // accepted. Regression #388 shipped a policy-less entry; the old
+    // `!entry.callers ||` denied EVERY caller → total login outage. Deriving the
+    // allowlist from the catalog keeps the keyring policy-free so it cannot drift.
+    const allowedCallers = entry.callers ?? serviceIdentityCallers();
+    if (!allowedCallers.includes(args.serviceName)) {
       return { valid: false, reason: 'caller-not-allowed' };
     }
-    if (!entry.audiences || !entry.audiences.includes(args.audience)) {
+    // audiences: honor an explicit per-entry list if present; otherwise the
+    // authoritative per-receiver audience check is matchesExpectedAudience
+    // (catalog-derived, applied by verifyServiceIdentityRequest), so an ABSENT
+    // list is NOT a denial here. This mirrors the sibling event-store
+    // lookupKeyEntry semantic (`entry.audiences && …`) and removes the second
+    // half of the #388 contradiction.
+    if (entry.audiences && !entry.audiences.includes(args.audience)) {
       return { valid: false, reason: 'audience-not-allowed' };
     }
     return { valid: true, entry };

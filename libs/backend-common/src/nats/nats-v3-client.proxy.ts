@@ -144,7 +144,7 @@ export class NatsV3Client extends ClientProxy {
       });
       return;
     }
-    const message = (await this.deserializer.deserialize(natsMsg.data)) as IncomingResponse;
+    const message: IncomingResponse = await this.deserializer.deserialize(natsMsg.data);
     // The inbox is unique per request; a mismatched id can only be a stray
     // late delivery — ignore it defensively (mirrors Nest's ClientNats).
     if (message.id && message.id !== requestId) {

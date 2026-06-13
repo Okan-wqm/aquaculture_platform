@@ -1,7 +1,13 @@
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
+// transport-node (Node connect) and nats-core (connection + Msg primitives).
+// StringCodec was REMOVED — publish a string directly and decode via
+// msg.string(). The wire bytes stay UTF-8, so this is byte-for-byte
+// compatible with the v2 sensor-service producer during a rolling deploy.
+import type { ConnectionOptions, NatsConnection, Subscription } from '@nats-io/nats-core';
+import { connect } from '@nats-io/transport-node';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import { createDefaultRegistry, EventUpcasterRegistry } from '@platform/event-contracts';
 import * as fs from 'fs';
 
@@ -56,7 +62,6 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NatsBridgeService.name);
   private connection: NatsConnection | null = null;
   private subscription: Subscription | null = null;
-  private readonly sc = StringCodec();
   /** ARCH-C01: Raw NATS doesn't use NatsEventBus — apply upcasters manually */
   private readonly upcasterRegistry: EventUpcasterRegistry = createDefaultRegistry();
 
@@ -162,7 +167,8 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     (async () => {
       for await (const msg of subscription) {
         try {
-          const data = this.sc.decode(msg.data);
+          // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
+          const data = msg.string();
           // ARCH-C01: Apply upcasters for v1→v2 migration (raw NATS, no NatsEventBus)
           const raw = JSON.parse(data);
           // upcast returns Record<string, unknown>; validated by isValidNatsEvent below
@@ -197,7 +203,8 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     (async () => {
       for await (const msg of sub) {
         try {
-          const data = JSON.parse(this.sc.decode(msg.data));
+          // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
+          const data = JSON.parse(msg.string());
           // SECURITY: Extract tenantId from NATS subject (authoritative), not payload
           const tenantId = msg.subject.split('.')[1];
           const { deviceCode, tagsJson, timestamp } = data;
@@ -238,7 +245,8 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     (async () => {
       for await (const msg of sub) {
         try {
-          const data = JSON.parse(this.sc.decode(msg.data));
+          // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
+          const data = JSON.parse(msg.string());
           // SECURITY: Extract tenantId from NATS subject (authoritative), not payload
           const tenantId = msg.subject.split('.')[1];
           const { deviceCode, alarmsJson, timestamp } = data;
@@ -309,8 +317,10 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
     const connection = this.connection;
     (async () => {
       for await (const status of connection.status()) {
-        const statusType = status.type as string;
-        switch (statusType) {
+        // v3: Status is a discriminated union on `type`; switching on it
+        // narrows each case. The error variant carries `error: Error` (v2's
+        // untyped `status.data` field was removed).
+        switch (status.type) {
           case 'disconnect':
             this.logger.warn('NATS disconnected');
             break;
@@ -323,7 +333,7 @@ export class NatsBridgeService implements OnModuleInit, OnModuleDestroy {
             this.subscribeToEdgeAlarmEvents();
             break;
           case 'error':
-            this.logger.error(`NATS error: ${String(status.data)}`);
+            this.logger.error(`NATS error: ${String(status.error)}`);
             break;
         }
       }

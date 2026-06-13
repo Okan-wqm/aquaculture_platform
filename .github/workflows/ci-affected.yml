@@ -90,9 +90,9 @@ jobs:
               # tooling as deploy-config for path-filter purposes.
               - 'tools/eslint-rules/**'
               - 'tools/gates/**'
+              - 'tools/lint-gates/**'
               - 'tools/scripts/**'
-              - '.eslintrc.json'
-              - '.eslintrc.js'
+              - 'eslint.config.mjs'
               - 'tsconfig.base.json'
               # Root manifest + lockfile. Any change here rewires the
               # workspace graph OR the dependency tree — both invalidate
@@ -256,6 +256,12 @@ jobs:
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
+          # ORPHAN-MEDIUM-094: type-aware ESLint over the changed-file set builds the
+          # full TS project graph and OOMs at the runner's ~4GB default heap (SIGABRT,
+          # "ESLint produced no JSON"). Every other heavy step in this workflow already
+          # declares a NODE_OPTIONS ceiling; this lint step was the lone omission. 6144
+          # is the measured-sufficient size and is safe on the 7GB ubuntu runner.
+          NODE_OPTIONS: '--max-old-space-size=6144'
 
   type-check:
     needs: [install, detect-changes]
@@ -414,6 +420,13 @@ jobs:
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
+          # `nx affected -t test` runs the `invariants` project, whose
+          # entity-diff-implies-migration.spec.ts invokes the entity-diff-witness
+          # gate. That gate honours `ENTITY-DIFF-OK:` PR-body waivers via
+          # PR_BODY — without it, any entity edit with no migration (e.g. a
+          # read-replica entity's pure-typing change) fails the gate. Mirrors
+          # db-migration-check.yml + the quality-gates invariants-fast job.
+          PR_BODY: ${{ github.event.pull_request.body }}
           NODE_OPTIONS: '--max-old-space-size=4096'
 
       - name: Run focused farm water-chemistry tests
@@ -442,21 +455,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - scenario: ph
-            chart_mode: ph
-            allow_override: 'false'
-            expect_mode: ph
-            path: ''
-          - scenario: legacy-denies-query
-            chart_mode: legacy
-            allow_override: 'false'
-            expect_mode: legacy
-            path: '?deffeyesMode=ph'
-          - scenario: legacy-diagnostic-override
-            chart_mode: legacy
-            allow_override: 'true'
-            expect_mode: ph
-            path: '?deffeyesMode=ph'
+          # Single ALK/DIC Deffeyes chart — the DIC/pH chart mode was removed,
+          # so the former ph / legacy-denies-query / legacy-diagnostic-override
+          # scenario matrix collapses to one.
+          - scenario: legacy
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -491,12 +493,10 @@ jobs:
             exit 0
           fi
 
-          VITE_DEFFEYES_CHART_MODE="${{ matrix.chart_mode }}" \
-          VITE_DEFFEYES_ALLOW_DIAGNOSTIC_MODE_OVERRIDE="${{ matrix.allow_override }}" \
           npx nx build farm-module
 
           mkdir -p web/shell/src/generated
-          FARM_REMOTE_ENTRY="web/modules/farm-module/dist/assets/remoteEntry.js"
+          FARM_REMOTE_ENTRY="web/modules/farm-module/dist/remoteEntry.js"
           if [ ! -f "$FARM_REMOTE_ENTRY" ]; then
             echo "Missing farm remote entry at $FARM_REMOTE_ENTRY"
             exit 1
@@ -504,7 +504,7 @@ jobs:
           FARM_REMOTE_HASH="$(openssl dgst -sha256 -binary "$FARM_REMOTE_ENTRY" | openssl base64 -A)"
           cat > web/shell/src/generated/remoteHashes.json <<JSON
           {
-            "/remotes/farm-module/assets/remoteEntry.js": "sha256-${FARM_REMOTE_HASH}"
+            "/remotes/farm-module/remoteEntry.js": "sha256-${FARM_REMOTE_HASH}"
           }
           JSON
 
@@ -516,7 +516,7 @@ jobs:
 
           for _ in $(seq 1 90); do
             if curl -fsS http://127.0.0.1:4302/sites/water-chemistry >/dev/null \
-              && curl -fsS http://127.0.0.1:4302/remotes/farm-module/assets/remoteEntry.js >/dev/null; then
+              && curl -fsS http://127.0.0.1:4302/remotes/farm-module/remoteEntry.js >/dev/null; then
               ready=true
               break
             fi
@@ -529,8 +529,6 @@ jobs:
 
           FARM_WATER_CHEMISTRY_URL="http://127.0.0.1:4302/sites/water-chemistry" \
           FARM_WATER_CHEMISTRY_EXPECT_REMOTE_ENTRY="true" \
-          FARM_WATER_CHEMISTRY_EXPECT_MODE="${{ matrix.expect_mode }}" \
-          FARM_WATER_CHEMISTRY_PATH="${{ matrix.path }}" \
           npm run test:e2e:water-chemistry
         env:
           NX_DAEMON: 'false'

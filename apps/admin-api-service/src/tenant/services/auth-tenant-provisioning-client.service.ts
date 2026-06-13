@@ -11,6 +11,7 @@ import {
   TENANT_COMMAND_SUBJECTS,
   type ActivateTenantCommand,
   type ArchiveTenantLifecycleCommand,
+  type BeginProvisioningCommand,
   type AssignTenantModulesCommand,
   type AssignTenantModulesResult,
   type AuthTenantCommandResult,
@@ -77,6 +78,14 @@ export class AuthTenantProvisioningClientService {
       command,
     );
     return this.requireSuccess(result, 'Auth tenant admin creation failed');
+  }
+
+  async beginProvisioning(command: BeginProvisioningCommand): Promise<AuthTenantCommandResult> {
+    const result = await this.sendAuthCommand<BeginProvisioningCommand, AuthTenantCommandResult>(
+      TENANT_COMMAND_SUBJECTS.BEGIN_PROVISIONING,
+      command,
+    );
+    return this.requireSuccess(result, 'Auth tenant begin-provisioning failed');
   }
 
   async activateTenant(command: ActivateTenantCommand): Promise<AuthTenantCommandResult> {

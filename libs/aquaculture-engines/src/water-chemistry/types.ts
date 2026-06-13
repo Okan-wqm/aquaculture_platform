@@ -19,7 +19,9 @@ export interface ToxicLimits {
   tan: number;             // Total Ammonia Nitrogen in mg/L
   unIonizedNH3: number;    // Un-ionized NH3-N limit in mg/L
   co2Toxic: number;        // CO2 toxic level in mg/L
-  h2s: number;             // H2S in mg/L
+  h2sMeasuredUgL: number;  // Measured H₂S in µg/L
+  h2sLimitUgL: number;     // Toxic H₂S limit in µg/L
+  h2sMeasuredAtPH: number; // pH (NBS) at which the measured H₂S sample was taken
 }
 
 export interface SystemParams {
@@ -119,6 +121,7 @@ export interface DeffeyesChartData {
   isolines: PHIsoline[];
   nh3ToxicZone: ToxicZone | null;
   co2ToxicZone: ToxicZone | null;
+  h2sToxicZone: ToxicZone | null;
   safeZone: SafeZone | null;
   currentPoint: OperatingPoint;
   targetPoint: OperatingPoint | null;
@@ -126,103 +129,6 @@ export interface DeffeyesChartData {
   dosingVisualization: DosingVisualization | null;
   omegaCalcite: OmegaIsopleth | null;
   omegaAragonite: OmegaIsopleth | null;
-}
-
-export interface DicPhPoint {
-  CT: number;       // DIC / CT in mmol/L
-  pH: number;       // pH on NBS scale
-  AT?: number;      // Source alkalinity in meq/L, when projected from ALK/DIC space
-  sourceIndex?: number;
-}
-
-export type DicPhSegment = DicPhPoint[];
-
-export interface DicPhLine {
-  label: string;
-  color: string;
-  points: DicPhPoint[];
-  segments?: DicPhSegment[];
-  value?: number;
-}
-
-export interface DicPhToxicZone {
-  label: string;
-  color: string;
-  fillColor: string;
-  boundary: DicPhPoint[];
-  boundarySegments?: DicPhSegment[];
-  polygons: DicPhPoint[][];
-  criticalPH?: number;
-}
-
-export interface DicPhSafeBand {
-  label: string;
-  color: string;
-  polygons: DicPhPoint[][];
-}
-
-export interface DicPhDosingVisualization {
-  reagentLine1: { points: DicPhPoint[]; label: string; color: string };
-  reagentLine2: { points: DicPhPoint[]; label: string; color: string };
-  reagentLine1Segments?: DicPhSegment[];
-  reagentLine2Segments?: DicPhSegment[];
-  step1Path: DicPhPoint[];
-  step2Path: DicPhPoint[];
-  step1PathSegments?: DicPhSegment[];
-  step2PathSegments?: DicPhSegment[];
-  intermediatePoint: DicPhPoint | null;
-  step1Label: string;
-  step2Label: string;
-}
-
-export interface DeffeyesPHLimits {
-  tanMgL: number;
-  unIonizedNH3MgL: number;
-  co2ToxicMgL: number;
-  h2sMeasuredUgL: number;
-  h2sLimitUgL: number;
-  h2sMeasuredAtPH?: number;
-  /** @deprecated Use h2sMeasuredAtPH. Kept for one release for API compatibility. */
-  currentPH?: number;
-}
-
-export interface ProjectionLayerStats {
-  projected: number;
-  rejected: number;
-  clipped: number;
-  segments: number;
-}
-
-/**
- * Projection diagnostics for the DIC/pH Deffeyes chart.
- *
- * Top-level counters aggregate only ALK/DIC-rendered projection layers, such as
- * alkalinity, omega, and target path lines. The `layers` map contains per-layer
- * diagnostics for every render layer, including pH references and toxic fills.
- */
-export interface ProjectionStats extends ProjectionLayerStats {
-  toxicSegments: number;
-  layers: Record<string, ProjectionLayerStats>;
-}
-
-export interface DeffeyesPHChartData {
-  domain: { maxDIC: number; minPH: number; maxPH: number };
-  pHReferences: DicPhLine[];
-  alkalinityLines: DicPhLine[];
-  nh3ToxicZone: DicPhToxicZone | null;
-  co2ToxicZone: DicPhToxicZone | null;
-  h2sToxicZone: DicPhToxicZone | null;
-  safeBands: DicPhSafeBand[];
-  currentPoint: DicPhPoint;
-  targetPoint: DicPhPoint | null;
-  targetPath?: DicPhPoint[];
-  targetPathSegments?: DicPhSegment[];
-  reagentLine: DicPhPoint[] | null;
-  reagentLineSegments?: DicPhSegment[];
-  dosingVisualization: DicPhDosingVisualization | null;
-  omegaCalcite: DicPhLine | null;
-  omegaAragonite: DicPhLine | null;
-  projectionStats: ProjectionStats;
 }
 
 export interface CalculatedOutputs {

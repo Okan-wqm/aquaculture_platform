@@ -2,7 +2,11 @@ import { Injectable, NotFoundException, BadRequestException, Logger, Optional, I
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
-import { createBaseEvent, SubscriptionCancelledEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  SubscriptionCancelledEvent,
+  TenantSubscriptionChangedEvent,
+} from '@platform/event-contracts';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { CancelSubscriptionCommand } from '../commands/cancel-subscription.command';
 import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
@@ -90,6 +94,32 @@ export class CancelSubscriptionHandler
         // Event publish failure must not block the main operation
         this.logger.warn(
           `Failed to publish SubscriptionCancelled event for ${savedSubscription.id}: ${
+            eventError instanceof Error ? eventError.message : 'Unknown error'
+          }`,
+        );
+      }
+
+      // DATA-LOW-001: project the post-cancellation state onto auth.tenants
+      // (status -> cancelled, the subscription end date). The plan tier itself
+      // is unchanged by a cancellation, so previousPlan === newPlan here.
+      try {
+        const projection: TenantSubscriptionChangedEvent = {
+          ...createBaseEvent<TenantSubscriptionChangedEvent>(
+            'TenantSubscriptionChanged',
+            tenantId,
+            { userId },
+          ),
+          previousPlan: savedSubscription.planTier,
+          newPlan: savedSubscription.planTier,
+          effectiveDate: savedSubscription.cancelledAt ?? new Date(),
+          trialEndsAt: savedSubscription.trialEndDate ?? null,
+          subscriptionEndsAt: savedSubscription.endDate ?? null,
+          subscriptionStatus: savedSubscription.status,
+        };
+        await this.eventBus?.publish(projection);
+      } catch (eventError) {
+        this.logger.warn(
+          `Failed to publish TenantSubscriptionChanged event for ${savedSubscription.id}: ${
             eventError instanceof Error ? eventError.message : 'Unknown error'
           }`,
         );

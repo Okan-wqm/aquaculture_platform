@@ -9,6 +9,7 @@ import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -16,6 +17,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { User } from '../../authentication/entities/user.entity';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
@@ -123,7 +125,10 @@ describe('TenantUserManagementService', () => {
   let service: TenantUserManagementService;
   let userRepository: jest.Mocked<Repository<User>>;
   let tenantRepository: jest.Mocked<Repository<Tenant>>;
-  let mockDataSource: jest.Mocked<Pick<DataSource, 'query'>>;
+  // Local shape (not jest.Mocked<DataSource>) so the transaction stub need not
+  // satisfy DataSource.transaction's overload set — the DI token is provided by
+  // value, which is untyped, so a precise two-method double is enough. No cast.
+  let mockDataSource: { query: jest.Mock; transaction: jest.Mock };
   let mockSchemaManager: jest.Mocked<Pick<SchemaManagerService, 'getTenantSchemaName'>>;
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
   let mockEventBus: { publish: jest.Mock };
@@ -143,6 +148,15 @@ describe('TenantUserManagementService', () => {
 
     mockDataSource = {
       query: jest.fn().mockResolvedValue([]),
+      // SEC-MEDIUM-002: updateUserRole runs its role UPDATE + audit inside a
+      // transaction so an audit failure rolls back the role change. The mock
+      // manager forwards query to the dataSource query mock (so existing
+      // per-test query chains stay valid) and exposes the audit log via the
+      // real auditLogService mock.
+      transaction: jest.fn(
+        (cb: (manager: { query: jest.Mock }) => Promise<unknown>) =>
+          cb({ query: mockDataSource.query }),
+      ),
     };
 
     mockSchemaManager = {
@@ -197,6 +211,13 @@ describe('TenantUserManagementService', () => {
         { provide: SchemaManagerService, useValue: mockSchemaManager },
         { provide: TenantRoleService, useValue: mockTenantRoleService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
+        // The service injects BestEffortEventPublisher (not the raw bus) for the
+        // allowlisted UserInvited event; wrap the same mock so publish assertions
+        // continue to observe what the service emits (DATA-HIGH-001).
+        {
+          provide: BestEffortEventPublisher,
+          useValue: new BestEffortEventPublisher(mockEventBus),
+        },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: UserLifecycleService, useValue: mockUserLifecycleService },
       ],
@@ -281,8 +302,12 @@ describe('TenantUserManagementService', () => {
 
   describe('assignUserRole', () => {
     it('should assign a role to an existing tenant user', async () => {
-      const user = createMockUser();
-      userRepository.findOne.mockResolvedValue(user);
+      // WHY admin actor: assertRoleGrantAuthority (SEC-MEDIUM-001) looks up
+      // the acting user; a global TENANT_ADMIN outranks every tenant role so
+      // the ceiling query is skipped and the dataSource.query chain is the
+      // existing [active-check, INSERT].
+      const adminActor = createMockUser({ role: Role.TENANT_ADMIN });
+      userRepository.findOne.mockResolvedValue(adminActor);
       mockTenantRoleService.getRoleById.mockResolvedValue(createMockRoleWithDetails());
       mockDataSource.query
         .mockResolvedValueOnce([]) // no existing active assignment
@@ -309,13 +334,38 @@ describe('TenantUserManagementService', () => {
     });
 
     it('should throw ConflictException when user already has active assignment', async () => {
-      userRepository.findOne.mockResolvedValue(createMockUser());
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
       mockTenantRoleService.getRoleById.mockResolvedValue(createMockRoleWithDetails());
       mockDataSource.query.mockResolvedValueOnce([{ id: 'existing-assignment' }]); // existing active
 
       await expect(
         service.assignUserRole(TENANT_ID, USER_ID, { roleId: ROLE_ID }, ADMIN_USER_ID),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('SEC-MEDIUM-001: rejects self-modification of own role assignment', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
+      mockTenantRoleService.getRoleById.mockResolvedValue(createMockRoleWithDetails());
+
+      // assignedBy === target userId → self-target is forbidden.
+      await expect(
+        service.assignUserRole(TENANT_ID, USER_ID, { roleId: ROLE_ID }, USER_ID),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('SEC-MEDIUM-001: rejects a non-admin granting a role above their ceiling', async () => {
+      // Actor is a non-admin tenant user (MODULE_USER) → ceiling derives from
+      // their highest active tenant-role level.
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.MODULE_USER }));
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ level: 90 }), // high-privilege target role
+      );
+      // assertRoleGrantAuthority's ceiling query returns the actor's level (30).
+      mockDataSource.query.mockResolvedValueOnce([{ level: 30 }]);
+
+      await expect(
+        service.assignUserRole(TENANT_ID, USER_ID, { roleId: ROLE_ID }, ADMIN_USER_ID),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -324,13 +374,16 @@ describe('TenantUserManagementService', () => {
   // ==========================================================================
 
   describe('updateUserRole', () => {
-    it('should update role assignment and log audit event', async () => {
-      const user = createMockUser();
-      userRepository.findOne.mockResolvedValue(user);
+    it('should update role assignment and log audit event ATOMICALLY (SEC-MEDIUM-002)', async () => {
+      // Admin actor → ceiling query skipped (SEC-MEDIUM-001). The role UPDATE
+      // and audit now run inside dataSource.transaction; the mock manager
+      // forwards query to the same chain, so [existing, UPDATE, final-SELECT].
+      const adminActor = createMockUser({ role: Role.TENANT_ADMIN });
+      userRepository.findOne.mockResolvedValue(adminActor);
       // Existing active assignment
       mockDataSource.query
         .mockResolvedValueOnce([{ id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID }]) // existing
-        .mockResolvedValueOnce([]) // UPDATE
+        .mockResolvedValueOnce([]) // UPDATE (inside transaction)
         .mockResolvedValueOnce([{
           id: 'assignment-1',
           user_id: USER_ID,
@@ -359,6 +412,8 @@ describe('TenantUserManagementService', () => {
       );
 
       expect(result).toBeDefined();
+      // Audit ran INSIDE the transaction (fail-closed).
+      expect(mockDataSource.transaction).toHaveBeenCalled();
       expect(mockAuditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'USER_ROLE_CHANGED',
@@ -366,6 +421,23 @@ describe('TenantUserManagementService', () => {
           entityId: USER_ID,
         }),
       );
+    });
+
+    it('SEC-MEDIUM-002: an audit failure ROLLS BACK the role change (fail-closed)', async () => {
+      const adminActor = createMockUser({ role: Role.TENANT_ADMIN });
+      userRepository.findOne.mockResolvedValue(adminActor);
+      mockDataSource.query.mockResolvedValueOnce([
+        { id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID },
+      ]); // existing
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ id: 'new-role-id' }),
+      );
+      // The audit write fails inside the transaction → the whole update aborts.
+      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
+
+      await expect(
+        service.updateUserRole(TENANT_ID, USER_ID, { roleId: 'new-role-id' }, ADMIN_USER_ID),
+      ).rejects.toThrow('audit DB down');
     });
 
     it('should throw NotFoundException when user does not exist in tenant', async () => {
@@ -397,31 +469,20 @@ describe('TenantUserManagementService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should not throw if audit log fails (non-critical)', async () => {
-      userRepository.findOne.mockResolvedValue(createMockUser());
-      mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID }])
-        .mockResolvedValueOnce([]) // UPDATE
-        .mockResolvedValueOnce([{
-          id: 'assignment-1',
-          user_id: USER_ID,
-          role_id: ROLE_ID,
-          role_name: 'Operator',
-          role_color: '#10B981',
-          role_icon: 'activity',
-          role_level: 30,
-          permission_overrides: null,
-          panel_permissions: '{}',
-          resource_permissions: [],
-          is_active: true,
-          expires_at: null,
-          created_at: new Date(),
-          assigned_by: ADMIN_USER_ID,
-        }]);
-
+    // NOTE (SEC-MEDIUM-002): the former "should not throw if audit log fails
+    // (non-critical)" test asserted the FAIL-OPEN behaviour that was the
+    // vulnerability — a role change persisting with no audit evidence. It was
+    // replaced by the fail-closed contract above ("an audit failure ROLLS
+    // BACK the role change"). A permission-override-only change is likewise
+    // now atomic with its audit:
+    it('SEC-MEDIUM-002: permission-override change also aborts when its audit fails', async () => {
+      const adminActor = createMockUser({ role: Role.TENANT_ADMIN });
+      userRepository.findOne.mockResolvedValue(adminActor);
+      mockDataSource.query.mockResolvedValueOnce([
+        { id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID },
+      ]); // existing
       mockAuditLogService.log.mockRejectedValueOnce(new Error('Audit DB down'));
 
-      // Should not throw, even though audit log failed
       await expect(
         service.updateUserRole(
           TENANT_ID,
@@ -429,7 +490,7 @@ describe('TenantUserManagementService', () => {
           { permissionOverrides: { grants: ['x:y'], revokes: [] } },
           ADMIN_USER_ID,
         ),
-      ).resolves.toBeDefined();
+      ).rejects.toThrow('Audit DB down');
     });
   });
 
@@ -585,27 +646,36 @@ describe('TenantUserManagementService', () => {
     it('should assign role to multiple users and report successes/failures', async () => {
       const userA = createMockUser({ id: 'user-a' });
       const userB = createMockUser({ id: 'user-b' });
+      // The acting admin outranks every tenant role (SEC-MEDIUM-001), so the
+      // ceiling query is skipped and the per-user query chain is unchanged.
+      const adminActor = createMockUser({ id: ADMIN_USER_ID, role: Role.TENANT_ADMIN });
       const userIds = ['user-a', 'user-b', 'user-c'];
 
       mockTenantRoleService.getRoleById.mockResolvedValue(createMockRoleWithDetails());
 
-      // user-a: success
-      userRepository.findOne
-        .mockResolvedValueOnce(userA); // assignUserRole -> findOne
-      mockDataSource.query
-        .mockResolvedValueOnce([]) // no existing for user-a
-        .mockResolvedValueOnce([{ id: 'assign-a' }]); // INSERT for user-a
+      // WHY id-keyed: assignUserRole now looks up BOTH the target user and the
+      // acting user (assertRoleGrantAuthority) — resolve by id rather than a
+      // brittle call-order chain.
+      const usersById: Record<string, User | null> = {
+        'user-a': userA,
+        'user-b': userB,
+        'user-c': null,
+        [ADMIN_USER_ID]: adminActor,
+      };
+      userRepository.findOne.mockImplementation(
+        (opts) =>
+          Promise.resolve(
+            usersById[(opts as { where: { id: string } }).where.id] ?? null,
+          ),
+      );
 
-      // user-b: success
-      userRepository.findOne
-        .mockResolvedValueOnce(userB);
+      // user-a + user-b each: [no-existing, INSERT]; user-c never reaches the
+      // queries (findOne returns null first).
       mockDataSource.query
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ id: 'assign-b' }]);
-
-      // user-c: fails (not found)
-      userRepository.findOne
-        .mockResolvedValueOnce(null);
+        .mockResolvedValueOnce([]) // user-a: no existing
+        .mockResolvedValueOnce([{ id: 'assign-a' }]) // user-a: INSERT
+        .mockResolvedValueOnce([]) // user-b: no existing
+        .mockResolvedValueOnce([{ id: 'assign-b' }]); // user-b: INSERT
 
       const result = await service.bulkAssignRole(TENANT_ID, userIds, ROLE_ID, ADMIN_USER_ID);
 

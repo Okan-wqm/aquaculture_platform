@@ -45,7 +45,11 @@ GATE_TSCONFIG="--project tools/gates/tsconfig.json"
 # Tests run via node:test; ~160ms total for the current
 # 39-test suite (16 clippy-affected + 23 commit-msg-
 # validator). Fast enough for per-commit ergonomics.
-for spec in tools/gates/*.spec.ts; do
+# Glob `tools/*gates/*.spec.ts` covers BOTH tools/gates/ (the original
+# pre-commit gates) AND tools/lint-gates/ (the A2 ESLint gate-preservation
+# baseline). The ESLint-API specs add ~2-3s; acceptable for the safety they
+# give the ESLint 8->9 flat-config migration.
+for spec in tools/*gates/*.spec.ts; do
   [ -f "$spec" ] || continue
   "$GATE_TS_NODE" $GATE_TSCONFIG "$spec" || exit 1
 done

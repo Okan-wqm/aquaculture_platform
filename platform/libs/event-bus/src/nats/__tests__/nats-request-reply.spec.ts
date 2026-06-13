@@ -76,7 +76,7 @@ function replyMsg(bodyJson: string): Msg {
     subject: 'unused',
     reply: '_INBOX.unused',
     respond: jest.fn(),
-    headers: undefined as unknown as MsgHdrs,
+    headers: undefined,
     sid: 0,
   };
 }

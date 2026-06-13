@@ -1,11 +1,8 @@
 import { Logger } from '@nestjs/common';
-import type {
-  INestApplication,
-  INestApplicationContext,
-} from '@nestjs/common';
+import type { INestApplication } from '@nestjs/common';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
-import { createClient, type RedisClientType } from 'redis';
+import Redis from 'ioredis';
 import type { Server, ServerOptions } from 'socket.io';
 
 /**
@@ -72,13 +69,9 @@ import type { Server, ServerOptions } from 'socket.io';
  */
 export class RedisIoAdapter extends IoAdapter {
   private readonly logger = new Logger(RedisIoAdapter.name);
-  private pubClient?: RedisClientType;
-  private subClient?: RedisClientType;
+  private pubClient?: Redis;
+  private subClient?: Redis;
   private adapterConstructor?: ReturnType<typeof createAdapter>;
-
-  constructor(appOrHttpServer: INestApplicationContext) {
-    super(appOrHttpServer);
-  }
 
   /**
    * Open the Redis pub/sub connection pair and prepare the adapter
@@ -94,13 +87,14 @@ export class RedisIoAdapter extends IoAdapter {
    *   the `REDIS_URL` environment variable used across the platform.
    */
   async connectToRedis(url: string): Promise<void> {
-    // `redis` package client — the `@socket.io/redis-adapter`
-    // documentation uses this client type, and the existing messaging
-    // gateway's previous per-gateway wiring already used it. Picking
-    // the same client keeps the monorepo on a single Redis client for
-    // Socket.IO pub/sub and avoids dragging in a second package.
-    const pubClient = createClient({ url }) as RedisClientType;
-    const subClient = pubClient.duplicate() as RedisClientType;
+    // ioredis is the platform's single Redis client (A4 dead-weight: the
+    // `redis`/node-redis package was a second client used ONLY here).
+    // `@socket.io/redis-adapter` accepts ioredis pub/sub clients directly.
+    // `lazyConnect: true` keeps the fail-closed semantics the boot site
+    // relies on: `connect()` REJECTS on a failed connection (so main.ts can
+    // hard-fail in production) rather than only emitting an 'error' event.
+    const pubClient = new Redis(url, { lazyConnect: true });
+    const subClient = pubClient.duplicate();
 
     // Attach an error handler BEFORE connect() so transient errors
     // after connection do not become unhandled exceptions. Redis

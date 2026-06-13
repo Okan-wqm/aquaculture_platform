@@ -129,18 +129,22 @@ describe('EmbeddingService', () => {
       content: 'Test message',
       createdAt: new Date('2026-03-10T12:00:00Z'),
     };
-    (mockDataSource as unknown as { query: jest.Mock }).query = jest
-      .fn()
-      .mockResolvedValueOnce([msg]);
+    // MSG-MEDIUM-041 moved the per-item embedding write off the batch
+    // queryRunner transaction onto DataSource.query (commit-per-item, no
+    // shared transaction). Capture the DataSource query mock so the UPDATE
+    // assertion targets where the write now actually lands. First call is the
+    // SELECT (returns the unembedded message); the per-item UPDATE follows.
+    const dsQuery: jest.Mock = jest.fn().mockResolvedValueOnce([msg]);
+    (mockDataSource as { query?: jest.Mock }).query = dsQuery;
 
     egressGate.isAllowed.mockResolvedValue(true);
     natsClient.send.mockReturnValue(of({ embeddings: [[0.1, 0.2, 0.3]] }));
 
     await service.processUnembeddedMessages();
 
-    // The queryRunner should have an UPDATE messages SET embedding
-    const qrQueryCalls = queryRunner.query.mock.calls;
-    const updateCall = qrQueryCalls.find((call) => {
+    // The DataSource query mock carries both the SELECT and the per-item
+    // UPDATE calls; the UPDATE is the one writing embedding back.
+    const updateCall = dsQuery.mock.calls.find((call) => {
       const sql = call[0] as string;
       return sql.includes('UPDATE') && sql.includes('embedding');
     });

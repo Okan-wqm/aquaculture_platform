@@ -51,7 +51,7 @@ import { GetChannelQuery } from '../queries/get-channel.query';
 import { GetChannelsResult } from '../queries/get-channels.handler';
 
 // Message resolver types (for user federation)
-import { MessageUser } from '../../message/resolvers/message.resolver';
+import { User } from '../../message/resolvers/message.resolver';
 import { PresenceService } from '../../presence/presence.service';
 
 // ============================================================================
@@ -513,16 +513,16 @@ export class ChannelMemberResolver {
 
   /**
    * Resolve the user field for a ChannelMember.
-   * Returns a MessageUser with profile details for rendering member lists and DM channel names.
+   * Returns a User with profile details for rendering member lists and DM channel names.
    */
-  @ResolveField(() => MessageUser, { name: 'user', nullable: true, description: 'User profile details for this channel member' })
+  @ResolveField(() => User, { name: 'user', nullable: true, description: 'User profile details for this channel member' })
   async resolveUser(
     @Parent() member: ChannelMember,
     @Tenant() tenantId: string,
-    @Context() ctx: { memberUserLoader?: DataLoader<string, MessageUser> },
-  ): Promise<MessageUser | null> {
+    @Context() ctx: { memberUserLoader?: DataLoader<string, User> },
+  ): Promise<User | null> {
     if (!ctx.memberUserLoader) {
-      ctx.memberUserLoader = new DataLoader<string, MessageUser>(
+      ctx.memberUserLoader = new DataLoader<string, User>(
         async (userIds: readonly string[]) => {
           return this.batchLoadMemberUsers([...userIds], tenantId);
         },
@@ -540,20 +540,16 @@ export class ChannelMemberResolver {
    *
    * @param userIds - Array of user UUIDs to resolve
    * @param tenantId - Tenant context for presence lookups
-   * @returns Array of MessageUser objects in the same order as userIds
+   * @returns Array of User objects in the same order as userIds
    */
-  private async batchLoadMemberUsers(userIds: string[], tenantId: string): Promise<MessageUser[]> {
+  private async batchLoadMemberUsers(userIds: string[], tenantId: string): Promise<User[]> {
     // Get online status for all users in one call
     const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
 
+    // messaging contributes only id + presence to the federated User; the gateway
+    // stitches firstName/lastName/profileImageUrl from auth-service (MSG-MEDIUM-052).
     return userIds.map((id) => ({
       id,
-      firstName: null,
-      lastName: null,
-      email: null,
-      displayName: null,
-      profileImageUrl: null,
-      avatarUrl: null,
       isOnline: onlineMap.get(id) ?? false,
       lastSeenAt: null,
     }));

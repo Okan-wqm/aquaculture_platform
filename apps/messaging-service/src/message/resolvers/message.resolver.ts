@@ -12,8 +12,10 @@ import {
   Directive,
   Context,
 } from '@nestjs/graphql';
-import { Logger, UseGuards, UseInterceptors, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Logger, UseGuards, UseInterceptors, ForbiddenException, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { ClientProxy } from '@nestjs/microservices';
+import { firstValueFrom, timeout } from 'rxjs';
 import DataLoader from 'dataloader';
 import GraphQLJSON from 'graphql-type-json';
 import { MessagingRateLimit, MessagingRateLimitInterceptor } from '../../shared/interceptors/messaging-rate-limit.interceptor';
@@ -57,7 +59,13 @@ import { PresenceService } from '../../presence/presence.service';
 // Repositories
 import { DataSource, IsNull } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  BaseEvent,
+  AUTH_USER_QUERY_SUBJECTS,
+  type ListTenantUserIdsQuery,
+  type ListTenantUserIdsResult,
+} from '@platform/event-contracts';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { ChannelMember, ChannelMemberRole } from '../../channel/entities/channel-member.entity';
 
@@ -187,6 +195,8 @@ export class MessageResolver {
     private readonly presenceService: PresenceService,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    @Inject('NATS_SERVICE')
+    private readonly natsClient: ClientProxy,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -380,6 +390,43 @@ export class MessageResolver {
       results.push({ id, isOnline, lastSeenAt });
     }
     return results;
+  }
+
+  /**
+   * Tenant users the caller can start a chat with — the New Chat picker source
+   * (MSG-HIGH-051). Open to ANY messaging user (the resolver is
+   * @UseGuards(TenantGuard)), unlike auth's admin-gated `tenantUsers` (which
+   * 403'd field workers). Enumerates the tenant via the IDs-only auth NATS query
+   * (no PII over NATS), excludes the caller, and returns the federated `User`
+   * (id + presence inline; display name/avatar stitched from auth, display-only),
+   * so the picker shows real people without a profile-harvesting oracle.
+   */
+  @Query(() => [User], { name: 'channelEligibleUsers' })
+  async channelEligibleUsers(
+    @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
+  ): Promise<User[]> {
+    let result: ListTenantUserIdsResult | undefined;
+    try {
+      result = await firstValueFrom(
+        this.natsClient
+          .send<ListTenantUserIdsResult, ListTenantUserIdsQuery>(
+            AUTH_USER_QUERY_SUBJECTS.LIST_TENANT_USER_IDS,
+            { tenantId },
+          )
+          .pipe(timeout(5000)),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `channelEligibleUsers: tenant user list failed: ${(error as Error).message}`,
+      );
+      return [];
+    }
+    if (!result?.success) {
+      return [];
+    }
+    const eligibleIds = result.userIds.filter((id) => id !== user.sub);
+    return this.batchLoadUsers(eligibleIds, tenantId);
   }
 
   // -------------------------------------------------------------------------

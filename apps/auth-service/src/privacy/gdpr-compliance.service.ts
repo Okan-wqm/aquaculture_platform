@@ -1,12 +1,12 @@
-import { Injectable, Logger, NotFoundException, Optional, Inject } from '@nestjs/common';
+import { LegalHoldService } from '@aquaculture/backend-common/compliance';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
-import { LegalHoldService, HoldScope } from '@aquaculture/backend-common/compliance';
+import { OutboxPublisher } from '@platform/outbox';
+import { DataSource, Repository } from 'typeorm';
 
-import { User } from '../modules/authentication/entities/user.entity';
 import { RefreshToken } from '../modules/authentication/entities/refresh-token.entity';
+import { User } from '../modules/authentication/entities/user.entity';
 import { AuthenticationService } from '../modules/authentication/services/authentication.service';
 import { WebAuthnService } from '../modules/authentication/services/webauthn.service';
 
@@ -53,6 +53,11 @@ export class GdprComplianceService {
     private readonly dataSource: DataSource,
     private readonly authService: AuthenticationService,
     private readonly webAuthnService: WebAuthnService,
+    // DATA-HIGH-001: the UserDeleted event is durable — enqueued in the same
+    // transaction as the erasure via OutboxPublisher (required, NOT @Optional:
+    // losing it leaves personal data un-erased in downstream services). Placed
+    // before the @Optional param so a required param never follows an optional.
+    private readonly outboxPublisher: OutboxPublisher,
     // LEGAL-HIGH-005 cure: GDPR right-to-erasure is a destructive op
     // that MUST consult the canonical legal-hold registry before
     // proceeding. @Optional because the legal-hold infrastructure may
@@ -60,8 +65,6 @@ export class GdprComplianceService {
     // registers it via LegalHoldModule.forRoot() in app.module.ts.
     @Optional()
     private readonly legalHoldService?: LegalHoldService,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
   ) {}
 
   /**
@@ -128,28 +131,27 @@ export class GdprComplianceService {
         { userId, isRevoked: false },
         { isRevoked: true, revokedAt: new Date(), revokedReason: 'GDPR erasure' },
       );
-    });
 
-    this.logger.log(`GDPR erasure completed: userId=${userId}`);
-
-    // M-GDPR-01: Publish UserDeleted event so downstream services (messaging, hr,
-    // farm, sensor) can run their own GDPR cleanup. Without this event, cross-service
-    // anonymisation never triggers — only auth-layer PII is erased.
-    if (this.eventBus) {
-      try {
-        await this.eventBus.publish({
+      // M-GDPR-01 + DATA-HIGH-001: the UserDeleted event is the ONLY trigger
+      // for cross-service GDPR cleanup (messaging/hr/farm/sensor) — without it,
+      // only auth-layer PII is erased and personal data lingers downstream.
+      // Enqueue it in the SAME transaction as the anonymisation so the event
+      // and the erasure commit atomically (no dual-write loss); the outbox
+      // worker then publishes to NATS at-least-once. tenantId is the validated
+      // erasure tenant (a UUID), which the outbox requires.
+      await this.outboxPublisher.enqueue(
+        {
           ...createBaseEvent('UserDeleted', tenantId, { userId: requestedBy }),
           deletedUserId: userId,
           tenantId,
           erasureType: 'gdpr_right_to_erasure',
-        });
-        this.logger.log(`UserDeleted event published for userId=${userId}`);
-      } catch (eventError) {
-        this.logger.error(
-          `Failed to publish UserDeleted event for ${userId}: ${(eventError as Error).message}`,
-        );
-      }
-    }
+        },
+        manager,
+        { aggregateId: userId },
+      );
+    });
+
+    this.logger.log(`GDPR erasure completed: userId=${userId} (UserDeleted enqueued)`);
   }
 
   /**

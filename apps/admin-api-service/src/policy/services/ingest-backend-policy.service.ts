@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { OptimisticLockVersionMismatchError, Repository } from 'typeorm';
-import { StringCodec } from 'nats';
 
 import { NatsEventBus } from '@platform/event-bus';
 import {
@@ -42,7 +41,6 @@ import {
 @Injectable()
 export class IngestBackendPolicyService {
   private readonly logger = new Logger(IngestBackendPolicyService.name);
-  private readonly codec = StringCodec();
 
   constructor(
     @InjectRepository(IngestBackendPolicyStateEntity)
@@ -200,7 +198,11 @@ export class IngestBackendPolicyService {
       reason,
       actorId,
     };
-    const payload = this.codec.encode(JSON.stringify(event));
+    // NATS v3 (@nats-io/*) removed StringCodec/JSONCodec. publishCore's
+    // contract is `payload: Uint8Array`, so UTF-8-encode the JSON via the
+    // standard TextEncoder — byte-identical wire to the v2 StringCodec().encode()
+    // producer, with no dependency on the removed `nats` codec API.
+    const payload = new TextEncoder().encode(JSON.stringify(event));
 
     try {
       await this.eventBus.publishCore(

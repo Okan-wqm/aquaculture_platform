@@ -42,8 +42,11 @@ const SSOT_PATH = 'web/shared-ui/src/federation/federationSharedConfig.ts';
  * @originjs/vite-plugin-federation (the current, working plugin). The C1
  * wave (plugin migration to @module-federation/vite) flips this to false,
  * which turns the SAME assertion into a ban on the abandoned plugin.
+ *
+ * C1 PR-1a (2026-06-13): flipped to false — every federation vite config now
+ * imports `{ federation }` from @module-federation/vite; @originjs is banned.
  */
-const ORIGINJS_PLUGIN_EXPECTED = true;
+const ORIGINJS_PLUGIN_EXPECTED = false;
 
 /**
  * Packages whose lockfile resolution must be a SINGLE version repo-wide,

@@ -8,7 +8,7 @@
  */
 import { randomUUID } from 'crypto';
 
-import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
@@ -31,8 +31,12 @@ const DEDUP_TTL_SECONDS = 30;
 const NOTIFICATION_REF_TTL_SECONDS = 10 * 60;
 const NOTIFICATION_COMMAND_TIMEOUT_MS = 10_000;
 
-/** Pattern to extract @mention user IDs from message metadata. */
-interface MessageSentPayload {
+/**
+ * MessageSent fan-out payload consumed by the push handler. Mirrors the
+ * content-free `MessageSentEvent` contract plus an optional resolved sender
+ * display name. Exported so `MessagingPushNatsHandler` shares the exact shape.
+ */
+export interface MessageSentPayload {
   eventId: string;
   tenantId: string;
   channelId: string;
@@ -56,7 +60,7 @@ interface MessageSentPayload {
  * 4. Deduplicate: max 1 push per 30s per user per channel
  */
 @Injectable()
-export class MessagingPushService implements OnModuleInit {
+export class MessagingPushService {
   private readonly logger = new Logger(MessagingPushService.name);
 
   constructor(
@@ -69,10 +73,6 @@ export class MessagingPushService implements OnModuleInit {
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
   ) {}
-
-  onModuleInit(): void {
-    this.logger.log('MessagingPushService initialized — listening for MessageSent events');
-  }
 
   /**
    * Handle a MessageSent event from the outbox worker.

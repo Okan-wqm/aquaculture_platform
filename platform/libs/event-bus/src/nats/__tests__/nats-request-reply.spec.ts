@@ -1,12 +1,14 @@
 import 'reflect-metadata';
-import {
-  ErrorCode,
-  Msg,
-  MsgHdrs,
-  NatsConnection,
-  NatsError,
-  StringCodec,
-} from 'nats';
+// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
+// nats-core (connection + Msg primitives + typed error classes).
+// StringCodec was REMOVED — build the reply body by exposing `.string()`
+// on the fake Msg (the unit under test reads `reply.string()`), and the
+// request payload is now a plain string (the lib UTF-8-encodes it,
+// byte-identical wire to the v2 producer). ErrorCode/NatsError were
+// REMOVED in favour of discrete error classes — a request timeout is
+// `TimeoutError`, a no-responders failure is `NoRespondersError`.
+import { NoRespondersError, TimeoutError } from '@nats-io/nats-core';
+import type { Msg, NatsConnection } from '@nats-io/nats-core';
 import { NatsEventBus } from '../nats-event-bus';
 import {
   NatsRequestReply,
@@ -27,8 +29,6 @@ import {
  * drive the request() outcome (success / timeout / no-responders
  * / arbitrary throw) and inspect what the client encodes / decodes.
  */
-
-const codec = StringCodec();
 
 /**
  * Build a minimal `NatsConnection` stub whose `request` returns
@@ -62,16 +62,23 @@ function fakeEventBus(connection: NatsConnection | null): NatsEventBus {
  * Build a `Msg` the unit under test sees as a request-reply reply.
  * `reply` inbox is intentionally present (request() replies always
  * are) but the value is not consulted by the client path.
+ *
+ * v3: the client decodes via `reply.string()`/`reply.json()` (StringCodec
+ * was removed), so the fake exposes those convenience methods. `data`
+ * stays the UTF-8 bytes for internal consistency, but the client path no
+ * longer reads it directly.
  */
 function replyMsg(bodyJson: string): Msg {
   return {
-    data: codec.encode(bodyJson),
+    data: new TextEncoder().encode(bodyJson),
+    string: () => bodyJson,
+    json: <T>() => JSON.parse(bodyJson) as T,
     subject: 'unused',
     reply: '_INBOX.unused',
     respond: jest.fn(),
-    headers: undefined as unknown as MsgHdrs,
+    headers: undefined,
     sid: 0,
-  } as unknown as Msg;
+  };
 }
 
 describe('NatsRequestReply — requestTyped', () => {
@@ -92,18 +99,22 @@ describe('NatsRequestReply — requestTyped', () => {
     );
 
     expect(result).toEqual({ b: 'ok' });
+    // v3: request() is given the JSON string directly (StringCodec.encode
+    // removed); the lib UTF-8-encodes it, byte-identical wire to v2.
     expect(connection.request).toHaveBeenCalledWith(
       'policy.ingest_backend.snapshot',
-      expect.any(Uint8Array),
+      expect.any(String),
       { timeout: 500 },
     );
-    // The encoded bytes must be the JSON we supplied, byte-for-byte.
+    // The string payload must be the JSON we supplied, byte-for-byte.
     const [[, payload]] = (connection.request as jest.Mock).mock.calls;
-    expect(codec.decode(payload as Uint8Array)).toBe('{"a":42}');
+    expect(payload).toBe('{"a":42}');
   });
 
   it('raises RequestReplyTimeoutError on NATS timeout', async () => {
-    const timeoutErr = new NatsError('timeout', ErrorCode.Timeout);
+    // v3: a request timeout rejects with the discrete TimeoutError class
+    // (replacing v2's `new NatsError(msg, ErrorCode.Timeout)` sentinel).
+    const timeoutErr = new TimeoutError();
     const connection = stubConnection({
       request: jest.fn().mockRejectedValue(timeoutErr) as unknown as NatsConnection['request'],
     });
@@ -122,7 +133,10 @@ describe('NatsRequestReply — requestTyped', () => {
   });
 
   it('raises RequestReplyTransportError on NoResponders + other transport errors', async () => {
-    const transportErr = new NatsError('no responders', ErrorCode.NoResponders);
+    // v3: a missing responder rejects with the discrete NoRespondersError
+    // class (replacing v2's `new NatsError(msg, ErrorCode.NoResponders)`).
+    // It is not a TimeoutError, so the client maps it to the transport shelf.
+    const transportErr = new NoRespondersError('ns.subj');
     const connection = stubConnection({
       request: jest.fn().mockRejectedValue(transportErr) as unknown as NatsConnection['request'],
     });

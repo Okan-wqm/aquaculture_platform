@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -90,10 +91,14 @@ export class TenantDetailService {
       settings: tenant.settings as TenantDetailDto['settings'],
       limits: tenant.limits,
       userCount: tenant.userCount,
-      farmCount: tenant.farmCount,
-      sensorCount: tenant.sensorCount,
+      // MT-MEDIUM-002: real counts computed in getResourceUsage from the
+      // per-tenant schema, not the dropped auth.tenants denormalization.
+      farmCount: resourceUsage.farms.count,
+      sensorCount: resourceUsage.sensors.count,
       maxStorage: tenant.maxStorage,
-      isTrialActive: tenant.isTrialActive,
+      // MT-MEDIUM-001: derive trial state from trialEndsAt (the SSoT); the
+      // is_trial_active column was dropped from auth.tenants.
+      isTrialActive: tenant.trialEndsAt != null && tenant.trialEndsAt > new Date(),
 
       // Statistics
       userStats,
@@ -144,7 +149,18 @@ export class TenantDetailService {
     try {
       // Query auth-service database for user stats
       // In a real implementation, this would call auth-service API or use shared DB
-      const result = await this.dataSource.query(
+      // pg returns COUNT(*) as a numeric string, so each column is typed string.
+      type UserStatsRow = {
+        total: string;
+        active: string;
+        inactive: string;
+        admin_count: string;
+        manager_count: string;
+        user_count: string;
+        recently_active: string;
+        new_users: string;
+      };
+      const result = await this.dataSource.query<UserStatsRow[]>(
         `
         SELECT
           COUNT(*) as total,
@@ -161,7 +177,7 @@ export class TenantDetailService {
         [tenantId],
       );
 
-      const stats = result[0] || {};
+      const stats: Partial<UserStatsRow> = result[0] ?? {};
 
       return {
         total: parseInt(stats.total || '0', 10),
@@ -200,7 +216,15 @@ export class TenantDetailService {
    */
   private async getModuleUsage(tenantId: string): Promise<ModuleUsageStats[]> {
     try {
-      const result = await this.dataSource.query(
+      type ModuleUsageRow = {
+        moduleId: string;
+        moduleCode: string;
+        moduleName: string;
+        isActive: boolean;
+        assignedAt: Date;
+        expiresAt: Date | null;
+      };
+      const result = await this.dataSource.query<ModuleUsageRow[]>(
         `
         SELECT
           tm."moduleId" as "moduleId",
@@ -217,15 +241,17 @@ export class TenantDetailService {
         [tenantId],
       );
 
-      return result.map((row: Record<string, unknown>) => ({
-        moduleId: row['moduleId'] as string,
-        moduleCode: row['moduleCode'] as string,
-        moduleName: row['moduleName'] as string,
-        isActive: row['isActive'] as boolean,
-        assignedAt: row['assignedAt'] as Date,
+      return result.map((row) => ({
+        moduleId: row.moduleId,
+        moduleCode: row.moduleCode,
+        moduleName: row.moduleName,
+        isActive: row.isActive,
+        assignedAt: row.assignedAt,
       }));
     } catch (error) {
-      this.logger.warn(`Could not fetch module usage for tenant ${tenantId}`);
+      this.logger.warn(
+        `Could not fetch module usage for tenant ${tenantId}: ${(error as Error).message}`,
+      );
       return [];
     }
   }
@@ -233,6 +259,36 @@ export class TenantDetailService {
   /**
    * Get resource usage statistics
    */
+  /**
+   * Count a tenant's resources from its OWN per-tenant schema (the SSoT for
+   * farms/sensors), replacing the dropped auth.tenants denormalization
+   * (MT-MEDIUM-002). Returns 0 when the schema/table is not yet provisioned — a
+   * PENDING/PROVISIONING tenant legitimately has none — checked via
+   * information_schema rather than swallowing a query error. The schema name is
+   * derived from the validated tenant UUID and the table is a fixed literal, so
+   * the identifier interpolation carries no injection surface.
+   */
+  private async countTenantResource(
+    tenantId: string,
+    table: 'farms' | 'sensors',
+  ): Promise<number> {
+    const schema = getTenantSchemaName(tenantId);
+    // Existence check first: a tenant whose schema has not been provisioned yet
+    // (or a SUPER_ADMIN pseudo-tenant) has no farms/sensors table — that is 0
+    // resources, not an error, so we never let a missing table throw.
+    const exists = await this.dataSource.query<unknown[]>(
+      `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2 LIMIT 1`,
+      [schema, table],
+    );
+    if (exists.length === 0) {
+      return 0;
+    }
+    const rows = await this.dataSource.query<Array<{ c: number }>>(
+      `SELECT COUNT(*)::int AS c FROM "${schema}"."${table}"`,
+    );
+    return rows[0]?.c ?? 0;
+  }
+
   private async getResourceUsage(tenant: Tenant): Promise<ResourceUsage> {
     const limits = tenant.limits || {
       maxUsers: 0,
@@ -252,7 +308,9 @@ export class TenantDetailService {
     let apiCalls24h = 0;
     let apiCalls7d = 0;
     try {
-      const apiResult = await this.dataSource.query(
+      const apiResult = await this.dataSource.query<
+        Array<{ calls_24h: string; calls_7d: string }>
+      >(
         `
         SELECT
           COUNT(*) FILTER (WHERE "createdAt" > NOW() - INTERVAL '24 hours') as calls_24h,
@@ -266,9 +324,14 @@ export class TenantDetailService {
         apiCalls24h = parseInt(apiResult[0].calls_24h || '0', 10);
         apiCalls7d = parseInt(apiResult[0].calls_7d || '0', 10);
       }
-    } catch (error) {
+    } catch {
       // Ignore - metrics may not be available
     }
+
+    // MT-MEDIUM-002: real farm/sensor counts from the per-tenant schema (the
+    // owning SSoT) instead of the dropped, always-0 auth.tenants denormalization.
+    const farmCount = await this.countTenantResource(tenant.id, 'farms');
+    const sensorCount = await this.countTenantResource(tenant.id, 'sensors');
 
     return {
       storage: {
@@ -282,14 +345,14 @@ export class TenantDetailService {
         percentage: calculatePercentage(tenant.userCount, limits.maxUsers),
       },
       farms: {
-        count: tenant.farmCount,
+        count: farmCount,
         limit: limits.maxFarms,
-        percentage: calculatePercentage(tenant.farmCount, limits.maxFarms),
+        percentage: calculatePercentage(farmCount, limits.maxFarms),
       },
       sensors: {
-        count: tenant.sensorCount,
+        count: sensorCount,
         limit: limits.maxSensors,
-        percentage: calculatePercentage(tenant.sensorCount, limits.maxSensors),
+        percentage: calculatePercentage(sensorCount, limits.maxSensors),
       },
       apiCalls: {
         last24h: apiCalls24h,
@@ -375,7 +438,7 @@ export class TenantDetailService {
       const foundIds = new Set(existingTenants.map(t => t.id));
       const activeIds = new Set(
         existingTenants
-          .filter(t => t.status === 'ACTIVE')
+          .filter(t => t.status === TenantStatus.ACTIVE)
           .map(t => t.id),
       );
       const failed  = tenantIds.filter(id => !foundIds.has(id) || !activeIds.has(id));
@@ -461,7 +524,7 @@ export class TenantDetailService {
       const foundIds = new Set(existingTenants.map(t => t.id));
       const suspendedIds = new Set(
         existingTenants
-          .filter(t => t.status === 'SUSPENDED')
+          .filter(t => t.status === TenantStatus.SUSPENDED)
           .map(t => t.id),
       );
       const failed  = tenantIds.filter(id => !foundIds.has(id) || !suspendedIds.has(id));

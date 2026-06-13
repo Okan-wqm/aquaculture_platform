@@ -58,11 +58,17 @@
  * @see Phase B of farm domain real-time visibility plan.
  */
 
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
 import { TENANT_ID_REGEX } from '@aquaculture/backend-common/constants';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
+// nats-core (connection + Msg/Subscription primitives) and transport-node
+// (Node `connect`). StringCodec was REMOVED — decode an inbound message via
+// msg.string() instead of sc.decode(msg.data). The wire bytes are UTF-8
+// either way, so this is byte-for-byte compatible with v2 producers.
+import type { NatsConnection, Subscription, ConnectionOptions } from '@nats-io/nats-core';
+import { connect } from '@nats-io/transport-node';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { validateFarmEvent } from '@platform/event-contracts';
 
 import { FarmGateway } from './farm.gateway';
@@ -147,7 +153,6 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FarmNatsBridgeService.name);
   private connection: NatsConnection | null = null;
   private subscriptions: Subscription[] = [];
-  private readonly sc = StringCodec();
 
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
@@ -256,7 +261,8 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
               continue;
             }
 
-            const data = this.sc.decode(msg.data);
+            // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
+            const data = msg.string();
             const parsed: unknown = JSON.parse(data);
 
             // ── H-3: Strict JSON Schema validation ─────────────────
@@ -453,8 +459,9 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
     const connection = this.connection;
     (async () => {
       for await (const status of connection.status()) {
-        const statusType = status.type as string;
-        switch (statusType) {
+        // v3: Status is a discriminated union on `type`; the error variant
+        // carries `error: Error` (v2's `status.data` field was removed).
+        switch (status.type) {
           case 'disconnect':
             this.logger.warn('Farm NATS bridge disconnected');
             break;
@@ -476,7 +483,7 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
             this.subscribeToFarmEvents();
             break;
           case 'error':
-            this.logger.error(`Farm NATS error: ${String(status.data)}`);
+            this.logger.error(`Farm NATS error: ${String(status.error)}`);
             break;
         }
       }

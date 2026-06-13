@@ -13,6 +13,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { ActionToken } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
@@ -85,6 +86,10 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: 'EVENT_BUS', useValue: { publish: jest.fn() } },
+        {
+          provide: BestEffortEventPublisher,
+          useValue: new BestEffortEventPublisher({ publish: jest.fn() }),
+        },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: { generateTokens: jest.fn() } },
         { provide: MfaService, useValue: {} },

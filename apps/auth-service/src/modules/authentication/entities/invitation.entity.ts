@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 
-import { ObjectType, Field, ID, registerEnumType, Int } from '@nestjs/graphql';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { ObjectType, Field, ID, registerEnumType, Int } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -73,9 +73,12 @@ export class Invitation {
   })
   role!: Role;
 
-  @Field(() => String, { nullable: true })
-  @Column({ type: 'uuid', nullable: true })
-  tenantId?: string | null;
+  // DATA-MEDIUM-002: an invitation is always tenant-bound (you invite a user
+  // INTO a tenant), so tenantId is NOT NULL — unlike refresh_tokens/users, there
+  // is no SUPER_ADMIN/platform-actor exception for an invitation.
+  @Field(() => String)
+  @Column({ type: 'uuid', nullable: false })
+  tenantId!: string;
 
   @Field(() => [String], { nullable: true })
   @Column('simple-array', { nullable: true })
@@ -126,11 +129,11 @@ export class Invitation {
   acceptedFromIp?: string | null;
 
   @Field(() => Date)
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   @Field(() => Date)
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 
   // Helper Methods

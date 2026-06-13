@@ -1,4 +1,5 @@
 import { BaseEvent, PlanTier, BillingCycle } from './base-event';
+import { TenantStatus } from './enums/tenant-status.enum';
 
 /**
  * Tenant Created Event
@@ -85,8 +86,11 @@ export interface TenantUpdatedEvent extends BaseEvent {
  */
 export interface TenantStatusChangedEvent extends BaseEvent {
   eventType: 'TenantStatusChanged';
-  previousStatus: string;
-  newStatus: string;
+  // Typed with the canonical TenantStatus (MT-HIGH-003) — was bare `string`,
+  // which let a publisher emit any value. Both publishers (auth tenant.service,
+  // admin lifecycle handlers) already pass TenantStatus members.
+  previousStatus: TenantStatus;
+  newStatus: TenantStatus;
   reason?: string;
 }
 
@@ -197,6 +201,16 @@ export interface TenantSubscriptionChangedEvent extends BaseEvent {
   previousPlan: string;
   newPlan: string;
   effectiveDate: Date;
+  /**
+   * DATA-LOW-001: the full subscription-projection state billing emits so
+   * auth.tenants can mirror it (billing.subscriptions is the SSoT). Optional +
+   * additive — older producers that only set previousPlan/newPlan/effectiveDate
+   * stay valid, and the auth projection skips any field left undefined.
+   */
+  trialEndsAt?: Date | null;
+  subscriptionEndsAt?: Date | null;
+  /** Subscription lifecycle status (e.g. 'trial' | 'active' | 'cancelled' | 'expired'). */
+  subscriptionStatus?: string;
 }
 
 /**

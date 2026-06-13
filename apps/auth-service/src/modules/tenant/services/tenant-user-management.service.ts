@@ -8,16 +8,15 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
-  Inject,
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { IEventBus } from '@platform/event-bus';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 import { Repository, DataSource } from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 // WHY: Import AccessType so createTenantUser and updateTenantUser can accept and
 // persist the platform access level chosen by the tenant admin.
 import { User, AccessType } from '../../authentication/entities/user.entity';
@@ -121,7 +120,10 @@ export class TenantUserManagementService {
     private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
     private readonly tenantRoleService: TenantRoleService,
-    @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
+    // DATA-HIGH-001: UserInvited routes through the allowlisted best-effort
+    // path (the invitation row is its durable record). See ORPHAN-HIGH-090 for
+    // the durable upgrade.
+    private readonly bestEffort: BestEffortEventPublisher,
     private readonly auditLogService: AuditLogService,
     // WHY: UserLifecycleService is the single owner of the user-creation
     // pipeline (tenant validation, email uniqueness, invitation-token
@@ -912,7 +914,7 @@ export class TenantUserManagementService {
       cryptoShredKeyId: user.id,
     };
 
-    await this.eventBus.publish(event);
+    await this.bestEffort.publish(event);
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
     this.logger.log(`Published UserInvitedEvent for userId=${user.id}`);
   }

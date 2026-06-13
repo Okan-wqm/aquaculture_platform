@@ -312,6 +312,12 @@ jobs:
         run: npm run graphql:generate-registry-artifacts -- --check
 
       - name: Run fast invariants
+        # entity-diff-implies-migration.spec.ts (inside invariants:fast) honours
+        # `ENTITY-DIFF-OK:` PR-body waivers via PR_BODY. Mirrors ci-affected.yml,
+        # quality-gates.yml, and db-migration-check.yml. Empty on push (the spec
+        # skips the gate when no PR base resolves), so it is a no-op off-PR.
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run invariants:fast
 
       - name: Run schema drift registration gate

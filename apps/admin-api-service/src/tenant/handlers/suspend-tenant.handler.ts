@@ -15,6 +15,7 @@ import {
   TenantActivatedEvent,
   TenantArchivedEvent,
   TenantStatusChangedEvent,
+  canTransition,
   createBaseEvent,
 } from '@platform/event-contracts';
 import { DataSource, QueryRunner, Repository } from 'typeorm';
@@ -64,9 +65,12 @@ export class SuspendTenantHandler
         throw new NotFoundException(`Tenant with ID '${tenantId}' not found`);
       }
 
-      if (tenant.status !== TenantStatus.ACTIVE) {
+      // MT-HIGH-003: legality is owned by the tenant-status machine, not a
+      // hand-coded equality. Only ACTIVE -> SUSPENDED is legal; any other
+      // source state is rejected with the machine's allowed-set in the message.
+      if (!canTransition(tenant.status, TenantStatus.SUSPENDED)) {
         throw new BadRequestException(
-          'Only active tenants can be suspended. Provisioning states must use the tenant provisioning workflow.',
+          `Cannot suspend a tenant in ${tenant.status} state — only ACTIVE tenants can be suspended.`,
         );
       }
 
@@ -175,9 +179,13 @@ export class ActivateTenantHandler
         throw new NotFoundException(`Tenant with ID '${tenantId}' not found`);
       }
 
-      if (tenant.status !== TenantStatus.SUSPENDED) {
+      // MT-HIGH-003: the machine owns the legal source states for -> ACTIVE
+      // (SUSPENDED/DEACTIVATED/CANCELLED reactivation + PROVISIONING finalize).
+      // ARCHIVED/PURGED/PENDING are rejected — re-archival or terminal states
+      // cannot be activated.
+      if (!canTransition(tenant.status, TenantStatus.ACTIVE)) {
         throw new BadRequestException(
-          'Only suspended tenants can be activated. Provisioning states must use the tenant provisioning retry/finalize workflow.',
+          `Cannot activate a tenant in ${tenant.status} state — it is not a legal source for ACTIVE.`,
         );
       }
 
@@ -279,12 +287,13 @@ export class DeactivateTenantHandler
         throw new NotFoundException(`Tenant with ID '${tenantId}' not found`);
       }
 
-      if (tenant.status === TenantStatus.DEACTIVATED) {
-        throw new BadRequestException('Tenant is already deactivated');
-      }
-
-      if (tenant.status === TenantStatus.ARCHIVED) {
-        throw new BadRequestException('Cannot deactivate an archived tenant');
+      // MT-HIGH-003: only ACTIVE/SUSPENDED -> DEACTIVATED is legal. This also
+      // rejects the already-DEACTIVATED idempotent case and the archived/
+      // terminal states the hand-coded pair used to special-case.
+      if (!canTransition(tenant.status, TenantStatus.DEACTIVATED)) {
+        throw new BadRequestException(
+          `Cannot deactivate a tenant in ${tenant.status} state — only ACTIVE or SUSPENDED tenants can be deactivated.`,
+        );
       }
 
       const previousStatus = tenant.status;
@@ -364,13 +373,13 @@ export class ArchiveTenantHandler
         throw new NotFoundException(`Tenant with ID '${tenantId}' not found`);
       }
 
-      if (tenant.status === TenantStatus.ARCHIVED) {
-        throw new BadRequestException('Tenant is already archived');
-      }
-
-      if (tenant.status === TenantStatus.ACTIVE) {
+      // MT-HIGH-003: only SUSPENDED/DEACTIVATED/CANCELLED -> ARCHIVED is legal.
+      // An ACTIVE tenant must be suspended or deactivated first; already-archived
+      // and provisioning/terminal states are rejected by the same machine rule.
+      if (!canTransition(tenant.status, TenantStatus.ARCHIVED)) {
         throw new BadRequestException(
-          'Cannot archive an active tenant. Deactivate first.',
+          `Cannot archive a tenant in ${tenant.status} state — suspend or deactivate it first ` +
+            `(legal sources: SUSPENDED, DEACTIVATED, CANCELLED).`,
         );
       }
 

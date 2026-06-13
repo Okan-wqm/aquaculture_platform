@@ -34,7 +34,6 @@ import depthLimit from 'graphql-depth-limit';
 
 import { AuditModule } from './audit/audit.module';
 import { SECURITY_CONSTANTS } from './constants/auth.constants';
-import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
 import { HealthModule } from './health/health.module';
 import { AuthMetricsModule } from './metrics/metrics.module';
 import { AnnouncementModule } from './modules/announcement/announcement.module';
@@ -45,6 +44,7 @@ import { MessagingModule } from './modules/messaging/messaging.module';
 import { SupportModule } from './modules/support/support.module';
 import { SystemModule } from './modules/system-module/system-module.module';
 import { TenantModule } from './modules/tenant/tenant.module';
+import { AuthOutboxModule } from './outbox/auth-outbox.module';
 
 const AuthMigrationRunnerService = createSchemaVersionGate('auth');
 
@@ -96,9 +96,6 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
         }),
     }),
 
-    // Schema bootstrap — MUST be before any module that queries auth.users
-    // Ensures new columns (like accessType) exist before SeedService runs
-    AuthSchemaBootstrapModule,
 
     // GraphQL Federation
     GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({
@@ -239,8 +236,10 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
     // the service Redis — login/MFA/reset budgets are shared across replicas.
     RateLimitModule.forRoot({ keyPrefix: 'ratelimit:' }),
 
-    // Event Bus
+    // Event Bus + transactional outbox (DATA-HIGH-001). AuthOutboxModule is
+    // @Global, so OutboxPublisher is injectable in every state-change writer.
     EventBusModule.forRoot(),
+    AuthOutboxModule,
 
     // Feature modules
     AuthenticationModule,

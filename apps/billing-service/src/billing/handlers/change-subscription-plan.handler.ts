@@ -10,7 +10,11 @@ import {
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
-import { createBaseEvent, SubscriptionUpdatedEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  SubscriptionUpdatedEvent,
+  TenantSubscriptionChangedEvent,
+} from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Money } from '@aquaculture/backend-common/monetary';
@@ -233,6 +237,34 @@ export class ChangeSubscriptionPlanHandler
       } catch (eventError) {
         this.logger.warn(
           `Failed to publish SubscriptionUpdated event for ${savedSubscription.id}: ${
+            eventError instanceof Error ? eventError.message : 'Unknown error'
+          }`,
+        );
+      }
+
+      // DATA-LOW-001: billing is the SSoT for subscription state; emit the
+      // tenant-facing projection event so auth.tenants mirrors the new plan /
+      // trial / subscription-end (auth's planLevel JWT claim reads that plan).
+      // Fail-soft, exactly like the SubscriptionUpdated emit above — a publish
+      // failure must not roll back the committed subscription change.
+      try {
+        const projection: TenantSubscriptionChangedEvent = {
+          ...createBaseEvent<TenantSubscriptionChangedEvent>(
+            'TenantSubscriptionChanged',
+            tenantId,
+            { userId },
+          ),
+          previousPlan: previousPlanTier,
+          newPlan: savedSubscription.planTier,
+          effectiveDate: new Date(),
+          trialEndsAt: savedSubscription.trialEndDate ?? null,
+          subscriptionEndsAt: savedSubscription.endDate ?? null,
+          subscriptionStatus: savedSubscription.status,
+        };
+        await this.eventBus?.publish(projection);
+      } catch (eventError) {
+        this.logger.warn(
+          `Failed to publish TenantSubscriptionChanged event for ${savedSubscription.id}: ${
             eventError instanceof Error ? eventError.message : 'Unknown error'
           }`,
         );

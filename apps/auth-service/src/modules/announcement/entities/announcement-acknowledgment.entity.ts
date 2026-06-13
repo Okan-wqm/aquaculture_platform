@@ -53,7 +53,7 @@ export class AnnouncementAcknowledgment {
   @Field(() => String, { nullable: true })
   tenantName?: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   @Field()
   viewedAt!: Date;
 

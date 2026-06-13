@@ -1,16 +1,17 @@
 import * as crypto from 'crypto';
 
 import { Role } from '@aquaculture/backend-common/decorators';
-import { Inject, Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { IEventBus } from '@platform/event-bus';
 import {
   type ActivateTenantCommand,
   type ArchiveTenantLifecycleCommand,
+  assertTransition,
   createBaseEvent,
   type AssignTenantModulesCommand,
   type AuthTenantCommandMetadata,
   type AuthTenantSnapshot,
+  type BeginProvisioningCommand,
   type CreateTenantAdminCommand,
   type DeprovisionTenantCommand,
   type FailProvisioningCommand,
@@ -19,8 +20,10 @@ import {
   type RollbackTenantProvisioningCommand,
   type SetupTenantRolesCommand,
   type SuspendTenantLifecycleCommand,
+  type TenantStatusChangedEvent,
   type UserInvitedEvent,
 } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../../authentication/entities/action-token.entity';
@@ -66,6 +69,64 @@ interface RelationRow {
   relation: string | null;
 }
 
+/**
+ * Command → lifecycle authorization (MT-HIGH-003 / W3.3-c). This map is NOT a
+ * transition-legality table — that authority is the canonical
+ * `TenantStatusMachine` (TENANT_STATUS_TRANSITIONS), the single SSoT consulted
+ * via `assertTransition`. This map only narrows WHICH command may drive a given
+ * transition: e.g. ActivateTenant completes provisioning (PROVISIONING → ACTIVE)
+ * and must NOT reactivate a SUSPENDED/DEACTIVATED/CANCELLED tenant, even though
+ * those edges are individually legal in the machine and owned by other flows.
+ * By construction every `sources[]` entry is a legal machine edge into `target`;
+ * tenant-provisioning-ssot.spec asserts that subset relationship so this map can
+ * never drift looser than the machine.
+ */
+export const LIFECYCLE_COMMANDS: Readonly<
+  Record<
+    string,
+    {
+      readonly target: TenantStatus;
+      readonly sources: readonly TenantStatus[];
+      // Compensation commands the saga issues on failure regardless of the
+      // tenant's current state: a no-op (not an error) when invoked from a state
+      // outside `sources`.
+      readonly tolerant?: boolean;
+    }
+  >
+> = {
+  // PENDING → PROVISIONING (saga start) or PROVISIONING_FAILED → PROVISIONING (retry).
+  BeginProvisioning: {
+    target: TenantStatus.PROVISIONING,
+    sources: [TenantStatus.PENDING, TenantStatus.PROVISIONING_FAILED],
+  },
+  // Provisioning completed: only from the in-flight PROVISIONING state.
+  ActivateTenant: {
+    target: TenantStatus.ACTIVE,
+    sources: [TenantStatus.PROVISIONING],
+  },
+  // Provisioning failed: a forward transition only from the in-flight
+  // PROVISIONING state, but tolerant — the saga's failure handler issues it on
+  // any operation failure (incl. before provisioning started or after it
+  // succeeded), where it is a no-op rather than an illegal-transition error.
+  FailProvisioning: {
+    target: TenantStatus.PROVISIONING_FAILED,
+    sources: [TenantStatus.PROVISIONING],
+    tolerant: true,
+  },
+  SuspendTenant: {
+    target: TenantStatus.SUSPENDED,
+    sources: [TenantStatus.ACTIVE],
+  },
+  DeprovisionTenant: {
+    target: TenantStatus.DEACTIVATED,
+    sources: [TenantStatus.ACTIVE, TenantStatus.SUSPENDED],
+  },
+  ArchiveTenant: {
+    target: TenantStatus.ARCHIVED,
+    sources: [TenantStatus.DEACTIVATED, TenantStatus.CANCELLED],
+  },
+};
+
 @Injectable()
 export class TenantProvisioningCommandService {
   private readonly logger = new Logger(TenantProvisioningCommandService.name);
@@ -82,49 +143,6 @@ export class TenantProvisioningCommandService {
     },
   ];
 
-  private readonly lifecycleTransitionPolicy: Readonly<Record<string, Readonly<Record<string, readonly TenantStatus[]>>>> = {
-    ActivateTenant: {
-      [TenantStatus.ACTIVE]: [
-        TenantStatus.PENDING,
-        TenantStatus.PROVISIONING,
-        TenantStatus.PROVISIONING_FAILED,
-      ],
-    },
-    FailProvisioning: {
-      [TenantStatus.PROVISIONING_FAILED]: [
-        TenantStatus.PENDING,
-        TenantStatus.PROVISIONING,
-        TenantStatus.ACTIVE,
-        TenantStatus.PROVISIONING_FAILED,
-      ],
-    },
-    SuspendTenant: {
-      [TenantStatus.SUSPENDED]: [
-        TenantStatus.ACTIVE,
-      ],
-    },
-    DeprovisionTenant: {
-      [TenantStatus.DEACTIVATED]: [
-        TenantStatus.ACTIVE,
-        TenantStatus.SUSPENDED,
-        TenantStatus.PROVISIONING_FAILED,
-        TenantStatus.CANCELLED,
-      ],
-      [TenantStatus.CANCELLED]: [
-        TenantStatus.ACTIVE,
-        TenantStatus.SUSPENDED,
-        TenantStatus.PROVISIONING_FAILED,
-        TenantStatus.DEACTIVATED,
-      ],
-    },
-    ArchiveTenant: {
-      [TenantStatus.ARCHIVED]: [
-        TenantStatus.DEACTIVATED,
-        TenantStatus.CANCELLED,
-      ],
-    },
-  };
-
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
@@ -134,8 +152,10 @@ export class TenantProvisioningCommandService {
     private readonly invitationRepository: Repository<Invitation>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @Inject('EVENT_BUS')
-    private readonly eventBus: IEventBus,
+    // DATA-HIGH-001/W3.3: tenant lifecycle + first-admin events are enqueued to
+    // auth_outbox inside the command's SERIALIZABLE receipt transaction, so the
+    // status write and its event commit atomically (no raw fire-and-forget bus).
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async reserveTenant(command: ReserveTenantCommand): Promise<{ tenant: AuthTenantSnapshot; status: string }> {
@@ -144,8 +164,12 @@ export class TenantProvisioningCommandService {
       command,
       'tenant',
       async (manager) => {
+        // Reserve is a create-or-idempotent seed, not a forward transition:
+        // allowMissing creates the PENDING row; seed lets an existing still-PENDING
+        // row return without a (self-)transition assertion the machine would reject.
         await this.assertTenantTransition(manager, command, [TenantStatus.PENDING], TenantStatus.PENDING, {
           allowMissing: true,
+          seed: true,
         });
 
         const existingBySlug = await manager.findOne(Tenant, {
@@ -186,13 +210,13 @@ export class TenantProvisioningCommandService {
           status: TenantStatus.PENDING,
           maxUsers: command.maxUsers ?? 5,
           maxStorage: command.maxStorage ?? -1,
-          isTrialActive: command.isTrialActive ?? false,
+          // MT-MEDIUM-001: isTrialActive is no longer stored — trial state is
+          // derived from trialEndsAt (the SSoT), which is the only trial field
+          // the command carries.
           trialEndsAt: command.trialEndsAt ? new Date(command.trialEndsAt) : null,
           settings: command.settings ?? null,
           createdBy: command.createdBy,
           userCount: 0,
-          farmCount: 0,
-          sensorCount: 0,
         });
 
         const saved = await manager.save(Tenant, tenant);
@@ -384,18 +408,26 @@ export class TenantProvisioningCommandService {
               where: { userId: existingUser.id, tenantId: command.tenantId },
               order: { createdAt: 'DESC' },
             });
+            const actionTokenId = invitation
+              ? await this.ensureInvitationActionToken(manager, {
+                  tenantId: command.tenantId,
+                  userId: existingUser.id,
+                  tokenHash: invitation.token,
+                  expiresAt: invitation.expiresAt,
+                  source: 'first-admin-invite-replay',
+                })
+              : undefined;
+            // Re-notify (re-send invite) only when a deliverable invitation
+            // token exists. A pre-existing admin with no recoverable token has
+            // nothing to deliver, so skip the event rather than throw — the
+            // enqueue is atomic with the token refresh above via `manager`.
+            if (actionTokenId) {
+              await this.enqueueFirstAdminInvite(manager, command, existingUser.id, actionTokenId);
+            }
             return {
               userId: existingUser.id,
               invitationId: invitation?.id,
-              actionTokenId: invitation
-                ? await this.ensureInvitationActionToken(manager, {
-                    tenantId: command.tenantId,
-                    userId: existingUser.id,
-                    tokenHash: invitation.token,
-                    expiresAt: invitation.expiresAt,
-                    source: 'first-admin-invite-replay',
-                  })
-                : undefined,
+              actionTokenId,
               email: existingUser.email,
             };
           }
@@ -460,6 +492,11 @@ export class TenantProvisioningCommandService {
           [command.tenantId],
         );
 
+        // Durable, atomic-with-the-write UserInvited (replaces the post-commit
+        // raw eventBus.publish). The invitation/user/actionToken rows and this
+        // event commit together in the SERIALIZABLE receipt transaction.
+        await this.enqueueFirstAdminInvite(manager, command, savedUser.id, savedActionToken.id);
+
         return {
           userId: savedUser.id,
           invitationId: savedInvitation.id,
@@ -472,22 +509,6 @@ export class TenantProvisioningCommandService {
       },
     );
     const result = execution.result;
-
-    if (!execution.replayed) {
-      const event: UserInvitedEvent = {
-        ...createBaseEvent<UserInvitedEvent>('UserInvited', command.tenantId, {
-          aggregateId: result.userId,
-          aggregateType: 'User',
-        }),
-        userId: result.userId,
-        role: Role.TENANT_ADMIN,
-        invitedBy: command.invitedBy ?? command.actor.id,
-        credentialType: 'reset_token',
-        actionTokenId: this.requireActionTokenId(result.actionTokenId),
-        cryptoShredKeyId: result.userId,
-      };
-      await this.eventBus.publish(event);
-    }
 
     this.logger.log(`Created first tenant admin userId=${result.userId} tenantId=${command.tenantId}`);
     return {
@@ -572,6 +593,10 @@ export class TenantProvisioningCommandService {
     return removed;
   }
 
+  async beginProvisioning(command: BeginProvisioningCommand): Promise<TenantCommandResultBase> {
+    return this.transitionTenantStatus('BeginProvisioning', command, TenantStatus.PROVISIONING);
+  }
+
   async activateTenant(command: ActivateTenantCommand): Promise<TenantCommandResultBase> {
     return this.transitionTenantStatus('ActivateTenant', command, TenantStatus.ACTIVE);
   }
@@ -640,20 +665,72 @@ export class TenantProvisioningCommandService {
   private async transitionTenantStatus(
     commandType: string,
     command: AuthTenantCommandMetadata,
-    targetStatus: TenantStatus | string,
+    targetStatus: TenantStatus,
     reason?: string,
   ): Promise<TenantCommandResultBase> {
-    const allowedFrom = this.getAllowedLifecycleTransition(commandType, targetStatus);
+    const lifecycle = LIFECYCLE_COMMANDS[commandType];
+    if (!lifecycle) {
+      throw new BadRequestException(`Unsupported tenant lifecycle command=${commandType}`);
+    }
+    if (lifecycle.target !== targetStatus) {
+      // Defensive: the handler's declared target must match the command's
+      // single authorized target in lifecycleCommands.
+      throw new BadRequestException(
+        `Lifecycle command ${commandType} targets ${lifecycle.target}, not ${targetStatus}`,
+      );
+    }
     const execution = await this.runWithReceipt(
       commandType,
       command,
       'tenant',
       async (manager) => {
-        const tenant = await this.assertTenantTransition(manager, command, allowedFrom, targetStatus);
+        const { tenant, transition } = await this.assertTenantTransition(
+          manager,
+          command,
+          lifecycle.sources,
+          targetStatus,
+          { tolerant: lifecycle.tolerant },
+        );
         const previousStatus = tenant.status;
 
-        tenant.status = targetStatus as TenantStatus;
+        // No-op when the tenant is already at the target (idempotent re-issue) or
+        // when a tolerant compensation command (FailProvisioning) is invoked from
+        // a non-authorized state — persist nothing and emit no status-change event
+        // so the receipt still succeeds without a spurious transition.
+        if (!transition) {
+          return {
+            operationId: command.operationId,
+            tenantId: command.tenantId,
+            status: tenant.status,
+            previousStatus,
+            reason,
+          };
+        }
+
+        tenant.status = targetStatus;
         await manager.save(Tenant, tenant);
+
+        // Durable TenantStatusChanged, atomic with the status write. The local
+        // lifecycle handlers previously emitted nothing on transition (events
+        // were dropped on the live path); routing through auth_outbox here is
+        // the single emission point for all five lifecycle transitions and
+        // commits in the same SERIALIZABLE receipt transaction.
+        await this.outboxPublisher.enqueue(
+          {
+            ...createBaseEvent<TenantStatusChangedEvent>('TenantStatusChanged', command.tenantId, {
+              aggregateId: command.tenantId,
+              aggregateType: 'Tenant',
+            }),
+            previousStatus,
+            newStatus: targetStatus,
+            reason,
+          },
+          manager,
+          {
+            aggregateId: command.tenantId,
+            idempotencyKey: `${command.operationId}:${commandType}:TenantStatusChanged`,
+          },
+        );
 
         return {
           operationId: command.operationId,
@@ -670,10 +747,10 @@ export class TenantProvisioningCommandService {
   private async assertTenantTransition(
     manager: EntityManager,
     command: AuthTenantCommandMetadata,
-    defaultFrom: readonly (TenantStatus | string)[] | undefined,
-    targetStatus: TenantStatus | string,
-    options: { allowMissing?: boolean } = {},
-  ): Promise<Tenant> {
+    authorizedSources: readonly TenantStatus[],
+    targetStatus: TenantStatus,
+    options: { allowMissing?: boolean; seed?: boolean; tolerant?: boolean } = {},
+  ): Promise<{ tenant: Tenant; transition: boolean }> {
     const tenant = await manager.findOne(Tenant, {
       where: { id: command.tenantId },
       lock: { mode: 'pessimistic_write' },
@@ -681,35 +758,66 @@ export class TenantProvisioningCommandService {
 
     if (!tenant) {
       if (options.allowMissing) {
-        return manager.create(Tenant, {
-          id: command.tenantId,
-          status: targetStatus as TenantStatus,
-        });
+        return {
+          tenant: manager.create(Tenant, { id: command.tenantId, status: targetStatus }),
+          transition: true,
+        };
       }
       throw new NotFoundException(`Tenant with ID "${command.tenantId}" not found`);
     }
 
-    const allowedFrom = defaultFrom;
-    if (allowedFrom && !allowedFrom.includes(tenant.status)) {
+    // Idempotent re-issue: the tenant is already at the desired end-state — a
+    // success no-op (retried ActivateTenant on an ACTIVE tenant, re-issued
+    // FailProvisioning on an already-PROVISIONING_FAILED tenant), not a
+    // transition. Never re-emit a status change for an unchanged status.
+    if (tenant.status === targetStatus) {
+      return { tenant, transition: false };
+    }
+
+    // Seed path (ReserveTenant re-reserve): an existing row must still be in an
+    // authorized source; there is no forward transition to validate or persist.
+    if (options.seed) {
+      if (!authorizedSources.includes(tenant.status)) {
+        throw new BadRequestException(
+          `Tenant ${command.tenantId} already exists with status ${tenant.status}; cannot re-reserve`,
+        );
+      }
+      return { tenant, transition: false };
+    }
+
+    // Command authorization (W3.3-c): this command may only act from one of its
+    // declared source states — a deliberate narrowing of the machine's incoming
+    // edges so e.g. ActivateTenant cannot reactivate a SUSPENDED tenant.
+    if (!authorizedSources.includes(tenant.status)) {
+      // Tolerant compensation (FailProvisioning): the saga issues it on any
+      // operation failure, regardless of how far the tenant got. From a state it
+      // is not authorized to fail (PENDING never provisioned, ACTIVE already
+      // succeeded) it is a no-op, not an error — the run-level FAILED state
+      // already records the failure.
+      if (options.tolerant) {
+        return { tenant, transition: false };
+      }
       throw new BadRequestException(
-        `Invalid tenant transition for ${command.tenantId}: ${tenant.status} -> ${targetStatus}`,
+        `Tenant ${command.tenantId} is ${tenant.status}; this command requires one of ` +
+          `[${authorizedSources.join(', ')}] to reach ${targetStatus}`,
       );
     }
 
-    return tenant;
-  }
-
-  private getAllowedLifecycleTransition(
-    commandType: string,
-    targetStatus: TenantStatus | string,
-  ): readonly TenantStatus[] {
-    const allowedFrom = this.lifecycleTransitionPolicy[commandType]?.[targetStatus];
-    if (!allowedFrom) {
+    // Edge-legality SSoT (MT-HIGH-003): the canonical TenantStatusMachine is the
+    // single authority on whether from->to is a legal lifecycle transition. The
+    // authorizedSources above are a subset of its incoming edges, so this only
+    // ever throws on real drift; wrap its Error in a 400 so a caller-illegal
+    // transition stays a client error rather than a 500.
+    try {
+      assertTransition(tenant.status, targetStatus);
+    } catch (error) {
       throw new BadRequestException(
-        `Unsupported tenant lifecycle transition command=${commandType} target=${targetStatus}`,
+        `Invalid tenant transition for ${command.tenantId}: ${tenant.status} -> ` +
+          `${targetStatus} (${(error as Error).message})`,
       );
     }
-    return allowedFrom;
+
+    return { tenant, transition: true };
   }
 
   private async runWithReceipt<TResult>(
@@ -947,11 +1055,34 @@ export class TenantProvisioningCommandService {
     };
   }
 
-  private requireActionTokenId(actionTokenId: string | undefined): string {
-    if (!actionTokenId) {
-      throw new Error('First-admin invitation handoff did not produce an auth.action_tokens id');
-    }
-    return actionTokenId;
+  /**
+   * Enqueue the durable UserInvited event for a first-admin invite, atomic with
+   * the user/invitation/action-token writes via the receipt transaction's
+   * `manager`. Only opaque references travel on the event (actionTokenId, userId,
+   * role) — the notification service resolves PII at delivery time.
+   */
+  private async enqueueFirstAdminInvite(
+    manager: EntityManager,
+    command: CreateTenantAdminCommand,
+    userId: string,
+    actionTokenId: string,
+  ): Promise<void> {
+    await this.outboxPublisher.enqueue(
+      {
+        ...createBaseEvent<UserInvitedEvent>('UserInvited', command.tenantId, {
+          aggregateId: userId,
+          aggregateType: 'User',
+        }),
+        userId,
+        role: Role.TENANT_ADMIN,
+        invitedBy: command.invitedBy ?? command.actor.id,
+        credentialType: 'reset_token',
+        actionTokenId,
+        cryptoShredKeyId: userId,
+      },
+      manager,
+      { aggregateId: userId, idempotencyKey: `${command.operationId}:UserInvited` },
+    );
   }
 
   private toReceiptResultSummary(result: unknown): unknown {

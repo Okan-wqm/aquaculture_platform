@@ -1,0 +1,222 @@
+/**
+ * @module TenantEventSchemas
+ *
+ * AJV JSON-Schema definitions for the tenant lifecycle / provisioning events
+ * (MEDIUM-007 / DATA-MEDIUM-001). These are the durable, cross-service events the
+ * outbox publishes and that messaging / billing / farm / sensor consumers read;
+ * before this, no trust-boundary validator rejected a malformed tenant event.
+ *
+ * Mirrors the farm/messaging/sensor schema pattern: each event is `BaseEvent`
+ * fields + a per-event payload, `additionalProperties: false` (closes the
+ * unknown-field footgun), with required = base-required ∪ the event's
+ * non-optional payload fields. Status/plan/tier/cycle fields are validated as
+ * bounded strings (the canonical TenantStatusMachine governs transition legality
+ * separately); `Date`-typed contract fields (effectiveDate) validate as the ISO
+ * string they become on the JSONB/NATS wire.
+ *
+ * @see libs/event-contracts/src/schemas/messaging-events.schema.ts
+ * @see libs/event-contracts/src/schemas/validator.ts
+ */
+import {
+  BASE_EVENT_PROPERTIES,
+  BASE_EVENT_REQUIRED,
+  MAX_FREE_TEXT_LENGTH,
+  MAX_SHORT_CODE_LENGTH,
+  UUID_SCHEMA,
+} from './common.schema';
+
+export type TenantEventType =
+  | 'TenantCreated'
+  | 'TenantProvisioningRequested'
+  | 'TenantProvisioned'
+  | 'TenantUpdated'
+  | 'TenantStatusChanged'
+  | 'TenantSuspended'
+  | 'TenantActivated'
+  | 'TenantArchived'
+  | 'TenantErased'
+  | 'TenantProvisioningFailed'
+  | 'TenantSubscriptionChanged'
+  | 'TenantSubscriptionRequested'
+  | 'TenantModulesAssigned';
+
+const STRING = {
+  type: 'string',
+  minLength: 1,
+  maxLength: MAX_SHORT_CODE_LENGTH,
+} as const;
+
+const LONG_STRING = {
+  type: 'string',
+  minLength: 1,
+  maxLength: MAX_FREE_TEXT_LENGTH,
+} as const;
+
+const ISO_DATE_TIME = {
+  type: 'string',
+  format: 'date-time',
+} as const;
+
+// DATA-LOW-001: subscription projection dates serialize to an ISO string OR
+// null (a tenant with no trial / no fixed end date), so the schema admits both.
+const NULLABLE_ISO_DATE_TIME = {
+  type: ['string', 'null'],
+  format: 'date-time',
+} as const;
+
+const UUID_ARRAY = {
+  type: 'array',
+  items: UUID_SCHEMA,
+  maxItems: 1000,
+} as const;
+
+const SHORT_CODE_ARRAY = {
+  type: 'array',
+  items: STRING,
+  maxItems: 1000,
+} as const;
+
+const NON_NEGATIVE_INT = {
+  type: 'integer',
+  minimum: 0,
+} as const;
+
+// Per-module quantity configuration carried by TenantSubscriptionRequested.
+const MODULE_QUANTITY_CONFIG = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    moduleId: UUID_SCHEMA,
+    users: NON_NEGATIVE_INT,
+    farms: NON_NEGATIVE_INT,
+    ponds: NON_NEGATIVE_INT,
+    sensors: NON_NEGATIVE_INT,
+    employees: NON_NEGATIVE_INT,
+    devices: NON_NEGATIVE_INT,
+    storageGb: NON_NEGATIVE_INT,
+    apiCalls: NON_NEGATIVE_INT,
+    alerts: NON_NEGATIVE_INT,
+    reports: NON_NEGATIVE_INT,
+    integrations: NON_NEGATIVE_INT,
+  },
+  required: ['moduleId'],
+} as const;
+
+const MODULE_QUANTITY_ARRAY = {
+  type: 'array',
+  items: MODULE_QUANTITY_CONFIG,
+  maxItems: 1000,
+} as const;
+
+function tenantEventSchema(
+  eventType: TenantEventType,
+  properties: Record<string, unknown>,
+  requiredPayload: readonly string[] = [],
+): Record<string, unknown> {
+  const required = Array.from(new Set([...BASE_EVENT_REQUIRED, ...requiredPayload]));
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      ...BASE_EVENT_PROPERTIES,
+      eventType: { const: eventType },
+      ...properties,
+    },
+    required,
+  } as const;
+}
+
+export const TENANT_EVENT_SCHEMAS = {
+  TenantCreated: tenantEventSchema(
+    'TenantCreated',
+    { name: LONG_STRING, slug: STRING, plan: STRING, status: STRING },
+    ['name', 'slug'],
+  ),
+  TenantProvisioningRequested: tenantEventSchema(
+    'TenantProvisioningRequested',
+    { operationId: UUID_SCHEMA, name: LONG_STRING, slug: STRING, moduleIds: UUID_ARRAY },
+    ['operationId', 'name', 'slug', 'moduleIds'],
+  ),
+  TenantProvisioned: tenantEventSchema(
+    'TenantProvisioned',
+    { operationId: UUID_SCHEMA, name: LONG_STRING, slug: STRING },
+    ['operationId', 'name', 'slug'],
+  ),
+  TenantUpdated: tenantEventSchema('TenantUpdated', {
+    name: LONG_STRING,
+    plan: STRING,
+    status: STRING,
+    maxUsers: NON_NEGATIVE_INT,
+  }),
+  TenantStatusChanged: tenantEventSchema(
+    'TenantStatusChanged',
+    { previousStatus: STRING, newStatus: STRING, reason: LONG_STRING },
+    ['previousStatus', 'newStatus'],
+  ),
+  TenantSuspended: tenantEventSchema('TenantSuspended', {
+    reason: LONG_STRING,
+    suspendedBy: UUID_SCHEMA,
+  }),
+  TenantActivated: tenantEventSchema('TenantActivated', { activatedBy: UUID_SCHEMA }),
+  TenantArchived: tenantEventSchema('TenantArchived', { archivedBy: UUID_SCHEMA }),
+  TenantErased: tenantEventSchema(
+    'TenantErased',
+    {
+      confirmedAt: ISO_DATE_TIME,
+      requestedBy: UUID_SCHEMA,
+      totalDeleted: NON_NEGATIVE_INT,
+      auditRowsAnonymised: NON_NEGATIVE_INT,
+      tableCount: NON_NEGATIVE_INT,
+    },
+    ['confirmedAt', 'requestedBy', 'totalDeleted', 'auditRowsAnonymised', 'tableCount'],
+  ),
+  TenantProvisioningFailed: tenantEventSchema('TenantProvisioningFailed', {
+    error: LONG_STRING,
+    stepCount: NON_NEGATIVE_INT,
+    durationMs: NON_NEGATIVE_INT,
+    failedStepName: STRING,
+    failedStepError: LONG_STRING,
+    failedStepIndex: NON_NEGATIVE_INT,
+    completedStepCount: NON_NEGATIVE_INT,
+  }),
+  TenantSubscriptionChanged: tenantEventSchema(
+    'TenantSubscriptionChanged',
+    {
+      previousPlan: STRING,
+      newPlan: STRING,
+      effectiveDate: ISO_DATE_TIME,
+      // DATA-LOW-001 projection fields (optional, additive).
+      trialEndsAt: NULLABLE_ISO_DATE_TIME,
+      subscriptionEndsAt: NULLABLE_ISO_DATE_TIME,
+      subscriptionStatus: STRING,
+    },
+    ['previousPlan', 'newPlan', 'effectiveDate'],
+  ),
+  TenantSubscriptionRequested: tenantEventSchema(
+    'TenantSubscriptionRequested',
+    {
+      tenantName: LONG_STRING,
+      moduleIds: UUID_ARRAY,
+      moduleQuantities: MODULE_QUANTITY_ARRAY,
+      trialDays: NON_NEGATIVE_INT,
+      tier: STRING,
+      billingCycle: STRING,
+      billingEmail: STRING,
+      createdBy: UUID_SCHEMA,
+    },
+    ['tenantName', 'moduleIds', 'tier', 'billingCycle', 'createdBy'],
+  ),
+  TenantModulesAssigned: tenantEventSchema(
+    'TenantModulesAssigned',
+    {
+      moduleIds: UUID_ARRAY,
+      moduleCodes: SHORT_CODE_ARRAY,
+      pricingMonthlyTotal: NON_NEGATIVE_INT,
+      pricingAnnualTotal: NON_NEGATIVE_INT,
+      pricingTier: STRING,
+      pricingCurrency: STRING,
+      assignedBy: UUID_SCHEMA,
+    },
+    ['moduleIds', 'assignedBy'],
+  ),
+} as const satisfies Record<TenantEventType, Record<string, unknown>>;

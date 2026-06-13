@@ -53,3 +53,51 @@ export enum TenantPlan {
  */
 export const TenantTier = TenantPlan;
 export type TenantTier = TenantPlan;
+
+/**
+ * PLAN_LEVEL — canonical tier ordinal SSoT (MT-MEDIUM-001).
+ * ============================================================================
+ *
+ * The string enum values carry no inherent order, so "require at least
+ * PROFESSIONAL" style feature gating previously needed an ad-hoc ordinal map
+ * re-declared at each call site (a drift vector — one site could rank the tiers
+ * differently from another). This is the single ordinal source of truth: a
+ * higher number is a strictly higher tier.
+ *
+ * # Why TRIAL ranks at FREE
+ *
+ * TRIAL is NOT a paid tier — it is a billing/lifecycle STATE orthogonal to the
+ * tier, and is derived from `trialEndsAt`, never from `plan` (MT-MEDIUM-001
+ * collapse; production carries zero `plan = 'trial'` rows). The value survives
+ * in the enum only for the billing-projection's backward compatibility. For
+ * gating it maps to 0 (FREE-equivalent) because a trialing tenant has not
+ * committed to any paid tier — it must not unlock paid-tier features by virtue
+ * of the legacy `trial` plan string.
+ *
+ * The `Record<TenantPlan, number>` type makes the map exhaustive: adding a plan
+ * to the enum without ranking it here is a compile error.
+ */
+export const PLAN_LEVEL: Record<TenantPlan, number> = {
+  [TenantPlan.FREE]: 0,
+  [TenantPlan.TRIAL]: 0,
+  [TenantPlan.STARTER]: 1,
+  [TenantPlan.PROFESSIONAL]: 2,
+  [TenantPlan.ENTERPRISE]: 3,
+};
+
+/** The numeric tier rank for a plan (higher = more capable). */
+export function planLevel(plan: TenantPlan): number {
+  return PLAN_LEVEL[plan];
+}
+
+/**
+ * True when `plan` is at least `minimum` in the tier hierarchy. Use for feature
+ * gating instead of equality chains. TRIAL (a state, not a tier) ranks at FREE,
+ * so a trialing tenant never satisfies a paid-tier minimum via its plan string.
+ */
+export function planMeetsMinimum(
+  plan: TenantPlan,
+  minimum: TenantPlan,
+): boolean {
+  return PLAN_LEVEL[plan] >= PLAN_LEVEL[minimum];
+}

@@ -41,6 +41,11 @@ export class RefreshToken {
   @JoinColumn({ name: 'userId' })
   user!: User;
 
+  // DATA-MEDIUM-002: deliberately nullable. A SUPER_ADMIN / platform actor has
+  // NO tenant, so its refresh tokens legitimately carry NULL tenantId (mirrors
+  // auth.users.tenantId's documented platform-actor exception). A DB constraint
+  // cannot express "non-null unless the owner is SUPER_ADMIN" (cross-table), so
+  // the application contract sets tenantId for every tenant-scoped session.
   @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
@@ -65,7 +70,7 @@ export class RefreshToken {
   @Column({ type: 'varchar', length: 100, nullable: true })
   deviceId?: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   isExpired(): boolean {

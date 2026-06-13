@@ -414,6 +414,13 @@ jobs:
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
+          # `nx affected -t test` runs the `invariants` project, whose
+          # entity-diff-implies-migration.spec.ts invokes the entity-diff-witness
+          # gate. That gate honours `ENTITY-DIFF-OK:` PR-body waivers via
+          # PR_BODY — without it, any entity edit with no migration (e.g. a
+          # read-replica entity's pure-typing change) fails the gate. Mirrors
+          # db-migration-check.yml + the quality-gates invariants-fast job.
+          PR_BODY: ${{ github.event.pull_request.body }}
           NODE_OPTIONS: '--max-old-space-size=4096'
 
       - name: Run focused farm water-chemistry tests

@@ -252,13 +252,13 @@ jobs:
           const fs = require('node:fs');
           const path = 'web/shell/src/generated/remoteHashes.json';
           const expected = [
-            '/remotes/admin-panel/assets/remoteEntry.js',
-            '/remotes/dashboard/assets/remoteEntry.js',
-            '/remotes/farm-module/assets/remoteEntry.js',
-            '/remotes/hr-module/assets/remoteEntry.js',
-            '/remotes/hydroponics-module/assets/remoteEntry.js',
-            '/remotes/sensor-module/assets/remoteEntry.js',
-            '/remotes/tenant-admin/assets/remoteEntry.js',
+            '/remotes/admin-panel/remoteEntry.js',
+            '/remotes/dashboard/remoteEntry.js',
+            '/remotes/farm-module/remoteEntry.js',
+            '/remotes/hr-module/remoteEntry.js',
+            '/remotes/hydroponics-module/remoteEntry.js',
+            '/remotes/sensor-module/remoteEntry.js',
+            '/remotes/tenant-admin/remoteEntry.js',
           ];
           const map = JSON.parse(fs.readFileSync(path, 'utf8'));
           const keys = Object.keys(map).sort();

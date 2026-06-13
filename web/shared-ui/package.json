@@ -31,9 +31,7 @@
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "test": "vitest",
-    "test:coverage": "vitest --coverage",
-    "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "test:coverage": "vitest --coverage"
   },
   "peerDependencies": {
     "react": "^18.2.0",

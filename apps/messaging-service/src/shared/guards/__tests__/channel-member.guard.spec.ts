@@ -11,6 +11,7 @@ import {
   fakeUuid,
   resetUuidCounter,
   MockRepository,
+  TENANT_A,
 } from '../../../__tests__/test-helpers';
 
 // Mock GqlExecutionContext
@@ -27,6 +28,7 @@ describe('ChannelMemberGuard', () => {
 
   const channelId = fakeUuid('ch');
   const userId = fakeUuid('usr');
+  const tenantId = TENANT_A;
 
   beforeEach(async () => {
     resetUuidCounter();
@@ -52,7 +54,11 @@ describe('ChannelMemberGuard', () => {
     userSub: string | undefined,
   ): ExecutionContext {
     const req: Record<string, unknown> = {
-      user: userSub ? { sub: userSub } : undefined,
+      // The guard derives the tenant from the authenticated request user
+      // (request.user.tenantId) and folds it into the membership lookup
+      // for multi-tenant isolation, so the mock user must carry tenantId
+      // alongside sub. WHAT: attach tenantId to an authenticated user.
+      user: userSub ? { sub: userSub, tenantId } : undefined,
     };
     const mockGqlCtx = {
       getArgs: jest.fn().mockReturnValue(args),
@@ -78,6 +84,7 @@ describe('ChannelMemberGuard', () => {
       createMockChannelMember({
         channelId,
         userId,
+        tenantId,
         role: ChannelMemberRole.MEMBER,
         leftAt: null,
       }),
@@ -85,6 +92,9 @@ describe('ChannelMemberGuard', () => {
 
     const result = await guard.canActivate(ctx);
     expect(result).toBe(true);
+    expect(memberRepo.findOne).toHaveBeenCalledWith({
+      where: { channelId, userId, tenantId, leftAt: IsNull() },
+    });
   });
 
   // -----------------------------------------------------------------------

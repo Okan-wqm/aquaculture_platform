@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { SentimentAnalysisService } from '../sentiment-analysis.service';
 import { AiPrivacyService } from '../ai-privacy.service';
 import { MessageAnalysis } from '../../entities/message-analysis.entity';
@@ -19,8 +20,17 @@ describe('SentimentAnalysisService', () => {
   let service: SentimentAnalysisService;
   let analysisRepo: MockRepository<MessageAnalysis>;
   let natsClient: MockNatsClient;
-  let mockDataSource: { query: jest.Mock };
+  // The service issues a raw `query()` for the negative-trend lookup and,
+  // when an alert fires, wraps the outbox enqueue in `transaction()`. The
+  // mock transaction runs the callback with a stand-in EntityManager so the
+  // outbox enqueue path executes exactly as in production.
+  let mockManager: EntityManager;
+  let mockDataSource: { query: jest.Mock; transaction: jest.Mock };
   let privacyService: jest.Mocked<Pick<AiPrivacyService, 'canAnalyzeMessage'>>;
+  // SentimentAlert now goes through the durable outbox (OutboxPublisher.enqueue
+  // inside a transaction), not a fire-and-forget natsClient.emit. The spec
+  // asserts on the enqueue mock to match the current durable-delivery shape.
+  let outboxPublisher: jest.Mocked<Pick<OutboxPublisher, 'enqueue'>>;
 
   const channelId = fakeUuid('ch');
   const senderId = fakeUuid('usr');
@@ -32,9 +42,18 @@ describe('SentimentAnalysisService', () => {
 
     analysisRepo = createMockRepository<MessageAnalysis>();
     natsClient = createMockNatsClient();
-    mockDataSource = { query: jest.fn().mockResolvedValue([]) };
+    mockManager = {} as EntityManager;
+    mockDataSource = {
+      query: jest.fn().mockResolvedValue([]),
+      transaction: jest.fn(
+        (cb: (manager: EntityManager) => Promise<unknown>) => cb(mockManager),
+      ),
+    };
     privacyService = {
       canAnalyzeMessage: jest.fn().mockResolvedValue(true),
+    };
+    outboxPublisher = {
+      enqueue: jest.fn().mockResolvedValue(undefined),
     };
 
     // analysisRepo.create returns the input as-is
@@ -52,6 +71,7 @@ describe('SentimentAnalysisService', () => {
         { provide: DataSource, useValue: mockDataSource },
         { provide: 'NATS_SERVICE', useValue: natsClient },
         { provide: AiPrivacyService, useValue: privacyService },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
     }).compile();
 
@@ -120,13 +140,18 @@ describe('SentimentAnalysisService', () => {
       TENANT_A, channelId, messageId, messageCreatedAt, senderId, 'This is terrible',
     );
 
-    expect(natsClient.emit).toHaveBeenCalledWith(
-      'events.SentimentAlert',
+    // SentimentAlert is now enqueued on the durable outbox inside a
+    // transaction (was: fire-and-forget natsClient.emit). Assert the event
+    // shape on enqueue and that the EntityManager from the transaction is
+    // threaded through as the second argument.
+    expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
+        eventType: 'SentimentAlert',
         tenantId: TENANT_A,
         channelId,
         userId: senderId,
       }),
+      mockManager,
     );
   });
 
@@ -178,6 +203,6 @@ describe('SentimentAnalysisService', () => {
       TENANT_A, channelId, messageId, messageCreatedAt, senderId, 'Bad day',
     );
 
-    expect(natsClient.emit).not.toHaveBeenCalled();
+    expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
   });
 });

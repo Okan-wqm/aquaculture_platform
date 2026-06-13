@@ -89,6 +89,6 @@ import { MessageAttachmentResolver } from './resolvers/message-attachment.resolv
     MessageResolver,
     MessageAttachmentResolver,
   ],
-  exports: [MessageService, StorageQuotaService],
+  exports: [MessageService, StorageQuotaService, MediaService],
 })
 export class MessageModule {}

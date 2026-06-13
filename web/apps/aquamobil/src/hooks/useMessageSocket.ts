@@ -154,7 +154,15 @@ export function useMessageSocket(): UseMessageSocketResult {
 
       nextSocket.on('newMessage', (data: unknown) => {
         const event = data as NewMessageEvent;
+        const incoming = event.message;
         const qc = queryClientRef.current;
+        // Match an existing row by server id OR by the client's optimistic
+        // idempotencyKey, so the sender's own echo (the gateway broadcasts to the
+        // whole channel room, including the sender) REPLACES its optimistic bubble
+        // instead of appending a duplicate.
+        const matches = (m: Message): boolean =>
+          m.id === incoming.id ||
+          (incoming.idempotencyKey != null && m._idempotencyKey === incoming.idempotencyKey);
         // Update messages cache for this channel
         qc.setQueryData(
           createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
@@ -162,26 +170,20 @@ export function useMessageSocket(): UseMessageSocketResult {
             if (!old?.pages?.length) return old;
             const firstPage = old.pages[0];
             if (!firstPage) return old;
-            const exists = firstPage.items.some((m: Message) => m.id === event.message.id);
+            const exists = old.pages.some((page: MessagePage) => page.items.some(matches));
             if (exists) {
               return {
                 ...old,
-                pages: old.pages.map((page: MessagePage, i: number) =>
-                  i === 0
-                    ? {
-                        ...page,
-                        items: page.items.map((m: Message) =>
-                          m.id === event.message.id ? event.message : m,
-                        ),
-                      }
-                    : page,
-                ),
+                pages: old.pages.map((page: MessagePage) => ({
+                  ...page,
+                  items: page.items.map((m: Message) => (matches(m) ? incoming : m)),
+                })),
               };
             }
             return {
               ...old,
               pages: [
-                { ...firstPage, items: [...firstPage.items, event.message] },
+                { ...firstPage, items: [...firstPage.items, incoming] },
                 ...old.pages.slice(1),
               ],
             };

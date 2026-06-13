@@ -599,7 +599,7 @@ export class MessagingGateway
    * Validate a JWT token via the shared platform verification helpers.
    *
    * Uses `verifyAsync` (async, non-blocking) + `getJwtVerifyOptions`
-   * which enforces HS256 + issuer + audience at the jsonwebtoken
+   * which enforces RS256 + issuer + audience at the jsonwebtoken
    * library level, and `enforceAccessTokenType` which rejects refresh
    * and MFA-challenge tokens at handshake (H-1).
    *

@@ -27,6 +27,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       createReactPlugin(),
       federation({
+        dts: false,
         name: 'farmModule',
         filename: 'remoteEntry.js',
         exposes: {

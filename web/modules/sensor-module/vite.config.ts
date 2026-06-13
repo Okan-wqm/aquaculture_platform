@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
         include: '**/*.svg?react',
       }),
       federation({
+        dts: false,
         name: 'sensorModule',
         filename: 'remoteEntry.js',
         exposes: {

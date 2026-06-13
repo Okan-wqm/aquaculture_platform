@@ -14,6 +14,7 @@ export default defineConfig({
   plugins: [
     react(),
     federation({
+      dts: false,
       name: 'hrModule',
       filename: 'remoteEntry.js',
       exposes: {

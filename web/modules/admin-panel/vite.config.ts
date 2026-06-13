@@ -15,6 +15,7 @@ export default defineConfig({
   plugins: [
     react(),
     federation({
+      dts: false,
       name: 'adminPanel',
       filename: 'remoteEntry.js',
       exposes: {

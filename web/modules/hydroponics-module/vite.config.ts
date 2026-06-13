@@ -14,6 +14,7 @@ export default defineConfig({
   plugins: [
     react(),
     federation({
+      dts: false,
       name: 'hydroponicsModule',
       filename: 'remoteEntry.js',
       exposes: {

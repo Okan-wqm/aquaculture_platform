@@ -18,6 +18,7 @@ export default defineConfig({
   plugins: [
     react(),
     federation({
+      dts: false,
       name: 'tenantAdmin',
       filename: 'remoteEntry.js',
       exposes: {

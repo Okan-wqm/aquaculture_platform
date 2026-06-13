@@ -17,6 +17,7 @@ export default defineConfig({
   plugins: [
     react(),
     federation({
+      dts: false,
       name: 'dashboard',
       filename: 'remoteEntry.js',
       // Expose edilen modüller

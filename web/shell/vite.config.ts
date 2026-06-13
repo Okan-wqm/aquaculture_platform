@@ -23,6 +23,7 @@ export default defineConfig(({ command }) => {
     plugins: [
       react(),
       federation({
+        dts: false,
         name: 'shell',
         remotes: {
           dashboard: { type: 'module', name: 'dashboard', entry: `${remoteBase}/dashboard/remoteEntry.js` },

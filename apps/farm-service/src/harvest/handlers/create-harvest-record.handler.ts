@@ -20,14 +20,15 @@
  * @module Harvest/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
-import { Injectable, NotFoundException, BadRequestException, Optional, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Optional, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { CommandBus, CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { createBaseEvent } from '@platform/event-contracts';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource } from 'typeorm';
 
+import { CloseBatchCommand, BatchCloseReason } from '../../batch/commands/close-batch.command';
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
@@ -50,9 +51,12 @@ import { HarvestPolicyService } from '../services/harvest-policy.service';
 @CommandHandler(CreateHarvestRecordCommand)
 // Return HarvestRecord so the GraphQL resolver can expose harvest-specific fields to clients
 export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvestRecordCommand, HarvestRecord> {
+  private readonly logger = new Logger(CreateHarvestRecordHandler.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly commandBus: CommandBus,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly harvestPolicy: HarvestPolicyService,
@@ -395,6 +399,73 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       // Commit transaction (domain writes + outbox row are atomic)
       await queryRunner.commitTransaction();
 
+      // ── FINAL-HARVEST → BATCH-CLOSURE CHAIN ─────────────────────────
+      //
+      // A batch whose stock reached 0 must not linger in HARVESTED with no
+      // frozen final metrics: CloseBatchHandler is the single owner of the
+      // CLOSED transition and of freezing finalFCR / mortality /
+      // daysInProduction into the BatchClosed event. Dispatch runs AFTER
+      // commit — CloseBatchHandler opens its own transaction and takes its
+      // own pessimistic_write lock on the batch row, so nesting it inside
+      // this transaction would self-deadlock on the same row.
+      //
+      // Failure policy: the harvest is already committed, so a closure
+      // failure must NOT fail the request. The batch stays in HARVESTED
+      // (the manual-close entry state) and the BatchHarvested event above
+      // carries isFinal=true, so monitoring can detect a final harvest with
+      // no matching BatchClosed.
+      if (isFinalHarvest) {
+        try {
+          await this.commandBus.execute(
+            new CloseBatchCommand({
+              tenantId,
+              batchId: input.batchId,
+              reason: BatchCloseReason.HARVEST_COMPLETED,
+              closedBy: recordedBy,
+              // Empty roles is safe by construction: the OTHER-reason admin
+              // gate in CloseBatchHandler is never reached because the
+              // reason is HARVEST_COMPLETED, not OTHER.
+              userRoles: [],
+              notes: `Auto-close on final harvest ${recordCode}`,
+            }),
+          );
+        } catch (closeError) {
+          if (closeError instanceof BatchWithdrawalBlockedError) {
+            // Expected compliance gate, NOT a system failure: the batch has
+            // an open medicine-withdrawal period, so CloseBatchHandler
+            // correctly refuses to auto-close (food-safety — Mattilsynet /
+            // EU Reg 37/2010; closing would hide the open treatment). The
+            // operator must close manually with acknowledgeActiveTreatments.
+            // WARN (actionable) not ERROR — no on-call page for correct
+            // behaviour.
+            this.logger.warn(
+              `Final harvest ${recordCode}: batch ${input.batchId} not ` +
+                `auto-closed — open withdrawal period requires a manual ` +
+                `close with acknowledgeActiveTreatments.`,
+            );
+          } else if (
+            closeError instanceof BadRequestException &&
+            (closeError as Error).message.includes('zaten kapatılmış')
+          ) {
+            // Idempotent double-final-harvest race: a concurrent close
+            // already moved the batch to CLOSED. Benign — DEBUG not ERROR.
+            this.logger.debug(
+              `Final harvest ${recordCode}: batch ${input.batchId} already ` +
+                `CLOSED (idempotent no-op).`,
+            );
+          } else {
+            // Genuine closure failure: harvest committed but batch stuck in
+            // HARVESTED. ERROR for on-call; manual closeBatch is the remedy.
+            this.logger.error(
+              `Final harvest ${recordCode} committed but auto-close of batch ` +
+                `${input.batchId} failed — batch remains HARVESTED; close ` +
+                `manually via closeBatch. Reason: ${(closeError as Error).message}`,
+              (closeError as Error).stack,
+            );
+          }
+        }
+      }
+
       // Return the created harvest record so clients get harvest-specific fields
       return harvestRecord;
     } catch (error) {
@@ -466,6 +537,16 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       'reject': QualityGrade.REJECT,
     };
 
-    return gradeMap[grade] || QualityGrade.GRADE_A;
+    const parsed = gradeMap[grade];
+    if (!parsed) {
+      // GraphQL input is already @IsEnum(QualityGrade)-validated, so this
+      // branch is only reachable from non-DTO callers. Rejecting beats the
+      // previous silent upgrade to GRADE_A, which corrupted grading stats by
+      // relabelling unknown grades as premium-adjacent.
+      throw new BadRequestException(
+        `Geçersiz kalite notu: '${String(grade)}'. Geçerli değerler: ${Object.values(QualityGrade).join(', ')}`,
+      );
+    }
+    return parsed;
   }
 }

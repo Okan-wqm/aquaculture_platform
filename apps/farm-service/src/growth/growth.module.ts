@@ -32,6 +32,7 @@ import { GrowthResolvers } from './resolvers';
 // Related entities
 import { Batch } from '../batch/entities/batch.entity';
 import { BatchLocation } from '../batch/entities/batch-location.entity';
+import { TankOperation } from '../batch/entities/tank-operation.entity';
 import { FeedingRecord } from '../feeding/entities/feeding-record.entity';
 import { FeedingProgram } from '../feeding/entities/feeding-program.entity';
 import { FeedingProgramTank } from '../feeding/entities/feeding-program-tank.entity';
@@ -51,6 +52,7 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
       FeedingProgram,
       FeedingProgramTank,
       Species,
+      TankOperation,
     ]),
     BackdatePolicyModule,
   ],

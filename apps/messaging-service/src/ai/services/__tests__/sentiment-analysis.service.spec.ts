@@ -3,7 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { SentimentAnalysisService } from '../sentiment-analysis.service';
-import { AiPrivacyService } from '../ai-privacy.service';
+import { AiEgressGateService } from '../ai-egress-gate.service';
 import { MessageAnalysis } from '../../entities/message-analysis.entity';
 import {
   createMockRepository,
@@ -26,10 +26,11 @@ describe('SentimentAnalysisService', () => {
   // outbox enqueue path executes exactly as in production.
   let mockManager: EntityManager;
   let mockDataSource: { query: jest.Mock; transaction: jest.Mock };
-  let privacyService: jest.Mocked<Pick<AiPrivacyService, 'canAnalyzeMessage'>>;
-  // SentimentAlert now goes through the durable outbox (OutboxPublisher.enqueue
-  // inside a transaction), not a fire-and-forget natsClient.emit. The spec
-  // asserts on the enqueue mock to match the current durable-delivery shape.
+  // Consent is routed through the AiEgressGateService fail-closed boundary
+  // (the service no longer injects AiPrivacyService directly).
+  let egressGate: jest.Mocked<Pick<AiEgressGateService, 'isAllowed'>>;
+  // SentimentAlert goes through the durable outbox (enqueue inside a
+  // transaction); the spec asserts on the enqueue mock.
   let outboxPublisher: jest.Mocked<Pick<OutboxPublisher, 'enqueue'>>;
 
   const channelId = fakeUuid('ch');
@@ -49,8 +50,8 @@ describe('SentimentAnalysisService', () => {
         (cb: (manager: EntityManager) => Promise<unknown>) => cb(mockManager),
       ),
     };
-    privacyService = {
-      canAnalyzeMessage: jest.fn().mockResolvedValue(true),
+    egressGate = {
+      isAllowed: jest.fn().mockResolvedValue(true),
     };
     outboxPublisher = {
       enqueue: jest.fn().mockResolvedValue(undefined),
@@ -70,7 +71,7 @@ describe('SentimentAnalysisService', () => {
         { provide: getRepositoryToken(MessageAnalysis), useValue: analysisRepo },
         { provide: DataSource, useValue: mockDataSource },
         { provide: 'NATS_SERVICE', useValue: natsClient },
-        { provide: AiPrivacyService, useValue: privacyService },
+        { provide: AiEgressGateService, useValue: egressGate },
         { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
     }).compile();
@@ -159,7 +160,7 @@ describe('SentimentAnalysisService', () => {
   // Skips messages from non-consented users
   // -----------------------------------------------------------------------
   it('skips analysis when user has not consented', async () => {
-    privacyService.canAnalyzeMessage.mockResolvedValue(false);
+    egressGate.isAllowed.mockResolvedValue(false);
 
     await service.analyzeMessage(
       TENANT_A, channelId, messageId, messageCreatedAt, senderId, 'Hello',

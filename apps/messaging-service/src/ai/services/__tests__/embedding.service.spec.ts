@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { REDIS_CLIENT } from '../../../shared/redis.provider';
 import { EmbeddingService } from '../embedding.service';
-import { AiPrivacyService } from '../ai-privacy.service';
+import { AiEgressGateService } from '../ai-egress-gate.service';
 import {
   createMockNatsClient,
   createMockRedis,
@@ -20,7 +20,7 @@ describe('EmbeddingService', () => {
   let mockDataSource: ReturnType<typeof createMockDataSource>;
   let queryRunner: MockQueryRunner;
   let natsClient: MockNatsClient;
-  let privacyService: jest.Mocked<Pick<AiPrivacyService, 'canAnalyzeMessage'>>;
+  let egressGate: jest.Mocked<Pick<AiEgressGateService, 'isAllowed'>>;
 
   const tenantId = 'tenant-0001-0001-0001-000000000001';
   const userA = fakeUuid('usr');
@@ -32,8 +32,8 @@ describe('EmbeddingService', () => {
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
     natsClient = createMockNatsClient();
-    privacyService = {
-      canAnalyzeMessage: jest.fn().mockResolvedValue(true),
+    egressGate = {
+      isAllowed: jest.fn().mockResolvedValue(true),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -41,7 +41,7 @@ describe('EmbeddingService', () => {
         EmbeddingService,
         { provide: DataSource, useValue: mockDataSource },
         { provide: 'NATS_SERVICE', useValue: natsClient },
-        { provide: AiPrivacyService, useValue: privacyService },
+        { provide: AiEgressGateService, useValue: egressGate },
       ],
     }).compile();
 
@@ -88,7 +88,7 @@ describe('EmbeddingService', () => {
       .mockResolvedValueOnce(messages);
 
     // userA consented, userB did NOT
-    privacyService.canAnalyzeMessage
+    egressGate.isAllowed
       .mockResolvedValueOnce(true)
       .mockResolvedValueOnce(false);
 
@@ -98,7 +98,7 @@ describe('EmbeddingService', () => {
     await service.processUnembeddedMessages();
 
     // Only 1 message should be sent for embedding (userA)
-    expect(privacyService.canAnalyzeMessage).toHaveBeenCalledTimes(2);
+    expect(egressGate.isAllowed).toHaveBeenCalledTimes(2);
   });
 
   // -----------------------------------------------------------------------
@@ -137,7 +137,7 @@ describe('EmbeddingService', () => {
     const dsQuery: jest.Mock = jest.fn().mockResolvedValueOnce([msg]);
     (mockDataSource as { query?: jest.Mock }).query = dsQuery;
 
-    privacyService.canAnalyzeMessage.mockResolvedValue(true);
+    egressGate.isAllowed.mockResolvedValue(true);
     natsClient.send.mockReturnValue(of({ embeddings: [[0.1, 0.2, 0.3]] }));
 
     await service.processUnembeddedMessages();
@@ -166,7 +166,7 @@ describe('EmbeddingService', () => {
       .fn()
       .mockResolvedValueOnce([msg]);
 
-    privacyService.canAnalyzeMessage.mockResolvedValue(true);
+    egressGate.isAllowed.mockResolvedValue(true);
     // ai-service returns null (caught by catchError)
     natsClient.send.mockReturnValue(of(null));
 

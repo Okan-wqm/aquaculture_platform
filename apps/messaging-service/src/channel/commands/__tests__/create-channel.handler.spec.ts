@@ -5,6 +5,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import { Channel, ChannelType } from '../../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../../entities/channel-member.entity';
 import { ChannelService } from '../../services/channel.service';
+import { TenantUserAdmissionService } from '../../services/tenant-user-admission.service';
 import { MessagingMetricsService } from '../../../metrics/messaging-metrics.service';
 import { CreateChannelHandler } from '../create-channel.handler';
 import { CreateChannelCommand } from '../create-channel.command';
@@ -22,9 +23,11 @@ describe('CreateChannelHandler', () => {
   let handler: CreateChannelHandler;
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
+  let channelScopedRepo: { findOne: jest.Mock };
   let channelService: { buildDmPairKey: jest.Mock };
   let metricsService: { incrementChannelsCreated: jest.Mock };
   let outboxPublisher: { enqueue: jest.Mock };
+  let admissionService: { assertActiveTenantUsers: jest.Mock };
 
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const creatorId = fakeUuid('usr');
@@ -45,6 +48,12 @@ describe('CreateChannelHandler', () => {
 
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
+    // The DM-existence check goes through a TenantScopedRepository over
+    // Channel (resolved from the DataSource, NOT queryRunner.manager.findOne),
+    // so the DataSource must hand back a controllable repo. Default: no
+    // existing DM; the idempotent-DM case overrides findOne below.
+    channelScopedRepo = { findOne: jest.fn().mockResolvedValue(null) };
+    mockDataSource.getRepository.mockReturnValue(channelScopedRepo);
 
     channelService = {
       buildDmPairKey: jest.fn((a: string, b: string) => {
@@ -54,6 +63,9 @@ describe('CreateChannelHandler', () => {
     };
     metricsService = { incrementChannelsCreated: jest.fn() };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    // #406 admission gate: default to allow (assert resolves) so existing
+    // create-channel cases exercise the happy path; deny-path cases override.
+    admissionService = { assertActiveTenantUsers: jest.fn().mockResolvedValue(undefined) };
 
     // Default: manager.save returns the data it received (with an id)
     let saveCounter = 0;
@@ -72,6 +84,7 @@ describe('CreateChannelHandler', () => {
         { provide: ChannelService, useValue: channelService },
         { provide: MessagingMetricsService, useValue: metricsService },
         { provide: OutboxPublisher, useValue: outboxPublisher },
+        { provide: TenantUserAdmissionService, useValue: admissionService },
       ],
     }).compile();
 
@@ -133,7 +146,7 @@ describe('CreateChannelHandler', () => {
       members: [],
     });
 
-    queryRunner.manager.findOne.mockResolvedValueOnce(existingChannel);
+    channelScopedRepo.findOne.mockResolvedValueOnce(existingChannel);
 
     const input = makeInput({
       type: ChannelType.DIRECT,
@@ -144,8 +157,10 @@ describe('CreateChannelHandler', () => {
     const result = await handler.execute(cmd);
 
     expect(result.id).toBe(existingChannel.id);
-    expect(queryRunner.startTransaction).toHaveBeenCalled();
-    expect(queryRunner.commitTransaction).toHaveBeenCalled();
+    // Idempotent early-return: the existing DM is found via the
+    // pre-transaction TenantScopedRepository check, so the handler returns
+    // before opening any transaction and never writes.
+    expect(queryRunner.startTransaction).not.toHaveBeenCalled();
     expect(queryRunner.manager.save).not.toHaveBeenCalled();
   });
 

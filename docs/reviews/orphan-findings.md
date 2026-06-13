@@ -3755,6 +3755,19 @@ Fix: add workflow contract/preflight verification, evidence trust and ledger-ref
 
 Status: RESOLVED on `feat/aria-control-plane-proof-20260606`.
 
+## ORPHAN-063 — main carries a RED test: tenant-update-consolidation.spec asserts the superseded delegation contract
+
+**Severity:** HIGH (broken test on main — the CI gate is dark for this suite)
+**Discovered:** 2026-06-10, during Wave-2 auth audit remediation (branched off origin/main).
+
+**Evidence:** `apps/auth-service/src/modules/tenant/__tests__/tenant-update-consolidation.spec.ts` on origin/main expects `resolver.updateTenant` to delegate to `TenantService.update(id, input, role)`, but the resolver (`apps/auth-service/src/modules/tenant/resolvers/tenant.resolver.ts`) was converted by the enterprise-train lineage to REJECT outright (`BadRequestException('… command-receipt owned …')`). The spec and the implementation disagree → 3 failing tests (`should call TenantService.update with role parameter`, `should enforce tenant isolation`, `should allow SUPER_ADMIN`). Verified PRE-EXISTING on clean origin/main via `git stash` A/B.
+
+**Root cause:** the command-receipt/FSM ownership migration changed the resolver behaviour but did not update its consolidation spec — a half-landed migration from a parallel work lineage. CI's `nx affected -t test` did not re-run this suite for the resolver-only change (the same affected-graph gap as AUDIT-CRITICAL-004/006).
+
+**Fix:** rewrite the spec to pin the command-receipt refusal contract (resolver rejects for ALL roles; tenant-isolation 403 still fires first). Applied identically in PR #383 (Wave-1 W1.3) and on the Wave-2 branch — identical content, conflict-free merge. The deeper affected-graph gap is tracked under AUDIT-CRITICAL-004's cross-service watch item.
+
+**Status:** RESOLVED on `fix/auth-audit-wave2-security` (and `security/rate-limit-sec-critical-002` / PR #383).
+
 ## ORPHAN-HIGH-087 — Source-schema write-guard triggers (`guard_source_write`) are installed by nothing on main
 
 Severity: HIGH. The DB-level tenant-isolation defense layer (BEFORE-trigger `guard_source_write` + `block_source_writes()` rejecting INSERT/UPDATE/DELETE on source-schema template tables) is no longer installed by any active code path. `SourceSchemaWriteGuardService` was correctly neutered into a no-DDL runtime stub (commit 42695736f, "aqua-db-migrate owns source-schema trigger hardening"), but db-migrate never picked up the install side: `SchemaPostMigrationHardening` supports only `tenantRls` and `auditColumns` — there is no `sourceWriteGuards` step, and a repo-wide grep for `guard_source_write` / `block_source_writes` hits zero active files. Environments provisioned before the neutering retain stale triggers; fresh environments get none.
@@ -3822,6 +3835,70 @@ Query↔migration drift: either the `embedding` column migration is missing from
 Discovered in the E2E Messaging logs during B2 (#411) gating. Pairs with ORPHAN-HIGH-092.
 
 Status: OPEN (2026-06-12; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.
+
+---
+
+## ORPHAN-CRITICAL-094 — Bootstrap-generated service-identity keyring fail-closed every login (verifier ↔ generator contract contradiction)
+
+Severity: CRITICAL. On any droplet provisioned by the deploy secret bootstrap, EVERY login (in fact every gateway→subgraph call) was rejected with `caller-not-allowed` (ServiceIdentityGuard), surfaced to the browser as the misleading "Invalid service identity signature…". Regression: commit `4473d2fc7` "fix(deploy): SERVICE_IDENTITY_KEYRING joins the droplet bootstrap secret SSOT" (#388, 2026-06-11) added `generate_service_identity_keyring()` (`scripts/deploy/lib/required-env-secrets.sh:56-61`) which emits a keyring entry carrying only `{kid,secret,status}`.
+
+Root cause: contract contradiction. The generator's comment (lines 43-48) claimed absent `callers`/`audiences` are "treated as unrestricted," but the verifier `resolveVerificationKey` (`libs/backend-common/src/utils/service-identity.util.ts:642-646`) did the OPPOSITE for a kid-matched entry — `if (!entry.callers …) return 'caller-not-allowed'`, fail-closed with no fallback. The sibling event-store `lookupKeyEntry` (`apps/event-store-service/src/guards/event-store-service-identity.guard.ts:238`) used `entry.callers && …` (absent ⇒ allow), so the two verifiers had contradictory absent-semantics; event-store ALSO routes through `resolveVerificationKey` (guard:126) so it was broken too. Why CI stayed green: every keyring test fixture (`service-identity.util.spec.ts`) and the gateway federation tests (`allowUnscopedDevKey`/`secret`-override path) always set callers/audiences — the production keyring shape was never exercised.
+
+Fix (RESOLVED, Tier-1 per architectural-arbiter): `callers`/`audiences` are NON-secret policy with a single SSoT — the service-catalog. New `serviceIdentityCallers()` (`platform/libs/service-catalog/src/index.ts`); `resolveVerificationKey` now derives the caller allowlist from the catalog when an entry carries no explicit policy (`entry.callers ?? serviceIdentityCallers()`), staying fail-closed (unknown caller rejected). The keyring JSON stays pure secret transport, so policy cannot drift from the catalog. Bridge test added (`service-identity.util.spec.ts`) reproducing the policy-less-entry shape.
+
+Status: RESOLVED (2026-06-13; owner: auth-security-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-CRITICAL-094.
+
+---
+
+## ORPHAN-HIGH-095 — messaging-service is the only active Apollo subgraph missing SERVICE_IDENTITY_KEYRING in droplet compose
+
+Severity: HIGH. `docker-compose.droplet.yml` injects `SERVICE_IDENTITY_KEYRING` + `SERVICE_IDENTITY_SIGNING_KID` into 12 backends but NOT into `messaging-service`. messaging is an active federated subgraph (`infrastructure/apollo-router/subgraphs.json`), so the gateway HMAC-signs every gateway→messaging call; messaging's `ServiceIdentityGuard` hard-throws `SERVICE_IDENTITY_KEYRING is not set… required in production` (`service-identity.guard.ts:79-83`) → every messaging GraphQL query 403s in production. A second latent outage independent of the login outage (ORPHAN-CRITICAL-094).
+
+Fix (RESOLVED): added both vars (`:?`-required, matching the auth/farm pattern) to the `messaging-service` env block, closing the 12-of-13 gap.
+
+Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-095.
+
+---
+
+## ORPHAN-HIGH-096 — Shared-secret service-identity keyring gives no real per-caller authorization (needs per-service keys / mTLS)
+
+Severity: HIGH (architectural / tracked hardening — NOT fixed here, deliberately). `docker-compose.droplet.yml` interpolates the SAME `${SERVICE_IDENTITY_KEYRING}` (one shared HMAC secret, one kid) into all 12+ backends. Under a shared secret, the `callers`/`audiences` allowlist is only a known-name sanity gate (defense-in-depth) — any holder of the shared secret can sign as ANY `serviceName`, so it is NOT a per-caller cryptographic boundary. The real per-receiver check is `matchesExpectedAudience` (catalog-derived); there is no enforced per-caller authZ.
+
+Fix direction: per-service keyrings (distinct kid+secret per signer, narrow `callers`/`audiences`) so possession of one service's secret cannot forge another's identity — meaningful only once identity is unforgeable, i.e. paired with mTLS-bound service identity (cert CN = identity, mirroring ADR-015 for NATS). Large blast radius (TLS termination, cert minting, every signer/verifier) → requires a `proposed` ADR + security review; do NOT mask the gap with a wildcard allowlist.
+
+Status: OPEN (2026-06-13; owner: auth-security-expert; escalated from the ORPHAN-CRITICAL-094 fix review). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-096.
+
+---
+
+## ORPHAN-MEDIUM-097 — Divergent absent-policy semantics between resolveVerificationKey and event-store lookupKeyEntry
+
+Severity: MEDIUM. The same `entry.callers`/`entry.audiences` keyring field was read with OPPOSITE absent-semantics by two verifiers: `resolveVerificationKey` (`service-identity.util.ts`) treated absent ⇒ DENY, while `lookupKeyEntry` (`event-store-service-identity.guard.ts:238-243`) treated absent ⇒ ALLOW. Divergent contracts on one shared data shape are how the #388 regression (ORPHAN-CRITICAL-094) slipped through.
+
+Fix (RESOLVED): `resolveVerificationKey` now resolves absent caller policy from the catalog SSoT (fail-closed) and defers absent audience policy to `matchesExpectedAudience`, aligning both verifiers on one coherent semantic (explicit list honored; absent ⇒ catalog/expected-audience derived).
+
+Status: RESOLVED (2026-06-13; owner: auth-security-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-097.
+
+---
+
+## ORPHAN-MEDIUM-098 — ServiceIdentityGuard collapses all rejection reasons into a misleading "forged/expired/tampered" message
+
+Severity: MEDIUM. `service-identity.guard.ts:130-134` maps every non-`missing-headers` outcome (including `caller-not-allowed` / `audience-not-allowed`, which are AUTHORIZATION/config failures) to the single browser text "Invalid service identity signature. Request may be forged, expired, or fields tampered with." During the ORPHAN-CRITICAL-094 outage this actively misled diagnosis — the real cause was an unauthorized caller, not forgery. The precise reason is already logged server-side (`outcome.reason`), only the client message is collapsed.
+
+Fix direction: keep the generic CLIENT message (no leak), but emit a distinct, non-sensitive operator signal (structured log field already present + a metric label by `reason`) so an authorization/config failure is not indistinguishable from a tamper attempt in dashboards.
+
+Status: OPEN (2026-06-13; owner: auth-security-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-098.
+
+---
+
+## ORPHAN-LOW-099 — Stale comments in the service-identity keyring generator
+
+Severity: LOW. `scripts/deploy/lib/required-env-secrets.sh` claimed "five droplet services" interpolate the keyring (it is twelve) and that absent `callers`/`audiences` are "treated as unrestricted" (the verifier fail-closed). The wrong comment is what authorized the #388 regression.
+
+Fix (RESOLVED): corrected both comments to state twelve services and that policy lives in the service-catalog SSoT (verifier-enforced, fail-closed), with an explicit "do not re-add policy fields to this generator" note.
+
+Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-LOW-099.
+
+---
 
 ## ORPHAN-HIGH-093 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
 

@@ -162,6 +162,20 @@ const RESTRICTED_IMPORTS_PATHS = [
     message:
       'Same rationale as @aquaculture/backend-common — import from the specific sub-barrel (@platform/backend-common/<subtree>). Also note that @aquaculture/backend-common/<subtree> is the canonical alias platform-wide; @platform/backend-common exists as a parity alias used by only two files.',
   },
+  // A4 (dead-weight, #419) added these two import bans to .eslintrc.json AFTER A2
+  // branched. Carried verbatim into the flat config so the cutover preserves A4's
+  // gates byte-for-byte (zero-drift). repo-hygiene-invariants.spec.ts also bans the
+  // dependencies at the package.json layer.
+  {
+    name: 'redis',
+    message:
+      "The node-redis 'redis' client was removed in A4 (dead-weight): ioredis is the platform's single Redis client. Socket.IO pub/sub uses an ioredis pair via @socket.io/redis-adapter (apps/gateway-api/src/websocket/adapters/redis-io.adapter.ts). Import 'ioredis' instead. A second Redis client is double maintenance + drift surface; repo-hygiene-invariants.spec.ts also bans the dependency.",
+  },
+  {
+    name: 'moment',
+    message:
+      'moment was removed in A4 (dead-weight): it is in maintenance mode (no new features) and ships a large, mutable, non-tree-shakeable API. Use date-fns (already a dependency) for formatting/parsing. repo-hygiene-invariants.spec.ts also bans the dependency.',
+  },
 ];
 
 // Test-file globs (.eslintrc.json override 14, line 274), recursive-form.

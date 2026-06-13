@@ -10,20 +10,19 @@ import { AsyncLocalStorage } from 'async_hooks';
 
 import { Injectable, NestMiddleware, Logger, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { TenantStatus, isLoginAllowed } from '@platform/event-contracts';
 import { Request, Response, NextFunction } from 'express';
 
 import { TenantLookupService } from '../services/tenant-lookup.service';
 
-/**
- * Tenant status
- */
-export enum TenantStatus {
-  ACTIVE = 'active',
-  SUSPENDED = 'suspended',
-  PENDING = 'pending',
-  TRIAL = 'trial',
-  EXPIRED = 'expired',
-}
+// Canonical tenant lifecycle status (MT-HIGH-003). Pre-fix the gateway owned a
+// LOWERCASE drift copy (active/suspended/pending/trial/expired) — its TRIAL and
+// EXPIRED values are not lifecycle states at all (TRIAL is a plan; expiry is a
+// billing concern) and never matched the UPPERCASE values auth persists, so the
+// tenant-lookup `mapStatus` shim had to lowercase-normalise on every read.
+// Re-export the canonical so downstream gateway code keeps importing
+// TenantStatus from this middleware.
+export { TenantStatus } from '@platform/event-contracts';
 
 /**
  * Tenant metadata
@@ -299,7 +298,14 @@ export class TenantContextMiddleware implements NestMiddleware {
         });
       }
 
-      // Check tenant status
+      // Tenant status gate (MT-HIGH-003, defense-in-depth). A token is only
+      // minted for an ACTIVE tenant's users (auth login's isLoginAllowed
+      // allow-list), so a non-ACTIVE tenant reaching the gateway means the
+      // tenant changed state after the token was issued. Fail closed: block
+      // every non-ACTIVE status. SUSPENDED keeps its specific code for the
+      // common payment/policy case; the dead EXPIRED branch is removed —
+      // EXPIRED was never a lifecycle status (auth never persisted it; the
+      // canonical machine has no such state) and the old check could never fire.
       if (tenant.status === TenantStatus.SUSPENDED) {
         throw new BadRequestException({
           code: 'TENANT_SUSPENDED',
@@ -307,10 +313,10 @@ export class TenantContextMiddleware implements NestMiddleware {
         });
       }
 
-      if (tenant.status === TenantStatus.EXPIRED) {
+      if (!isLoginAllowed(tenant.status)) {
         throw new BadRequestException({
-          code: 'TENANT_EXPIRED',
-          message: 'Tenant subscription has expired',
+          code: 'TENANT_NOT_ACTIVE',
+          message: 'Tenant account is not active',
         });
       }
 

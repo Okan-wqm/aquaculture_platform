@@ -1,15 +1,7 @@
 import {
-  CreateTenantDto,
   UpdateTenantDto,
   SuspendTenantDto,
 } from '../dto/tenant.dto';
-
-export class CreateTenantCommand {
-  constructor(
-    public readonly data: CreateTenantDto,
-    public readonly createdBy: string,
-  ) {}
-}
 
 export class UpdateTenantCommand {
   constructor(

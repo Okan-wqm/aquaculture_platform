@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 const repoRoot = resolve(process.cwd());
 
@@ -281,6 +281,61 @@ function countProblems(results, cwd, comparePathFor) {
   return counts;
 }
 
+/**
+ * Overlay HEAD's lint configuration onto the base worktree.
+ *
+ * The gate measures whether a CHANGE introduces new lint errors. If the base is
+ * linted with the base commit's eslint/tsconfig but head with head's, a lint
+ * CONFIG refactor on the branch (a stricter rule, a new override glob, a deleted
+ * per-project config) makes every newly-linted pre-existing issue look like a
+ * NEW regression — base lints them with the old, looser config and reports 0,
+ * head with the new config and reports N.
+ *
+ * Syncing head's config files into the base worktree makes BOTH sides lint with
+ * the SAME ruleset, so the base-vs-head delta isolates CODE changes from CONFIG
+ * changes — the gate then flags only errors the diff actually introduced.
+ */
+function syncLintConfigFromHead(worktree) {
+  const headSha = runGit(['rev-parse', options.head]).trim();
+  // Config files that determine the ruleset: eslint configs + the tsconfigs its
+  // type-aware rules resolve. `:(glob)` makes `**` match at any depth (incl.
+  // root); `--no-renames` reduces every rename to a delete + add so the loop
+  // stays a simple per-path apply.
+  const configPathspecs = [
+    ':(glob)**/.eslintrc*',
+    ':(glob)**/eslint.config.*',
+    ':(glob)**/tsconfig*.json',
+    ':(glob)**/.eslintignore',
+  ];
+  // Two-dot (base..head), NOT three-dot: the worktree is checked out at
+  // `options.base` itself (not the merge-base), so we must overlay every config
+  // that differs between base and head — including a config the branch did NOT
+  // touch but that advanced on base after the branch's merge-base (a three-dot
+  // diff would miss it, leaving the base worktree on a different ruleset).
+  const nameStatus = runGit([
+    'diff',
+    '--no-renames',
+    '--name-status',
+    '--diff-filter=ACMD',
+    `${options.base}..${headSha}`,
+    '--',
+    ...configPathspecs,
+  ]);
+  for (const line of nameStatus.split('\n').filter(Boolean)) {
+    const [status, path] = line.split('\t');
+    if (!path) continue;
+    const dest = join(worktree, path);
+    if (status.startsWith('D')) {
+      // Deleted at head — remove it so the base lints without it too.
+      rmSync(dest, { force: true });
+    } else {
+      // Added/modified at head — bring head's version into the worktree.
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, runGit(['show', `${headSha}:${path}`]));
+    }
+  }
+}
+
 function prepareBaseWorktree() {
   const parent = mkdtempSync(join(tmpdir(), 'aqua-lint-base-'));
   const worktree = join(parent, 'repo');
@@ -291,6 +346,10 @@ function prepareBaseWorktree() {
   if (existsSync(rootNodeModules) && !existsSync(baseNodeModules)) {
     symlinkSync(rootNodeModules, baseNodeModules, 'dir');
   }
+
+  // Lint the base CONTENT with HEAD's CONFIG (see syncLintConfigFromHead) so the
+  // base-vs-head delta reflects code changes, not lint-config changes.
+  syncLintConfigFromHead(worktree);
 
   return { parent, worktree };
 }

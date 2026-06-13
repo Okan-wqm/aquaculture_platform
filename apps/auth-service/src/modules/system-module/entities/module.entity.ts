@@ -1,5 +1,5 @@
-import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -121,11 +121,11 @@ export class Module {
   isCore?: boolean | null;
 
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   @Field()
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 
   // ============================================

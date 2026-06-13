@@ -165,11 +165,11 @@ export class Announcement {
   @Field()
   createdByName!: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   @Field()
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   @Field()
   updatedAt!: Date;
 

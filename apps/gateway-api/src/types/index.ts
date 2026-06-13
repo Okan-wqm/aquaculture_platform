@@ -22,6 +22,9 @@ export interface JwtPayload {
   tenantId: string;
   roles: string[];
   permissions?: string[];
+  // MT-MEDIUM-001: tenant plan-tier ordinal minted by auth-service (PLAN_LEVEL).
+  // Optional — platform accounts (SUPER_ADMIN, no tenant) carry no plan claim.
+  planLevel?: number;
   type?: 'access' | 'refresh'; // Optional for backward compat with legacy tokens
   iat: number;
   exp: number;

@@ -5,9 +5,10 @@
  * Used by middleware to verify tenant existence in production.
  */
 
+import { signedFetch } from '@aquaculture/backend-common/http';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { signedFetch } from '@aquaculture/backend-common/http';
+
 import {
   TenantMetadata,
   TenantStatus,
@@ -284,7 +285,7 @@ export class TenantLookupService {
       id: data.id,
       name: data.name,
       slug: data.slug,
-      status: this.mapStatus(data.status),
+      status: this.coerceStatus(data.status),
       plan,
       settings,
       features: planFeatures,
@@ -295,17 +296,18 @@ export class TenantLookupService {
   }
 
   /**
-   * Map status string to TenantStatus enum
+   * Coerce the raw tenant-status string from the lookup source into the
+   * canonical TenantStatus (MT-HIGH-003). The source persists canonical
+   * UPPERCASE values, so this is a validating passthrough — the old
+   * `mapStatus` lowercase shim (which also invented non-canonical trial/
+   * expired entries) is gone. An unrecognised value fails closed to PENDING
+   * rather than being trusted blindly.
    */
-  private mapStatus(status: string): TenantStatus {
-    const statusMap: Record<string, TenantStatus> = {
-      active: TenantStatus.ACTIVE,
-      suspended: TenantStatus.SUSPENDED,
-      pending: TenantStatus.PENDING,
-      trial: TenantStatus.TRIAL,
-      expired: TenantStatus.EXPIRED,
-    };
-    return statusMap[status.toLowerCase()] ?? TenantStatus.PENDING;
+  private coerceStatus(raw: string): TenantStatus {
+    // String(s) keeps both sides of the comparison `string`-typed (avoids the
+    // enum-vs-string no-unsafe-enum-comparison) while still returning the
+    // matched TenantStatus member — no cast.
+    return Object.values(TenantStatus).find((s) => String(s) === raw) ?? TenantStatus.PENDING;
   }
 
   /**

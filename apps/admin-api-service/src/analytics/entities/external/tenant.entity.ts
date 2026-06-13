@@ -6,24 +6,18 @@
  * DO NOT modify - source of truth is auth-service.
  */
 
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, ViewEntity } from 'typeorm';
+import { TenantPlan, TenantStatus } from '@platform/event-contracts';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
-// DBR-HIGH-003 cure: canonical TenantPlan SSoT lives in event-contracts.
-// Pre-fix this analytics-side mirror used UPPERCASE values ('TRIAL',
-// 'STARTER', ...) which NEVER matched the actual auth.tenants column
-// (lowercase) — every analytics query against TenantPlan.TRIAL returned
-// zero rows where production data existed. Switching to the canonical
-// (lowercase) SSoT corrects the latent casing bug as part of the
-// unification.
-export { TenantPlan } from '@platform/event-contracts';
-import { TenantPlan } from '@platform/event-contracts';
-
-export enum TenantStatus {
-  ACTIVE = 'ACTIVE',
-  SUSPENDED = 'SUSPENDED',
-  PENDING = 'PENDING',
-  CANCELLED = 'CANCELLED',
-}
+// Re-export the canonical SSoT enums. Pre-fix this analytics-side mirror had
+// its OWN copies that drifted from production:
+// - TenantPlan (DBR-HIGH-003): used UPPERCASE ('TRIAL', ...) that NEVER matched
+//   the lowercase auth.tenants column — every query returned zero rows.
+// - TenantStatus (MT-HIGH-003): a 4-value subset (missing DEACTIVATED/ARCHIVED/
+//   PROVISIONING*/PURGED) — analytics that filtered by status silently dropped
+//   tenants in the missing states.
+// Both now point at the single event-contracts definition.
+export { TenantPlan, TenantStatus } from '@platform/event-contracts';
 
 // Read from public schema (shared database) - read-only reference
 @Entity('tenants', { schema: 'auth', synchronize: false })

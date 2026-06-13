@@ -226,7 +226,6 @@ const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
     country: 'US',
     region: 'California',
     domain: 'test.example.com',
-    isTrialActive: false,
     trialEndsAt: null,
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-01'),
@@ -380,7 +379,6 @@ describe('Tenant Integration Tests', () => {
 
         const trialTenant = createMockTenant({
           tier: TenantTier.FREE,
-          isTrialActive: true,
           trialEndsAt: trialEndDate,
         });
 
@@ -388,14 +386,14 @@ describe('Tenant Integration Tests', () => {
         const queryRunner = mockDataSource.createQueryRunner();
         queryRunner.manager.save.mockResolvedValueOnce(trialTenant);
 
-        // Verify trial tenant properties
-        expect(trialTenant.isTrialActive).toBe(true);
+        // Verify trial state — MT-MEDIUM-001 derives it from trialEndsAt (the
+        // SSoT), so a future trial window is on-trial / not-expired.
         expect(trialTenant.trialEndsAt).toEqual(trialEndDate);
+        expect(trialTenant.isTrialExpired()).toBe(false);
       });
 
       it('should list expiring trials within specified days', async () => {
         const expiringTenant = createMockTenant({
-          isTrialActive: true,
           trialEndsAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
         });
 

@@ -36,6 +36,7 @@ import { StorageQuotaService } from './services/storage-quota.service';
 
 // Resolver
 import { MessageResolver } from './resolvers/message.resolver';
+import { MessageAttachmentResolver } from './resolvers/message-attachment.resolver';
 
 /**
  * @module MessageModule
@@ -84,8 +85,9 @@ import { MessageResolver } from './resolvers/message.resolver';
     ThumbnailService,
     StorageQuotaService,
 
-    // GraphQL resolver
+    // GraphQL resolvers
     MessageResolver,
+    MessageAttachmentResolver,
   ],
   exports: [MessageService, StorageQuotaService],
 })

@@ -1,8 +1,10 @@
-import { Controller, Get, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+
+import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
 import { Public } from '@aquaculture/backend-common/decorators';
+import { Controller, Get, Header, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 /**
  * JWKS (JSON Web Key Set) Controller
@@ -18,30 +20,46 @@ import { Public } from '@aquaculture/backend-common/decorators';
 @Controller()
 export class JwksController {
   private readonly logger = new Logger(JwksController.name);
+  // SECURITY (SEC-HIGH-004): TTL'd cache, NOT a permanent memo. A
+  // process-lifetime cache kept serving the stale key set forever after a
+  // rotation — newly-signed (new-key) tokens would not verify at downstream
+  // services that fetched JWKS before the roll, and a compromised retired
+  // key could not be removed without a full restart. The TTL lets a
+  // config-watch/SIGHUP reload propagate within JWKS_CACHE_TTL_MS.
   private cachedJwks: { keys: JsonWebKey[] } | null = null;
+  private cacheExpiresAt = 0;
+  private readonly cacheTtlMs: number;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService) {
+    this.cacheTtlMs = this.configService.get<number>('JWKS_CACHE_TTL_MS', 5 * 60_000);
+  }
 
   /**
    * GET /.well-known/jwks.json
    *
    * Returns the public keys in JWKS format for JWT verification.
    * No authentication required — this is a public endpoint.
+   *
+   * Cache-Control mirrors the in-process TTL so CDNs/proxies and downstream
+   * JwksService caches refresh on the same cadence as the rotation window.
    */
   @Get('.well-known/jwks.json')
+  @Header('Cache-Control', 'public, max-age=300')
   @Public()
   getJwks(): { keys: JsonWebKey[] } {
-    if (this.cachedJwks) {
+    const now = Date.now();
+    if (this.cachedJwks && now < this.cacheExpiresAt) {
       return this.cachedJwks;
     }
 
     const keys: JsonWebKey[] = [];
 
-    // Load current public key
+    // Load current public key — kid from the SSoT the SIGNER uses, so every
+    // issued token's `kid` header resolves to exactly this JWKS entry.
     const currentKey = this.loadPublicKeyJwk(
       this.configService.get<string>('JWT_PUBLIC_KEY'),
       this.configService.get<string>('JWT_PUBLIC_KEY_FILE'),
-      this.configService.get<string>('JWT_KEY_ID', 'key-1'),
+      getActiveSigningKid(this.configService),
     );
 
     if (currentKey) {
@@ -67,6 +85,7 @@ export class JwksController {
     }
 
     this.cachedJwks = { keys };
+    this.cacheExpiresAt = now + this.cacheTtlMs;
     return this.cachedJwks;
   }
 

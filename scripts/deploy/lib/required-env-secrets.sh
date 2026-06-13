@@ -34,18 +34,27 @@
 #                             (production auth-service fails closed without it)
 #   SERVICE_IDENTITY_KEYRING — v2 HMAC keyring (JSON array) consumed by
 #                             libs/backend-common service-identity.util's
-#                             parseServiceIdentityKeyring(); five droplet
+#                             parseServiceIdentityKeyring(); twelve droplet
 #                             services interpolate it as `:?` required in
 #                             docker-compose.droplet.yml. Missing it aborts
 #                             the deploy at compose interpolation
 #                             (INFRA-HIGH-006, 2026-06-11 deploy red). Same
 #                             generate-if-absent / never-rotate semantics as
-#                             the other entries; key policy fields (callers /
-#                             audiences / tenantScopePolicy) are deliberately
-#                             omitted at bootstrap — parse treats them as
-#                             unrestricted, and tightening them is an
-#                             operator policy ceremony, not a bootstrap
-#                             concern.
+#                             the other entries. The keyring transports ONLY
+#                             secret material (kid / secret / status).
+#                             Authorization POLICY (callers / audiences) is
+#                             deliberately NOT carried here: the SSoT is the
+#                             service-catalog (serviceIdentityCallers +
+#                             matchesExpectedAudience), which the verifier reads.
+#                             A bootstrap entry with no policy fields is correct
+#                             AND fail-closed — the verifier derives the caller
+#                             allowlist from the catalog and rejects unknown
+#                             callers. (It is NOT "unrestricted": regression #388
+#                             shipped exactly such an entry while the verifier
+#                             still required INLINE callers → caller-not-allowed
+#                             on every gateway→subgraph call → full login outage.
+#                             Fixed by making the verifier catalog-derive policy;
+#                             do not re-add policy fields to this generator.)
 
 # Generator for SERVICE_IDENTITY_KEYRING — a shell function (not an inline
 # command string) because the value is structured JSON; quoting a printf

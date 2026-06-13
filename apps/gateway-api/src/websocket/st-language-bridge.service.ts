@@ -1,14 +1,18 @@
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
+// transport-node (Node connect) and nats-core (connection + Msg primitives +
+// headers factory). StringCodec was REMOVED — encode a string by passing it
+// directly to request()/publish(), decode via msg.string(). The wire bytes are
+// UTF-8 either way, so this is byte-for-byte compatible with the v2 producer.
+import {
+  headers as natsHeaders,
+  type ConnectionOptions,
+  type NatsConnection,
+  type Subscription,
+} from '@nats-io/nats-core';
+import { connect } from '@nats-io/transport-node';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  connect,
-  NatsConnection,
-  Subscription,
-  StringCodec,
-  ConnectionOptions,
-  headers as natsHeaders,
-} from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import * as fs from 'fs';
 
 import { STLanguageGateway } from './st-language.gateway';
@@ -53,7 +57,6 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(STLanguageBridgeService.name);
   private connection: NatsConnection | null = null;
   private subscriptions: Subscription[] = [];
-  private readonly sc = StringCodec();
 
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
@@ -151,14 +154,14 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
     const h = natsHeaders();
     h.set('x-tenant-id', tenantId);
 
-    const payload = this.sc.encode(JSON.stringify(request));
+    const payload = JSON.stringify(request);
 
     const msg = await this.connection.request(subject, payload, {
       timeout,
       headers: h,
     });
 
-    const decoded = this.sc.decode(msg.data);
+    const decoded = msg.string();
     return JSON.parse(decoded);
   }
 
@@ -204,7 +207,7 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
     (async () => {
       for await (const msg of sub) {
         try {
-          const data = JSON.parse(this.sc.decode(msg.data)) as AutomationEvent;
+          const data = JSON.parse(msg.string()) as AutomationEvent;
 
           if (!data.tenantId) {
             this.logger.warn(`${subject} event missing tenantId, dropping`);
@@ -236,8 +239,11 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
     const connection = this.connection;
     (async () => {
       for await (const status of connection.status()) {
-        const statusType = status.type as string;
-        switch (statusType) {
+        // v3: Status is a discriminated union keyed on `type`; switching
+        // directly on `status.type` narrows each case. The error variant
+        // (ServerErrorStatus) carries `error: Error` — v2's untyped
+        // `status.data` field was removed.
+        switch (status.type) {
           case 'disconnect':
             this.logger.warn('NATS disconnected (ST Language Bridge)');
             break;
@@ -247,7 +253,7 @@ export class STLanguageBridgeService implements OnModuleInit, OnModuleDestroy {
             this.subscribeToAutomationEvents();
             break;
           case 'error':
-            this.logger.error(`NATS error: ${String(status.data)}`);
+            this.logger.error(`NATS error: ${String(status.error)}`);
             break;
         }
       }

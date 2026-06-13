@@ -2,6 +2,30 @@ import * as os from 'os';
 
 import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x). v2 monolithic `nats` package split into
+// transport-node (Node connect), nats-core (connection + Msg primitives),
+// and jetstream (JS client/manager + policy enums). StringCodec/JSONCodec
+// were REMOVED — encode a string by passing it directly to publish(), decode
+// via msg.string()/msg.json(). The wire bytes are UTF-8 either way, so the
+// migration is byte-for-byte compatible with v2 producers/consumers during
+// a rolling deploy (durable names + stream config unchanged).
+import {
+  jetstream,
+  jetstreamManager,
+  AckPolicy,
+  DeliverPolicy,
+  RetentionPolicy,
+  StorageType,
+  DiscardPolicy,
+  type JetStreamClient,
+  type JetStreamManager,
+  type ConsumerConfig,
+  type Consumer,
+  type JsMsg,
+  type StreamConfig,
+} from '@nats-io/jetstream';
+import type { ConnectionOptions, NatsConnection } from '@nats-io/nats-core';
+import { connect } from '@nats-io/transport-node';
 import {
   Injectable,
   OnModuleInit,
@@ -12,23 +36,6 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventUpcasterRegistry } from '@platform/event-contracts';
-import {
-  connect,
-  NatsConnection,
-  JetStreamClient,
-  JetStreamManager,
-  StringCodec,
-  ConsumerConfig,
-  AckPolicy,
-  DeliverPolicy,
-  RetentionPolicy,
-  StorageType,
-  DiscardPolicy,
-  Consumer,
-  ConnectionOptions,
-  type JsMsg,
-  type StreamConfig,
-} from 'nats';
 
 import {
   IEventBus,
@@ -81,7 +88,6 @@ export class NatsEventBus
   private connection: NatsConnection | null = null;
   private jetStream: JetStreamClient | null = null;
   private jetStreamManager: JetStreamManager | null = null;
-  private readonly codec = StringCodec();
   private readonly consumers = new Map<string, Consumer>();
   private readonly abortControllers = new Map<string, AbortController>();
   private readonly handlers = new Map<string, IEventHandler[]>();
@@ -305,8 +311,10 @@ export class NatsEventBus
 
       this.connection = await connect(connectionOptions);
 
-      this.jetStream = this.connection.jetstream();
-      this.jetStreamManager = await this.connection.jetstreamManager();
+      // v3: jetstream()/jetstreamManager() are top-level functions taking the
+      // connection, not methods on it (v2 was `this.connection.jetstream()`).
+      this.jetStream = jetstream(this.connection);
+      this.jetStreamManager = await jetstreamManager(this.connection);
 
       this.connectionState = 'connected';
       this.lastConnectedAt = new Date();
@@ -498,7 +506,9 @@ export class NatsEventBus
       // `duplicate_window` — JetStream drops a second publish with the
       // same msgID within the dedup window, which is exactly the
       // idempotency guarantee the outbox worker relies on for retries.
-      await this.jetStream.publish(subject, this.codec.encode(payload), {
+      // v3: publish() accepts a string directly (UTF-8 encoded by the lib) —
+      // no StringCodec.encode(). Byte-identical wire to the v2 producer.
+      await this.jetStream.publish(subject, payload, {
         msgID: event.eventId,
       });
 
@@ -831,7 +841,8 @@ export class NatsEventBus
     msg: JsMsg,
   ): Promise<void> {
     try {
-      const event = this.deserializeEvent(this.codec.decode(msg.data));
+      // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
+      const event = this.deserializeEvent(msg.string());
       const handlers = this.handlers.get(subject) ?? [];
 
       // SECURITY: Handler failures must NOT be swallowed while the
@@ -851,18 +862,21 @@ export class NatsEventBus
       }
 
       if (handlerFailed) {
-        const redeliveryCount = msg.info?.redeliveryCount ?? 0;
-        const backoffMs = Math.min(1000 * Math.pow(2, redeliveryCount), 30000);
+        // v3: deliveryCount replaces v2's deprecated redeliveryCount alias
+        // (identical value) — exponential-backoff math unchanged.
+        const deliveryCount = msg.info?.deliveryCount ?? 0;
+        const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
         msg.nak(backoffMs);
       } else {
         msg.ack();
       }
     } catch (error) {
       this.logger.error(`Message processing error on ${subject}`, error);
-      // Exponential backoff on NAK: redelivery delay doubles per attempt
-      // msg.info.redeliveryCount gives the number of times the message has been delivered
-      const redeliveryCount = msg.info?.redeliveryCount ?? 0;
-      const backoffMs = Math.min(1000 * Math.pow(2, redeliveryCount), 30000);
+      // Exponential backoff on NAK: redelivery delay doubles per attempt.
+      // v3 deliveryCount = number of times delivered (v2's deprecated
+      // redeliveryCount alias, same value) — backoff math unchanged.
+      const deliveryCount = msg.info?.deliveryCount ?? 0;
+      const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
       msg.nak(backoffMs);
     }
   }
@@ -959,7 +973,10 @@ export class NatsEventBus
     // Handle connection status changes
     void (async (): Promise<void> => {
       for await (const status of connection.status()) {
-        switch (String(status.type)) {
+        // v3: Status is a discriminated union on `type`; switching on it
+        // narrows each case. The error variant carries `error: Error` (v2's
+        // untyped `status.data` field was removed).
+        switch (status.type) {
           case 'disconnect':
             this.connectionState = 'disconnected';
             this.logger.warn('Disconnected from NATS');
@@ -974,7 +991,7 @@ export class NatsEventBus
             this.logger.log('Reconnected to NATS');
             break;
           case 'error':
-            this.logger.error('NATS connection error', status.data);
+            this.logger.error('NATS connection error', String(status.error));
             break;
         }
       }

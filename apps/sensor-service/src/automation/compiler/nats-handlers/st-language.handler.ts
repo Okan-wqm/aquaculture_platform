@@ -1,12 +1,13 @@
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
+// transport-node (Node connect) and nats-core (connection + Msg primitives).
+// StringCodec was REMOVED — pass a string directly to respond() and decode a
+// message via msg.string(). The wire bytes are UTF-8 either way, so the
+// migration is byte-for-byte compatible with the v2 request-reply peer.
+import type { NatsConnection, Subscription } from '@nats-io/nats-core';
+import { connect } from '@nats-io/transport-node';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  connect,
-  NatsConnection,
-  Subscription,
-  StringCodec,
-} from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 
 import { NATS_SUBJECTS } from '../compiler.constants';
 import { NatsLanguageRequest, NatsLanguageReply } from '../compiler.types';
@@ -27,7 +28,6 @@ export class STLanguageHandler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(STLanguageHandler.name);
   private connection: NatsConnection | null = null;
   private readonly subscriptions: Subscription[] = [];
-  private readonly codec = StringCodec();
   private readonly natsUrl: string;
 
   constructor(
@@ -119,9 +119,8 @@ export class STLanguageHandler implements OnModuleInit, OnModuleDestroy {
     (async () => {
       for await (const msg of sub) {
         try {
-          const request: NatsLanguageRequest = JSON.parse(
-            this.codec.decode(msg.data),
-          );
+          // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
+          const request: NatsLanguageRequest = JSON.parse(msg.string());
 
           // Tenant ID from NATS headers (set by gateway-api)
           const tenantId = msg.headers?.get('x-tenant-id') || '';
@@ -132,7 +131,9 @@ export class STLanguageHandler implements OnModuleInit, OnModuleDestroy {
           });
 
           if (msg.reply) {
-            msg.respond(this.codec.encode(JSON.stringify(reply)));
+            // v3: respond() accepts a string directly (UTF-8 encoded by the lib) —
+            // no StringCodec.encode(). Byte-identical wire to the v2 peer.
+            msg.respond(JSON.stringify(reply));
           }
         } catch (error) {
           this.logger.error(
@@ -150,7 +151,7 @@ export class STLanguageHandler implements OnModuleInit, OnModuleDestroy {
                 message: (error as Error).message,
               },
             };
-            msg.respond(this.codec.encode(JSON.stringify(errorReply)));
+            msg.respond(JSON.stringify(errorReply));
           }
         }
       }

@@ -1,12 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
-import {
-  ErrorCode,
+// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
+// nats-core (connection + Msg/Subscription primitives + typed error classes).
+// StringCodec was REMOVED — pass a string directly to request()/respond()
+// (the lib UTF-8-encodes it, byte-identical wire to the v2 producer) and read
+// the reply via msg.string(). ErrorCode/NatsError were REMOVED in favour of
+// discrete error classes — a request timeout is now `TimeoutError`.
+import { TimeoutError } from '@nats-io/nats-core';
+import type {
   Msg,
   NatsConnection,
-  NatsError,
-  StringCodec,
   Subscription,
-} from 'nats';
+} from '@nats-io/nats-core';
+import { Injectable, Logger } from '@nestjs/common';
+
 import {
   IRequestReply,
   RequestReplyContext,
@@ -164,7 +169,6 @@ function isErrorEnvelope(v: unknown): v is RequestReplyErrorEnvelope {
 @Injectable()
 export class NatsRequestReply implements IRequestReply {
   private readonly logger = new Logger(NatsRequestReply.name);
-  private readonly codec = StringCodec();
 
   constructor(private readonly eventBus: NatsEventBus) {}
 
@@ -181,10 +185,12 @@ export class NatsRequestReply implements IRequestReply {
       );
     }
 
-    // ENCODE — typed generic → JSON bytes. JSON.stringify throws
+    // ENCODE — typed generic → JSON string. JSON.stringify throws
     // TypeError for BigInt / cyclic refs; wrap so the caller sees
     // the canonical Encode shelf rather than a raw TypeError.
-    let payload: Uint8Array;
+    // v3: request() accepts the string directly (UTF-8 encoded by the
+    // lib) — no StringCodec.encode(). Byte-identical wire to v2.
+    let payload: string;
     try {
       const json = JSON.stringify(request);
       if (json === undefined) {
@@ -195,7 +201,7 @@ export class NatsRequestReply implements IRequestReply {
           'request body serialises to undefined (JSON.stringify returned undefined)',
         );
       }
-      payload = this.codec.encode(json);
+      payload = json;
     } catch (e) {
       throw new RequestReplyEncodeError(
         subject,
@@ -212,7 +218,10 @@ export class NatsRequestReply implements IRequestReply {
         timeout: options.timeoutMs,
       });
     } catch (e) {
-      if (e instanceof NatsError && e.code === ErrorCode.Timeout) {
+      // v3: a request that exceeds its timeout budget rejects with the
+      // discrete TimeoutError class (replacing v2's
+      // `NatsError + ErrorCode.Timeout` sentinel check).
+      if (e instanceof TimeoutError) {
         throw new RequestReplyTimeoutError(subject, options.timeoutMs);
       }
       // NoResponders + every other transport-class failure land
@@ -227,7 +236,8 @@ export class NatsRequestReply implements IRequestReply {
     // mismatch) is a contract drift, not a transport problem.
     let parsed: unknown;
     try {
-      parsed = JSON.parse(this.codec.decode(reply.data));
+      // v3: reply.string() replaces StringCodec.decode(reply.data) — same UTF-8 bytes.
+      parsed = JSON.parse(reply.string());
     } catch (e) {
       throw new RequestReplyDecodeError(
         subject,
@@ -306,9 +316,10 @@ export class NatsRequestReply implements IRequestReply {
     }
 
     // DECODE the incoming request body.
+    // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
     let request: Req;
     try {
-      request = JSON.parse(this.codec.decode(msg.data)) as Req;
+      request = JSON.parse(msg.string()) as Req;
     } catch (e) {
       this.writeErrorEnvelope(msg, 'INVALID_REQUEST', (e as Error).message);
       return;
@@ -347,7 +358,9 @@ export class NatsRequestReply implements IRequestReply {
         this.writeErrorEnvelope(msg, 'ENCODE_ERROR', 'response serialises to undefined');
         return;
       }
-      msg.respond(this.codec.encode(json));
+      // v3: respond() accepts the string directly (UTF-8 encoded by the lib) —
+      // no StringCodec.encode(). Byte-identical wire to the v2 producer.
+      msg.respond(json);
     } catch (e) {
       this.writeErrorEnvelope(
         msg,
@@ -364,7 +377,8 @@ export class NatsRequestReply implements IRequestReply {
       message,
     };
     try {
-      msg.respond(this.codec.encode(JSON.stringify(envelope)));
+      // v3: respond() accepts the string directly — no StringCodec.encode().
+      msg.respond(JSON.stringify(envelope));
     } catch (e) {
       this.logger.error(
         `request-reply: failed to write error envelope`,

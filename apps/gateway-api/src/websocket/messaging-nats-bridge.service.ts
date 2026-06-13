@@ -1,4 +1,11 @@
 import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
+// NATS v3 (@nats-io/* 3.x). The v2 monolithic `nats` package split into
+// transport-node (Node connect) and nats-core (connection + Msg primitives).
+// StringCodec was REMOVED — decode an inbound payload via msg.string()
+// (UTF-8), which yields the same bytes the v2 StringCodec produced, so this
+// bridge stays byte-for-byte compatible with v2 producers during a rolling deploy.
+import type { ConnectionOptions, NatsConnection, Subscription } from '@nats-io/nats-core';
+import { connect } from '@nats-io/transport-node';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -9,7 +16,6 @@ import {
   isMessagingEventType,
   validateMessagingEvent,
 } from '@platform/event-contracts';
-import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
 
 import { MessagingGateway } from './messaging.gateway';
 
@@ -62,7 +68,6 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
   private readonly logger = new Logger(MessagingNatsBridgeService.name);
   private connection: NatsConnection | null = null;
   private subscriptions: Subscription[] = [];
-  private readonly sc = StringCodec();
 
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
@@ -116,7 +121,8 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
       (async () => {
         for await (const msg of sub) {
           try {
-            const data = this.sc.decode(msg.data);
+            // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
+            const data = msg.string();
             const event = JSON.parse(data) as MessagingNatsEvent;
 
             if (!this.isValidEvent(event, msg.subject)) {
@@ -238,8 +244,9 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     const connection = this.connection;
     (async () => {
       for await (const status of connection.status()) {
-        const statusType = status.type as string;
-        switch (statusType) {
+        // v3: Status is a discriminated union on `type`; the error variant
+        // carries `error: Error` (v2's `status.data` field was removed).
+        switch (status.type) {
           case 'disconnect':
             this.logger.warn('Messaging NATS bridge disconnected');
             break;
@@ -266,7 +273,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
             break;
           case 'error':
             this.logger.error(
-              `Messaging NATS error: ${this.formatStatusData(status.data)}`,
+              `Messaging NATS error: ${this.formatStatusData(status.error)}`,
             );
             break;
         }

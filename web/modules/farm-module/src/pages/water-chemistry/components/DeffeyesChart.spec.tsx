@@ -16,7 +16,7 @@ function makeLegacyData(): DeffeyesChartData {
   return generateDeffeyesChartData(
     { tempC: 12, pH: 7, salinity: 1, alkalinity: alkMgToMeq(80) },
     { targetpH: 7.5, targetAlkalinity: alkMgToMeq(100) },
-    { tan: 0.5, unIonizedNH3: 0.0125, co2Toxic: 40, h2s: 0 },
+    { tan: 0.5, unIonizedNH3: 0.0125, co2Toxic: 40, h2sMeasuredUgL: 15, h2sLimitUgL: 25, h2sMeasuredAtPH: 7 },
     alkMgToMeq(50),
     alkMgToMeq(100),
     400
@@ -69,4 +69,35 @@ describe('DeffeyesChart', () => {
     expect(screen.getByLabelText('Dosing Path')).not.toBeChecked();
     expect(container.querySelector('path[stroke="#f59e0b"]')).not.toBeInTheDocument();
   }, 15000);
+
+  it('reveals the H₂S toxic zone only when its layer toggle is enabled', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <div style={{ width: 900, height: 760 }}>
+        <DeffeyesChart data={makeLegacyData()} />
+      </div>
+    );
+
+    // Hidden by default, consistent with the NH₃ / CO₂ toxic layers.
+    expect(screen.getByLabelText('H₂S Toxic')).not.toBeChecked();
+    expect(container.querySelector('path[stroke="#b91c1c"]')).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('H₂S Toxic'));
+
+    expect(screen.getByLabelText('H₂S Toxic')).toBeChecked();
+    expect(container.querySelector('path[stroke="#b91c1c"]')).toBeInTheDocument();
+  }, 15000);
+
+  it('forces the toxic overlays (including H₂S) on for report export via forceSafetyOverlays', () => {
+    const { container } = render(
+      <div style={{ width: 900, height: 760 }}>
+        <DeffeyesChart data={makeLegacyData()} forceSafetyOverlays />
+      </div>
+    );
+
+    // The user toggle stays visually unchecked; the overlay renders because the
+    // report export forces every toxicity band on.
+    expect(screen.getByLabelText('H₂S Toxic')).not.toBeChecked();
+    expect(container.querySelector('path[stroke="#b91c1c"]')).toBeInTheDocument();
+  });
 });

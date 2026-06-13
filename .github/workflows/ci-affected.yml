@@ -442,21 +442,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - scenario: ph
-            chart_mode: ph
-            allow_override: 'false'
-            expect_mode: ph
-            path: ''
-          - scenario: legacy-denies-query
-            chart_mode: legacy
-            allow_override: 'false'
-            expect_mode: legacy
-            path: '?deffeyesMode=ph'
-          - scenario: legacy-diagnostic-override
-            chart_mode: legacy
-            allow_override: 'true'
-            expect_mode: ph
-            path: '?deffeyesMode=ph'
+          # Single ALK/DIC Deffeyes chart — the DIC/pH chart mode was removed,
+          # so the former ph / legacy-denies-query / legacy-diagnostic-override
+          # scenario matrix collapses to one.
+          - scenario: legacy
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -491,8 +480,6 @@ jobs:
             exit 0
           fi
 
-          VITE_DEFFEYES_CHART_MODE="${{ matrix.chart_mode }}" \
-          VITE_DEFFEYES_ALLOW_DIAGNOSTIC_MODE_OVERRIDE="${{ matrix.allow_override }}" \
           npx nx build farm-module
 
           mkdir -p web/shell/src/generated
@@ -529,8 +516,6 @@ jobs:
 
           FARM_WATER_CHEMISTRY_URL="http://127.0.0.1:4302/sites/water-chemistry" \
           FARM_WATER_CHEMISTRY_EXPECT_REMOTE_ENTRY="true" \
-          FARM_WATER_CHEMISTRY_EXPECT_MODE="${{ matrix.expect_mode }}" \
-          FARM_WATER_CHEMISTRY_PATH="${{ matrix.path }}" \
           npm run test:e2e:water-chemistry
         env:
           NX_DAEMON: 'false'

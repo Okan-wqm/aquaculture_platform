@@ -33,7 +33,6 @@
     "resolveJsonModule": true,
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
     "importHelpers": true,
     "baseUrl": ".",
     "paths": {

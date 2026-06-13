@@ -80,6 +80,27 @@ client-agnostic and is **not touched**.
   the UTF-8 JSON payload bytes are unchanged → mixed v2/v3 pods interoperate; rollback
   is an image redeploy (no broker migration).
 
+### Documented lint exception (ORPHAN-MEDIUM-093)
+One `@typescript-eslint/no-unsafe-assignment` on `nats-event-bus.ts` `connect()` is
+a **verified false positive**, suppressed via a scoped `.eslintrc.json` override
+(`no-unsafe-assignment` off for that one file) + a block comment — the in-line
+`eslint-disable` form is banned by the repo's banned-construct gate, which directs
+false-positive suppressions to the `.eslintrc` lint-policy SSoT. Root cause: the
+event-bus lib has no eslint-selected tsconfig, so `@typescript-eslint` type-checks it
+standalone against bare `tsconfig.base.json` (first + match-all in
+`parserOptions.project`), where `@nats-io/*` (exports-only ESM, broken `types:.d.js`
+field) does not resolve and `connect`'s result widens to `error`. The code is
+type-correct — the platform-wide `type-check`, the `build`, and the event-bus unit
+tests all pass (they run in the consumer/app context where `@nats-io` resolves).
+**Six architectural fixes were attempted** (NodeConnectionOptions, whole-spread,
+tsconfig `paths`, type-derivation-from-`connect`, `esModuleInterop`, a dedicated lib
+tsconfig); none dislodge `tsconfig.base` from being selected first. The proper fix
+(reorder `parserOptions.project` so per-project globs precede base) is a cross-cutting
+eslint-config change to be validated against the full lint surface — tracked as
+ORPHAN-MEDIUM-093, a separate concern from the NATS migration. The override is
+removable once that lands. This is the explicit Tier-4 "document it" after
+exhausting Tiers 1–3.
+
 ## NOT done here (Track A continuation, separate PRs)
 - **PR-B** — platform-owned `CustomTransportStrategy` + `ClientProxy` (Nest
   NATS-envelope wire-compatible) cutover of the **~14 `ClientsModule.register`

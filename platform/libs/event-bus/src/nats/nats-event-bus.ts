@@ -313,6 +313,23 @@ export class NatsEventBus
         },
       );
 
+      // ORPHAN-MEDIUM-093 — verified FALSE POSITIVE, not a real unsafe
+      // assignment. @typescript-eslint type-checks this lib's source standalone
+      // against the bare tsconfig.base.json (selected first + match-all in
+      // .eslintrc parserOptions.project), where @nats-io/* (an exports-only ESM
+      // package) does not resolve, so `connect`'s result widens to `error`. The
+      // code is type-correct: the platform-wide `type-check`, the `build`, and
+      // the event-bus unit tests all PASS (they run in the consumer/app context
+      // where @nats-io resolves). Six config fixes were attempted; the proper
+      // fix (reorder parserOptions.project so per-project tsconfigs precede base,
+      // or give every platform lib a selected tsconfig) is a cross-cutting
+      // eslint-config change tracked separately from the NATS migration.
+      // Suppressed via a scoped `.eslintrc.json` override (no-unsafe-assignment OFF for this
+      // ONE file, with the same WHY) — the in-line per-line disable-comment form
+      // is banned by the repo's banned-construct gate, which directs false-
+      // positive suppressions to the .eslintrc lint-policy SSoT. Tracked as
+      // ORPHAN-MEDIUM-093; both the override and this note are removable once the
+      // parserOptions.project-order fix lands.
       this.connection = await connect(connectionOptions);
 
       // v3: jetstream()/jetstreamManager() are top-level functions taking the

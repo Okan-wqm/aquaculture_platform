@@ -299,6 +299,12 @@
           }
         ]
       }
+    },
+    {
+      "files": ["platform/libs/event-bus/src/nats/nats-event-bus.ts"],
+      "rules": {
+        "@typescript-eslint/no-unsafe-assignment": "off"
+      }
     }
   ]
 }

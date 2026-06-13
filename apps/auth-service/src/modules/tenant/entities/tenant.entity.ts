@@ -1,4 +1,5 @@
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
+import { TenantPlan, TenantStatus } from '@platform/event-contracts';
 import {
   Entity,
   Column,
@@ -9,33 +10,22 @@ import {
   Index,
 } from 'typeorm';
 
-// DBR-HIGH-003 cure: canonical TenantPlan SSoT lives in event-contracts.
-// Pre-fix this service had its own copy missing FREE; the canonical
-// includes FREE so the auth-side path that lacked it picks it up
-// (strict superset, no service loses anything). Re-export keeps the
-// public API surface unchanged for downstream consumers that import
-// TenantPlan from this module.
-export { TenantPlan } from '@platform/event-contracts';
-import { TenantPlan } from '@platform/event-contracts';
+// Re-export the canonical SSoT enums so downstream consumers that import
+// TenantPlan / TenantStatus from this entity module keep working unchanged.
+//
+// WHY both enums are canonical in event-contracts (not here):
+// - TenantPlan (DBR-HIGH-003): pre-fix this service's private copy lacked
+//   FREE; the canonical is a strict superset.
+// - TenantStatus (MT-HIGH-003): pre-fix this service owned a private 8-value
+//   copy that lacked the PURGED terminal and had no transition-legality
+//   authority. The canonical lives beside the TenantStatusChanged event and
+//   the lifecycle machine that now gates every status change + login.
+export { TenantPlan, TenantStatus } from '@platform/event-contracts';
 
 registerEnumType(TenantPlan, {
   name: 'TenantPlan',
   description: 'Tenant subscription plans',
 });
-
-/**
- * Tenant status
- */
-export enum TenantStatus {
-  PENDING = 'PENDING',
-  PROVISIONING = 'PROVISIONING',
-  PROVISIONING_FAILED = 'PROVISIONING_FAILED',
-  ACTIVE = 'ACTIVE',
-  SUSPENDED = 'SUSPENDED',
-  CANCELLED = 'CANCELLED',
-  DEACTIVATED = 'DEACTIVATED',
-  ARCHIVED = 'ARCHIVED',
-}
 
 registerEnumType(TenantStatus, {
   name: 'TenantStatus',
@@ -164,11 +154,18 @@ export class Tenant {
   maxStorage!: number;
 
   /**
-   * Whether tenant is currently on an active trial
+   * Whether the tenant is currently within an active trial window.
+   *
+   * MT-MEDIUM-001: trial is a STATE derived from the single source `trialEndsAt`
+   * — NOT a stored denormalization (the old `is_trial_active` column drifted from
+   * trialEndsAt) and NOT the plan tier (the `plan === TRIAL` representation is
+   * gone). Exposed as a computed GraphQL field so the public API shape is
+   * unchanged.
    */
   @Field()
-  @Column({ type: 'boolean', default: false, name: 'is_trial_active' })
-  isTrialActive!: boolean;
+  get isTrialActive(): boolean {
+    return this.isOnTrial();
+  }
 
   /**
    * Current user count (denormalized for quick access)
@@ -177,19 +174,10 @@ export class Tenant {
   @Column({ type: 'int', default: 0, name: 'user_count' })
   userCount!: number;
 
-  /**
-   * Current farm count (denormalized for quick access)
-   */
-  @Field()
-  @Column({ type: 'int', default: 0, name: 'farm_count' })
-  farmCount!: number;
-
-  /**
-   * Current sensor count (denormalized for quick access)
-   */
-  @Field()
-  @Column({ type: 'int', default: 0, name: 'sensor_count' })
-  sensorCount!: number;
+  // MT-MEDIUM-002: farm_count/sensor_count removed — they were unmaintained
+  // (always 0) denormalizations. Farms and sensors are owned by the per-tenant
+  // tenant_<uuid>.farms / .sensors tables; admin-api computes the real counts at
+  // read time from there.
 
   /**
    * Trial end date (if on trial)
@@ -231,11 +219,11 @@ export class Tenant {
   // ============================================
 
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   @Field()
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 
   @VersionColumn({ name: 'version' })
@@ -257,14 +245,19 @@ export class Tenant {
     return this.status === TenantStatus.PENDING;
   }
 
+  /**
+   * On trial ⟺ a trial window exists and has not elapsed. MT-MEDIUM-001: derived
+   * from `trialEndsAt` alone (the SSoT). The prior `plan === TRIAL` gate returned
+   * false for every real tenant — production tenants trial on a real tier (e.g.
+   * starter) with `trialEndsAt` set, never on `plan = 'trial'` — so the gate was
+   * a latent bug that hid every active trial.
+   */
   isOnTrial(): boolean {
-    if (this.plan !== TenantPlan.TRIAL) return false;
-    if (!this.trialEndsAt) return true;
+    if (!this.trialEndsAt) return false;
     return this.trialEndsAt > new Date();
   }
 
   isTrialExpired(): boolean {
-    if (this.plan !== TenantPlan.TRIAL) return false;
     if (!this.trialEndsAt) return false;
     return this.trialEndsAt < new Date();
   }

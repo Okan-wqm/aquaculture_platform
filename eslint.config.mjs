@@ -386,6 +386,10 @@ export default [
       '**/__tests__/**',
       '**/__mocks__/**',
       'platform/libs/outbox/**',
+      // #390 (W3 auth-service) added this exact path to the .eslintrc.json exclusion
+      // list for no-direct-event-publish; carried verbatim so the cutover stays
+      // zero-drift (best-effort-event-publisher legitimately publishes directly).
+      'apps/auth-service/src/outbox/best-effort-event-publisher.ts',
     ],
     plugins: { aquaculture },
     rules: { 'aquaculture/no-direct-event-publish': 'warn' },

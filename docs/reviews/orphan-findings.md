@@ -3900,7 +3900,98 @@ Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-
 
 ---
 
-## ORPHAN-HIGH-093 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
+<!-- Wave-3 (auth-audit) ORPHAN findings restored during #390←main merge. These MEDIUM-0NN IDs were assigned on the W3 lineage before main's canonical HIGH-0NN existed; the {severity}-{number} scheme keeps them unique (see MEDIUM-088 numbering note). They are referenced by W3 commit Closes: trailers, so they must retain headings here. -->
+
+## ORPHAN-MEDIUM-087 — `libs/shared-contracts` is an unwired, zero-consumer "SSoT" lib
+
+**Found while:** wiring the canonical TenantStatus for W3.1 (MT-HIGH-003).
+
+**Problem:** `libs/shared-contracts` advertises itself (its `index.ts` header) as "the single source of truth for cross-cutting domain concepts," but:
+- it has NO `tsconfig.base.json` path alias and NO nx `project.json`, so it is not in the affected-graph and backend services cannot import `@aquaculture/shared-contracts` through the normal alias;
+- its own `tsconfig.json` is deliberately isolated (`baseUrl: "."`, only `@/*` → `src/*`), so it cannot import any other lib — a re-export from it to `@platform/event-contracts` fails type-check with TS2307;
+- a repo-wide grep finds ZERO real importers of `@aquaculture/shared-contracts` / `@platform/shared-contracts` in `apps/`, `web/`, or `libs/` (the one farm-service "reference" is a code comment).
+
+It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCycle`, `PlanVisibility`, `ImpersonationStatus/Reason`, `DataRequestType/Status` — duplicate definitions that can silently drift from the wired SSoT in `@platform/event-contracts`, exactly the class of bug MT-HIGH-003 / DBR-HIGH-003 exist to kill.
+
+**Root cause:** the lib was created as an aspirational shared-contracts home but never wired into tsconfig paths / the nx graph, and the real platform SSoT consolidated into `@platform/event-contracts` instead. It is now dead weight that looks authoritative.
+
+**Fix (recommended, not done here):** delete `libs/shared-contracts` entirely after confirming each of its enums either already exists in `@platform/event-contracts` or has zero consumers; or, if it must stay, wire it (tsconfig path + project.json + extend the base tsconfig) and make every enum a re-export of the event-contracts canonical. Out of scope for the auth-service audit PR; tracked here so the drift surface is visible. W3.1 removed only its `TenantStatus` duplicate (the immediate type-check blocker).
+
+**Status:** OPEN.
+
+## ORPHAN-MEDIUM-088 — admin-api-service unit-test suite broken at baseline (quarantined)
+
+> Numbering note: this MEDIUM-088 and the unrelated `ORPHAN-HIGH-088` (tenant-schema runtime grants, data-expert) below were assigned `088` on two parallel lineages and merged here. They are distinct findings; the `{severity}-{number}` ID keeps them unique. MEDIUM-088 is referenced by commit e52ba895e, so it is not renumbered.
+
+**Found while:** wiring the admin-api-service consumer of the TenantStatus machine (MT-HIGH-003 W3.1). Running `nx test admin-api-service` at the wave3 base surfaced dozens of failures UNRELATED to the TenantStatus work; confirmed pre-existing via `git stash` A/B at 596e63595.
+
+**Problem (distinct root causes observed):**
+- **58×** `Nest can't resolve dependencies of CreateTenantHandler … "EVENT_BUS" at index [1]`. CreateTenantHandler was migrated to `@Inject('EVENT_BUS')` (platform IEventBus) but `create-tenant.handler.spec.ts`, `tenant-creation.spec.ts`, and `tenant.integration.spec.ts` still provide the `EventBus` (cqrs) class token — a spec-vs-production DI drift from the enterprise-train lineage.
+- **83×** `Nest can't resolve dependencies of DatabaseExplorerController … "explorer-readonlyDataSource"` — missing custom DataSource token provider in that controller's spec.
+- **39×** `EmailSenderService … this.settingsService.getEmailConfigForSending is not a function` — stale mock (the settings service gained a method the spec mock lacks).
+- ~30 assorted assertion failures (circuit-breaker `open` vs `closed`, `toBe`/`toHaveBeenCalledWith`) that may include REAL regressions from the same lineage and need per-case triage.
+
+**Why not fixed here:** out of scope for the auth-service audit (Wave 3); it is admin-api-service's own audit surface. It does NOT block this PR — `scripts/ci/affected-target-policy.json` already quarantines the admin-api-service `test` target (and `auth-service`, `gateway-api`, and ~16 others) as known unit-test debt, so these failures are non-gating. The new `suspend-tenant.handler.spec.ts` added here passes in isolation (type-check clean, 0 errors).
+
+**Fix (recommended, tracked for the admin-api-service audit):** repair the DI-drift specs (provide the `'EVENT_BUS'` / `explorer-readonlyDataSource` tokens), refresh the EmailSenderService mock, then triage the assertion failures for real regressions, and remove `admin-api-service` from the test quarantine so the suite gates again.
+
+**Status:** OPEN (quarantined — non-blocking).
+
+## ORPHAN-MEDIUM-090 — auth-service tenant consumer files carry diff-lint regressions (import-order + pre-existing type-safety debt)
+
+**Found while:** running the diff-lint gate (`scripts/ci/lint-changed-files.mjs`) over the Wave-3 branch (W3.4). The gate reported 32 new error-level findings across six auth-service files that the Wave-3 consumer refactors touched: `user-lifecycle.service.ts` (the bulk) plus the `invitation`, `webauthn-credential`, `module`, and `mobile-user-settings` entities and `tenant-update-consolidation.spec.ts`.
+
+**Problem (two lineages, same files):**
+- **Branch-introduced (import-order):** the DATA-HIGH-001 outbox migration swapped `@Inject('EVENT_BUS') IEventBus` for `BestEffortEventPublisher` and the MT-HIGH-003/DATA-HIGH-002 entity work changed entity imports — both reshuffled import blocks without re-running `import/order`. 8 import-order errors in `user-lifecycle.service.ts` + one each in the five other files; `tenant-update-consolidation.spec.ts` also imported `Role` from the non-canonical `@platform/backend-common` barrel (no-restricted-imports).
+- **Pre-existing type-safety debt surfaced by the diff (type-aware rules):** `require('crypto')` (no-require-imports + 3× unsafe-call/member), a non-null assertion `input.moduleIds!`, an `: boolean` inferrable annotation, an untyped `dataSource.query` result feeding `insertResult[0].id` (unsafe-assignment/member), and four `string === Role` enum comparisons (`no-unsafe-enum-comparison`) that became visible once `Role`/`TenantStatus` were typed as the canonical enums.
+
+**Fix (DONE in this commit — Tier-1/Tier-3, behavior-preserving):**
+- import-order auto-fixed across all six files; the spec's `Role` import re-pointed to the canonical `@aquaculture/backend-common/decorators`.
+- `require('crypto')` → the file's existing ESM `import * as crypto` (closes the ORPHAN-HIGH-090 adjacent-cleanup note).
+- a module-level `isCanonicalRole(value): value is Role` type guard replaces the `(Object.values(Role) as string[]).includes(...)` validation at both invite/create sites; the throwing negative branch narrows `input.role` to `Role`, which structurally removes the four `string === Role` comparisons AND three `as Role` assertions (Tier-1 make-impossible).
+- `assertRoleHierarchy(targetRole)` retyped `string → Role` (callers now pass the narrowed value).
+- the module-assignment presence check inlined into its `if` so TS narrows `input.moduleIds` (no non-null assertion).
+- `dataSource.query<Array<{ id: string }>>()` generic + a fail-loud empty-row guard replaces the untyped result + `insertResult[0].id` member access.
+- `sendInvitation: boolean = true` → `sendInvitation = true`.
+
+**Verification:** all six files lint clean (0 errors); auth-service type-check clean (only the pre-existing `@nestjs/apollo` module-resolution noise remains); `user-lifecycle.service.spec.ts` + `tenant-user-management.service.spec.ts` + `tenant-update-consolidation.spec.ts` = 45/45 green (behavior preserved).
+
+**Status:** RESOLVED (this commit). The deeper `createUser` non-transactional dual-write (ORPHAN-HIGH-090) is a separate, still-open finding.
+
+## ORPHAN-MEDIUM-091 — admin-api tenant-detail any-leak query debt surfaced by MT-MEDIUM-002 (+ spec-fixture phantom-field decision)
+
+**Found while:** MT-MEDIUM-002 (W3.4) touched `tenant-detail.service.ts` (real-source farm/sensor counting) and the two tenant provisioning specs (fixture caller-update). The blocking diff-lint gate (`scripts/ci/lint-changed-files.sh`; `ci-affected.yml` line 209 — "lint failures must block PR merge") re-lints any touched file head-vs-base. Its base worktree cannot run type-aware ESLint rules (the TS project is not built there), so it reports `base=0` for every type-aware rule and flags each touched file's FULL pre-existing type-aware debt as "new." Touching these files therefore dragged their unrelated, pre-existing debt into the gate.
+
+**Problem:**
+- `tenant-detail.service.ts` (production): `getUserStats` / `getModuleUsage` / `getResourceUsage` used untyped `dataSource.query` (an `any` leak feeding `result[0].x` / `result.map`), two `t.status === 'ACTIVE' | 'SUSPENDED'` string-literal comparisons (`no-unsafe-enum-comparison` vs the canonical `TenantStatus` enum), and two unused `catch (error)` bindings.
+- `tenant-api.integration.spec.ts` + `tenant-provisioning.service.spec.ts` (admin-api **quarantined broken test debt — ORPHAN-MEDIUM-088**, one crashes at runtime on an unhandled rejection): deep mock `any` (`as any`, `callback: any`, untyped `jest.fn()`), non-null assertions, and unused imports.
+
+**Fix:**
+- `tenant-detail.service.ts` (DONE — Tier-3 type, behavior-preserving): typed all three query results with local row types (`UserStatsRow`, `ModuleUsageRow`, `{ calls_24h; calls_7d }`) via the `dataSource.query<T>()` generic, dropping the field-level `as` casts in the `.map`; `'ACTIVE'`/`'SUSPENDED'` → `TenantStatus.ACTIVE` / `TenantStatus.SUSPENDED`; logged the previously-discarded `getModuleUsage` catch error (consistency with the `getUserStats` BUG-007 pattern) and bare-caught the genuinely-ignored metrics catch. 0 lint errors; admin-api type-check clean.
+- the two provisioning specs (REVERTED to origin/main): the MT-MEDIUM-002 fixture edit only removed the now-phantom `farmCount: 0` / `sensorCount: 0` lines from an `Object.assign(tenant, {...})` that tolerates excess props harmlessly. Cleaning their full pre-existing mock-`any` debt is high-churn / high-risk surgery on quarantined broken specs owned by ORPHAN-MEDIUM-088 — out of MT-MEDIUM-002's scope. Reverting returns them to a net-zero diff (out of the gate). The reverted fixtures still set `farmCount`/`sensorCount` via `Object.assign` — a harmless phantom property after the entity drop, to be removed when the admin-api specs are de-quarantined (ORPHAN-MEDIUM-088).
+
+**Status:** RESOLVED for the production service. The spec phantom-fixtures + admin-api mock-`any` debt stay with ORPHAN-MEDIUM-088 (quarantined, non-blocking).
+
+## ORPHAN-MEDIUM-092 — diff-lint gate linted base and head with DIFFERENT configs → a lint-config refactor flagged pre-existing debt as new regressions
+
+**Found while:** resolving the diff-lint cascade that MT-MEDIUM-001 / MT-MEDIUM-002 kept hitting (3× this session). Every time a commit touched a file that already carried lint debt, the blocking diff-lint gate (`scripts/ci/lint-changed-files.mjs`; `ci-affected.yml` line 209 — "lint failures must block PR merge") reported that file's FULL pre-existing debt as "new error-level findings" (e.g. 72 findings across two admin-api specs the MT-MEDIUM-001 entity drop forced me to touch).
+
+**Problem (root cause):** the gate measures whether a change introduces *new* lint errors by linting each changed file at base and at head and diffing the per-rule counts. But it linted the two sides with DIFFERENT configs:
+- **head** — in the real repo, with head's `.eslintrc.json` + head's tsconfigs.
+- **base** — in a detached worktree checked out at `origin/main`, with **origin/main's** config.
+
+This branch (a) modified `.eslintrc.json` and (b) sits on a `tsconfig.base.json` that advanced on `origin/main` after the branch's merge-base. So base linted these specs with the OLD, looser ruleset and found **0** type-aware errors, while head linted them with the NEW ruleset and found **N** — a pure CONFIG delta the gate mis-attributed to the code. Empirically reproduced: `tenant.integration.spec.ts` base-lint = 0 errors with base config, = 39 with head's config. A lint-config refactor therefore made every newly-linted pre-existing issue look like a regression on whatever commit happened to touch the file.
+
+**Fix (Tier-1, make-the-gate-correct):** `syncLintConfigFromHead()` overlays head's lint configuration onto the base worktree before base-linting — eslint configs (`**/.eslintrc*`, `**/eslint.config.*`, `**/.eslintignore`) + the tsconfigs its type-aware rules resolve (`**/tsconfig*.json`). It uses a **two-dot** `base..head` diff (NOT three-dot): the worktree is checked out at `origin/main` itself, so a config that advanced on base after the merge-base must still be overlaid — a three-dot diff would miss it. Now both sides lint with the SAME ruleset, so the base-vs-head delta isolates CODE changes from CONFIG changes; the gate flags only errors the diff actually introduced.
+
+**Verification:** the same branch HEAD that produced 72 false error-level findings now reports **"No new error-level lint findings relative to origin/main"** (NODE_EXIT=0). The gate's own unit suite (parseArgs / parseDiffHunkLines / range + prepush helpers, 25 tests) stays green. The two admin specs' pre-existing debt is correctly recognised as pre-existing (base=head=39) and left to its ORPHAN-MEDIUM-088 quarantine owner.
+
+**Known residual (tracked, non-blocking):** `@nx/enforce-module-boundaries` needs the cached nx ProjectGraph, which exists in the real repo but not the fresh worktree, so that one rule is base-skipped (it logs "No cached ProjectGraph … rule will be skipped"). It is a **warning**-level rule (report-only, never blocks), so the asymmetry is cosmetic; a complete fix would prime the nx graph in the worktree (`nx graph` / `NX_DAEMON`) — deferred as low-value vs. the blocking-error cascade this finding closes.
+
+**Status:** RESOLVED (this commit).
+
+
+## ORPHAN-HIGH-100 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
 
 Severity: HIGH. A2 (ESLint 8→9 flat migration) sırasında firsthand keşfedildi: `tools/eslint-rules`'deki 6 mimari-invariant kuralı (`require-entity-schema`, `no-bare-tenant-query-key`, `no-direct-event-publish`, `no-high-cardinality-metric-label`, `no-claude-sdk-raw-call`, `no-bare-graphql-query-string`) root `.eslintrc.json`'da **override** olarak tanımlıydı; ama her proje (apps/*, libs/event-contracts, libs/node-components, web/*, mcp/*, scripts, tests/invariants, tools/eslint-rules — 31 dizin) kendi `root: true` `.eslintrc.cjs`'ine sahip olduğundan eslintrc cascade proje sınırında DURUYORDU → bu kurallar proje dosyalarına HİÇ uygulanmadı. ESLint 8 `calculateConfigForFile` ile doğrulandı: `aquaculture/require-entity-schema` + `no-direct-event-publish` 55 proje-probe'unun **0**'ında tanımlı. Kurallar yalnız non-cjs zonlarda (`platform/libs/**`, `libs/backend-common/**`, `web/apps/aquamobil/**`) canlı.
 
@@ -3912,7 +4003,7 @@ Düzeltme yönü: `eslint.config.mjs`'in `PROJECT_GLOBS`-gated custom-rule blokl
 
 Status: OPEN (2026-06-12; sahip: platform-kernel-expert; A2 PR-2 firsthand bulgusu; aktivasyon ayrı PR).
 
-## ORPHAN-MEDIUM-094 — `no-restricted-syntax` (JWT_SECRET + getRepository + JSON.stringify gate'leri) web modüllerinde ve e2e'de tutarsız
+## ORPHAN-MEDIUM-101 — `no-restricted-syntax` (JWT_SECRET + getRepository + JSON.stringify gate'leri) web modüllerinde ve e2e'de tutarsız
 
 Severity: MEDIUM. A2 firsthand: `no-restricted-syntax` (6 selector: getRepository, JSON.stringify>2, 4×JWT_SECRET) ESLint 8 resolved davranışında zon-bazında tutarsız: apps + 4 web modülü (dashboard/farm-module/hr-module/hydroponics-module) = 6 selector (tam gate); ama **5 web modülü (shell, shared-ui, admin-panel, sensor-module, tenant-admin) = `off`** (cjs'leri `no-restricted-syntax: 'off'` set ediyor) ve **e2e = yalnız 2 selector** (root test override JWT_SECRET'i düşürüyor). Yani JWT_SECRET okuma yasağı 5 web modülünde + tüm e2e'de etkisiz; getRepository IDOR yasağı bu 5 web modülünde etkisiz.
 
@@ -3922,4 +4013,4 @@ Kök neden: web modül cjs'leri React-ergonomisi için no-restricted-syntax'i to
 
 Düzeltme yönü: JWT_SECRET 4 selector'ını web + e2e'de yeniden aktive et; flat config'te ayrı bir "JWT_SECRET-everywhere" bloğu (`files: ['**/*.ts','**/*.tsx']`, ignore yok) tüm zonlarda 4 JWT_SECRET selector'ını zorlar — eslintrc'nin yapamadığı tutarlılık. Ölçülü PR: önce e2e, sonra web.
 
-Status: OPEN (2026-06-12; sahip: auth-security-expert; A2 PR-2 firsthand bulgusu; ORPHAN-HIGH-093 ile aynı aktivasyon dalgasında ele alınabilir).
+Status: OPEN (2026-06-12; sahip: auth-security-expert; A2 PR-2 firsthand bulgusu; ORPHAN-HIGH-100 ile aynı aktivasyon dalgasında ele alınabilir).

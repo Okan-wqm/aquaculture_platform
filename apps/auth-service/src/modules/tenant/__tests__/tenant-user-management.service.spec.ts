@@ -17,6 +17,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { User } from '../../authentication/entities/user.entity';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
@@ -210,6 +211,13 @@ describe('TenantUserManagementService', () => {
         { provide: SchemaManagerService, useValue: mockSchemaManager },
         { provide: TenantRoleService, useValue: mockTenantRoleService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
+        // The service injects BestEffortEventPublisher (not the raw bus) for the
+        // allowlisted UserInvited event; wrap the same mock so publish assertions
+        // continue to observe what the service emits (DATA-HIGH-001).
+        {
+          provide: BestEffortEventPublisher,
+          useValue: new BestEffortEventPublisher(mockEventBus),
+        },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: UserLifecycleService, useValue: mockUserLifecycleService },
       ],

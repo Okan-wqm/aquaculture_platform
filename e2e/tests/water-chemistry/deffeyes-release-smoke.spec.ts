@@ -1,17 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
-type ExpectedMode = 'ph' | 'legacy';
-
 const SMOKE_TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const SMOKE_USER_ID = '22222222-2222-4222-8222-222222222222';
-
-function expectedMode(): ExpectedMode {
-  const mode = process.env.FARM_WATER_CHEMISTRY_EXPECT_MODE ?? 'ph';
-  if (mode !== 'ph' && mode !== 'legacy') {
-    throw new Error(`Invalid FARM_WATER_CHEMISTRY_EXPECT_MODE=${mode}`);
-  }
-  return mode;
-}
 
 function expectsRemoteEntry(): boolean {
   return process.env.FARM_WATER_CHEMISTRY_EXPECT_REMOTE_ENTRY !== 'false';
@@ -112,7 +102,7 @@ async function installShellAuthMocks(page: Page): Promise<void> {
   });
 }
 
-test('Deffeyes chart mode, report print, and CSP stay release-safe', async ({ page }) => {
+test('Deffeyes ALK/DIC chart, report print, and CSP stay release-safe', async ({ page }) => {
   const cspMessages: string[] = [];
   const pageErrors: string[] = [];
   const remoteEntryRequests: string[] = [];
@@ -130,14 +120,11 @@ test('Deffeyes chart mode, report print, and CSP stay release-safe', async ({ pa
   });
 
   await installShellAuthMocks(page);
-  await page.goto(process.env.FARM_WATER_CHEMISTRY_PATH ?? '');
+  await page.goto('');
 
-  if (expectedMode() === 'ph') {
-    await expect(page.getByTestId('deffeyes-ph-chart')).toBeVisible();
-  } else {
-    await expect(page.getByTestId('deffeyes-ph-chart')).toHaveCount(0);
-    await expect(page.getByText('Water Quality Management Chart').first()).toBeVisible();
-  }
+  // Single ALK/DIC Deffeyes chart — the DIC/pH chart was removed (legacy is the only mode).
+  await expect(page.getByTestId('deffeyes-ph-chart')).toHaveCount(0);
+  await expect(page.getByText('Water Quality Management Chart').first()).toBeVisible();
 
   if (expectsRemoteEntry()) {
     expect(remoteEntryRequests.length).toBeGreaterThan(0);

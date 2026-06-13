@@ -11,7 +11,7 @@
     "lint": "eslint src",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:water-chemistry": "vitest run src/pages/water-chemistry/WaterChemistryPage.spec.ts src/pages/water-chemistry/components/DeffeyesChart.spec.tsx src/pages/water-chemistry/components/DeffeyesPhChart.spec.tsx src/pages/water-chemistry/waterChemistryReportExport.spec.ts"
+    "test:water-chemistry": "vitest run src/pages/water-chemistry/WaterChemistryPage.spec.ts src/pages/water-chemistry/components/DeffeyesChart.spec.tsx src/pages/water-chemistry/waterChemistryReportExport.spec.ts"
   },
   "dependencies": {
     "@aquaculture/shared-ui": "file:../../shared-ui",

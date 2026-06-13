@@ -61,6 +61,7 @@ import {
   type AdminCheckUserLimitResult,
   type ActivateTenantCommand,
   type ArchiveTenantLifecycleCommand,
+  type BeginProvisioningCommand,
   type AssignTenantModulesCommand,
   type AssignTenantModulesResult,
   type CreateTenantAdminCommand,
@@ -606,6 +607,18 @@ export class AuthAdminNatsHandler {
         `createTenantAdmin failed: tenantId=${command.tenantId}, reason=${message}`,
       );
       return { success: false, error: message };
+    }
+  }
+
+  @MessagePattern(TENANT_COMMAND_SUBJECTS.BEGIN_PROVISIONING)
+  async beginProvisioning(
+    @Payload() command: BeginProvisioningCommand,
+  ): Promise<AuthTenantCommandResult> {
+    try {
+      const result = await this.tenantProvisioningCommandService.beginProvisioning(command);
+      return { success: true, ...result };
+    } catch (err) {
+      return this.toTenantCommandFailure(command, 'beginProvisioning', err);
     }
   }
 

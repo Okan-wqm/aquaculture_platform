@@ -12,6 +12,7 @@ import type { UserInvitedEvent } from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { ActionToken } from '../../authentication/entities/action-token.entity';
 import { Invitation } from '../../authentication/entities/invitation.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
@@ -207,6 +208,13 @@ describe('UserLifecycleService', () => {
         { provide: SchemaManagerService, useValue: mockSchemaManager },
         { provide: TenantRoleService, useValue: mockTenantRoleService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
+        // The service injects BestEffortEventPublisher (not the raw bus) for the
+        // allowlisted UserInvited event; wrap the same mock so publish assertions
+        // continue to observe what the service emits (DATA-HIGH-001).
+        {
+          provide: BestEffortEventPublisher,
+          useValue: new BestEffortEventPublisher(mockEventBus),
+        },
         { provide: AuditLogService, useValue: mockAuditLogService },
       ],
     }).compile();

@@ -1,3 +1,7 @@
+import * as crypto from 'crypto';
+
+import { SchemaManagerService, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
 import {
   Injectable,
   Logger,
@@ -5,26 +9,36 @@ import {
   ConflictException,
   ForbiddenException,
   BadRequestException,
-  Inject,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import * as crypto from 'crypto';
-import { Repository, DataSource } from 'typeorm';
-import { SchemaManagerService, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { IEventBus } from '@platform/event-bus';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
+import { Repository, DataSource } from 'typeorm';
 
-import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { AuditLogService } from '../../../audit/audit-log.service';
+import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../../authentication/entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../../authentication/entities/invitation.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User, AccessType } from '../../authentication/entities/user.entity';
-import { Tenant } from '../entities/tenant.entity';
 import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
+import { Tenant } from '../entities/tenant.entity';
+
 import { TenantRoleService, TenantRoleWithDetails } from './tenant-role.service';
+
+/**
+ * Narrowing type guard: a raw role string is one of the four canonical roles.
+ *
+ * WHY: `input.role` arrives as a `varchar`-backed string from the invite/create
+ * DTOs. Guarding with this predicate narrows it to `Role` for the rest of the
+ * method (the throwing negative branch makes the value provably a `Role`), which
+ * removes BOTH the `as Role` assertions and the unsafe `string === Role` enum
+ * comparisons — the comparison is `Role === Role` once narrowed.
+ */
+function isCanonicalRole(value: string): value is Role {
+  return (Object.values(Role) as string[]).includes(value);
+}
 
 /**
  * Result of user creation
@@ -92,7 +106,11 @@ export class UserLifecycleService {
     private readonly dataSource: DataSource,
     private readonly schemaManager: SchemaManagerService,
     private readonly tenantRoleService: TenantRoleService,
-    @Inject('EVENT_BUS') private readonly eventBus: IEventBus,
+    // DATA-HIGH-001: UserInvited is a notification trigger whose durable record
+    // is the invitation row — routed through the allowlisted best-effort path,
+    // not the raw event bus. (Durable upgrade tracked as ORPHAN-HIGH-090, which
+    // first needs createUser to become transactional.)
+    private readonly bestEffort: BestEffortEventPublisher,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -122,7 +140,7 @@ export class UserLifecycleService {
       };
     },
     createdBy: string,
-    sendInvitation: boolean = true,
+    sendInvitation = true,
   ): Promise<CreatedUserResult> {
     const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
 
@@ -385,10 +403,10 @@ export class UserLifecycleService {
     // Role validation — only known role values are accepted. Rejecting
     // unknown strings prevents an admin from typoing a role into existence
     // (the column is `varchar`, so TypeORM would accept any string).
-    if (!(Object.values(Role) as string[]).includes(input.role)) {
+    if (!isCanonicalRole(input.role)) {
       throw new BadRequestException(`Unknown role "${input.role}"`);
     }
-    const role = input.role as Role;
+    const role: Role = input.role;
 
     // Tenant validation — when a tenantId is provided it MUST resolve to
     // an active tenant. SUPER_ADMIN accounts legitimately pass null.
@@ -641,10 +659,11 @@ export class UserLifecycleService {
     }
 
     // 2. Role validation — only the four canonical roles.
-    if (!(Object.values(Role) as string[]).includes(input.role)) {
+    if (!isCanonicalRole(input.role)) {
       throw new BadRequestException(`Unknown role "${input.role}"`);
     }
-    if (input.role === Role.SUPER_ADMIN) {
+    const invitedRole: Role = input.role;
+    if (invitedRole === Role.SUPER_ADMIN) {
       throw new BadRequestException(
         'SUPER_ADMIN cannot be invited — use AdminCreateUserCommand for platform accounts',
       );
@@ -657,7 +676,7 @@ export class UserLifecycleService {
     if (!inviter) {
       throw new NotFoundException(`Inviter user "${input.invitedBy}" not found`);
     }
-    this.assertRoleHierarchy(inviter, input.tenantId, input.role);
+    this.assertRoleHierarchy(inviter, input.tenantId, invitedRole);
 
     // 4. Email uniqueness (case-insensitive — schema enforces this via
     //    the LOWER(email) expression index too, but failing fast in the
@@ -695,7 +714,7 @@ export class UserLifecycleService {
         email: normalisedEmail,
         firstName: input.firstName ?? null,
         lastName: input.lastName ?? null,
-        role: input.role as Role,
+        role: invitedRole,
         tenantId: input.tenantId,
         isActive: true,
         isEmailVerified: false,
@@ -710,7 +729,7 @@ export class UserLifecycleService {
         email: normalisedEmail,
         firstName: input.firstName ?? null,
         lastName: input.lastName ?? null,
-        role: input.role as Role,
+        role: invitedRole,
         tenantId: input.tenantId,
         moduleIds:
           input.moduleIds && input.moduleIds.length > 0
@@ -740,20 +759,22 @@ export class UserLifecycleService {
       const savedActionToken = await manager.save(ActionToken, actionToken);
 
       // Module assignments — only meaningful for module-scoped roles.
-      // TENANT_ADMIN inherits access from TenantModule rows and gets
-      // no UserModuleAssignment entries.
-      const wantsModuleAssignments =
-        input.role !== Role.TENANT_ADMIN &&
+      // TENANT_ADMIN inherits access from TenantModule rows and gets no
+      // UserModuleAssignment entries. The moduleIds presence check is inlined
+      // into the `if` so TS narrows `input.moduleIds` to a defined string[]
+      // (no non-null assertion needed on the .map).
+      if (
+        invitedRole !== Role.TENANT_ADMIN &&
         input.moduleIds &&
-        input.moduleIds.length > 0;
-      if (wantsModuleAssignments) {
-        const assignments = input.moduleIds!.map((moduleId) =>
+        input.moduleIds.length > 0
+      ) {
+        const assignments = input.moduleIds.map((moduleId) =>
           umaRepo.create({
             userId: savedUser.id,
             moduleId,
             tenantId: input.tenantId,
             isPrimaryManager:
-              input.role === Role.MODULE_MANAGER &&
+              invitedRole === Role.MODULE_MANAGER &&
               moduleId === input.primaryModuleId,
             isActive: true,
             assignedBy: input.invitedBy,
@@ -796,7 +817,7 @@ export class UserLifecycleService {
         actionTokenId: result.actionTokenId,
         cryptoShredKeyId: result.userId,
       };
-      await this.eventBus.publish(event);
+      await this.bestEffort.publish(event);
       this.logger.log(`Published UserInvitedEvent for userId=${result.userId}`);
     }
 
@@ -868,7 +889,7 @@ export class UserLifecycleService {
   private assertRoleHierarchy(
     inviter: User,
     targetTenantId: string,
-    targetRole: string,
+    targetRole: Role,
   ): void {
     const ranks: Record<string, number> = {
       [Role.SUPER_ADMIN]: 4,
@@ -918,7 +939,7 @@ export class UserLifecycleService {
     assignedBy: string,
     expiresAt?: Date,
   ): Promise<UserRoleAssignmentResult> {
-    const insertResult = await this.dataSource.query(
+    const [inserted] = await this.dataSource.query<Array<{ id: string }>>(
       `
       INSERT INTO "${schemaName}"."user_role_assignments" (
         user_id, role_id, permission_overrides, is_active, expires_at, assigned_by, created_at, updated_at
@@ -928,7 +949,14 @@ export class UserLifecycleService {
       [userId, roleId, JSON.stringify(permissionOverrides), expiresAt || null, assignedBy],
     );
 
-    const assignmentId = insertResult[0].id;
+    // INSERT ... RETURNING id always yields exactly one row; a missing row means
+    // the write silently did not happen — fail loud rather than carry undefined.
+    if (!inserted) {
+      throw new Error(
+        `user_role_assignments INSERT for userId=${userId} returned no row`,
+      );
+    }
+    const assignmentId = inserted.id;
 
     const effectivePermissions = this.calculateEffectivePermissions(
       role.permissions?.resourcePermissions || [],
@@ -996,7 +1024,7 @@ export class UserLifecycleService {
   ): Promise<void> {
     // SECURITY: Hash the invitation token for the opaque actionTokenId reference.
     // The raw token is NEVER placed on the event bus.
-    const actionTokenHash = require('crypto')
+    const actionTokenHash = crypto
       .createHash('sha256')
       .update(invitationToken)
       .digest('hex');
@@ -1011,7 +1039,7 @@ export class UserLifecycleService {
       cryptoShredKeyId: user.id,
     };
 
-    await this.eventBus.publish(event);
+    await this.bestEffort.publish(event);
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
     this.logger.log(`Published UserInvitedEvent for userId=${user.id}`);
   }

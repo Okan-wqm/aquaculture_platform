@@ -1,20 +1,38 @@
-# Water Chemistry Chart Rollback
+# Water Chemistry — Deffeyes chart
 
-The center Deffeyes chart defaults to the DIC/pH renderer.
+The center chart is the **ALK/DIC Deffeyes diagram** (`components/DeffeyesChart.tsx`):
 
-Rollback options:
+- **X axis** = DIC (dissolved inorganic carbon, mmol/L)
+- **Y axis** = Alkalinity (meq/L)
+- **Contour lines** = pH isolines
 
-- Build-time env: set `VITE_DEFFEYES_CHART_MODE=legacy` before building the farm module. Vite reads this from the repo root via `envDir`; Docker and prebuilt `dist/` deployments must export the env before `npm run build`.
-- Per-session diagnostic rollback: add `?deffeyesMode=legacy` to the URL.
-- Per-session return to the new chart while env is legacy is denied by default. It only works when the build also sets `VITE_DEFFEYES_ALLOW_DIAGNOSTIC_MODE_OVERRIDE=true`.
+It is the single, canonical chart. The former DIC/pH ("Millero") renderer and
+its `VITE_DEFFEYES_CHART_MODE` / `?deffeyesMode=` switch were removed — there is
+no chart mode flag anymore.
 
-If DIC/pH chart generation throws, the page automatically renders the legacy
-ALK/DIC Deffeyes chart and shows an inline warning.
+## Toxicity overlays (show/hide layers)
 
-Keep the legacy renderer and generator until these gates remain green in
-production-equivalent validation:
+Each toxic zone is a toggleable shaded layer, computed in the engine
+(`libs/aquaculture-engines/src/water-chemistry/deffeyes-data.ts`) and rendered
+as a recharts `<Area>`:
 
-- Engine parity tests and farm render tests pass.
-- No `VITE_DEFFEYES_CHART_MODE=legacy` rollback incidents are open.
-- Consumer scan confirms no external caller depends on removed ALK/DIC-only
-  chart internals.
+| Layer | Engine generator | Side | Colour |
+|---|---|---|---|
+| NH₃ toxic | `generateNH3ToxicZone` | high pH (un-ionized ammonia) | `#ef4444` |
+| CO₂ toxic | `generateCO2ToxicZone` | low pH / high DIC | `#f97316` |
+| **H₂S toxic** | `generateH2SToxicZone` | low pH (un-ionized sulfide) | `#b91c1c` |
+
+H₂S becomes toxic **below** a critical pH (`criticalPHforH2S`), so its boundary
+is the critical-pH isoline and the danger band fills downward to the X-axis —
+the same shape as CO₂. Inputs come from the H₂S panel
+(`h2sUgL`, `h2sMeasuredAtPH`, `h2sLimitUgL`).
+
+All toxic layers default to hidden. The printed report forces every toxic layer
+(NH₃ + CO₂ + H₂S) plus the safe zone visible via the `forceSafetyOverlays` prop,
+without mutating the user's per-layer toggles.
+
+## Status panel
+
+The UIA / H₂S status readouts (`ResultsPanel`) use the chart-pH-domain critical
+solvers `criticalPHforNH3PHChartDomain` / `criticalPHforH2SPHChartDomain`, which
+are retained in the engine for that purpose.

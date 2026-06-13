@@ -3,6 +3,14 @@
  * Supports infinite scroll, optimistic send, typing indicators, and iOS keyboard handling.
  */
 
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  Settings,
+  Send,
+  ChevronDown,
+  AlertCircle,
+} from 'lucide-react';
 import {
   useState,
   useCallback,
@@ -11,33 +19,34 @@ import {
   useRef,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import {
-  ArrowLeft,
-  Settings,
-  Send,
-  ChevronDown,
-  AlertCircle,
-} from 'lucide-react';
+
+import { AttachmentPicker } from '@/components/messaging/AttachmentPicker';
+import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
+import { ForwardModal } from '@/components/messaging/ForwardModal';
+import { MessageBubble } from '@/components/messaging/MessageBubble';
+import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
+import { MessageInput } from '@/components/messaging/MessageInput';
+import { TypingIndicator } from '@/components/messaging/TypingIndicator';
 import { useAuth } from '@/hooks/useAuth';
+import { useChannelDetail } from '@/hooks/useChannelDetail';
+import { useMarkRead } from '@/hooks/useMarkRead';
+import { useMediaUpload } from '@/hooks/useMediaUpload';
 import { useMessages } from '@/hooks/useMessages';
 import { useMessageSocket } from '@/hooks/useMessageSocket';
-import { useSendMessage } from '@/hooks/useSendMessage';
-import { useTypingIndicator } from '@/hooks/useTypingIndicator';
-import { useChannelDetail } from '@/hooks/useChannelDetail';
-import { useMediaUpload } from '@/hooks/useMediaUpload';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { MessageBubble } from '@/components/messaging/MessageBubble';
-import { TypingIndicator } from '@/components/messaging/TypingIndicator';
-import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
-import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
-import { MessageInput } from '@/components/messaging/MessageInput';
-import { ForwardModal } from '@/components/messaging/ForwardModal';
-import { AttachmentPicker } from '@/components/messaging/AttachmentPicker';
-import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
+import { useSendMessage } from '@/hooks/useSendMessage';
+import { useTypingIndicator } from '@/hooks/useTypingIndicator';
 import type { Message } from '@/types/messaging';
+import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
+/**
+ * Distance (px) from the bottom of the scroll container within which the
+ * newest message is considered "in view" for read-cursor purposes. A small
+ * slack absorbs sub-pixel rounding and momentum scrolling on mobile.
+ */
+const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 
 /** Group messages by date for rendering date separators. */
 function groupMessagesByDate(
@@ -87,6 +96,7 @@ export function ChatRoomPage() {
   } = useMessages(channelId, socketRef);
   const { channel, isLoading: channelLoading } = useChannelDetail(channelId);
   const { sendMessage, isSending } = useSendMessage(channelId);
+  const { markRead } = useMarkRead(channelId);
   const { stopTyping, typingUsers } = useTypingIndicator(
     channelId,
     socketRef,
@@ -103,6 +113,21 @@ export function ChatRoomPage() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isLoadingMoreRef = useRef(false);
 
+  // Read-state trigger (Wave-6 M2). We only advance the read cursor when the
+  // user has actually SEEN the newest message: the list is scrolled to the
+  // bottom AND the document is visible (foreground tab / app). Scrolled-up
+  // history reading must NOT mark the newest message read.
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isDocVisible, setIsDocVisible] = useState(
+    () => typeof document === 'undefined' || document.visibilityState === 'visible',
+  );
+  // Dedup the read cursor: only fire markRead when the newest readable message
+  // id changes. The server handler is idempotent, but this avoids redundant
+  // mutations on every scroll/visibility tick and breaks the
+  // invalidate → refetch → effect feedback loop (refetch returns the same
+  // newest id, so no re-fire).
+  const lastMarkedRef = useRef<string | null>(null);
+
   // Join/leave channel room for socket events
   useEffect(() => {
     if (channelId && isConnected) {
@@ -113,24 +138,78 @@ export function ChatRoomPage() {
     }
   }, [channelId, isConnected, joinChannel, leaveChannel]);
 
+  // Reset the read-cursor dedup when switching channels so the first readable
+  // message in the newly-opened channel always triggers a mark-read.
+  useEffect(() => {
+    lastMarkedRef.current = null;
+  }, [channelId]);
+
+  // Track foreground visibility — a backgrounded tab must not mark messages read.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onVisibility = (): void =>
+      setIsDocVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   // Group messages by date
   const messageGroups = useMemo(
     () => groupMessagesByDate(messages),
     [messages],
   );
 
+  // Newest server-persisted message id. Optimistic sends (_status
+  // 'pending'/'failed') are skipped — they have no server row yet, so
+  // markMessagesRead would 404 on them. The cursor advances to this id
+  // regardless of sender: the server unread subquery counts a member's OWN
+  // messages after lastReadAt too, so the badge only clears once lastReadAt
+  // passes the newest message (mine included).
+  const lastReadableMessageId = useMemo<string | null>(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m && m._status !== 'pending' && m._status !== 'failed') {
+        return m.id;
+      }
+    }
+    return null;
+  }, [messages]);
+
   // Scroll to bottom on new messages
   useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop =
         scrollContainerRef.current.scrollHeight;
+      // We just pinned the view to the newest message — record at-bottom
+      // deterministically rather than relying on the programmatic scroll to
+      // re-fire onScroll.
+      setIsAtBottom(true);
     }
   }, [messages.length]);
 
-  // Infinite scroll -- load older messages when scrolling to top
+  // Wave-6 M2: advance the read cursor when the user has actually seen the
+  // newest message (at the bottom AND foreground). markRead never throws — it
+  // degrades to the offline queue — so this is fire-and-forget; lastMarkedRef
+  // dedups repeat fires and breaks the invalidate→refetch→effect loop.
+  useEffect(() => {
+    if (!channelId || !lastReadableMessageId) return;
+    if (!isAtBottom || !isDocVisible) return;
+    if (lastMarkedRef.current === lastReadableMessageId) return;
+    lastMarkedRef.current = lastReadableMessageId;
+    void markRead(lastReadableMessageId);
+  }, [channelId, lastReadableMessageId, isAtBottom, isDocVisible, markRead]);
+
+  // Infinite scroll -- load older messages when scrolling to top; also track
+  // whether the newest message is in view for the read-cursor trigger above.
   const handleScroll = useCallback(async () => {
     const container = scrollContainerRef.current;
-    if (!container || !hasNextPage || isLoadingMoreRef.current) return;
+    if (!container) return;
+
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    setIsAtBottom(distanceFromBottom < SCROLL_BOTTOM_THRESHOLD_PX);
+
+    if (!hasNextPage || isLoadingMoreRef.current) return;
 
     if (container.scrollTop < 100) {
       isLoadingMoreRef.current = true;

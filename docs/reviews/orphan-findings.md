@@ -4052,3 +4052,19 @@ Severity: MEDIUM. Discovered 2026-06-13 while implementing Wave-6 M2 (mobile rea
 **Fix direction (architectural, not masked):** make the two paths agree on sender semantics. Either (a) add `AND m."senderId" <> membership."userId"` to the `get-channels` + `getUnreadCountFromDb` subqueries so the DB matches Redis (own messages never count as unread — the semantically correct choice), or (b) decide own-messages DO count and increment Redis for the sender too. Option (a) is preferred: a user's own message is never "unread" to them. Requires updating both subqueries + a regression test asserting own-message sends do not inflate the per-channel badge.
 
 Status: OPEN (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.
+
+---
+
+## ORPHAN-MEDIUM-102 — 108 dead FE GraphQL operation contracts shipped across the four frontends
+
+Severity: MEDIUM. Discovered 2026-06-13 while building the dead-contract ratchet gate (Tier-3 follow-up to Wave-6 M2 / MSG-CRITICAL-001), messaging-expert.
+
+**Problem:** A token-frequency scan of `web/**` (`tests/invariants/lib/dead-contract-scan.ts`) found **108 exported GraphQL operation consts (68 mutations + 40 queries) of 584 total that are referenced nowhere** — defined in operation files, shipped to the bundle, reachable by no call site. This is the exact failure mode of M2 (`MARK_MESSAGES_READ` existed + had an offline-replay branch but no trigger, so mobile read state never advanced); M2 was one symptomatic instance of a systemic 108-wide debt. Each dead contract is either (a) a feature wired on the backend but never reachable from the UI (a silent product gap like M2), or (b) genuinely abandoned code (bundle bloat + reviewer noise). Without triage we cannot tell which.
+
+**Effect:** Latent — any of the 108 could be a non-functional feature a user expects to work (the M2 class), and all of them inflate the bundle and obscure which operations are live. Distribution skews to farm-module feedingProgram (15+) and hr-module operations (20+).
+
+**Containment (done):** the dead-contract ratchet invariant (`tests/invariants/dead-contract-fe-operations.spec.ts` + `dead-contract-fe-operations.baseline.json`) FREEZES these 108 and fails CI on any NEW dead contract or any baseline entry that has since been wired/deleted — so the set can only shrink. The bleeding is stopped; this finding tracks the burn-down.
+
+**Fix direction (burn-down, per-module owners):** for each baseline entry, either wire the operation to its intended call site (if it backs a real feature — the M2 fix shape) or delete it (if abandoned), then remove it from the baseline. Owners: farm-module (feedingProgram.mutations), hr-module (attendance/certification/leave/performance operations), aquamobil (messaging-operations residue), sensor-module. No silent baseline padding — the gate's honesty check forbids it.
+
+Status: OPEN (2026-06-13; owner: frontend-expert; burn-down tracked, no deadline). Registry: orphan-findings.md (not dual-registered to findings.jsonl — keeps the gate PR's findings.jsonl footprint zero to avoid the registry chain-conflict cascade).

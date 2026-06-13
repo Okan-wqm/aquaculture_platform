@@ -1,19 +1,20 @@
 import * as crypto from 'crypto';
-import * as bcrypt from 'bcryptjs';
 
+import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
+import * as bcrypt from 'bcryptjs';
 import { DataSource, Repository } from 'typeorm';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
+import { AuthPayload } from '../dto/auth-response.dto';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
-import { AuthPayload } from '../dto/auth-response.dto';
 
 /**
  * JWT access token payload.
@@ -155,7 +156,7 @@ export class TokenService {
     user: User,
     ipAddress?: string,
     userAgent?: string,
-    options?: { mfaVerified?: boolean },
+    options?: { mfaVerified?: boolean; familyId?: string },
   ): Promise<AuthPayload> {
     // Enforce concurrent session limit
     if (this.sessionManager) {
@@ -194,9 +195,14 @@ export class TokenService {
       ...(options?.mfaVerified ? { mfaVerified: true } : {}),
     };
 
-    // SECURITY: Include audience claim to prevent cross-service token replay
+    // SECURITY (SEC-HIGH-003): include audience (anti cross-service replay)
+    // AND the `kid` header so verifiers can deterministically select the
+    // matching JWKS public key during a rotation overlap. The kid is derived
+    // from the same SSoT (getActiveSigningKid) the JWKS controller publishes,
+    // making header/JWKS drift impossible.
     const accessToken = await this.jwtService.signAsync(payload, {
       audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
+      keyid: getActiveSigningKid(this.configService),
     });
     const refreshTokenRandom = crypto.randomBytes(64).toString('hex');
 
@@ -211,11 +217,17 @@ export class TokenService {
       tokenToStore = await bcrypt.hash(refreshTokenRandom, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
     }
 
+    // SECURITY (SEC-MEDIUM-003): a fresh login starts a NEW token family; a
+    // rotation (refresh) passes the rotated token's familyId so the lineage
+    // is preserved. Reuse-detection later revokes by family, not by user.
+    const familyId = options?.familyId ?? crypto.randomUUID();
+
     // Create refresh token
     const refreshToken = this.refreshTokenRepository.create({
       token: tokenToStore,
       userId: user.id,
       tenantId: user.tenantId,
+      familyId,
       expiresAt: new Date(Date.now() + this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000),
       ipAddress,
       userAgent,

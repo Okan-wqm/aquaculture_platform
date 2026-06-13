@@ -26,6 +26,7 @@ import {
   TenantContextMiddleware,
   TenantStatus,
   TenantContextRequest,
+  TenantMetadata,
   getCurrentTenant,
   getCurrentTenantId,
   getTenantFromRequest,
@@ -402,7 +403,7 @@ describe('TenantContextMiddleware', () => {
       });
       const res = createMockResponse();
 
-      let capturedTenant: unknown = null;
+      let capturedTenant: TenantMetadata | undefined;
       const next = jest.fn(() => {
         capturedTenant = tenantStorage.getStore();
       });
@@ -410,7 +411,7 @@ describe('TenantContextMiddleware', () => {
       await middleware.use(req, res, next);
 
       expect(capturedTenant).toBeDefined();
-      expect((capturedTenant as any).id).toBe('00000000-0000-4000-8000-000000000003');
+      expect(capturedTenant?.id).toBe('00000000-0000-4000-8000-000000000003');
     });
   });
 
@@ -478,7 +479,7 @@ describe('TenantContextMiddleware', () => {
         });
         const res = createMockResponse();
 
-        let tenant: unknown = null;
+        let tenant: TenantMetadata | undefined;
         const next = jest.fn(() => {
           tenant = getCurrentTenant();
         });
@@ -486,7 +487,7 @@ describe('TenantContextMiddleware', () => {
         await middleware.use(req, res, next);
 
         expect(tenant).toBeDefined();
-        expect((tenant as any).id).toBe('00000000-0000-4000-8000-000000000004');
+        expect(tenant?.id).toBe('00000000-0000-4000-8000-000000000004');
       });
 
       it('should return undefined outside tenant context', () => {

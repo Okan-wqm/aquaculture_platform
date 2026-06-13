@@ -5,6 +5,8 @@
  * Closes: docs/reviews/security-reviewer/2026-04-28-core-platform-review.md#SECREV-CRITICAL-001
  */
 
+import { createHash, createHmac } from 'crypto';
+
 import {
   SERVICE_IDENTITY_MAX_AGE_MS,
   generateServiceIdentityHeaders,
@@ -13,7 +15,6 @@ import {
   verifyServiceIdentityRequest,
   verifyServiceIdentityV2,
 } from '../service-identity.util';
-import { createHash, createHmac } from 'crypto';
 
 const SECRET = 'test-internal-secret-do-not-use-in-prod-this-is-only-a-fixture';
 const SERVICE = 'gateway-api';
@@ -145,7 +146,7 @@ describe('service-identity v2 — generate', () => {
 });
 
 describe('service-identity v2 — verify (round-trip)', () => {
-  function freshHeaders() {
+  function freshHeaders(): ReturnType<typeof generateServiceIdentityHeadersV2> {
     return fullHeaders();
   }
 
@@ -480,5 +481,104 @@ describe('service-identity v1 — deprecated path still verifies (transition win
         '00000000-0000-4000-8000-000000000000',
       ),
     ).toBe(false);
+  });
+});
+
+describe('service-identity #388 regression — verifier derives caller policy from the catalog', () => {
+  // The deploy secret bootstrap (scripts/deploy/lib/required-env-secrets.sh)
+  // mints a keyring entry carrying ONLY {kid,secret,status} — no callers /
+  // audiences. Regression #388 shipped that shape while resolveVerificationKey
+  // still required INLINE callers (`!entry.callers || …`), so EVERY gateway→
+  // subgraph call (every login) was rejected `caller-not-allowed`. The fixtures
+  // above ALWAYS set callers/audiences, so the production keyring shape was never
+  // exercised — this block is the bridge test that pins the fix.
+  const BOOTSTRAP_KEYRING = [{ kid: KEY_ID, secret: SECRET, status: 'active' as const }];
+
+  function requestHeaders(
+    overrides: Partial<{ serviceName: string; audience: string }> = {},
+  ): Record<string, string> {
+    const h = generateServiceIdentityHeadersV2({
+      serviceName: overrides.serviceName ?? SERVICE, // 'gateway-api' — a catalog caller
+      secret: SECRET,
+      tenantId: TENANT,
+      method: METHOD,
+      path: PATH,
+      body: BODY,
+      keyId: KEY_ID,
+      audience: overrides.audience ?? AUDIENCE, // 'farm'
+      contentType: CONTENT_TYPE,
+      nonce: NONCE,
+    });
+    return {
+      'x-service-identity': h['X-Service-Identity'],
+      'x-service-timestamp': h['X-Service-Timestamp'],
+      'x-service-signature': h['X-Service-Signature'],
+      'x-service-sig-version': h['X-Service-Sig-Version'],
+      'x-service-method': h['X-Service-Method'],
+      'x-service-path': h['X-Service-Path'],
+      'x-service-body-hash': h['X-Service-Body-Hash'],
+      'x-service-key-id': h['X-Service-Key-Id'],
+      'x-service-audience': h['X-Service-Audience'],
+      'x-service-query-hash': h['X-Service-Query-Hash'],
+      'x-service-content-type': h['X-Service-Content-Type'],
+      'x-service-assertion-hash': h['X-Service-Assertion-Hash'],
+      'x-service-nonce': h['X-Service-Nonce'],
+      'x-service-effective-tenant-id': h['X-Service-Effective-Tenant-ID'],
+    };
+  }
+
+  function verify(
+    headers: Record<string, string>,
+    overrides: Partial<Parameters<typeof verifyServiceIdentityRequest>[0]> = {},
+  ): ReturnType<typeof verifyServiceIdentityRequest> {
+    return verifyServiceIdentityRequest({
+      headers,
+      observedMethod: METHOD,
+      observedPath: PATH,
+      observedBody: BODY,
+      observedQuery: '',
+      observedContentType: CONTENT_TYPE,
+      observedAssertionHash: '',
+      keyring: BOOTSTRAP_KEYRING,
+      expectedTenantId: TENANT,
+      expectedAudience: AUDIENCE,
+      ...overrides,
+    });
+  }
+
+  it('ACCEPTS a catalog caller against a policy-less keyring entry (the #388 fix)', () => {
+    // gateway-api → farm, with a keyring entry that has NO callers/audiences.
+    // Pre-fix: caller-not-allowed. Post-fix: the allowlist is derived from the
+    // catalog (gateway-api ∈ serviceIdentityCallers) so the call verifies.
+    const outcome = verify(requestHeaders());
+    expect(outcome).toMatchObject({ valid: true, version: 'v2', serviceName: SERVICE });
+  });
+
+  it('REJECTS an unknown caller not in the catalog allowlist (stays fail-closed)', () => {
+    // 'evil-service' signs with a VALID HMAC (it holds the shared secret) but is
+    // not a catalogued caller → rejected at the caller stage, before the HMAC.
+    const outcome = verify(requestHeaders({ serviceName: 'evil-service' }));
+    expect(outcome).toEqual({ valid: false, reason: 'caller-not-allowed' });
+  });
+
+  it('still enforces the per-receiver audience via matchesExpectedAudience', () => {
+    // policy-less entry, valid catalog caller, but addressed to the wrong
+    // receiver → audience-not-allowed. The real per-service audience check is
+    // unchanged by removing the redundant keyring-audiences denial.
+    const outcome = verify(requestHeaders(), { expectedAudience: 'auth' });
+    expect(outcome).toEqual({ valid: false, reason: 'audience-not-allowed' });
+  });
+
+  it('honors an EXPLICIT entry.callers list over the catalog fallback', () => {
+    // farm-service IS a catalog caller, but this entry pins callers=[gateway-api]
+    // — an explicit (operator-tightened / event-store all-tenants) list must win,
+    // so farm-service is rejected even though the catalog would allow it.
+    const explicitKeyring = [
+      { kid: KEY_ID, secret: SECRET, status: 'active' as const, callers: ['gateway-api'] },
+    ];
+    const outcome = verify(requestHeaders({ serviceName: 'farm-service' }), {
+      keyring: explicitKeyring,
+    });
+    expect(outcome).toEqual({ valid: false, reason: 'caller-not-allowed' });
   });
 });

@@ -138,17 +138,14 @@ describe('RateLimitGuard', () => {
   });
 
   afterEach(() => {
-    // Clear rate limit storage between tests. The private store is
-    // accessed via bracket notation; cast `guard` to `unknown` first
-    // to satisfy strictPropertyInitialization on the implicit-any
-    // index signature lookup.
-    // WHY fallbackStore.store: the in-memory store moved behind the
-    // optional Redis store as `fallbackStore`, whose private Map is the
-    // actual counter state — clearing the old `rateLimitStore` property was
-    // a silent no-op that leaked counters across tests and exhausted later
-    // windows mid-suite.
-    const g = guard as unknown as { fallbackStore?: { store?: Map<string, unknown> } };
-    g.fallbackStore?.store?.clear();
+    // WHY onModuleDestroy (public) instead of reaching into the private
+    // fallback Map: beforeEach compiles a FRESH testing module per test, so
+    // each `guard` owns a brand-new in-memory counter Map that is discarded
+    // with the instance — counters cannot leak across tests. The genuine
+    // cross-test leak is the fallback store's 60s cleanup setInterval; the
+    // guard's public onModuleDestroy() clears it via destroy(). This is the
+    // supported lifecycle seam — no private reach-in, no banned cast.
+    guard.onModuleDestroy();
   });
 
   describe('Request Limit Enforcement', () => {

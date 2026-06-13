@@ -13,11 +13,16 @@
  * @returns joinChannel — join a channel room to receive its events
  * @returns leaveChannel — leave a channel room
  * @returns emitTyping — emit a typing indicator event
- * @returns emitMarkRead — emit a mark-as-read event
  * @returns socketRef — ref to the underlying socket instance for use by other hooks
+ *
+ * Read receipts are NOT emitted over the socket: the server `markRead` socket
+ * handler was a ghost (persisted nothing, broadcast a fabricated receipt) and
+ * was removed (Wave-6 G1). Read state is advanced exclusively through the
+ * `markMessagesRead` GraphQL mutation (see `useMarkRead`).
  */
 
 import { useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 
@@ -32,6 +37,70 @@ import type {
   MessagePage,
 } from '@/types/messaging';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import { ALL_MESSAGES_SINCE } from '@/graphql/messaging-operations';
+
+/** Shape of the per-channel infinite-message-list react-query cache entry. */
+type MessagesQueryData = {
+  pages: MessagePage[];
+  pageParams: (string | null)[];
+};
+
+/** Page shape returned by the multi-channel `allMessagesSince` delta query. */
+interface AllMessagesSincePage {
+  messages: Message[];
+  hasMore: boolean;
+  syncToken: string | null;
+}
+
+/** Page size for draining the multi-channel reconnect delta. */
+const RECONNECT_SYNC_PAGE_LIMIT = 100;
+
+/**
+ * Upsert a single message into a channel's infinite-query cache: replace it in
+ * place on the newest page if already present (an optimistic/echo dup),
+ * otherwise append it to the newest page. Shared by the live `newMessage`
+ * socket handler and the M3 reconnect reconciliation so both paths mutate the
+ * cache identically (single source of truth for cache shape).
+ */
+function upsertMessageIntoChannelCache(
+  qc: QueryClient,
+  tenantId: string,
+  channelId: string,
+  message: Message,
+): void {
+  qc.setQueryData(
+    createTenantQueryKey(tenantId, 'messaging', 'messages', channelId),
+    (old: MessagesQueryData | undefined): MessagesQueryData | undefined => {
+      if (!old?.pages?.length) return old;
+      const firstPage = old.pages[0];
+      if (!firstPage) return old;
+      const exists = firstPage.items.some((m: Message) => m.id === message.id);
+      if (exists) {
+        return {
+          ...old,
+          pages: old.pages.map((page: MessagePage, i: number) =>
+            i === 0
+              ? {
+                  ...page,
+                  items: page.items.map((m: Message) =>
+                    m.id === message.id ? message : m,
+                  ),
+                }
+              : page,
+          ),
+        };
+      }
+      return {
+        ...old,
+        pages: [
+          { ...firstPage, items: [...firstPage.items, message] },
+          ...old.pages.slice(1),
+        ],
+      };
+    },
+  );
+}
 
 
 // WHY: io is dynamically imported from socket.io-client. If the package is not
@@ -66,7 +135,6 @@ interface UseMessageSocketResult {
   joinChannel: (channelId: string) => void;
   leaveChannel: (channelId: string) => void;
   emitTyping: (channelId: string, isTyping: boolean) => void;
-  emitMarkRead: (channelId: string, messageId: string) => void;
   resolveNotificationRef: (
     notificationRef: string,
   ) => Promise<ResolvedNotificationRef | null>;
@@ -101,6 +169,73 @@ export function useMessageSocket(): UseMessageSocketResult {
   queryClientRef.current = queryClient;
   const refreshAuthRef = useRef(refreshAuth);
   refreshAuthRef.current = refreshAuth;
+
+  // M3 reconnect reconciliation state. lastSyncAtRef is the watermark of the
+  // newest message we are known to be in sync with; on reconnect we fetch the
+  // multi-channel delta since this point. hasConnectedRef distinguishes the
+  // first connect (no gap — initial queries already loaded fresh state) from a
+  // reconnect. isReconcilingRef guards against overlapping reconciliations.
+  const lastSyncAtRef = useRef<string | null>(null);
+  const hasConnectedRef = useRef(false);
+  const isReconcilingRef = useRef(false);
+
+  // ------------------------------------------------------------------
+  // Reconnect reconciliation (M3): fetch the messages that arrived while the
+  // socket was down and converge caches + badges on server truth.
+  // ------------------------------------------------------------------
+  const reconcileMissedMessages = useCallback(
+    async (since: string): Promise<void> => {
+      const tid = tenantId;
+      if (!tid || isReconcilingRef.current) return;
+      isReconcilingRef.current = true;
+      const qc = queryClientRef.current;
+      try {
+        let cursor: string | null = null;
+        const touchedChannels = new Set<string>();
+        // Drain the delta in pages so a long offline window can't silently
+        // drop messages past a single page limit.
+        for (;;) {
+          const response: { allMessagesSince: AllMessagesSincePage } =
+            await graphqlRequest<{ allMessagesSince: AllMessagesSincePage }>(
+              ALL_MESSAGES_SINCE,
+              { since, limit: RECONNECT_SYNC_PAGE_LIMIT, syncToken: cursor },
+            );
+          const page: AllMessagesSincePage = response.allMessagesSince;
+          for (const message of page.messages) {
+            touchedChannels.add(message.channelId);
+            upsertMessageIntoChannelCache(qc, tid, message.channelId, message);
+          }
+          if (!page.hasMore || !page.syncToken) break;
+          cursor = page.syncToken;
+        }
+        if (touchedChannels.size > 0) {
+          // Reconcile badges (channel list lastMessage/unread + global unread)
+          // to authoritative server state, mirroring the live newMessage path.
+          await Promise.all([
+            qc.invalidateQueries({
+              queryKey: createTenantQueryKey(tid, 'messaging', 'channels'),
+            }),
+            qc.invalidateQueries({
+              queryKey: createTenantQueryKey(tid, 'messaging', 'unreadCount'),
+            }),
+          ]);
+        }
+        lastSyncAtRef.current = new Date().toISOString();
+      } catch {
+        // Reconciliation failed (server/network). The live newMessage stream is
+        // already restored and lastSyncAtRef is unchanged, so the NEXT reconnect
+        // retries the delta from the same watermark — nothing is lost.
+      } finally {
+        isReconcilingRef.current = false;
+      }
+    },
+    [tenantId],
+  );
+  // Hold the latest reconcile callback in a ref so the connect handler (inside
+  // the lifecycle effect, which intentionally depends only on auth identity)
+  // always calls the current version without re-subscribing the socket.
+  const reconcileRef = useRef(reconcileMissedMessages);
+  reconcileRef.current = reconcileMissedMessages;
 
   // ------------------------------------------------------------------
   // Connect / disconnect lifecycle
@@ -144,6 +279,17 @@ export function useMessageSocket(): UseMessageSocketResult {
         for (const channelId of joinedChannelsRef.current) {
           nextSocket.emit('joinChannel', { channelId });
         }
+        // M3: on RECONNECT (not the first connect), reconcile messages that
+        // arrived while the socket was down. allMessagesSince(since=watermark)
+        // returns the multi-channel delta; reconcile patches caches + badges.
+        if (hasConnectedRef.current && lastSyncAtRef.current) {
+          void reconcileRef.current(lastSyncAtRef.current);
+        } else {
+          // First connect: initial queries already loaded fresh state — just
+          // establish the sync watermark going forward.
+          lastSyncAtRef.current = new Date().toISOString();
+        }
+        hasConnectedRef.current = true;
       });
 
       nextSocket.on('disconnect', () => {
@@ -155,42 +301,20 @@ export function useMessageSocket(): UseMessageSocketResult {
       nextSocket.on('newMessage', (data: unknown) => {
         const event = data as NewMessageEvent;
         const qc = queryClientRef.current;
-        // Update messages cache for this channel
-        qc.setQueryData(
-          createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
-          (old: { pages: MessagePage[]; pageParams: (string | null)[] } | undefined) => {
-            if (!old?.pages?.length) return old;
-            const firstPage = old.pages[0];
-            if (!firstPage) return old;
-            const exists = firstPage.items.some((m: Message) => m.id === event.message.id);
-            if (exists) {
-              return {
-                ...old,
-                pages: old.pages.map((page: MessagePage, i: number) =>
-                  i === 0
-                    ? {
-                        ...page,
-                        items: page.items.map((m: Message) =>
-                          m.id === event.message.id ? event.message : m,
-                        ),
-                      }
-                    : page,
-                ),
-              };
-            }
-            return {
-              ...old,
-              pages: [
-                { ...firstPage, items: [...firstPage.items, event.message] },
-                ...old.pages.slice(1),
-              ],
-            };
-          },
-        );
+        // Update messages cache for this channel — shared upsert, identical to
+        // the M3 reconnect reconciliation path.
+        upsertMessageIntoChannelCache(qc, tenantId, event.channelId, event.message);
         // Invalidate channel list to update lastMessage / unread counts
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
         // Increment unread count
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        // M3: advance the reconnect watermark to the newest message we've seen
+        // so a later reconnect fetches a tight delta (ISO-8601 timestamps
+        // compare chronologically as strings).
+        const ts = event.message.createdAt;
+        if (!lastSyncAtRef.current || ts > lastSyncAtRef.current) {
+          lastSyncAtRef.current = ts;
+        }
       });
 
       nextSocket.on('messageUpdated', (data: unknown) => {
@@ -325,12 +449,6 @@ export function useMessageSocket(): UseMessageSocketResult {
     }
   }, []);
 
-  const emitMarkRead = useCallback((channelId: string, messageId: string) => {
-    if (socketRef.current?.connected) {
-      socketRef.current.emit('markRead', { channelId, messageId });
-    }
-  }, []);
-
   const resolveNotificationRef = useCallback(
     (notificationRef: string): Promise<ResolvedNotificationRef | null> =>
       new Promise((resolve) => {
@@ -374,7 +492,6 @@ export function useMessageSocket(): UseMessageSocketResult {
     joinChannel,
     leaveChannel,
     emitTyping,
-    emitMarkRead,
     resolveNotificationRef,
     socketRef,
   };

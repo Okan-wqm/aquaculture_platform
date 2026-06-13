@@ -3897,3 +3897,19 @@ Severity: LOW. `scripts/deploy/lib/required-env-secrets.sh` claimed "five drople
 Fix (RESOLVED): corrected both comments to state twelve services and that policy lives in the service-catalog SSoT (verifier-enforced, fail-closed), with an explicit "do not re-add policy fields to this generator" note.
 
 Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-LOW-099.
+
+---
+
+## ORPHAN-MEDIUM-100 — messaging unread count disagrees between the Redis HASH counter and the DB subquery on a member's OWN messages
+
+Severity: MEDIUM. Discovered 2026-06-13 while implementing Wave-6 M2 (mobile read-cursor), messaging-expert.
+
+**Problem:** The two unread-count code paths apply different sender semantics:
+- `message.service.ts` `incrementUnreadForChannelMembers(channelId, senderId, tenantId)` increments the per-user Redis HASH for all members **except the sender** — so the Redis-backed `getUnreadCount` (total badge, also used for push `badge:`) EXCLUDES the user's own messages.
+- `get-channels.handler.ts:60` computes the per-channel badge as `SELECT COUNT(*) FROM messages m WHERE ... AND m."createdAt" > COALESCE(membership."lastReadAt", '1970-01-01')` — **no `senderId` filter** — so it INCLUDES the user's own messages until `lastReadAt` passes them. The DB fallback `getUnreadCountFromDb` shares this no-sender-filter shape.
+
+**Effect:** A user who sends a message can see a non-zero per-channel unread badge (DB subquery counts their own send) while the global Redis badge shows zero, until their read cursor advances past their own message. The two surfaces disagree. Wave-6 M2 masks the user-visible symptom (the mobile client now advances `lastReadAt` to the newest message *including own sends*, so the badge clears on view), but the underlying server-side inconsistency remains: anything that reads the DB subquery without an advanced cursor (e.g. a freshly-sent-then-backgrounded channel, or a non-mobile client) still mis-counts.
+
+**Fix direction (architectural, not masked):** make the two paths agree on sender semantics. Either (a) add `AND m."senderId" <> membership."userId"` to the `get-channels` + `getUnreadCountFromDb` subqueries so the DB matches Redis (own messages never count as unread — the semantically correct choice), or (b) decide own-messages DO count and increment Redis for the sender too. Option (a) is preferred: a user's own message is never "unread" to them. Requires updating both subqueries + a regression test asserting own-message sends do not inflate the per-channel badge.
+
+Status: OPEN (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.

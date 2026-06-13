@@ -33,6 +33,7 @@ import { UserAiConsent } from './entities/user-ai-consent.entity';
 import { Message } from '../message/entities/message.entity';
 import { Channel } from '../channel/entities/channel.entity';
 // Services
+import { AiEgressGateService } from './services/ai-egress-gate.service';
 import { AiPrivacyService } from './services/ai-privacy.service';
 import { EmbeddingService } from './services/embedding.service';
 import { SentimentAnalysisService } from './services/sentiment-analysis.service';
@@ -71,6 +72,7 @@ const queryHandlers = [
 
 const services = [
   AiPrivacyService,
+  AiEgressGateService,
   EmbeddingService,
   SentimentAnalysisService,
   KnowledgeExtractionService,
@@ -119,6 +121,6 @@ const services = [
     ...services,
     AiResolver,
   ],
-  exports: [AiPrivacyService, AiPersonasRegistryService],
+  exports: [AiPrivacyService, AiEgressGateService, AiPersonasRegistryService],
 })
 export class AiModule {}

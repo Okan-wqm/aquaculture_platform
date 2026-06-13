@@ -19,7 +19,7 @@ import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { MessageAnalysis, AnalysisType } from '../entities/message-analysis.entity';
-import { AiPrivacyService } from './ai-privacy.service';
+import { AiEgressGateService } from './ai-egress-gate.service';
 import type { SentimentResult } from '../entities/message-analysis.entity';
 
 /** NATS request timeout in milliseconds (30 seconds). */
@@ -65,7 +65,7 @@ export class SentimentAnalysisService {
     private readonly dataSource: DataSource,
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
-    private readonly privacyService: AiPrivacyService,
+    private readonly egressGate: AiEgressGateService,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
@@ -88,11 +88,10 @@ export class SentimentAnalysisService {
     senderId: string,
     content: string,
   ): Promise<void> {
-    // Privacy gate: dual consent required
-    const canAnalyze = await this.privacyService.canAnalyzeMessage(tenantId, senderId);
-    if (!canAnalyze) {
+    // Privacy gate: route through the single fail-closed AI-egress boundary.
+    if (!(await this.egressGate.isAllowed(tenantId, senderId, 'sentiment'))) {
       this.logger.debug(
-        `Skipping sentiment analysis for message ${messageId}: privacy gate denied`,
+        `Skipping sentiment analysis for message ${messageId}: AI egress denied`,
       );
       return;
     }

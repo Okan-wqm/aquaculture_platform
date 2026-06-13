@@ -13,9 +13,9 @@
  *
  * WHAT: extends the Nest `Server` base (reusing `messageHandlers`, `getHandlerByPattern`,
  * `handleEvent`, `transformToObservable`, `send`, `normalizePattern`) and implements
- * `listen`/`close`/`unwrap`. The connection options are supplied by the cutover site
- * (`buildNatsTransportOptions(serviceName)`, the ADR-015 cert-is-identity SSoT), so this
- * strategy stays identity-agnostic.
+ * `listen`/`close`/`unwrap`. The connection options are resolved internally from
+ * `buildNatsConnectionOptions(serviceName)` (the ADR-015 cert-is-identity SSoT), so the
+ * cutover site passes only `{ serviceName, queue }`.
  */
 import type { ConnectionOptions, Msg, NatsConnection, Subscription } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
@@ -27,6 +27,7 @@ import {
   WritePacket,
 } from '@nestjs/microservices';
 
+import { buildNatsConnectionOptions } from './nats-connection.factory';
 import { NatsV3RequestDeserializer, NatsV3ResponseSerializer } from './nats-v3-codec';
 
 // Nest's exact constants.NO_MESSAGE_HANDLER string, inlined so the error envelope a v3
@@ -34,10 +35,12 @@ import { NatsV3RequestDeserializer, NatsV3ResponseSerializer } from './nats-v3-c
 const NO_MESSAGE_HANDLER = 'There is no matching message handler defined in the remote service.';
 
 /**
- * @nats-io connection options plus the Nest-specific default `queue` group. The cutover
- * site builds these via `buildNatsTransportOptions(serviceName)`.
+ * Strategy options. `serviceName` selects the mTLS client cert through
+ * {@link buildNatsConnectionOptions} (ADR-015 cert-is-identity); `queue` is the default
+ * NATS queue group for handlers that don't override it via `@MessagePattern` extras.
  */
-export interface NatsV3ServerOptions extends ConnectionOptions {
+export interface NatsV3ServerOptions {
+  serviceName?: string;
   queue?: string;
 }
 
@@ -98,7 +101,11 @@ export class NatsV3Server extends Server implements CustomTransportStrategy {
   }
 
   private createNatsConnection(): Promise<NatsConnection> {
-    const { queue: _queue, ...connectionOptions } = this.options;
+    // ADR-015: the factory yields fully-formed ConnectionOptions at connect time.
+    // Spread the whole result (authMode is an excess field connect() ignores),
+    // matching the PR-A event-bus pattern that keeps the type-aware lint clean.
+    const factoryOptions = buildNatsConnectionOptions(this.options.serviceName);
+    const connectionOptions: ConnectionOptions = { ...factoryOptions };
     return connect(connectionOptions);
   }
 

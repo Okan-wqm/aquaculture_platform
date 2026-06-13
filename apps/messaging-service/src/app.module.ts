@@ -13,9 +13,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { GraphQLModule } from '@nestjs/graphql';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { EventBusModule } from '@platform/event-bus';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
@@ -294,8 +294,8 @@ type QueryComplexityOperationContext = {
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('messaging-service'),
+        customClass: NatsV3Client,
+        options: { serviceName: 'messaging-service' },
       },
     ]),
 

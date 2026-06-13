@@ -11,8 +11,9 @@
  *
  * WHAT: extends the Nest `ClientProxy` base (reusing `assignPacketId`, `normalizePattern`,
  * `serializer`/`deserializer` wiring) and implements `connect`/`close`/`publish`/
- * `dispatchEvent`/`unwrap`. Connection options come from the registration site
- * (`buildNatsTransportOptions(serviceName)`, the ADR-015 cert-is-identity SSoT).
+ * `dispatchEvent`/`unwrap`. Connection options are resolved internally from
+ * `buildNatsConnectionOptions(serviceName)` (the ADR-015 cert-is-identity SSoT), so the
+ * registration site passes only `{ serviceName, inboxPrefix }`.
  */
 import type { ConnectionOptions, Msg, MsgCallback, NatsConnection } from '@nats-io/nats-core';
 import { createInbox } from '@nats-io/nats-core';
@@ -24,10 +25,15 @@ import {
   WritePacket,
 } from '@nestjs/microservices';
 
+import { buildNatsConnectionOptions } from './nats-connection.factory';
 import { NatsV3RequestSerializer, NatsV3ResponseDeserializer } from './nats-v3-codec';
 
-/** @nats-io connection options plus the Nest-specific `inboxPrefix`. */
-export interface NatsV3ClientOptions extends ConnectionOptions {
+/**
+ * Client options. `serviceName` selects the mTLS client cert through
+ * {@link buildNatsConnectionOptions} (ADR-015); `inboxPrefix` scopes the reply inbox.
+ */
+export interface NatsV3ClientOptions {
+  serviceName?: string;
   inboxPrefix?: string;
 }
 
@@ -45,7 +51,10 @@ export class NatsV3Client extends ClientProxy {
     if (this.connectionPromise) {
       return this.connectionPromise;
     }
-    const { inboxPrefix: _inboxPrefix, ...connectionOptions } = this.options;
+    // ADR-015: factory yields fully-formed ConnectionOptions; spread whole (authMode
+    // is an excess field connect() ignores), mirroring the PR-A event-bus pattern.
+    const factoryOptions = buildNatsConnectionOptions(this.options.serviceName);
+    const connectionOptions: ConnectionOptions = { ...factoryOptions };
     this.connectionPromise = connect(connectionOptions);
     try {
       this.natsConnection = await this.connectionPromise;

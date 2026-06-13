@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { ClientsModule } from '@nestjs/microservices';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 
 // Entities
 import { Message } from './entities/message.entity';
@@ -57,8 +57,8 @@ import { MessageResolver } from './resolvers/message.resolver';
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('messaging-service'),
+        customClass: NatsV3Client,
+        options: { serviceName: 'messaging-service' },
       },
     ]),
     ChannelModule,

@@ -1,6 +1,6 @@
 import { hashPassword as hashPasswordWithPepper, verifyPassword as verifyPasswordWithPepper, PEPPERED_PREFIX_V1 } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { ObjectType, Field, ID, HideField, registerEnumType } from '@nestjs/graphql';
+import { ObjectType, Field, ID, HideField, registerEnumType, Directive } from '@nestjs/graphql';
 import {
   Entity,
   Column,
@@ -43,6 +43,14 @@ registerEnumType(AccessType, {
  * - MODULE_USER: Single tenant + assigned modules, limited access
  */
 @ObjectType()
+// Federated entity (Apollo Federation v2): other subgraphs (e.g. messaging) carry
+// a `User` reference and the gateway resolves display fields here via
+// __resolveReference (UserFederationResolver). MSG-MEDIUM-052. The reference
+// resolver deliberately returns DISPLAY-ONLY fields (id/firstName/lastName/
+// profileImageUrl) — email/role/tenantId never cross a federated reference, so a
+// channel member cannot harvest another member's email through messaging.sender;
+// auth's own admin-gated queries (tenantUsers) still return email directly.
+@Directive('@key(fields: "id")')
 @Entity('users', { schema: 'auth' })
 // NOTE: email uniqueness is enforced via a `LOWER(email)` expression index
 // created by migration RestoreCaseInsensitiveEmailUniqueness1800300000000

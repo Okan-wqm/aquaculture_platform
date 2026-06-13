@@ -117,6 +117,7 @@ export default {
         '<rootDir>/admin-billing-runtime-contract.spec.ts',
         '<rootDir>/admin-security-runtime-contract.spec.ts',
         '<rootDir>/tenant-provisioning-ssot.spec.ts',
+        '<rootDir>/repo-hygiene-invariants.spec.ts',
       ],
     },
     {
@@ -175,6 +176,7 @@ export default {
         '<rootDir>/entity-diff-implies-migration.spec.ts',
         '<rootDir>/tenant-fanout-entity-parity.spec.ts',
         '<rootDir>/tenant-aware-migration-ddl-guard.spec.ts',
+        '<rootDir>/jwt-rs256-only.spec.ts',
         '<rootDir>/messaging-partition-ddl-authority.spec.ts',
         '<rootDir>/shared-schema-canonical.spec.ts',
         '<rootDir>/audit-log-mandatory-shape.spec.ts',

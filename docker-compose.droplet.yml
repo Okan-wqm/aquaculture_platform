@@ -1460,6 +1460,14 @@ services:
       <<: *nats-messaging-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      # messaging-service is an active Apollo subgraph (infrastructure/apollo-router/
+      # subgraphs.json): the gateway HMAC-signs every gateway→messaging call, so the
+      # ServiceIdentityGuard MUST have the shared keyring to verify it — without it
+      # the guard throws "SERVICE_IDENTITY_KEYRING is not set" in production and
+      # every messaging query 403s. messaging was the ONLY backend subgraph missing
+      # these two vars (the other 12 carry both); this closes that gap.
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: 'false'

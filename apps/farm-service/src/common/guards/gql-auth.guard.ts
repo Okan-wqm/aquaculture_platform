@@ -126,7 +126,7 @@ export class GqlAuthGuard implements CanActivate {
       // BEFORE: verifyAsync() called with only { secret } — no algorithm restriction,
       // no issuer/audience enforcement. Algorithm confusion attacks (RS256 downgrade)
       // were possible; tokens without iss/aud claims were silently accepted.
-      // AFTER: getJwtVerifyOptions() enforces algorithms:['HS256'], issuer, audience
+      // AFTER: getJwtVerifyOptions() enforces algorithms:['RS256'], issuer, audience
       // at the jsonwebtoken library level — not via conditional application-layer checks.
       const payload = await this.jwtService.verifyAsync<JwtPayload>(
         token,

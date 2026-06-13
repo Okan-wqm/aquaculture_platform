@@ -22,7 +22,7 @@ import { RateLimitGuard, RateLimitModule, RATE_LIMIT_STORE, RateLimitStore } fro
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
-import { Logger, Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
@@ -144,9 +144,6 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const nodeEnv = configService.get<string>('NODE_ENV', 'development');
-        const isProduction = nodeEnv === 'production';
-
         // SECURITY: Load RSA private key for token signing
         const loadPrivateKey = (): string => {
           // Inline PEM (Kubernetes secrets, cloud env vars)
@@ -184,50 +181,22 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
         const privateKey = loadPrivateKey();
         const publicKey = loadPublicKey();
 
-        // CRITICAL: Always require RSA keys in production
-        if (isProduction && (!privateKey || !publicKey)) {
-          throw new Error(
-            'CRITICAL SECURITY ERROR: JWT_PRIVATE_KEY and JWT_PUBLIC_KEY must be configured in production. ' +
-              'auth-service is the sole token issuer and requires RSA key pair for RS256 signing. ' +
-              'Application startup aborted to prevent security vulnerability.',
-          );
-        }
-
-        // In non-production, allow dev fallback with explicit acknowledgment
+        // RS256-ONLY — no HS256 anywhere. auth-service is the sole token
+        // issuer and signs with the RSA private key in EVERY environment. The
+        // former DEV_JWT_SECRET/HS256 fallback is removed: it was an
+        // algorithm-confusion surface AND already dead — every consumer
+        // verifies RS256-only (getJwtVerifyOptions: algorithms ['RS256']), so
+        // an HS256-signed token was rejected platform-wide. Fail-fast in all
+        // environments if the keypair is absent; for local dev generate one
+        // via scripts/generate-jwt-keys.sh (consumers already require it).
         if (!privateKey || !publicKey) {
-          const allowDevSecret = configService.get<string>('ALLOW_DEV_JWT_SECRET', 'false');
-          const devSecret = configService.get<string>('DEV_JWT_SECRET');
-
-          if (allowDevSecret !== 'true') {
-            throw new Error(
-              'JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are not configured. For development, set ALLOW_DEV_JWT_SECRET=true and provide DEV_JWT_SECRET ' +
-                `with at least ${SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters. NEVER enable this in staging/production!`,
-            );
-          }
-
-          if (!devSecret || devSecret.length < SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH) {
-            throw new Error(
-              `DEV_JWT_SECRET must be provided and be at least ${SECURITY_CONSTANTS.JWT_SECRET_MIN_LENGTH} characters when ALLOW_DEV_JWT_SECRET=true.`,
-            );
-          }
-
-          const logger = new Logger('JwtModule');
-          logger.warn(
-            'SECURITY: Using DEV_JWT_SECRET with HS256 for local development only. ' +
-              'Production MUST use RS256 with JWT_PRIVATE_KEY/JWT_PUBLIC_KEY.',
+          throw new Error(
+            'CRITICAL SECURITY ERROR: JWT_PRIVATE_KEY and JWT_PUBLIC_KEY (or the ' +
+              '*_PATH variants) must be configured in EVERY environment. auth-service ' +
+              'is the sole token issuer and signs RS256-only — there is no HS256 / ' +
+              'DEV_JWT_SECRET fallback. For local development generate a keypair via ' +
+              'scripts/generate-jwt-keys.sh. Application startup aborted.',
           );
-          return {
-            secret: devSecret,
-            signOptions: {
-              algorithm: 'HS256' as const,
-              expiresIn: configService.get(
-                'JWT_EXPIRES_IN',
-                SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN,
-              ),
-              issuer: configService.get('JWT_ISSUER', 'aquaculture-platform'),
-              audience: configService.get('JWT_AUDIENCE', 'aquaculture-platform'),
-            },
-          };
         }
 
         return {

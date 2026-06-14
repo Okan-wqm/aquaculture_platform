@@ -4113,3 +4113,19 @@ Severity: MEDIUM. Discovered 2026-06-14 while wiring the farm_workers PII-at-res
 5. Wire the spec into CI: add a `test` target to the `e2e` Nx project (or fold the integration specs into a CI-run jest config) so the now-functional invariant actually gates PRs. Extend the reachability net to cover `e2e/tests/integration/**`.
 
 Status: OPEN (2026-06-14; owner: platform-architecture-expert; dedicated PR — invariant parser rewrite + cross-service triage). Registry: orphan-findings.md only.
+
+## ORPHAN-HIGH-105 — Varsling events (WelfareEventReported / EscapeReported / DiseaseOutbreakReported) lack JSON Schema validators
+
+Surfaced by FARM-HIGH-013 (Phase 1). The three legally-immediate Mattilsynet varsling events are published over NATS to the notification-service email consumer but have NO AJV JSON Schema validator at the trust boundary (unlike the 4 dead-listeners follow-ups added in FARM-HIGH-012 and the existing farm events). Payload completeness is unproven before a legal filing is emailed — the consensus flagged this as why "provably reaches the regulator" is not yet fully satisfied. Fix: add flat JSON Schema validators for the 3 varsling events in `libs/event-contracts/src/schemas/farm-events.schema.ts` + wire into `FARM_EVENT_SCHEMAS`/`FarmEventType`, mirroring the dead-listeners follow-up schemas. Owner: data-expert (event-contracts). Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-106 — BatchCreated + FeedingCompleted farm listeners also dead (@OnEvent, no in-process producer)
+
+Surfaced by FARM-HIGH-012 (Phase 1). `BatchCreatedListener` (`@OnEvent BATCH_CREATED`) and `FeedingCompletedListener` (`@OnEvent FEEDING_COMPLETED`) have the identical dead-bus disease the mortality/harvest listeners had — their producers publish via outbox->NATS, nothing emits the in-process event. They are FROZEN in the `dead-onevent-listener.invariant.spec` shrink-only baseline so that gate can land; they need the same `subscribeWildcard` migration. Owner: farm-expert. Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-107 — Varsling submissions have no durable per-submission audit row
+
+Surfaced by FARM-HIGH-013 (Phase 1). The 3 immediate reports are delivered purely via outbox->NATS->email with no durable per-submission audit/acknowledgement record. A legally-immediate Mattilsynet/Fiskeridirektoratet report should leave a queryable audit trail independent of email logs (SOC2 / akvakulturloven evidentiary). Fix: persist a varsling-submission audit row (event-as-record) on the regulatory path. Owner: compliance-expert. Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
+
+## ORPHAN-LOW-108 — Dead invalidateAllRegulatoryQueries predicate (query-key-factory mismatch)
+
+Surfaced by FARM-HIGH-013 (Phase 1, pre-existing). `useRegulatory.ts` `invalidateAllRegulatoryQueries` tests `query.queryKey[0] === REGULATORY_KEY`, but `createTenantQueryKey` returns `['tenant', tenantId, ...]` so index 0 is always the tenant sentinel — the predicate never matches and regulatory queries are never invalidated after a varsling submit. Pre-existing query-key-factory bug inherited by the new hooks; no correctness dependency for the immediate-report path (the submit itself is durable). Fix: match the REGULATORY_KEY segment at its real index (or use the factory's prefix matcher). Owner: frontend query-key-factory owner. Status: OPEN (2026-06-14). Registry: orphan-findings.md only.

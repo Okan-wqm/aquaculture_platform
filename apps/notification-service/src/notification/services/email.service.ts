@@ -98,6 +98,15 @@ export interface RegulatoryReportEmailData {
 export const MATTILSYNET_URGENT_EMAIL = 'varsling.akva@mattilsynet.no';
 
 /**
+ * Fiskeridirektoratet (Directorate of Fisheries) email address.
+ * Norwegian akvakulturloven requires fish-escape ("romming") incidents to be
+ * reported to BOTH Mattilsynet AND Fiskeridirektoratet, so escape varsling
+ * emails carry this recipient in addition to MATTILSYNET_URGENT_EMAIL. Mirrors
+ * the frontend SSoT REGULATORY_CONTACTS.FISKERIDIREKTORATET_EMAIL.
+ */
+export const FISKERIDIREKTORATET_EMAIL = 'postmottak@fiskeridir.no';
+
+/**
  * Email Service
  * Handles email notifications using nodemailer
  */
@@ -437,6 +446,12 @@ export class EmailService {
     const html = this.generateRegulatoryReportTemplate(data);
 
     const recipients = [MATTILSYNET_URGENT_EMAIL];
+    // Fish escapes are reported to BOTH Mattilsynet AND Fiskeridirektoratet
+    // under akvakulturloven; non-escape varsling (welfare/disease) goes to
+    // Mattilsynet only.
+    if (data.reportType === 'escape') {
+      recipients.push(FISKERIDIREKTORATET_EMAIL);
+    }
     if (data.siteManagerEmail) {
       recipients.push(data.siteManagerEmail);
     }

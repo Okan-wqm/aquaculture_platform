@@ -103,6 +103,18 @@ services:
       - "events.*.TenantOnboardingAck"
       - "events.*.TenantOnboardingFailed"
       - "events.*.WaterQualityCritical"
+      # Harvest / mortality follow-up events emitted by the farm event
+      # listeners on the canonical `events.{tenantId}.{eventType}` subject
+      # (NatsEventBus.deriveSubject). dead-listeners produce-side cure.
+      - "events.*.MortalityAlertRaised"
+      - "events.*.HarvestRegulatoryRecorded"
+      - "events.*.TankCleared"
+      - "events.*.BatchProductionCompleted"
+      # Immediate Mattilsynet "varsling" reports (welfare / escape / disease)
+      # consumed by notification-service for urgent email dispatch.
+      - "events.*.WelfareEventReported"
+      - "events.*.EscapeReported"
+      - "events.*.DiseaseOutbreakReported"
       - "AQUACULTURE_EVENTS.Farm*.>"
       - "AQUACULTURE_EVENTS.Batch*.>"
       - "AQUACULTURE_EVENTS.Feeding*.>"
@@ -292,6 +304,13 @@ services:
       - "events.*.AlertTriggered"
       - "events.*.AlertResolved"
       - "events.*.WaterQualityCritical"
+      # Harvest traceability record → notification-service traceability log
+      # (dead-listeners produce-side cure, blocker 4).
+      - "events.*.HarvestRegulatoryRecorded"
+      # Immediate Mattilsynet "varsling" reports → urgent email dispatch.
+      - "events.*.WelfareEventReported"
+      - "events.*.EscapeReported"
+      - "events.*.DiseaseOutbreakReported"
       - "$JS.API.>"
       - "_INBOX.>"
 
@@ -357,6 +376,9 @@ services:
     subscribe:
       - "events.*.SensorReading"
       - "events.*.WaterQualityCritical"
+      # Farm-raised high-mortality signal → alert-engine converts it into a
+      # real AlertIncident (dead-listeners produce-side cure, blocker 4).
+      - "events.*.MortalityAlertRaised"
       - "AQUACULTURE_EVENTS.SensorReading.>"
       - "AQUACULTURE_EVENTS.Alert*.>"
       - "$JS.API.>"

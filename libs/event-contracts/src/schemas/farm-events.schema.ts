@@ -213,6 +213,57 @@ interface WireFeedInventoryLow extends WireBaseEvent {
   status: 'low_stock' | 'critical';
 }
 
+// ── Harvest / mortality follow-up wire shapes ──────────────────────────────
+// `recordedAt`/`harvestedAt`/`clearedAt`/`completedAt` are ISO strings on the
+// wire (Date in the TS contract; JSON has no Date type — see file header).
+
+interface WireMortalityAlertRaised extends WireBaseEvent {
+  eventType: 'MortalityAlertRaised';
+  batchId: string;
+  tankId?: string;
+  alertType: 'single_event' | 'daily_rate' | 'cumulative_rate';
+  severity: 'warning' | 'critical';
+  message: string;
+  mortalityRate: number;
+  reason: (typeof MORTALITY_REASONS)[number];
+  recordedAt: string;
+}
+
+interface WireHarvestRegulatoryRecorded extends WireBaseEvent {
+  eventType: 'HarvestRegulatoryRecorded';
+  batchId: string;
+  harvestedQuantity: number;
+  totalWeight?: number;
+  averageWeight?: number;
+  harvestedAt: string;
+  harvestedBy?: string;
+  isFinal: boolean;
+}
+
+interface WireTankCleared extends WireBaseEvent {
+  eventType: 'TankCleared';
+  tankId: string;
+  tankCode?: string;
+  previousBatchId: string;
+  clearedAt: string;
+}
+
+interface WireBatchProductionCompleted extends WireBaseEvent {
+  eventType: 'BatchProductionCompleted';
+  batchId: string;
+  initialQuantity: number;
+  harvestedQuantity: number;
+  harvestedBiomassKg: number;
+  avgWeightG: number;
+  survivalRate: number;
+  mortalityRate: number;
+  daysInProduction: number;
+  fcr: number;
+  sgr: number;
+  totalFeedConsumedKg: number;
+  completedAt: string;
+}
+
 interface WireSiteCreated extends WireSetupBaseEvent {
   eventType: 'SiteCreated';
   siteId: string;
@@ -746,6 +797,111 @@ export const feedInventoryLowSchema: JSONSchemaType<WireFeedInventoryLow> = {
   ],
 };
 
+// ── Harvest / mortality follow-up schemas ──────────────────────────────────
+
+export const mortalityAlertRaisedSchema: JSONSchemaType<WireMortalityAlertRaised> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'MortalityAlertRaised' },
+    batchId: UUID_SCHEMA,
+    tankId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    alertType: {
+      type: 'string',
+      enum: ['single_event', 'daily_rate', 'cumulative_rate'],
+    },
+    severity: { type: 'string', enum: ['warning', 'critical'] },
+    message: FREE_TEXT,
+    mortalityRate: NON_NEGATIVE_NUMBER,
+    reason: { type: 'string', enum: [...MORTALITY_REASONS] },
+    recordedAt: ISO_DATE_STRING,
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'batchId',
+    'alertType',
+    'severity',
+    'message',
+    'mortalityRate',
+    'reason',
+    'recordedAt',
+  ],
+};
+
+export const harvestRegulatoryRecordedSchema: JSONSchemaType<WireHarvestRegulatoryRecorded> =
+  {
+    ...EVENT_OBJECT_OPTS,
+    properties: {
+      ...BASE_EVENT_PROPERTIES,
+      eventType: { type: 'string', const: 'HarvestRegulatoryRecorded' },
+      batchId: UUID_SCHEMA,
+      harvestedQuantity: NON_NEGATIVE_INT,
+      totalWeight: { ...NON_NEGATIVE_NUMBER, nullable: true },
+      averageWeight: { ...NON_NEGATIVE_NUMBER, nullable: true },
+      harvestedAt: ISO_DATE_STRING,
+      // harvestedBy is the operator's user id (BaseEvent.userId on the trigger) —
+      // a short opaque identifier, not a UUID in every auth backend, so SHORT_CODE.
+      harvestedBy: { ...SHORT_CODE, nullable: true },
+      isFinal: { type: 'boolean' },
+    },
+    required: [
+      ...BASE_EVENT_REQUIRED,
+      'batchId',
+      'harvestedQuantity',
+      'harvestedAt',
+      'isFinal',
+    ],
+  };
+
+export const tankClearedSchema: JSONSchemaType<WireTankCleared> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'TankCleared' },
+    tankId: UUID_SCHEMA,
+    tankCode: { ...SHORT_CODE, nullable: true },
+    previousBatchId: UUID_SCHEMA,
+    clearedAt: ISO_DATE_STRING,
+  },
+  required: [...BASE_EVENT_REQUIRED, 'tankId', 'previousBatchId', 'clearedAt'],
+};
+
+export const batchProductionCompletedSchema: JSONSchemaType<WireBatchProductionCompleted> =
+  {
+    ...EVENT_OBJECT_OPTS,
+    properties: {
+      ...BASE_EVENT_PROPERTIES,
+      eventType: { type: 'string', const: 'BatchProductionCompleted' },
+      batchId: UUID_SCHEMA,
+      initialQuantity: NON_NEGATIVE_INT,
+      harvestedQuantity: NON_NEGATIVE_INT,
+      harvestedBiomassKg: NON_NEGATIVE_NUMBER,
+      avgWeightG: NON_NEGATIVE_NUMBER,
+      survivalRate: NON_NEGATIVE_NUMBER,
+      mortalityRate: NON_NEGATIVE_NUMBER,
+      daysInProduction: NON_NEGATIVE_INT,
+      fcr: NON_NEGATIVE_NUMBER,
+      sgr: NON_NEGATIVE_NUMBER,
+      totalFeedConsumedKg: NON_NEGATIVE_NUMBER,
+      completedAt: ISO_DATE_STRING,
+    },
+    required: [
+      ...BASE_EVENT_REQUIRED,
+      'batchId',
+      'initialQuantity',
+      'harvestedQuantity',
+      'harvestedBiomassKg',
+      'avgWeightG',
+      'survivalRate',
+      'mortalityRate',
+      'daysInProduction',
+      'fcr',
+      'sgr',
+      'totalFeedConsumedKg',
+      'completedAt',
+    ],
+  };
+
 export const siteCreatedSchema: JSONSchemaType<WireSiteCreated> = {
   ...EVENT_OBJECT_OPTS,
   properties: {
@@ -1157,7 +1313,11 @@ export type FarmEventType =
   | 'SubEquipmentUpdated'
   | 'SubEquipmentDeleted'
   | 'SupplierApprovedSitesChanged'
-  | 'FeederCalibrationsSaved';
+  | 'FeederCalibrationsSaved'
+  | 'MortalityAlertRaised'
+  | 'HarvestRegulatoryRecorded'
+  | 'TankCleared'
+  | 'BatchProductionCompleted';
 
 /**
  * Map from event type discriminator to its compiled schema. Consumed
@@ -1205,4 +1365,8 @@ export const FARM_EVENT_SCHEMAS: Record<FarmEventType, object> = {
   SubEquipmentDeleted: subEquipmentDeletedSchema,
   SupplierApprovedSitesChanged: supplierApprovedSitesChangedSchema,
   FeederCalibrationsSaved: feederCalibrationsSavedSchema,
+  MortalityAlertRaised: mortalityAlertRaisedSchema,
+  HarvestRegulatoryRecorded: harvestRegulatoryRecordedSchema,
+  TankCleared: tankClearedSchema,
+  BatchProductionCompleted: batchProductionCompletedSchema,
 };

@@ -33,71 +33,21 @@ export interface BatchCreatedEventPayload {
   }>;
 }
 
-/**
- * Event emitted when mortality is recorded for a batch
- */
-export interface MortalityRecordedEventPayload {
-  tenantId: string;
-  batchId: string;
-  batchNumber: string;
-  tankId: string;
-  tankCode?: string;
-  quantity: number;
-  biomassLoss: number;
-  reason: string;
-  detail?: string;
-  newMortalityRate: number;
-  currentQuantity: number;
-  recordedBy: string;
-  observedAt: Date;
-}
-
-/**
- * Event emitted when a harvest is completed
- */
-export interface HarvestCompletedEventPayload {
-  tenantId: string;
-  batchId: string;
-  batchNumber: string;
-  harvestId: string;
-  harvestedQuantity: number;
-  harvestedBiomass: number;
-  avgWeight: number;
-  isPartialHarvest: boolean;
-  remainingQuantity: number;
-  harvestedAt: Date;
-  harvestedBy: string;
-  qualityGrade?: string;
-  destinationInfo?: {
-    customerId?: string;
-    customerName?: string;
-    destination?: string;
-  };
-}
+// NOTE: `MortalityRecordedEventPayload` and `HarvestCompletedEventPayload` were
+// removed (dead-listeners HIGH). They described an in-process EventEmitter2
+// payload that NO producer ever emitted — the real producers publish the flat
+// `@platform/event-contracts` `MortalityRecordedEvent` / `BatchHarvestedEvent`
+// over NATS, which the migrated listeners now consume directly. Keeping the
+// stale local interfaces would re-introduce the contract-mismatch that made the
+// listeners dead in the first place.
 
 // ============================================================================
 // MAINTENANCE EVENTS
 // ============================================================================
 
-/**
- * Event emitted when a maintenance schedule is due
- */
-export interface MaintenanceScheduleDueEventPayload {
-  tenantId: string;
-  scheduleId: string;
-  scheduleName: string;
-  assetType: string;
-  assetId: string;
-  assetName?: string;
-  dueDate: Date;
-  priority: string;
-  estimatedDurationMinutes?: number;
-  maintenanceType: string;
-  checklist?: Array<{
-    description: string;
-    isRequired: boolean;
-  }>;
-}
+// NOTE: `MaintenanceScheduleDueEventPayload` was removed (dead-listeners HIGH):
+// nothing emitted `maintenance.schedule.due` in-process, and the work-order
+// generation path is owned by CronJobsService.processAutoGenerateWorkOrders.
 
 /**
  * Event emitted when work orders are generated from maintenance schedules

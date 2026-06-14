@@ -10,6 +10,7 @@ import { CreateFarmDocuments1800800000000 } from './1800800000000-CreateFarmDocu
 import { AddTankSetupMetadata1800900000000 } from './1800900000000-AddTankSetupMetadata';
 import { ReEncryptSecretsCbcToGcm1801000000000 } from './1801000000000-ReEncryptSecretsCbcToGcm';
 import { EncryptFarmWorkerPii1801100000000 } from './1801100000000-EncryptFarmWorkerPii';
+import { AddPurchaseOrderApprovalAudit1801200000000 } from './1801200000000-AddPurchaseOrderApprovalAudit';
 
 /**
  * Canonical farm-service migration class list.
@@ -32,4 +33,5 @@ export const FARM_MIGRATIONS = [
   AddTankSetupMetadata1800900000000,
   ReEncryptSecretsCbcToGcm1801000000000,
   EncryptFarmWorkerPii1801100000000,
+  AddPurchaseOrderApprovalAudit1801200000000,
 ] as const;

@@ -20,6 +20,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   applyParameterTemplate: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   approveHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   approveInventoryCount: [Role.TENANT_ADMIN],
+  approvePurchaseOrder: [Role.TENANT_ADMIN],
   assignFeedsToBatch: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   assignTemperatureSensor: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   bulkMapParamsToEquipment: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],

@@ -20,8 +20,14 @@ export type StorageLocationType =
 export type StockMovementType =
   | 'IN' | 'OUT' | 'TRANSFER' | 'WASTE' | 'ADJUSTMENT' | 'RETURN';
 
+// Canonical PO status vocabulary — reconciled to the backend PurchaseOrderStatus
+// enum and the hand-maintained enum in hooks/usePurchaseOrders.ts. The legacy
+// 'PENDING' / 'PARTIAL' tokens were divergent fictions: the real maker-checker
+// flow is DRAFT -> SUBMITTED -> APPROVED -> ORDERED -> PARTIALLY_RECEIVED -> RECEIVED
+// (plus terminal CANCELLED).
 export type PurchaseOrderStatus =
-  | 'DRAFT' | 'PENDING' | 'APPROVED' | 'ORDERED' | 'PARTIAL' | 'RECEIVED' | 'CANCELLED';
+  | 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'ORDERED'
+  | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CANCELLED';
 
 export type InventoryCountStatus =
   | 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'APPROVED';
@@ -117,6 +123,10 @@ export interface PurchaseOrder {
   expectedDelivery?: string;
   receivedDate?: string;
   notes?: string;
+  // Maker-checker audit trail (SOC2 CC3.4) — set when the PO reaches APPROVED.
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: string;
 }
 
 export interface InventoryCountItem {

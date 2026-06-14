@@ -33,6 +33,7 @@ import { CreateInventoryCountHandler } from './handlers/create-inventory-count.h
 import { UpdateInventoryCountHandler } from './handlers/update-inventory-count.handler';
 import { SubmitInventoryCountHandler } from './handlers/submit-inventory-count.handler';
 import { ApproveInventoryCountHandler } from './handlers/approve-inventory-count.handler';
+import { ApprovePurchaseOrderHandler } from './handlers/approve-purchase-order.handler';
 
 import { GetStorageLocationHandler } from './handlers/get-storage-location.handler';
 import { ListStorageLocationsHandler } from './handlers/list-storage-locations.handler';
@@ -56,6 +57,7 @@ const CommandHandlers = [
   TransferStockHandler,
   CreatePurchaseOrderHandler,
   UpdatePurchaseOrderStatusHandler,
+  ApprovePurchaseOrderHandler,
   ReceiveDeliveryHandler,
   CreateInventoryCountHandler,
   UpdateInventoryCountHandler,

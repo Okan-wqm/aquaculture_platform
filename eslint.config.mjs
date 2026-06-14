@@ -544,6 +544,9 @@ export default [
     files: [
       'libs/backend-common/src/nats/nats-v3-server.strategy.ts',
       'libs/backend-common/src/nats/nats-v3-client.proxy.ts',
+      // PR-C: the sensor-ingest equivalence e2e migrated to @nats-io v3 and hits the
+      // same ORPHAN-MEDIUM-093 @nats-io-resolves-to-any false positive.
+      'e2e/tests/sensor-ingest-equivalence.e2e.spec.ts',
     ],
     rules: {
       '@typescript-eslint/no-unsafe-argument': 'off',

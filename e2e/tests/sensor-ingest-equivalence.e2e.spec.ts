@@ -51,10 +51,10 @@
  *   the deploy pipeline), the assertions run for real.
  */
 
-import { Client as PgClient } from 'pg';
-import { connect as connectMqtt } from 'mqtt';
 import type { NatsConnection } from '@nats-io/nats-core';
 import { connect as connectNats } from '@nats-io/transport-node';
+import { connect as connectMqtt } from 'mqtt';
+import { Client as PgClient } from 'pg';
 import { randomUUID } from 'crypto';
 
 const GATE_ENV = 'SENSOR_INGEST_EQUIVALENCE_E2E';

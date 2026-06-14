@@ -118,6 +118,11 @@ export type { TenantProviderProps } from './contexts/TenantContext';
 
 export { useAuth, useRequireAuth } from './hooks/useAuth';
 export { useTenant } from './hooks/useTenant';
+export {
+  useTenantScopedStorage,
+  TENANT_SCOPED_STORAGE_NAMESPACE,
+} from './hooks/useTenantScopedStorage';
+export type { TenantScopedStorage } from './hooks/useTenantScopedStorage';
 
 // ============================================================================
 // I18n Infrastructure — FE-HIGH-020

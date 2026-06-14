@@ -13,6 +13,7 @@
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
+import { useAuth, useTenantScopedStorage } from '@aquaculture/shared-ui';
 import { useEquipmentParameterConfigs } from '../../../hooks/useEquipmentParameters';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useEquipmentList } from '../../../hooks/useEquipment';
@@ -24,31 +25,12 @@ import type { System } from '../../../hooks/useSystems';
 // CONSTANTS
 // ============================================================================
 
-const MRU_STORAGE_KEY = 'wq-mru-equipment';
+// Base key for the per-tenant MRU equipment list. The real localStorage key is
+// namespaced + tenant-scoped by useTenantScopedStorage, so it can never leak
+// across tenants on a shared browser and is swept on logout.
+const MRU_BASE_KEY = 'wq-mru-equipment';
 const MAX_MRU = 5;
 const RECENT_ENTRIES_LIMIT = 5;
-
-// ============================================================================
-// MRU HELPERS
-// ============================================================================
-
-function getMruEquipmentIds(): string[] {
-  try {
-    const stored = localStorage.getItem(MRU_STORAGE_KEY);
-    if (!stored) return [];
-    const parsed: unknown = JSON.parse(stored);
-    if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === 'string');
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-function pushMruEquipmentId(id: string): void {
-  const current = getMruEquipmentIds().filter((v) => v !== id);
-  current.unshift(id);
-  localStorage.setItem(MRU_STORAGE_KEY, JSON.stringify(current.slice(0, MAX_MRU)));
-}
 
 // ============================================================================
 // COMPONENT
@@ -60,6 +42,10 @@ export const RecordTab: React.FC = () => {
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Per-tenant MRU equipment list (namespaced + tenant-scoped + logout-swept).
+  const { tenantId } = useAuth();
+  const mruStorage = useTenantScopedStorage<string[]>(MRU_BASE_KEY, tenantId);
 
   // ----- Data hooks -----
   const systemsQuery = useSystemList();
@@ -95,7 +81,7 @@ export const RecordTab: React.FC = () => {
 
   // Sort equipment: MRU first
   const sortedEquipment = useMemo(() => {
-    const mru = getMruEquipmentIds();
+    const mru = mruStorage.read() ?? [];
     return [...filteredEquipment].sort((a, b) => {
       const aIdx = mru.indexOf(a.id);
       const bIdx = mru.indexOf(b.id);
@@ -104,23 +90,30 @@ export const RecordTab: React.FC = () => {
       if (bIdx !== -1) return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [filteredEquipment]);
+  }, [filteredEquipment, mruStorage]);
 
   // Auto-select MRU equipment on mount
   useEffect(() => {
     if (selectedEquipmentId) return;
-    const mru = getMruEquipmentIds();
+    const mru = mruStorage.read() ?? [];
     if (mru.length > 0 && filteredEquipment.some((eq) => eq.id === mru[0])) {
       setSelectedEquipmentId(mru[0]);
     }
-  }, [filteredEquipment, selectedEquipmentId]);
+  }, [filteredEquipment, selectedEquipmentId, mruStorage]);
 
   // ----- Handlers -----
-  const handleEquipmentChange = useCallback((id: string) => {
-    setSelectedEquipmentId(id || null);
-    setSubmitError(null);
-    if (id) pushMruEquipmentId(id);
-  }, []);
+  const handleEquipmentChange = useCallback(
+    (id: string) => {
+      setSelectedEquipmentId(id || null);
+      setSubmitError(null);
+      if (id) {
+        const next = (mruStorage.read() ?? []).filter((v) => v !== id);
+        next.unshift(id);
+        mruStorage.write(next.slice(0, MAX_MRU));
+      }
+    },
+    [mruStorage],
+  );
 
   const handleSystemChange = useCallback((id: string) => {
     setSelectedSystemId(id || null);

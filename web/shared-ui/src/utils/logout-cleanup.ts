@@ -19,6 +19,7 @@
 
 import type { QueryClient } from '@tanstack/react-query';
 import { clearSession } from './api-client';
+import { sweepTenantScopedStorage } from './tenant-scoped-storage-namespace';
 
 // ============================================================================
 // Types
@@ -147,6 +148,17 @@ function clearBrowserStorage(): void {
     for (const key of authKeys) {
       localStorage.removeItem(key);
     }
+  } catch {
+    // localStorage unavailable
+  }
+
+  // SECURITY: Sweep ALL tenant-scoped UI state (MRU lists, report drafts, view
+  // prefs) written via useTenantScopedStorage. These keys carry per-tenant —
+  // and sometimes PII-bearing (regulatory report drafts) — data that must not
+  // survive logout or a tenant switch on a shared browser. The fixed deny-list
+  // above cannot enumerate the open-ended per-tenant namespace.
+  try {
+    sweepTenantScopedStorage(localStorage);
   } catch {
     // localStorage unavailable
   }

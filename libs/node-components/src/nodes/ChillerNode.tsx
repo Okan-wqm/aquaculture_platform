@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface ChillerNodeData {
+interface ChillerNodeData extends Record<string, unknown> {
   label?: string;
   leftType?: HandleType;
   rightType?: HandleType;
@@ -19,7 +19,7 @@ interface ChillerNodeData {
 const WIDTH = 160;
 const HEIGHT = 120;
 
-const ChillerNode: React.FC<NodeProps<ChillerNodeData>> = ({ id, data, selected }) => {
+const ChillerNode: React.FC<NodeProps<Node<ChillerNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

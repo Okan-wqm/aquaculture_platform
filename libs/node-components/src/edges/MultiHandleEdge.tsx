@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useRef } from 'react';
-import { EdgeProps, useReactFlow } from 'reactflow';
+import { EdgeProps, useReactFlow, type Edge } from '@xyflow/react';
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
 /* -------------------------------------------------- */
@@ -20,7 +20,7 @@ import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 /* -------------------------------------------------- */
 type Point = { x: number; y: number; locked: boolean };
 
-export interface MultiHandleEdgeData {
+export interface MultiHandleEdgeData extends Record<string, unknown> {
   points?: Point[];
   label?: string;
   connectionType?: ConnectionType;
@@ -102,7 +102,7 @@ const findSegmentIndex = (pts: Point[], clickX: number, clickY: number): number 
 /* -------------------------------------------------- */
 import type { EdgeDataUpdater } from './OrthogonalEdge';
 
-export interface MultiHandleEdgeProps extends EdgeProps<MultiHandleEdgeData> {
+export interface MultiHandleEdgeProps extends EdgeProps<Edge<MultiHandleEdgeData>> {
   /** See `EdgeDataUpdater` — optional consumer-supplied persistence override. */
   updateEdgeData?: EdgeDataUpdater<MultiHandleEdgeData>;
 }

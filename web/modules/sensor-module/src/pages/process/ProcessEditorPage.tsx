@@ -40,7 +40,7 @@ import {
 
 import { useProcessStore, EquipmentNodeData, ProcessEdgeData } from '../../store/processStore';
 import { graphqlFetch } from '../../config/api';
-import type { Edge } from 'reactflow';
+import type { Edge } from '@xyflow/react';
 import { AUTOMATION_PROGRAMS_QUERY, DEPLOY_PROGRAM_MUTATION } from '../../graphql/automation.queries';
 import { useAuth } from '@aquaculture/shared-ui';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';

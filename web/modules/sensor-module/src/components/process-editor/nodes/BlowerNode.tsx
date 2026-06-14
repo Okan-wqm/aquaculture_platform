@@ -4,13 +4,13 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Handle, useUpdateNodeInternals, NodeProps } from 'reactflow';
+import { Handle, useUpdateNodeInternals, NodeProps, type Node } from '@xyflow/react';
 import { rotatePoint } from '../utils/rotatePoint';
 import { useProcessStore } from '../../../store/processStore';
 
 type HandleType = 'source' | 'target';
 
-interface BlowerNodeData {
+interface BlowerNodeData extends Record<string, unknown> {
   inlet?: HandleType;
   outlet?: HandleType;
   rotation?: number;
@@ -20,7 +20,7 @@ interface BlowerNodeData {
 const WIDTH = 200;
 const HEIGHT = 140;
 
-const BlowerNode: React.FC<NodeProps<BlowerNodeData>> = ({ id, data, selected }) => {
+const BlowerNode: React.FC<NodeProps<Node<BlowerNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const updateNodeData = useProcessStore((state) => state.updateNodeData);
 

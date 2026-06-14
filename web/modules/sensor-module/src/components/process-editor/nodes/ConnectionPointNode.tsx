@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, NodeProps } from 'reactflow';
+import { Handle, useUpdateNodeInternals, NodeProps, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
 
 type HandleType = 'source' | 'target';
 
-interface ConnectionPointNodeData {
+interface ConnectionPointNodeData extends Record<string, unknown> {
   topType?: HandleType;
   bottomType?: HandleType;
   leftType?: HandleType;
@@ -19,7 +19,7 @@ interface ConnectionPointNodeData {
   label?: string;
 }
 
-const ConnectionPointNode: React.FC<NodeProps<ConnectionPointNodeData>> = ({ id, data, selected }) => {
+const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const updateNodeData = useProcessStore((state) => state.updateNodeData);
 

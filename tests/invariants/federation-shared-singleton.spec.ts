@@ -67,7 +67,7 @@ const SINGLE_VERSION_PACKAGES = [
   'react-router-dom',
   '@tanstack/react-query',
   'zustand',
-  'reactflow',
+  '@xyflow/react',
   'lucide-react',
   'recharts',
 ] as const;

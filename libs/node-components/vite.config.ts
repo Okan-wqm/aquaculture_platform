@@ -35,12 +35,15 @@ export default defineConfig({
     },
     rollupOptions: {
       // External dependencies - not bundled
-      external: ['react', 'react-dom', 'reactflow'],
+      external: ['react', 'react-dom', '@xyflow/react'],
       output: {
         globals: {
           react: 'React',
           'react-dom': 'ReactDOM',
-          reactflow: 'ReactFlow',
+          // xyflow v12 UMD still exposes the global `ReactFlow` (verified in
+          // node_modules/@xyflow/react/dist/umd/index.js), so the CDN canvases'
+          // `window.ReactFlow` usage is unchanged by the reactflow->xyflow bump.
+          '@xyflow/react': 'ReactFlow',
         },
         // Ensure proper exports in UMD
         exports: 'named',

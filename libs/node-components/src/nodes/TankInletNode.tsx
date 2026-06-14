@@ -4,13 +4,13 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps } from 'reactflow';
+import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, type Node } from '@xyflow/react';
 import { rotatePoint } from '../utils/rotatePoint';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface TankInletNodeData {
+interface TankInletNodeData extends Record<string, unknown> {
   top?: HandleType;
   bottom?: HandleType;
   rotation?: number;
@@ -21,7 +21,7 @@ interface TankInletNodeData {
 const WIDTH = 120;
 const HEIGHT = 160;
 
-const TankInletNode: React.FC<NodeProps<TankInletNodeData>> = ({ id, data, selected }) => {
+const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data, selected }) => {
   const rotation = data?.rotation ?? 0;
   const isScadaMode = data?.isScadaMode || false;
 

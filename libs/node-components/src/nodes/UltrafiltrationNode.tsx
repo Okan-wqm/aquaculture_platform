@@ -5,12 +5,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface UltrafiltrationNodeData {
+interface UltrafiltrationNodeData extends Record<string, unknown> {
   label?: string;
   backflushType?: HandleType;
   feedType?: HandleType;
@@ -27,7 +27,7 @@ interface UltrafiltrationNodeData {
 const WIDTH = 180;
 const HEIGHT = 140;
 
-const UltrafiltrationNode: React.FC<NodeProps<UltrafiltrationNodeData>> = ({ id, data, selected }) => {
+const UltrafiltrationNode: React.FC<NodeProps<Node<UltrafiltrationNodeData>>> = ({ id, data, selected }) => {
   const isScadaMode = data?.isScadaMode || false;
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();

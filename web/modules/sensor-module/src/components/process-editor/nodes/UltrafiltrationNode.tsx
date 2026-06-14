@@ -5,11 +5,11 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 
 type HandleType = 'source' | 'target';
 
-interface UltrafiltrationNodeData {
+interface UltrafiltrationNodeData extends Record<string, unknown> {
   label?: string;
   // Water flow handles
   backflushType?: HandleType;
@@ -25,7 +25,7 @@ interface UltrafiltrationNodeData {
   elec3Type?: HandleType;
 }
 
-const UltrafiltrationNode: React.FC<NodeProps<UltrafiltrationNodeData>> = ({ id, data, selected }) => {
+const UltrafiltrationNode: React.FC<NodeProps<Node<UltrafiltrationNodeData>>> = ({ id, data, selected }) => {
   const scaleFactor = 0.8;
   const width = 260 * scaleFactor;
   const height = 280 * scaleFactor;

@@ -14,8 +14,8 @@
  */
 
 import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import type { NodeProps } from 'reactflow';
-import { Handle, Position } from 'reactflow';
+import type { NodeProps } from '@xyflow/react';
+import { Handle, Position, type Node } from '@xyflow/react';
 import { WidgetRenderer } from '../../scada-builder/WidgetRenderer';
 import type {
   ConnectionPointKey,
@@ -104,7 +104,7 @@ const CONTENT_STYLE: React.CSSProperties = { width: '100%', height: '100%' };
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ data, selected }) => {
+const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ data, selected }) => {
   const constraints = WIDGET_SIZE_CONSTRAINTS[data.widgetType] || DEFAULT_CONSTRAINTS;
 
   const [size, setSize] = useState({

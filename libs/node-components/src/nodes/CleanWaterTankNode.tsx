@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface CleanWaterTankNodeData {
+interface CleanWaterTankNodeData extends Record<string, unknown> {
   label?: string;
   leftType?: HandleType;
   rightType?: HandleType;
@@ -20,7 +20,7 @@ interface CleanWaterTankNodeData {
 const WIDTH = 180;
 const HEIGHT = 140;
 
-const CleanWaterTankNode: React.FC<NodeProps<CleanWaterTankNodeData>> = ({ id, data, selected }) => {
+const CleanWaterTankNode: React.FC<NodeProps<Node<CleanWaterTankNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

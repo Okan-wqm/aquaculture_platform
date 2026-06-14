@@ -5,7 +5,7 @@
  */
 
 import React, { memo, useState, useCallback, useEffect } from 'react';
-import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals } from 'reactflow';
+import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals, type Node } from '@xyflow/react';
 import { getEquipmentSize, ConnectionPointPosition, ConnectionPointType } from '../config/equipmentTypes';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
@@ -16,7 +16,7 @@ type EquipmentType =
   | 'belt-filter' | 'electric-generator' | 'oxygen-generator';
 
 // Node data interface
-export interface EquipmentNodeData {
+export interface EquipmentNodeData extends Record<string, unknown> {
   equipmentType: EquipmentType;
   equipmentName?: string;
   equipmentCode?: string;
@@ -151,7 +151,7 @@ const getEquipmentIcon = (type: string) => {
   return EquipmentIcons[type] || EquipmentIcons['tank'];
 };
 
-export const EquipmentNode = memo(({ id, data, selected }: NodeProps<EquipmentNodeData>) => {
+export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<EquipmentNodeData>>) => {
   const Icon = getEquipmentIcon(data.equipmentType);
   const statusStyle = getStatusStyle(data.status || 'standby');
   const size = getEquipmentSize(data.equipmentType);

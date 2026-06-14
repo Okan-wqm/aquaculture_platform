@@ -1,5 +1,4 @@
-import { ComponentType } from 'react';
-import { NodeProps } from 'reactflow';
+import type { NodeTypes } from '@xyflow/react';
 
 /**
  * Node category types for palette organization
@@ -74,8 +73,8 @@ export interface NodeTypeConfig {
   category: NodeCategory;
   /** Description for tooltip */
   description?: string;
-  /** The React component */
-  component: ComponentType<NodeProps>;
+  /** The React component (xyflow v12 NodeTypes value — permissive data/type) */
+  component: NodeTypes[string];
   /** Icon name or SVG (optional) */
   icon?: string;
   /** Default size when created */
@@ -91,7 +90,7 @@ export interface NodeTypeConfig {
 /**
  * Node data interface (passed to components)
  */
-export interface BaseNodeData {
+export interface BaseNodeData extends Record<string, unknown> {
   label?: string;
   status?: 'operational' | 'active' | 'maintenance' | 'out_of_service' | 'inactive';
   width?: number;

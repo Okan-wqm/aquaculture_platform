@@ -14,7 +14,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, MouseEvent as ReactMouseEvent } from 'react';
-import { EdgeProps } from 'reactflow';
+import { EdgeProps, type Edge } from '@xyflow/react';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
 import { useEdgeFlowState } from './useEdgeFlowState';
@@ -25,7 +25,7 @@ import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
 /* -------------------------------------------------- */
 type Point = { x: number; y: number; locked: boolean };
 
-export interface MultiHandleEdgeData {
+export interface MultiHandleEdgeData extends Record<string, unknown> {
   points?: Point[];
   label?: string;
   connectionType?: ConnectionType;
@@ -145,7 +145,7 @@ const findSegmentIndex = (pts: Point[], clickX: number, clickY: number): number 
 /* -------------------------------------------------- */
 /*  Component                                         */
 /* -------------------------------------------------- */
-const MultiHandleEdge: React.FC<EdgeProps<MultiHandleEdgeData>> = (props) => {
+const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) => {
   const {
     id,
     sourceX,

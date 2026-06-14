@@ -174,7 +174,7 @@ export interface WidgetPermissions {
   enableRoles: string[];
 }
 
-export interface ScadaWidgetNodeData {
+export interface ScadaWidgetNodeData extends Record<string, unknown> {
   widgetType: ScadaWidgetType;
   config: Record<string, unknown>;
   screenId: string;

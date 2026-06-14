@@ -13,6 +13,7 @@ import {
   TENANT_SCOPED_STORAGE_NAMESPACE,
   tenantScopedStorageKey,
   sweepTenantScopedStorage,
+  sweepStorageByPrefix,
 } from '../tenant-scoped-storage-namespace';
 
 describe('tenantScopedStorageKey', () => {
@@ -84,5 +85,26 @@ describe('sweepTenantScopedStorage', () => {
   it('returns 0 when there are no tenant-scoped keys', () => {
     const storage = makeStorage({ 'some-pref': 'x', tenant_id: 't' });
     expect(sweepTenantScopedStorage(storage)).toBe(0);
+  });
+});
+
+describe('sweepStorageByPrefix (legacy PII-draft eviction on logout)', () => {
+  it('removes only keys matching the prefix and leaves the rest', () => {
+    const storage = makeStorage({
+      // pre-migration flat PII draft keys (old useReportDraft format)
+      'regulatory_report_draft_SEA_LICE_new_t12345678': '{"contact":"pii"}',
+      'regulatory_report_draft_BIOMASS_new': '{"contact":"pii"}',
+      // unrelated + already-migrated keys must be untouched
+      'unrelated-pref': 'keep',
+      [`${TENANT_SCOPED_STORAGE_NAMESPACE}::tenant-a::wq-mru-equipment`]: '["e1"]',
+    });
+
+    const removed = sweepStorageByPrefix(storage, 'regulatory_report_draft_');
+
+    expect(removed).toBe(2);
+    expect(storage.has('regulatory_report_draft_SEA_LICE_new_t12345678')).toBe(false);
+    expect(storage.has('regulatory_report_draft_BIOMASS_new')).toBe(false);
+    expect(storage.has('unrelated-pref')).toBe(true);
+    expect(storage.has(`${TENANT_SCOPED_STORAGE_NAMESPACE}::tenant-a::wq-mru-equipment`)).toBe(true);
   });
 });

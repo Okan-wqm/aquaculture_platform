@@ -38,10 +38,10 @@ export function tenantScopedStorageKey(
  * Used by `logoutCleanup` so the open-ended per-tenant namespace is cleared on
  * logout (the fixed auth-key deny-list cannot enumerate it).
  */
-export function sweepTenantScopedStorage(
+export function sweepStorageByPrefix(
   storage: Pick<Storage, 'length' | 'key' | 'removeItem'>,
+  prefix: string,
 ): number {
-  const prefix = `${TENANT_SCOPED_STORAGE_NAMESPACE}::`;
   let removed = 0;
   // Iterate backwards: removeItem shifts the remaining indices down.
   for (let i = storage.length - 1; i >= 0; i--) {
@@ -52,4 +52,10 @@ export function sweepTenantScopedStorage(
     }
   }
   return removed;
+}
+
+export function sweepTenantScopedStorage(
+  storage: Pick<Storage, 'length' | 'key' | 'removeItem'>,
+): number {
+  return sweepStorageByPrefix(storage, `${TENANT_SCOPED_STORAGE_NAMESPACE}::`);
 }

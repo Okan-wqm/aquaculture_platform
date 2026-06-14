@@ -19,7 +19,15 @@
 
 import type { QueryClient } from '@tanstack/react-query';
 import { clearSession } from './api-client';
-import { sweepTenantScopedStorage } from './tenant-scoped-storage-namespace';
+import {
+  sweepStorageByPrefix,
+  sweepTenantScopedStorage,
+} from './tenant-scoped-storage-namespace';
+
+// Pre-migration flat key prefix for regulatory report drafts (PII). Drafts now
+// live under the aqua.tss:: namespace; this prefix exists only to evict PII that
+// older builds already wrote to existing users' browsers, on their next logout.
+const LEGACY_REPORT_DRAFT_PREFIX = 'regulatory_report_draft_';
 
 // ============================================================================
 // Types
@@ -159,6 +167,11 @@ function clearBrowserStorage(): void {
   // above cannot enumerate the open-ended per-tenant namespace.
   try {
     sweepTenantScopedStorage(localStorage);
+    // LEGACY: evict PII regulatory-report drafts written under the
+    // pre-migration flat key on already-affected browsers. The hook now writes
+    // under aqua.tss:: (swept above); this one-time prefix sweep closes the
+    // residual "leaked PII survives logout" gap for existing users.
+    sweepStorageByPrefix(localStorage, LEGACY_REPORT_DRAFT_PREFIX);
   } catch {
     // localStorage unavailable
   }

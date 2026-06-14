@@ -11,6 +11,8 @@
     "preview": "vite preview",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.sw.json",
+    "test": "vitest run --exclude '**/*.invariant.spec.ts'",
+    "test:invariant": "vitest run src/pwa/__tests__/sw-build-artifact.invariant.spec.ts",
     "postinstall": "node scripts/patch-konsta.cjs"
   },
   "dependencies": {
@@ -25,6 +27,11 @@
     "react-router-dom": "^6.21.0",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^2.6.0",
+    "workbox-core": "^7.0.0",
+    "workbox-expiration": "^7.0.0",
+    "workbox-precaching": "^7.0.0",
+    "workbox-routing": "^7.0.0",
+    "workbox-strategies": "^7.0.0",
     "workbox-window": "^7.0.0"
   },
   "devDependencies": {

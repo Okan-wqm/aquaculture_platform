@@ -1,8 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { gql } from 'graphql-tag';
+
+
 import { useAuth } from './useAuth';
+
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 export interface ShiftInfo {
   id: string;
@@ -43,7 +47,7 @@ export interface WeeklyPlan {
   entries: WeeklyPlanEntry[];
 }
 
-const MY_WEEKLY_PLAN_QUERY = `
+const MY_WEEKLY_PLAN_QUERY = gql`
   query GetMyWeeklyPlan($weekStartDate: String) {
     mySchedule(weekStartDate: $weekStartDate, limit: 1) {
       items {

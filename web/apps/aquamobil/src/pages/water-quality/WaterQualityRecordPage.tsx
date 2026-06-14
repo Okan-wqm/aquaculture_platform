@@ -1,17 +1,19 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { BlockTitle, List, ListInput } from 'konsta/react';
-import { ArrowLeft, Droplets, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
 import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { gql } from 'graphql-tag';
+import { BlockTitle, List, ListInput } from 'konsta/react';
+import { ArrowLeft, Droplets, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
-import { isRecoverableNetworkError } from '@/utils/network-error';
 import type { CreateWaterQualityInput } from '@/types';
+import { isRecoverableNetworkError } from '@/utils/network-error';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
 // TYPES
@@ -47,13 +49,13 @@ type FieldValue = number | string | boolean;
  * ensuring non-tank equipment (sensors, pumps, filters) with
  * status='operational' are included alongside tank equipment (status='active').
  */
-const EQUIPMENT_LIST_QUERY = `
+const EQUIPMENT_LIST_QUERY = gql`
   query EquipmentList($filter: EquipmentFilterInput) {
     equipmentList(filter: $filter) { items { id name code equipmentType { category name } } }
   }
 `;
 
-const EQUIPMENT_PARAMS_QUERY = `
+const EQUIPMENT_PARAMS_QUERY = gql`
   query EquipmentParameters($equipmentId: ID!) {
     equipmentParameters(equipmentId: $equipmentId) {
       parameterConfig {
@@ -65,7 +67,7 @@ const EQUIPMENT_PARAMS_QUERY = `
   }
 `;
 
-const CREATE_WQ_MUTATION = `
+const CREATE_WQ_MUTATION = gql`
   mutation CreateWaterQualityMeasurement($input: CreateWaterQualityInput!) {
     createWaterQualityMeasurement(input: $input) { id overallStatus hasAlarm }
   }

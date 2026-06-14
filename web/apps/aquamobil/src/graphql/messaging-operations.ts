@@ -1,83 +1,106 @@
 // ============================================================================
-// Messaging GraphQL Operations — ADR-012
+// Messaging GraphQL Operations — ADR-012 / S1-CODEGEN
 // ============================================================================
 // All queries and mutations for the in-app messaging feature.
 // Matches the messaging-service GraphQL schema (ADR-012 section 6.2).
 // Note: tenantId/userId come from @Tenant() and @CurrentUser() backend
 // decorators, NOT from GraphQL variables. They are extracted from JWT.
+//
+// S1-CODEGEN: every operation is a real `gql`-tagged document with named
+// GraphQL fragments (NOT JS `${...}` string interpolation), so graphql-codegen's
+// graphql-tag-pluck can extract them and generate a TypedDocumentNode + result
+// types per operation into ../generated/graphql.ts. Importing those generated
+// constants in the hooks makes operation-result drift a compile error and the
+// enum wire-casing class structurally impossible.
 
-// --- Message fragment for reuse across queries ---
-const MESSAGE_FIELDS = `
-  id
-  channelId
-  senderId
-  content
-  contentType
-  parentId
-  forwardedFrom
-  isDeleted
-  createdAt
-  editedAt
-  sender {
-    id
-    firstName
-    lastName
-    email
-    profileImageUrl
-    isOnline
-  }
-  attachments {
-    id
-    originalFilename
-    mimeType
-    fileSize
-    width
-    height
-    durationSeconds
-    thumbnailUrl
-    downloadUrl
-  }
-  receipts {
-    userId
-    status
-    deliveredAt
-    readAt
-  }
-  reactionSummary {
-    emoji
-    count
-    userIds
-    hasReacted
-  }
-`;
+import { gql } from 'graphql-tag';
 
-const CHANNEL_FIELDS = `
-  id
-  type
-  name
-  description
-  avatarUrl
-  createdBy
-  isArchived
-  createdAt
-  updatedAt
-  aiPersona
-  aiServiceUrl
-  unreadCount
-  memberCount
-  lastMessage {
-    ${MESSAGE_FIELDS}
-  }
-  members {
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+
+import type {
+  MyChannelsQuery,
+  MyChannelsQueryVariables,
+  GetChannelQuery,
+  GetChannelQueryVariables,
+  GetMessagesQuery,
+  GetMessagesQueryVariables,
+  MessagesSinceQuery,
+  MessagesSinceQueryVariables,
+  AllMessagesSinceQuery,
+  AllMessagesSinceQueryVariables,
+  TotalUnreadMessageCountQuery,
+  TotalUnreadMessageCountQueryVariables,
+  SearchMessagesQuery,
+  SearchMessagesQueryVariables,
+  GetPinnedMessagesQuery,
+  GetPinnedMessagesQueryVariables,
+  UserPresenceQuery,
+  UserPresenceQueryVariables,
+  DirectChannelQuery,
+  DirectChannelQueryVariables,
+  AvailableAiPersonasQuery,
+  AvailableAiPersonasQueryVariables,
+  CreateChannelMutation,
+  CreateChannelMutationVariables,
+  UpdateChannelMutation,
+  UpdateChannelMutationVariables,
+  ArchiveChannelMutation,
+  ArchiveChannelMutationVariables,
+  AddChannelMemberMutation,
+  AddChannelMemberMutationVariables,
+  RemoveChannelMemberMutation,
+  RemoveChannelMemberMutationVariables,
+  UpdateNotificationPreferenceMutation,
+  UpdateNotificationPreferenceMutationVariables,
+  SendMessageMutation,
+  SendMessageMutationVariables,
+  EditMessageMutation,
+  EditMessageMutationVariables,
+  DeleteMessageMutation,
+  DeleteMessageMutationVariables,
+  MarkMessagesReadMutation,
+  MarkMessagesReadMutationVariables,
+  RequestMediaUploadMutation,
+  RequestMediaUploadMutationVariables,
+  PinMessageMutation,
+  PinMessageMutationVariables,
+  UnpinMessageMutation,
+  UnpinMessageMutationVariables,
+  AddReactionMutation,
+  AddReactionMutationVariables,
+  RemoveReactionMutation,
+  RemoveReactionMutationVariables,
+  ForwardMessageMutation,
+  ForwardMessageMutationVariables,
+} from '@/generated/graphql';
+
+// --- Reusable fragments ---
+// MessageFields/ChannelFields are named GraphQL fragments interpolated into the
+// operations below via fragment-document interpolation (the gql tag stitches the
+// fragment definitions into each document at parse time).
+//
+// S1-CODEGEN: each operation is annotated with its generated
+// `TypedDocumentNode<XQuery, XQueryVariables>` type. A plain `gql` DocumentNode
+// is structurally assignable to TypedDocumentNode (the result/variable brand is
+// an optional phantom member), so this annotation needs NO cast — it just flows
+// the generated result + variable types into `graphqlRequest`, making any
+// query/result drift a COMPILE error at the call site. The gql template remains
+// the codegen pluck source, so the annotation can never silently diverge from
+// the document: regenerating updates the referenced XQuery type.
+
+export const MESSAGE_FIELDS = gql`
+  fragment MessageFields on Message {
     id
     channelId
-    userId
-    role
-    notificationPreference
-    lastReadAt
-    joinedAt
-    leftAt
-    user {
+    senderId
+    content
+    contentType
+    parentId
+    forwardedFrom
+    isDeleted
+    createdAt
+    editedAt
+    sender {
       id
       firstName
       lastName
@@ -85,7 +108,70 @@ const CHANNEL_FIELDS = `
       profileImageUrl
       isOnline
     }
+    attachments {
+      id
+      originalFilename
+      mimeType
+      fileSize
+      width
+      height
+      durationSeconds
+      thumbnailUrl
+      downloadUrl
+    }
+    receipts {
+      userId
+      status
+      deliveredAt
+      readAt
+    }
+    reactionSummary {
+      emoji
+      count
+      userIds
+      hasReacted
+    }
   }
+`;
+
+export const CHANNEL_FIELDS = gql`
+  fragment ChannelFields on Channel {
+    id
+    type
+    name
+    description
+    avatarUrl
+    createdBy
+    isArchived
+    createdAt
+    updatedAt
+    aiPersona
+    aiServiceUrl
+    unreadCount
+    memberCount
+    lastMessage {
+      ...MessageFields
+    }
+    members {
+      id
+      channelId
+      userId
+      role
+      notificationPreference
+      lastReadAt
+      joinedAt
+      leftAt
+      user {
+        id
+        firstName
+        lastName
+        email
+        profileImageUrl
+        isOnline
+      }
+    }
+  }
+  ${MESSAGE_FIELDS}
 `;
 
 // ============================================================================
@@ -93,95 +179,102 @@ const CHANNEL_FIELDS = `
 // ============================================================================
 
 /** List channels for the current user, sorted by last message timestamp. */
-export const MY_CHANNELS = `
+export const MY_CHANNELS: TypedDocumentNode<MyChannelsQuery, MyChannelsQueryVariables> = gql`
   query MyChannels($filter: ChannelFilterInput) {
     myChannels(filter: $filter) {
       items {
-        ${CHANNEL_FIELDS}
+        ...ChannelFields
       }
       total
     }
   }
+  ${CHANNEL_FIELDS}
 `;
 
 /** Get a single channel by ID (must be a member). */
-export const GET_CHANNEL = `
-  query GetChannel($id: String!) {
+export const GET_CHANNEL: TypedDocumentNode<GetChannelQuery, GetChannelQueryVariables> = gql`
+  query GetChannel($id: ID!) {
     channel(id: $id) {
-      ${CHANNEL_FIELDS}
+      ...ChannelFields
     }
   }
+  ${CHANNEL_FIELDS}
 `;
 
 /** Get paginated messages in a channel (cursor-based, newest first). */
-export const GET_MESSAGES = `
-  query GetMessages($channelId: String!, $filter: MessageFilterInput) {
+export const GET_MESSAGES: TypedDocumentNode<GetMessagesQuery, GetMessagesQueryVariables> = gql`
+  query GetMessages($channelId: ID!, $filter: MessageFilterInput) {
     messages(channelId: $channelId, filter: $filter) {
       items {
-        ${MESSAGE_FIELDS}
+        ...MessageFields
       }
       hasMore
       cursor
     }
   }
+  ${MESSAGE_FIELDS}
 `;
 
 /** Get messages since a timestamp for a single channel (offline sync). */
-export const MESSAGES_SINCE = `
-  query MessagesSince($channelId: String!, $since: DateTime!) {
+export const MESSAGES_SINCE: TypedDocumentNode<MessagesSinceQuery, MessagesSinceQueryVariables> = gql`
+  query MessagesSince($channelId: ID!, $since: DateTime!) {
     messagesSince(channelId: $channelId, since: $since) {
-      ${MESSAGE_FIELDS}
+      ...MessageFields
     }
   }
+  ${MESSAGE_FIELDS}
 `;
 
 /** Bulk offline sync — all new messages across all channels since timestamp. */
-export const ALL_MESSAGES_SINCE = `
+export const ALL_MESSAGES_SINCE: TypedDocumentNode<AllMessagesSinceQuery, AllMessagesSinceQueryVariables> = gql`
   query AllMessagesSince($since: DateTime!, $limit: Int, $syncToken: String) {
     allMessagesSince(since: $since, limit: $limit, syncToken: $syncToken) {
       messages {
-        ${MESSAGE_FIELDS}
+        ...MessageFields
       }
       hasMore
       syncToken
     }
   }
+  ${MESSAGE_FIELDS}
 `;
 
 /** Get total unread message count across all channels. */
-export const TOTAL_UNREAD_MESSAGE_COUNT = `
+export const TOTAL_UNREAD_MESSAGE_COUNT: TypedDocumentNode<TotalUnreadMessageCountQuery, TotalUnreadMessageCountQueryVariables> = gql`
   query TotalUnreadMessageCount {
     totalUnreadMessageCount
   }
 `;
 
 /** Full-text search across messages. */
-export const SEARCH_MESSAGES = `
+export const SEARCH_MESSAGES: TypedDocumentNode<SearchMessagesQuery, SearchMessagesQueryVariables> = gql`
   query SearchMessages($input: SearchMessagesInput!) {
     searchMessages(input: $input) {
-      ${MESSAGE_FIELDS}
+      ...MessageFields
     }
   }
+  ${MESSAGE_FIELDS}
 `;
 
 /** Get pinned messages in a channel. */
-export const GET_PINNED_MESSAGES = `
-  query GetPinnedMessages($channelId: String!) {
+export const GET_PINNED_MESSAGES: TypedDocumentNode<GetPinnedMessagesQuery, GetPinnedMessagesQueryVariables> = gql`
+  query GetPinnedMessages($channelId: ID!) {
     pinnedMessages(channelId: $channelId) {
       id
       channelId
       pinnedBy
       pinnedAt
       message {
-        ${MESSAGE_FIELDS}
+        ...MessageFields
       }
     }
   }
+  ${MESSAGE_FIELDS}
 `;
 
 /** Get online/offline status for a list of user IDs. */
-export const USER_PRESENCE = `
-  query UserPresence($userIds: [String!]!) {
+export const USER_PRESENCE: TypedDocumentNode<UserPresenceQuery, UserPresenceQueryVariables> = gql`
+  query UserPresence($userIds: [ID!]!) {
     userPresence(userIds: $userIds) {
       id
       firstName
@@ -194,16 +287,17 @@ export const USER_PRESENCE = `
 `;
 
 /** Get or create a DM channel with another user. */
-export const DIRECT_CHANNEL = `
-  query DirectChannel($userId: String!) {
+export const DIRECT_CHANNEL: TypedDocumentNode<DirectChannelQuery, DirectChannelQueryVariables> = gql`
+  query DirectChannel($userId: ID!) {
     directChannel(userId: $userId) {
-      ${CHANNEL_FIELDS}
+      ...ChannelFields
     }
   }
+  ${CHANNEL_FIELDS}
 `;
 
 /** Get available AI personas for the current tenant. */
-export const AVAILABLE_AI_PERSONAS = `
+export const AVAILABLE_AI_PERSONAS: TypedDocumentNode<AvailableAiPersonasQuery, AvailableAiPersonasQueryVariables> = gql`
   query AvailableAiPersonas {
     availableAiPersonas {
       id
@@ -221,33 +315,35 @@ export const AVAILABLE_AI_PERSONAS = `
 // ============================================================================
 
 /** Create a new group channel. */
-export const CREATE_CHANNEL = `
+export const CREATE_CHANNEL: TypedDocumentNode<CreateChannelMutation, CreateChannelMutationVariables> = gql`
   mutation CreateChannel($input: CreateChannelInput!) {
     createChannel(input: $input) {
-      ${CHANNEL_FIELDS}
+      ...ChannelFields
     }
   }
+  ${CHANNEL_FIELDS}
 `;
 
 /** Update channel name, description, or avatar. */
-export const UPDATE_CHANNEL = `
-  mutation UpdateChannel($id: String!, $input: UpdateChannelInput!) {
+export const UPDATE_CHANNEL: TypedDocumentNode<UpdateChannelMutation, UpdateChannelMutationVariables> = gql`
+  mutation UpdateChannel($id: ID!, $input: UpdateChannelInput!) {
     updateChannel(id: $id, input: $input) {
-      ${CHANNEL_FIELDS}
+      ...ChannelFields
     }
   }
+  ${CHANNEL_FIELDS}
 `;
 
 /** Archive (soft-delete) a channel. */
-export const ARCHIVE_CHANNEL = `
-  mutation ArchiveChannel($id: String!) {
+export const ARCHIVE_CHANNEL: TypedDocumentNode<ArchiveChannelMutation, ArchiveChannelMutationVariables> = gql`
+  mutation ArchiveChannel($id: ID!) {
     archiveChannel(id: $id)
   }
 `;
 
 /** Add a member to a channel. */
-export const ADD_CHANNEL_MEMBER = `
-  mutation AddChannelMember($channelId: String!, $userId: String!, $role: ChannelMemberRole) {
+export const ADD_CHANNEL_MEMBER: TypedDocumentNode<AddChannelMemberMutation, AddChannelMemberMutationVariables> = gql`
+  mutation AddChannelMember($channelId: ID!, $userId: ID!, $role: ChannelMemberRole) {
     addChannelMember(channelId: $channelId, userId: $userId, role: $role) {
       id
       channelId
@@ -268,15 +364,15 @@ export const ADD_CHANNEL_MEMBER = `
 `;
 
 /** Remove a member from a channel (or leave). */
-export const REMOVE_CHANNEL_MEMBER = `
-  mutation RemoveChannelMember($channelId: String!, $userId: String!) {
+export const REMOVE_CHANNEL_MEMBER: TypedDocumentNode<RemoveChannelMemberMutation, RemoveChannelMemberMutationVariables> = gql`
+  mutation RemoveChannelMember($channelId: ID!, $userId: ID!) {
     removeChannelMember(channelId: $channelId, userId: $userId)
   }
 `;
 
 /** Update notification preference for a channel. */
-export const UPDATE_NOTIFICATION_PREFERENCE = `
-  mutation UpdateNotificationPreference($channelId: String!, $preference: NotificationPreference!) {
+export const UPDATE_NOTIFICATION_PREFERENCE: TypedDocumentNode<UpdateNotificationPreferenceMutation, UpdateNotificationPreferenceMutationVariables> = gql`
+  mutation UpdateNotificationPreference($channelId: ID!, $preference: NotificationPreference!) {
     updateNotificationPreference(channelId: $channelId, preference: $preference) {
       id
       notificationPreference
@@ -285,39 +381,41 @@ export const UPDATE_NOTIFICATION_PREFERENCE = `
 `;
 
 /** Send a message to a channel. */
-export const SEND_MESSAGE = `
+export const SEND_MESSAGE: TypedDocumentNode<SendMessageMutation, SendMessageMutationVariables> = gql`
   mutation SendMessage($input: SendMessageInput!) {
     sendMessage(input: $input) {
-      ${MESSAGE_FIELDS}
+      ...MessageFields
     }
   }
+  ${MESSAGE_FIELDS}
 `;
 
 /** Edit a message (own messages only). */
-export const EDIT_MESSAGE = `
-  mutation EditMessage($id: String!, $input: EditMessageInput!) {
+export const EDIT_MESSAGE: TypedDocumentNode<EditMessageMutation, EditMessageMutationVariables> = gql`
+  mutation EditMessage($id: ID!, $input: EditMessageInput!) {
     editMessage(id: $id, input: $input) {
-      ${MESSAGE_FIELDS}
+      ...MessageFields
     }
   }
+  ${MESSAGE_FIELDS}
 `;
 
 /** Soft-delete a message. */
-export const DELETE_MESSAGE = `
-  mutation DeleteMessage($id: String!) {
+export const DELETE_MESSAGE: TypedDocumentNode<DeleteMessageMutation, DeleteMessageMutationVariables> = gql`
+  mutation DeleteMessage($id: ID!) {
     deleteMessage(id: $id)
   }
 `;
 
 /** Mark messages as read up to a given message. */
-export const MARK_MESSAGES_READ = `
+export const MARK_MESSAGES_READ: TypedDocumentNode<MarkMessagesReadMutation, MarkMessagesReadMutationVariables> = gql`
   mutation MarkMessagesRead($input: MarkReadInput!) {
     markMessagesRead(input: $input)
   }
 `;
 
 /** Request a presigned URL for media upload. */
-export const REQUEST_MEDIA_UPLOAD = `
+export const REQUEST_MEDIA_UPLOAD: TypedDocumentNode<RequestMediaUploadMutation, RequestMediaUploadMutationVariables> = gql`
   mutation RequestMediaUpload($input: RequestMediaUploadInput!) {
     requestMediaUpload(input: $input) {
       uploadUrl
@@ -328,46 +426,48 @@ export const REQUEST_MEDIA_UPLOAD = `
 `;
 
 /** Pin a message in a channel. */
-export const PIN_MESSAGE = `
-  mutation PinMessage($channelId: String!, $messageId: String!) {
+export const PIN_MESSAGE: TypedDocumentNode<PinMessageMutation, PinMessageMutationVariables> = gql`
+  mutation PinMessage($channelId: ID!, $messageId: ID!) {
     pinMessage(channelId: $channelId, messageId: $messageId) {
       id
       channelId
       pinnedBy
       pinnedAt
       message {
-        ${MESSAGE_FIELDS}
+        ...MessageFields
       }
     }
   }
+  ${MESSAGE_FIELDS}
 `;
 
 /** Unpin a message. */
-export const UNPIN_MESSAGE = `
-  mutation UnpinMessage($channelId: String!, $messageId: String!) {
+export const UNPIN_MESSAGE: TypedDocumentNode<UnpinMessageMutation, UnpinMessageMutationVariables> = gql`
+  mutation UnpinMessage($channelId: ID!, $messageId: ID!) {
     unpinMessage(channelId: $channelId, messageId: $messageId)
   }
 `;
 
 /** Add a reaction to a message. */
-export const ADD_REACTION = `
-  mutation AddReaction($messageId: String!, $emoji: String!) {
+export const ADD_REACTION: TypedDocumentNode<AddReactionMutation, AddReactionMutationVariables> = gql`
+  mutation AddReaction($messageId: ID!, $emoji: String!) {
     addReaction(messageId: $messageId, emoji: $emoji)
   }
 `;
 
 /** Remove a reaction from a message. */
-export const REMOVE_REACTION = `
-  mutation RemoveReaction($messageId: String!, $emoji: String!) {
+export const REMOVE_REACTION: TypedDocumentNode<RemoveReactionMutation, RemoveReactionMutationVariables> = gql`
+  mutation RemoveReaction($messageId: ID!, $emoji: String!) {
     removeReaction(messageId: $messageId, emoji: $emoji)
   }
 `;
 
 /** Forward a message to another channel. */
-export const FORWARD_MESSAGE = `
-  mutation ForwardMessage($sourceMessageId: String!, $sourceMessageCreatedAt: DateTime!, $targetChannelId: String!) {
+export const FORWARD_MESSAGE: TypedDocumentNode<ForwardMessageMutation, ForwardMessageMutationVariables> = gql`
+  mutation ForwardMessage($sourceMessageId: ID!, $sourceMessageCreatedAt: DateTime!, $targetChannelId: ID!) {
     forwardMessage(sourceMessageId: $sourceMessageId, sourceMessageCreatedAt: $sourceMessageCreatedAt, targetChannelId: $targetChannelId) {
-      ${MESSAGE_FIELDS}
+      ...MessageFields
     }
   }
+  ${MESSAGE_FIELDS}
 `;

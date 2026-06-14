@@ -7,18 +7,23 @@ import { Repository, DataSource, In, IsNull } from 'typeorm';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { Message } from '../message/entities/message.entity';
+import { MessageContentType } from '../message/entities/message.entity';
 import { MessageAttachment } from '../message/entities/message-attachment.entity';
 import { MessageReceipt } from '../message/entities/message-receipt.entity';
+import { ReceiptStatus } from '../message/entities/message-receipt.entity';
 import { MediaService } from '../message/services/media.service';
 import { PartitionManagerService } from '../partition/partition-manager.service';
 import { REDIS_CLIENT } from '../shared/redis.provider';
+import { toWireEnumName } from '../shared/enum-wire.util';
 import {
   GET_MESSAGE_FOR_BROADCAST_SUBJECT,
   type GetMessageForBroadcastRequest,
   type GetMessageForBroadcastResponse,
   type WsMessage,
   type WsMessageAttachment,
+  type WsMessageContentType,
   type WsMessageReceipt,
+  type WsReceiptStatus,
 } from '@platform/event-contracts';
 
 /** UUID representing an anonymised / deleted user. */
@@ -340,7 +345,10 @@ export class MessagingNatsHandler {
 
       const wsReceipts: WsMessageReceipt[] = receipts.map((r) => ({
         userId: r.userId,
-        status: r.status,
+        // Project the lowercase DB enum VALUE → UPPERCASE GraphQL enum NAME so
+        // the live WS wire form matches the GraphQL query wire form exactly
+        // (S1-CODEGEN). WsReceiptStatus IS the ReceiptStatus key union.
+        status: toWireEnumName(ReceiptStatus, r.status) satisfies WsReceiptStatus,
         deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
         readAt: r.readAt ? r.readAt.toISOString() : null,
       }));
@@ -350,7 +358,12 @@ export class MessagingNatsHandler {
         channelId: message.channelId,
         senderId: message.senderId,
         content: message.content,
-        contentType: message.contentType,
+        // VALUE → NAME projection (see wsReceipts above). WsMessageContentType
+        // IS the MessageContentType key union.
+        contentType: toWireEnumName(
+          MessageContentType,
+          message.contentType,
+        ) satisfies WsMessageContentType,
         parentId: message.parentId,
         forwardedFrom: message.forwardedFrom,
         isDeleted: message.isDeleted,

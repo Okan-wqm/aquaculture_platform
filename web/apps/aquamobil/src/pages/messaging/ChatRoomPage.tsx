@@ -294,10 +294,12 @@ export function ChatRoomPage() {
     if (!channelId) return;
     try {
       const storageKey = await uploadMedia(file);
-      const contentType = file.type.startsWith('image/') ? 'image' : 'file';
+      // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum
+      // NAME; the union literal flows straight into the typed SendMessageParams.
+      const contentType = file.type.startsWith('image/') ? 'IMAGE' : 'FILE';
       await sendMessage({
         content: null,
-        contentType: contentType as 'image' | 'file',
+        contentType,
         attachmentKeys: [storageKey],
       });
     } catch {
@@ -319,7 +321,7 @@ export function ChatRoomPage() {
         const storageKey = await uploadMedia(file);
         await sendMessage({
           content: null,
-          contentType: 'voice',
+          contentType: 'VOICE',
           attachmentKeys: [storageKey],
           metadata: { durationSeconds },
         });
@@ -485,7 +487,7 @@ export function ChatRoomPage() {
                   // Map attachment data
                   const firstAttachment = msg.attachments?.[0];
                   const image =
-                    msg.contentType === 'image' && firstAttachment
+                    msg.contentType === 'IMAGE' && firstAttachment
                       ? {
                           url: firstAttachment.downloadUrl ?? '',
                           thumbnailUrl: firstAttachment.thumbnailUrl ?? undefined,
@@ -494,7 +496,7 @@ export function ChatRoomPage() {
                         }
                       : undefined;
                   const file =
-                    msg.contentType === 'file' && firstAttachment
+                    msg.contentType === 'FILE' && firstAttachment
                       ? {
                           name: firstAttachment.originalFilename,
                           size: `${Math.round(firstAttachment.fileSize / 1024)}KB`,
@@ -507,9 +509,9 @@ export function ChatRoomPage() {
                     ? 'pending' as const
                     : msg._status === 'failed'
                       ? 'pending' as const
-                      : msg.receipts?.some((r) => r.status === 'read')
+                      : msg.receipts?.some((r) => r.status === 'READ')
                         ? 'read' as const
-                        : msg.receipts?.some((r) => r.status === 'delivered')
+                        : msg.receipts?.some((r) => r.status === 'DELIVERED')
                           ? 'delivered' as const
                           : 'sent' as const;
 
@@ -533,7 +535,7 @@ export function ChatRoomPage() {
                       onCopy={handleCopy}
                       onForward={handleForward}
                       onEdit={
-                        isOwn && msg.contentType === 'text' && !msg.isDeleted
+                        isOwn && msg.contentType === 'TEXT' && !msg.isDeleted
                           ? handleEdit
                           : undefined
                       }
@@ -568,7 +570,8 @@ export function ChatRoomPage() {
           setReplyingTo(null);
           sendMessage({
             content: text,
-            contentType: 'text',
+            // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum NAME.
+            contentType: 'TEXT',
             parentId: replyingTo?.id,
           });
         }}

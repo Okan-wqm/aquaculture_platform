@@ -4116,3 +4116,50 @@ Severity: MEDIUM. Discovered 2026-06-13 while landing the aquamobil-msg-federati
 Status: RESOLVED (2026-06-13; fixed in the aquamobil-msg-federation merge commit). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-MEDIUM-106 — hr-module GraphQL fragments drift from the live schema (codegen-blocking)
+
+Severity: MEDIUM. Discovered 2026-06-14 while standing up the AquaMobil graphql-codegen client-contract SSoT (S1-CODEGEN). Out of the S1 scope (S1 is the AquaMobil client contract + messaging enum-casing) — recorded here per the every-found-finding-is-registered rule.
+
+**Problem:** the shell/module GraphQL documents contain operations/fragments that reference fields the composed supergraph no longer exposes. Running `graphql-codegen` against the real supergraph surfaces (at minimum) in `web/modules/hr-module/src/graphql/`:
+- `fragments.ts` — `Payroll.earnings` and `Payroll.deductions` do not exist (schema has `deductionsTax`/`deductionsOther`/`deductionsTotal`); `PerformanceGoal.keyResults` and `.milestones` are selected without subfields (they are object lists `[KeyResult!]` / `[GoalMilestone!]`).
+- `performance.operations.ts` — operations that spread those broken fragments inherit the same validation errors.
+
+These documents fail GraphQL document validation, so codegen aborts the ENTIRE run (graphql-codegen has no per-output error isolation). At S1 time the only working codegen output was `web/shared-ui/src/generated/graphql-types.ts` (the `typescript` plugin, which needs no documents); the never-emitted `graphql-operations.ts` operations block (added in an earlier commit) was dead because of exactly this drift.
+
+**Effect:** the hr-module client compiles against fields that return nothing at runtime (silent `undefined` mid-response), and the shell/module operations cannot be brought under a codegen TypedDocumentNode contract until the fragments are realigned. S1 removed the dead `shared-ui/graphql-operations.ts` codegen block (no consumers, never emitted) so the AquaMobil codegen run is no longer blocked by this unrelated drift.
+
+**Fix direction (architectural):** realign the hr-module fragments to the live supergraph (`Payroll.deductionsTax|deductionsOther|deductionsTotal`; add explicit subfield selections to `keyResults`/`milestones`), then re-add a `web/shell+modules` operations codegen output (with its own disjoint `documents` set, mirroring the aquamobil block) and bring the shell/module hooks onto the generated TypedDocumentNode constants. Extend the S1 codegen CI gate to cover that output once green.
+
+Status: OPEN (2026-06-14; owner: frontend-expert → hr-module; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-107 — AquaMobil leave-balance rows show a generic "Leave" label (no per-type enrichment)
+
+Severity: LOW. Discovered 2026-06-14 during S1-CODEGEN, fixing a client-contract drift the codegen gate caught.
+
+**Problem:** `GET_MY_LEAVE_BALANCES` previously selected a nested `leaveType { id name code category isPaid color }` block, but the HR `LeaveBalance` GraphQL type has NO `leaveType` field (only `leaveTypeId`). The selection returned nothing at runtime, so `balance.leaveType` was always `undefined`; `MyLeavesPage` falls back to a generic `'Leave'` label and a default color. S1 removed the invalid selection (the codegen gate rejects a field the schema does not expose), which keeps the existing fallback behaviour but does not restore the per-type label/color.
+
+**Effect:** purely cosmetic — the leave-balance cards do not show the leave-type name/color. Functionally unchanged from before (the field never resolved). No data-integrity impact.
+
+**Fix direction:** enrich balances client-side by joining `balance.leaveTypeId` against the separately-fetched `leaveTypes` list (already loaded by `useLeaveTypes`) in the `useMyLeaveBalances` selector, or add a `leaveType` field resolver to `LeaveBalance` on the HR subgraph if the backend should own the join. The former is the smaller, client-only change.
+
+Status: OPEN (2026-06-14; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+## ORPHAN-MEDIUM-108 — AquaMobil `eslint src` lint script has a large pre-existing red baseline (~940 errors)
+
+Severity: MEDIUM. Discovered 2026-06-14 during S1-CODEGEN, validating that the codegen migration adds no new lint debt.
+
+**Problem:** the AquaMobil `lint` target (`nx run @aquaculture/aquamobil:lint` → `eslint src`) reports ~940 errors + ~286 warnings on a clean checkout, in files untouched by S1 (e.g. `src/App.tsx` 10 errors, `src/components/ErrorBoundary.tsx`, the storage/water-quality pages, `useWebAuthn.ts`). The dominant rules are `import/order` (import blocks mix external/internal without group separation), `@typescript-eslint/explicit-function-return-type`, `no-floating-promises`, `no-misused-promises`, `@typescript-eslint/no-explicit-any` / `no-unsafe-*` (notably the WebAuthn browser-API code), `no-console`, and `react/no-unescaped-entities` / jsx-a11y. The target is `cache: true` and feeds `nx affected --target=lint`, so the red baseline is effectively unenforced for this app — it can only ever be "already red", never gating.
+
+**Effect:** the AquaMobil lint gate provides no signal — a PR cannot make it RED (it is already red) and cannot be required to make it GREEN. Real new violations hide in the noise; the `no-explicit-any`/`no-unsafe-*` cluster in particular masks genuine type-safety gaps (e.g. the WebAuthn credential handling operates on `any`).
+
+**Why not fixed inline (S1):** out of S1 scope (S1 is the GraphQL client contract + messaging enum-casing). S1 verified it adds NO net-new lint errors of consequence: the only violations it introduced were `import/order` from inserting `import { gql }` lines, which were `eslint --fix`ed; every other reported error in S1-touched files pre-dates S1 (confirmed by rule-category diff and by linting untouched `App.tsx`). Fixing ~940 cross-cutting violations is a separate dedicated cleanup, not a safe rider on a contract migration.
+
+**Fix direction:** run `eslint --fix src` for the mechanical rules (`import/order`, quote/escaping), then triage the semantic clusters per-area: add explicit return types, `await`/`void` the floating promises, replace the WebAuthn `any` accesses with typed wrappers over the Credential Management API, and route `console.*` through the app logger. Land in reviewable slices, then flip the target to `--max-warnings 0` so it gates going forward.
+
+Status: OPEN (2026-06-14; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---

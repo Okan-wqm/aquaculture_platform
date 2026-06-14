@@ -15,21 +15,22 @@ import type { ChannelMember, ChannelMemberRole } from '@/types/messaging';
  * reuse in "Add Members" flow and member management screens.
  */
 
+// S1-CODEGEN: ChannelMemberRole wire form is the UPPERCASE GraphQL enum NAME.
 const ROLE_BADGES: Record<
   ChannelMemberRole,
   { icon: typeof Crown; label: string; color: string }
 > = {
-  owner: {
+  OWNER: {
     icon: Crown,
     label: 'Owner',
     color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   },
-  admin: {
+  ADMIN: {
     icon: Shield,
     label: 'Admin',
     color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
   },
-  member: {
+  MEMBER: {
     icon: User,
     label: 'Member',
     color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
@@ -81,7 +82,7 @@ export function MemberRow({ member }: MemberRowProps) {
         </p>
       </div>
 
-      {member.role !== 'member' && (
+      {member.role !== 'MEMBER' && (
         <span
           className={clsx(
             'flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full',

@@ -1,4 +1,7 @@
+import { type DocumentNode, print } from 'graphql';
+import { gql } from 'graphql-tag';
 import { useState, useCallback, useEffect } from 'react';
+
 import { useAuth } from './useAuth';
 
 // SEC-06: CSRF defense-in-depth header
@@ -37,7 +40,7 @@ export async function isPlatformAuthenticatorAvailable(): Promise<boolean> {
 // GraphQL Operations
 // ============================================================================
 
-const REGISTRATION_CHALLENGE_MUTATION = `
+const REGISTRATION_CHALLENGE_MUTATION = gql`
   mutation WebAuthnRegistrationChallenge($input: WebAuthnRegistrationChallengeInput) {
     webAuthnRegistrationChallenge(input: $input) {
       challenge
@@ -49,7 +52,7 @@ const REGISTRATION_CHALLENGE_MUTATION = `
   }
 `;
 
-const REGISTER_CREDENTIAL_MUTATION = `
+const REGISTER_CREDENTIAL_MUTATION = gql`
   mutation RegisterWebAuthnCredential($input: WebAuthnRegisterCredentialInput!) {
     registerWebAuthnCredential(input: $input) {
       success
@@ -59,7 +62,7 @@ const REGISTER_CREDENTIAL_MUTATION = `
   }
 `;
 
-const LOGIN_CHALLENGE_MUTATION = `
+const LOGIN_CHALLENGE_MUTATION = gql`
   mutation WebAuthnLoginChallenge($input: WebAuthnLoginChallengeInput!) {
     webAuthnLoginChallenge(input: $input) {
       challenge
@@ -69,7 +72,7 @@ const LOGIN_CHALLENGE_MUTATION = `
   }
 `;
 
-const VERIFY_LOGIN_MUTATION = `
+const VERIFY_LOGIN_MUTATION = gql`
   mutation VerifyWebAuthnLogin($input: WebAuthnVerifyLoginInput!) {
     verifyWebAuthnLogin(input: $input) {
       accessToken
@@ -86,7 +89,7 @@ const VERIFY_LOGIN_MUTATION = `
   }
 `;
 
-const MY_CREDENTIALS_QUERY = `
+const MY_CREDENTIALS_QUERY = gql`
   query MyWebAuthnCredentials {
     myWebAuthnCredentials {
       credentialId
@@ -97,13 +100,13 @@ const MY_CREDENTIALS_QUERY = `
   }
 `;
 
-const HAS_CREDENTIALS_QUERY = `
+const HAS_CREDENTIALS_QUERY = gql`
   query HasWebAuthnCredentials {
     hasWebAuthnCredentials
   }
 `;
 
-const REMOVE_CREDENTIAL_MUTATION = `
+const REMOVE_CREDENTIAL_MUTATION = gql`
   mutation RemoveWebAuthnCredential($credentialId: String!) {
     removeWebAuthnCredential(credentialId: $credentialId) {
       success
@@ -120,7 +123,7 @@ function bufferToBase64url(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
   for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!);
+    binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
@@ -212,10 +215,19 @@ export function useWebAuthn() {
   }, [isAuthenticated, accessToken, isSupported]);
 
   /**
-   * Helper: Make authenticated GraphQL request
+   * Helper: Make authenticated GraphQL request.
+   *
+   * WHY a LOCAL request helper (not the shared services/authenticated-fetch
+   * graphqlRequest): the WebAuthn flow runs DURING login, before the shared auth
+   * store / readiness barrier is populated, so it must use its own fetch with the
+   * in-scope accessToken to avoid a circular dependency.
+   *
+   * S1-CODEGEN: `document` is a `gql` DocumentNode (the bare query strings were
+   * promoted to gql so the bare-graphql lint stays clean and pluck can fold these
+   * in once promoted into the codegen set); it is `print()`ed to the wire string.
    */
   const graphqlRequest = useCallback(
-    async (query: string, variables?: Record<string, unknown>) => {
+    async (document: DocumentNode, variables?: Record<string, unknown>) => {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...CSRF_HEADER,
@@ -228,7 +240,7 @@ export function useWebAuthn() {
         method: 'POST',
         headers,
         credentials: 'include',
-        body: JSON.stringify({ query, variables }),
+        body: JSON.stringify({ query: print(document), variables }),
       });
 
       const result = await response.json();

@@ -49,19 +49,20 @@ const NOTIFICATION_OPTIONS: Array<{
   description: string;
 }> = [
   {
-    value: 'all',
+    // S1-CODEGEN: NotificationPreference wire form is the UPPERCASE GraphQL enum NAME.
+    value: 'ALL',
     icon: BellRing,
     label: 'All Messages',
     description: 'Get notified for every message',
   },
   {
-    value: 'mentions',
+    value: 'MENTIONS',
     icon: Bell,
     label: 'Mentions Only',
     description: 'Only when you are mentioned',
   },
   {
-    value: 'none',
+    value: 'NONE',
     icon: BellOff,
     label: 'Muted',
     description: 'No notifications from this channel',
@@ -113,16 +114,17 @@ export function ChannelSettingsPage() {
     return channel.members.find((m) => m.userId === user.id) ?? null;
   }, [channel?.members, user?.id]);
 
-  const myRole = myMembership?.role ?? 'member';
-  const canEdit = myRole === 'owner' || myRole === 'admin';
-  const isOwner = myRole === 'owner';
+  // S1-CODEGEN: ChannelMemberRole wire form is the UPPERCASE GraphQL enum NAME.
+  const myRole = myMembership?.role ?? 'MEMBER';
+  const canEdit = myRole === 'OWNER' || myRole === 'ADMIN';
+  const isOwner = myRole === 'OWNER';
   const isTenantAdmin = user?.role === 'TENANT_ADMIN';
 
   // Sentiment trend (TODO: fetch from backend when AI analysis is live)
   const sentimentTrend: SentimentTrend = 'neutral';
 
-  // Current notification preference
-  const myNotifPref = myMembership?.notificationPreference ?? 'all';
+  // Current notification preference (UPPERCASE GraphQL enum NAME wire form).
+  const myNotifPref = myMembership?.notificationPreference ?? 'ALL';
 
   const handleNotifChange = useCallback(
     async (pref: NotificationPreference) => {

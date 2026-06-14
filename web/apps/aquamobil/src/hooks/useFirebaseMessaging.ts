@@ -77,22 +77,58 @@ export function useFirebaseMessaging() {
         const app = getApps().length === 0 ? initializeApp(FIREBASE_CONFIG) : getApps()[0]!;
         const messaging = getMessaging(app);
 
-        // Send Firebase config to service worker
-        if ('serviceWorker' in navigator) {
-          const registration = await navigator.serviceWorker.ready;
-          if (registration.active) {
-            registration.active.postMessage({
-              type: 'FIREBASE_CONFIG',
-              config: FIREBASE_CONFIG,
-            });
-          }
-        }
+        // FE-CRITICAL-050-SW / FE-HIGH-057: Register the FCM service worker
+        // EXPLICITLY and hand that registration to getToken(), so Firebase uses
+        // ITS OWN worker for push rather than the page's controlling worker.
+        //
+        // WHY a DISTINCT sub-scope (not the /mobile base scope):
+        //   1. getToken() with no serviceWorkerRegistration auto-registers
+        //      `/firebase-messaging-sw.js` at the ROOT scope. AquaMobil is served
+        //      behind `location /mobile/ { proxy_pass http://aquamobil/; }`, so the
+        //      root path is NOT routed to this app — the auto-registered root SW
+        //      404s and background push silently dies.
+        //   2. The workbox SW (dist/messaging-sw.js, registered by
+        //      virtual:pwa-register) ALREADY owns scope `/mobile/`. A
+        //      ServiceWorker registration is keyed by SCOPE, so registering a
+        //      DIFFERENT script at the identical `/mobile/` scope does not give
+        //      "two SWs at one scope" — it REPLACES the registration, evicting the
+        //      workbox SW (breaking precache/offline) or being evicted by it
+        //      (breaking push), depending on activation order. That is the very
+        //      dual-SW collision this finding must resolve, not relocate.
+        //
+        // FIX: register the FCM worker at a DISTINCT deeper scope
+        // `/mobile/firebase-cloud-messaging-push-scope` — mirroring Firebase's own
+        // default `/firebase-cloud-messaging-push-scope` convention. The FCM worker
+        // never needs to control navigations; it only holds the push subscription,
+        // so a non-navigated sub-scope is sufficient and provably cannot collide
+        // with the workbox SW that controls `/mobile/`. Two SWs, two scripts, two
+        // disjoint scopes.
+        //
+        // The Firebase config can't be read via import.meta.env inside a static
+        // SW file, so it is passed as URL query params the SW parses on load
+        // (the canonical static-SW FCM pattern), replacing the old broken
+        // postMessage-to-the-wrong-SW approach.
+        const fcmRegistration = await (async () => {
+          if (!('serviceWorker' in navigator)) return undefined;
+          const swParams = new URLSearchParams({
+            apiKey: FIREBASE_CONFIG.apiKey ?? '',
+            projectId: FIREBASE_CONFIG.projectId ?? '',
+            messagingSenderId: FIREBASE_CONFIG.messagingSenderId ?? '',
+            appId: FIREBASE_CONFIG.appId ?? '',
+          });
+          const base = import.meta.env.BASE_URL; // '/mobile/'
+          return navigator.serviceWorker.register(
+            `${base}firebase-messaging-sw.js?${swParams.toString()}`,
+            { scope: `${base}firebase-cloud-messaging-push-scope` },
+          );
+        })();
 
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') return;
 
         const token = await getToken(messaging, {
           vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY as string | undefined,
+          serviceWorkerRegistration: fcmRegistration,
         });
 
         if (token) {

@@ -217,7 +217,8 @@ export function MessageBubble({
   senderName,
   senderColorIndex = 0,
   text,
-  contentType = 'text',
+  // S1-CODEGEN: MessageContentType is the UPPERCASE GraphQL enum NAME wire form.
+  contentType = 'TEXT',
   timestamp,
   status,
   isEdited = false,
@@ -288,10 +289,10 @@ export function MessageBubble({
 
   // Voice note metadata
   const voiceDuration =
-    contentType === 'voice' && metadata
+    contentType === 'VOICE' && metadata
       ? (metadata['voiceDurationSeconds'] as number | undefined)
       : undefined;
-  const voiceAttachment = contentType === 'voice' && attachments?.length
+  const voiceAttachment = contentType === 'VOICE' && attachments?.length
     ? attachments[0]
     : undefined;
 
@@ -372,7 +373,7 @@ export function MessageBubble({
         )}
 
         {/* Voice note — render VoicePlayer instead of text */}
-        {contentType === 'voice' && voiceAttachment?.downloadUrl && isSafeUrl(voiceAttachment.downloadUrl) && (
+        {contentType === 'VOICE' && voiceAttachment?.downloadUrl && isSafeUrl(voiceAttachment.downloadUrl) && (
           <VoicePlayer
             src={voiceAttachment.downloadUrl}
             durationSeconds={voiceDuration ?? voiceAttachment.durationSeconds ?? undefined}
@@ -425,7 +426,7 @@ export function MessageBubble({
         )}
 
         {/* Text content with @mention and URL rendering */}
-        {text && contentType !== 'voice' && (
+        {text && contentType !== 'VOICE' && (
           <p className={clsx('text-sm leading-relaxed break-words whitespace-pre-wrap', isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100')}>
             {renderRichText(text, isOwn, onMentionTap)}
           </p>

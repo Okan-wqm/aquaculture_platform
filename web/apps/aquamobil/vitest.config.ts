@@ -28,5 +28,12 @@ export default defineConfig({
     root: resolve(__dirname),
     include: ['src/**/*.{spec,test}.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
+    // WHY: jsdom transform + collect is heavy (~70s collect alone) and the suite
+    // runs file-parallel. On a CPU-contended CI runner, async component specs that
+    // do real work (e.g. RecordEntityPage's queue-error confirm flow) can exceed
+    // the 5000ms default and flake RED even though they pass in isolation. Raising
+    // the per-test timeout removes the load-induced flake without masking a real
+    // failure — a genuinely hung test still trips the 15s ceiling.
+    testTimeout: 15_000,
   },
 });

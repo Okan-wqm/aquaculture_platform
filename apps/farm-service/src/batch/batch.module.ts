@@ -27,6 +27,7 @@ import { Feed } from '../feed/entities/feed.entity';
 import { HealthEvent } from '../fish-health/entities/health-event.entity';
 import { FishHealthModule } from '../fish-health/fish-health.module';
 import { GrowthMeasurement } from '../growth/entities/growth-measurement.entity';
+import { GrowthModule } from '../growth/growth.module';
 import { WorkOrder } from '../maintenance/entities/work-order.entity';
 import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile-command-receipt.entity';
 import { Species } from '../species/entities/species.entity';
@@ -92,6 +93,11 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     RestoreModule,
     FarmStockModule,
     ConfigModule,
+    // WHY: CloseBatchHandler + GetBatchPerformanceHandler now inject
+    // FCRCalculationService (the single FCR authority, Tier-1 SSoT consolidation),
+    // which is provided+exported ONLY by GrowthModule. No cycle: GrowthModule
+    // imports only TypeOrmModule.forFeature + BackdatePolicyModule, never BatchModule.
+    GrowthModule,
   ],
   controllers: [
     BatchController,

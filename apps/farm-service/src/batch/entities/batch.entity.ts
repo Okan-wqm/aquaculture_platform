@@ -371,9 +371,16 @@ export class Batch {
 
   /** @see BatchDomainService.getCurrentBiomass */
   getCurrentBiomass(): number {
-    if (this.weight?.actual?.totalBiomass) return this.weight.actual.totalBiomass;
-    if (this.weight?.theoretical?.totalBiomass) return this.weight.theoretical.totalBiomass;
-    return this.weight?.initial?.totalBiomass || 0;
+    // WHY: Current biomass is DERIVED from the live count, not read from the
+    // stored weight.actual.totalBiomass snapshot. avgWeight only changes at a
+    // sampling event, whereas currentQuantity is atomically decremented under
+    // pessimistic_write by every removal handler (mortality, cull, harvest).
+    // Deriving qty × avgWeight guarantees the displayed biomass and the
+    // ledger-based FCR can never diverge from the actual live count — the
+    // stored totalBiomass would go stale the moment any removal happens.
+    // WHAT: kg = currentQuantity × effectiveAvgWeightG / 1000.
+    const avgWeightG = this.getCurrentAvgWeight();
+    return (this.currentQuantity * avgWeightG) / 1000;
   }
 
   /** @see BatchDomainService.getCurrentAvgWeight */
@@ -398,13 +405,12 @@ export class Batch {
     return (this.currentQuantity / this.initialQuantity) * 100;
   }
 
-  calculateFCR(mortalityBiomass: number = 0): number {
-    const initialBiomass = this.weight?.initial?.totalBiomass || 0;
-    const currentBiomass = this.getCurrentBiomass();
-    const weightGain = currentBiomass - initialBiomass + mortalityBiomass;
-    if (weightGain <= 0 || this.totalFeedConsumed <= 0) return 0;
-    return this.totalFeedConsumed / weightGain;
-  }
+  // FCR authority removed from the entity (Tier-1 one-SSoT consolidation).
+  // The single FCR calculator is FcrCalculationService.calculateCumulativeFCR,
+  // which reads net-exited biomass from the TankOperation ledger instead of the
+  // naive `current − initial + mortalityBiomass` weight-gain estimate this
+  // method used. That ledger-aware formula is the only one that does not
+  // overstate FCR by undercounting the growth of biomass that left the system.
 
   calculateSGR(): number {
     const initialWeight = this.weight?.initial?.avgWeight || 0;

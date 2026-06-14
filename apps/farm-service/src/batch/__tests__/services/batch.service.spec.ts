@@ -57,7 +57,8 @@ describe('BatchService', () => {
     mortalitySummary: { totalMortality: 500, mortalityRate: 5 },
     getMortalityRate: jest.fn().mockReturnValue(5),
     getRetentionRate: jest.fn().mockReturnValue(95),
-    calculateFCR: jest.fn().mockReturnValue(1.15),
+    // calculateFCR removed from the entity (single FCR authority is now
+    // FcrCalculationService). calculateSGR remains a real entity method.
     calculateSGR: jest.fn().mockReturnValue(2.5),
     getDaysInProduction: jest.fn().mockReturnValue(90),
     getCurrentBiomass: jest.fn().mockReturnValue(1377.5),
@@ -753,77 +754,12 @@ describe('BatchService', () => {
     });
   });
 
-  describe('Metrics Calculations', () => {
-    describe('calculateFCR', () => {
-      it('should calculate FCR correctly', async () => {
-        const mockBatch = createMockBatch();
-        mockBatch.calculateFCR = jest.fn().mockReturnValue(1.25);
-
-        batchRepository.findOne.mockResolvedValue(mockBatch);
-        operationRepository.find.mockResolvedValue([
-          { biomassKg: 10 } as TankOperation,
-          { biomassKg: 5 } as TankOperation,
-        ]);
-
-        const result = await service.calculateFCR('batch-123', 'tenant-1');
-
-        expect(mockBatch.calculateFCR).toHaveBeenCalledWith(15); // 10 + 5 mortality biomass
-        expect(result).toBe(1.25);
-      });
-    });
-
-    describe('calculateSGR', () => {
-      it('should calculate SGR from batch', async () => {
-        const mockBatch = createMockBatch();
-        mockBatch.calculateSGR = jest.fn().mockReturnValue(2.5);
-
-        batchRepository.findOne.mockResolvedValue(mockBatch);
-
-        const result = await service.calculateSGR('batch-123', 'tenant-1');
-
-        expect(result).toBe(2.5);
-      });
-    });
-
-    describe('updateBatchMetrics', () => {
-      it('should update all batch metrics', async () => {
-        const mockBatch = createMockBatch();
-        mockBatch.calculateFCR = jest.fn().mockReturnValue(1.15);
-        mockBatch.calculateSGR = jest.fn().mockReturnValue(2.5);
-        mockBatch.getRetentionRate = jest.fn().mockReturnValue(95);
-        mockBatch.getDaysInProduction = jest.fn().mockReturnValue(90);
-        mockBatch.getCurrentBiomass = jest.fn().mockReturnValue(1500);
-
-        batchRepository.findOne.mockResolvedValue(mockBatch);
-        operationRepository.find.mockResolvedValue([]);
-        batchRepository.save.mockImplementation((b: unknown) => Promise.resolve(b as Batch));
-
-        const result = await service.updateBatchMetrics('batch-123', 'tenant-1');
-
-        expect(result.fcr.actual).toBe(1.15);
-        expect(result.retentionRate).toBe(95);
-        expect(result.growthMetrics.daysInProduction).toBe(90);
-      });
-
-      it('should calculate cost per kg', async () => {
-        const mockBatch = createMockBatch({
-          purchaseCost: 50000,
-          totalFeedCost: 25000,
-        });
-        mockBatch.getCurrentBiomass = jest.fn().mockReturnValue(1500); // 1500 kg
-
-        batchRepository.findOne.mockResolvedValue(mockBatch);
-        operationRepository.find.mockResolvedValue([]);
-        batchRepository.save.mockImplementation((b: unknown) => Promise.resolve(b as Batch));
-
-        const result = await service.updateBatchMetrics('batch-123', 'tenant-1');
-
-        // Total cost = 50000 + 25000 = 75000
-        // Cost per kg = 75000 / 1500 = 50
-        expect(result.costPerKg).toBe(50);
-      });
-    });
-  });
+  // The former 'Metrics Calculations' describe (batch.service.calculateFCR /
+  // calculateSGR / updateBatchMetrics) was removed: that maintained-but-unrun
+  // shadow-SSoT metrics path was deleted from BatchService. FCR is now the sole
+  // responsibility of FcrCalculationService.calculateCumulativeFCR (covered by
+  // its own ledger-aware spec), and cost-per-kg lives in
+  // BatchCostCalculatorService.
 
   describe('Tank Queries', () => {
     describe('getTankBatchStatus', () => {

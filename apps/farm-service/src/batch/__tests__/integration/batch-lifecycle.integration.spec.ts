@@ -99,7 +99,7 @@ describe('Batch Lifecycle Contract', () => {
     expect(batch.getCurrentAvgWeight()).toBe(50);
   });
 
-  it('calculates mortality, survival, retention, FCR, and SGR from v2 value objects', () => {
+  it('calculates mortality, survival, retention, and SGR from v2 value objects', () => {
     const batch = createBatch({
       actualHarvestDate: new Date('2026-02-01T00:00:00.000Z'),
     });
@@ -107,9 +107,19 @@ describe('Batch Lifecycle Contract', () => {
     expect(batch.getMortalityRate()).toBe(5);
     expect(batch.getSurvivalRate()).toBe(95);
     expect(batch.getRetentionRate()).toBe(95);
-    expect(batch.calculateFCR()).toBeCloseTo(750 / 425, 3);
+    // FCR is no longer an entity method — it is owned solely by
+    // FcrCalculationService.calculateCumulativeFCR (ledger-aware), covered by
+    // its own spec. SGR remains on the entity (uses getCurrentAvgWeight).
     expect(batch.calculateSGR()).toBeGreaterThan(0);
     expect(batch.getDaysInProduction()).toBe(31);
+  });
+
+  it('derives current biomass from the live count (cannot go stale)', () => {
+    // The stored weight.actual.totalBiomass snapshot is 475 (9500 × 50 / 1000).
+    // Removing 500 more fish must drop the DERIVED biomass even though the
+    // stored snapshot is unchanged — proving qty × avgWeight tracks removals.
+    const batch = createBatch({ currentQuantity: 9_000 });
+    expect(batch.getCurrentBiomass()).toBe(450); // 9000 × 50 / 1000
   });
 
   it('enforces the current lifecycle transition matrix', () => {

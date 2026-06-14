@@ -1014,9 +1014,18 @@ export class FarmSeedService implements OnApplicationBootstrap {
       },
     };
 
+    // Current biomass is the derive-on-read value (currentQuantity ×
+    // currentAvgWeight / 1000) — the same formula Batch.getCurrentBiomass uses.
+    const currentBiomassKg = (currentQuantity * currentAvgWeight) / 1000;
+    const startBiomassKg = weight.initial.totalBiomass;
+    // FCR matches the SINGLE authority FcrCalculationService.calculateCumulativeFCR:
+    //   fcr = totalFeed / (currentBiomass + netRemovedKg − startBiomass)
+    // The seed inserts no TankOperation ledger rows, so netRemovedKg = 0 here.
+    // Spelling it this way keeps the seed from being a 5th divergent formula.
+    const realizedGrowthKg = currentBiomassKg - startBiomassKg;
     const fcr = {
       target: 1.5,
-      actual: totalFeedConsumed / ((weight.actual.totalBiomass - weight.initial.totalBiomass)),
+      actual: realizedGrowthKg > 0 ? totalFeedConsumed / realizedGrowthKg : 0,
       theoretical: 1.5,
       isUserOverride: false,
       lastUpdatedAt: new Date().toISOString(),

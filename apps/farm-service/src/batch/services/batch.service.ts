@@ -783,75 +783,17 @@ export class BatchService {
   }
 
   // -------------------------------------------------------------------------
-  // METRICS HESAPLAMA
+  // METRICS HESAPLAMA — removed.
+  //
+  // The former calculateFCR / calculateSGR / updateBatchMetrics trio here was a
+  // maintained-but-unrun shadow SSoT with ZERO production callers: it persisted
+  // batch.fcr.actual from the entity's naive ledger-blind weight-gain formula,
+  // a fourth FCR computation diverging from FcrCalculationService. FCR is now
+  // computed on read by the single authority
+  // (FcrCalculationService.calculateCumulativeFCR). SGR remains on the entity
+  // (calculateSGR) and the SGRCalculatorService for the running callers. Cost
+  // per kg is computed by BatchCostCalculatorService.
   // -------------------------------------------------------------------------
-
-  /**
-   * FCR hesaplar (Correct Formula)
-   * FCR = totalFeedConsumed / weightGain
-   * weightGain = finalBiomass - initialBiomass + mortalityBiomass
-   */
-  async calculateFCR(batchId: string, tenantId: string): Promise<number> {
-    const batch = await this.findBatchById(batchId, tenantId);
-
-    // Mortality'den kayıp biomass'ı hesapla
-    const operations = await this.operationRepository.find({
-      where: {
-        tenantId,
-        batchId,
-        operationType: OperationType.MORTALITY,
-        isDeleted: false,
-      },
-    });
-
-    let mortalityBiomass = 0;
-    for (const op of operations) {
-      if (op.biomassKg) {
-        mortalityBiomass += Number(op.biomassKg);
-      }
-    }
-
-    return batch.calculateFCR(mortalityBiomass);
-  }
-
-  /**
-   * SGR hesaplar (Specific Growth Rate)
-   * SGR = ((ln(finalWeight) - ln(initialWeight)) / days) * 100
-   */
-  async calculateSGR(batchId: string, tenantId: string): Promise<number> {
-    const batch = await this.findBatchById(batchId, tenantId);
-    return batch.calculateSGR();
-  }
-
-  /**
-   * Tüm batch metriklerini günceller
-   */
-  async updateBatchMetrics(batchId: string, tenantId: string): Promise<Batch> {
-    const batch = await this.findBatchById(batchId, tenantId);
-
-    // FCR
-    const fcr = await this.calculateFCR(batchId, tenantId);
-    batch.fcr.actual = fcr;
-    batch.fcr.lastUpdatedAt = new Date();
-
-    // SGR
-    batch.sgr = batch.calculateSGR();
-
-    // Retention Rate
-    batch.retentionRate = batch.getRetentionRate();
-
-    // Growth Metrics
-    batch.growthMetrics.daysInProduction = batch.getDaysInProduction();
-
-    // Cost per kg
-    const currentBiomass = batch.getCurrentBiomass();
-    if (currentBiomass > 0) {
-      const totalCost = (batch.purchaseCost || 0) + batch.totalFeedCost;
-      batch.costPerKg = totalCost / currentBiomass;
-    }
-
-    return this.batchRepository.save(batch);
-  }
 
   // -------------------------------------------------------------------------
   // TANK QUERIES

@@ -1,10 +1,10 @@
 /**
  * RecordGrowthSampleHandler — Transactional Outbox Unit Tests
  *
- * The handler now wraps the three domain writes (measurement insert,
- * batch weight update, isProcessed flip) AND the `GrowthSampleRecorded`
- * outbox enqueue in a single DataSource transaction. These tests pin
- * the invariants that contract depends on:
+ * The handler wraps the domain writes (measurement insert, locked batch
+ * weight update, isProcessed flip) AND the `GrowthSampleRecorded` outbox
+ * enqueue in a single runInTenantTransaction (pessimistic_write on the batch).
+ * These tests pin the invariants that contract depends on:
  *
  *   1. Happy path: all 3 saves + 1 outbox enqueue + commit (once).
  *   2. Event payload carries batchId / measurementId / sampleSize /
@@ -18,9 +18,16 @@
  *      starts.
  *   7. Backdate policy throws BEFORE any DB or tx work — the
  *      outbox never sees a rejected event.
+ *   8. The batch weight write targets the LOCKED in-tx row
+ *      (queryRunner.manager.findOne with pessimistic_write), never the
+ *      externally-loaded validation snapshot.
+ *
+ * tenantId is a valid UUID v4 because runInTenantTransaction pins the tenant
+ * search_path and rejects non-UUIDs.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+import { createMockDataSource } from '@aquaculture/testing';
 
 import { RecordGrowthSampleHandler } from '../../handlers/record-growth-sample.handler';
 import { RecordGrowthSampleCommand } from '../../commands/record-growth-sample.command';
@@ -33,6 +40,9 @@ import type { Batch } from '../../../batch/entities/batch.entity';
 import type { FCRCalculationService } from '../../services/fcr-calculation.service';
 import type { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import type { OutboxPublisher } from '@platform/outbox';
+
+// Valid UUID v4 — runInTenantTransaction rejects non-UUID tenant IDs.
+const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
 
 interface HarnessOpts {
   batch?: Partial<Batch> | null;
@@ -53,44 +63,22 @@ function makeHarness(opts: HarnessOpts = {}) {
     opts.batchSaveImpl ? opts.batchSaveImpl(entity) : entity,
   );
 
-  const managerSave = jest.fn(
-    async (Entity: unknown, entity: unknown): Promise<unknown> => {
-      const name = (Entity as { name?: string }).name;
-      if (name === 'GrowthMeasurement') {
-        return measurementSave(entity as GrowthMeasurement);
-      }
-      if (name === 'Batch') {
-        return batchSave(entity as Batch);
-      }
-      return entity;
-    },
-  );
-
-  const commit = jest.fn().mockResolvedValue(undefined);
-  const rollback = jest.fn().mockResolvedValue(undefined);
-  const release = jest.fn().mockResolvedValue(undefined);
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: commit,
-    rollbackTransaction: rollback,
-    release,
-    manager: { save: managerSave } as unknown as EntityManager,
-  };
-  const dataSource: Partial<DataSource> = {
-    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-  };
-
   const batchRow: Partial<Batch> =
     opts.batch === null
       ? (null as unknown as Partial<Batch>)
       : {
           id: 'batch-1',
-          tenantId: 'tenant-1',
+          tenantId: TENANT_UUID,
           isActive: true,
           currentQuantity: 1000,
           weight: {
-            actual: { avgWeight: 0, totalBiomass: 0, lastMeasuredAt: new Date() },
+            actual: {
+              avgWeight: 0,
+              totalBiomass: 0,
+              lastMeasuredAt: new Date(),
+              sampleSize: 0,
+              confidencePercent: 0,
+            },
           } as Batch['weight'],
           fcr: { target: 1.5 } as Batch['fcr'],
           species: {
@@ -98,6 +86,47 @@ function makeHarness(opts: HarnessOpts = {}) {
           } as unknown as Batch['species'],
           ...(opts.batch ?? {}),
         };
+
+  const commit = jest.fn().mockResolvedValue(undefined);
+  const rollback = jest.fn().mockResolvedValue(undefined);
+  const release = jest.fn().mockResolvedValue(undefined);
+  // EntityManager mock from the shared @aquaculture/testing factory (already
+  // jest.Mocked<EntityManager> — assignable to queryRunner.manager without a
+  // cast). DRIVE behaviour through mockImplementation so the heavily-overloaded
+  // EntityManager.save/findOne MockInstance types stay intact; the impls route
+  // by entity name to the measurementSave/batchSave spies the assertions read,
+  // and the locked findOne(Batch, {..., lock}) returns the same batchRow the
+  // handler then mutates + saves. WHY: a bare `mockManager.save = managerSave`
+  // assignment fails to typecheck (loose jest.fn vs the overloaded
+  // MockInstance) — replacing the function via mockImplementation preserves the
+  // mock's typed signature instead.
+  const { mockManager } = createMockDataSource();
+  mockManager.save.mockImplementation((Entity, entity) => {
+    const name = (Entity as { name?: string }).name;
+    if (name === 'GrowthMeasurement') return measurementSave(entity as GrowthMeasurement);
+    if (name === 'Batch') return batchSave(entity as Batch);
+    return Promise.resolve(entity);
+  });
+  mockManager.findOne.mockImplementation((Entity) => {
+    const name = (Entity as { name?: string }).name;
+    if (name === 'Batch') {
+      return Promise.resolve(opts.batch === null ? null : (batchRow as Batch));
+    }
+    return Promise.resolve(null);
+  });
+  const queryRunner: Partial<QueryRunner> = {
+    connect: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockResolvedValue(undefined),
+    commitTransaction: commit,
+    rollbackTransaction: rollback,
+    release,
+    // runInTenantTransaction pins the tenant search_path via queryRunner.query.
+    query: jest.fn().mockResolvedValue([]),
+    manager: mockManager,
+  };
+  const dataSource: Partial<DataSource> = {
+    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+  };
 
   const measurementRepository = {
     create: jest.fn((partial: Partial<GrowthMeasurement>) => {
@@ -159,7 +188,6 @@ function makeHarness(opts: HarnessOpts = {}) {
     release,
     measurementSave,
     batchSave,
-    managerSave,
     backdatePolicy: backdatePolicy as unknown as { validate: jest.Mock },
   };
 }
@@ -170,7 +198,7 @@ function makeCommand(overrides: Partial<{
   measurementDate: Date;
 }> = {}) {
   return new RecordGrowthSampleCommand(
-    'tenant-1',
+    TENANT_UUID,
     {
       batchId: 'batch-1',
       measurementDate: overrides.measurementDate ?? new Date('2026-04-10T09:00:00Z'),
@@ -206,7 +234,7 @@ describe('RecordGrowthSampleHandler — transactional outbox', () => {
     const enqueuedEvent = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     expect(enqueuedEvent['eventType']).toBe('GrowthSampleRecorded');
     expect(enqueuedEvent['batchId']).toBe('batch-1');
-    expect(enqueuedEvent['tenantId']).toBe('tenant-1');
+    expect(enqueuedEvent['tenantId']).toBe(TENANT_UUID);
     expect(enqueuedEvent['sampleSize']).toBe(3);
     expect(enqueuedEvent['averageWeightG']).toBe(250);
     expect(enqueuedEvent['weightCV']).toBe(8);

@@ -360,32 +360,3 @@ export function buildNatsConnectionOptions(serviceName?: string): {
 
   return options;
 }
-
-/**
- * Build NestJS microservice Transport.NATS options.
- *
- * Returns the `options` object for ClientsModule.register() or
- * app.connectMicroservice() with Transport.NATS. Includes auth
- * credentials from environment if configured.
- *
- * Usage:
- * ```ts
- * import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats-connection.factory.ts';
- *
- * ClientsModule.register([{
- *   name: 'NATS_SERVICE',
- *   transport: Transport.NATS,
- *   options: buildNatsTransportOptions('my-service'),
- * }])
- * ```
- */
-export function buildNatsTransportOptions(serviceName?: string): Record<string, unknown> {
-  const base = buildNatsConnectionOptions(serviceName);
-  const result: Record<string, unknown> = { servers: base.servers };
-  if (base.user !== undefined) result['user'] = base.user;
-  if (base.pass !== undefined) result['pass'] = base.pass;
-  if (base.token !== undefined) result['token'] = base.token;
-  if (base.name !== undefined) result['name'] = base.name;
-  if (base.tls !== undefined) result['tls'] = base.tls;
-  return result;
-}

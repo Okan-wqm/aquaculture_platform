@@ -524,4 +524,29 @@ export default [
       '@typescript-eslint/no-unsafe-assignment': 'off',
     },
   },
+
+  // ── PR-B (PLAT-HIGH-003): the @nats-io/* v3 packages ship exports-only ESM whose
+  //    types do not resolve under the type-aware lint's project context for
+  //    libs/backend-common, so every @nats-io value (Msg, NatsConnection, Payload,
+  //    Subscription) degrades to `any` and trips the no-unsafe-* family — the same
+  //    ORPHAN-MEDIUM-093 root cause as the event-bus override above. The service
+  //    tsconfigs DO resolve @nats-io (type-check + build pass), so these are false
+  //    positives. The Server base's abstract `on` is also Function-typed by the Nest
+  //    framework (EventsMap = Record<string, Function>). Scoped to the two v3
+  //    transport files; removable once the parserOptions.project ordering fix
+  //    (ORPHAN-MEDIUM-093) lands. ──
+  {
+    files: [
+      'libs/backend-common/src/nats/nats-v3-server.strategy.ts',
+      'libs/backend-common/src/nats/nats-v3-client.proxy.ts',
+    ],
+    rules: {
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unsafe-function-type': 'off',
+    },
+  },
 ];

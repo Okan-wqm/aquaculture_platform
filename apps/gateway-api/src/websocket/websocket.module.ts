@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { ClientsModule } from '@nestjs/microservices';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 
 import { NatsBridgeService } from './nats-bridge.service';
 import { SensorReadingsGateway } from './sensor-readings.gateway';
@@ -21,9 +21,9 @@ import { FarmNatsBridgeService } from './farm-nats-bridge.service';
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
-        transport: Transport.NATS,
+        customClass: NatsV3Client,
         /** SEC-H01: Use shared factory for NATS auth credentials. */
-        options: buildNatsTransportOptions('gateway-api-websocket'),
+        options: { serviceName: 'gateway-api-websocket' },
       },
     ]),
   ],

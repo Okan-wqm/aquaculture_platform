@@ -4094,3 +4094,17 @@ Root cause: time-of-publication, not a code change — a fresh RustSec advisory 
 Discovered gating R1's Rust CI (#450); affects the whole repo. Fixed in branch `security/rustsec-2026-postgres`. Only the root workspace is affected (sens-api-gateway does not use these crates).
 
 Status: OPEN (2026-06-14; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-101.
+
+## ORPHAN-MEDIUM-104 — zustand 5 cannot be a single-version federation singleton while the graph library (reactflow 11 / @xyflow/react 12) hard-depends on zustand ^4
+
+Severity: MEDIUM. Discovered 2026-06-14 during C1 PR-1b (frontend version alignment), frontend-expert / conductor firsthand.
+
+**Problem:** The plan's C1 PR-1b scope and C2 step-1 assume zustand can be bumped 4→5 platform-wide, with C2's `reactflow 11 → @xyflow/react 12` migration "unlocking" it. Firsthand verification refutes this: **every** `@xyflow/react` 12.x release through the current **12.11.0** declares `dependencies.zustand: "^4.4.0"` — it does NOT widen to v5. reactflow 11 (`@reactflow/core` et al.) likewise pins `zustand ^4.4.1`. `sensor-module` depends on BOTH `reactflow ^11.10.0` AND zustand directly. So while any graph library is in the tree, npm resolves zustand 4.x (for the graph lib) AND would resolve 5.x (for shell/sensor) → **two versions** → the `federation-shared-singleton` invariant's "core singleton packages resolve to exactly one version == SSoT pin" (`SINGLE_VERSION_PACKAGES` includes zustand) fails. Migrating reactflow→xyflow12 does NOT change this, because xyflow12 also pins `^4.4.0`.
+
+**Effect:** Bumping zustand to 5.0.14 (as PR-1b originally attempted) breaks the singleton invariant locally and in CI (proven: lockfile resolved `['4.5.7','5.0.14']`). There is **no functional benefit lost** by staying on 4.5.7: the only v5 API the frontend uses is `useShallow` (`zustand/react/shallow`), which exists since zustand **4.4.0** — the code is already written in the forward-compatible style and runs identically on 4.5.7.
+
+**Why not fixed inline:** zustand 5 is structurally blocked by a third-party (`@xyflow/react`) dependency range we don't control. The only paths to zustand 5 are (a) `@xyflow/react` widening to `^4.4.0 || ^5.0.0` in a future release (not shipped as of 12.11.0), or (b) dropping the graph library entirely. Neither is a session-end change; forcing it now would break the singleton or require pinning a non-existent xyflow release.
+
+**Fix direction:** Keep zustand pinned at **4.5.7** in the SSoT (`federationSharedConfig.ts SHARED_VERSIONS.zustand`) and all consumers (done — reverted in this PR). Correct the plan: REMOVE "zustand 4→5" from C1 PR-1b and from C2 step-1's "unlocks zustand 5" claim. Gate any future zustand-5 bump on `@xyflow/react` advertising a zustand-5-compatible range. Until then the existing `federation-shared-singleton` invariant is the make-it-detectable guard preventing an accidental re-attempt.
+
+Status: OPEN (2026-06-14; owner: frontend-expert; gated on `@xyflow/react` zustand-5 range support, no deadline). Registry: orphan-findings.md only (keeps PR-1b's findings.jsonl footprint zero — same convention as ORPHAN-MEDIUM-102/103).

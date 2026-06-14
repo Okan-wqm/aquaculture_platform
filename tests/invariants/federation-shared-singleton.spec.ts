@@ -52,6 +52,14 @@ const ORIGINJS_PLUGIN_EXPECTED = false;
  * Packages whose lockfile resolution must be a SINGLE version repo-wide,
  * equal to the SSoT pin. These are the federated core singletons — a
  * second resolved version is a latent dual-instance bug.
+ *
+ * C1-1b (2026-06-14): lucide-react + recharts GRADUATED here from the weaker
+ * pin-must-exist set. The version-alignment wave unified admin-panel's
+ * lucide-react 0.294.0 onto 0.469.0 and folded dashboard/tenant-admin's
+ * inline recharts/lucide literals into the SSoT, so both now resolve to a
+ * single version repo-wide. Graduating them turns that achievement into an
+ * enforced rail: a future change reintroducing a second lucide/recharts
+ * version now fails CI instead of silently regressing (FE-HIGH-005).
  */
 const SINGLE_VERSION_PACKAGES = [
   'react',
@@ -60,16 +68,9 @@ const SINGLE_VERSION_PACKAGES = [
   '@tanstack/react-query',
   'zustand',
   'reactflow',
+  'lucide-react',
+  'recharts',
 ] as const;
-
-/**
- * Packages that are SSoT-pinned for their federated consumers but
- * legitimately multi-version elsewhere until the C1 alignment wave
- * (admin-panel ships lucide-react 0.294.0 outside federation). The SSoT
- * pin must EXIST among lockfile resolutions; C1-1b tightens these into
- * SINGLE_VERSION_PACKAGES.
- */
-const PIN_PRESENT_PACKAGES = ['lucide-react', 'recharts'] as const;
 
 function gitLsFiles(globs: readonly string[]): readonly string[] {
   const out = execFileSync('git', ['ls-files', '-z', '--', ...globs], {
@@ -172,20 +173,6 @@ describe('federation shared-singleton rails (FE-HIGH-005)', () => {
     }
   });
 
-  test('SSoT pin exists in the lockfile for staged-alignment packages', () => {
-    const ssot = parseSharedVersions();
-    for (const pkg of PIN_PRESENT_PACKAGES) {
-      const pin = ssot.get(pkg) as string;
-      const versions = lockfileVersions(pkg);
-      expect({ pkg, pin, present: versions.includes(pin), versions }).toEqual({
-        pkg,
-        pin,
-        present: true,
-        versions,
-      });
-    }
-  });
-
   test('shell + remote package.json declarations are satisfied by the SSoT pins', () => {
     const ssot = parseSharedVersions();
     const manifests = gitLsFiles(['web/shell/package.json', 'web/modules/*/package.json']);
@@ -202,20 +189,10 @@ describe('federation shared-singleton rails (FE-HIGH-005)', () => {
         // Workspace-protocol declarations (file:/link:/workspace:) point at
         // the in-repo source — the package IS the SSoT, no range to check.
         if (/^(file|link|workspace):/.test(declared)) continue;
-        if (name === 'lucide-react' || name === 'recharts') {
-          // staged-alignment packages: range must ACCEPT the pin until C1-1b
-          const base = declared.replace(/^[\^~]/, '');
-          const accepts =
-            declared === pin ||
-            (declared.startsWith('^') && pin.split('.')[0] === base.split('.')[0]) ||
-            (declared.startsWith('~') &&
-              pin.split('.').slice(0, 2).join('.') === base.split('.').slice(0, 2).join('.'));
-          // admin-panel's lucide-react 0.294 is NOT federated — its declared
-          // range legitimately differs until the C1 alignment wave.
-          if (file.includes('admin-panel') && name === 'lucide-react') continue;
-          expect({ file, name, declared, accepts }).toEqual({ file, name, declared, accepts: true });
-          continue;
-        }
+        // C1-1b: lucide-react + recharts are now full SINGLE_VERSION packages
+        // (see SINGLE_VERSION_PACKAGES above) and go through the same
+        // satisfied-by-SSoT-pin check as every other singleton — no special
+        // staged-alignment branch or admin-panel exemption remains.
         const base = declared.replace(/^[\^~]/, '');
         const satisfied =
           declared === pin ||

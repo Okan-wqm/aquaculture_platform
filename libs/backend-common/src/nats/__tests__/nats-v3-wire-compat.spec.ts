@@ -7,15 +7,12 @@
  * deploy to run mixed v2/v3 services, the v3 codec MUST put byte-identical
  * payloads on the wire (PLAT-HIGH-003).
  *
- * Two layers of proof:
- *  1. Static fixtures — the exact JSON string each packet must encode to. These
- *     survive PR-C (which removes nats v2), so the contract stays pinned.
- *  2. Live `JSONCodec` cross-check — anchors the claim that the v2 codec Nest
- *     actually uses is byte-identical to `JSON.stringify` + UTF-8. PR-C, which
- *     deletes the nats v2 dependency, drops this block; the static fixtures remain.
+ * Proof: static fixtures — the exact JSON string each packet must encode to.
+ * `JSONCodec().encode(x)` is `new TextEncoder().encode(JSON.stringify(x))`, so these
+ * fixtures pin the byte contract without a nats dependency. (The original live
+ * `JSONCodec` cross-check that anchored this equivalence was removed in PR-C together
+ * with the nats v2 dependency, after PR-B proved it byte-identical.)
  */
-import { JSONCodec } from 'nats';
-
 import {
   NatsV3RequestSerializer,
   NatsV3ResponseSerializer,
@@ -69,13 +66,6 @@ describe('NATS v3 wire codec — byte parity', () => {
 
     it('round-trips back to the original packet', () => {
       expect(decodeNatsJson(encodeNatsJson(packet))).toEqual(packet);
-    });
-
-    // PR-C deletes this block together with the nats v2 dependency.
-    it('is byte-identical to nats v2 JSONCodec (the format Nest emits)', () => {
-      const jsonCodec = JSONCodec();
-      expect(Array.from(encodeNatsJson(packet))).toEqual(Array.from(jsonCodec.encode(packet)));
-      expect(decodeNatsJson(jsonCodec.encode(packet))).toEqual(packet);
     });
   });
 

@@ -18,7 +18,7 @@ describe('isValidIp', () => {
     ['', false],
     [undefined, false],
   ])('isValidIp(%s) === %s', (ip, expected) => {
-    expect(isValidIp(ip as string | undefined)).toBe(expected);
+    expect(isValidIp(ip)).toBe(expected);
   });
 });
 

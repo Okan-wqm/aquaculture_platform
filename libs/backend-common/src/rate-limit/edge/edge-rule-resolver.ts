@@ -1,10 +1,11 @@
-import { classifyEndpoint, DEFAULT_TIER } from './endpoint-classifier';
 import {
   EdgeRequestFacts,
   RateLimitEdgeConfig,
   RateLimitRouteConfig,
   RateLimitTier,
 } from '../rate-limit.types';
+
+import { classifyEndpoint, DEFAULT_TIER } from './endpoint-classifier';
 
 /*
  * Edge tier resolution — turns one request's facts into the rate-limit rules

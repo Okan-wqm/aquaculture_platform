@@ -13,8 +13,8 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { GraphQLError } from 'graphql';
 
-import { extractClientIp } from './edge/ip-extractor';
 import { resolveEdgeRules } from './edge/edge-rule-resolver';
+import { extractClientIp } from './edge/ip-extractor';
 import { InMemoryRateLimitStore } from './in-memory-rate-limit.store';
 import {
   EdgeRequestFacts,

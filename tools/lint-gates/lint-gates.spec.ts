@@ -95,7 +95,10 @@ async function gateRuleIds(filePath: string, code: string): Promise<readonly str
     if (value) rules[key] = value as Linter.RuleEntry;
   }
   const messages = linter.verify(code, {
-    parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
+    // ESLint 9 flat-config: ecmaVersion/sourceType live under languageOptions,
+    // not the eslintrc-format top-level parserOptions (which v9's flat Linter
+    // rejects as "eslintrc format rather than flat config format").
+    languageOptions: { ecmaVersion: 2022, sourceType: 'module' },
     rules,
   });
   return messages.map((m) => m.ruleId).filter((id): id is string => id !== null);

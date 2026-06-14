@@ -77,3 +77,92 @@ export interface RateLimitRouteConfig {
    */
   identifier?: (identity: RateLimitIdentity) => string | undefined;
 }
+
+/* ------------------------------------------------------------------------- *
+ * Edge mode (config-driven) — D2 / CRITICAL-002.
+ *
+ * WHY a second model: the gateway is a GraphQL/HTTP edge PROXY. It has no
+ * decorated handler routes to carry @RateLimit metadata, so it cannot use the
+ * decorator model above. Instead it classifies each request (by exact-match
+ * path + JWT identity + GraphQL operation type) into a NAMED TIER. This
+ * config-driven model lives in the SAME lib, behind an OPTIONAL injected
+ * config, so decorator-only consumers (auth-service, every subgraph) are
+ * structurally unaffected — they never wire an edge config, so the guard's
+ * edge branch is never reached.
+ * ------------------------------------------------------------------------- */
+
+/** One named, config-driven limit tier. `name` becomes the storage-key prefix. */
+export interface RateLimitTier {
+  /** Stable tier name — part of the storage key, so treat it as an API. */
+  name: string;
+  /** Maximum requests per window. */
+  limit: number;
+  /** Window length in milliseconds. */
+  windowMs: number;
+}
+
+/**
+ * Exact-match (normalized) path → tier mapping. SECREV-LOW-001 cure: paths are
+ * matched EXACTLY after stripping query string + trailing slash, so a forged
+ * URL containing a tier path as a substring/suffix (e.g. `/auth/login/foo`,
+ * `/wrap/upload-something`) does NOT share the protected bucket.
+ */
+export interface RateLimitEndpointBucket {
+  /** Tier name this path family resolves to (must exist in `tiers`). */
+  tier: string;
+  /** Exact request paths owned by this tier. */
+  paths: readonly string[];
+}
+
+/**
+ * Config-driven edge limiting policy, built once (from ConfigService) at the
+ * gateway's RateLimitModule.forRoot. Absent for decorator-only consumers.
+ */
+export interface RateLimitEdgeConfig {
+  /**
+   * Named tiers. `default`/`anonymous`/`tenant` are the identity fallbacks the
+   * guard always resolves; additional named tiers (e.g. `login`, `upload`,
+   * `mutations`) are referenced by `endpointBuckets` / `mutationTier`.
+   */
+  tiers: {
+    default: RateLimitTier;
+    anonymous: RateLimitTier;
+    tenant: RateLimitTier;
+  } & Record<string, RateLimitTier>;
+  /** Exact-match path → tier mapping (overrides identity tier when matched). */
+  endpointBuckets: readonly RateLimitEndpointBucket[];
+  /**
+   * Tier applied ADDITIONALLY to GraphQL Mutation operations (not replacing the
+   * identity/endpoint tier — both buckets are counted, mirroring the gateway's
+   * previously-independent MutationRateLimitGuard). Omit to disable.
+   */
+  mutationTier?: string;
+}
+
+/**
+ * Facts the edge resolver reads from a request. Populated by the guard from
+ * either the HTTP request or the GraphQL context, so the pure edge resolvers
+ * stay transport-agnostic and unit-testable.
+ */
+export interface EdgeRequestFacts {
+  /** HTTP request path (with optional query string); undefined for non-HTTP. */
+  url?: string;
+  /** Lowercased header bag, for X-Forwarded-For / X-Real-IP fallback. */
+  headers: Record<string, string | string[] | undefined>;
+  /** Express trust-proxy-resolved IP (preferred over header parsing). */
+  ip?: string;
+  /** Raw socket/connection remote address (last-resort IP fallback). */
+  remoteAddress?: string;
+  /** JWT-verified user id (request.user.sub). */
+  userId?: string;
+  /** JWT-verified tenant id (request.user.tenantId) — NEVER a header value. */
+  tenantId?: string;
+  /** GraphQL operation parent type name ('Mutation' | 'Query' | …) when GraphQL. */
+  graphqlParentType?: string;
+}
+
+/** Injection token for the optional edge policy (gateway-only). */
+export const RATE_LIMIT_EDGE_CONFIG = 'PLATFORM_RATE_LIMIT_EDGE_CONFIG';
+
+/** Shared constant bucket for requests whose client IP cannot be validated. */
+export const INVALID_IP_BUCKET = 'invalid-ip';

@@ -168,8 +168,23 @@ describe('UserLifecycleService', () => {
         const mockManager = {
           getRepository: jest.fn().mockReturnValue(mockUserRepo),
           create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
-          save: jest.fn((_entity: unknown, data: Record<string, unknown>) =>
-            Promise.resolve({ id: 'action-token-id', ...data }),
+          // Two save shapes: save(Entity, data) (createUser action-token path)
+          // and save(entity) (deleteUser soft-delete). The 1-arg form delegates
+          // to the user repo mock so userRepository.save assertions still observe
+          // the soft-delete write.
+          save: jest.fn((entityOrData: unknown, data?: Record<string, unknown>) =>
+            data !== undefined
+              ? Promise.resolve({ id: 'action-token-id', ...data })
+              : mockUserRepo.save(entityOrData),
+          ),
+          // SEC-MEDIUM-002: deleteUser revokes refresh tokens via
+          // manager.update(RefreshToken, ...) inside the transaction; route it to
+          // the injected refresh-token repo mock so refreshTokenRepository.update
+          // assertions still observe the call.
+          update: jest.fn((entity: unknown, criteria: unknown, partial: unknown) =>
+            entity === RefreshToken
+              ? mockRefreshTokenRepo.update(criteria, partial)
+              : mockUserRepo.update(criteria, partial),
           ),
           createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
           query: mockDataSource.query,
@@ -515,6 +530,21 @@ describe('UserLifecycleService', () => {
           entityId: USER_ID,
         }),
       );
+    });
+
+    it('SEC-MEDIUM-002: an audit failure ROLLS BACK the soft-delete (fail-closed)', async () => {
+      // Previously the soft-delete + token revoke committed first and the audit
+      // ran in a swallowed try/catch (fail-OPEN) — a deletion could persist with
+      // no audit evidence. The whole soft-delete now runs inside one
+      // transaction, so a throwing audit aborts it.
+      userRepository.findOne
+        .mockResolvedValueOnce(createMockUser()) // target user lookup
+        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID })); // admin lookup
+      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
+
+      await expect(
+        service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID),
+      ).rejects.toThrow('audit DB down');
     });
   });
 });

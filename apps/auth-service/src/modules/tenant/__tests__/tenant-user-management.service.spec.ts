@@ -5,7 +5,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/no-floating-promises */
-import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
   BadRequestException,
@@ -31,7 +30,6 @@ import { UserLifecycleService } from '../services/user-lifecycle.service';
 // ============================================================================
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
-const TENANT_SCHEMA = `tenant_${TENANT_ID.replace(/-/g, '_')}`;
 const USER_ID = 'user-uuid-001';
 const ADMIN_USER_ID = 'admin-uuid-001';
 const ROLE_ID = 'role-uuid-001';
@@ -130,7 +128,6 @@ describe('TenantUserManagementService', () => {
   // satisfy DataSource.transaction's overload set — the DI token is provided by
   // value, which is untyped, so a precise two-method double is enough. No cast.
   let mockDataSource: { query: jest.Mock; transaction: jest.Mock };
-  let mockSchemaManager: jest.Mocked<Pick<SchemaManagerService, 'getTenantSchemaName'>>;
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
   let mockEventBus: { publish: jest.Mock };
   let mockAuditLogService: { log: jest.Mock };
@@ -164,10 +161,6 @@ describe('TenantUserManagementService', () => {
             save: jest.fn((entity: unknown) => Promise.resolve(entity)),
           }),
       ),
-    };
-
-    mockSchemaManager = {
-      getTenantSchemaName: jest.fn().mockReturnValue(TENANT_SCHEMA),
     };
 
     mockTenantRoleService = {
@@ -215,7 +208,6 @@ describe('TenantUserManagementService', () => {
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepo },
         { provide: getRepositoryToken(MobileUserSettings), useValue: mockMobileSettingsRepo },
         { provide: DataSource, useValue: mockDataSource },
-        { provide: SchemaManagerService, useValue: mockSchemaManager },
         { provide: TenantRoleService, useValue: mockTenantRoleService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
         // The service injects BestEffortEventPublisher (not the raw bus) for the
@@ -374,6 +366,120 @@ describe('TenantUserManagementService', () => {
         service.assignUserRole(TENANT_ID, USER_ID, { roleId: ROLE_ID }, ADMIN_USER_ID),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('ORPHAN-CRITICAL-100 / FINDING #1: a TENANT_ADMIN of tenant A is denied on tenant B (null actor -> ceiling 0 -> Forbidden)', async () => {
+      // assertRoleGrantAuthority pins the actor lookup to the acting tenant
+      // (findOne where { id, tenantId }). A TENANT_ADMIN of tenant A invoking a
+      // tenant-B mutation resolves to a NULL actor in tenant B, so the unbounded
+      // SUPER_ADMIN/TENANT_ADMIN early-return is NOT taken — the call falls
+      // through to the ceiling query, which returns no in-tenant assignment for
+      // the foreign admin (ceiling 0), and any positive-level grant is denied.
+      const targetUser = createMockUser({ id: USER_ID, tenantId: TENANT_ID });
+      userRepository.findOne.mockImplementation((opts) => {
+        const id = (opts as { where: { id: string; tenantId?: string } }).where.id;
+        // The acting admin belongs to a DIFFERENT tenant, so the tenant-pinned
+        // lookup for them in TENANT_ID returns null; the target resolves.
+        if (id === USER_ID) {
+          return Promise.resolve(targetUser);
+        }
+        return Promise.resolve(null); // foreign-tenant admin: no row in this tenant
+      });
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ level: 30 }), // any positive-level role
+      );
+      // Ceiling query for the foreign admin returns no in-tenant assignment.
+      mockDataSource.query.mockResolvedValueOnce([]); // ceiling -> 0
+
+      await expect(
+        service.assignUserRole(TENANT_ID, USER_ID, { roleId: ROLE_ID }, ADMIN_USER_ID),
+      ).rejects.toThrow(ForbiddenException);
+
+      // Prove the actor lookup was tenant-pinned (the cross-tenant door is shut).
+      expect(userRepository.findOne).toHaveBeenCalledWith({
+        where: { id: ADMIN_USER_ID, tenantId: TENANT_ID },
+      });
+      // Prove the ceiling query bound tenantId (auth.* JOIN, no interpolation).
+      const [ceilingSql, ceilingParams] = mockDataSource.query.mock.calls[0] as [string, unknown[]];
+      expect(ceilingSql).toContain('"auth"."user_role_assignments"');
+      expect(ceilingSql).toContain('tr."tenantId" = $2');
+      expect(ceilingParams).toEqual([ADMIN_USER_ID, TENANT_ID]);
+    });
+
+    it('ORPHAN-CRITICAL-100 / FINDING #5: an audit failure in the shared createRoleAssignment helper ROLLS BACK the INSERT (manager-threaded)', async () => {
+      // The assignUserRole success path routes the INSERT through the shared
+      // createRoleAssignment helper, which runs the INSERT...SELECT and its
+      // USER_ROLE_CHANGED audit inside ONE transaction with `manager` threaded.
+      // A throwing audit aborts the whole assignment (fail-CLOSED).
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
+      mockTenantRoleService.getRoleById.mockResolvedValue(createMockRoleWithDetails());
+      mockDataSource.query
+        .mockResolvedValueOnce([]) // no existing active assignment
+        .mockResolvedValueOnce([{ id: 'new-assignment-id' }]); // INSERT...SELECT RETURNING id
+      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
+
+      await expect(
+        service.assignUserRole(TENANT_ID, USER_ID, { roleId: ROLE_ID }, ADMIN_USER_ID),
+      ).rejects.toThrow('audit DB down');
+
+      // The audit was invoked with the tx manager as the 2nd argument.
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'USER_ROLE_CHANGED' }),
+        expect.anything(),
+      );
+    });
+
+    it('GLOBAL UNIQUE(user_id): re-assigning a user who already has an (inactive) row re-points via ON CONFLICT instead of a duplicate INSERT', async () => {
+      // user_role_assignments has a GLOBAL unique index on user_id ALONE (not
+      // partial on is_active). assignUserRole's active-check returns no ACTIVE
+      // row (the user was previously revoked → is_active=false), so it proceeds
+      // to createRoleAssignment. A plain INSERT would hit a 23505 unique
+      // violation on the dormant inactive row; the upsert must re-point it.
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
+      mockTenantRoleService.getRoleById.mockResolvedValue(createMockRoleWithDetails());
+      mockDataSource.query
+        .mockResolvedValueOnce([]) // no ACTIVE assignment (the dormant row is inactive)
+        .mockResolvedValueOnce([{ id: 'repointed-assignment-id' }]); // upsert RETURNING id
+
+      const result = await service.assignUserRole(
+        TENANT_ID,
+        USER_ID,
+        { roleId: ROLE_ID },
+        ADMIN_USER_ID,
+      );
+
+      expect(result.id).toBe('repointed-assignment-id');
+      expect(result.isActive).toBe(true);
+
+      // The 2nd dataSource.query (forwarded by the tx mock) is the upsert: it
+      // must carry ON CONFLICT (user_id) DO UPDATE and re-activate the row, so
+      // the global UNIQUE(user_id) is structurally respected (no 23505).
+      const [upsertSql] = mockDataSource.query.mock.calls[1] as [string, unknown[]];
+      expect(upsertSql).toContain('INSERT INTO "auth"."user_role_assignments"');
+      expect(upsertSql).toContain('ON CONFLICT (user_id) DO UPDATE');
+      expect(upsertSql).toContain('is_active = true');
+      // The tenant guard survives the upsert: the source is still the in-tenant
+      // role SELECT, so a foreign-tenant role produces no candidate to upsert.
+      expect(upsertSql).toContain('tr."tenantId" = $6');
+      // GROUND-TRUTH: no updated_by anywhere in the assignment write.
+      expect(upsertSql).not.toContain('updated_by');
+    });
+
+    it('ORPHAN-CRITICAL-100: a foreign-tenant roleId yields zero INSERT rows -> NotFoundException', async () => {
+      // createRoleAssignment's INSERT...SELECT FROM "auth"."tenant_roles"
+      // WHERE tr."tenantId" = $6 produces zero source rows for a role that does
+      // not belong to the tenant, so RETURNING id is empty -> NotFoundException,
+      // and no audit row is written.
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
+      mockTenantRoleService.getRoleById.mockResolvedValue(createMockRoleWithDetails());
+      mockDataSource.query
+        .mockResolvedValueOnce([]) // no existing active assignment
+        .mockResolvedValueOnce([]); // INSERT...SELECT returns no row (role not in tenant)
+
+      await expect(
+        service.assignUserRole(TENANT_ID, USER_ID, { roleId: ROLE_ID }, ADMIN_USER_ID),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockAuditLogService.log).not.toHaveBeenCalled();
+    });
   });
 
   // ==========================================================================
@@ -419,7 +525,9 @@ describe('TenantUserManagementService', () => {
       );
 
       expect(result).toBeDefined();
-      // Audit ran INSIDE the transaction (fail-closed).
+      // Audit ran INSIDE the transaction (fail-closed). FINDING #5: the audit
+      // log call now receives the tx `manager` as its SECOND argument so it
+      // writes on the same connection (manager-threaded fail-CLOSED).
       expect(mockDataSource.transaction).toHaveBeenCalled();
       expect(mockAuditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -427,6 +535,7 @@ describe('TenantUserManagementService', () => {
           entityType: 'UserRoleAssignment',
           entityId: USER_ID,
         }),
+        expect.anything(),
       );
     });
 
@@ -499,6 +608,84 @@ describe('TenantUserManagementService', () => {
         ),
       ).rejects.toThrow('Audit DB down');
     });
+
+    // ------------------------------------------------------------------
+    // ORPHAN-CRITICAL-100 regression tests (Wave-5 repoint)
+    // ------------------------------------------------------------------
+
+    it('ORPHAN-CRITICAL-100: a cross-tenant assignmentId yields ZERO rows -> NotFoundException', async () => {
+      // The existing-assignment fetch reads from "auth"."user_role_assignments"
+      // JOINed to "auth"."tenant_roles" on tr."tenantId" = $2. An assignment
+      // whose role belongs to a DIFFERENT tenant is filtered out by the JOIN, so
+      // the SELECT returns 0 rows even though the bare user_role_assignments row
+      // physically exists. No UPDATE, no transaction.
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
+      mockDataSource.query.mockResolvedValueOnce([]); // JOIN filters out the foreign-tenant assignment
+
+      await expect(
+        service.updateUserRole(TENANT_ID, USER_ID, { roleId: 'new-role-id' }, ADMIN_USER_ID),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
+
+      // Prove the read carried the bound tenant guard (no interpolated schema).
+      const [sql, params] = mockDataSource.query.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain('"auth"."user_role_assignments"');
+      expect(sql).toContain('tr."tenantId" = $2');
+      expect(params).toEqual([USER_ID, TENANT_ID]);
+    });
+
+    it('ORPHAN-CRITICAL-100 / FINDING #6: the role UPDATE binds id then tenantId with exact param indices', async () => {
+      // Param-index discipline: assignmentId is pushed FIRST, tenantId SECOND.
+      // An off-by-one would drop the tr."tenantId" guard — assert the WHERE binds
+      // the LAST two positional params to ura.id and tr."tenantId" respectively,
+      // and that those values are the assignmentId and the tenantId.
+      const adminActor = createMockUser({ role: Role.TENANT_ADMIN });
+      userRepository.findOne.mockResolvedValue(adminActor);
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'assignment-1', role_id: ROLE_ID, user_id: USER_ID }]) // existing
+        .mockResolvedValueOnce([]) // UPDATE (inside tx)
+        .mockResolvedValueOnce([{
+          id: 'assignment-1',
+          user_id: USER_ID,
+          role_id: 'new-role-id',
+          role_name: 'Supervisor',
+          role_color: '#8B5CF6',
+          role_icon: 'user-check',
+          role_level: 70,
+          permission_overrides: null,
+          panel_permissions: '{}',
+          resource_permissions: [],
+          is_active: true,
+          expires_at: null,
+          created_at: new Date(),
+          assigned_by: ADMIN_USER_ID,
+        }]); // getUserRoleAssignment
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ id: 'new-role-id', name: 'Supervisor' }),
+      );
+
+      await service.updateUserRole(TENANT_ID, USER_ID, { roleId: 'new-role-id' }, ADMIN_USER_ID);
+
+      // The UPDATE is the 2nd dataSource.query call (forwarded by the tx mock).
+      const [updateSql, updateParams] = mockDataSource.query.mock.calls[1] as [string, unknown[]];
+      expect(updateSql).toContain('UPDATE "auth"."user_role_assignments" ura');
+      expect(updateSql).toContain('FROM "auth"."tenant_roles" tr');
+      // GROUND-TRUTH: no updated_by column on user_role_assignments — the
+      // dynamic UPDATE must never emit it (would fail at runtime).
+      expect(updateSql).not.toContain('updated_by');
+      expect(updateSql).toContain('updated_at = NOW()');
+      // The penultimate param is the assignmentId (ura.id), the last is tenantId.
+      const idIdxMatch = /ura\.id = \$(\d+)/.exec(updateSql);
+      const tenantIdxMatch = /tr\."tenantId" = \$(\d+)/.exec(updateSql);
+      expect(idIdxMatch).not.toBeNull();
+      expect(tenantIdxMatch).not.toBeNull();
+      const idIdx = Number(idIdxMatch?.[1]);
+      const tenantIdx = Number(tenantIdxMatch?.[1]);
+      // tenantId index is exactly one past the assignmentId index (off-by-one guard).
+      expect(tenantIdx).toBe(idIdx + 1);
+      expect(updateParams[idIdx - 1]).toBe('assignment-1');
+      expect(updateParams[tenantIdx - 1]).toBe(TENANT_ID);
+    });
   });
 
   // ==========================================================================
@@ -525,6 +712,15 @@ describe('TenantUserManagementService', () => {
       );
 
       expect(mockDataSource.transaction).toHaveBeenCalled();
+      // GROUND-TRUTH: the role-change UPDATE (2nd query, forwarded by the tx
+      // mock) carries NO updated_by column — it sets only role_id + updated_at.
+      const [updateSql, updateParams] = mockDataSource.query.mock.calls[1] as [string, unknown[]];
+      expect(updateSql).toContain('UPDATE "auth"."user_role_assignments" ura');
+      expect(updateSql).not.toContain('updated_by');
+      expect(updateSql).toContain('SET role_id = $1, updated_at = NOW()');
+      // No actor param on the assignment write; params are [roleId, id, tenantId].
+      expect(updateParams).toEqual(['new-role-id', 'a1', TENANT_ID]);
+      // FINDING #5: audit log is manager-threaded (2nd arg) — fail-CLOSED.
       expect(mockAuditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'USER_ROLE_CHANGED',
@@ -533,6 +729,7 @@ describe('TenantUserManagementService', () => {
           previousValue: { roleId: ROLE_ID },
           newValue: { roleId: 'new-role-id' },
         }),
+        expect.anything(),
       );
     });
 
@@ -577,13 +774,16 @@ describe('TenantUserManagementService', () => {
     });
 
     it('SEC-MEDIUM-002: a NEW assignment (no existing) is INSERTed with an audit row, atomically', async () => {
+      // D1 #3: the no-existing branch now routes through the shared
+      // createRoleAssignment helper. Its INSERT...SELECT RETURNING id returns a
+      // row only when the role belongs to the tenant — mock that row.
       userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
       mockTenantRoleService.getRoleById.mockResolvedValue(
         createMockRoleWithDetails({ id: 'new-role-id' }),
       );
       mockDataSource.query
-        .mockResolvedValueOnce([]) // no existing assignment
-        .mockResolvedValueOnce([]); // INSERT (inside transaction)
+        .mockResolvedValueOnce([]) // no existing assignment (auth.* JOIN read)
+        .mockResolvedValueOnce([{ id: 'new-assignment-id' }]); // INSERT...SELECT RETURNING id
 
       await service.updateTenantUser(
         TENANT_ID,
@@ -593,12 +793,15 @@ describe('TenantUserManagementService', () => {
       );
 
       expect(mockDataSource.transaction).toHaveBeenCalled();
+      // The shared helper logs USER_ROLE_CHANGED with previousValue.roleId=null
+      // and the manager threaded as the 2nd arg (atomic / fail-CLOSED).
       expect(mockAuditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'USER_ROLE_CHANGED',
           previousValue: { roleId: null },
           newValue: { roleId: 'new-role-id' },
         }),
+        expect.anything(),
       );
     });
 
@@ -627,12 +830,14 @@ describe('TenantUserManagementService', () => {
 
       expect(result).toBe(true);
       expect(mockDataSource.transaction).toHaveBeenCalled();
+      // FINDING #5: the soft-delete audit is manager-threaded (2nd arg).
       expect(mockAuditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'USER_DELETED',
           entityType: 'User',
           entityId: USER_ID,
         }),
+        expect.anything(),
       );
     });
 
@@ -672,8 +877,8 @@ describe('TenantUserManagementService', () => {
     it('should soft-delete role assignment by default', async () => {
       userRepository.findOne.mockResolvedValue(createMockUser());
       mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'assignment-1' }]) // existing active
-        .mockResolvedValueOnce([]); // UPDATE is_active = false
+        .mockResolvedValueOnce([{ id: 'assignment-1', role_id: ROLE_ID }]) // existing active
+        .mockResolvedValueOnce([]); // UPDATE is_active = false (inside tx)
 
       const result = await service.revokeUserRole(TENANT_ID, USER_ID, false, ADMIN_USER_ID);
 
@@ -688,8 +893,8 @@ describe('TenantUserManagementService', () => {
     it('should hard-delete role assignment when requested', async () => {
       userRepository.findOne.mockResolvedValue(createMockUser());
       mockDataSource.query
-        .mockResolvedValueOnce([{ id: 'assignment-1' }])
-        .mockResolvedValueOnce([]); // DELETE
+        .mockResolvedValueOnce([{ id: 'assignment-1', role_id: ROLE_ID }])
+        .mockResolvedValueOnce([]); // DELETE (inside tx)
 
       const result = await service.revokeUserRole(TENANT_ID, USER_ID, true, ADMIN_USER_ID);
 
@@ -699,6 +904,61 @@ describe('TenantUserManagementService', () => {
         expect.stringContaining('DELETE'),
         expect.any(Array),
       );
+    });
+
+    it('GROUND-TRUTH: the revoke write carries NO updated_by column', async () => {
+      // user_role_assignments has no updated_by column; writing it fails at
+      // runtime. The soft-delete UPDATE must set only is_active + updated_at.
+      userRepository.findOne.mockResolvedValue(createMockUser());
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'assignment-1', role_id: ROLE_ID }]) // existing active
+        .mockResolvedValueOnce([]); // UPDATE (inside tx)
+
+      await service.revokeUserRole(TENANT_ID, USER_ID, false, ADMIN_USER_ID);
+
+      const [updateSql, updateParams] = mockDataSource.query.mock.calls[1] as [string, unknown[]];
+      expect(updateSql).not.toContain('updated_by');
+      expect(updateSql).toContain('updated_at = NOW()');
+      // No actor param is bound on the assignment write; the WHERE binds only
+      // userId + tenantId (the actor lives in the audit row, not the table).
+      expect(updateParams).toEqual([USER_ID, TENANT_ID]);
+    });
+
+    it('records the revoke actor in a manager-threaded USER_ROLE_CHANGED audit', async () => {
+      // GROUND-TRUTH: no updated_by column → the revoking actor (revokedBy) is
+      // the durable record IN the audit log (performedBy), threaded `manager` so
+      // it commits atomically with the revoke write (fail-CLOSED).
+      userRepository.findOne.mockResolvedValue(createMockUser());
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'assignment-1', role_id: ROLE_ID }]) // existing active
+        .mockResolvedValueOnce([]); // UPDATE (inside tx)
+
+      await service.revokeUserRole(TENANT_ID, USER_ID, false, ADMIN_USER_ID);
+
+      expect(mockDataSource.transaction).toHaveBeenCalled();
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'USER_ROLE_CHANGED',
+          entityType: 'UserRoleAssignment',
+          entityId: USER_ID,
+          performedBy: ADMIN_USER_ID,
+          previousValue: { roleId: ROLE_ID, isActive: true },
+          newValue: { roleId: null, isActive: false, hardDelete: false },
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('rolls back the revoke when the audit fails (fail-CLOSED)', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser());
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'assignment-1', role_id: ROLE_ID }]) // existing active
+        .mockResolvedValueOnce([]); // UPDATE (inside tx)
+      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
+
+      await expect(
+        service.revokeUserRole(TENANT_ID, USER_ID, false, ADMIN_USER_ID),
+      ).rejects.toThrow('audit DB down');
     });
 
     it('should throw NotFoundException when user does not exist', async () => {
@@ -716,6 +976,7 @@ describe('TenantUserManagementService', () => {
       await expect(
         service.revokeUserRole(TENANT_ID, USER_ID, false, ADMIN_USER_ID),
       ).rejects.toThrow(NotFoundException);
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
     });
   });
 
@@ -895,10 +1156,8 @@ describe('TenantUserManagementService', () => {
       });
     });
 
-    it('should use tenant-specific schema for all role assignment queries', async () => {
+    it('ORPHAN-CRITICAL-100: queries the auth schema with tenantId bound (never interpolated)', async () => {
       const otherTenantId = '22222222-2222-2222-2222-222222222222';
-      const otherSchema = 'tenant_22222222_2222_2222_2222_222222222222';
-      mockSchemaManager.getTenantSchemaName.mockReturnValue(otherSchema);
 
       userRepository.findOne.mockResolvedValue(createMockUser({ tenantId: otherTenantId }));
       mockDataSource.query.mockResolvedValue([{
@@ -916,11 +1175,15 @@ describe('TenantUserManagementService', () => {
 
       await service.getUserEffectivePermissions(otherTenantId, USER_ID);
 
-      expect(mockSchemaManager.getTenantSchemaName).toHaveBeenCalledWith(otherTenantId);
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining(otherSchema),
-        expect.any(Array),
-      );
+      // The repoint reads from the shared auth schema; the tenant is enforced by
+      // the tenant_roles JOIN with tenantId as a BOUND parameter ($2), never by
+      // string-interpolating a tenant_<uuid> schema name into the SQL.
+      const [sql, params] = mockDataSource.query.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain('"auth"."user_role_assignments"');
+      expect(sql).toContain('"auth"."tenant_roles"');
+      expect(sql).toContain('r."tenantId" = $2');
+      expect(sql).not.toContain('tenant_22222222');
+      expect(params).toEqual([USER_ID, otherTenantId]);
     });
   });
 });

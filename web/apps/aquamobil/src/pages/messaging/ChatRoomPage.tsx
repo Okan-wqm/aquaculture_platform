@@ -29,6 +29,7 @@ import { MessageInput } from '@/components/messaging/MessageInput';
 import { TypingIndicator } from '@/components/messaging/TypingIndicator';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
+import { useEditMessage } from '@/hooks/useEditMessage';
 import { useMarkRead } from '@/hooks/useMarkRead';
 import { useMediaUpload } from '@/hooks/useMediaUpload';
 import { useMessages } from '@/hooks/useMessages';
@@ -96,6 +97,7 @@ export function ChatRoomPage() {
   } = useMessages(channelId, socketRef);
   const { channel, isLoading: channelLoading } = useChannelDetail(channelId);
   const { sendMessage, isSending } = useSendMessage(channelId);
+  const { editMessage } = useEditMessage(channelId);
   const { markRead } = useMarkRead(channelId);
   const { stopTyping, typingUsers } = useTypingIndicator(
     channelId,
@@ -107,6 +109,12 @@ export function ChatRoomPage() {
   const { addToQueue } = useOfflineQueue();
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  // MSG-MEDIUM-053: the message currently being edited. Mutually exclusive with
+  // replyingTo — entering edit mode clears any active reply. MessageInput is
+  // internally stateful with no edit-mode prop, so we reuse its onSend channel:
+  // while editingMessage is set, the next submitted text is routed to the
+  // editMessage producer instead of sendMessage.
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
 
@@ -243,6 +251,20 @@ export function ChatRoomPage() {
     const msg = messages.find((m) => m.id === messageId);
     if (msg) {
       setForwardingMessage(msg);
+    }
+  }, [messages]);
+
+  /**
+   * MSG-MEDIUM-053: enter edit mode for the selected own message. Editing and
+   * replying are mutually exclusive composer modes, so entering edit clears any
+   * active reply. The next text submitted via MessageInput is routed to the
+   * editMessage producer (online mutation or offline queue) in onSend below.
+   */
+  const handleEdit = useCallback((messageId: string) => {
+    const msg = messages.find((m) => m.id === messageId);
+    if (msg) {
+      setReplyingTo(null);
+      setEditingMessage(msg);
     }
   }, [messages]);
 
@@ -510,6 +532,11 @@ export function ChatRoomPage() {
                       onReply={handleReply}
                       onCopy={handleCopy}
                       onForward={handleForward}
+                      onEdit={
+                        isOwn && msg.contentType === 'text' && !msg.isDeleted
+                          ? handleEdit
+                          : undefined
+                      }
                       onDelete={isOwn ? handleDelete : undefined}
                     />
                   );
@@ -528,8 +555,17 @@ export function ChatRoomPage() {
        * "Send" when offline, giving the user honest feedback about delivery. */}
       <MessageInput
         onSend={(text) => {
-          setReplyingTo(null);
           stopTyping();
+          // MSG-MEDIUM-053: in edit mode the submitted text replaces the edited
+          // message via the editMessage producer (online mutation or offline
+          // queue); otherwise it is a fresh send. Both clear their composer mode.
+          if (editingMessage) {
+            const editedId = editingMessage.id;
+            setEditingMessage(null);
+            void editMessage(editedId, text);
+            return;
+          }
+          setReplyingTo(null);
           sendMessage({
             content: text,
             contentType: 'text',
@@ -553,7 +589,16 @@ export function ChatRoomPage() {
           handleVoiceRecordingComplete(blob, durationSeconds, mimeType);
         }}
         replyTo={
-          replyingTo
+          editingMessage
+            ? {
+                // MSG-MEDIUM-053: reuse the preview bar to show the original
+                // text being edited (MessageInput has no edit-mode prop), so
+                // the operator sees what they are replacing before retyping.
+                messageId: editingMessage.id,
+                senderName: 'Editing message',
+                text: editingMessage.content ?? '',
+              }
+            : replyingTo
             ? {
                 messageId: replyingTo.id,
                 senderName: replyingTo.sender
@@ -563,7 +608,10 @@ export function ChatRoomPage() {
               }
             : null
         }
-        onCancelReply={() => setReplyingTo(null)}
+        onCancelReply={() => {
+          setReplyingTo(null);
+          setEditingMessage(null);
+        }}
         channelMembers={channel?.members ?? []}
         disabled={isSending || isUploading}
         isOnline={isOnline}

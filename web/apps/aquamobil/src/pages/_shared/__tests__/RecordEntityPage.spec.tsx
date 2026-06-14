@@ -16,7 +16,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // tree (see vitest.config.ts note).
 // ---------------------------------------------------------------------------
 
-const mockAddToQueue = vi.fn(() => Promise.resolve('op-123'));
+// FE-HIGH-050: addToQueue resolves a discriminated AddToQueueResult. Typed args so
+// mock.calls is `[string, Record<string, unknown>][]` and no cast is needed to read them.
+const mockAddToQueue = vi.fn<
+  (op: string, payload: Record<string, unknown>) => Promise<{ status: string; id: string }>
+>(() => Promise.resolve({ status: 'queued', id: 'op-123' }));
 let mockIsOnline = true;
 
 vi.mock('@/hooks/useOfflineQueue', () => ({
@@ -218,10 +222,7 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
     await waitFor(() => {
       expect(mockAddToQueue).toHaveBeenCalledTimes(1);
     });
-    const [opName, payload] = mockAddToQueue.mock.calls[0] as unknown as [
-      string,
-      Record<string, unknown>,
-    ];
+    const [opName, payload] = mockAddToQueue.mock.calls[0] ?? [];
     expect(opName).toBe('recordCull');
     expect(payload).toMatchObject({
       batchId: 'batch-1',
@@ -261,10 +262,9 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
     });
 
     await waitFor(() => expect(mockAddToQueue).toHaveBeenCalledTimes(1));
-    const [opName, payload] = mockAddToQueue.mock.calls[0] as unknown as [
-      string,
-      { observedAt: string },
-    ];
+    const firstCall = mockAddToQueue.mock.calls[0];
+    if (!firstCall) throw new Error('addToQueue was not called');
+    const [opName, payload] = firstCall;
     expect(opName).toBe('recordMortality');
     expect(payload).toMatchObject({
       batchId: 'batch-1',
@@ -314,20 +314,42 @@ describe('RecordEntityPage shell — entry → confirm → submit', () => {
     });
 
     await waitFor(() => expect(mockAddToQueue).toHaveBeenCalledTimes(1));
-    const [opName, payload] = mockAddToQueue.mock.calls[0] as unknown as [
-      string,
-      {
-        quantityHarvested: number;
-        averageWeight: number;
-        totalBiomass: number;
-        qualityGrade: string;
-      },
-    ];
+    const firstCall = mockAddToQueue.mock.calls[0];
+    if (!firstCall) throw new Error('addToQueue was not called');
+    const [opName, rawPayload] = firstCall;
+    const payload = rawPayload as {
+      quantityHarvested: number;
+      averageWeight: number;
+      totalBiomass: number;
+      qualityGrade: string;
+    };
     expect(opName).toBe('createHarvestRecord');
     expect(payload.quantityHarvested).toBe(100);
     expect(payload.averageWeight).toBe(200);
     expect(payload.totalBiomass).toBeCloseTo((100 * 200) / 1000, 5);
     expect(payload.qualityGrade).toBe('GRADE_A');
+  });
+});
+
+describe('RecordEntityPage shell — duplicate (FE-HIGH-050)', () => {
+  it('renders "Already recorded" instead of a success badge when the submit is deduped', async () => {
+    // The queue collapsed a double-tap onto an existing op — status 'duplicate'.
+    mockAddToQueue.mockResolvedValueOnce({ status: 'duplicate', id: 'op-existing' });
+    renderPage(<RecordCullPage />);
+
+    await act(async () => {
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'tank-1' } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Review .* Culled Fish/i }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /Confirm & Record/i }));
+    });
+
+    // The honest "Already recorded" notice shows — NOT the queued success badge.
+    expect(await screen.findByText(/Already recorded/i)).toBeTruthy();
+    expect(screen.queryByTestId('queued-badge')).toBeNull();
   });
 });
 

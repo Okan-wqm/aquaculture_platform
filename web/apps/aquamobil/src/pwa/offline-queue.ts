@@ -1,5 +1,5 @@
 import { get, set, del, keys, entries, createStore } from 'idb-keyval';
-import type { QueuedOperation, OperationType, OperationPayload } from '@/types';
+import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
 
 // Separate stores for queue and cache to avoid full-store scans (PERF-08)
 const queueStore = createStore('aquamobil-queue', 'queue');
@@ -10,6 +10,21 @@ const QUEUE_PREFIX = 'pending_';
 const CACHE_PREFIX = 'cache_';
 const DURABLE_QUEUE_KEY = 'queue-key-v1';
 const DEVICE_ID_KEY = 'device-id-v1';
+
+/**
+ * Background Sync API surface. `sync` is NOT in the lib.dom
+ * ServiceWorkerRegistration type — it is the experimental SyncManager surface,
+ * feature-detected via `'SyncManager' in window` before use. We narrow to this
+ * typed extension through a predicate rather than casting through `unknown`.
+ */
+interface BackgroundSyncRegistration extends ServiceWorkerRegistration {
+  readonly sync: { register(tag: string): Promise<void> };
+}
+function hasBackgroundSync(
+  reg: ServiceWorkerRegistration,
+): reg is BackgroundSyncRegistration {
+  return 'sync' in reg;
+}
 
 /** Maximum number of operations that can be queued offline before requiring a sync. */
 export const MAX_QUEUE_SIZE = 200;
@@ -70,12 +85,29 @@ async function sha256Hex(value: string): Promise<string> {
     .join('');
 }
 
+/**
+ * Content fingerprint of an operation payload, computed BEFORE the command
+ * envelope is attached. The envelope adds a fresh `clientCommandId` + a
+ * wall-clock `clientCreatedAt` on every call, so hashing the post-envelope
+ * object would make every submission unique and defeat dedup. Hashing the raw
+ * domain payload (the exact bytes the user submitted) is what makes a
+ * double-tap detectable: two taps of the same form produce the same hash.
+ *
+ * FE-HIGH-050: this is the single fingerprint used by BOTH the at-most-once
+ * command envelope (`payloadHash`) AND the offline double-submit dedup window,
+ * replacing the per-domain `extractResourceId` heuristic that silently missed
+ * any payload shape it did not enumerate (e.g. stock movements, transfers).
+ */
+async function computePayloadHash(payload: OperationPayload): Promise<string> {
+  return sha256Hex(stableStringify(payload));
+}
+
 async function attachCommandEnvelope(
   type: OperationType,
   payload: OperationPayload,
   clientCommandId: string,
+  payloadHash: string,
 ): Promise<OperationPayload> {
-  const payloadHash = await sha256Hex(stableStringify(payload));
   return {
     ...(payload as unknown as Record<string, unknown>),
     clientCommandId,
@@ -131,10 +163,13 @@ async function decryptString(iv: string, ciphertext: string): Promise<string> {
 // Internal stored shape — payload is replaced by encrypted envelope
 interface StoredOperation extends Omit<QueuedOperation, 'payload'> {
   _enc: { iv: string; ciphertext: string };
-  // FE-MEDIUM-030: Store plaintext resourceId for dedup comparison.
-  // This is NOT sensitive data (it's a UUID/composite key), so storing it
-  // unencrypted is safe and avoids the expensive decrypt-to-compare path.
-  _resourceId: string;
+  // FE-HIGH-050: Store the plaintext payload fingerprint (SHA-256 hex) for O(1)
+  // dedup comparison. A digest is NOT sensitive data (it is a one-way hash, not
+  // the payload), so storing it unencrypted is safe and avoids a
+  // decrypt-to-compare path. This is the SAME hash carried in the command
+  // envelope's `payloadHash`, so the offline window and the server-side
+  // at-most-once key agree on what "the same submission" means.
+  _payloadHash: string;
 }
 
 // ============================================================================
@@ -142,65 +177,49 @@ interface StoredOperation extends Omit<QueuedOperation, 'payload'> {
 // ============================================================================
 
 /**
- * Deduplication window in milliseconds. Operations with the same type and
- * resourceId within this window are considered duplicates (e.g., double-tap).
+ * Deduplication window in milliseconds. Operations of the same type whose
+ * payload fingerprint (SHA-256 of the raw domain payload) matches within this
+ * window are treated as duplicate double-taps and collapsed onto the existing
+ * queued operation rather than enqueued twice.
+ *
+ * FE-HIGH-050: keying dedup on the content fingerprint (not a per-domain id
+ * heuristic) means a duplicate is "byte-identical submission of the same form
+ * within 5s". This is correct for EVERY operation type by construction —
+ * including stock movements and transfers that the old `extractResourceId`
+ * heuristic did not enumerate and therefore never deduped (FE-MEDIUM-050).
  */
 const DEDUP_WINDOW_MS = 5_000;
 
+// ============================================================================
+// FE-HIGH-051: Monotonic per-tenant queue version (auto-sync re-arm token)
+// ============================================================================
+// The reconnect auto-sync guard must re-fire whenever the queue's CONTENT
+// changes, not merely when the pending COUNT changes. A count-delta guard
+// misses the "drain to N, then enqueue back to N" case — same observed count,
+// but a genuinely new operation that must sync. A monotonic version counter
+// changes on every enqueue regardless of count, so the guard re-arms reliably.
+//
+// The version lives in the durable KEY store (the same store that holds the
+// session key + device id), NOT the queue store. Keeping it out of the queue
+// store means the queue store contains ONLY operation entries, so prefix-free
+// full-store scans, counts, and inspections never see a non-operation record.
+// It is a plain integer, not sensitive, so it is stored unencrypted.
+const QUEUE_VERSION_PREFIX = 'qver_';
+
 /**
- * Extract a stable resource identifier from a payload for dedup comparison.
- * Uses batchId+tankId for farm operations, employeeId for HR, or task id.
+ * Read the current monotonic queue version for a tenant. Returns 0 before the
+ * first enqueue. Callers compare successive reads: a strictly greater value
+ * means new content was queued since the last observation.
  */
-function extractResourceId(type: OperationType, payload: OperationPayload): string {
-  const p = payload as unknown as Record<string, unknown>;
-  // Water quality operations identify by equipmentId (H7)
-  if (type === 'createWaterQuality') {
-    return String(p['equipmentId'] || '');
-  }
-  // Task mutations use { id } directly
-  if (type === 'completeTask' || type === 'startTask') {
-    return String(p['id'] || '');
-  }
-  // Messaging: sendMessage dedupes by idempotencyKey, edit/delete by message id,
-  // markMessagesRead by channelId+messageId (ADR-012)
-  if (type === 'sendMessage') {
-    return String(p['idempotencyKey'] || '');
-  }
-  if (type === 'editMessage' || type === 'deleteMessage') {
-    return String(p['id'] || '');
-  }
-  if (type === 'markMessagesRead') {
-    return `${p['channelId']}:${p['messageId']}`;
-  }
-  // Most farm operations identify by batchId+tankId
-  if (p['batchId'] && p['tankId']) {
-    return `${p['batchId']}:${p['tankId']}`;
-  }
-  // Self-service leave requests no longer carry employeeId; use the natural
-  // request fingerprint so double-taps cannot create duplicate queued submits.
-  if (type === 'createLeaveRequest' && p['leaveTypeId'] && p['startDate'] && p['endDate']) {
-    return [
-      p['leaveTypeId'],
-      p['startDate'],
-      p['endDate'],
-      p['isHalfDayStart'] ?? false,
-      p['isHalfDayEnd'] ?? false,
-    ].join(':');
-  }
-  // Self-service attendance requests identify the current authenticated employee
-  // on the server. The operation type is already part of the dedup comparison.
-  if (type === 'clockIn' || type === 'clockOut') {
-    return String(p['employeeId'] || 'self');
-  }
-  // Legacy HR payloads may still carry employeeId.
-  if (p['employeeId']) {
-    return String(p['employeeId']);
-  }
-  // Transfers identify by source+destination
-  if (p['sourceTankId'] && p['destinationTankId']) {
-    return `${p['batchId']}:${p['sourceTankId']}:${p['destinationTankId']}`;
-  }
-  return '';
+export async function getQueueVersion(tenantId: string): Promise<number> {
+  const value = await get<number>(`${QUEUE_VERSION_PREFIX}${tenantId}`, keyStore);
+  return typeof value === 'number' ? value : 0;
+}
+
+/** Increment the tenant's queue version. Called on every successful enqueue. */
+async function bumpQueueVersion(tenantId: string): Promise<void> {
+  const current = await getQueueVersion(tenantId);
+  await set(`${QUEUE_VERSION_PREFIX}${tenantId}`, current + 1, keyStore);
 }
 
 /**
@@ -211,6 +230,12 @@ function extractResourceId(type: OperationType, payload: OperationPayload): stri
  * cross-tenant replay STRUCTURALLY IMPOSSIBLE -- getPendingOperations() and
  * syncAllOperations() filter by tenantId, so tenant A's queued ops are never
  * visible when tenant B is active.
+ *
+ * FE-HIGH-050: returns a discriminated {@link AddToQueueResult} rather than a
+ * bare string. `{ status: 'queued', id }` means a fresh operation was written;
+ * `{ status: 'duplicate', id }` means a byte-identical submission already sits
+ * in the queue within the dedup window and `id` points at THAT existing op (so
+ * the UI can still surface its sync status, and never claims a second success).
  *
  * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
  * @param type - The mutation type to execute on sync
@@ -226,7 +251,7 @@ export async function queueOperation(
   // the in-app sync path (executeGraphQL) will catch the 401 and surface an error
   // rather than silently incrementing retryCount for an auth failure.
   hasValidAuth: boolean = false,
-): Promise<string> {
+): Promise<AddToQueueResult> {
   // SECURITY (C11): tenantId is mandatory -- reject if missing
   if (!tenantId) {
     throw new Error('queueOperation: tenantId is required for tenant-isolated queueing');
@@ -238,32 +263,31 @@ export async function queueOperation(
     throw new Error('Offline queue is full (200 items). Please sync before adding more.');
   }
 
-  // Deduplication: reject operations with the same type + resourceId within DEDUP_WINDOW_MS.
-  // This prevents double-tap / duplicate submissions common on slow mobile connections.
-  const resourceId = extractResourceId(type, payload);
-  if (resourceId) {
-    const nowMs = Date.now();
-    const allEntries = await entries<string, StoredOperation>(queueStore);
-    // FE-MEDIUM-030: Compare type + resourceId + time window for dedup.
-    // SECURITY (C11): Only dedup within the same tenant's operations.
-    const tenantPrefix = `${QUEUE_PREFIX}${tenantId}_`;
-    const isDuplicate = allEntries.some(([key, op]) => {
-      if (!String(key).startsWith(tenantPrefix)) return false;
-      if (op.type !== type) return false;
-      if (op._resourceId !== resourceId) return false;
-      const opTimeMs = new Date(op.createdAt).getTime();
-      if (Math.abs(nowMs - opTimeMs) >= DEDUP_WINDOW_MS) return false;
-      return true;
-    });
-    if (isDuplicate) {
-      // Return empty string to signal the caller that the operation was deduped.
-      // The hook's addToQueue wrapper still refreshes the queue count.
-      return '';
-    }
+  // FE-HIGH-050: dedup on the payload content fingerprint, computed ONCE here
+  // and reused for the stored command envelope. Operations of the same type
+  // whose raw payload hashes identically within DEDUP_WINDOW_MS are double-taps
+  // and are collapsed onto the existing queued op — preventing duplicate
+  // submissions common on slow mobile connections, for every operation type.
+  const payloadHash = await computePayloadHash(payload);
+  const nowMs = Date.now();
+  const allEntries = await entries<string, StoredOperation>(queueStore);
+  // SECURITY (C11): Only dedup within the same tenant's operations.
+  const tenantPrefix = `${QUEUE_PREFIX}${tenantId}_`;
+  const existingDuplicate = allEntries.find(([key, op]) => {
+    if (!String(key).startsWith(tenantPrefix)) return false;
+    if (op.type !== type) return false;
+    if (op._payloadHash !== payloadHash) return false;
+    const opTimeMs = new Date(op.createdAt).getTime();
+    return Math.abs(nowMs - opTimeMs) < DEDUP_WINDOW_MS;
+  });
+  if (existingDuplicate) {
+    // Point the caller at the EXISTING operation so the two-phase status badge
+    // tracks the real queued op rather than a second copy that was never written.
+    return { status: 'duplicate', id: existingDuplicate[1].id };
   }
 
   const id = crypto.randomUUID();
-  const payloadWithEnvelope = await attachCommandEnvelope(type, payload, id);
+  const payloadWithEnvelope = await attachCommandEnvelope(type, payload, id, payloadHash);
 
   // SEC-03: Encrypt sensitive payload before writing to IndexedDB.
   const _enc = await encryptPayload(payloadWithEnvelope);
@@ -273,8 +297,8 @@ export async function queueOperation(
     tenantId,
     type,
     _enc,
-    // FE-MEDIUM-030: Persist resourceId in plaintext for O(1) dedup comparison
-    _resourceId: resourceId,
+    // FE-HIGH-050: Persist the payload fingerprint in plaintext for O(1) dedup
+    _payloadHash: payloadHash,
     createdAt: new Date().toISOString(),
     retryCount: 0,
     status: 'pending',
@@ -283,6 +307,12 @@ export async function queueOperation(
   // SECURITY (C11): Key format pending_${tenantId}_${id} ensures tenant isolation
   await set(`${QUEUE_PREFIX}${tenantId}_${id}`, stored, queueStore);
 
+  // FE-HIGH-051: bump the tenant's monotonic queue version on every successful
+  // write. The reconnect auto-sync guard re-arms on a version CHANGE rather than
+  // a pending-count delta, so a drain-to-zero immediately followed by a new
+  // enqueue (same observed count) still re-triggers sync instead of stalling.
+  await bumpQueueVersion(tenantId);
+
   // SEC-09: Only register background sync when auth credentials are confirmed
   // present. An unauthenticated background sync attempt would fail with 401
   // and incorrectly increment retryCount, eventually permanently discarding
@@ -290,22 +320,23 @@ export async function queueOperation(
   if (hasValidAuth && 'serviceWorker' in navigator && 'SyncManager' in window) {
     try {
       const registration = await navigator.serviceWorker.ready;
-      const syncManager = (registration as unknown as { sync: { register: (tag: string) => Promise<void> } }).sync;
-      await syncManager.register('sync-operations');
+      if (hasBackgroundSync(registration)) {
+        await registration.sync.register('sync-operations');
 
-      // ADR-012: Register messaging-specific sync tag for priority processing.
-      // Messaging operations are synced via 'sync-messages' before general ops.
-      const isMessagingOp = type === 'sendMessage' || type === 'editMessage' ||
-        type === 'deleteMessage' || type === 'markMessagesRead';
-      if (isMessagingOp) {
-        await syncManager.register('sync-messages');
+        // ADR-012: Register messaging-specific sync tag for priority processing.
+        // Messaging operations are synced via 'sync-messages' before general ops.
+        const isMessagingOp = type === 'sendMessage' || type === 'editMessage' ||
+          type === 'deleteMessage' || type === 'markMessagesRead';
+        if (isMessagingOp) {
+          await registration.sync.register('sync-messages');
+        }
       }
     } catch (error) {
       console.warn('Background sync registration failed:', error);
     }
   }
 
-  return id;
+  return { status: 'queued', id };
 }
 
 // Decrypt a StoredOperation back into a QueuedOperation. If decryption fails
@@ -314,7 +345,7 @@ export async function queueOperation(
 async function decryptOperation(stored: StoredOperation): Promise<QueuedOperation | null> {
   try {
     const payload = await decryptPayload(stored._enc.iv, stored._enc.ciphertext);
-    const { _enc: _ignored, _resourceId: _ignored2, ...rest } = stored;
+    const { _enc: _ignored, _payloadHash: _ignored2, ...rest } = stored;
     return { ...rest, payload };
   } catch {
     return null;
@@ -431,6 +462,16 @@ export async function clearAllOperations(tenantId?: string): Promise<void> {
     : QUEUE_PREFIX;
   const queueKeys = allKeys.filter((k) => String(k).startsWith(prefix));
   await Promise.all(queueKeys.map((k) => del(k, queueStore)));
+  // FE-HIGH-051: tear down the matching queue-version token(s) so a wiped queue
+  // also resets its re-arm counter — scoped clears drop just this tenant's
+  // token, the full logout clear drops every tenant's token. The tokens live in
+  // the durable KEY store, so they are scanned/deleted there, not in queueStore.
+  const versionPrefix = tenantId
+    ? `${QUEUE_VERSION_PREFIX}${tenantId}`
+    : QUEUE_VERSION_PREFIX;
+  const allKeyStoreKeys = await keys(keyStore);
+  const versionKeys = allKeyStoreKeys.filter((k) => String(k).startsWith(versionPrefix));
+  await Promise.all(versionKeys.map((k) => del(k, keyStore)));
   if (!tenantId) {
     _sessionKey = null;
     await del(DURABLE_QUEUE_KEY, keyStore);

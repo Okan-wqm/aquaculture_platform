@@ -85,7 +85,9 @@ export function AttendancePage() {
     setError(null);
     try {
       const loc = await getLocation();
-      const opId = await addToQueue('clockIn', {
+      // FE-HIGH-050: addToQueue returns a discriminated result; .id tracks the
+      // queued (or, on dedup, existing) op for QueuedStatusBadge.
+      const { id: opId } = await addToQueue('clockIn', {
         method: 'MOBILE' as const,
         location: loc || undefined,
       });
@@ -108,7 +110,7 @@ export function AttendancePage() {
     setError(null);
     try {
       const loc = await getLocation();
-      const opId = await addToQueue('clockOut', {
+      const { id: opId } = await addToQueue('clockOut', {
         method: 'MOBILE' as const,
         location: loc || undefined,
       });

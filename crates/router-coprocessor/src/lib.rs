@@ -13,6 +13,7 @@
 //! (the highest-risk integration point) is implemented + tested FIRST; the axum server,
 //! RS256 JWT verification, Redis blacklist/rate-limit, and CSRF stages follow.
 
+use hmac::digest::InvalidLength;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
@@ -77,11 +78,14 @@ pub fn build_canonical_v2(input: &CanonicalV2Input) -> String {
 
 /// `HMAC-SHA256(canonical, secret)` as lowercase hex. Mirrors the TS
 /// `createHmac('sha256', secret).update(canonical).digest('hex')`.
-#[must_use]
-pub fn sign_v2(canonical: &str, secret: &[u8]) -> String {
-    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC-SHA256 accepts any key length");
+///
+/// Returns `Err(InvalidLength)` only on the path HMAC never takes (any key length is
+/// valid) — surfaced as a `Result` rather than a panic to satisfy the workspace's
+/// no-`expect`/`unwrap` clippy lint.
+pub fn sign_v2(canonical: &str, secret: &[u8]) -> Result<String, InvalidLength> {
+    let mut mac = HmacSha256::new_from_slice(secret)?;
     mac.update(canonical.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+    Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
 #[cfg(test)]
@@ -94,7 +98,7 @@ mod tests {
     // If the TS canonical layout or HMAC ever drifts, this fails loudly — which is the
     // point: the subgraph guards would otherwise silently reject the coprocessor.
     #[test]
-    fn hmac_v2_matches_typescript_golden_vector() {
+    fn hmac_v2_matches_typescript_golden_vector() -> Result<(), InvalidLength> {
         let body = r#"{"query":"{ me { id } }"}"#;
         let query = "op=me";
 
@@ -128,13 +132,16 @@ mod tests {
         let canonical = build_canonical_v2(&input);
         // 14 fields => exactly 13 newline delimiters.
         assert_eq!(canonical.matches('\n').count(), 13);
-        assert!(canonical.starts_with("v2\n2026-01-01T00:00:00.000Z\ngateway-api\nPOST\n/graphql\n"));
+        assert!(
+            canonical.starts_with("v2\n2026-01-01T00:00:00.000Z\ngateway-api\nPOST\n/graphql\n")
+        );
 
-        let sig = sign_v2(&canonical, b"test-shared-secret");
+        let sig = sign_v2(&canonical, b"test-shared-secret")?;
         assert_eq!(
             sig,
             "1f6e6d1423dcf8efa92e61bc96ad37e004134c0794c4bee5207440d80a783147"
         );
+        Ok(())
     }
 
     #[test]

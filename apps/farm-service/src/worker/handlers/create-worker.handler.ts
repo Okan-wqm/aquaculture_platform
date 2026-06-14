@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ConflictException, Logger } from '@nestjs/common';
 import { CreateWorkerCommand } from '../commands/create-worker.command';
-import { Worker } from '../entities/worker.entity';
+import { Worker, workerEmailBlindIndex } from '../entities/worker.entity';
 
 @CommandHandler(CreateWorkerCommand)
 export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand, Worker> {
@@ -20,9 +20,11 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
 
     this.logger.log(`Creating worker "${input.firstName} ${input.lastName}" for tenant ${tenantId}`);
 
-    // Check for duplicate email within tenant
+    // Check for duplicate email within tenant. The email column is encrypted
+    // (non-deterministic GCM), so equality must go through the deterministic
+    // blind index, which also backs the (tenantId, emailHash) UNIQUE constraint.
     const existingByEmail = await this.workerRepository.findOne({
-      where: { tenantId, email: input.email.toLowerCase().trim() },
+      where: { tenantId, emailHash: workerEmailBlindIndex(input.email) },
     });
     if (existingByEmail) {
       throw new ConflictException(`Employee with email "${input.email}" already exists`);
@@ -73,7 +75,7 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
           postalCode: '-',
           country: 'TR',
         },
-        dateOfBirth: new Date('1990-01-01'),
+        dateOfBirth: '1990-01-01',
         nationalId: '-',
         status: 'active',
         employmentType: 'full_time',

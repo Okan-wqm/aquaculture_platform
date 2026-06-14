@@ -4084,3 +4084,32 @@ Severity: MEDIUM. Discovered 2026-06-13 during Wave-2 close-out (verifying the s
 **Fix direction:** either (a) add a DB-backed messaging-gates job (postgres service + migrations) that runs `gates:messaging-source-outbox`, and a post-deploy canary step (deploy workflow) that runs `gates:messaging-canary-metrics`; or (b) refactor `check-messaging-source-outbox.mjs` to split its static asserts (runnable in `quality-gates`) from its live-DB asserts. Then remove the dead `package.json` entries if a script is dropped, so no gate is registered-but-unrun.
 
 Status: OPEN (2026-06-13; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-104 — `entity-migration-parity.spec.ts` (MA2/MA3) is a non-functional, CI-unreached invariant
+
+Severity: MEDIUM. Discovered 2026-06-14 while wiring the farm_workers PII-at-rest hardening (auth-security-expert REJECT-REDO item 3b), security-implementer.
+
+**Problem:** `e2e/tests/integration/entity-migration-parity.spec.ts` is supposed to enforce two invariants — MA2 (every `@Entity('<table>')` has a `CREATE TABLE` migration) and MA3 (every entity column appears in the migration's CREATE TABLE body). It currently enforces neither, for three compounding reasons:
+
+1. **`ENTITY_NAME_RE` recognizes zero entities (backreference bug).** The regex is `/@Entity\(\s*(?:(?:['"])([a-z_][a-z0-9_]*)\1|...)/i`. The quote alternation `(?:['"])` is NON-capturing, so capture group 1 is the *table-name* group, and the trailing `\1` therefore demands the table name appear twice consecutively. No real `@Entity('farm_workers')` (or any of the canonical forms, including `@Entity({ name: '...' })`) matches. Verified: the regex returns NO MATCH against every canonical `@Entity` form, so `collectAll()` yields `entities.length === 0`; the "lists at least one entity (sanity)" assertion fails and both `it.each(...)` blocks throw `.each` called with an empty Array. The regex is byte-identical since its introduction in commit 2a1906bba — the spec has been red since birth.
+
+2. **The CREATE TABLE body parser assumes one-column-per-line.** Even with the regex fixed, `parseMigration` splits the captured body on `\n` and matches `"<name>" <type>` per line. The farm baseline (and others) emit each `CREATE TABLE` on a SINGLE 1000+ char line (`farm_workers` CREATE TABLE is 1089 chars on one line), so the parser recognizes only the first column (`id`). A regex-only fix surfaces 215 MA3 "violations" across every service — all pre-existing, none introduced by PII work.
+
+3. **The parser only reads `CREATE TABLE`, never `ALTER TABLE ADD COLUMN`.** The "sanctioned ALTER-column pattern" the REJECT-REDO assumed exists does NOT: `AddTankSetupMetadata1800900000000` adds `tanks.containerKind/equipmentTypeId/equipmentTypeCode` via `ALTER TABLE ADD COLUMN`, and those columns are NOT in the baseline `tanks` CREATE TABLE — so `tanks` would fail MA3 identically to `farm_workers.emailHash`. There is no working mechanism by which any ALTER-added column satisfies MA3 today.
+
+4. **Not wired into CI.** The Nx project `@aquaculture/e2e-tests` exposes only a `lint` target (no `test` target), and no workflow runs `npm run test:integration` / the `e2e/jest.config.ts` integration suite (`db-migration-check.yml` runs only `bootstrap`, `tenant-clone`, `schema-invariants` and the gate scripts by name). The `invariant-reachability.spec.ts` net covers only `tests/invariants/**`, not `e2e/tests/integration/**`, so the orphaned-and-broken state went undetected. This is why a permanently-red spec never blocked a merge.
+
+**Effect:** The intended Tier-1 "make-impossible" guard against "entity shipped, migration forgotten" / camelCase-vs-snake_case drift does not run and could not pass if it did. The two deploy breaks it was written to prevent (event_store 2026-04-16, HR 2026-04-16) are currently unguarded by THIS spec (the `tests/invariants/registry` shard — `farm-service-migration-array-completeness`, `entity-diff-implies-migration`, `tenant-fanout-entity-parity` — provides overlapping but not identical coverage and IS CI-wired and green).
+
+**Why not fixed in the PII PR:** Making MA3 genuinely green requires (a) fixing `ENTITY_NAME_RE` (make the quote group capturing: `(['"])([a-z_][a-z0-9_]*)\1`), (b) parsing single-line CREATE TABLE bodies (split on commas at paren-depth 0, not on `\n`), and (c) merging `ALTER TABLE ... ADD COLUMN` columns into each table's column set so ALTER-added columns (`tanks.containerKind`, `farm_workers.emailHash`) satisfy parity. Steps (a)+(b) then surface 215 pre-existing cross-service violations that must each be triaged (real drift vs parser limitation vs name-override needed). That is a platform-wide parser rewrite plus a 215-item cross-service triage — categorically outside a farm PII-at-rest change, and re-architecting a dead invariant under a security PR would be unbounded scope creep with a large blast radius. Hand-editing the frozen baseline or excluding `farm_workers` was explicitly forbidden and would weaken the invariant.
+
+**Fix direction (minimal correct resolution, dedicated PR):**
+1. Fix `ENTITY_NAME_RE` so the closing quote is a backreference to a CAPTURED quote group; re-confirm `collectAll()` finds all ~245 entities.
+2. Rewrite `parseMigration` body tokenizer to handle single-line CREATE TABLE bodies (paren-depth-aware comma split).
+3. Extend the migration parser to also collect `ALTER TABLE [schema.]"<table>" ADD COLUMN [IF NOT EXISTS] "<name>"` and merge those column names into the matching table's column set — making ALTER-add the sanctioned way an ALTER-added entity column satisfies MA3 (this is what `tanks.containerKind` and `farm_workers.emailHash` both need).
+4. Triage the resulting violations; add `@Column({ name })` overrides or real migrations as each requires; only genuine, documented exceptions go in `EXCLUDED_TABLES`.
+5. Wire the spec into CI: add a `test` target to the `e2e` Nx project (or fold the integration specs into a CI-run jest config) so the now-functional invariant actually gates PRs. Extend the reachability net to cover `e2e/tests/integration/**`.
+
+Status: OPEN (2026-06-14; owner: platform-architecture-expert; dedicated PR — invariant parser rewrite + cross-service triage). Registry: orphan-findings.md only.

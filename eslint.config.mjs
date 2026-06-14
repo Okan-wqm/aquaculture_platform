@@ -176,6 +176,11 @@ const RESTRICTED_IMPORTS_PATHS = [
     message:
       'moment was removed in A4 (dead-weight): it is in maintenance mode (no new features) and ships a large, mutable, non-tree-shakeable API. Use date-fns (already a dependency) for formatting/parsing. repo-hygiene-invariants.spec.ts also bans the dependency.',
   },
+  {
+    name: 'nats',
+    message:
+      "nats v2 was removed in A3 PR-C: the platform runs on @nats-io/* v3 (event bus, direct clients, and the NatsV3Server/NatsV3Client Nest transport). Import 'connect' from '@nats-io/transport-node' and types/createInbox from '@nats-io/nats-core' instead. @nestjs/microservices' lazy require('nats') is unreachable now that Transport.NATS is replaced. repo-hygiene-invariants.spec.ts also bans the dependency.",
+  },
 ];
 
 // Test-file globs (.eslintrc.json override 14, line 274), recursive-form.

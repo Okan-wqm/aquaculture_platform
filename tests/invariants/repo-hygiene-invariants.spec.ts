@@ -139,6 +139,8 @@ describe('repo hygiene invariants (A4 dead-weight)', () => {
         'node-redis was removed in A4. Use ioredis (the platform single Redis client); Socket.IO pub/sub uses an ioredis pair via @socket.io/redis-adapter.',
       moment:
         'moment was removed in A4 (maintenance-mode, non-tree-shakeable). Use date-fns.',
+      nats:
+        'nats v2 was removed in A3 PR-C — the platform runs on @nats-io/* v3 (event bus, direct clients, and the NatsV3Server/NatsV3Client Nest transport). Use @nats-io/transport-node + @nats-io/nats-core.',
     };
 
     for (const banned of Object.keys(BANNED)) {

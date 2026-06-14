@@ -53,7 +53,8 @@
 
 import { Client as PgClient } from 'pg';
 import { connect as connectMqtt } from 'mqtt';
-import { connect as connectNats, JSONCodec, type NatsConnection } from 'nats';
+import type { NatsConnection } from '@nats-io/nats-core';
+import { connect as connectNats } from '@nats-io/transport-node';
 import { randomUUID } from 'crypto';
 
 const GATE_ENV = 'SENSOR_INGEST_EQUIVALENCE_E2E';
@@ -115,7 +116,6 @@ const isEnabled = process.env[GATE_ENV] === '1';
 
       // 1. Subscribe to NATS BEFORE publishing the MQTT message so we
       //    do not race the publisher.
-      const jc = JSONCodec();
       const metricSub = nats.subscribe(
         `events.${tenantId}.SensorMetricIngested`,
       );
@@ -123,13 +123,13 @@ const isEnabled = process.env[GATE_ENV] === '1';
       const collected: { metric?: unknown; reading?: unknown } = {};
       const metricPromise = (async () => {
         for await (const msg of metricSub) {
-          collected.metric = jc.decode(msg.data);
+          collected.metric = msg.json();
           break;
         }
       })();
       const readingPromise = (async () => {
         for await (const msg of readingSub) {
-          collected.reading = jc.decode(msg.data);
+          collected.reading = msg.json();
           break;
         }
       })();

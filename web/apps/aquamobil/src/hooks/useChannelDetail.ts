@@ -16,11 +16,14 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { GET_CHANNEL } from '@/graphql/messaging-operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Channel } from '@/types/messaging';
+import { normalizeChannelType } from '@/utils/channel-type-wire';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /**
  * Fetches a single channel by ID.
@@ -38,7 +41,11 @@ async function fetchChannel(channelId: string): Promise<Channel> {
     throw new Error('Channel not found');
   }
 
-  return result.channel;
+  // MSG-HIGH-054 (read half): the messaging subgraph serializes the stored
+  // lowercase `ChannelType` back to its wire KEY (`'group'` -> `'GROUP'`).
+  // Normalize at this single read boundary so the ChannelSettingsPage and
+  // ChatRoomPage header comparisons (`channel.type === 'group'`) stay correct.
+  return normalizeChannelType(result.channel);
 }
 
 /**

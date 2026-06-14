@@ -19,6 +19,15 @@
 /** Channel type determines UI layout and membership rules. */
 export type ChannelType = 'direct' | 'group' | 'ai';
 
+/**
+ * GraphQL wire KEYs for `ChannelType` — the literals the messaging subgraph
+ * enum actually accepts on the wire. The messaging-service registers
+ * `ChannelType` WITHOUT a valuesMap, so graphql-js exposes the enum KEYs
+ * (`DIRECT`/`GROUP`/`AI`), not the lowercase persisted values. The runtime
+ * codec mapping internal <-> wire lives in {@link ../utils/channel-type-wire}.
+ */
+export type ChannelTypeWire = 'DIRECT' | 'GROUP' | 'AI';
+
 /** Role hierarchy within a channel: OWNER > ADMIN > MEMBER. */
 export type ChannelMemberRole = 'owner' | 'admin' | 'member';
 
@@ -257,9 +266,21 @@ export interface SendMessageInput {
   metadata?: Record<string, unknown>;
 }
 
-/** Input for creating a new channel. */
+/**
+ * Input for creating a new channel — the GraphQL *write* payload.
+ *
+ * WHY `type` is `ChannelTypeWire` (the SDL KEY `'DIRECT' | 'GROUP' | 'AI'`)
+ * and NOT the internal lowercase `ChannelType`: the messaging subgraph
+ * registers its enum WITHOUT a valuesMap, so graphql-js accepts only the enum
+ * KEYS on the wire. Posting the lowercase value (`'group'`) is rejected with a
+ * 400 before the resolver runs (MSG-HIGH-054). Typing the field as the wire
+ * union forces every caller through {@link toWireChannelType}, making the
+ * lowercase 400 a compile-time error instead of a runtime failure.
+ *
+ * @see web/apps/aquamobil/src/utils/channel-type-wire.ts
+ */
 export interface CreateChannelInput {
-  type: ChannelType;
+  type: ChannelTypeWire;
   name?: string;
   description?: string;
   memberIds: string[];

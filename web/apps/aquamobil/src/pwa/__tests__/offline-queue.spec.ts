@@ -6,6 +6,8 @@
  * Retry policy: 3 attempts then permanent fail
  */
 
+import { webcrypto } from 'node:crypto';
+
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // --------------------------------------------------------------------------
@@ -14,34 +16,42 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 const idbStore = new Map<string, unknown>();
 const cacheIdbStore = new Map<string, unknown>();
+// Durable KEY store (AES session key + device-id) — a SEPARATE IndexedDB store
+// in production ('aquamobil-keys'). Kept distinct here so device-id/key writes
+// never pollute the queue store the enqueue tests assert against.
+const keyIdbStore = new Map<string, unknown>();
 
 vi.mock('idb-keyval', () => {
   return {
     get: vi.fn((key: string, store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
+      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
       return Promise.resolve(target.get(key));
     }),
     set: vi.fn((key: string, value: unknown, store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
+      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
       target.set(key, value);
       return Promise.resolve();
     }),
     del: vi.fn((key: string, store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
+      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
       target.delete(key);
       return Promise.resolve();
     }),
     keys: vi.fn((store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
+      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
       return Promise.resolve(Array.from(target.keys()));
     }),
     entries: vi.fn((store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
+      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
       return Promise.resolve(Array.from(target.entries()));
     }),
     createStore: vi.fn((dbName: string, _storeName: string) => {
-      // Return a sentinel so the mock can distinguish stores
+      // Return a sentinel so the mock can distinguish stores. The durable KEY
+      // store (encryption key + device-id) is a separate store in production
+      // ('aquamobil-keys'); the mock must mirror that, else device-id/key writes
+      // land in the queue store and break the enqueue assertions.
       if (dbName.includes('cache')) return 'cache-store';
+      if (dbName.includes('keys')) return 'key-store';
       return 'queue-store';
     }),
   };
@@ -75,6 +85,12 @@ Object.defineProperty(globalThis, 'crypto', {
       generateKey: mockGenerateKey,
       encrypt: mockEncrypt,
       decrypt: mockDecrypt,
+      // Real SHA-256 via Node's WebCrypto. sha256Hex/attachCommandEnvelope's
+      // payloadHash must be a TRUE, collision-free digest because the idempotency
+      // (clientCommandId+payloadHash) and offline dedup paths key off it — a fake
+      // digest would silently mask hash-collision regressions in those tests.
+      digest: (algorithm: AlgorithmIdentifier, data: BufferSource) =>
+        webcrypto.subtle.digest(algorithm, data),
     },
     randomUUID: () => `uuid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     getRandomValues: (arr: Uint8Array) => {

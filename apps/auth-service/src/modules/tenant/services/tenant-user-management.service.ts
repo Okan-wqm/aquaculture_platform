@@ -269,6 +269,17 @@ export class TenantUserManagementService {
         throw new NotFoundException(`Role with ID "${input.roleId}" not found in tenant`);
       }
 
+      // SECURITY (SEC-MEDIUM-001): the dead "Prevent self-demotion" comment at
+      // the top of this method never enforced anything — updateTenantUser was a
+      // GraphQL-exposed (tenant-role.resolver) role-mutation surface with NO
+      // self-target or upward-escalation guard, a horizontal-privilege hole
+      // parallel to the one assignUserRole/updateUserRole already block. Route
+      // the role-CHANGE path through the same authority ceiling check so an
+      // admin cannot grant a role above their own level or rewrite their own
+      // assignment via this path. Profile-only updates (no roleId) skip the
+      // guard, so self profile edits stay allowed.
+      await this.assertRoleGrantAuthority(schemaName, updatedBy, userId, newRole);
+
       // Check if user has an existing active role assignment
       const existingResult = rowsAs<{ id: string; role_id: string }>(
         await this.dataSource.query(
@@ -281,16 +292,19 @@ export class TenantUserManagementService {
       if (existing) {
         // Only update if role actually changed
         if (existing.role_id !== input.roleId) {
-          await this.dataSource.query(
-            `UPDATE "${schemaName}"."user_role_assignments"
-             SET role_id = $1, updated_at = NOW(), updated_by = $2
-             WHERE id = $3`,
-            [input.roleId, updatedBy, existing.id],
-          );
-          this.logger.log(`Updated role assignment for user ${userId} to role ${newRole.name} in tenant ${tenantId}`);
+          // SECURITY (SEC-MEDIUM-002): the role UPDATE and its audit row commit
+          // ATOMICALLY. Previously the audit was a swallowed try/catch AFTER the
+          // committed UPDATE (fail-OPEN) — a role change could persist with no
+          // evidence (SOC 2 CC6.1). A throwing audit now rolls back the UPDATE
+          // (fail-CLOSED), matching updateUserRole.
+          await this.dataSource.transaction(async (manager) => {
+            await manager.query(
+              `UPDATE "${schemaName}"."user_role_assignments"
+               SET role_id = $1, updated_at = NOW(), updated_by = $2
+               WHERE id = $3`,
+              [input.roleId, updatedBy, existing.id],
+            );
 
-          // SECURITY AUDIT: Log role change (BULGU-016)
-          try {
             await this.auditLogService.log({
               tenantId,
               performedBy: updatedBy,
@@ -305,18 +319,38 @@ export class TenantUserManagementService {
               },
               severity: AuditLogSeverity.WARNING,
             });
-          } catch (error) {
-            this.logger.error(`Failed to log audit event USER_ROLE_CHANGED: ${(error as Error).message}`);
-          }
+          });
+          this.logger.log(`Updated role assignment for user ${userId} to role ${newRole.name} in tenant ${tenantId}`);
         }
       } else {
-        // No existing assignment — create one
-        await this.dataSource.query(
-          `INSERT INTO "${schemaName}"."user_role_assignments" (
-            user_id, role_id, permission_overrides, is_active, assigned_by, created_at, updated_at
-          ) VALUES ($1, $2, $3, true, $4, NOW(), NOW())`,
-          [userId, input.roleId, JSON.stringify({ grants: [], revokes: [] }), updatedBy],
-        );
+        // No existing assignment — create one. SECURITY (SEC-MEDIUM-002): the
+        // INSERT previously had NO audit at all — a role could be assigned to a
+        // user via this path with zero audit evidence. Now the INSERT and a
+        // USER_ROLE_CHANGED audit commit atomically (fail-CLOSED).
+        await this.dataSource.transaction(async (manager) => {
+          await manager.query(
+            `INSERT INTO "${schemaName}"."user_role_assignments" (
+              user_id, role_id, permission_overrides, is_active, assigned_by, created_at, updated_at
+            ) VALUES ($1, $2, $3, true, $4, NOW(), NOW())`,
+            [userId, input.roleId, JSON.stringify({ grants: [], revokes: [] }), updatedBy],
+          );
+
+          await this.auditLogService.log({
+            tenantId,
+            performedBy: updatedBy,
+            action: 'USER_ROLE_CHANGED',
+            entityType: 'UserRoleAssignment',
+            entityId: userId,
+            previousValue: { roleId: null },
+            newValue: { roleId: input.roleId },
+            details: {
+              newRoleName: newRole.name,
+              assignment: 'created',
+              timestamp: new Date().toISOString(),
+            },
+            severity: AuditLogSeverity.WARNING,
+          });
+        });
         this.logger.log(`Created role assignment for user ${userId} with role ${newRole.name} in tenant ${tenantId}`);
       }
     }
@@ -359,29 +393,30 @@ export class TenantUserManagementService {
     }
 
     const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
+    const admin = await this.userRepository.findOne({ where: { id: deletedBy } });
 
-    // 1. Deactivate the user
-    user.isActive = false;
-    await this.userRepository.save(user);
+    // SECURITY (SEC-MEDIUM-002): the soft-delete, role revocation, and audit
+    // row commit ATOMICALLY. Previously the user was deactivated and roles
+    // revoked first, then the audit ran in a swallowed try/catch (fail-OPEN) —
+    // a user deletion could persist with no audit evidence (SOC 2 CC6.1), and a
+    // swallowed role-revoke failure could leave a "deleted" user with live role
+    // assignments. A throwing audit OR a failed role revoke now rolls back the
+    // whole soft-delete (fail-CLOSED): no deletion persists without both the
+    // role revocation and its audit trail.
+    await this.dataSource.transaction(async (manager) => {
+      // 1. Deactivate the user
+      user.isActive = false;
+      await manager.save(user);
 
-    // 2. Revoke role assignments in tenant schema
-    try {
-      await this.dataSource.query(
+      // 2. Revoke role assignments in tenant schema
+      await manager.query(
         `UPDATE "${schemaName}"."user_role_assignments"
          SET is_active = false, updated_at = NOW(), updated_by = $2
          WHERE user_id = $1 AND is_active = true`,
         [userId, deletedBy],
       );
-    } catch (error) {
-      this.logger.warn(`Failed to revoke role assignments for user ${userId}: ${(error as Error).message}`);
-    }
 
-    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}`);
-
-    // SECURITY AUDIT: Log user deletion (BULGU-016)
-    try {
-      const admin = await this.userRepository.findOne({ where: { id: deletedBy } });
+      // 3. SECURITY AUDIT: Log user deletion (BULGU-016)
       await this.auditLogService.log({
         tenantId,
         performedBy: deletedBy,
@@ -396,9 +431,10 @@ export class TenantUserManagementService {
         },
         severity: AuditLogSeverity.WARNING,
       });
-    } catch (error) {
-      this.logger.error(`Failed to log audit event USER_DELETED: ${(error as Error).message}`);
-    }
+    });
+
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}`);
 
     return true;
   }

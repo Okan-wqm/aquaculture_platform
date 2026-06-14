@@ -299,36 +299,40 @@ export class UserLifecycleService {
 
     const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
 
-    // 1. Deactivate the user
-    user.isActive = false;
-    await this.userRepository.save(user);
+    const admin = await this.userRepository.findOne({ where: { id: deletedBy } });
 
-    // 2. Revoke role assignments in tenant schema
-    try {
-      await this.dataSource.query(
+    // SECURITY (SEC-MEDIUM-002): the soft-delete, role revocation, refresh-token
+    // revocation, and audit row commit ATOMICALLY. Previously the user was
+    // deactivated, roles revoked (swallowed try/catch), and tokens revoked
+    // first, then the audit ran in a swallowed try/catch (fail-OPEN) — a user
+    // deletion could persist with no audit evidence (SOC 2 CC6.1), and a
+    // swallowed role-revoke failure could leave a "deleted" user with live role
+    // assignments. A throwing audit, role revoke, or token revoke now rolls back
+    // the whole soft-delete (fail-CLOSED): no deletion persists without its role
+    // revocation, token revocation, AND audit trail.
+    await this.dataSource.transaction(async (manager) => {
+      // 1. Deactivate the user
+      user.isActive = false;
+      await manager.save(user);
+
+      // 2. Revoke role assignments in tenant schema
+      await manager.query(
         `UPDATE "${schemaName}"."user_role_assignments"
          SET is_active = false, updated_at = NOW(), updated_by = $2
          WHERE user_id = $1 AND is_active = true`,
         [userId, deletedBy],
       );
-    } catch (error) {
-      this.logger.warn(`Failed to revoke role assignments for user ${userId}: ${(error as Error).message}`);
-    }
 
-    // 3. CRITICAL: Revoke ALL refresh tokens
-    // Without this, existing refresh tokens remain valid and can be used to obtain
-    // new access tokens even after the user is "deleted".
-    await this.refreshTokenRepository.update(
-      { userId, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date(), revokedReason: 'User deleted' },
-    );
+      // 3. CRITICAL: Revoke ALL refresh tokens. Without this, existing refresh
+      // tokens remain valid and can mint new access tokens after "deletion".
+      // EntityManager.update (not a repository handle) keeps this inside the tx.
+      await manager.update(
+        RefreshToken,
+        { userId, isRevoked: false },
+        { isRevoked: true, revokedAt: new Date(), revokedReason: 'User deleted' },
+      );
 
-    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}, revoked all refresh tokens`);
-
-    // SECURITY AUDIT: Log user deletion
-    try {
-      const admin = await this.userRepository.findOne({ where: { id: deletedBy } });
+      // 4. SECURITY AUDIT: Log user deletion
       await this.auditLogService.log({
         tenantId,
         performedBy: deletedBy,
@@ -344,9 +348,10 @@ export class UserLifecycleService {
         },
         severity: AuditLogSeverity.WARNING,
       });
-    } catch (error) {
-      this.logger.error(`Failed to log audit event USER_DELETED: ${(error as Error).message}`);
-    }
+    });
+
+    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+    this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}, revoked all refresh tokens`);
 
     return true;
   }

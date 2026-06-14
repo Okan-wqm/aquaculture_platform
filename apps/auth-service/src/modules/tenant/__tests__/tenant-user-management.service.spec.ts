@@ -8,6 +8,7 @@
 import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -154,8 +155,14 @@ describe('TenantUserManagementService', () => {
       // per-test query chains stay valid) and exposes the audit log via the
       // real auditLogService mock.
       transaction: jest.fn(
-        (cb: (manager: { query: jest.Mock }) => Promise<unknown>) =>
-          cb({ query: mockDataSource.query }),
+        (cb: (manager: { query: jest.Mock; save: jest.Mock }) => Promise<unknown>) =>
+          cb({
+            query: mockDataSource.query,
+            // deleteTenantUser's soft-delete runs manager.save(user) inside the
+            // transaction (SEC-MEDIUM-002); forward it to a passthrough so the
+            // audit-rollback assertions still hinge on the auditLogService mock.
+            save: jest.fn((entity: unknown) => Promise.resolve(entity)),
+          }),
       ),
     };
 
@@ -491,6 +498,169 @@ describe('TenantUserManagementService', () => {
           ADMIN_USER_ID,
         ),
       ).rejects.toThrow('Audit DB down');
+    });
+  });
+
+  // ==========================================================================
+  // updateTenantUser — D1 (Wave-5): role-change authority guard + fail-closed audit
+  // ==========================================================================
+
+  describe('updateTenantUser', () => {
+    it('SEC-MEDIUM-002: role change + audit commit ATOMICALLY inside a transaction', async () => {
+      // Admin actor → assertRoleGrantAuthority ceiling query skipped. Query
+      // chain: [SELECT existing assignment, UPDATE inside transaction].
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ id: 'new-role-id', name: 'Supervisor' }),
+      );
+      mockDataSource.query
+        .mockResolvedValueOnce([{ id: 'a1', role_id: ROLE_ID }]) // existing (old role)
+        .mockResolvedValueOnce([]); // UPDATE (inside transaction)
+
+      await service.updateTenantUser(
+        TENANT_ID,
+        USER_ID,
+        { roleId: 'new-role-id' },
+        ADMIN_USER_ID,
+      );
+
+      expect(mockDataSource.transaction).toHaveBeenCalled();
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'USER_ROLE_CHANGED',
+          entityType: 'UserRoleAssignment',
+          entityId: USER_ID,
+          previousValue: { roleId: ROLE_ID },
+          newValue: { roleId: 'new-role-id' },
+        }),
+      );
+    });
+
+    it('SEC-MEDIUM-001: rejects a self role change (acting user === target)', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser());
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ id: 'new-role-id' }),
+      );
+
+      await expect(
+        service.updateTenantUser(TENANT_ID, USER_ID, { roleId: 'new-role-id' }, USER_ID),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('SEC-MEDIUM-001: rejects a non-admin granting a role above their ceiling', async () => {
+      userRepository.findOne
+        .mockResolvedValueOnce(createMockUser()) // target
+        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID, role: Role.MODULE_USER })); // actor
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ id: 'new-role-id', level: 90 }),
+      );
+      mockDataSource.query.mockResolvedValueOnce([{ level: 30 }]); // actor ceiling
+
+      await expect(
+        service.updateTenantUser(TENANT_ID, USER_ID, { roleId: 'new-role-id' }, ADMIN_USER_ID),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('SEC-MEDIUM-002: an audit failure ROLLS BACK the role change (fail-closed)', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ id: 'new-role-id' }),
+      );
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'a1', role_id: ROLE_ID }]); // existing
+      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
+
+      await expect(
+        service.updateTenantUser(TENANT_ID, USER_ID, { roleId: 'new-role-id' }, ADMIN_USER_ID),
+      ).rejects.toThrow('audit DB down');
+    });
+
+    it('SEC-MEDIUM-002: a NEW assignment (no existing) is INSERTed with an audit row, atomically', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser({ role: Role.TENANT_ADMIN }));
+      mockTenantRoleService.getRoleById.mockResolvedValue(
+        createMockRoleWithDetails({ id: 'new-role-id' }),
+      );
+      mockDataSource.query
+        .mockResolvedValueOnce([]) // no existing assignment
+        .mockResolvedValueOnce([]); // INSERT (inside transaction)
+
+      await service.updateTenantUser(
+        TENANT_ID,
+        USER_ID,
+        { roleId: 'new-role-id' },
+        ADMIN_USER_ID,
+      );
+
+      expect(mockDataSource.transaction).toHaveBeenCalled();
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'USER_ROLE_CHANGED',
+          previousValue: { roleId: null },
+          newValue: { roleId: 'new-role-id' },
+        }),
+      );
+    });
+
+    it('allows a profile-only update on self without the role guard or a transaction', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser());
+
+      await service.updateTenantUser(TENANT_ID, USER_ID, { firstName: 'Renamed' }, USER_ID);
+
+      expect(userRepository.save).toHaveBeenCalled();
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
+      expect(mockAuditLogService.log).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // deleteTenantUser — D1 (Wave-5): fail-closed soft-delete audit
+  // ==========================================================================
+
+  describe('deleteTenantUser', () => {
+    it('SEC-MEDIUM-002: soft-delete, role revoke, and audit commit ATOMICALLY', async () => {
+      userRepository.findOne
+        .mockResolvedValueOnce(createMockUser({ role: Role.MODULE_USER })) // target
+        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID, email: 'admin@t.com', role: Role.TENANT_ADMIN })); // admin lookup
+
+      const result = await service.deleteTenantUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
+
+      expect(result).toBe(true);
+      expect(mockDataSource.transaction).toHaveBeenCalled();
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'USER_DELETED',
+          entityType: 'User',
+          entityId: USER_ID,
+        }),
+      );
+    });
+
+    it('rejects self-deletion', async () => {
+      await expect(
+        service.deleteTenantUser(TENANT_ID, USER_ID, USER_ID),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses to delete another TENANT_ADMIN', async () => {
+      userRepository.findOne.mockResolvedValueOnce(createMockUser({ role: Role.TENANT_ADMIN }));
+
+      await expect(
+        service.deleteTenantUser(TENANT_ID, USER_ID, ADMIN_USER_ID),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('SEC-MEDIUM-002: an audit failure ROLLS BACK the soft-delete (fail-closed)', async () => {
+      userRepository.findOne
+        .mockResolvedValueOnce(createMockUser({ role: Role.MODULE_USER })) // target
+        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID, role: Role.TENANT_ADMIN })); // admin lookup
+      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
+
+      await expect(
+        service.deleteTenantUser(TENANT_ID, USER_ID, ADMIN_USER_ID),
+      ).rejects.toThrow('audit DB down');
     });
   });
 

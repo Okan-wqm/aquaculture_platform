@@ -2,7 +2,15 @@
  * Sentinel Hub Settings Entity
  *
  * Her tenant için Copernicus Data Space kimlik bilgilerini saklar.
- * Bilgiler AES-256-CBC ile şifrelenir.
+ *
+ * SECURITY: Secret columns (client_id / client_secret / instance_id) are
+ * encrypted at rest with the canonical authenticated AES-256-GCM column
+ * transformer (createEncryptedColumnTransformer). GCM provides confidentiality
+ * AND integrity (auth tag) — replacing the previous bespoke unauthenticated
+ * AES-256-CBC scheme that was vulnerable to ciphertext malleability and the
+ * padding-oracle class. The ORM encrypts on write and decrypts on read, so
+ * the service layer never touches ciphertext.
+ * @see HIGH sentinel-cbc
  */
 import {
   Entity,
@@ -13,6 +21,7 @@ import {
   Index,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, HideField } from '@nestjs/graphql';
+import { createEncryptedColumnTransformer } from '@aquaculture/backend-common/security';
 
 @ObjectType()
 @Entity('sentinel_hub_settings')
@@ -26,14 +35,29 @@ export class SentinelHubSettings {
   @Column('uuid')
   tenantId: string;
 
-  @Column({ name: 'client_id', type: 'text', nullable: true })
-  clientId: string; // Encrypted
+  @Column({
+    name: 'client_id',
+    type: 'text',
+    nullable: true,
+    transformer: createEncryptedColumnTransformer('SENTINEL_HUB_ENCRYPTION_KEY'),
+  })
+  clientId: string; // AES-256-GCM encrypted at rest (transparent on read/write)
 
-  @Column({ name: 'client_secret', type: 'text', nullable: true })
-  clientSecret: string; // Encrypted
+  @Column({
+    name: 'client_secret',
+    type: 'text',
+    nullable: true,
+    transformer: createEncryptedColumnTransformer('SENTINEL_HUB_ENCRYPTION_KEY'),
+  })
+  clientSecret: string; // AES-256-GCM encrypted at rest (transparent on read/write)
 
-  @Column({ name: 'instance_id', type: 'text', nullable: true })
-  instanceId: string; // Encrypted - WMTS Configuration Instance ID
+  @Column({
+    name: 'instance_id',
+    type: 'text',
+    nullable: true,
+    transformer: createEncryptedColumnTransformer('SENTINEL_HUB_ENCRYPTION_KEY'),
+  })
+  instanceId: string; // AES-256-GCM encrypted at rest - WMTS Configuration Instance ID
 
   @Field()
   @Column({ name: 'is_configured', default: false })

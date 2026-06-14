@@ -3,25 +3,26 @@
  *
  * Manages tenant-specific regulatory settings including:
  * - Company information
- * - Maskinporten OAuth2 credentials (AES-256-CBC encrypted)
+ * - Maskinporten OAuth2 credentials (encrypted at rest)
  * - Site → Lokalitetsnummer mappings
  * - Default contact information
  *
  * SECURITY: Sensitive credentials (client ID, private key) are encrypted
- * at rest using AES-256-CBC with random IV per encryption.
- * Encryption key must be provided via environment variables - no hardcoded fallback.
+ * at rest with the canonical authenticated AES-256-GCM column transformer
+ * attached to the RegulatorySettings entity
+ * (createEncryptedColumnTransformer('REGULATORY_ENCRYPTION_KEY')). The ORM
+ * encrypts on write and decrypts on read, so this service operates purely on
+ * plaintext — there is no bespoke crypto here. GCM replaces the previous
+ * unauthenticated AES-256-CBC scheme (malleability / padding-oracle class).
+ * @see HIGH sentinel-cbc
  */
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as crypto from 'crypto';
 import {
   RegulatorySettings,
   CompanyAddress,
 } from './entities/regulatory-settings.entity';
-
-const IV_LENGTH = 16;
 
 /**
  * Input for updating regulatory settings
@@ -42,84 +43,13 @@ export interface UpdateRegulatorySettingsInput {
 }
 
 @Injectable()
-export class RegulatorySettingsService implements OnModuleInit {
+export class RegulatorySettingsService {
   private readonly logger = new Logger(RegulatorySettingsService.name);
-  private readonly encryptionKey: string;
 
   constructor(
     @InjectRepository(RegulatorySettings)
     private readonly repo: Repository<RegulatorySettings>,
-    private readonly configService: ConfigService,
-  ) {
-    // Get encryption key from environment variables - no hardcoded fallback
-    const key =
-      this.configService.get<string>('REGULATORY_ENCRYPTION_KEY') ||
-      this.configService.get<string>('ENCRYPTION_KEY');
-
-    if (!key) {
-      throw new Error(
-        'Missing required encryption key. Set REGULATORY_ENCRYPTION_KEY or ENCRYPTION_KEY environment variable.',
-      );
-    }
-
-    if (key.length < 32) {
-      throw new Error(
-        'Encryption key must be at least 32 characters for AES-256.',
-      );
-    }
-
-    this.encryptionKey = key;
-  }
-
-  onModuleInit() {
-    this.logger.log('RegulatorySettingsService initialized with secure encryption key from environment');
-  }
-
-  // ===========================================================================
-  // ENCRYPTION METHODS (AES-256-CBC)
-  // ===========================================================================
-
-  /**
-   * Encrypt text using AES-256-CBC with random IV
-   */
-  private encrypt(text: string): string {
-    try {
-      const iv = crypto.randomBytes(IV_LENGTH);
-      const cipher = crypto.createCipheriv(
-        'aes-256-cbc',
-        Buffer.from(this.encryptionKey.slice(0, 32)),
-        iv,
-      );
-      let encrypted = cipher.update(text);
-      encrypted = Buffer.concat([encrypted, cipher.final()]);
-      return iv.toString('hex') + ':' + encrypted.toString('hex');
-    } catch (error) {
-      this.logger.error('Encryption failed:', error);
-      throw new Error('Encryption error');
-    }
-  }
-
-  /**
-   * Decrypt text using AES-256-CBC
-   */
-  private decrypt(text: string): string {
-    try {
-      const parts = text.split(':');
-      const iv = Buffer.from(parts.shift()!, 'hex');
-      const encrypted = Buffer.from(parts.join(':'), 'hex');
-      const decipher = crypto.createDecipheriv(
-        'aes-256-cbc',
-        Buffer.from(this.encryptionKey.slice(0, 32)),
-        iv,
-      );
-      let decrypted = decipher.update(encrypted);
-      decrypted = Buffer.concat([decrypted, decipher.final()]);
-      return decrypted.toString();
-    } catch (error) {
-      this.logger.error('Decryption failed:', error);
-      throw new Error('Decryption error');
-    }
-  }
+  ) {}
 
   /**
    * Mask string for display (show first 4 and last 4 characters)
@@ -192,12 +122,13 @@ export class RegulatorySettingsService implements OnModuleInit {
         settings.maskinportenKeyId = input.maskinportenKeyId;
       }
 
-      // Encrypt sensitive fields before saving
+      // Store plaintext — the entity's AES-256-GCM column transformer
+      // encrypts these fields transparently on save.
       if (input.maskinportenClientId !== undefined && input.maskinportenClientId !== '') {
-        settings.maskinportenClientId = this.encrypt(input.maskinportenClientId);
+        settings.maskinportenClientId = input.maskinportenClientId;
       }
       if (input.maskinportenPrivateKey !== undefined && input.maskinportenPrivateKey !== '') {
-        settings.maskinportenPrivateKeyEncrypted = this.encrypt(input.maskinportenPrivateKey);
+        settings.maskinportenPrivateKeyEncrypted = input.maskinportenPrivateKey;
       }
 
       const saved = await this.repo.save(settings);
@@ -214,31 +145,23 @@ export class RegulatorySettingsService implements OnModuleInit {
   // ===========================================================================
 
   /**
-   * Get decrypted Maskinporten client ID
+   * Get the Maskinporten client ID in plaintext.
+   * The value is decrypted by the entity's AES-256-GCM column transformer on
+   * read, so this returns the stored plaintext directly.
    */
   async getDecryptedClientId(tenantId: string): Promise<string | null> {
-    try {
-      const settings = await this.getSettings(tenantId);
-      if (!settings?.maskinportenClientId) return null;
-      return this.decrypt(settings.maskinportenClientId);
-    } catch (error) {
-      this.logger.error(`Failed to decrypt client ID for tenant ${tenantId}:`, error);
-      return null;
-    }
+    const settings = await this.getSettings(tenantId);
+    return settings?.maskinportenClientId ?? null;
   }
 
   /**
-   * Get decrypted Maskinporten private key
+   * Get the Maskinporten private key in plaintext.
+   * The value is decrypted by the entity's AES-256-GCM column transformer on
+   * read, so this returns the stored plaintext directly.
    */
   async getDecryptedPrivateKey(tenantId: string): Promise<string | null> {
-    try {
-      const settings = await this.getSettings(tenantId);
-      if (!settings?.maskinportenPrivateKeyEncrypted) return null;
-      return this.decrypt(settings.maskinportenPrivateKeyEncrypted);
-    } catch (error) {
-      this.logger.error(`Failed to decrypt private key for tenant ${tenantId}:`, error);
-      return null;
-    }
+    const settings = await this.getSettings(tenantId);
+    return settings?.maskinportenPrivateKeyEncrypted ?? null;
   }
 
   /**

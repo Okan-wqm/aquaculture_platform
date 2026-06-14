@@ -1105,7 +1105,10 @@ jobs:
   # ===========================================================================
   capacity-preflight:
     needs: [prepare, verify-images]
-    if: needs.verify-images.result == 'success'
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.verify-images.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production

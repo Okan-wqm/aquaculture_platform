@@ -158,6 +158,35 @@ describe('repo hygiene invariants (A4 dead-weight)', () => {
         // If this fails, remove the dependency: ${BANNED[banned]}
       });
     }
+
+    // (a.2) Source-import scan: catches a banned package imported in a SOURCE file of
+    // ANY extension that the package.json scan above + the eslint .ts-only glob miss —
+    // e.g. a build script statically importing nats v2. PR-C closes exactly this gap
+    // (scripts/nats/messaging-acl-smoke.mjs imported `from 'nats'` and was invisible to
+    // both the package.json check and the .ts/.tsx-scoped eslint ban).
+    it('no source file imports the banned "nats" v2 package', () => {
+      const SOURCE_EXT = /\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
+      const offenders: string[] = [];
+      for (const file of findFiles((f) => SOURCE_EXT.test(f) && !f.endsWith('.d.ts'))) {
+        for (const line of readFileSync(file, 'utf8').split('\n')) {
+          const trimmed = line.trimStart();
+          // Skip comment lines so JSDoc prose mentioning require('nats') is ignored.
+          if (trimmed.startsWith('*') || trimmed.startsWith('//') || trimmed.startsWith('/*')) {
+            continue;
+          }
+          // Match real import forms only — `from 'nats'` (ES import) and `import('nats')`
+          // (dynamic). Exact 'nats', never '@nats-io/...'. Deliberately NOT matching
+          // `require('nats')`, which appears as prose inside ban-message string literals
+          // (this file + eslint.config.mjs); our code imports via ESM, and the
+          // package.json banned-dep check covers a re-added dependency either way.
+          if (/\bfrom\s+['"]nats['"]|\bimport\s*\(\s*['"]nats['"]/.test(line)) {
+            offenders.push(relative(REPO_ROOT, file));
+            break;
+          }
+        }
+      }
+      expect(offenders).toEqual([]);
+    });
   });
 
   // (b) Every script's leading binary resolves.

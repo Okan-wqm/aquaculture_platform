@@ -82,7 +82,13 @@ function makeESLint(): ESLint {
 }
 
 const eslint = makeESLint();
-const linter = new Linter();
+// `verify()` below feeds an eslintrc-shaped config (top-level `parserOptions`).
+// ESLint 9's `new Linter()` defaults to flat mode and rejects that shape with
+// `ConfigError: Key "parserOptions" ... eslintrc format rather than flat config`.
+// Pin the Linter to eslintrc mode (still supported in ESLint 9 for backward
+// compat) so the captured ESLint-8 assertions stay green UNCHANGED across the
+// 8->9 cutover — only the config-reader adapts, exactly as makeESLint() does.
+const linter = new Linter({ configType: 'eslintrc' });
 
 /** Run only the AST-selector gate rules from the file's REAL resolved config. */
 async function gateRuleIds(filePath: string, code: string): Promise<readonly string[]> {
@@ -95,9 +101,7 @@ async function gateRuleIds(filePath: string, code: string): Promise<readonly str
     if (value) rules[key] = value as Linter.RuleEntry;
   }
   const messages = linter.verify(code, {
-    // ESLint 9 flat config: parser options live under languageOptions; a bare
-    // top-level `parserOptions` is rejected as eslintrc format by eslint >=9.39.
-    languageOptions: { ecmaVersion: 2022, sourceType: 'module' },
+    parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
     rules,
   });
   return messages.map((m) => m.ruleId).filter((id): id is string => id !== null);

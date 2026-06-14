@@ -1,9 +1,10 @@
 import { DynamicModule, Logger, Module, Provider } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { RedisService } from '../redis/redis.service';
 
 import { RateLimitGuard } from './rate-limit.guard';
-import { RATE_LIMIT_STORE } from './rate-limit.types';
+import { RATE_LIMIT_EDGE_CONFIG, RATE_LIMIT_STORE, RateLimitEdgeConfig } from './rate-limit.types';
 import { RedisRateLimitStore } from './redis-rate-limit.store';
 
 export interface RateLimitModuleOptions {
@@ -12,6 +13,17 @@ export interface RateLimitModuleOptions {
    * The service-level keyPrefix (e.g. 'auth:') still applies underneath.
    */
   keyPrefix?: string;
+  /**
+   * OPTIONAL config-driven edge policy (gateway only). When provided, the
+   * guard limits non-decorated requests by named tiers (see RateLimitEdgeConfig).
+   * Supply a value, or a factory that derives it from ConfigService env vars.
+   * When a FACTORY is given, ConfigService must be resolvable in the consuming
+   * injector — i.e. ConfigModule.forRoot({ isGlobal: true }) (the gateway sets
+   * this). Decorator-only consumers (auth-service, every subgraph) omit this, so
+   * the edge token is never created and the guard's edge branch is unreachable —
+   * their behavior is structurally unchanged.
+   */
+  edge?: RateLimitEdgeConfig | ((config: ConfigService) => RateLimitEdgeConfig);
 }
 
 /**
@@ -40,10 +52,23 @@ export class RateLimitModule {
       inject: [{ token: RedisService, optional: true }],
     };
 
+    const providers: Provider[] = [storeProvider, RateLimitGuard];
+    const exports: (string | typeof RateLimitGuard)[] = [RATE_LIMIT_STORE, RateLimitGuard];
+
+    if (options.edge !== undefined) {
+      const edge = options.edge;
+      providers.push(
+        typeof edge === 'function'
+          ? { provide: RATE_LIMIT_EDGE_CONFIG, useFactory: edge, inject: [ConfigService] }
+          : { provide: RATE_LIMIT_EDGE_CONFIG, useValue: edge },
+      );
+      exports.push(RATE_LIMIT_EDGE_CONFIG);
+    }
+
     return {
       module: RateLimitModule,
-      providers: [storeProvider, RateLimitGuard],
-      exports: [RATE_LIMIT_STORE, RateLimitGuard],
+      providers,
+      exports,
     };
   }
 }

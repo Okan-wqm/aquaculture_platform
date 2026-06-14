@@ -205,12 +205,15 @@ export function WaterQualityRecordPage() {
           value,
         ]),
       ) as Record<string, number | string | boolean>;
+      // SINGLE-INGRESS (Tier-1): dynamicParameters is the sole parameter
+      // channel. The legacy empty `parameters: {}` field was removed — under the
+      // production ValidationPipe { whitelist, forbidNonWhitelisted } it is now
+      // a rejected unknown field, so it must not appear in the payload.
       const input: CreateWaterQualityInput = {
         equipmentId: selectedEquipmentId,
         measuredAt: new Date().toISOString(),
         source: 'MANUAL',
         idempotencyKey: crypto.randomUUID(),
-        parameters: {},
         dynamicParameters,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(weatherConditions?.trim() ? { weatherConditions: weatherConditions.trim() } : {}),

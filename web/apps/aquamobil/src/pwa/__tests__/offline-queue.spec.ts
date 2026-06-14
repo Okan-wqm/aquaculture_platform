@@ -116,9 +116,20 @@ import {
   syncOperation,
   syncAllOperations,
 } from '../offline-queue';
+import type { OperationPayload } from '@/types';
 
 /** SECURITY (C11): All queue operations are tenant-scoped. Tests use a fixed tenant UUID. */
 const TEST_QUEUE_TENANT = 'tenant-queue-001';
+
+/**
+ * Build a legacy WQ queue payload (carries the removed `parameters` field) as a
+ * structural record, then narrow once to OperationPayload for queueOperation.
+ * A single structural `as` keeps the helper free of an `unknown` bridge while
+ * still letting the test queue a shape the current type no longer admits.
+ */
+function asQueuePayload(record: Record<string, unknown>): OperationPayload {
+  return record as OperationPayload;
+}
 
 // --------------------------------------------------------------------------
 // Tests
@@ -627,6 +638,104 @@ describe('Offline Queue', () => {
 
       expect(await getCachedData(TEST_TENANT, 'tanks')).toBeNull();
       expect(await getCachedData(TEST_TENANT, 'batches')).toBeNull();
+    });
+  });
+
+  // ========================================================================
+  // SINGLE-INGRESS (Tier-1): forward-compat WQ payload upgrade on replay.
+  //
+  // A legacy CreateWaterQualityInput queued BEFORE the `parameters` field was
+  // removed must be upgraded to {dynamicParameters, equipmentId} when it is
+  // read back for replay, otherwise the production ValidationPipe
+  // ({ whitelist, forbidNonWhitelisted }) rejects it and the field worker's
+  // offline measurement is silently lost. The transform runs at the single
+  // read ingress (decryptOperation), so both getPendingOperations and
+  // getOperation surface the upgraded shape.
+  // ========================================================================
+  describe('water-quality forward-compat migration', () => {
+    const WQ_TENANT = 'tenant-wq-001';
+
+    it('folds a legacy `parameters` payload into dynamicParameters and drops `parameters`', async () => {
+      // Simulate a payload queued by the OLD app: empty dynamicParameters but a
+      // populated legacy `parameters` object.
+      const legacy = asQueuePayload({
+        equipmentId: 'eq-1',
+        measuredAt: '2026-06-14T08:00:00.000Z',
+        source: 'MANUAL',
+        idempotencyKey: 'idem-1',
+        parameters: { temperature: 14, ph: 7.2 },
+      });
+      await queueOperation(WQ_TENANT, 'createWaterQuality', legacy);
+
+      const [op] = await getPendingOperations(WQ_TENANT);
+      const payload = op!.payload as Record<string, unknown>;
+
+      expect(payload).not.toHaveProperty('parameters');
+      expect(payload.dynamicParameters).toEqual({ temperature: 14, ph: 7.2 });
+      expect(payload.equipmentId).toBe('eq-1');
+    });
+
+    it('keeps existing dynamicParameters keys over folded legacy values', async () => {
+      const mixed = asQueuePayload({
+        equipmentId: 'eq-2',
+        measuredAt: '2026-06-14T08:00:00.000Z',
+        source: 'MANUAL',
+        parameters: { temperature: 99 },
+        dynamicParameters: { temperature: 14 },
+      });
+      await queueOperation(WQ_TENANT, 'createWaterQuality', mixed);
+
+      const [op] = await getPendingOperations(WQ_TENANT);
+      const payload = op!.payload as Record<string, unknown>;
+
+      // The newer (validated) dynamicParameters channel wins.
+      expect(payload.dynamicParameters).toEqual({ temperature: 14 });
+      expect(payload).not.toHaveProperty('parameters');
+    });
+
+    it('backfills equipmentId from legacy tankId when equipmentId is absent', async () => {
+      const legacyTankOnly = asQueuePayload({
+        tankId: 'tank-9',
+        measuredAt: '2026-06-14T08:00:00.000Z',
+        source: 'MANUAL',
+        parameters: { temperature: 12 },
+      });
+      await queueOperation(WQ_TENANT, 'createWaterQuality', legacyTankOnly);
+
+      const [op] = await getPendingOperations(WQ_TENANT);
+      const payload = op!.payload as Record<string, unknown>;
+
+      expect(payload.equipmentId).toBe('tank-9');
+      expect(payload.dynamicParameters).toEqual({ temperature: 12 });
+    });
+
+    it('leaves an already-migrated payload untouched (idempotent transform)', async () => {
+      const modern = asQueuePayload({
+        equipmentId: 'eq-3',
+        measuredAt: '2026-06-14T08:00:00.000Z',
+        source: 'MANUAL',
+        dynamicParameters: { temperature: 15, oxygen: 8 },
+      });
+      await queueOperation(WQ_TENANT, 'createWaterQuality', modern);
+
+      const [op] = await getPendingOperations(WQ_TENANT);
+      const payload = op!.payload as Record<string, unknown>;
+
+      expect(payload).not.toHaveProperty('parameters');
+      expect(payload.dynamicParameters).toEqual({ temperature: 15, oxygen: 8 });
+      expect(payload.equipmentId).toBe('eq-3');
+    });
+
+    it('does NOT transform non-WQ operations', async () => {
+      const mortality = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      await queueOperation(WQ_TENANT, 'recordMortality', mortality);
+
+      const [op] = await getPendingOperations(WQ_TENANT);
+      const payload = op!.payload as Record<string, unknown>;
+
+      // recordMortality legitimately carries tankId; no WQ migration applied.
+      expect(payload.tankId).toBe('t1');
+      expect(payload).not.toHaveProperty('dynamicParameters');
     });
   });
 });

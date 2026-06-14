@@ -358,30 +358,23 @@ export type MeasurementSource =
   | 'LAB_ANALYSIS'
   | 'CALIBRATION';
 
-export interface WaterQualityParameters {
-  temperature?: number;
-  dissolvedOxygen?: number;
-  pH?: number;
-  ammonia?: number;
-  nitrite?: number;
-  nitrate?: number;
-  salinity?: number;
-  turbidity?: number;
-  alkalinity?: number;
-  hardness?: number;
-}
-
+/**
+ * SINGLE-INGRESS (Tier-1): `dynamicParameters` + `equipmentId` are the sole
+ * parameter channel, mirroring the backend CreateWaterQualityInput DTO. The
+ * legacy fixed `parameters` / `WaterQualityParameters` shape was removed so a
+ * queued offline payload can never carry a field the production ValidationPipe
+ * ({ whitelist, forbidNonWhitelisted }) would reject on replay.
+ */
 export interface CreateWaterQualityInput {
   tankId?: string;
   pondId?: string;
   siteId?: string;
   batchId?: string;
-  equipmentId?: string;
+  equipmentId: string;
   measuredAt: string;
   source: MeasurementSource;
   measuredBy?: string;
-  parameters: WaterQualityParameters;
-  dynamicParameters?: Record<string, number | string | boolean>;
+  dynamicParameters: Record<string, number | string | boolean>;
   idempotencyKey?: string;
   notes?: string;
   weatherConditions?: string;

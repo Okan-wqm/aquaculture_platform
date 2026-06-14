@@ -127,14 +127,20 @@ export const RecordTab: React.FC = () => {
 
       const idempotencyKey = crypto.randomUUID();
 
-      // Build parameters object from dynamic field values
-      const parameters: Record<string, number | undefined> = {};
+      // SINGLE-INGRESS (Tier-1): the form `values` are already keyed by the
+      // equipment's tenant-configured parameter codes (from
+      // useEquipmentParameterConfigs), so they ARE the dynamicParameters
+      // payload. Preserve number/string/boolean field types (enum + boolean
+      // configs would be corrupted by a blanket parseFloat). Empty strings are
+      // dropped — an unfilled optional field must not become NaN or "".
+      const dynamicParameters: Record<string, number | string | boolean> = {};
       for (const [key, val] of Object.entries(values)) {
         if (typeof val === 'number') {
-          parameters[key] = val;
+          if (!Number.isNaN(val)) dynamicParameters[key] = val;
+        } else if (typeof val === 'boolean') {
+          dynamicParameters[key] = val;
         } else if (typeof val === 'string' && val !== '') {
-          const num = parseFloat(val);
-          if (!isNaN(num)) parameters[key] = num;
+          dynamicParameters[key] = val;
         }
       }
 
@@ -142,14 +148,15 @@ export const RecordTab: React.FC = () => {
 
       createMutation.mutate(
         {
+          equipmentId: selectedEquipmentId,
           tankId: selectedEquipmentId,
           measuredAt: new Date().toISOString(),
           source: 'MANUAL' as const,
-          parameters,
+          dynamicParameters,
           notes: notes || undefined,
           weatherConditions: weatherConditions || undefined,
           idempotencyKey,
-        } as Parameters<typeof createMutation.mutate>[0],
+        },
         {
           onError: (error: Error) => {
             setSubmitError(error.message || 'Failed to save measurement');

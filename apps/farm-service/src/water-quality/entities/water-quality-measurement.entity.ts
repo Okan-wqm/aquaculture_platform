@@ -406,101 +406,13 @@ export class WaterQualityMeasurement {
   // BUSINESS METHODS
   // -------------------------------------------------------------------------
 
-  /**
-   * Parametreleri varsayılan limitlerle değerlendirir
-   * Not: Gerçek uygulamada species-based limitler kullanılmalı
-   */
-  evaluateParameters(
-    limits?: Record<string, { optimalMin: number; optimalMax: number; criticalMin: number; criticalMax: number; unit?: string }>
-  ): void {
-    const evaluations: ParameterEvaluation[] = [];
-    let criticalCount = 0;
-    let warningCount = 0;
-    let optimalCount = 0;
-    const recommendations: string[] = [];
-
-    // Varsayılan limitler (alabalık için yaklaşık)
-    const defaultLimits: Record<string, { optimalMin: number; optimalMax: number; criticalMin: number; criticalMax: number; unit: string }> = {
-      temperature: { optimalMin: 12, optimalMax: 18, criticalMin: 5, criticalMax: 25, unit: '°C' },
-      dissolvedOxygen: { optimalMin: 7, optimalMax: 12, criticalMin: 5, criticalMax: 15, unit: 'mg/L' },
-      pH: { optimalMin: 6.5, optimalMax: 8.5, criticalMin: 6.0, criticalMax: 9.0, unit: '' },
-      ammonia: { optimalMin: 0, optimalMax: 0.02, criticalMin: 0, criticalMax: 0.05, unit: 'mg/L' },
-      nitrite: { optimalMin: 0, optimalMax: 0.1, criticalMin: 0, criticalMax: 0.5, unit: 'mg/L' },
-      nitrate: { optimalMin: 0, optimalMax: 50, criticalMin: 0, criticalMax: 100, unit: 'mg/L' },
-    };
-
-    const effectiveLimits: Record<string, { optimalMin: number; optimalMax: number; criticalMin: number; criticalMax: number; unit?: string }> = { ...defaultLimits, ...limits };
-
-    // Her parametre için değerlendirme
-    for (const [param, value] of Object.entries(this.parameters)) {
-      if (value === undefined || value === null) continue;
-      if (typeof value !== 'number') continue;
-
-      const limit = effectiveLimits[param];
-      if (!limit) continue;
-
-      let status: ParameterStatus;
-      let message: string | undefined;
-
-      if (value < limit.criticalMin) {
-        status = ParameterStatus.CRITICAL_LOW;
-        criticalCount++;
-        message = `${param} kritik düşük`;
-        recommendations.push(`${param} değeri acil yükseltilmeli`);
-      } else if (value > limit.criticalMax) {
-        status = ParameterStatus.CRITICAL_HIGH;
-        criticalCount++;
-        message = `${param} kritik yüksek`;
-        recommendations.push(`${param} değeri acil düşürülmeli`);
-      } else if (value < limit.optimalMin) {
-        status = ParameterStatus.LOW;
-        warningCount++;
-        message = `${param} optimum altında`;
-      } else if (value > limit.optimalMax) {
-        status = ParameterStatus.HIGH;
-        warningCount++;
-        message = `${param} optimum üstünde`;
-      } else {
-        status = ParameterStatus.OPTIMAL;
-        optimalCount++;
-      }
-
-      evaluations.push({
-        parameter: param,
-        value,
-        unit: limit.unit || '',
-        status,
-        optimalMin: limit.optimalMin,
-        optimalMax: limit.optimalMax,
-        criticalMin: limit.criticalMin,
-        criticalMax: limit.criticalMax,
-        message,
-      });
-    }
-
-    // Genel durum belirleme
-    let overallStatus: WaterQualityStatus;
-    if (criticalCount > 0) {
-      overallStatus = WaterQualityStatus.CRITICAL;
-      this.hasAlarm = true;
-    } else if (warningCount > 0) {
-      overallStatus = WaterQualityStatus.WARNING;
-    } else if (optimalCount > 0) {
-      overallStatus = WaterQualityStatus.OPTIMAL;
-    } else {
-      overallStatus = WaterQualityStatus.ACCEPTABLE;
-    }
-
-    this.overallStatus = overallStatus;
-    this.summary = {
-      overallStatus,
-      criticalCount,
-      warningCount,
-      optimalCount,
-      evaluations,
-      recommendations,
-    };
-  }
+  // NOTE: The hardcoded evaluateParameters() + its trout-tuned defaultLimits
+  // were removed. WaterQualityEvaluationService (config-driven, tenant- and
+  // species-aware) is now the SOLE evaluator. With the single-ingress contract
+  // every measurement passes WaterQualityValidationService.validate() (strict
+  // mode), so a no-config fallback evaluator can never be reached — keeping a
+  // second, hardcoded evaluation path would have been an unreachable shadow
+  // gate that silently diverged from tenant configuration.
 
   /**
    * Oksijen yeterli mi?

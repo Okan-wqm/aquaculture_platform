@@ -1,0 +1,40 @@
+{
+  "name": "router-coprocessor",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "crates/router-coprocessor/src",
+  "tags": ["scope:rust", "type:crate", "layer:gateway"],
+  "targets": {
+    "build": {
+      "executor": "@aqua/cargo:run",
+      "options": { "command": "build", "package": "router-coprocessor", "release": false },
+      "outputs": ["{workspaceRoot}/target/debug/librouter_coprocessor.rlib"],
+      "cache": true
+    },
+    "build-release": {
+      "executor": "@aqua/cargo:run",
+      "options": { "command": "build", "package": "router-coprocessor", "release": true },
+      "outputs": ["{workspaceRoot}/target/release/librouter_coprocessor.rlib"],
+      "cache": true
+    },
+    "test": {
+      "executor": "@aqua/cargo:run",
+      "options": { "command": "test", "package": "router-coprocessor", "allFeatures": true },
+      "cache": true
+    },
+    "lint": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "clippy",
+        "package": "router-coprocessor",
+        "args": ["--all-targets", "--all-features", "--", "-D", "warnings"]
+      },
+      "cache": true
+    },
+    "fmt-check": {
+      "executor": "@aqua/cargo:run",
+      "options": { "command": "fmt", "package": "router-coprocessor", "args": ["--", "--check"] },
+      "cache": true
+    }
+  }
+}

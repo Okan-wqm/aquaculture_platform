@@ -4084,3 +4084,13 @@ Severity: MEDIUM. Discovered 2026-06-13 during Wave-2 close-out (verifying the s
 **Fix direction:** either (a) add a DB-backed messaging-gates job (postgres service + migrations) that runs `gates:messaging-source-outbox`, and a post-deploy canary step (deploy workflow) that runs `gates:messaging-canary-metrics`; or (b) refactor `check-messaging-source-outbox.mjs` to split its static asserts (runnable in `quality-gates`) from its live-DB asserts. Then remove the dead `package.json` entries if a script is dropped, so no gate is registered-but-unrun.
 
 Status: OPEN (2026-06-13; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+## ORPHAN-HIGH-101 — postgres-protocol/tokio-postgres newly-published RustSec advisories red-line all Rust CI
+
+Severity: HIGH. `cargo-audit` and `cargo-deny` (advisories check) fail on every Rust PR because of three newly-published advisories on transitive Postgres crates: **RUSTSEC-2026-0179** (HIGH 8.7 — `postgres-protocol` unbounded SCRAM iteration count, a malicious server can cause CPU-exhaustion DoS), **RUSTSEC-2026-0180** (MEDIUM — `postgres-protocol` panic decoding a malformed `hstore`), **RUSTSEC-2026-0178** (MEDIUM — `tokio-postgres` panic on a `DataRow` with fewer fields than columns). The platform's `.cargo/audit.toml` ignore list is empty, so these are denied. Main's last rust-ci runs are green only because they predate the advisory publication.
+
+Root cause: time-of-publication, not a code change — a fresh RustSec advisory on an already-resident dependency. Fix (highest tier — upgrade to the patched release, not an ignore): `postgres-protocol` 0.6.11 → 0.6.12, `tokio-postgres` 0.7.17 → 0.7.18 (cascades `postgres-types` 0.2.14). The direct dep `tokio-postgres = "0.7"` (crates/outbox-rs + apps/sensor-ingestion) already permits the patched release, so a lockfile bump suffices; no Cargo.toml change.
+
+Discovered gating R1's Rust CI (#450); affects the whole repo. Fixed in branch `security/rustsec-2026-postgres`. Only the root workspace is affected (sens-api-gateway does not use these crates).
+
+Status: OPEN (2026-06-14; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-101.

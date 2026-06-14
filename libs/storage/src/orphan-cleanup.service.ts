@@ -91,6 +91,23 @@ export interface OrphanCleanupRequest {
    * set was accidentally constructed empty. Default: 10,000.
    */
   maxDeletions?: number;
+
+  /**
+   * Explicit assertion that an empty `livePaths` set is
+   * AUTHORITATIVE — i.e. the caller genuinely computed zero live
+   * references for this scope, not that it merely failed to load
+   * them (e.g. a cron that ran with no tenant context and read an
+   * empty source schema). Default `false`.
+   *
+   * When `livePaths` is empty and this flag is not set, `cleanup()`
+   * REFUSES to delete and returns `refused: true`. An empty live-set
+   * over a non-empty bucket scan is the exact signature of a
+   * scope/context bug that would otherwise delete EVERY object under
+   * the prefix — so it is fail-closed by construction. Callers that
+   * legitimately expect an empty live-set (e.g. a scope verified to
+   * have zero live references) must opt in explicitly.
+   */
+  allowEmptyLiveSet?: boolean;
 }
 
 export interface OrphanCleanupResult {
@@ -108,6 +125,13 @@ export interface OrphanCleanupResult {
   errors: Array<{ path: string; error: string }>;
   /** Wall-clock duration of the run in milliseconds. */
   durationMs: number;
+  /**
+   * True when `cleanup()` refused to run the delete pass because the
+   * live-set was empty without `allowEmptyLiveSet`. No objects were
+   * deleted. Lets the caller log / metric the refusal distinctly from
+   * a run that simply found no orphans.
+   */
+  refused: boolean;
 }
 
 const DEFAULT_MIN_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -127,6 +151,41 @@ export class StorageOrphanCleanupService {
     const cutoff = new Date(Date.now() - minAgeMs);
 
     const objects = await this.minioClient.listObjects(prefix);
+
+    // STRUCTURAL SAFETY GATE (root-cause fix for the cross-tenant
+    // whole-bucket deletion class). An empty live-set over a non-empty
+    // bucket scan means EVERY scanned object looks like an orphan. That
+    // is never a legitimate steady state for a scope that owns objects —
+    // it is the signature of a caller that failed to load its live
+    // references (e.g. a cron running with no tenant context, so
+    // search_path resolved to an empty source schema). Deleting here
+    // would be data loss across the whole prefix. Refuse unless the
+    // caller has explicitly asserted the empty live-set is authoritative.
+    if (
+      objects.length > 0 &&
+      request.livePaths.size === 0 &&
+      !request.allowEmptyLiveSet
+    ) {
+      const durationMs = Date.now() - start;
+      this.logger.error(
+        `Orphan cleanup REFUSED under prefix='${prefix}': live-paths set is ` +
+          `empty while ${objects.length} object(s) were scanned. Refusing to ` +
+          `delete — an empty live-set over a non-empty bucket scan is the ` +
+          `signature of a scope/context bug (deleting would be data loss). ` +
+          `Pass allowEmptyLiveSet:true only if this scope is verified to have ` +
+          `zero live references.`,
+      );
+      return {
+        totalScanned: objects.length,
+        live: 0,
+        deleted: 0,
+        tooNew: 0,
+        capped: false,
+        errors: [],
+        durationMs,
+        refused: true,
+      };
+    }
 
     let live = 0;
     let deleted = 0;
@@ -172,6 +231,7 @@ export class StorageOrphanCleanupService {
       capped,
       errors,
       durationMs,
+      refused: false,
     };
   }
 }

@@ -96,6 +96,7 @@ export class FarmOrphanCleanupService {
           capped: false,
           errors: [{ path: `provider:${provider.name}`, error: message }],
           durationMs: Date.now() - new Date(startedAt).getTime(),
+          refused: false,
           providersUsed: [...providersUsed, { name: provider.name, livePathCount: -1 }],
           startedAt,
         };

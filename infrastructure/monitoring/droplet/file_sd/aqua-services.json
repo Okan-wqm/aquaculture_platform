@@ -1,0 +1,142 @@
+[
+  {
+    "targets": [
+      "gateway-api:3000"
+    ],
+    "labels": {
+      "app": "gateway-api",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
+      "auth-service:3000"
+    ],
+    "labels": {
+      "app": "auth-service",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
+      "farm-service:3000"
+    ],
+    "labels": {
+      "app": "farm-service",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
+      "sensor-service:3000"
+    ],
+    "labels": {
+      "app": "sensor-service",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
+      "hr-service:3000"
+    ],
+    "labels": {
+      "app": "hr-service",
+      "namespace": "aquaculture",
+      "criticality": "warning"
+    }
+  },
+  {
+    "targets": [
+      "hydroponics-service:3000"
+    ],
+    "labels": {
+      "app": "hydroponics-service",
+      "namespace": "aquaculture",
+      "criticality": "warning"
+    }
+  },
+  {
+    "targets": [
+      "messaging-service:3000"
+    ],
+    "labels": {
+      "app": "messaging-service",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
+      "alert-engine:3000"
+    ],
+    "labels": {
+      "app": "alert-engine",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
+      "billing-service:3000"
+    ],
+    "labels": {
+      "app": "billing-service",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
+      "notification-service:3000"
+    ],
+    "labels": {
+      "app": "notification-service",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
+      "admin-api-service:3000"
+    ],
+    "labels": {
+      "app": "admin-api-service",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
+      "config-service:3000"
+    ],
+    "labels": {
+      "app": "config-service",
+      "namespace": "aquaculture",
+      "criticality": "required"
+    }
+  },
+  {
+    "targets": [
+      "event-store-service:3000"
+    ],
+    "labels": {
+      "app": "event-store-service",
+      "namespace": "aquaculture",
+      "criticality": "critical"
+    }
+  },
+  {
+    "targets": [
+      "observability-service:3009"
+    ],
+    "labels": {
+      "app": "observability-service",
+      "namespace": "aquaculture",
+      "criticality": "warning"
+    }
+  }
+]

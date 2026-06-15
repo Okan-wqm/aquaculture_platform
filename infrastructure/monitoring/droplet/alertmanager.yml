@@ -1,0 +1,63 @@
+# Alertmanager config for the DROPLET monitoring stack (B2 / OBS-HIGH-002).
+#
+# The webhook URLs below are LOOPBACK PLACEHOLDERS (amtool-valid so this file
+# passes `amtool check-config` as committed). At deploy time scripts/monitoring/
+# render-configs.sh (a later B2 slice) overwrites them in place from droplet
+# secrets — the real paging / heartbeat / digest endpoints are never committed.
+#
+# Routing is by the `severity` label, which is the single source of truth:
+#   critical -> page     (immediate)
+#   warning  -> digest   (batched)
+#   none     -> heartbeat (the Watchdog deadman; see 50-monitoring-self.yml)
+#   else     -> null     (swallowed; info-level noise never pages)
+route:
+  receiver: 'null'
+  group_by: ['alertname', 'app']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = none
+      receiver: heartbeat
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 1m
+      continue: false
+    - matchers:
+        - severity = critical
+      receiver: page
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: false
+    - matchers:
+        - severity = warning
+      receiver: digest
+      repeat_interval: 12h
+      continue: false
+
+receivers:
+  - name: 'null'
+
+  - name: heartbeat
+    webhook_configs:
+      - url: 'http://127.0.0.1:9099/heartbeat'
+        send_resolved: false
+
+  - name: page
+    webhook_configs:
+      - url: 'http://127.0.0.1:9099/page'
+        send_resolved: true
+
+  - name: digest
+    webhook_configs:
+      - url: 'http://127.0.0.1:9099/digest'
+        send_resolved: true
+
+inhibit_rules:
+  # A critical error/latency alert mutes the warning-level twin for the same app.
+  - source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity = warning
+    equal: ['alertname', 'app']

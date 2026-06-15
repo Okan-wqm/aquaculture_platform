@@ -1,4 +1,5 @@
 import { get, set, del, keys, entries, createStore } from 'idb-keyval';
+
 import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
 import type { UserScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
@@ -251,7 +252,7 @@ export async function queueOperation(
   // when there are valid credentials. If the token expires before the sync fires
   // the in-app sync path (executeGraphQL) will catch the 401 and surface an error
   // rather than silently incrementing retryCount for an auth failure.
-  hasValidAuth: boolean = false,
+  hasValidAuth = false,
 ): Promise<AddToQueueResult> {
   // SECURITY (C11): tenantId is mandatory -- reject if missing
   if (!tenantId) {

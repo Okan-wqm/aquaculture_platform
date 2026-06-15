@@ -1,11 +1,8 @@
-import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useCallback } from 'react';
+
 import { useAuth } from './useAuth';
-import { cacheData, getCachedData, cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { LeaveRequest, LeaveBalance, LeaveType } from '@/types';
-import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
+
 import {
   GET_MY_LEAVE_REQUESTS,
   GET_MY_LEAVE_BALANCES,
@@ -13,6 +10,11 @@ import {
   SUBMIT_LEAVE_REQUEST,
   CANCEL_LEAVE_REQUEST,
 } from '@/graphql/operations';
+import { cacheData, getCachedData, cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { LeaveRequest, LeaveBalance, LeaveType } from '@/types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 // ---------------------------------------------------------------------------
 // IndexedDB cache TTLs — longer than React Query staleTime because these
@@ -133,7 +135,7 @@ export function useMyLeaveBalances(
  */
 export function useMyLeaveRequests(
   status?: string,
-  limit: number = 20,
+  limit = 20,
   options?: LeaveQueryOptions,
 ) {
   const { accessToken, tenantId, user, isAuthenticated } = useAuth();
@@ -193,10 +195,10 @@ export function useLeaveTypes() {
       try {
         const types = await fetchLeaveTypes();
         // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        await cacheData(tenantId!, cacheKey, types, CACHE_TTL_LEAVE_TYPES);
+        await cacheData(tenantId, cacheKey, types, CACHE_TTL_LEAVE_TYPES);
         return types;
       } catch (error) {
-        const cached = await getCachedData<LeaveType[]>(tenantId!, cacheKey);
+        const cached = await getCachedData<LeaveType[]>(tenantId, cacheKey);
         if (cached) {
           return cached;
         }

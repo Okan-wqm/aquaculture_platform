@@ -136,14 +136,16 @@ describe('MT-HIGH-050: useFirebaseMessaging device-token lifecycle', () => {
     // Reset the registration POST so we only observe the unregister call.
     authenticatedFetch.mockClear();
 
-    await capturedTeardown!();
+    const teardown = capturedTeardown;
+    if (!teardown) throw new Error('push teardown was not registered');
+    await teardown();
 
     // Server-side mapping removed via unregisterDeviceToken.
     const firstCall = authenticatedFetch.mock.calls[0];
-    expect(firstCall).toBeDefined();
-    const init = firstCall![1];
-    expect(init?.body).toBeDefined();
-    const body = JSON.parse(init!.body as string) as {
+    if (!firstCall) throw new Error('expected an authenticatedFetch call');
+    const init = firstCall[1];
+    if (!init?.body) throw new Error('expected a request body');
+    const body = JSON.parse(init.body as string) as {
       query: string;
       variables: { token: string };
     };
@@ -160,7 +162,9 @@ describe('MT-HIGH-050: useFirebaseMessaging device-token lifecycle', () => {
     authenticatedFetch.mockClear();
     authenticatedFetch.mockRejectedValueOnce(new Error('network down'));
 
-    await capturedTeardown!().catch(() => undefined);
+    const teardown = capturedTeardown;
+    if (!teardown) throw new Error('push teardown was not registered');
+    await teardown().catch(() => undefined);
 
     // deleteToken runs in the teardown's finally — the leak is closed locally
     // regardless of the network unregister outcome.

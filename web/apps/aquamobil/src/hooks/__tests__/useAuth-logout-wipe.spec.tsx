@@ -35,14 +35,20 @@ vi.mock('@/services/push-lifecycle', () => ({
 
 const clearBiometricData = vi.fn();
 vi.mock('@/hooks/useWebAuthn', () => ({
-  clearBiometricData: () => clearBiometricData(),
+  clearBiometricData: (): void => {
+    clearBiometricData();
+  },
 }));
 
 const markAuthReady = vi.fn();
 const syncAuthStore = vi.fn();
 vi.mock('@/services/authenticated-fetch', () => ({
-  markAuthReady: () => markAuthReady(),
-  syncAuthStore: (...args: unknown[]) => syncAuthStore(...args),
+  markAuthReady: (): void => {
+    markAuthReady();
+  },
+  syncAuthStore: (...args: unknown[]): void => {
+    syncAuthStore(...args);
+  },
 }));
 
 vi.mock('idb-keyval', () => ({
@@ -60,6 +66,14 @@ let captured: AuthCtx | null = null;
 function Capture(): null {
   captured = useAuth();
   return null;
+}
+
+/** The captured auth context, asserted present — renderAuth + a waitFor on the
+ *  test side guarantee Capture has run before any ctx() use. Throwing here keeps
+ *  the test type-safe without a non-null assertion. */
+function ctx(): AuthCtx {
+  if (!captured) throw new Error('auth context was not captured');
+  return captured;
 }
 
 function renderAuth(client: QueryClient): void {
@@ -102,9 +116,9 @@ async function login(): Promise<void> {
     json: () => Promise.resolve({ data: { getMyMobileSettings: { isMobileEnabled: true } } }),
   });
   await act(async () => {
-    await captured!.loginWithToken('access-token', TEST_USER);
+    await ctx().loginWithToken('access-token', TEST_USER);
   });
-  await waitFor(() => expect(captured!.isAuthenticated).toBe(true));
+  await waitFor(() => expect(ctx().isAuthenticated).toBe(true));
 }
 
 describe('useAuth.logout — shared-device wipe (MT-CRITICAL-050 / MT-MEDIUM-050)', () => {
@@ -119,13 +133,13 @@ describe('useAuth.logout — shared-device wipe (MT-CRITICAL-050 / MT-MEDIUM-050
     expect(client.getQueryData(['tenant', TEST_USER.tenantId, 'mySchedule', TEST_USER.id])).toEqual({ secret: 'A' });
 
     await act(async () => {
-      await captured!.logout();
+      await ctx().logout();
     });
 
     // MT-CRITICAL-050: the tenant-scoped query data must be gone, not merely stale.
     expect(client.getQueryData(['tenant', TEST_USER.tenantId, 'mySchedule', TEST_USER.id])).toBeUndefined();
-    expect(captured!.isAuthenticated).toBe(false);
-    expect(captured!.user).toBeNull();
+    expect(ctx().isAuthenticated).toBe(false);
+    expect(ctx().user).toBeNull();
   });
 
   it('AWAITS the persistent wipe + push teardown before clearing the session', async () => {
@@ -135,7 +149,7 @@ describe('useAuth.logout — shared-device wipe (MT-CRITICAL-050 / MT-MEDIUM-050
     await login();
 
     await act(async () => {
-      await captured!.logout();
+      await ctx().logout();
     });
 
     expect(runPushTeardown).toHaveBeenCalledTimes(1);
@@ -155,7 +169,7 @@ describe('useAuth.logout — shared-device wipe (MT-CRITICAL-050 / MT-MEDIUM-050
 
     let rejected: unknown = null;
     await act(async () => {
-      await captured!.logout().catch((e: unknown) => {
+      await ctx().logout().catch((e: unknown) => {
         rejected = e;
       });
     });
@@ -163,7 +177,7 @@ describe('useAuth.logout — shared-device wipe (MT-CRITICAL-050 / MT-MEDIUM-050
     expect(rejected).toBeInstanceOf(Error);
     expect((rejected as Error).message).toMatch(/wipe failed/);
     // Session is still authenticated — the user was NOT told logout succeeded.
-    expect(captured!.isAuthenticated).toBe(true);
+    expect(ctx().isAuthenticated).toBe(true);
   });
 
   it('does NOT deadlock when the service worker never activates, and purges via controller (MT-CRITICAL-050)', async () => {
@@ -187,12 +201,12 @@ describe('useAuth.logout — shared-device wipe (MT-CRITICAL-050 / MT-MEDIUM-050
     });
 
     await act(async () => {
-      await captured!.logout();
+      await ctx().logout();
     });
 
     // Reached here ⇒ logout resolved (no deadlock); the cache purge went to the
     // controlling worker.
-    expect(captured!.isAuthenticated).toBe(false);
+    expect(ctx().isAuthenticated).toBe(false);
     expect(controllerPost).toHaveBeenCalledWith({ type: 'LOGOUT' });
   });
 
@@ -204,7 +218,7 @@ describe('useAuth.logout — shared-device wipe (MT-CRITICAL-050 / MT-MEDIUM-050
     await login();
 
     await act(async () => {
-      await captured!.logout();
+      await ctx().logout();
     });
 
     // React Query clear() does not abort running fetches; cancelQueries() does,

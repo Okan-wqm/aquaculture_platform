@@ -1,15 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
 import { useAuth } from './useAuth';
-import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { AttendanceRecord, AttendanceSummary } from '@/types';
-import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
+
 import {
   GET_MY_ATTENDANCE_RECORDS,
   GET_MY_ATTENDANCE_SUMMARY,
   GET_TODAYS_ATTENDANCE,
 } from '@/graphql/operations';
+import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { AttendanceRecord, AttendanceSummary } from '@/types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 // =============================================================================
 // Cache TTL constants (IndexedDB offline fallback — not React Query in-memory)
@@ -49,9 +51,9 @@ export function useMyAttendanceRecords(params: AttendanceRecordsParams = {}) {
 
   // WHY defaults here: the page always wants "last 7 days" on mount. Providing
   // sensible defaults means the caller doesn't need a useEffect to trigger fetch.
-  const endDate = params.endDate ?? new Date().toISOString().split('T')[0]!;
+  const endDate = params.endDate ?? new Date().toISOString().split('T')[0];
   const startDate =
-    params.startDate ?? new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]!;
+    params.startDate ?? new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
   const limit = params.limit ?? 30;
 
   return useQuery<AttendanceRecord[]>({

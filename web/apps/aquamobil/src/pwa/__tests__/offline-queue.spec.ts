@@ -119,6 +119,7 @@ Object.defineProperty(globalThis, 'navigator', {
 // Import after mocks
 // --------------------------------------------------------------------------
 
+import { userScopedCacheKey } from '../../utils/user-scoped-cache-key';
 import {
   queueOperation,
   getPendingOperations,
@@ -135,7 +136,6 @@ import {
   syncOperation,
   syncAllOperations,
 } from '../offline-queue';
-import { userScopedCacheKey } from '../../utils/user-scoped-cache-key';
 
 /** SECURITY (C11): All queue operations are tenant-scoped. Tests use a fixed tenant UUID. */
 const TEST_QUEUE_TENANT = 'tenant-queue-001';

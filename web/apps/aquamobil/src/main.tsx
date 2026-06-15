@@ -1,13 +1,14 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { App as KonstaApp } from 'konsta/react';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
-import { App as KonstaApp } from 'konsta/react';
+import { registerSW } from 'virtual:pwa-register';
+
 import { App } from './App';
 import { IdentityBoundary } from './components/IdentityBoundary';
 import { AuthProvider } from './hooks/useAuth';
 import { OfflineProvider } from './hooks/useOfflineQueue';
-import { registerSW } from 'virtual:pwa-register';
 import './styles/main.css';
 
 // Create query client with offline-friendly defaults

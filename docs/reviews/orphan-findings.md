@@ -4108,3 +4108,27 @@ Severity: MEDIUM. Discovered 2026-06-14 during C1 PR-1b (frontend version alignm
 **Fix direction:** Keep zustand pinned at **4.5.7** in the SSoT (`federationSharedConfig.ts SHARED_VERSIONS.zustand`) and all consumers (done — reverted in this PR). Correct the plan: REMOVE "zustand 4→5" from C1 PR-1b and from C2 step-1's "unlocks zustand 5" claim. Gate any future zustand-5 bump on `@xyflow/react` advertising a zustand-5-compatible range. Until then the existing `federation-shared-singleton` invariant is the make-it-detectable guard preventing an accidental re-attempt.
 
 Status: OPEN (2026-06-14; owner: frontend-expert; gated on `@xyflow/react` zustand-5 range support, no deadline). Registry: orphan-findings.md only (keeps PR-1b's findings.jsonl footprint zero — same convention as ORPHAN-MEDIUM-102/103).
+
+## ORPHAN-MEDIUM-105 — `web/modules/sensor-module/tsconfig.tsbuildinfo` is git-tracked (incremental-build cache committed)
+
+Severity: MEDIUM. Discovered 2026-06-14 during the C2 Step-1 audit (frontend-expert), firsthand-confirmed by lead.
+
+**Problem:** `web/modules/sensor-module/tsconfig.tsbuildinfo` — a TypeScript incremental-build cache — is tracked in git (`git ls-files` returns it), and `.gitignore` has no `*.tsbuildinfo` rule (only `dist`). The committed cache embeds a stale `reactflow` module reference (regenerable, runtime-harmless) and is build-state noise that rides in unrelated diffs. Build caches must not be versioned.
+
+**Pre-existing, NOT introduced by C2:** the C2 commit (`251f6140d`) does not modify this file; it was tracked before. Left out of the C2 PR to keep that PR scoped to the migration.
+
+**Fix direction:** add `*.tsbuildinfo` to `.gitignore` and `git rm --cached web/modules/sensor-module/tsconfig.tsbuildinfo` (+ any sibling tsbuildinfo files repo-wide). Small standalone hygiene PR.
+
+Status: OPEN (2026-06-14; owner: infra-expert; no deadline). Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-106 — `processStore` heterogeneous node state typed `Node<any>` (+ `as Node<any>[]` assertion) violates the no-`any` rule
+
+Severity: MEDIUM. Discovered 2026-06-14 during the C2 Step-1 audit (frontend-expert), firsthand-confirmed.
+
+**Problem:** `web/modules/sensor-module/src/store/processStore.ts:296` types the store nodes as `Node<any>[]` ("uses any for flexibility") and `:403` casts `applyNodeChanges(...) as Node<any>[]`. CLAUDE.md bans `as any`/`Node<any>`. The store holds heterogeneous process node-data types, so `any` was the v11-era shortcut for the union.
+
+**Pre-existing, NOT introduced by C2:** `git log -S "as Node<any>[]"` traces it to the original implementation commit `1b32c8cb8`; the C2 diff (`0ea5f4a7c..251f6140d`) does not touch these lines. The v12 migration type-checks clean WITH the existing assertion, so C2 neither introduced nor needed to widen it.
+
+**Fix direction:** parameterize the store on a discriminated union of the concrete process node-data types — `type ProcessNodeData = EquipmentNodeData | SensorNodeData | …` then `Node<ProcessNodeData>` — replacing both the `Node<any>` field and the `as Node<any>[]` assertion. Make-it-impossible (Tier-1). Standalone refactor.
+
+Status: OPEN (2026-06-14; owner: frontend-expert; no deadline). Registry: orphan-findings.md only.

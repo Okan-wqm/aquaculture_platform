@@ -4172,7 +4172,25 @@ Status: RESOLVED (2026-06-14, this PR — tenant-role/tenant-user-management/use
 1. Verify whether current `main` (0c2370b04) still reproduces — re-run the `E2E Tests` job or boot one messaging E2E spec locally.
 2. If so, find the undefined base: grep the messaging E2E test base class + its import chain for a circular dependency or a barrel (`index.ts`) that re-exports the base before it is defined. The fix is usually to import the base from its concrete module (not the barrel) or break the cycle.
 
-Status: OPEN. Owner: messaging-expert. Registry: `ORPHAN-HIGH-102` in `docs/reviews/_registry/findings.jsonl`.
+**RESOLVED (2026-06-15, branch `fix/messaging-e2e-orphan-high-102`) — root cause was NOT a circular import.** Empirically reproduced (ephemeral CI-equivalent Postgres+Redis, the exact `e2e-messaging.yml` env) the exact load crash and captured the stack:
+
+```
+TypeError: Class extends value undefined is not a constructor or null
+  at libs/backend-common/src/nats/nats-v3-server.strategy.ts:47   ← `export class NatsV3Server extends Server`
+  at libs/backend-common/src/nats/index.ts:15                     ← barrel re-exports NatsV3Server (fan-out)
+  at platform/libs/event-bus/src/nats/nats-event-bus.ts           ← event-bus imports @aquaculture/backend-common/nats
+  at platform/libs/event-bus/src/index.ts:9
+  at apps/messaging-service/test/e2e-setup.ts:30                   ← e2e-setup imports @platform/event-bus
+  at <spec>.e2e-spec.ts
+```
+
+It is **mock-completeness drift**, not a cycle: A3 PR-B (#438) added `class NatsV3Server extends Server` (from `@nestjs/microservices`) to the `backend-common/nats` barrel. That barrel is transitively imported by **every** E2E spec via `@platform/event-bus` → `e2e-setup`. But the messaging Jest configs redirected `@nestjs/microservices` (via `moduleNameMapper`) to a hand-written stub `src/__mocks__/@nestjs/microservices.ts` that exported `ClientProxy` but **omitted `Server`** — on a stale, false premise ("not installed in workspace"; the package is a declared dependency at `^11.1.19`). So `Server` resolved to `undefined` and the subclass failed at import.
+
+**Fix (Tier-1, "make it impossible"):** removed the `^@nestjs/microservices$` `moduleNameMapper` entry from **both** `test/jest-e2e.config.ts` and `jest.config.ts` (unit) and **deleted the stub**, so the real installed package loads (real `Server`/`ClientProxy`). NATS stays isolated at the **already-present** DI seam in `e2e-setup.ts` (`.overrideProvider('NATS_SERVICE'|'EVENT_BUS'|NatsEventBus)`) plus `NatsV3Client`'s lazy `connect()`; the harness never calls `connectMicroservice()`, so `NatsV3Server` is never instantiated. A cross-check workflow (messaging + platform-kernel verifiers + adversarial challenger + architectural-arbiter) caught that the unit-config mapper also pointed at the stub — deleting it without removing that mapper would have broken every messaging **unit** spec.
+
+**Verification (CI confirmed):** with this fix + the ORPHAN-HIGH-092 mock fix, the messaging `E2E Tests` job ran **12 suites / 111 tests green, 0 hook timeouts** on a clean CI container (workflow_dispatch run 27571220824). Unit suite 207 green; `tsc -p tsconfig.spec.json` clean.
+
+Status: RESOLVED (PR #473; pending registry close on merge). Owner: messaging-expert. Registry: `ORPHAN-HIGH-102` in `docs/reviews/_registry/findings.jsonl`.
 
 > **D2 / CRITICAL-002 traceability note (not a registry close):** the gateway rate-limit consolidation (PR #457, `0c2370b04`) — which also fixed the gateway's fail-OPEN Redis store — is fully traced by its own commit message + PR. It is NOT seeded as a closable registry finding because the three-store invariant requires a closing commit to carry a `Closes: …#<id>` trailer *at commit time*; a finding seeded post-merge cannot be closed against an already-merged commit (no amend/force-push). The SEC-MEDIUM-001/002 closes in this same registry pass ARE valid because D1's commit (`bc79457d5`) carried their `Closes:` trailers.
 

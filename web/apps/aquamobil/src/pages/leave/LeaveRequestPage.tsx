@@ -95,7 +95,9 @@ export function LeaveRequestPage() {
       // so we do NOT call submitLeaveRequest separately here. This eliminates
       // the old broken setTimeout chain that passed the queue UUID (not the
       // domain leave-request ID) to submitLeaveRequest.
-      const queueId = await addToQueue('createLeaveRequest', payload);
+      // FE-HIGH-050: addToQueue returns a discriminated result; .id tracks the
+      // queued (or, on dedup, existing) op for QueuedStatusBadge.
+      const { id: queueId } = await addToQueue('createLeaveRequest', payload);
 
       // C7: Store operationId for QueuedStatusBadge tracking
       setQueuedOperationId(queueId);

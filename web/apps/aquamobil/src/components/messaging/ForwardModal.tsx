@@ -139,9 +139,9 @@ export function ForwardModal({
     ? message.content.length > 80
       ? `${message.content.slice(0, 80)}...`
       : message.content
-    : message.contentType === 'voice'
+    : message.contentType === 'VOICE'
       ? 'Voice note'
-      : message.contentType === 'image'
+      : message.contentType === 'IMAGE'
         ? 'Image'
         : 'File';
 

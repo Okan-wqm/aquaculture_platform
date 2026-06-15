@@ -4236,3 +4236,79 @@ Status: RESOLVED (2026-06-13; fixed in the aquamobil-msg-federation merge commit
 **Workaround for V10.3-B unblocking**: V10.3-B endurance runs autonomous profile with real Claude API (no mock-mode), so this orphan does NOT block endurance launch. The fix is needed eventually to make V3.1-F a useful pre-flight smoke, but post-V10.3-B is acceptable.
 
 Status: OPEN. Ported to main 2026-06-14 from `v31-f2-adapter-dry-run-gate@9f291ba4` (renumbered MEDIUM-083 → 104 per origin/main registry max, ARIA→main controlled merge Tranche 1). Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-109 — platform/configs typed config-schema SSoT is empty; services read process.env ad-hoc
+
+Severity: MEDIUM. Discovered 2026-06-13 during the AquaMobil e2e audit, frontend-expert. Out of scope for the AquaMobil remediation initiative — recorded here per the locked plan decision (config-SSoT is a separate initiative, but every found finding is registered).
+
+**Problem:** `platform/configs/` — intended as the typed configuration SSoT — is effectively empty. Backend services and the gateway read configuration directly from `process.env` ad-hoc (untyped `configService.get<string>(...)` / raw `process.env.X` accesses scattered across bootstrap, NATS, DB, and feature-flag paths), with no central schema, no fail-fast validation at boot, and no single place documenting which variables exist, their types, defaults, and required-ness. A missing or malformed env var surfaces as a late runtime failure (or a silent wrong-default) rather than a boot-time rejection, and there is no compile-time contract binding a consumer to a declared key.
+
+**Effect:** config drift is undetectable until runtime; a typo'd or absent env var can degrade a service silently; there is no typed surface a reviewer can read to know the full configuration contract of a service. This is the configuration analogue of the enum / WS-payload drift this initiative fixes elsewhere — the same SSoT gap on a different axis.
+
+**Fix direction (architectural, separate initiative):** populate `platform/configs/` with a typed, validated config-schema module (a Zod/joi schema per service, or a shared schema with per-service slices) loaded once at bootstrap with fail-fast validation (reject boot on a missing/malformed required key), and replace ad-hoc `process.env` / untyped `configService.get` reads with typed accessors derived from that schema. A CI invariant then asserts no service reads `process.env` outside the config layer. Tier-1 "make-it-impossible": a consumer cannot reference an undeclared key because the typed schema is the only access path.
+
+Status: OPEN (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
+
+---
+
+## ORPHAN-MEDIUM-110 — lint-gates husky pre-commit gate is broken under ESLint 9 (eslintrc-format parserOptions fed to a flat-config Linter)
+
+Severity: MEDIUM. Discovered 2026-06-13 while landing the aquamobil-msg-federation merge — the husky pre-commit hook blocked the merge commit (13/19 gate cases threw). RESOLVED in the same merge.
+
+**Problem:** `tools/lint-gates/lint-gates.spec.ts` — the ESLint gate-preservation test wired into `.husky/pre-commit` via the `tools/*gates/*.spec.ts` glob — calls `linter.verify(code, { parserOptions: { ecmaVersion: 2022, sourceType: 'module' }, rules })` against a `new Linter()` instance. The repo migrated to ESLint 9 + flat config (`eslint.config.mjs`; `.eslintrc.json` / `.eslintrc.cjs` deleted), and ESLint 9's `Linter` defaults to flat-config mode, which rejects a top-level `parserOptions` key: "Key 'parserOptions': This appears to be in eslintrc format rather than flat config format." All 13 gate-firing cases threw, so the hook exited 1 and blocked every commit. The test file is byte-identical to `origin/main` (`git diff origin/main` empty) under the repo's pinned `eslint@^9.39.4`, so this is a pre-existing main breakage, not a merge artifact.
+
+**Effect:** the pre-commit gate suite is unrunnable on ESLint 9. Either commits are hard-blocked, or developers bypass with `--no-verify` — which silently disables ALL the other pre-commit gates too (banned-phrase, banned-construct, migration-sql-lint, tier-claim-lint, and the rest of the gate-preservation suite guarding the getRepository() / JWT_SECRET / JSON.stringify bans). The safety net that proves the ESLint config still fires the custom AST-selector rules was dead under the repo's own pinned ESLint.
+
+**Fix (applied, tier-1, flat-config-consistent):** change the gate harness to speak flat config — `languageOptions: { ecmaVersion: 2022, sourceType: 'module' }` instead of the eslintrc-shape top-level `parserOptions`. This aligns the harness with the repo's flat-config SSoT rather than re-enabling an eslintrc compat mode. Verified: 19/19 spec cases pass under ESLint 9.39.4.
+
+Status: RESOLVED (2026-06-13; fixed in the aquamobil-msg-federation merge commit). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-111 — hr-module GraphQL fragments drift from the live schema (codegen-blocking)
+
+Severity: MEDIUM. Discovered 2026-06-14 while standing up the AquaMobil graphql-codegen client-contract SSoT (S1-CODEGEN). Out of the S1 scope (S1 is the AquaMobil client contract + messaging enum-casing) — recorded here per the every-found-finding-is-registered rule.
+
+**Problem:** the shell/module GraphQL documents contain operations/fragments that reference fields the composed supergraph no longer exposes. Running `graphql-codegen` against the real supergraph surfaces (at minimum) in `web/modules/hr-module/src/graphql/`:
+- `fragments.ts` — `Payroll.earnings` and `Payroll.deductions` do not exist (schema has `deductionsTax`/`deductionsOther`/`deductionsTotal`); `PerformanceGoal.keyResults` and `.milestones` are selected without subfields (they are object lists `[KeyResult!]` / `[GoalMilestone!]`).
+- `performance.operations.ts` — operations that spread those broken fragments inherit the same validation errors.
+
+These documents fail GraphQL document validation, so codegen aborts the ENTIRE run (graphql-codegen has no per-output error isolation). At S1 time the only working codegen output was `web/shared-ui/src/generated/graphql-types.ts` (the `typescript` plugin, which needs no documents); the never-emitted `graphql-operations.ts` operations block (added in an earlier commit) was dead because of exactly this drift.
+
+**Effect:** the hr-module client compiles against fields that return nothing at runtime (silent `undefined` mid-response), and the shell/module operations cannot be brought under a codegen TypedDocumentNode contract until the fragments are realigned. S1 removed the dead `shared-ui/graphql-operations.ts` codegen block (no consumers, never emitted) so the AquaMobil codegen run is no longer blocked by this unrelated drift.
+
+**Fix direction (architectural):** realign the hr-module fragments to the live supergraph (`Payroll.deductionsTax|deductionsOther|deductionsTotal`; add explicit subfield selections to `keyResults`/`milestones`), then re-add a `web/shell+modules` operations codegen output (with its own disjoint `documents` set, mirroring the aquamobil block) and bring the shell/module hooks onto the generated TypedDocumentNode constants. Extend the S1 codegen CI gate to cover that output once green.
+
+Status: OPEN (2026-06-14; owner: frontend-expert → hr-module; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-107 — AquaMobil leave-balance rows show a generic "Leave" label (no per-type enrichment)
+
+Severity: LOW. Discovered 2026-06-14 during S1-CODEGEN, fixing a client-contract drift the codegen gate caught.
+
+**Problem:** `GET_MY_LEAVE_BALANCES` previously selected a nested `leaveType { id name code category isPaid color }` block, but the HR `LeaveBalance` GraphQL type has NO `leaveType` field (only `leaveTypeId`). The selection returned nothing at runtime, so `balance.leaveType` was always `undefined`; `MyLeavesPage` falls back to a generic `'Leave'` label and a default color. S1 removed the invalid selection (the codegen gate rejects a field the schema does not expose), which keeps the existing fallback behaviour but does not restore the per-type label/color.
+
+**Effect:** purely cosmetic — the leave-balance cards do not show the leave-type name/color. Functionally unchanged from before (the field never resolved). No data-integrity impact.
+
+**Fix direction:** enrich balances client-side by joining `balance.leaveTypeId` against the separately-fetched `leaveTypes` list (already loaded by `useLeaveTypes`) in the `useMyLeaveBalances` selector, or add a `leaveType` field resolver to `LeaveBalance` on the HR subgraph if the backend should own the join. The former is the smaller, client-only change.
+
+Status: OPEN (2026-06-14; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-112 — AquaMobil `eslint src` lint script has a large pre-existing red baseline (~940 errors)
+
+Severity: MEDIUM. Discovered 2026-06-14 during S1-CODEGEN, validating that the codegen migration adds no new lint debt.
+
+**Problem:** the AquaMobil `lint` target (`nx run @aquaculture/aquamobil:lint` → `eslint src`) reports ~940 errors + ~286 warnings on a clean checkout, in files untouched by S1 (e.g. `src/App.tsx` 10 errors, `src/components/ErrorBoundary.tsx`, the storage/water-quality pages, `useWebAuthn.ts`). The dominant rules are `import/order` (import blocks mix external/internal without group separation), `@typescript-eslint/explicit-function-return-type`, `no-floating-promises`, `no-misused-promises`, `@typescript-eslint/no-explicit-any` / `no-unsafe-*` (notably the WebAuthn browser-API code), `no-console`, and `react/no-unescaped-entities` / jsx-a11y. The target is `cache: true` and feeds `nx affected --target=lint`, so the red baseline is effectively unenforced for this app — it can only ever be "already red", never gating.
+
+**Effect:** the AquaMobil lint gate provides no signal — a PR cannot make it RED (it is already red) and cannot be required to make it GREEN. Real new violations hide in the noise; the `no-explicit-any`/`no-unsafe-*` cluster in particular masks genuine type-safety gaps (e.g. the WebAuthn credential handling operates on `any`).
+
+**Why not fixed inline (S1):** out of S1 scope (S1 is the GraphQL client contract + messaging enum-casing). S1 verified it adds NO net-new lint errors of consequence: the only violations it introduced were `import/order` from inserting `import { gql }` lines, which were `eslint --fix`ed; every other reported error in S1-touched files pre-dates S1 (confirmed by rule-category diff and by linting untouched `App.tsx`). Fixing ~940 cross-cutting violations is a separate dedicated cleanup, not a safe rider on a contract migration.
+
+**Fix direction:** run `eslint --fix src` for the mechanical rules (`import/order`, quote/escaping), then triage the semantic clusters per-area: add explicit return types, `await`/`void` the floating promises, replace the WebAuthn `any` accesses with typed wrappers over the Credential Management API, and route `console.*` through the app logger. Land in reviewable slices, then flip the target to `--max-warnings 0` so it gates going forward.
+
+Status: OPEN (2026-06-14; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---

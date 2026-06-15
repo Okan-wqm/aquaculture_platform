@@ -85,6 +85,42 @@ describe('MessagingNatsHandler.getMessageForBroadcast', () => {
     expect(Object.keys(result.message?.sender ?? {})).toEqual(['id']);
   });
 
+  it('emits the UPPERCASE GraphQL enum NAME for contentType (S1-CODEGEN wire parity)', async () => {
+    // The DB row stores the lowercase enum VALUE ('text'); the GraphQL query
+    // path serializes the enum NAME ('TEXT'). The WS hydrator MUST project the
+    // value → name so the live WS wire form is byte-identical to the GraphQL
+    // wire form the codegen client consumes.
+    findOne.mockResolvedValue({ ...message(), contentType: 'image' as Message['contentType'] });
+
+    const result = await handler.getMessageForBroadcast({ tenantId, channelId, messageId });
+
+    expect(result.message?.contentType).toBe('IMAGE');
+  });
+
+  it('emits the UPPERCASE GraphQL enum NAME for receipt status (S1-CODEGEN wire parity)', async () => {
+    findOne.mockResolvedValue(message());
+    find
+      .mockResolvedValueOnce([]) // attachments
+      .mockResolvedValueOnce([
+        {
+          userId: '66666666-6666-6666-6666-666666666666',
+          status: 'read',
+          deliveredAt: new Date('2026-06-13T10:00:01.000Z'),
+          readAt: new Date('2026-06-13T10:00:02.000Z'),
+        },
+        {
+          userId: '77777777-7777-7777-7777-777777777777',
+          status: 'delivered',
+          deliveredAt: new Date('2026-06-13T10:00:03.000Z'),
+          readAt: null,
+        },
+      ]);
+
+    const result = await handler.getMessageForBroadcast({ tenantId, channelId, messageId });
+
+    expect(result.message?.receipts?.map((r) => r.status)).toEqual(['READ', 'DELIVERED']);
+  });
+
   it('signs attachment download/thumbnail URLs via MediaService for the tenant', async () => {
     findOne.mockResolvedValue(message());
     find

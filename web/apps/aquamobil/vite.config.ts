@@ -8,6 +8,15 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // FE-CRITICAL-050-SW: injectManifest makes the HAND-WRITTEN service worker
+      // (src/pwa/messaging-sw.ts) the DEPLOYED dist/messaging-sw.js (filename:
+      // 'messaging-sw.ts' below), instead of letting VitePWA generate a throwaway
+      // SW that dropped every sync / notificationclick / LOGOUT handler. VitePWA
+      // compiles the SW through its OWN Vite sub-build and injects the precache
+      // manifest into `self.__WB_MANIFEST`.
+      strategies: 'injectManifest',
+      srcDir: 'src/pwa',
+      filename: 'messaging-sw.ts',
       // PERF-10: autoUpdate ensures field workers always run the latest version
       // without needing to manually dismiss an update prompt.
       registerType: 'autoUpdate',
@@ -44,82 +53,29 @@ export default defineConfig({
         ],
       },
       selfDestroying: false,
-      workbox: {
-        // FE-HIGH-058 / FIX(SW-001): navigation fallback must point at a
-        // precached app shell. Keeping globPatterns empty while using the
-        // default "index.html" fallback makes Workbox throw
-        // `non-precached-url` at service-worker startup.
-        globPatterns: [
-          'index.html',
-          'assets/index-*.{js,css}',
-          'assets/vendor-*.js',
-          'assets/query-*.js',
-        ],
-        navigateFallback: 'index.html',
-
-        // FIX(SW-002): skipWaiting + clientsClaim ensure the new service worker activates
-        // immediately on deployment, replacing the old SW without waiting for all tabs to close.
-        // Without this, users can be stuck on stale cached assets until they close ALL tabs.
-        skipWaiting: true,
-        clientsClaim: true,
-
-        // Suppress workbox development logs in production
-        disableDevLogs: true,
-
-        runtimeCaching: [
-          // CRIT-2 / SEC-02 / PERF-01: GraphQL runtime caching has been intentionally
-          // removed. Reasons:
-          // 1. Caching authenticated GraphQL POST responses leaks tenant data between
-          //    users on shared devices (Cache Storage is not cleared on logout).
-          // 2. Workbox cannot distinguish mutations from queries — cached mutation
-          //    responses cause offline queue operations to be silently discarded.
-          // 3. POST requests are keyed by URL only, so only one response is stored
-          //    per URL, providing no real offline query value.
-          // Offline reads use the application-layer IndexedDB cache (cacheData/getCachedData).
-          {
-            // FIX(SW-003): SPA navigation fallback via NetworkFirst strategy.
-            // For navigation requests (HTML pages), always try network first so deployments
-            // are picked up immediately. Falls back to cache for offline support.
-            // This replaces the broken precache-bound NavigationRoute.
-            urlPattern: ({ request }) => request.mode === 'navigate',
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'navigation-cache',
-              networkTimeoutSeconds: 5,
-              expiration: {
-                maxEntries: 1,
-                maxAgeSeconds: 60 * 60 * 24, // 1 day
-              },
-            },
-          },
-          {
-            // Static assets - Cache first (content-hashed filenames make this safe)
-            urlPattern: /\.(?:js|css|woff2?)$/,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'static-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 * 7, // 7 days
-              },
-            },
-          },
-          {
-            // Images - Stale while revalidate
-            urlPattern: /\.(?:png|jpg|jpeg|gif|webp)$/,
-            handler: 'StaleWhileRevalidate',
-            options: {
-              cacheName: 'image-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
-              },
-            },
-          },
-        ],
+      // FE-CRITICAL-050-SW: injectManifest config. In this mode VitePWA does NOT
+      // generate runtime caching or a NavigationRoute — those now live IN the SW
+      // (src/pwa/messaging-sw.ts via registerRoute). VitePWA's only job here is to
+      // compute the precache manifest from these globs and inject it into the SW's
+      // `self.__WB_MANIFEST` placeholder.
+      //
+      // The app shell (index.html + content-hashed JS/CSS) is precached so the
+      // PWA loads offline — the previous generateSW artifact had globPatterns: []
+      // and therefore ZERO precache entries, which is exactly what FE-CRITICAL-050
+      // flagged. index.html is included so first-paint works offline; the SW's
+      // NetworkFirst navigation route still prefers the network when online.
+      injectManifest: {
+        globDirectory: 'dist',
+        globPatterns: ['**/*.{js,css,html,woff2,png,svg}'],
+        // disableDevLogs has no effect in injectManifest mode (the SW controls its
+        // own logging); kept out intentionally.
       },
       devOptions: {
         enabled: true,
+        // FE-CRITICAL-050-SW: an injectManifest SW that uses `import` statements
+        // must be served as an ES module in dev, otherwise the browser rejects it
+        // with "Cannot use import statement outside a module".
+        type: 'module',
       },
     }),
   ],

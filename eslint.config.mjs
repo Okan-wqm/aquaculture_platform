@@ -445,6 +445,17 @@ export default [
       'web/**/__tests__/**',
       'web/**/__mocks__/**',
       'web/**/generated/**',
+      // WHY aquamobil is exempt: the rule (tier-3 "detectable") pushes a frontend
+      // toward graphql-codegen so a bare `gql`…`` cannot drift from the schema at
+      // runtime. AquaMobil has ARRIVED there (S1 / MSG-CRITICAL-055): its operations
+      // are plucked by graphql-codegen, a `codegen-up-to-date` CI gate fails on any
+      // schema drift, and `graphqlRequest` accepts ONLY `TypedDocumentNode` — so an
+      // untyped document is a COMPILE error (tier-1 "impossible"), a strictly stronger
+      // guarantee than this lint warning. The `gql`…`` tags that remain in
+      // `src/graphql/**` + the hooks ARE that codegen source-of-truth, not the untyped
+      // drift the rule guards against. Keeping the rule here would fail the affected-lint
+      // ratchet on the very migration the rule asks for.
+      'web/apps/aquamobil/**',
     ],
     plugins: { aquaculture },
     rules: { 'aquaculture/no-bare-graphql-query-string': 'warn' },

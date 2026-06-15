@@ -378,7 +378,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
 
   // Handle node changes (position drag, selection)
   const onNodesChange = useCallback(
-    (changes: NodeChange[]) => {
+    (changes: NodeChange<Node<ScadaWidgetNodeData>>[]) => {
       // Filter out position changes for locked widgets so they cannot be dragged
       const state = useScadaPackageStore.getState();
       const currentScreenId = state.activeScreenId;
@@ -405,7 +405,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
        * the dragged node. We intercept these changes and generate additional
        * position updates for sibling group members using the delta.
        */
-      const groupDragChanges: NodeChange[] = [];
+      const groupDragChanges: NodeChange<Node<ScadaWidgetNodeData>>[] = [];
 
       for (const change of filteredChanges) {
         if (change.type === 'position' && change.dragging === true && change.position) {
@@ -437,7 +437,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
                         x: sibNode.position.x + dx,
                         y: sibNode.position.y + dy,
                       },
-                    } as NodeChange);
+                    } as NodeChange<Node<ScadaWidgetNodeData>>);
                   }
                 }
               }

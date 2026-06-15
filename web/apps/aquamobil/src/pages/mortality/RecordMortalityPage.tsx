@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { type JSX, useCallback, useState } from 'react';
 import { ChevronRight, Skull } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useTanks } from '@/hooks/useTanks';

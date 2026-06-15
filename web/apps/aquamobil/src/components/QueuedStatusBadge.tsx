@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { SyncStatus } from '@/hooks/useOfflineQueue';
 import { CheckCircle, Clock, AlertTriangle, RefreshCw } from 'lucide-react';

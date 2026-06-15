@@ -1,6 +1,28 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
+import type { ReactNode } from 'react';
+
+// WHY: React 19 + @testing-library/react 16 escalate recharts' react-smooth
+// <Animate> async state updates ("An update to Animate inside a test was not
+// wrapped in act(...)") from console warnings (the React 18 behavior these
+// chart tests were written against) into HARD test failures. The C2 React 19
+// bump surfaced this in WaterChemistryPage.spec (DeffeyesChart <Line>/<Scatter>
+// series animate; only the <Area>s set isAnimationActive=false).
+// WHAT: disable the animation in TESTS ONLY (production keeps its animations)
+// by rendering react-smooth's <Animate> (its DEFAULT export — recharts does
+// `import Animate from 'react-smooth'`) children immediately. The other
+// react-smooth exports recharts needs (AnimateGroup, configBezier, configSpring)
+// are preserved via the actual-module spread.
+vi.mock('react-smooth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-smooth')>();
+  const AnimatePassthrough = ({
+    children,
+  }: {
+    children: ReactNode | ((style: Record<string, unknown>) => ReactNode);
+  }): ReactNode => (typeof children === 'function' ? children({}) : children);
+  return { ...actual, default: AnimatePassthrough };
+});
 
 afterEach(() => {
   cleanup();

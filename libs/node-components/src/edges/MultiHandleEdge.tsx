@@ -11,7 +11,7 @@
  * - 5px grid snapping
  */
 
-import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useRef } from 'react';
+import { type JSX, useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useRef } from 'react';
 import { EdgeProps, useReactFlow, type Edge } from '@xyflow/react';
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 

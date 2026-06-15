@@ -4132,3 +4132,23 @@ Severity: MEDIUM. Discovered 2026-06-14 during the C2 Step-1 audit (frontend-exp
 **Fix direction:** parameterize the store on a discriminated union of the concrete process node-data types — `type ProcessNodeData = EquipmentNodeData | SensorNodeData | …` then `Node<ProcessNodeData>` — replacing both the `Node<any>` field and the `as Node<any>[]` assertion. Make-it-impossible (Tier-1). Standalone refactor.
 
 Status: OPEN (2026-06-14; owner: frontend-expert; no deadline). Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-109 — dashboard `AlertSummaryWidget.spec` has two brittle assertions that fail independent of React version
+
+Severity: MEDIUM. Discovered 2026-06-15 during C2 Step-2 (React 19) test validation; **firsthand-confirmed PRE-EXISTING** — both fail on `origin/main` (React 18) too, so NOT a React-19 regression.
+
+**Problem:** `web/modules/dashboard/src/widgets/__tests__/AlertSummaryWidget.spec.tsx` — (a) `:723` "should limit displayed alerts to maxAlerts" does `getAllByRole('button')` and asserts `≤ 10`, but the widget legitimately renders ~6 severity-filter buttons + 5 alert items = 11 (the `≤ 10` threshold is wrong, not the widget — which correctly `slice(0, maxAlerts)` at AlertSummaryWidget.tsx:593). (b) `:1094` "async action failures gracefully" uses `getByText('Onayla')` while multiple alerts each render an Onayla button → "Found multiple elements".
+
+**Fix direction:** (a) assert on the count of alert items (e.g. `getAllByTestId('alert-item')`) rather than all buttons, or raise the threshold to match the real button set. (b) use `getAllByText('Onayla')[0]` / scope the query to the acted-on card. Test-only changes; the widget code is correct.
+
+Status: OPEN (2026-06-15; owner: dashboard/frontend-expert; no deadline). Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-110 — AquaMobil vitest (`jsdom`) lacks a WebCrypto polyfill → 26 offline-queue tests fail `crypto.subtle.digest is not a function`
+
+Severity: MEDIUM. Discovered 2026-06-15 during C2 Step-2 validation; **firsthand-confirmed PRE-EXISTING** — fails identically on `origin/main` (React 18). Belongs to the [[project_aquamobil_audit_initiative]], NOT C2.
+
+**Problem:** `web/apps/aquamobil/vitest.config.ts:27` sets `environment: 'jsdom'` with no setup file exposing Node's WebCrypto. `src/pwa/__tests__/offline-queue.spec.ts` (offline payload hashing/encryption) calls `crypto.subtle.digest('SHA-256', …)` which jsdom does not provide → 26 failures. Separately, `src/hooks/__tests__/useTanks-pagination.spec.ts` (2 failures) asserts an error message (`'tanks pagination stopped at 0 of 1'`) that no longer matches the source (`'no farm stock inventory data'`) — a stale test-vs-source expectation, also React-version-independent.
+
+**Fix direction:** add an aquamobil vitest setup file that assigns `globalThis.crypto = (await import('node:crypto')).webcrypto` (Node 22 provides `subtle`), and reconcile the useTanks pagination error-message assertions with the current hook. Owned by the AquaMobil audit initiative.
+
+Status: OPEN (2026-06-15; owner: AquaMobil-initiative; no deadline). Registry: orphan-findings.md only.

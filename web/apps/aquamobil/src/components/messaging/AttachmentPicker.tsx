@@ -73,7 +73,7 @@ export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPi
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const inputRefs: Record<string, RefObject<HTMLInputElement>> = {
+  const inputRefs: Record<string, RefObject<HTMLInputElement | null>> = {
     camera: cameraInputRef,
     gallery: galleryInputRef,
     file: fileInputRef,

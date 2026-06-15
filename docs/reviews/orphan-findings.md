@@ -3850,6 +3850,18 @@ Status: RESOLVED (2026-06-15; post-merge traceability correction). Registered: d
 
 ---
 
+## ORPHAN-MEDIUM-117 — `tools/quality/format-scope.json` is stale on main
+
+Severity: MEDIUM. `node tools/quality/quality.mjs format-scope check` exits 1 on a clean branch cut from main with `tools/quality/format-scope.json is stale; regenerate it`. A dry regenerate rewrites roughly 1,700 insertions and 300 deletions across the manifest because new migrations, test renames, and removed ESLint config files are not reflected in the committed scope file.
+
+Effect: the quality-format-scope gate is red at the branch base. A gate that is red on main either stops every downstream PR for unrelated drift or becomes ignored as background noise, so it no longer protects new changes.
+
+Fix direction: run `node tools/quality/quality.mjs format-scope generate`, commit the regenerated `tools/quality/format-scope.json` in a dedicated infra/quality-tooling change, and keep the drift check in CI so this file stays synchronized with the source tree.
+
+Status: OPEN (2026-06-15; owner: infra-expert / quality-tooling). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-117.
+
+---
+
 ## ORPHAN-MEDIUM-055 — messaging-service background sweep queries non-existent `m.embedding` column
 
 Severity: MEDIUM. The messaging-service E2E Postgres logs, on a fixed 5-minute cadence (12:50/12:55/13:00…): `ERROR: column m.embedding does not exist at character 138 … WHERE m."embedding" IS NULL`. A scheduled background worker / projection (an embedding-backfill or semantic-index sweep) filters on `m."embedding" IS NULL`, but the column does not exist in the schema the E2E migrations apply. Independent of B2 (zero embedding code touched); appears on every messaging E2E run.

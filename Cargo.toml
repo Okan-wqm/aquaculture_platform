@@ -7,6 +7,7 @@ members = [
     "crates/nats-client",
     "crates/observability",
     "crates/outbox-rs",
+    "crates/router-coprocessor",
     "apps/sensor-ingestion",
 ]
 exclude = [
@@ -60,6 +61,11 @@ metrics-exporter-prometheus = "0.16"
 
 nom = "7.1"
 hex = "0.4"
+
+# R1 router-coprocessor: service-identity HMAC-v2 signing (byte-for-byte parity
+# with the TS generateServiceIdentityHeadersV2).
+sha2 = "0.10"
+hmac = "0.12"
 
 async-nats = "0.47"
 rustls = "0.23"

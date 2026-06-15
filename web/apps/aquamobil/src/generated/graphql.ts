@@ -332,8 +332,7 @@ export type ReceiptStatus =
 export type RecordCullInput = {
   avgWeightG?: number | null | undefined;
   batchId: string | number;
-  /** Stable client command UUID generated before first submission */
-  clientCommandId?: string | null | undefined;
+  clientCommandId: string | number;
   /** ISO timestamp when the mobile client created the command */
   clientCreatedAt?: string | null | undefined;
   culledAt: string;
@@ -343,8 +342,7 @@ export type RecordCullInput = {
   notes?: string | null | undefined;
   /** Mobile operation type, e.g. recordMortality or transferStock */
   operationType?: string | null | undefined;
-  /** SHA-256 hash of the command payload before envelope fields are added */
-  payloadHash?: string | null | undefined;
+  payloadHash: string;
   quantity: number;
   reason: CullReason;
   /** Optional mobile command payload schema version */
@@ -377,8 +375,7 @@ export type RecordDailyFeedingInput = {
 export type RecordMortalityInput = {
   avgWeightG?: number | null | undefined;
   batchId: string | number;
-  /** Stable client command UUID generated before first submission */
-  clientCommandId?: string | null | undefined;
+  clientCommandId: string | number;
   /** ISO timestamp when the mobile client created the command */
   clientCreatedAt?: string | null | undefined;
   detail?: string | null | undefined;
@@ -389,8 +386,7 @@ export type RecordMortalityInput = {
   observedBy?: string | null | undefined;
   /** Mobile operation type, e.g. recordMortality or transferStock */
   operationType?: string | null | undefined;
-  /** SHA-256 hash of the command payload before envelope fields are added */
-  payloadHash?: string | null | undefined;
+  payloadHash: string;
   quantity: number;
   reason: MortalityReason;
   /** Optional mobile command payload schema version */
@@ -447,6 +443,24 @@ export type SendMessageInput = {
   schemaVersion?: string | null | undefined;
 };
 
+export type SetChecklistItemInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: string | null | undefined;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: string | null | undefined;
+  /** Stable per-installation device identifier */
+  deviceId?: string | null | undefined;
+  isCompleted: boolean;
+  itemId: string;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: string | null | undefined;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: string | null | undefined;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: string | null | undefined;
+  taskId: string | number;
+};
+
 /** Tank durumu */
 export type TankStatus =
   | 'ACTIVE'
@@ -472,6 +486,22 @@ export type TaskCategory =
   | 'STOCK_MANAGEMENT'
   | 'WATER_QUALITY';
 
+export type TaskLifecycleInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: string | null | undefined;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: string | null | undefined;
+  /** Stable per-installation device identifier */
+  deviceId?: string | null | undefined;
+  id: string | number;
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: string | null | undefined;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: string | null | undefined;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: string | null | undefined;
+};
+
 /** Görev önceliği */
 export type TaskPriority =
   | 'HIGH'
@@ -490,8 +520,7 @@ export type TaskStatus =
 export type TransferBatchInput = {
   avgWeightG?: number | null | undefined;
   batchId: string | number;
-  /** Stable client command UUID generated before first submission */
-  clientCommandId?: string | null | undefined;
+  clientCommandId: string | number;
   /** ISO timestamp when the mobile client created the command */
   clientCreatedAt?: string | null | undefined;
   destinationTankId: string | number;
@@ -500,8 +529,7 @@ export type TransferBatchInput = {
   notes?: string | null | undefined;
   /** Mobile operation type, e.g. recordMortality or transferStock */
   operationType?: string | null | undefined;
-  /** SHA-256 hash of the command payload before envelope fields are added */
-  payloadHash?: string | null | undefined;
+  payloadHash: string;
   quantity: number;
   /** Optional mobile command payload schema version */
   schemaVersion?: string | null | undefined;
@@ -895,26 +923,25 @@ export type GetTaskStatsQueryVariables = Exact<{ [key: string]: never; }>;
 export type GetTaskStatsQuery = { taskStats: { totalToday: number, completedToday: number, overdueCount: number, upcomingCount: number, completionRate: number, avgCompletionMinutes: number } };
 
 export type CompleteTaskMutationVariables = Exact<{
-  id: string | number;
+  input: TaskLifecycleInput;
 }>;
 
 
 export type CompleteTaskMutation = { completeTask: { id: string, status: TaskStatus, completedAt: string | null, completedBy: string | null } };
 
 export type StartTaskMutationVariables = Exact<{
-  id: string | number;
+  input: TaskLifecycleInput;
 }>;
 
 
 export type StartTaskMutation = { startTask: { id: string, status: TaskStatus } };
 
-export type ToggleChecklistItemMutationVariables = Exact<{
-  taskId: string | number;
-  itemId: string;
+export type SetChecklistItemMutationVariables = Exact<{
+  input: SetChecklistItemInput;
 }>;
 
 
-export type ToggleChecklistItemMutation = { toggleChecklistItem: { id: string, checklistItems: Record<string, unknown> | null } };
+export type SetChecklistItemMutation = { setChecklistItem: { id: string, checklistItems: Record<string, unknown> | null } };
 
 export type AddTaskNoteMutationVariables = Exact<{
   taskId: string | number;
@@ -1035,9 +1062,9 @@ export const GetMyTasksDocument = {"kind":"Document","definitions":[{"kind":"Ope
 export const GetTodaysTasksDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetTodaysTasks"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"todaysTasks"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"category"}},{"kind":"Field","name":{"kind":"Name","value":"priority"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"dueTime"}},{"kind":"Field","name":{"kind":"Name","value":"checklistItems"}},{"kind":"Field","name":{"kind":"Name","value":"assignedToName"}}]}}]}}]} as unknown as DocumentNode<GetTodaysTasksQuery, GetTodaysTasksQueryVariables>;
 export const GetTaskDetailDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetTaskDetail"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"task"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"description"}},{"kind":"Field","name":{"kind":"Name","value":"category"}},{"kind":"Field","name":{"kind":"Name","value":"priority"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"assignedTo"}},{"kind":"Field","name":{"kind":"Name","value":"assignedToName"}},{"kind":"Field","name":{"kind":"Name","value":"dueDate"}},{"kind":"Field","name":{"kind":"Name","value":"dueTime"}},{"kind":"Field","name":{"kind":"Name","value":"location"}},{"kind":"Field","name":{"kind":"Name","value":"estimatedMinutes"}},{"kind":"Field","name":{"kind":"Name","value":"checklistItems"}},{"kind":"Field","name":{"kind":"Name","value":"notes"}},{"kind":"Field","name":{"kind":"Name","value":"tags"}},{"kind":"Field","name":{"kind":"Name","value":"isRecurring"}},{"kind":"Field","name":{"kind":"Name","value":"recurringTemplateId"}},{"kind":"Field","name":{"kind":"Name","value":"isAutoGenerated"}},{"kind":"Field","name":{"kind":"Name","value":"completedAt"}},{"kind":"Field","name":{"kind":"Name","value":"completedBy"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}}]}}]}}]} as unknown as DocumentNode<GetTaskDetailQuery, GetTaskDetailQueryVariables>;
 export const GetTaskStatsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetTaskStats"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"taskStats"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"totalToday"}},{"kind":"Field","name":{"kind":"Name","value":"completedToday"}},{"kind":"Field","name":{"kind":"Name","value":"overdueCount"}},{"kind":"Field","name":{"kind":"Name","value":"upcomingCount"}},{"kind":"Field","name":{"kind":"Name","value":"completionRate"}},{"kind":"Field","name":{"kind":"Name","value":"avgCompletionMinutes"}}]}}]}}]} as unknown as DocumentNode<GetTaskStatsQuery, GetTaskStatsQueryVariables>;
-export const CompleteTaskDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CompleteTask"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"completeTask"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"completedAt"}},{"kind":"Field","name":{"kind":"Name","value":"completedBy"}}]}}]}}]} as unknown as DocumentNode<CompleteTaskMutation, CompleteTaskMutationVariables>;
-export const StartTaskDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"StartTask"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"startTask"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"status"}}]}}]}}]} as unknown as DocumentNode<StartTaskMutation, StartTaskMutationVariables>;
-export const ToggleChecklistItemDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ToggleChecklistItem"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"taskId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"itemId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"toggleChecklistItem"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"taskId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"taskId"}}},{"kind":"Argument","name":{"kind":"Name","value":"itemId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"itemId"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"checklistItems"}}]}}]}}]} as unknown as DocumentNode<ToggleChecklistItemMutation, ToggleChecklistItemMutationVariables>;
+export const CompleteTaskDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CompleteTask"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"TaskLifecycleInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"completeTask"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"completedAt"}},{"kind":"Field","name":{"kind":"Name","value":"completedBy"}}]}}]}}]} as unknown as DocumentNode<CompleteTaskMutation, CompleteTaskMutationVariables>;
+export const StartTaskDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"StartTask"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"TaskLifecycleInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"startTask"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"status"}}]}}]}}]} as unknown as DocumentNode<StartTaskMutation, StartTaskMutationVariables>;
+export const SetChecklistItemDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"SetChecklistItem"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"SetChecklistItemInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"setChecklistItem"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"checklistItems"}}]}}]}}]} as unknown as DocumentNode<SetChecklistItemMutation, SetChecklistItemMutationVariables>;
 export const AddTaskNoteDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"AddTaskNote"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"taskId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"text"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"addTaskNote"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"taskId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"taskId"}}},{"kind":"Argument","name":{"kind":"Name","value":"text"},"value":{"kind":"Variable","name":{"kind":"Name","value":"text"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"notes"}}]}}]}}]} as unknown as DocumentNode<AddTaskNoteMutation, AddTaskNoteMutationVariables>;
 export const GetMyNotificationsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetMyNotifications"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"unreadOnly"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"Boolean"}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"limit"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"Int"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"myNotifications"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"unreadOnly"},"value":{"kind":"Variable","name":{"kind":"Name","value":"unreadOnly"}}},{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"Variable","name":{"kind":"Name","value":"limit"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"title"}},{"kind":"Field","name":{"kind":"Name","value":"body"}},{"kind":"Field","name":{"kind":"Name","value":"isRead"}},{"kind":"Field","name":{"kind":"Name","value":"readAt"}},{"kind":"Field","name":{"kind":"Name","value":"data"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}}]} as unknown as DocumentNode<GetMyNotificationsQuery, GetMyNotificationsQueryVariables>;
 export const GetUnreadNotificationCountDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"GetUnreadNotificationCount"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"unreadNotificationCount"}}]}}]} as unknown as DocumentNode<GetUnreadNotificationCountQuery, GetUnreadNotificationCountQueryVariables>;

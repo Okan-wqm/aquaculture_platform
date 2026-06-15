@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, Inject, Optional } from '@nestjs/c
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import Redis from 'ioredis';
+import type { ChainableCommander } from 'ioredis';
 
 import {
   ISessionManager,
@@ -173,10 +174,35 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
       const userKey = `${this.keyPrefix}user:${userId}`;
       const sessionIds = await this.redis.smembers(userKey);
 
-      for (const sessionId of sessionIds) {
-        const session = await this.getSession(sessionId);
-        if (session && session.isActive) {
-          sessions.push(this.toSessionInfo(session));
+      // WHAT: collapse the former N serial GETs into a single MGET round-trip.
+      // WHY: getUserSessions runs on the login hot path (via enforceSessionLimit)
+      // and on every revokeAllSessions; one MGET keeps reads at O(1) round-trips.
+      if (sessionIds.length === 0) {
+        return sessions;
+      }
+
+      const keys = sessionIds.map((id) => `${this.keyPrefix}${id}`);
+      const raw = await this.redis.mget(...keys);
+
+      for (let i = 0; i < raw.length; i++) {
+        const data = raw[i];
+        // Null = missing or TTL-expired member. We intentionally leave the stale
+        // SMEMBERS entry in place (Redis TTL handles the value; pruning the set
+        // here would race createSession's sadd and alter today's semantics).
+        if (data === null || data === undefined) {
+          continue;
+        }
+
+        let parsed: StoredSession;
+        try {
+          parsed = JSON.parse(data) as StoredSession;
+        } catch {
+          // Preserve getSession's null-on-parse-failure semantics: skip and move on.
+          continue;
+        }
+
+        if (parsed.isActive) {
+          sessions.push(this.toSessionInfo(parsed));
         }
       }
     } else {
@@ -196,21 +222,16 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
 
   /**
    * Revoke a specific session
+   *
+   * Kept for validateSession's expired-path and external callers. Delegates to
+   * revokeSessionsBatch with a one-element array so single and bulk revocation
+   * share exactly one code path (no divergent Redis logic to drift apart).
    */
   async revokeSession(sessionId: string, reason?: string): Promise<void> {
     const session = await this.getSession(sessionId);
     if (!session) return;
 
-    if (this.useRedis && this.redis) {
-      const sessionKey = `${this.keyPrefix}${sessionId}`;
-      const userKey = `${this.keyPrefix}user:${session.userId}`;
-
-      await this.redis.del(sessionKey);
-      await this.redis.srem(userKey, sessionId);
-    } else {
-      this.sessions.delete(sessionId);
-      this.userSessions.get(session.userId)?.delete(sessionId);
-    }
+    await this.revokeSessionsBatch(session.userId, [sessionId], reason ?? 'none');
 
     this.logger.debug(
       `Session revoked: ${sessionId.substring(0, 8)}... (reason: ${reason || 'none'})`,
@@ -219,17 +240,20 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
 
   /**
    * Revoke all sessions for user
+   *
+   * WHAT: one MGET (via getUserSessions) + one pipelined del/srem batch.
+   * WHY: the prior loop did ~4N serial round-trips (N for the read fan-out plus
+   * a GET+DEL+SREM per revoked session); batching drops it to 2 round-trips and
+   * removes revokeSession's redundant internal GET entirely.
    */
   async revokeAllSessions(userId: string, exceptSessionId?: string): Promise<number> {
     const sessions = await this.getUserSessions(userId);
-    let revokedCount = 0;
 
-    for (const session of sessions) {
-      if (session.sessionId !== exceptSessionId) {
-        await this.revokeSession(session.sessionId, 'revoke_all');
-        revokedCount++;
-      }
-    }
+    const idsToRevoke = sessions
+      .filter((s) => s.sessionId !== exceptSessionId)
+      .map((s) => s.sessionId);
+
+    const revokedCount = await this.revokeSessionsBatch(userId, idsToRevoke, 'revoke_all');
 
     this.logger.log(`Revoked ${revokedCount} sessions for user ${userId}`);
     return revokedCount;
@@ -252,13 +276,12 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
       (a, b) => a.lastActivityAt.getTime() - b.lastActivityAt.getTime(),
     );
 
-    // Revoke oldest sessions
+    // Revoke oldest sessions in a single batch (one pipeline exec on Redis).
     const sessionsToRevoke = sortedSessions.slice(0, sessions.length - maxSessions);
+    const idsToRevoke = sessionsToRevoke.map((s) => s.sessionId);
 
-    for (const session of sessionsToRevoke) {
-      await this.revokeSession(session.sessionId, 'session_limit_exceeded');
-      revokedIds.push(session.sessionId);
-    }
+    await this.revokeSessionsBatch(userId, idsToRevoke, 'session_limit_exceeded');
+    revokedIds.push(...idsToRevoke);
 
     if (revokedIds.length > 0) {
       this.logger.log(
@@ -267,6 +290,86 @@ export class SessionManagerService implements ISessionManager, OnModuleDestroy {
     }
 
     return revokedIds;
+  }
+
+  /**
+   * Revoke a batch of sessions for a user.
+   *
+   * Redis branch: one pipeline carrying a del + srem per id, a single exec(),
+   * then inspection of the per-command [err, result] tuples. ioredis never
+   * throws from exec() for individual command failures — it surfaces them in the
+   * tuples — so we MUST inspect them: an errored command means that session was
+   * NOT revoked, which keeps revokedCount honest under a partial Redis failure.
+   *
+   * In-memory branch: plain Map deletes, no round-trips.
+   *
+   * @returns the number of sessions actually revoked.
+   */
+  private async revokeSessionsBatch(
+    userId: string,
+    sessionIds: string[],
+    reason: string,
+  ): Promise<number> {
+    if (sessionIds.length === 0) {
+      return 0;
+    }
+
+    if (this.useRedis && this.redis) {
+      const userKey = `${this.keyPrefix}user:${userId}`;
+
+      const pipe: ChainableCommander = this.redis.pipeline();
+      for (const id of sessionIds) {
+        pipe.del(`${this.keyPrefix}${id}`);
+        pipe.srem(userKey, id);
+      }
+
+      const results = await pipe.exec();
+
+      // exec() returns null only if the pipeline itself could not run; treat as
+      // a total failure so we never over-report revocations.
+      if (results === null) {
+        this.logger.error(
+          `Pipeline exec returned null while revoking ${sessionIds.length} sessions ` +
+          `for user ${userId} (reason: ${reason})`,
+        );
+        return 0;
+      }
+
+      // Commands are queued as [del, srem] pairs, so the i-th session occupies
+      // tuples 2*i (del) and 2*i+1 (srem). A session counts as revoked only when
+      // BOTH of its commands report no error.
+      let revokedCount = 0;
+      for (const [i, sessionId] of sessionIds.entries()) {
+        const delTuple = results[i * 2];
+        const sremTuple = results[i * 2 + 1];
+        const delErr = delTuple ? delTuple[0] : null;
+        const sremErr = sremTuple ? sremTuple[0] : null;
+
+        if (delErr || sremErr) {
+          this.logger.error(
+            `Failed to revoke session ${sessionId.substring(0, 8)}... ` +
+            `for user ${userId} (reason: ${reason}): ` +
+            `del=${delErr?.message ?? 'ok'}, srem=${sremErr?.message ?? 'ok'}`,
+          );
+          continue;
+        }
+
+        revokedCount++;
+      }
+
+      return revokedCount;
+    }
+
+    // In-memory branch: local Map mutation, no round-trips.
+    const userSet = this.userSessions.get(userId);
+    let revokedCount = 0;
+    for (const id of sessionIds) {
+      this.sessions.delete(id);
+      userSet?.delete(id);
+      revokedCount++;
+    }
+
+    return revokedCount;
   }
 
   /**

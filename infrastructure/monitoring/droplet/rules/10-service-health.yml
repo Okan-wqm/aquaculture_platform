@@ -1,0 +1,63 @@
+# Service-health alert rules for the DROPLET Prometheus (B2 / OBS-HIGH-002).
+#
+# Plain Prometheus rule-file format (NOT the Kubernetes PrometheusRule CRD —
+# the droplet runs vanilla Prometheus, not the operator). The `namespace` and
+# `app` labels are NOT injected by kube service discovery here; they come from
+# the file_sd target labels generated from the service catalog
+# (infrastructure/monitoring/droplet/file_sd/aqua-services.json — D3).
+#
+# CORRECTION vs the dormant K8s rules (infrastructure/monitoring/prometheus/
+# aquaculture-rules.yaml): the error-rate selector used label `status` which the
+# backend never emits — libs/backend-common/src/metrics/metrics.service.ts emits
+# `status_code`. Fixed here. Every rule carries a runbook_url whose file exists
+# in docs/runbooks/monitoring/ (enforced by monitoring-alert-runbook-url.spec.ts).
+groups:
+  - name: aquaculture.service.health
+    rules:
+      - alert: ServiceDown
+        expr: up{namespace="aquaculture"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Service {{ $labels.app }} is down'
+          description: 'Service {{ $labels.app }} has failed its Prometheus scrape (up == 0) for more than 1 minute.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/service-down.md'
+
+      - alert: HighErrorRate
+        # The trailing traffic guard suppresses false positives on low-traffic
+        # services (a single 5xx on ~zero RPS is not a 5% error rate worth paging).
+        expr: |
+          (
+            sum(rate(http_request_duration_seconds_count{namespace="aquaculture",status_code=~"5.."}[5m])) by (app)
+            /
+            sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app)
+            > 0.05
+          ) and (
+            sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app) > 1
+          )
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High error rate on {{ $labels.app }}'
+          description: '{{ $labels.app }} has a 5xx error rate above 5% (>1 req/s) for 5 minutes.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/high-error-rate.md'
+
+      - alert: CriticalErrorRate
+        expr: |
+          (
+            sum(rate(http_request_duration_seconds_count{namespace="aquaculture",status_code=~"5.."}[5m])) by (app)
+            /
+            sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app)
+            > 0.10
+          ) and (
+            sum(rate(http_request_duration_seconds_count{namespace="aquaculture"}[5m])) by (app) > 1
+          )
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Critical error rate on {{ $labels.app }}'
+          description: '{{ $labels.app }} has a 5xx error rate above 10% (>1 req/s) for 2 minutes.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/critical-error-rate.md'

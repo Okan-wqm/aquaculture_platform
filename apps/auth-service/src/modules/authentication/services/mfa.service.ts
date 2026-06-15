@@ -348,9 +348,9 @@ export class MfaService {
 
     // Generate recovery codes
     const recoveryCodes = this.generateRecoveryCodes();
-    const recoveryCodeHashes = recoveryCodes
-      .map((code) => crypto.createHash('sha256').update(code).digest('hex'))
-      .join(',');
+    // SEC-LOW-001(b): hashRecoveryCodes asserts each digest is 64-char hex so a
+    // malformed hash can never be persisted (write-time invariant).
+    const recoveryCodeHashes = this.hashRecoveryCodes(recoveryCodes);
 
     // Encrypt secret before storage
     const encryptedSecret = this.encrypt(secretBase32);
@@ -488,9 +488,8 @@ export class MfaService {
 
     // Generate new recovery codes
     const recoveryCodes = this.generateRecoveryCodes();
-    const recoveryCodeHashes = recoveryCodes
-      .map((c) => crypto.createHash('sha256').update(c).digest('hex'))
-      .join(',');
+    // SEC-LOW-001(b): same write-time hex invariant as setupMfa.
+    const recoveryCodeHashes = this.hashRecoveryCodes(recoveryCodes);
 
     user.mfaRecoveryCodes = recoveryCodeHashes;
     await this.userRepository.save(user);
@@ -511,9 +510,21 @@ export class MfaService {
    * Called from AuthenticationService.login() after successful password validation.
    */
   generateMfaChallenge(user: User): { mfaRequired: true; mfaToken: string } {
-    // Generate a short-lived JWT specifically for MFA verification
+    // Generate a short-lived JWT specifically for MFA verification.
+    //
+    // SEC-LOW-001(a) — WHY `type: 'mfa_challenge'`: the canonical JwtPayload
+    // type discriminator (token.service.ts JwtPayload.type union) is the
+    // load-bearing claim that keeps token surfaces symmetric. `enforceAccessTokenType`
+    // already rejects type !== 'access' on every bearer surface, so stamping
+    // 'mfa_challenge' here makes this token unusable as a bearer credential AND
+    // (paired with the positive check in verifyMfaLogin below) makes an
+    // access/refresh token unusable at the MFA-verify endpoint — neither can be
+    // replayed across surfaces even though both are signed by the same keypair.
+    // `purpose: 'mfa_verification'` is retained for backward compat during
+    // rollout, but `type` is the authoritative discriminator.
     const mfaPayload = {
       sub: `${MFA_TOKEN_PREFIX}${user.id}`,
+      type: 'mfa_challenge' as const,
       purpose: 'mfa_verification',
       userId: user.id,
       jti: crypto.randomUUID(),
@@ -545,15 +556,23 @@ export class MfaService {
       throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
     }
     // Validate the MFA token
-    let mfaPayload: { sub: string; userId: string; purpose: string; jti: string };
+    let mfaPayload: { sub: string; userId: string; purpose: string; jti: string; type?: string };
     try {
       mfaPayload = this.jwtService.verify(mfaToken);
     } catch {
       throw new UnauthorizedException('MFA token is invalid or expired. Please login again.');
     }
 
-    // Validate token purpose
+    // Validate token purpose AND type.
+    //
+    // SEC-LOW-001(a) — WHY the positive `type === 'mfa_challenge'` check: the
+    // legacy guard only asserted purpose + sub-prefix, both of which a future
+    // token shape could satisfy. The `type` claim is the canonical discriminator
+    // minted in generateMfaChallenge; requiring it positively here means an
+    // access/refresh token (type 'access'/'refresh') can never be replayed into
+    // this MFA-verify endpoint even if signed by the same keypair.
     if (
+      mfaPayload.type !== 'mfa_challenge' ||
       mfaPayload.purpose !== 'mfa_verification' ||
       !mfaPayload.sub?.startsWith(MFA_TOKEN_PREFIX)
     ) {
@@ -749,6 +768,32 @@ export class MfaService {
   }
 
   /**
+   * Hash a batch of recovery codes into the comma-separated SHA-256 hex form
+   * stored on the user row.
+   *
+   * SEC-LOW-001(b) — WHY this helper exists (Tier-1 make-it-impossible):
+   * `verifyAndConsumeRecoveryCode` compares stored hashes with
+   * `crypto.timingSafeEqual`, which throws ERR_CRYPTO_TIMING_SAFE_EQUAL_DATA_TYPE_OR_LENGTH
+   * if a stored hash decodes to a different byte length than the candidate. The
+   * read path now length-guards defensively, but the architectural cure is to
+   * make a malformed hash unwritable in the first place. Every emitted digest is
+   * asserted to be exactly 64 lowercase hex chars (32 bytes) here, so a future
+   * change that produces a non-hex/odd-length hash fails fast at write time
+   * rather than corrupting a row that later throws at verify.
+   */
+  private hashRecoveryCodes(codes: string[]): string {
+    return codes
+      .map((code) => {
+        const digest = crypto.createHash('sha256').update(code).digest('hex');
+        if (!/^[0-9a-f]{64}$/.test(digest)) {
+          throw new Error('Recovery code hash is not a 64-character lowercase hex digest');
+        }
+        return digest;
+      })
+      .join(',');
+  }
+
+  /**
    * Verify a recovery code and consume it (remove from stored hashes).
    * Returns true if a matching code was found and consumed.
    */
@@ -767,9 +812,20 @@ export class MfaService {
     const codeHash = crypto.createHash('sha256').update(formattedCode).digest('hex');
     const storedHashes = user.mfaRecoveryCodes.split(',');
 
-    const matchIndex = storedHashes.findIndex((hash) =>
-      crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(codeHash, 'hex')),
-    );
+    // SEC-LOW-001(b) — WHY the length short-circuit: crypto.timingSafeEqual
+    // throws ERR_CRYPTO_TIMING_SAFE_EQUAL_DATA_TYPE_OR_LENGTH when its two
+    // buffers differ in byte length. A corrupted/odd-length stored hash decodes
+    // (Buffer.from(...,'hex') silently truncates) to a length that mismatches our
+    // candidate, which would throw and 500 the MFA verify (DoS + throw-timing
+    // signal). codeHashBuf is always 32 bytes (our own SHA-256 digest), so the
+    // `h.length === codeHashBuf.length` guard can ONLY ever skip a corrupt stored
+    // entry — never weaken a legitimate compare. A length-mismatch is treated as
+    // a non-match (skip), not a throw.
+    const codeHashBuf = Buffer.from(codeHash, 'hex');
+    const matchIndex = storedHashes.findIndex((hash) => {
+      const h = Buffer.from(hash, 'hex');
+      return h.length === codeHashBuf.length && crypto.timingSafeEqual(h, codeHashBuf);
+    });
 
     if (matchIndex === -1) {
       return false;

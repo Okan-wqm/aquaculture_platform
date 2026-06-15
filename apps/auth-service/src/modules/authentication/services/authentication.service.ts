@@ -1133,10 +1133,16 @@ export class AuthenticationService {
     // Single atomic query: increment + conditional lockout + return updated values (MED-01)
     const result: Array<{ failedLoginAttempts: number; lockedUntil: Date | null }> =
       await this.dataSource.query(
+        // SEC-LOW-001(c) — WHY $3::timestamptz (not ::timestamp): users.lockedUntil
+        // is a TIMESTAMP WITH TIME ZONE column and $3 is bound to a JS Date (an
+        // absolute instant). Casting to ::timestamp (without tz) drops the offset
+        // and reinterprets the lockout deadline under the DB session TimeZone,
+        // drifting the lockout window on any non-UTC session. ::timestamptz
+        // round-trips the instant losslessly.
         `UPDATE auth.users
          SET "failedLoginAttempts" = "failedLoginAttempts" + 1,
              "lockedUntil" = CASE
-               WHEN "failedLoginAttempts" + 1 >= $2 THEN $3::timestamp
+               WHEN "failedLoginAttempts" + 1 >= $2 THEN $3::timestamptz
                ELSE "lockedUntil"
              END
          WHERE id = $1

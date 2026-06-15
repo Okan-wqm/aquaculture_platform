@@ -75,8 +75,11 @@ const mockUserRepository = {
 
 const mockJwtService = {
   sign: jest.fn().mockReturnValue('mock-mfa-token'),
+  // SEC-LOW-001(a): a valid MFA-challenge token now carries the canonical
+  // type:'mfa_challenge' discriminator; verifyMfaLogin positively requires it.
   verify: jest.fn().mockReturnValue({
     sub: 'mfa:user-uuid-123',
+    type: 'mfa_challenge',
     userId: 'user-uuid-123',
     purpose: 'mfa_verification',
     jti: 'mock-jti',
@@ -350,6 +353,21 @@ describe('MfaService', () => {
         { expiresIn: 300 },
       );
     });
+
+    it('SEC-LOW-001(a): mints the canonical type:mfa_challenge discriminator', () => {
+      const user = createMockUser({ mfaEnabled: true });
+
+      service.generateMfaChallenge(user);
+
+      // The `type` claim is the load-bearing discriminator that keeps the MFA
+      // token from being replayed as a bearer token (enforceAccessTokenType
+      // rejects type !== 'access') and that verifyMfaLogin now positively
+      // requires. Use the canonical 'mfa_challenge' union member, NOT 'mfa'.
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mfa_challenge' }),
+        { expiresIn: 300 },
+      );
+    });
   });
 
   // ==========================================================================
@@ -378,9 +396,66 @@ describe('MfaService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
+    it('SEC-LOW-001(a): rejects an access token replayed at the MFA-verify endpoint', async () => {
+      // Correct purpose + sub-prefix but type:'access' — i.e. a bearer token
+      // signed by the same keypair. The new positive type check must reject it
+      // so a non-MFA token can never be exchanged for full auth tokens here.
+      mockJwtService.verify.mockReturnValue({
+        sub: 'mfa:user-uuid-123',
+        type: 'access',
+        userId: 'user-uuid-123',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+      });
+
+      await expect(
+        service.verifyMfaLogin('access-token', '123456'),
+      ).rejects.toThrow(UnauthorizedException);
+      // Must reject before any token minting.
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+    });
+
+    it('SEC-LOW-001(a): rejects an MFA token missing the type claim entirely', async () => {
+      // A legacy/forged token with correct purpose + sub-prefix but no type
+      // claim must fail the positive type check.
+      mockJwtService.verify.mockReturnValue({
+        sub: 'mfa:user-uuid-123',
+        userId: 'user-uuid-123',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+      });
+
+      await expect(
+        service.verifyMfaLogin('typeless-token', '123456'),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+    });
+
+    it('SEC-LOW-001(a): a freshly minted mfa_challenge token round-trips through verify', async () => {
+      // Round-trip: mint via generateMfaChallenge, capture the signed payload,
+      // feed it back through verify so verifyMfaLogin sees the real shape and
+      // proceeds to verification (here a valid TOTP code yields full tokens).
+      const mintUser = createMockUser({ mfaEnabled: true });
+      service.generateMfaChallenge(mintUser);
+      const mintedPayload = mockJwtService.sign.mock.calls[0]![0];
+      expect(mintedPayload.type).toBe('mfa_challenge');
+
+      mockJwtService.verify.mockReturnValue(mintedPayload);
+
+      const secretBase32 = 'JBSWY3DPEHPK3PXP';
+      const validCode = generateTestTOTP(base32Decode(secretBase32));
+      const user = createMockUser({ mfaEnabled: true, mfaSecret: secretBase32 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      const result = await service.verifyMfaLogin('round-trip-token', validCode, '127.0.0.1');
+
+      expect(result.accessToken).toBe('full-access-token');
+    });
+
     it('should lock out after max failed attempts', async () => {
       mockJwtService.verify.mockReturnValue({
         sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
@@ -405,6 +480,7 @@ describe('MfaService', () => {
     it('should reject if account is locked out', async () => {
       mockJwtService.verify.mockReturnValue({
         sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
@@ -425,6 +501,7 @@ describe('MfaService', () => {
     it('should return full auth tokens on valid TOTP code', async () => {
       mockJwtService.verify.mockReturnValue({
         sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
@@ -461,6 +538,7 @@ describe('MfaService', () => {
     it('SEC-HIGH-001: rejects a TOTP code REPLAYED within its validity window', async () => {
       mockJwtService.verify.mockReturnValue({
         sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
@@ -488,6 +566,7 @@ describe('MfaService', () => {
     it('SEC-HIGH-001: verification persists the matched TOTP step (one-time consume)', async () => {
       mockJwtService.verify.mockReturnValue({
         sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
@@ -515,6 +594,7 @@ describe('MfaService', () => {
     it('should accept recovery code and consume it', async () => {
       mockJwtService.verify.mockReturnValue({
         sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
@@ -543,6 +623,60 @@ describe('MfaService', () => {
         (call: any) => call[0].mfaRecoveryCodes === otherHash,
       );
       expect(codeConsumedSave).toBeDefined();
+    });
+
+    it('SEC-LOW-001(b): a corrupted stored hash does NOT throw on a non-matching code', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
+        userId: 'user-uuid-123',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+      });
+
+      // 'zzzz' (non-hex) and 'abc' (odd-length) both decode via
+      // Buffer.from(...,'hex') to a byte length != 32. Pre-fix, timingSafeEqual
+      // on such a buffer threw ERR_CRYPTO_TIMING_SAFE_EQUAL_DATA_TYPE_OR_LENGTH
+      // and 500'd the verify. The length guard must skip them and return no-match
+      // (here UnauthorizedException 'Invalid MFA code', NOT a 500/throw from crypto).
+      const validHash = crypto.createHash('sha256').update('ABCDE-FGHIJ').digest('hex');
+      const user = createMockUser({
+        mfaEnabled: true,
+        mfaSecret: 'JBSWY3DPEHPK3PXP',
+        mfaRecoveryCodes: `zzzz,abc,${validHash}`,
+      });
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      // Supply a code that matches NEITHER the valid hash nor the corrupt entries.
+      await expect(
+        service.verifyMfaLogin('valid-mfa-token', 'WRONG-CODES'),
+      ).rejects.toThrow(UnauthorizedException);
+      // Crucially it must be the clean no-match path, never a crypto throw.
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+    });
+
+    it('SEC-LOW-001(b): a valid code still matches when a corrupted hash is present', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
+        userId: 'user-uuid-123',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+      });
+
+      const recoveryCode = 'ABCDE-FGHIJ';
+      const validHash = crypto.createHash('sha256').update(recoveryCode).digest('hex');
+      const user = createMockUser({
+        mfaEnabled: true,
+        mfaSecret: 'JBSWY3DPEHPK3PXP',
+        // Corrupt entries surrounding the valid hash must be skipped, not block it.
+        mfaRecoveryCodes: `zzzz,${validHash},abc`,
+      });
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      const result = await service.verifyMfaLogin('valid-mfa-token', recoveryCode);
+
+      expect(result.accessToken).toBe('full-access-token');
     });
   });
 
@@ -584,6 +718,61 @@ describe('MfaService', () => {
       await expect(
         service.regenerateRecoveryCodes('user-uuid-123', '000000'),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // ==========================================================================
+  // hashRecoveryCodes write-time invariant (SEC-LOW-001(b))
+  // ==========================================================================
+  describe('hashRecoveryCodes write-time invariant', () => {
+    it('every emitted recovery-code hash is exactly 64-char lowercase hex', async () => {
+      // The helper is private; assert its invariant through its only observable
+      // output — the comma-separated hashes persisted by setupMfa. A SHA-256 hex
+      // digest is structurally /^[0-9a-f]{64}$/, so the write path is correct by
+      // construction and the regex assertion in hashRecoveryCodes guards it.
+      const user = createMockUser();
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      await service.setupMfa('user-uuid-123');
+
+      const savedUser = mockUserRepository.save.mock.calls[0]![0];
+      const hashes = savedUser.mfaRecoveryCodes!.split(',');
+      expect(hashes).toHaveLength(8);
+      hashes.forEach((hash: string) => {
+        expect(hash).toMatch(/^[0-9a-f]{64}$/);
+      });
+    });
+
+    it('throws at write time if a non-hex digest is ever produced', async () => {
+      // Tier-1 make-it-impossible: force the digest output to a non-hex value to
+      // prove the regex guard fails fast at write time rather than persisting a
+      // corrupt hash that would later throw at verify. Stubbing digest() (not
+      // casting types) exercises the exact branch a future regression would hit.
+      const realDigest = crypto.Hash.prototype.digest;
+      const digestSpy = jest
+        .spyOn(crypto.Hash.prototype, 'digest')
+        .mockImplementation(function (
+          this: crypto.Hash,
+          encoding?: crypto.BinaryToTextEncoding,
+        ): string {
+          // Only corrupt the hex-string recovery-code hashing; delegate any other
+          // (e.g. encryption-key derivation) digest call to the real impl.
+          if (encoding === 'hex') {
+            return 'not-a-valid-hex-digest';
+          }
+          return realDigest.call(this, encoding ?? 'hex');
+        });
+
+      const user = createMockUser();
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      try {
+        await expect(service.setupMfa('user-uuid-123')).rejects.toThrow(
+          '64-character lowercase hex digest',
+        );
+      } finally {
+        digestSpy.mockRestore();
+      }
     });
   });
 });

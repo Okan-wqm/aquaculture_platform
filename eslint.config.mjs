@@ -176,6 +176,11 @@ const RESTRICTED_IMPORTS_PATHS = [
     message:
       'moment was removed in A4 (dead-weight): it is in maintenance mode (no new features) and ships a large, mutable, non-tree-shakeable API. Use date-fns (already a dependency) for formatting/parsing. repo-hygiene-invariants.spec.ts also bans the dependency.',
   },
+  {
+    name: 'nats',
+    message:
+      "nats v2 was removed in A3 PR-C: the platform runs on @nats-io/* v3 (event bus, direct clients, and the NatsV3Server/NatsV3Client Nest transport). Import 'connect' from '@nats-io/transport-node' and types/createInbox from '@nats-io/nats-core' instead. @nestjs/microservices' lazy require('nats') is unreachable now that Transport.NATS is replaced. repo-hygiene-invariants.spec.ts also bans the dependency.",
+  },
 ];
 
 // Test-file globs (.eslintrc.json override 14, line 274), recursive-form.
@@ -522,6 +527,34 @@ export default [
     files: ['platform/libs/event-bus/src/nats/nats-event-bus.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off',
+    },
+  },
+
+  // ── PR-B (PLAT-HIGH-003): the @nats-io/* v3 packages ship exports-only ESM whose
+  //    types do not resolve under the type-aware lint's project context for
+  //    libs/backend-common, so every @nats-io value (Msg, NatsConnection, Payload,
+  //    Subscription) degrades to `any` and trips the no-unsafe-* family — the same
+  //    ORPHAN-MEDIUM-093 root cause as the event-bus override above. The service
+  //    tsconfigs DO resolve @nats-io (type-check + build pass), so these are false
+  //    positives. The Server base's abstract `on` is also Function-typed by the Nest
+  //    framework (EventsMap = Record<string, Function>). Scoped to the two v3
+  //    transport files; removable once the parserOptions.project ordering fix
+  //    (ORPHAN-MEDIUM-093) lands. ──
+  {
+    files: [
+      'libs/backend-common/src/nats/nats-v3-server.strategy.ts',
+      'libs/backend-common/src/nats/nats-v3-client.proxy.ts',
+      // PR-C: the sensor-ingest equivalence e2e migrated to @nats-io v3 and hits the
+      // same ORPHAN-MEDIUM-093 @nats-io-resolves-to-any false positive.
+      'e2e/tests/sensor-ingest-equivalence.e2e.spec.ts',
+    ],
+    rules: {
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-unsafe-function-type': 'off',
     },
   },
 ];

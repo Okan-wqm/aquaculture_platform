@@ -70,7 +70,7 @@ arc-swap = { workspace = true }
 # PostgreSQL COPY sink + TLS.
 tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"] }
 deadpool-postgres = { version = "0.14", features = ["rt_tokio_1"] }
-tokio-postgres-rustls = "0.13"
+tokio-postgres-rustls = "0.14"
 rustls = { workspace = true }
 # RUST-CVE-001: PEM decoding via rustls-pki-types (replaces unmaintained
 # rustls-pemfile — RUSTSEC-2025-0134; see crates/local-rumqttc/UPSTREAM.md).

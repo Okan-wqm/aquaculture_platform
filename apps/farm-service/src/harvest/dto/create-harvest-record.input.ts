@@ -137,10 +137,15 @@ export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @MaxLength(500)
   rejectionReason?: string;
 
-  @Field(() => ID, { description: 'User ID who performed the harvest' })
-  @IsNotEmpty()
-  @IsUUID()
-  harvestedBy: string;
+  // Harvest identity is server-derived, never client-supplied. The resolver
+  // reads the authenticated principal from @CurrentUser and threads
+  // user.sub into CreateHarvestRecordCommand.recordedBy, which the handler
+  // persists as HarvestRecord.supervisorId and stamps onto the
+  // BatchHarvested event's userId. A client-provided `harvestedBy` was never
+  // read by the command interface or the handler, yet its ID! arity forced
+  // every caller (mobile included) to send a value or get a 400 — a required
+  // field with no consumer. Removing it makes attribution-spoofing
+  // structurally impossible (tier-1) instead of merely ignored.
 
   @Field({ nullable: true, description: 'Additional notes' })
   @IsOptional()

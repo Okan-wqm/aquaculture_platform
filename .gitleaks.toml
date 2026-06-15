@@ -43,6 +43,10 @@ paths = [
 regexes = [
   '''(?i)(change-?me|replace-?me|your-?secret|example|placeholder|<[a-z0-9_-]+>|dummy|fake|testonly|<[^>]+>|\$\{[^}]+\}|dev-?password|dev-?secret|devpassword)''',
   '''aquaculture-test''',
+  # `const X = 'EMPLOYEE_PII_*_KEY'` holds the NAME of an env var (read at
+  # runtime via configService.getOrThrow), never a secret value — the PII
+  # encryption keys live only in the deploy secret store. Not a leak.
+  '''EMPLOYEE_PII_[A-Z_]+_KEY''',
 ]
 
 # ──────────────────────────────────────────────────────────────────────

@@ -65,10 +65,11 @@ function getMemberDisplayName(member: ChannelMember): string {
 }
 
 function getMemberRole(member: ChannelMember): string {
+  // S1-CODEGEN: ChannelMemberRole wire form is the UPPERCASE GraphQL enum NAME.
   switch (member.role) {
-    case 'owner':
+    case 'OWNER':
       return 'Owner';
-    case 'admin':
+    case 'ADMIN':
       return 'Admin';
     default:
       return 'Member';

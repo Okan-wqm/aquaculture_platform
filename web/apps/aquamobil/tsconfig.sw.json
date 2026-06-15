@@ -2,7 +2,14 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2020", "WebWorker"],
-    "types": [],
+    // FE-CRITICAL-050-SW: 'vite-plugin-pwa/client' provides the injectManifest
+    // virtual-module types; `self.__WB_MANIFEST` is declared by the
+    // `workbox-precaching` import in messaging-sw.ts (a `declare global` on
+    // ServiceWorkerGlobalScope), so it resolves without an extra ambient type.
+    "types": ["vite-plugin-pwa/client"],
+    // noEmit stays TRUE: injectManifest compiles the SW through VitePWA's OWN
+    // Vite sub-build, NOT tsc. This tsconfig only type-checks the SW. Removing
+    // noEmit would emit stray .js next to the .ts source.
     "noEmit": true
   },
   "include": ["src/pwa/messaging-sw.ts"],

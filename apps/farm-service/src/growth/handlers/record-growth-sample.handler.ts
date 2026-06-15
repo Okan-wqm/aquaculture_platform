@@ -15,17 +15,23 @@
  * corresponding domain write was lost, and the domain never commits
  * a measurement whose event failed to enqueue.
  *
- * # Why we didn't take a pessimistic lock on the batch
+ * # Why we take a pessimistic lock on the batch
  *
- * Unlike culls / mortality (which race on `currentQuantity` decrement
- * and need serialising), two concurrent growth samples on the same
- * batch write distinct `growth_measurements` rows and then each
- * overwrite `batch.weight.actual` with their own snapshot. Last-
- * writer-wins on the batch weight is the intended semantics — a
- * newer sample should overwrite an older one. No lock needed.
+ * The batch row is re-read INSIDE the transaction with
+ * pessimistic_write (mirroring record-mortality). Under derive-on-read
+ * biomass, the only fields a growth sample may mutate on the batch are
+ * the weight.actual provenance fields (avgWeight, totalBiomass,
+ * lastMeasuredAt, sampleSize, confidencePercent). We write ONLY those
+ * onto the freshly-locked in-tx row instead of saving a stale,
+ * externally-loaded snapshot of the whole entity — otherwise a sample
+ * that loaded the batch before a concurrent mortality/cull committed
+ * would, on save, revert that handler's currentQuantity / feed
+ * decrements (lost-update). Locking + a field-scoped write makes the
+ * lost-update structurally impossible.
  *
  * @module Growth/Handlers
  */
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -40,6 +46,11 @@ import { GrowthMeasurement, MeasurementType, MeasurementMethod, StatisticalSumma
 import { Batch } from '../../batch/entities/batch.entity';
 import { FCRCalculationService } from '../services/fcr-calculation.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+
+// Growth statistics (StatisticalSummary.weight.confidenceInterval) are computed
+// at a 95% confidence interval, so a recorded sample stamps the batch weight
+// provenance with a 95% confidence level.
+const WEIGHT_SAMPLE_CONFIDENCE_PERCENT = 95;
 
 @Injectable()
 @CommandHandler(RecordGrowthSampleCommand)
@@ -74,8 +85,10 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
       subjectLabel: `batch ${payload.batchId}`,
     });
 
-    // Batch'i doğrula — read outside the tx is fine; the batch row
-    // is validated again (implicitly) when we save it inside the tx.
+    // Batch'i doğrula — this non-tx read is for validation, species relation
+    // (FCR / theoretical-weight inputs) and population defaults only. The
+    // AUTHORITATIVE write target is re-read under pessimistic_write inside the
+    // transaction below; nothing on this snapshot is ever saved.
     const batch = await this.batchRepository.findOne({
       where: { id: payload.batchId, tenantId },
       relations: ['species'],
@@ -188,19 +201,40 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
 
     // Atomic block: save measurement → (optional) update batch weight
     // → flip isProcessed → enqueue event → commit. Rolls back together.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    // runInTenantTransaction pins search_path to tenant_<uuid> for the whole tx
+    // (pool-checkout routing alone is not sufficient for transactional writes,
+    // per pinTenantTransactionSearchPath), so the locked read + per-tenant
+    // writes (batches_v2, growth_measurements) land in the correct schema.
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const saved = await queryRunner.manager.save(GrowthMeasurement, measurement);
 
       if (saved.updateBatchWeight) {
-        if (batch.weight && batch.weight.actual) {
-          batch.weight.actual.avgWeight = saved.averageWeight;
-          batch.weight.actual.totalBiomass = saved.estimatedBiomass;
-          batch.weight.actual.lastMeasuredAt = saved.measurementDate;
+        // Re-read the batch under pessimistic_write INSIDE the tx so the write
+        // targets the live row, not the stale snapshot loaded above. We mutate
+        // ONLY the weight.actual provenance fields — never the whole entity —
+        // so a concurrent mortality/cull/harvest that decremented
+        // currentQuantity/feed cannot be reverted by this sample (lost-update).
+        const lockedBatch = await queryRunner.manager.findOne(Batch, {
+          where: { id: payload.batchId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!lockedBatch) {
+          throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);
         }
-        await queryRunner.manager.save(Batch, batch);
+        if (lockedBatch.weight?.actual) {
+          lockedBatch.weight.actual.avgWeight = saved.averageWeight;
+          // totalBiomass is the at-sample snapshot of the JSONB provenance
+          // block; current biomass is derived on read from the live count ×
+          // avgWeight, so this stored figure is provenance, not authority.
+          lockedBatch.weight.actual.totalBiomass = saved.estimatedBiomass;
+          lockedBatch.weight.actual.lastMeasuredAt = saved.measurementDate;
+          lockedBatch.weight.actual.sampleSize = saved.sampleSize;
+          // Statistics are computed at a 95% confidence interval
+          // (StatisticalSummary.weight.confidenceInterval), so the provenance
+          // confidence level for this sample is 95%.
+          lockedBatch.weight.actual.confidencePercent = WEIGHT_SAMPLE_CONFIDENCE_PERCENT;
+        }
+        await queryRunner.manager.save(Batch, lockedBatch);
 
         saved.isProcessed = true;
         await queryRunner.manager.save(GrowthMeasurement, saved);
@@ -224,14 +258,8 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
-      await queryRunner.commitTransaction();
       return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 
   private calculateDaysBetween(start: Date, end: Date): number {

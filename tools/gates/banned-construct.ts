@@ -169,6 +169,12 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   // .eslintrc.json was implicitly exempt (the gate cannot ban its own text).
   /^eslint\.config\.mjs$/,
   /^eslint\.project-overrides\.mjs$/,
+  // Codegen output (graphql-codegen typed-document-node / client-preset) emits the
+  // standard `... as unknown as DocumentNode<...>` TypedDocumentNode wrapper.
+  // Generated files are never hand-edited, so the hand-written-code cast ban does
+  // not apply to them (they regenerate from the schema; the codegen-up-to-date gate
+  // owns their correctness).
+  /\/generated\//,
 ];
 
 /** Constructs are TypeScript/JavaScript concepts; other files are out of the gate's domain (prose discussion lives in docs and is banned-phrase territory). */

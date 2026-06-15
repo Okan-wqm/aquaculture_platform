@@ -5,6 +5,7 @@ import { List, ListInput, BlockTitle } from 'konsta/react';
 import { useTanks } from '@/hooks/useTanks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import type { TransferInput } from '@/types';
 
 interface FormErrors {
   sourceTank?: string;
@@ -26,7 +27,11 @@ export function RecordTransferPage() {
   const [sourceTankId, setSourceTankId] = useState(tankId || '');
   const [destinationTankId, setDestinationTankId] = useState('');
   const [quantity, setQuantity] = useState('');
-  const [biomassKg, setBiomassKg] = useState('');
+  // FARM-MEDIUM-050: the backend TransferBatchInput SSoT is `avgWeightG`
+  // (average weight per fish, grams). It computes total biomass itself. We
+  // collect avg weight here — NOT total biomass — so the field name and the
+  // value semantics both match the backend contract.
+  const [avgWeightG, setAvgWeightG] = useState('');
   const [transferReason, setTransferReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -42,6 +47,18 @@ export function RecordTransferPage() {
   const sourceTank = tanks?.find((t) => t.id === sourceTankId);
   const sourceMetrics = sourceTank?.batchMetrics;
   const destTank = tanks?.find((t) => t.id === destinationTankId);
+
+  // FARM-MEDIUM-050: pre-fill average weight from the source batch's known
+  // avgWeight (same backend SSoT field surfaced via useTanks). This makes the
+  // correct value the zero-effort default — the user only edits it when the
+  // transferred sub-population weighs differently from the batch average. We
+  // only seed an empty field so a manual override is never clobbered.
+  useEffect(() => {
+    const batchAvgWeight = sourceMetrics?.avgWeight;
+    if (avgWeightG === '' && batchAvgWeight != null && batchAvgWeight > 0) {
+      setAvgWeightG(String(batchAvgWeight));
+    }
+  }, [sourceMetrics, avgWeightG]);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -63,6 +80,23 @@ export function RecordTransferPage() {
     setStep('confirm');
   };
 
+  // FARM-MEDIUM-050 (tier-1): the enqueued payload is the wire body for the
+  // backend `TransferBatchInput` (useOfflineQueue wraps it as `{ input }`).
+  // Binding it to the `TransferInput` SSoT type makes excess-property checking
+  // reject any field the backend does not whitelist at COMPILE time — e.g. a
+  // re-introduced `biomassKg` becomes a tsc error here, not a runtime 400. This
+  // mirrors the buildPayload(): MortalityInput / CullInput pattern on the
+  // mortality and cull pages.
+  const buildPayload = (batchId: string): TransferInput => ({
+    batchId,
+    sourceTankId,
+    destinationTankId,
+    quantity: parseInt(quantity, 10),
+    avgWeightG: avgWeightG ? parseFloat(avgWeightG) : undefined,
+    transferReason: transferReason.trim() || undefined,
+    transferredAt: new Date().toISOString(),
+  });
+
   const handleSubmit = async () => {
     if (!validateForm()) return;
     if (!sourceMetrics?.batchId) return;
@@ -71,15 +105,9 @@ export function RecordTransferPage() {
     setErrors({});
 
     try {
-      const opId = await addToQueue('recordTransfer', {
-        batchId: sourceMetrics.batchId,
-        sourceTankId,
-        destinationTankId,
-        quantity: parseInt(quantity, 10),
-        biomassKg: biomassKg ? parseFloat(biomassKg) : undefined,
-        transferReason: transferReason.trim() || undefined,
-        transferredAt: new Date().toISOString(),
-      });
+      // FE-HIGH-050: addToQueue returns a discriminated result; .id tracks the
+      // queued (or, on dedup, existing) op for QueuedStatusBadge.
+      const { id: opId } = await addToQueue('recordTransfer', buildPayload(sourceMetrics.batchId));
 
       // C7: Store operationId for QueuedStatusBadge tracking
       setQueuedOperationId(opId);
@@ -152,10 +180,10 @@ export function RecordTransferPage() {
                 <span className="text-sm text-gray-500">Quantity</span>
                 <span className="text-2xl font-bold text-blue-600">{qty.toLocaleString()} pcs</span>
               </div>
-              {biomassKg && (
+              {avgWeightG && (
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Biomass</span>
-                  <span className="font-semibold text-gray-900 dark:text-white">{parseFloat(biomassKg).toFixed(1)} kg</span>
+                  <span className="text-sm text-gray-500">Avg weight</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">{parseFloat(avgWeightG).toFixed(1)} g/fish</span>
                 </div>
               )}
               {transferReason.trim() && (
@@ -347,14 +375,17 @@ export function RecordTransferPage() {
       </List>
       {errors.quantity && <p className="text-red-500 text-sm px-4 -mt-2">{errors.quantity}</p>}
 
-      {/* Biomass */}
-      <BlockTitle>Biomass (kg) - Optional</BlockTitle>
+      {/* Average weight per fish (grams) */}
+      {/* WHY: the backend derives total biomass from quantity x avgWeightG, so we
+          ask for average weight, not total biomass. Pre-filled from the source
+          batch average; override only if the transferred fish differ in size. */}
+      <BlockTitle>Average Weight (g/fish) - Optional</BlockTitle>
       <List strongIos insetIos>
         <ListInput
           type="number"
-          placeholder="Total biomass kg"
-          value={biomassKg}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => setBiomassKg(e.target.value)}
+          placeholder="Average weight per fish in grams"
+          value={avgWeightG}
+          onInput={(e: ChangeEvent<HTMLInputElement>) => setAvgWeightG(e.target.value)}
         />
       </List>
 

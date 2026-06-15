@@ -20,6 +20,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   applyParameterTemplate: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   approveHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   approveInventoryCount: [Role.TENANT_ADMIN],
+  approvePurchaseOrder: [Role.TENANT_ADMIN],
   assignFeedsToBatch: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   assignTemperatureSensor: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   bulkMapParamsToEquipment: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -157,11 +158,18 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   startWorkOrder: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   submitCleanerFishReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   submitWorkOrderForApproval: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Legally-immediate Mattilsynet "varsling" mutations. Same authorisation
+  // shape as submitSeaLiceReport / submitSmoltReport (MANAGER + ADMIN) — the
+  // fail-closed PermissionMatrixGuard 403s any @Mutation not listed here, and
+  // the permission-matrix invariant requires every @Mutation be classified.
+  submitDiseaseOutbreak: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  submitEscapeReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   submitExecutedSlaughterReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   submitInventoryCount: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   submitPlannedSlaughterReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   submitSeaLiceReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   submitSmoltReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  submitWelfareEvent: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   syncWeatherData: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   testMaskinportenConnection: [Role.TENANT_ADMIN],
   transferBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

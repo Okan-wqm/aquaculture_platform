@@ -71,7 +71,8 @@ export function useSendMessage(channelId: string | undefined) {
       const input = {
         channelId,
         content: sendParams.content,
-        contentType: sendParams.contentType ?? 'text',
+        // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum NAME.
+        contentType: sendParams.contentType ?? 'TEXT',
         idempotencyKey: _idempotencyKey,
         parentId: sendParams.parentId ?? null,
         attachmentKeys: sendParams.attachmentKeys ?? [],
@@ -99,7 +100,7 @@ export function useSendMessage(channelId: string | undefined) {
         channelId: channelId!,
         senderId: user?.id ?? '',
         content: params.content,
-        contentType: params.contentType ?? 'text',
+        contentType: params.contentType ?? 'TEXT',
         parentId: params.parentId ?? null,
         forwardedFrom: null,
         isDeleted: false,
@@ -215,7 +216,7 @@ export function useSendMessage(channelId: string | undefined) {
         await addToQueue('sendMessage', {
           channelId,
           content: params.content,
-          contentType: params.contentType ?? 'text',
+          contentType: params.contentType ?? 'TEXT',
           idempotencyKey,
           parentId: params.parentId ?? undefined,
           attachmentKeys: params.attachmentKeys ?? [],

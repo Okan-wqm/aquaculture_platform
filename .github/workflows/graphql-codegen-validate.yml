@@ -1,0 +1,137 @@
+name: GraphQL Codegen Up-To-Date
+
+# S1-CODEGEN — the generated GraphQL client contract MUST match the committed
+# checkout. graphql-codegen reads the composed supergraph + the gql-tagged
+# operation documents and emits the TypedDocumentNode constants and result/enum
+# types into the tracked `generated/` directories
+# (web/shared-ui/src/generated/*, web/apps/aquamobil/src/generated/graphql.ts).
+# A drift — a renamed schema field, a changed operation, a flipped enum casing,
+# or a stale local checkout that forgot to re-run `npm run codegen` — would let
+# the client compile against a fiction of the schema and surface only as a
+# runtime "field undefined" mid-response.
+#
+# This gate mirrors apollo-supergraph-validate.yml: it composes the supergraph
+# at BUILD time (no runtime — no DB/NATS/Redis), regenerates the registry
+# manifest, runs codegen, then `git diff --exit-code` over the generated dirs.
+# A stale checkout fails the PR RED instead of shipping a contract lie.
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      # Schema sources — any subgraph schema element can change the generated types.
+      - 'apps/**/*.resolver.ts'
+      - 'apps/**/*.entity.ts'
+      - 'apps/**/*.model.ts'
+      - 'apps/**/*.dto.ts'
+      - 'apps/**/*.input.ts'
+      - 'apps/**/*.type.ts'
+      - 'apps/**/*.args.ts'
+      - 'apps/**/*.object.ts'
+      - 'apps/**/*.enum.ts'
+      # Operation documents — the gql-tagged client documents codegen plucks.
+      - 'web/**/src/graphql/**/*.ts'
+      # The codegen config + the generated outputs themselves.
+      - 'codegen.ts'
+      - 'web/shared-ui/src/generated/**'
+      - 'web/apps/*/src/generated/**'
+      # The supergraph composition + manifest pipeline.
+      - 'infrastructure/apollo-router/subgraphs.json'
+      - 'tools/scripts/emit-subgraph-sdl.ts'
+      - 'scripts/apollo-router/build-supergraph.mjs'
+      - 'scripts/graphql/generate-registry-artifacts.mjs'
+      - '.github/workflows/graphql-codegen-validate.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'apps/**/*.resolver.ts'
+      - 'apps/**/*.entity.ts'
+      - 'apps/**/*.model.ts'
+      - 'apps/**/*.dto.ts'
+      - 'apps/**/*.input.ts'
+      - 'apps/**/*.type.ts'
+      - 'apps/**/*.args.ts'
+      - 'apps/**/*.object.ts'
+      - 'apps/**/*.enum.ts'
+      - 'web/**/src/graphql/**/*.ts'
+      - 'codegen.ts'
+      - 'web/shared-ui/src/generated/**'
+      - 'web/apps/*/src/generated/**'
+      - 'infrastructure/apollo-router/subgraphs.json'
+      - 'tools/scripts/emit-subgraph-sdl.ts'
+      - 'scripts/apollo-router/build-supergraph.mjs'
+      - 'scripts/graphql/generate-registry-artifacts.mjs'
+      - '.github/workflows/graphql-codegen-validate.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graphql-codegen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codegen-up-to-date:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      # SHA pins mirror apollo-supergraph-validate.yml / ci-affected.yml (the
+      # repo-canonical pins). Keep them in lockstep with those workflows.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Regenerate the GraphQL registry manifest
+        # codegen.ts reads infrastructure/apollo-router/codegen-schema.generated.json.
+        # Regenerate it deterministically and fail if the committed copy drifted.
+        run: |
+          node scripts/graphql/validate-registry.mjs
+          node scripts/graphql/generate-registry-artifacts.mjs
+          git diff --exit-code \
+            infrastructure/apollo-router/codegen-schema.generated.json
+
+      - name: Compose the supergraph (build-time, no runtime)
+        # Emits each subgraph SDL from its code-first resolvers and composes
+        # dist/graphql/supergraph.graphql — the schema codegen reads. Federation
+        # @join__ directives are stripped by the typescript plugin downstream.
+        run: node scripts/apollo-router/build-supergraph.mjs
+
+      - name: Run GraphQL codegen
+        run: npm run codegen
+
+      - name: Assert the AquaMobil generated client contract is up to date
+        # The generated/ directory is TRACKED. If codegen produced anything
+        # different from the committed checkout, the developer forgot to run
+        # `npm run codegen` after a schema/operation change — fail RED with the
+        # exact drift. This is the S1-CODEGEN client-contract SSoT gate.
+        run: |
+          git diff --exit-code \
+            web/apps/aquamobil/src/generated \
+          || {
+            echo '::error::AquaMobil generated GraphQL client contract is stale. Run `npm run codegen` and commit web/apps/aquamobil/src/generated.';
+            exit 1;
+          }
+
+      - name: Report shared-ui generated drift (non-blocking)
+        # The shared-ui (shell / microfrontend) `graphql-types.ts` is ALSO emitted
+        # by this codegen run, but the committed checkout is known-stale against
+        # the current supergraph (a large pre-existing drift in the same family as
+        # docs/reviews/orphan-findings.md ORPHAN-MEDIUM-106 — the shell/module
+        # GraphQL contract predates and is out of scope for the AquaMobil S1 work).
+        # We surface it as a warning so it stays visible without blocking the
+        # AquaMobil contract gate. Promote to a hard `git diff --exit-code` once
+        # shared-ui is regenerated, the shell/module operations are realigned, and
+        # they are brought under their own codegen output (per ORPHAN-MEDIUM-106).
+        if: always()
+        run: |
+          if ! git diff --quiet web/shared-ui/src/generated; then
+            echo '::warning::shared-ui generated GraphQL types are stale vs the current supergraph (orphan-findings ORPHAN-MEDIUM-106 family). Regenerate with `npm run codegen` and commit web/shared-ui/src/generated, then promote this step to a hard gate.';
+          fi

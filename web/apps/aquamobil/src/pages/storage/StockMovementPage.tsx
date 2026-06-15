@@ -12,15 +12,9 @@
  * adapts the form labels, required fields, and submit action accordingly.
  */
 
-import { useState, useCallback, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
-import { isRecoverableNetworkError } from '@/utils/network-error';
+import { clsx } from 'clsx';
+import { gql } from 'graphql-tag';
 import {
   ArrowLeft,
   ArrowDownToLine,
@@ -34,8 +28,16 @@ import {
   Search,
   Package,
 } from 'lucide-react';
-import { clsx } from 'clsx';
+import { useState, useCallback, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+
+import { useAuth } from '@/hooks/useAuth';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { StockMovementType, StorageItemType, StockMovementInput } from '@/types';
+import { isRecoverableNetworkError } from '@/utils/network-error';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
 // TYPES
@@ -70,7 +72,7 @@ interface StorageInventoryItem {
  * Fetch storage items filtered by item type. The backend returns items relevant
  * to the tenant's warehouse inventory (feed brands, chemical products, etc.).
  */
-const STORAGE_ITEMS_QUERY = `
+const STORAGE_ITEMS_QUERY = gql`
   query StorageInventoryItems($itemType: StorageItemType) {
     storageInventory(itemType: $itemType, limit: 100) {
       itemId
@@ -85,7 +87,7 @@ const STORAGE_ITEMS_QUERY = `
  * Fetch storage locations (warehouses, silos, cold stores, etc.) for the tenant.
  * Used to populate the location selector in both IN and OUT flows.
  */
-const STORAGE_LOCATIONS_QUERY = `
+const STORAGE_LOCATIONS_QUERY = gql`
   query StorageLocations {
     storageLocations {
       items { id name code }
@@ -93,7 +95,7 @@ const STORAGE_LOCATIONS_QUERY = `
   }
 `;
 
-const RECORD_STOCK_MOVEMENT_MUTATION = `
+const RECORD_STOCK_MOVEMENT_MUTATION = gql`
   mutation RecordStockMovement($input: RecordStockMovementInput!) {
     recordStockMovement(input: $input) {
       id movementType quantity

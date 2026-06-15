@@ -1,25 +1,31 @@
 /**
  * FeedingCompletedListener
  *
- * Handles FeedingCompletedEvent and performs follow-up actions:
- * - Updates feed inventory
- * - Updates batch feeding statistics
- * - Tracks FCR calculations
- * - Handles feeding reminders and summaries
+ * Handles in-process feeding lifecycle events emitted by the feeding
+ * scheduler:
+ * - Feeding reminders
+ * - Daily feeding summaries
+ * - FCR alerts
+ * - Weekly feed forecasts
+ *
+ * Feed-stock + batch-feeding-stat updates are NOT handled here. They are
+ * applied transactionally on the feeding WRITE path
+ * (CreateFeedingRecordHandler / DailyFeedingExecutionService) which is the
+ * SSoT for stock movement. The former `@OnEvent(FEEDING_COMPLETED)` handler
+ * here was DEAD: nothing in farm-service emits FEEDING_COMPLETED on the
+ * in-process EventEmitter2 (the real producer publishes FeedingRecorded
+ * through outbox → NATS). Its inline Feed.quantity / batch-stat / low-stock
+ * mutations duplicated — and could silently diverge from — the write path,
+ * so they were removed with the dead handler (ORPHAN-MEDIUM-106).
  *
  * @module Events/Listeners
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { Feed, FeedStatus } from '../../feed/entities/feed.entity';
-import { Batch } from '../../batch/entities/batch.entity';
 import {
   EventNames,
-  FeedingCompletedEventPayload,
   FeedingReminderEventPayload,
   FeedingDailySummaryEventPayload,
   FeedingFCRAlertEventPayload,
@@ -31,48 +37,8 @@ export class FeedingCompletedListener {
   private readonly logger = new Logger(FeedingCompletedListener.name);
 
   constructor(
-    @InjectRepository(Feed)
-    private readonly feedRepository: Repository<Feed>,
-    @InjectRepository(Batch)
-    private readonly batchRepository: Repository<Batch>,
     private readonly eventEmitter: EventEmitter2,
   ) {}
-
-  /**
-   * Handle FeedingCompleted event
-   */
-  @OnEvent(EventNames.FEEDING_COMPLETED)
-  async handleFeedingCompleted(
-    payload: FeedingCompletedEventPayload,
-  ): Promise<void> {
-    this.logger.log(
-      `[FeedingCompleted] Processing: Batch ${payload.batchNumber}, ` +
-      `${payload.quantity}${payload.unit} of ${payload.feedName}`,
-    );
-
-    try {
-      // 1. Update feed inventory
-      await this.updateFeedInventory(payload);
-
-      // 2. Update batch feeding statistics
-      await this.updateBatchFeedingStats(payload);
-
-      // 3. Check for low stock after consumption
-      await this.checkFeedStock(payload);
-
-      // 4. Emit follow-up events
-      this.emitFollowUpEvents(payload);
-
-      this.logger.log(
-        `[FeedingCompleted] Successfully processed feeding for batch ${payload.batchNumber}`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `[FeedingCompleted] Failed to process feeding: ${error}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-    }
-  }
 
   /**
    * Handle FeedingReminder event
@@ -266,158 +232,5 @@ export class FeedingCompletedListener {
         `[FeedingWeeklyForecast] Stock is healthy. Estimated coverage: ${coverageDays} days`,
       );
     }
-  }
-
-  /**
-   * Update feed inventory after consumption
-   */
-  private async updateFeedInventory(
-    payload: FeedingCompletedEventPayload,
-  ): Promise<void> {
-    const feed = await this.feedRepository.findOne({
-      where: { id: payload.feedId, tenantId: payload.tenantId },
-    });
-
-    if (!feed) {
-      this.logger.warn(`Feed ${payload.feedId} not found for inventory update`);
-      return;
-    }
-
-    // Deduct consumed quantity
-    const previousQuantity = Number(feed.quantity);
-    const consumedQuantity = payload.unit === 'kg' ? payload.quantity : payload.quantity / 1000;
-    feed.quantity = Math.max(0, previousQuantity - consumedQuantity);
-
-    // Update status based on new quantity
-    if (feed.quantity <= 0) {
-      feed.status = FeedStatus.OUT_OF_STOCK;
-    } else if (feed.quantity <= feed.minStock) {
-      feed.status = FeedStatus.LOW_STOCK;
-    } else {
-      feed.status = FeedStatus.AVAILABLE;
-    }
-
-    await this.feedRepository.save(feed);
-
-    this.logger.debug(
-      `Feed ${feed.name} inventory updated: ${previousQuantity}kg -> ${feed.quantity}kg`,
-    );
-  }
-
-  /**
-   * Update batch feeding statistics
-   */
-  private async updateBatchFeedingStats(
-    payload: FeedingCompletedEventPayload,
-  ): Promise<void> {
-    const batch = await this.batchRepository.findOne({
-      where: { id: payload.batchId, tenantId: payload.tenantId },
-    });
-
-    if (!batch) {
-      this.logger.warn(`Batch ${payload.batchId} not found for feeding stats update`);
-      return;
-    }
-
-    // Get feed for cost calculation
-    const feed = await this.feedRepository.findOne({
-      where: { id: payload.feedId, tenantId: payload.tenantId },
-    });
-
-    const consumedKg = payload.unit === 'kg' ? payload.quantity : payload.quantity / 1000;
-    const feedCost = feed?.pricePerKg ? consumedKg * Number(feed.pricePerKg) : 0;
-
-    // Update batch totals
-    batch.totalFeedConsumed = Number(batch.totalFeedConsumed) + consumedKg;
-    batch.totalFeedCost = Number(batch.totalFeedCost) + feedCost;
-
-    // Update feeding summary
-    batch.feedingSummary = {
-      ...batch.feedingSummary,
-      currentFeedId: payload.feedId,
-      currentFeedName: payload.feedName,
-      totalFeedGiven: Number(batch.totalFeedConsumed),
-      totalFeedCost: Number(batch.totalFeedCost),
-      lastFeedingAt: payload.feedingTime,
-    };
-
-    // Recalculate FCR
-    const biomassGain = batch.getCurrentBiomass() - (batch.weight?.initial?.totalBiomass || 0);
-    if (biomassGain > 0 && batch.totalFeedConsumed > 0) {
-      batch.fcr = {
-        ...batch.fcr,
-        actual: Number(batch.totalFeedConsumed) / biomassGain,
-        lastUpdatedAt: new Date(),
-      };
-    }
-
-    await this.batchRepository.save(batch);
-
-    this.logger.debug(
-      `Batch ${batch.batchNumber} feeding stats updated: ` +
-      `Total feed: ${batch.totalFeedConsumed}kg, FCR: ${batch.fcr?.actual?.toFixed(2) || 'N/A'}`,
-    );
-  }
-
-  /**
-   * Check feed stock levels after consumption
-   */
-  private async checkFeedStock(
-    payload: FeedingCompletedEventPayload,
-  ): Promise<void> {
-    const feed = await this.feedRepository.findOne({
-      where: { id: payload.feedId, tenantId: payload.tenantId },
-    });
-
-    if (!feed) return;
-
-    // Emit low stock alert if needed
-    if (feed.status === FeedStatus.OUT_OF_STOCK) {
-      this.logger.warn(`Feed ${feed.name} is now OUT OF STOCK`);
-
-      this.eventEmitter.emit(EventNames.FEEDING_LOW_STOCK, {
-        tenantId: payload.tenantId,
-        feeds: [{
-          feedId: feed.id,
-          feedName: feed.name,
-          currentStock: Number(feed.quantity),
-          minStock: Number(feed.minStock),
-        }],
-      });
-    } else if (feed.status === FeedStatus.LOW_STOCK) {
-      const percentRemaining = ((Number(feed.quantity) / Number(feed.minStock)) * 100).toFixed(0);
-
-      this.logger.warn(
-        `Feed ${feed.name} is LOW STOCK: ${feed.quantity}kg (${percentRemaining}% of min)`,
-      );
-    }
-  }
-
-  /**
-   * Emit follow-up events
-   */
-  private emitFollowUpEvents(payload: FeedingCompletedEventPayload): void {
-    // Emit for dashboard updates
-    this.eventEmitter.emit('farm.statistics.updated', {
-      tenantId: payload.tenantId,
-      triggeredBy: 'feeding.completed',
-      batchId: payload.batchId,
-      feedConsumed: payload.quantity,
-      feedUnit: payload.unit,
-    });
-
-    // Emit for feeding analytics
-    this.eventEmitter.emit('analytics.feedingRecorded', {
-      tenantId: payload.tenantId,
-      batchId: payload.batchId,
-      batchNumber: payload.batchNumber,
-      tankId: payload.tankId,
-      feedId: payload.feedId,
-      feedName: payload.feedName,
-      quantity: payload.quantity,
-      unit: payload.unit,
-      feedingTime: payload.feedingTime,
-      fedBy: payload.fedBy,
-    });
   }
 }

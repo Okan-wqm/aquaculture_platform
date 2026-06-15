@@ -11,14 +11,9 @@
  * Pull-to-refresh re-fetches from the server when online.
  */
 
-import { useState, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { clsx } from 'clsx';
+import { gql } from 'graphql-tag';
 import {
   ArrowLeft,
   Package,
@@ -27,7 +22,15 @@ import {
   RefreshCw,
   MapPin,
 } from 'lucide-react';
-import { clsx } from 'clsx';
+import { useState, useCallback, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { useAuth } from '@/hooks/useAuth';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
 
 // ============================================================================
 // TYPES
@@ -54,7 +57,7 @@ interface StockItem {
 // GRAPHQL
 // ============================================================================
 
-const STORAGE_LOCATIONS_QUERY = `
+const STORAGE_LOCATIONS_QUERY = gql`
   query StorageLocations {
     storageLocations {
       items { id name code }
@@ -66,7 +69,7 @@ const STORAGE_LOCATIONS_QUERY = `
  * Fetch stock at a specific location. Returns all items with their current
  * quantity, lot numbers, and expiry dates for the selected location.
  */
-const STOCK_AT_LOCATION_QUERY = `
+const STOCK_AT_LOCATION_QUERY = gql`
   query StockAtLocation($locationId: ID!) {
     stockAtLocation(locationId: $locationId) {
       items {

@@ -3,7 +3,8 @@
  * Lists welfare events and provides quick-entry modal for immediate reporting
  */
 import React, { useState, useMemo } from 'react';
-import { useRegulatorySettings } from '../../../hooks/useRegulatory';
+import { useRegulatorySettings, useSubmitWelfareEvent } from '../../../hooks/useRegulatory';
+import { buildVarslingIdentity } from '../utils/varslingIdentity';
 import { getMockReports } from '../mock/helpers';
 import { WelfareEventReport, WelfareEventStatus } from '../types/reports.types';
 import { REGULATORY_CONTACTS, MORTALITY_THRESHOLDS } from '../utils/thresholds';
@@ -327,8 +328,10 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
   const [selectedEvent, setSelectedEvent] = useState<WelfareEventReport | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'resolved'>('all');
 
-  // Regulatory settings (pre-populates contact info; welfare submission API TBD)
+  // Regulatory settings supply the Mattilsynet identity block; the mutation
+  // dispatches the immediate welfare varsling via the backend.
   const { data: regulatorySettings } = useRegulatorySettings();
+  const submitWelfareEvent = useSubmitWelfareEvent();
 
   // Fetch tank data for mortality warning banner
   const { data: tanksData } = useTanksList({ siteId, isActive: true });
@@ -378,17 +381,43 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
   };
 
   const handleModalSubmit = async (data: Partial<WelfareEventReport>): Promise<void> => {
-    // TODO: Replace with real welfare event submission mutation when backend endpoint is available
-    console.log('Submitting welfare event:', data, {
-      organisationNumber: regulatorySettings?.organisationNumber,
-      siteMapping: regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId),
-      contact: {
-        navn: regulatorySettings?.defaultContactName,
-        epost: regulatorySettings?.defaultContactEmail,
-        telefonnummer: regulatorySettings?.defaultContactPhone,
-      },
+    // Resolve the Mattilsynet identity block — throws VarslingConfigError if
+    // the tenant is not configured. The modal surfaces the thrown message and
+    // stays open (it only closes when this promise RESOLVES).
+    const reportSiteId = data.siteId || siteId || 'site-001';
+    const identity = buildVarslingIdentity(regulatorySettings, reportSiteId);
+
+    const result = await submitWelfareEvent.mutateAsync({
+      klientReferanse: crypto.randomUUID(),
+      organisasjonsnummer: identity.organisasjonsnummer,
+      lokalitetsnummer: identity.lokalitetsnummer,
+      siteId: reportSiteId,
+      siteName: data.siteName || 'Unknown site',
+      kontaktperson: identity.kontaktperson,
+      siteManagerEmail: identity.siteManagerEmail,
+      detectedAt: (data.detectedAt ?? new Date()).toISOString(),
+      reportedBy: identity.kontaktperson.navn,
+      welfareEventType: data.eventType ?? 'welfare_impact',
+      severity: data.severity ?? 'high',
+      mortalityRate: data.mortalityData?.actualRate,
+      mortalityPeriod: data.mortalityData?.period,
+      affectedBatches: data.mortalityData?.affectedBatches?.map((b) => b.batchNumber),
+      description:
+        data.welfareData?.description ||
+        data.equipmentData?.description ||
+        getEventTypeLabel(data.eventType ?? 'welfare_impact'),
+      immediateActions: data.immediateActions ?? [],
     });
-    setIsModalOpen(false);
+
+    // Surface a backend failure as an error so the modal stays open and shows
+    // it — NEVER fake success.
+    if (!result.success) {
+      throw new Error(
+        result.feilmelding || 'Mattilsynet rejected the welfare report. Please review and retry.',
+      );
+    }
+
+    // On success the modal closes itself; only clear the tab selection.
     setSelectedEvent(null);
   };
 

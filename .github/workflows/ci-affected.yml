@@ -429,6 +429,28 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           NODE_OPTIONS: '--max-old-space-size=4096'
 
+      # FE-CRITICAL-050-SW: the AquaMobil service-worker build-artifact invariant
+      # (src/pwa/__tests__/sw-build-artifact.invariant.spec.ts) runs a REAL
+      # `vite build` and asserts the deployed dist/messaging-sw.js still carries the
+      # sync / notificationclick / LOGOUT handlers + a substituted precache manifest.
+      # It is the Tier-3 "make it detectable" guard for the finding, but it is
+      # deliberately EXCLUDED from the fast default `test` target (it is ~30-45s of
+      # build) and lives in a separate `test:invariant` nx target. The default
+      # affected-test step above therefore never runs it. This step closes that gap
+      # by driving the SAME affected-target policy machinery against `test:invariant`
+      # — it only fires when aquamobil (the sole project declaring that target) is
+      # affected, so it costs nothing on unrelated PRs and gates on every PR that
+      # touches the SW.
+      - name: Run SW build-artifact invariant (affected only)
+        run: |
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          bash scripts/ci/affected-target-policy.sh --target test:invariant --base "$BASE_REF" --parallel 1
+        timeout-minutes: 20
+        env:
+          NX_DAEMON: 'false'
+          NX_NO_CLOUD: 'true'
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
       - name: Run focused farm water-chemistry tests
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"

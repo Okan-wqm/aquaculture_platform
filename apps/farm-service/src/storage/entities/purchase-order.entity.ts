@@ -20,6 +20,14 @@ registerEnumType(PurchaseOrderCategory, {
 
 export enum PurchaseOrderStatus {
   DRAFT = 'DRAFT',
+  // SUBMITTED is the maker-checker hand-off state: the creator (maker) submits
+  // a DRAFT for review; only a checker (TENANT_ADMIN) can move SUBMITTED -> APPROVED
+  // via the dedicated approve command. SOC2 CC3.4 separation of duties.
+  SUBMITTED = 'SUBMITTED',
+  // APPROVED is reachable ONLY through approvePurchaseOrder (checker gate). ORDERED
+  // (the spend-commit state) is reachable ONLY from APPROVED, so a purchase order
+  // can never be ordered without passing the approval gate.
+  APPROVED = 'APPROVED',
   ORDERED = 'ORDERED',
   PARTIALLY_RECEIVED = 'PARTIALLY_RECEIVED',
   RECEIVED = 'RECEIVED',
@@ -78,6 +86,16 @@ export class PurchaseOrder {
 
   @Column({ type: 'uuid', nullable: true, name: 'approved_by' })
   approvedBy?: string;
+
+  // Denormalized approver display name captured at approval time so the audit
+  // trail survives even if the user record is later renamed or deleted (SOC2 CC3.4).
+  @Column({ type: 'varchar', length: 255, nullable: true, name: 'approved_by_name' })
+  approvedByName?: string;
+
+  // Timestamp the checker approved the order — the immutable point-in-time the
+  // spend was authorized. Nullable until the PO reaches APPROVED.
+  @Column({ type: 'timestamptz', nullable: true, name: 'approved_at' })
+  approvedAt?: Date;
 
   @Column({ type: 'boolean', default: false, name: 'is_deleted' })
   isDeleted: boolean;

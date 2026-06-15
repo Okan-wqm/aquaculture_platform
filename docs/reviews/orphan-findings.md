@@ -4186,11 +4186,11 @@ TypeError: Class extends value undefined is not a constructor or null
 
 It is **mock-completeness drift**, not a cycle: A3 PR-B (#438) added `class NatsV3Server extends Server` (from `@nestjs/microservices`) to the `backend-common/nats` barrel. That barrel is transitively imported by **every** E2E spec via `@platform/event-bus` → `e2e-setup`. But the messaging Jest configs redirected `@nestjs/microservices` (via `moduleNameMapper`) to a hand-written stub `src/__mocks__/@nestjs/microservices.ts` that exported `ClientProxy` but **omitted `Server`** — on a stale, false premise ("not installed in workspace"; the package is a declared dependency at `^11.1.19`). So `Server` resolved to `undefined` and the subclass failed at import.
 
-**Fix (Tier-1, "make it impossible"):** removed the `^@nestjs/microservices$` `moduleNameMapper` entry from **both** `test/jest-e2e.config.ts` and `jest.config.ts` (unit) and **deleted the stub**, so the real installed package loads (real `Server`/`ClientProxy`). NATS stays isolated at the **already-present** DI seam in `e2e-setup.ts` (`.overrideProvider('NATS_SERVICE'|'EVENT_BUS'|NatsEventBus)`) plus `NatsV3Client`'s lazy `connect()`; the harness never calls `connectMicroservice()`, so `NatsV3Server` is never instantiated. This retires the hand-stub drift class rather than patching it (the rejected Option A: adding a no-op `Server` to the stub). A cross-check workflow (messaging + platform-kernel verifiers + adversarial challenger + architectural-arbiter) caught that the unit-config mapper also pointed at the stub — deleting it without removing that mapper would have broken every messaging **unit** spec.
+**Fix (Tier-1, "make it impossible"):** removed the `^@nestjs/microservices$` `moduleNameMapper` entry from **both** `test/jest-e2e.config.ts` and `jest.config.ts` (unit) and **deleted the stub**, so the real installed package loads (real `Server`/`ClientProxy`). NATS stays isolated at the **already-present** DI seam in `e2e-setup.ts` (`.overrideProvider('NATS_SERVICE'|'EVENT_BUS'|NatsEventBus)`) plus `NatsV3Client`'s lazy `connect()`; the harness never calls `connectMicroservice()`, so `NatsV3Server` is never instantiated. A cross-check workflow (messaging + platform-kernel verifiers + adversarial challenger + architectural-arbiter) caught that the unit-config mapper also pointed at the stub — deleting it without removing that mapper would have broken every messaging **unit** spec.
 
-**Verification:** load crash gone (0 `Class extends value undefined` across all runs); type-check clean (`tsc -p tsconfig.spec.json`); messaging **unit** suite 30/31 suites, **207 tests green** (1 pre-existing skip), no `Cannot find module`/new TS errors; the **`presence` E2E suite ran fully green** (real GraphQL endpoints, 2 tenant schemas) — end-to-end functional proof. The full local E2E suite hit intermittent `beforeAll` setup hangs on the **reused single-container ephemeral Postgres** (independent of this change — the tenant-clone DDL is ~16ms and `presence` exercises the identical path green); **CI (`e2e-messaging.yml`) on a clean container is the authoritative full-suite functional gate.**
+**Verification (CI confirmed):** with this fix + the ORPHAN-HIGH-092 mock fix, the messaging `E2E Tests` job ran **12 suites / 111 tests green, 0 hook timeouts** on a clean CI container (workflow_dispatch run 27571220824). Unit suite 207 green; `tsc -p tsconfig.spec.json` clean.
 
-Status: RESOLVED (pending registry close on merge). Owner: messaging-expert. Registry: `ORPHAN-HIGH-102` in `docs/reviews/_registry/findings.jsonl`.
+Status: RESOLVED (PR #473; pending registry close on merge). Owner: messaging-expert. Registry: `ORPHAN-HIGH-102` in `docs/reviews/_registry/findings.jsonl`.
 
 > **D2 / CRITICAL-002 traceability note (not a registry close):** the gateway rate-limit consolidation (PR #457, `0c2370b04`) — which also fixed the gateway's fail-OPEN Redis store — is fully traced by its own commit message + PR. It is NOT seeded as a closable registry finding because the three-store invariant requires a closing commit to carry a `Closes: …#<id>` trailer *at commit time*; a finding seeded post-merge cannot be closed against an already-merged commit (no amend/force-push). The SEC-MEDIUM-001/002 closes in this same registry pass ARE valid because D1's commit (`bc79457d5`) carried their `Closes:` trailers.
 
@@ -4223,18 +4223,179 @@ Status: RESOLVED (2026-06-13; fixed in the aquamobil-msg-federation merge commit
 
 ---
 
-## ORPHAN-MEDIUM-107 — `tools/quality/format-scope.json` is stale on `main`; the `quality-format-scope` gate is red at the clean branch base
+## ORPHAN-HIGH-105 — Varsling events (WelfareEventReported / EscapeReported / DiseaseOutbreakReported) lack JSON Schema validators
 
-**Found:** 2026-06-15, while resolving ORPHAN-HIGH-102 (the fix deletes `apps/messaging-service/src/__mocks__/@nestjs/microservices.ts`, which the manifest lists at line 15311).
+Surfaced by FARM-HIGH-013 (Phase 1). The three legally-immediate Mattilsynet varsling events are published over NATS to the notification-service email consumer but have NO AJV JSON Schema validator at the trust boundary (unlike the 4 dead-listeners follow-ups added in FARM-HIGH-012 and the existing farm events). Payload completeness is unproven before a legal filing is emailed — the consensus flagged this as why "provably reaches the regulator" is not yet fully satisfied. Fix: add flat JSON Schema validators for the 3 varsling events in `libs/event-contracts/src/schemas/farm-events.schema.ts` + wire into `FARM_EVENT_SCHEMAS`/`FarmEventType`, mirroring the dead-listeners follow-up schemas. Owner: data-expert (event-contracts). Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
 
-**Evidence:** on a clean branch cut from current `origin/main`, `node tools/quality/quality.mjs format-scope check` **exits 1** with `tools/quality/format-scope.json is stale; regenerate it`. A dry `format-scope generate` rewrites **1724 insertions / 315 deletions** across the whole repo (new migrations e.g. `1800600000000-TenantCleanupLedger.ts`, test renames, removed `*.eslintrc.cjs` entries, etc.) — i.e. the committed manifest is many source-tree changes behind. This is a repo-wide drift unrelated to messaging; the `quality-format-scope` step is wired into `tools/quality/closure-manifest.json`.
 
-**Why this matters (MEDIUM):** a quality gate that is red on `main` is either silently non-blocking (process gap — the gate provides no real protection) or it is blocking and every PR cut from `main` inherits a red check it did not cause. Either way the manifest no longer reflects the tree.
+## ORPHAN-LOW-108 — Dead invalidateAllRegulatoryQueries predicate (query-key-factory mismatch)
 
-**Why ORPHAN-HIGH-102 does NOT regenerate it:** regenerating to clear the gate would add ~2000 lines of unrelated churn to a focused E2E-load fix (scope creep), and hand-editing a `generated_by:` manifest is wrong. The ORPHAN-HIGH-102 fix therefore leaves `format-scope.json` untouched; the deleted stub's stale entry is consistent with the manifest's existing pervasive staleness and will be swept by the next sanctioned `format-scope generate`.
+Surfaced by FARM-HIGH-013 (Phase 1, pre-existing). `useRegulatory.ts` `invalidateAllRegulatoryQueries` tests `query.queryKey[0] === REGULATORY_KEY`, but `createTenantQueryKey` returns `['tenant', tenantId, ...]` so index 0 is always the tenant sentinel — the predicate never matches and regulatory queries are never invalidated after a varsling submit. Pre-existing query-key-factory bug inherited by the new hooks; no correctness dependency for the immediate-report path (the submit itself is durable). Fix: match the REGULATORY_KEY segment at its real index (or use the factory's prefix matcher). Owner: frontend query-key-factory owner. Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
 
-**Fix (owner: infra/quality-tooling):** run `node tools/quality/quality.mjs format-scope generate`, commit the regenerated manifest as a dedicated chore, and add a CI step (or pre-merge gate) that fails when the manifest drifts so it cannot silently rot again (Tier-3 detectability). Confirm whether `quality-format-scope` is actually enforced per-PR; if not, wire it in.
 
-Status: OPEN. Owner: infra-expert. Registry: `ORPHAN-MEDIUM-107` in `docs/reviews/_registry/findings.jsonl`.
+## ORPHAN-MEDIUM-116 — `entity-migration-parity.spec.ts` (MA2/MA3) is a non-functional, CI-unreached invariant
+
+Severity: MEDIUM. Discovered 2026-06-14 while wiring the farm_workers PII-at-rest hardening (auth-security-expert REJECT-REDO item 3b), security-implementer.
+
+**Problem:** `e2e/tests/integration/entity-migration-parity.spec.ts` is supposed to enforce two invariants — MA2 (every `@Entity('<table>')` has a `CREATE TABLE` migration) and MA3 (every entity column appears in the migration's CREATE TABLE body). It currently enforces neither, for three compounding reasons:
+
+1. **`ENTITY_NAME_RE` recognizes zero entities (backreference bug).** The regex is `/@Entity\(\s*(?:(?:['"])([a-z_][a-z0-9_]*)\1|...)/i`. The quote alternation `(?:['"])` is NON-capturing, so capture group 1 is the *table-name* group, and the trailing `\1` therefore demands the table name appear twice consecutively. No real `@Entity('farm_workers')` (or any of the canonical forms, including `@Entity({ name: '...' })`) matches. Verified: the regex returns NO MATCH against every canonical `@Entity` form, so `collectAll()` yields `entities.length === 0`; the "lists at least one entity (sanity)" assertion fails and both `it.each(...)` blocks throw `.each` called with an empty Array. The regex is byte-identical since its introduction in commit 2a1906bba — the spec has been red since birth.
+
+2. **The CREATE TABLE body parser assumes one-column-per-line.** Even with the regex fixed, `parseMigration` splits the captured body on `\n` and matches `"<name>" <type>` per line. The farm baseline (and others) emit each `CREATE TABLE` on a SINGLE 1000+ char line (`farm_workers` CREATE TABLE is 1089 chars on one line), so the parser recognizes only the first column (`id`). A regex-only fix surfaces 215 MA3 "violations" across every service — all pre-existing, none introduced by PII work.
+
+3. **The parser only reads `CREATE TABLE`, never `ALTER TABLE ADD COLUMN`.** The "sanctioned ALTER-column pattern" the REJECT-REDO assumed exists does NOT: `AddTankSetupMetadata1800900000000` adds `tanks.containerKind/equipmentTypeId/equipmentTypeCode` via `ALTER TABLE ADD COLUMN`, and those columns are NOT in the baseline `tanks` CREATE TABLE — so `tanks` would fail MA3 identically to `farm_workers.emailHash`. There is no working mechanism by which any ALTER-added column satisfies MA3 today.
+
+4. **Not wired into CI.** The Nx project `@aquaculture/e2e-tests` exposes only a `lint` target (no `test` target), and no workflow runs `npm run test:integration` / the `e2e/jest.config.ts` integration suite (`db-migration-check.yml` runs only `bootstrap`, `tenant-clone`, `schema-invariants` and the gate scripts by name). The `invariant-reachability.spec.ts` net covers only `tests/invariants/**`, not `e2e/tests/integration/**`, so the orphaned-and-broken state went undetected. This is why a permanently-red spec never blocked a merge.
+
+**Effect:** The intended Tier-1 "make-impossible" guard against "entity shipped, migration forgotten" / camelCase-vs-snake_case drift does not run and could not pass if it did. The two deploy breaks it was written to prevent (event_store 2026-04-16, HR 2026-04-16) are currently unguarded by THIS spec (the `tests/invariants/registry` shard — `farm-service-migration-array-completeness`, `entity-diff-implies-migration`, `tenant-fanout-entity-parity` — provides overlapping but not identical coverage and IS CI-wired and green).
+
+**Why not fixed in the PII PR:** Making MA3 genuinely green requires (a) fixing `ENTITY_NAME_RE` (make the quote group capturing: `(['"])([a-z_][a-z0-9_]*)\1`), (b) parsing single-line CREATE TABLE bodies (split on commas at paren-depth 0, not on `\n`), and (c) merging `ALTER TABLE ... ADD COLUMN` columns into each table's column set so ALTER-added columns (`tanks.containerKind`, `farm_workers.emailHash`) satisfy parity. Steps (a)+(b) then surface 215 pre-existing cross-service violations that must each be triaged (real drift vs parser limitation vs name-override needed). That is a platform-wide parser rewrite plus a 215-item cross-service triage — categorically outside a farm PII-at-rest change, and re-architecting a dead invariant under a security PR would be unbounded scope creep with a large blast radius. Hand-editing the frozen baseline or excluding `farm_workers` was explicitly forbidden and would weaken the invariant.
+
+**Fix direction (minimal correct resolution, dedicated PR):**
+1. Fix `ENTITY_NAME_RE` so the closing quote is a backreference to a CAPTURED quote group; re-confirm `collectAll()` finds all ~245 entities.
+2. Rewrite `parseMigration` body tokenizer to handle single-line CREATE TABLE bodies (paren-depth-aware comma split).
+3. Extend the migration parser to also collect `ALTER TABLE [schema.]"<table>" ADD COLUMN [IF NOT EXISTS] "<name>"` and merge those column names into the matching table's column set — making ALTER-add the sanctioned way an ALTER-added entity column satisfies MA3 (this is what `tanks.containerKind` and `farm_workers.emailHash` both need).
+4. Triage the resulting violations; add `@Column({ name })` overrides or real migrations as each requires; only genuine, documented exceptions go in `EXCLUDED_TABLES`.
+5. Wire the spec into CI: add a `test` target to the `e2e` Nx project (or fold the integration specs into a CI-run jest config) so the now-functional invariant actually gates PRs. Extend the reachability net to cover `e2e/tests/integration/**`.
+
+Status: OPEN (2026-06-14; owner: platform-architecture-expert; dedicated PR — invariant parser rewrite + cross-service triage). Registry: orphan-findings.md only.
+
+
+## ORPHAN-MEDIUM-109 — BatchCreated + FeedingCompleted farm listeners also dead (@OnEvent, no in-process producer)
+
+Surfaced by FARM-HIGH-012 (Phase 1). `BatchCreatedListener` (`@OnEvent BATCH_CREATED`) and `FeedingCompletedListener` (`@OnEvent FEEDING_COMPLETED`) have the identical dead-bus disease the mortality/harvest listeners had — their producers publish via outbox->NATS, nothing emits the in-process event. They are FROZEN in the `dead-onevent-listener.invariant.spec` shrink-only baseline so that gate can land; they need the same `subscribeWildcard` migration. Owner: farm-expert. Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
+
+
+## ORPHAN-MEDIUM-110 — Varsling submissions have no durable per-submission audit row
+
+Surfaced by FARM-HIGH-013 (Phase 1). The 3 immediate reports are delivered purely via outbox->NATS->email with no durable per-submission audit/acknowledgement record. A legally-immediate Mattilsynet/Fiskeridirektoratet report should leave a queryable audit trail independent of email logs (SOC2 / akvakulturloven evidentiary). Fix: persist a varsling-submission audit row (event-as-record) on the regulatory path. Owner: compliance-expert. Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
+
+
+## ORPHAN-MEDIUM-111 — BatchClosedEvent.closedAt: TS type (Date) vs JSON Schema validator (ISO_DATE_STRING) mismatch
+
+Surfaced by FARM-HIGH-014/FARM-MEDIUM-003 (Phase 2 biomass-fcr-closure data/contract audit). `BatchClosedEvent.closedAt` is typed `Date` in `libs/event-contracts/src/farm-events.ts` and the handler enqueues a `Date` (close-batch.handler.ts), but the AJV validator types `closedAt` as `ISO_DATE_STRING` in `libs/event-contracts/src/schemas/farm-events.schema.ts`. If the outbox validates `BatchClosed` at the trust boundary, a `Date` instance fails ISO-string validation. The mismatch predates Phase 2 (the lane correctly did not touch event-contracts), but Phase 2 is the first to populate real non-zero `finalFCR`/`finalBiomassKg` flowing through that validator at scale — fix before it surfaces as a production outbox-validation failure. Fix: reconcile the contract type and the schema (serialize Date→ISO at enqueue, or type the field as ISO string end-to-end). Owner: data-expert (event-contracts). Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
+
+
+## ORPHAN-MEDIUM-112 — Final-harvest → CloseBatch dispatch is best-effort with no outbox-backed retry (supersedes FARM-MEDIUM-002)
+
+Surfaced by the FARM-MEDIUM-002 refutation (Phase 2). `FARM-MEDIUM-002` (registry, OPEN) claimed `BatchHarvested.isFinal` had NO closure consumer; firsthand verification REFUTES it — `create-harvest-record.handler.ts` sets `HARVESTED` on a final harvest (currentQuantity≤0) and dispatches `CloseBatchCommand`→CLOSED, freezing final metrics. The real residual is narrower: that `CloseBatchCommand` dispatch is **best-effort post-commit** (create-harvest-record.handler.ts ~417-461) with NO outbox-backed durable retry — a transient CloseBatch failure leaves the batch in HARVESTED (isFinal=true emitted, so monitorable) with no frozen final metrics and no automatic retry; recovery is a manual closeBatch. FARM-MEDIUM-002 as written is SUPERSEDED by the verified closure chain; this durability gap is the true (Tier-2) finding. Fix: route the final-harvest closure through the transactional outbox (or a saga) so it retries durably. Owner: farm-expert. Status: OPEN (2026-06-14). Registry: orphan-findings.md only; FARM-MEDIUM-002 to be superseded in the registry ceremony.
+
+## ORPHAN-MEDIUM-113 — record-mortality.handler.spec.ts fully red (8/8): direct-handler construction omits MobileCommandReceiptService
+
+Surfaced while running the farm-service test target to validate the feed-dual Phase-A remediation (2026-06-15). `apps/farm-service/src/batch/__tests__/handlers/record-mortality.handler.spec.ts` fails 8/8 in isolation, INDEPENDENT of the feed-dual change (the spec, `record-mortality.handler.ts`, and `MobileCommandReceiptService` are all pre-existing on HEAD). Root cause: `RecordMortalityHandler`'s constructor defaults `mobileCommandReceipts` to `defaultMobileCommandReceiptsForDirectHandlerConstruction()`, whose `.begin()` hard-throws `"MobileCommandReceiptService.begin direct-handler default is test-only; production handlers must receive an explicit DI dependency"`. The spec constructs the handler directly without a `MobileCommandReceiptService` double, so every test throws a generic `Error` instead of the asserted `NotFoundException` / `BadRequestException` / commit-rollback. The same direct-construction default exists in `allocate-to-tank`, `record-cull`, `transfer-batch`, and `create-harvest-record` handlers — check their specs too. Fix: pass an explicit `MobileCommandReceiptService` mock into the handler under test (London-school). Owner: farm-expert. Status: OPEN (2026-06-15). Registry: orphan-findings.md only.
+
+## ORPHAN-HIGH-114 — feed-dual-ssot Phase B: single-ledger convergence (table merge + destructive feed_inventory DROP)
+
+Operator-sanctioned deferral (operator chose "safe Phase-A now, full convergence separate" on 2026-06-14). Phase A (FARM-HIGH-058) eliminated the SILENT swallowed-divergence by making the storage OUT deduction transactional + fail-closed-for-storage-feeds / observably-skipped-for-non-storage-feeds, but **two feed-stock ledgers still co-exist**: `feed_inventory.quantityKg` (read by GetFeedInventory) and `StorageInventory.quantity`/`Feed.quantity` (read by feed-consumption-forecast), maintained by different operator workflows. Phase B must collapse to ONE ledger: re-point the read paths + add/consume/adjust-feed-inventory handlers onto the storage ledger, demote `feed_inventory` to a projection or DROP it. A first full-convergence attempt was BLOCKED by consensus for **data-loss** in the destructive migration and is parked in `git stash` (`phase2-feed-dual-BLOCKED-data-loss`) — its migration is NOT safe; the 5 confirmed defects to fix before any DROP: (1) carry `manufacturingDate` + `storageTemperature` into the storage ledger before dropping feed_inventory; (2) make the backfill parity gate BIDIRECTIONAL (equality-within-tolerance); (3) NULL-lot `ON CONFLICT` cannot match without `NULLS NOT DISTINCT` — COALESCE or recreate the unique index; (4) re-key the merge on backfill provenance so re-runs don't double-add; (5) preserve per-site `minStockKg` reorder thresholds (MAX() collapses distinct values). Plus out-of-lane: farm-seed `seedFeedInventory` raw INSERT + 2 e2e postgres specs break once feed_inventory becomes a view/dropped. The DROP is a one-way door requiring operator deploy-time ratification + a verified restorable pg_dump per tenant. Owner: data-expert + database-reviewer + farm-expert. Status: OPEN (2026-06-14; operator-sanctioned, dedicated Phase-B PR). Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-115 — daily-feeding feedability guard is primary-batch-only on mixed-batch tanks
+
+Surfaced by FARM-HIGH-059 (Phase 2 feed-empty, farm-expert audit). `DailyFeedingExecutionService.recordActualFeeding` resolves the feedability guard via `tankBatch.primaryBatchId` and calls `assertFeedable` on that single primary batch. For an `isMixedBatch` tank, a feedable primary lets feed be recorded even if a secondary in `batchDetails[]` is HARVESTED/empty; and if the primary was harvested out leaving only secondaries (`primaryBatchId` null), the `assertFeedable` block is skipped entirely. Strictly an IMPROVEMENT over the prior state (no batch feedability check at all on the daily path), so it did not block Phase A — but the feed-empty guarantee is weaker on mixed tanks than on `CreateFeedingRecordHandler`. A proper fix iterates `batchDetails[]`. Owner: farm-expert. Status: OPEN (2026-06-15). Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-108 — V3.1-F mock-mode smoke stalls after cycle 1 completion
+
+**Severity**: MEDIUM (smoke-mode-only; real-mode V10.3-A 5-cycle smoke completed cleanly per task #113)
+**Discovered**: 2026-05-19 during V10.3-B prereq follow-up smoke verification (after V3.1-F2 adapter fix at commit `76455a8a` unblocked adapter init).
+**Status**: OPEN (separate from V3.1-F2 fix scope)
+
+**Symptom**: Under `ARIA_DRY_RUN=true CLAUDE_CODE_MOCK=true unshare --net -- python3 -m aria_kernel autonomy run --max-cycles 5 --profile strict` the orchestrator completes cycle 1 (`cycle_started → next_cycle_queued → cycle_completed`) then idles for 25+ minutes without starting cycle 2. `planner_dispatch_iteration_started`/`_completed` events continue ~once/second (mock-mode planner spinning) but `autonomy_state.jsonl` records exactly 1 unique `cycle_id`. The cycle deadline (1800s per cycle × 5 = 9000s max) never elapses because individual cycles complete fast — the orchestrator just doesn't auto-advance.
+
+**Evidence at termination (sandbox `/tmp/aria-smoke-20260519-185437`)**:
+- `autonomy_state.jsonl`: 3 entries, all for `cyc-20260519T185510Z-auto` (started/queued/completed).
+- `governance.jsonl`: 179 events, 18 kinds. 1 × `autonomy_orchestrator_started` for the new run + 1 × `autonomy_orchestrator_exit` from the PRIOR May-18 run (no new exit fired).
+- `next_cycle_queued` event implies cycle 2 should be next, but no new `cycle_started` follows.
+- 57 × `planner_dispatch_iteration_started` paired with 57 × `_completed` over the stall — planner daemon healthy, just no work.
+- 1 × `planner_dispatch_executor_exit_1` (a planner executor exited code 1 — possibly correlated; no traceback visible).
+
+**Hypothesis**: the orchestrator's cycle-2 trigger depends on either (a) a pressure-source signal that mock-mode never produces, or (b) a planner_dispatch follow-up event that exit_1 short-circuits. The runbook documents `cycle_runner_no_pressure` as the expected dry-run idle signal, but THAT event never fires either — the cycle progression event taxonomy may have drifted since V3.1-F was originally written.
+
+**Why filed as ORPHAN and NOT a V3.1-F2 follow-up commit**:
+- Cycle 1 completing end-to-end is sufficient verification that the V3.1-F2 adapter fix works architecturally (was the gate before).
+- V10.3-A task #113 already validated 5-cycle smoke under real LLM (strict profile); the regression appears mock-mode-specific.
+- V10.3-B endurance runs REAL Claude + REAL gh API; it bypasses the mock-mode stall path entirely.
+- Tracing the stall requires reading the entire cycle-progression state machine (CyclePipeline + 5 phase modules per V3.1-0) — multi-hour investigation outside the V10.3-B prereq scope.
+
+**Suggested investigation when prioritized**:
+1. Add `cycle_runner_iteration_started` + `_completed` envelope events at the top of `aria_kernel/cycle_pipeline.py` so the next attempt at this smoke shows WHICH phase is stuck.
+2. Read `planner_dispatch_executor_exit_1` event payload (currently invisible — likely a process state issue under `CLAUDE_CODE_MOCK=true`).
+3. Compare the cycle-progression event taxonomy in `aria_kernel/autonomy_orchestrator.py:run_autonomy_orchestrator()` against the F-5 acceptance script's expected events (`plan_candidate_source_selected`, `cycle_runner_no_pressure`) — those names may have been renamed during V3.1-0 extraction.
+
+**Workaround for V10.3-B unblocking**: V10.3-B endurance runs autonomous profile with real Claude API (no mock-mode), so this orphan does NOT block endurance launch. The fix is needed eventually to make V3.1-F a useful pre-flight smoke, but post-V10.3-B is acceptable.
+
+Status: OPEN. Ported to main 2026-06-14 from `v31-f2-adapter-dry-run-gate@9f291ba4` (renumbered MEDIUM-083 → 104 per origin/main registry max, ARIA→main controlled merge Tranche 1). Registry: orphan-findings.md only.
+
+## ORPHAN-MEDIUM-109 — platform/configs typed config-schema SSoT is empty; services read process.env ad-hoc
+
+Severity: MEDIUM. Discovered 2026-06-13 during the AquaMobil e2e audit, frontend-expert. Out of scope for the AquaMobil remediation initiative — recorded here per the locked plan decision (config-SSoT is a separate initiative, but every found finding is registered).
+
+**Problem:** `platform/configs/` — intended as the typed configuration SSoT — is effectively empty. Backend services and the gateway read configuration directly from `process.env` ad-hoc (untyped `configService.get<string>(...)` / raw `process.env.X` accesses scattered across bootstrap, NATS, DB, and feature-flag paths), with no central schema, no fail-fast validation at boot, and no single place documenting which variables exist, their types, defaults, and required-ness. A missing or malformed env var surfaces as a late runtime failure (or a silent wrong-default) rather than a boot-time rejection, and there is no compile-time contract binding a consumer to a declared key.
+
+**Effect:** config drift is undetectable until runtime; a typo'd or absent env var can degrade a service silently; there is no typed surface a reviewer can read to know the full configuration contract of a service. This is the configuration analogue of the enum / WS-payload drift this initiative fixes elsewhere — the same SSoT gap on a different axis.
+
+**Fix direction (architectural, separate initiative):** populate `platform/configs/` with a typed, validated config-schema module (a Zod/joi schema per service, or a shared schema with per-service slices) loaded once at bootstrap with fail-fast validation (reject boot on a missing/malformed required key), and replace ad-hoc `process.env` / untyped `configService.get` reads with typed accessors derived from that schema. A CI invariant then asserts no service reads `process.env` outside the config layer. Tier-1 "make-it-impossible": a consumer cannot reference an undeclared key because the typed schema is the only access path.
+
+Status: OPEN (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
+
+---
+
+## ORPHAN-MEDIUM-110 — lint-gates husky pre-commit gate is broken under ESLint 9 (eslintrc-format parserOptions fed to a flat-config Linter)
+
+Severity: MEDIUM. Discovered 2026-06-13 while landing the aquamobil-msg-federation merge — the husky pre-commit hook blocked the merge commit (13/19 gate cases threw). RESOLVED in the same merge.
+
+**Problem:** `tools/lint-gates/lint-gates.spec.ts` — the ESLint gate-preservation test wired into `.husky/pre-commit` via the `tools/*gates/*.spec.ts` glob — calls `linter.verify(code, { parserOptions: { ecmaVersion: 2022, sourceType: 'module' }, rules })` against a `new Linter()` instance. The repo migrated to ESLint 9 + flat config (`eslint.config.mjs`; `.eslintrc.json` / `.eslintrc.cjs` deleted), and ESLint 9's `Linter` defaults to flat-config mode, which rejects a top-level `parserOptions` key: "Key 'parserOptions': This appears to be in eslintrc format rather than flat config format." All 13 gate-firing cases threw, so the hook exited 1 and blocked every commit. The test file is byte-identical to `origin/main` (`git diff origin/main` empty) under the repo's pinned `eslint@^9.39.4`, so this is a pre-existing main breakage, not a merge artifact.
+
+**Effect:** the pre-commit gate suite is unrunnable on ESLint 9. Either commits are hard-blocked, or developers bypass with `--no-verify` — which silently disables ALL the other pre-commit gates too (banned-phrase, banned-construct, migration-sql-lint, tier-claim-lint, and the rest of the gate-preservation suite guarding the getRepository() / JWT_SECRET / JSON.stringify bans). The safety net that proves the ESLint config still fires the custom AST-selector rules was dead under the repo's own pinned ESLint.
+
+**Fix (applied, tier-1, flat-config-consistent):** change the gate harness to speak flat config — `languageOptions: { ecmaVersion: 2022, sourceType: 'module' }` instead of the eslintrc-shape top-level `parserOptions`. This aligns the harness with the repo's flat-config SSoT rather than re-enabling an eslintrc compat mode. Verified: 19/19 spec cases pass under ESLint 9.39.4.
+
+Status: RESOLVED (2026-06-13; fixed in the aquamobil-msg-federation merge commit). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-111 — hr-module GraphQL fragments drift from the live schema (codegen-blocking)
+
+Severity: MEDIUM. Discovered 2026-06-14 while standing up the AquaMobil graphql-codegen client-contract SSoT (S1-CODEGEN). Out of the S1 scope (S1 is the AquaMobil client contract + messaging enum-casing) — recorded here per the every-found-finding-is-registered rule.
+
+**Problem:** the shell/module GraphQL documents contain operations/fragments that reference fields the composed supergraph no longer exposes. Running `graphql-codegen` against the real supergraph surfaces (at minimum) in `web/modules/hr-module/src/graphql/`:
+- `fragments.ts` — `Payroll.earnings` and `Payroll.deductions` do not exist (schema has `deductionsTax`/`deductionsOther`/`deductionsTotal`); `PerformanceGoal.keyResults` and `.milestones` are selected without subfields (they are object lists `[KeyResult!]` / `[GoalMilestone!]`).
+- `performance.operations.ts` — operations that spread those broken fragments inherit the same validation errors.
+
+These documents fail GraphQL document validation, so codegen aborts the ENTIRE run (graphql-codegen has no per-output error isolation). At S1 time the only working codegen output was `web/shared-ui/src/generated/graphql-types.ts` (the `typescript` plugin, which needs no documents); the never-emitted `graphql-operations.ts` operations block (added in an earlier commit) was dead because of exactly this drift.
+
+**Effect:** the hr-module client compiles against fields that return nothing at runtime (silent `undefined` mid-response), and the shell/module operations cannot be brought under a codegen TypedDocumentNode contract until the fragments are realigned. S1 removed the dead `shared-ui/graphql-operations.ts` codegen block (no consumers, never emitted) so the AquaMobil codegen run is no longer blocked by this unrelated drift.
+
+**Fix direction (architectural):** realign the hr-module fragments to the live supergraph (`Payroll.deductionsTax|deductionsOther|deductionsTotal`; add explicit subfield selections to `keyResults`/`milestones`), then re-add a `web/shell+modules` operations codegen output (with its own disjoint `documents` set, mirroring the aquamobil block) and bring the shell/module hooks onto the generated TypedDocumentNode constants. Extend the S1 codegen CI gate to cover that output once green.
+
+Status: OPEN (2026-06-14; owner: frontend-expert → hr-module; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-107 — AquaMobil leave-balance rows show a generic "Leave" label (no per-type enrichment)
+
+Severity: LOW. Discovered 2026-06-14 during S1-CODEGEN, fixing a client-contract drift the codegen gate caught.
+
+**Problem:** `GET_MY_LEAVE_BALANCES` previously selected a nested `leaveType { id name code category isPaid color }` block, but the HR `LeaveBalance` GraphQL type has NO `leaveType` field (only `leaveTypeId`). The selection returned nothing at runtime, so `balance.leaveType` was always `undefined`; `MyLeavesPage` falls back to a generic `'Leave'` label and a default color. S1 removed the invalid selection (the codegen gate rejects a field the schema does not expose), which keeps the existing fallback behaviour but does not restore the per-type label/color.
+
+**Effect:** purely cosmetic — the leave-balance cards do not show the leave-type name/color. Functionally unchanged from before (the field never resolved). No data-integrity impact.
+
+**Fix direction:** enrich balances client-side by joining `balance.leaveTypeId` against the separately-fetched `leaveTypes` list (already loaded by `useLeaveTypes`) in the `useMyLeaveBalances` selector, or add a `leaveType` field resolver to `LeaveBalance` on the HR subgraph if the backend should own the join. The former is the smaller, client-only change.
+
+Status: OPEN (2026-06-14; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-112 — AquaMobil `eslint src` lint script has a large pre-existing red baseline (~940 errors)
+
+Severity: MEDIUM. Discovered 2026-06-14 during S1-CODEGEN, validating that the codegen migration adds no new lint debt.
+
+**Problem:** the AquaMobil `lint` target (`nx run @aquaculture/aquamobil:lint` → `eslint src`) reports ~940 errors + ~286 warnings on a clean checkout, in files untouched by S1 (e.g. `src/App.tsx` 10 errors, `src/components/ErrorBoundary.tsx`, the storage/water-quality pages, `useWebAuthn.ts`). The dominant rules are `import/order` (import blocks mix external/internal without group separation), `@typescript-eslint/explicit-function-return-type`, `no-floating-promises`, `no-misused-promises`, `@typescript-eslint/no-explicit-any` / `no-unsafe-*` (notably the WebAuthn browser-API code), `no-console`, and `react/no-unescaped-entities` / jsx-a11y. The target is `cache: true` and feeds `nx affected --target=lint`, so the red baseline is effectively unenforced for this app — it can only ever be "already red", never gating.
+
+**Effect:** the AquaMobil lint gate provides no signal — a PR cannot make it RED (it is already red) and cannot be required to make it GREEN. Real new violations hide in the noise; the `no-explicit-any`/`no-unsafe-*` cluster in particular masks genuine type-safety gaps (e.g. the WebAuthn credential handling operates on `any`).
+
+**Why not fixed inline (S1):** out of S1 scope (S1 is the GraphQL client contract + messaging enum-casing). S1 verified it adds NO net-new lint errors of consequence: the only violations it introduced were `import/order` from inserting `import { gql }` lines, which were `eslint --fix`ed; every other reported error in S1-touched files pre-dates S1 (confirmed by rule-category diff and by linting untouched `App.tsx`). Fixing ~940 cross-cutting violations is a separate dedicated cleanup, not a safe rider on a contract migration.
+
+**Fix direction:** run `eslint --fix src` for the mechanical rules (`import/order`, quote/escaping), then triage the semantic clusters per-area: add explicit return types, `await`/`void` the floating promises, replace the WebAuthn `any` accesses with typed wrappers over the Credential Management API, and route `console.*` through the app logger. Land in reviewable slices, then flip the target to `--max-warnings 0` so it gates going forward.
+
+Status: OPEN (2026-06-14; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
 
 ---

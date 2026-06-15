@@ -18,11 +18,15 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { gql } from 'graphql-tag';
+
+
 import { useAuth } from './useAuth';
+
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { MessageUser } from '@/types/messaging';
 import { getUserDisplayName } from '@/utils/messaging-helpers';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /**
  * GraphQL query for the New Chat user picker (MSG-HIGH-051).
@@ -32,7 +36,7 @@ import { getUserDisplayName } from '@/utils/messaging-helpers';
  * federated auth `User`; isOnline comes from messaging presence. `email` is
  * deliberately NOT requested (display-only — not exposed to channel members).
  */
-const CHANNEL_ELIGIBLE_USERS_QUERY = `
+const CHANNEL_ELIGIBLE_USERS_QUERY = gql`
   query ChannelEligibleUsers {
     channelEligibleUsers {
       id

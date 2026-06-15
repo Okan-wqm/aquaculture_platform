@@ -228,7 +228,7 @@ export class WaterQualityResolver {
   ): Promise<WaterQualityMeasurement> {
     this.logger.log(`Updating water quality measurement ${input.id}`);
     return this.waterQualityService.update(tenantId, input.id, {
-      parameters: input.parameters,
+      dynamicParameters: input.dynamicParameters,
       notes: input.notes,
       weatherConditions: input.weatherConditions,
     });

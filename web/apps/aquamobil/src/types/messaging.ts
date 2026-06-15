@@ -15,21 +15,58 @@
 // ============================================================================
 // ENUMS
 // ============================================================================
+//
+// S1-CODEGEN: schema-owned enums whose READ wire form is the UPPERCASE GraphQL
+// enum NAME are re-exported from the generated client contract so the casing can
+// never drift from the supergraph. `MessageContentType`, `ReceiptStatus`,
+// `ChannelMemberRole`, and `NotificationPreference` are all value-mapped enums
+// registered with a METADATA-ONLY valuesMap (descriptions only — NestJS
+// `EnumMetadataValuesMapOptions` rejects a `value` override, INFRA-CRITICAL-014),
+// so graphql-js serializes the UPPERCASE NAME on the read path (`'TEXT'`,
+// `'DELIVERED'`, `'OWNER'`, `'ALL'`). The WS hydrator projects the lowercase DB
+// VALUE → that same NAME (toWireEnumName), so the GraphQL query path AND the live
+// WS path emit one wire form; every client comparison is migrated to UPPERCASE in
+// lock-step (ChatRoomPage / MessageBubble / ForwardModal / ChannelSettingsPage /
+// MentionPicker / MemberRow / useChannelActions). The WRITE path normalizes the
+// inbound NAME back to the DB VALUE at the resolver input boundary
+// (normalizeEnumInput in apps/messaging-service/src/shared/enum-wire.util.ts).
+//
+// `ChannelType` is the ONE exception NOT re-exported from generated: it keeps its
+// dedicated lowercase internal form + `ChannelTypeWire` wire form because it has a
+// deliberate client-side read/write codec boundary (utils/channel-type-wire.ts,
+// MSG-HIGH-054) rather than a per-comparison UPPERCASE migration.
 
-/** Channel type determines UI layout and membership rules. */
+import type {
+  MessageContentType,
+  ReceiptStatus,
+  ChannelMemberRole,
+  NotificationPreference,
+} from '@/generated/graphql';
+
+export type {
+  MessageContentType,
+  ReceiptStatus,
+  ChannelMemberRole,
+  NotificationPreference,
+};
+
+/** Channel type determines UI layout and membership rules (internal lowercase form). */
 export type ChannelType = 'direct' | 'group' | 'ai';
 
-/** Role hierarchy within a channel: OWNER > ADMIN > MEMBER. */
-export type ChannelMemberRole = 'owner' | 'admin' | 'member';
-
-/** Notification preference per-channel per-user. */
-export type NotificationPreference = 'all' | 'mentions' | 'none';
-
-/** Content type drives message rendering (text bubble, image, file card, etc.). */
-export type MessageContentType = 'text' | 'image' | 'file' | 'voice' | 'system';
-
-/** Read receipt status for delivery tracking. */
-export type ReceiptStatus = 'delivered' | 'read';
+/**
+ * GraphQL wire KEYs for `ChannelType` — the literals the messaging subgraph
+ * enum actually accepts on the wire. The messaging-service registers
+ * `ChannelType` WITHOUT a valuesMap, so graphql-js exposes the enum KEYs
+ * (`DIRECT`/`GROUP`/`AI`), not the lowercase persisted values. The runtime
+ * codec mapping internal <-> wire lives in {@link ../utils/channel-type-wire}.
+ *
+ * ChannelType keeps its dedicated lowercase internal form because of that
+ * read/write normalization boundary; `ChannelMemberRole`/`NotificationPreference`
+ * (above) have NO such boundary, so they take the generated UPPERCASE GraphQL
+ * enum NAME directly — the wire form the value-mapped messaging enums emit and
+ * accept (same class as MessageContentType, S1-CODEGEN).
+ */
+export type ChannelTypeWire = 'DIRECT' | 'GROUP' | 'AI';
 
 /** Optimistic message status for the send pipeline. */
 export type MessageStatus = 'pending' | 'sent' | 'failed';
@@ -257,9 +294,21 @@ export interface SendMessageInput {
   metadata?: Record<string, unknown>;
 }
 
-/** Input for creating a new channel. */
+/**
+ * Input for creating a new channel — the GraphQL *write* payload.
+ *
+ * WHY `type` is `ChannelTypeWire` (the SDL KEY `'DIRECT' | 'GROUP' | 'AI'`)
+ * and NOT the internal lowercase `ChannelType`: the messaging subgraph
+ * registers its enum WITHOUT a valuesMap, so graphql-js accepts only the enum
+ * KEYS on the wire. Posting the lowercase value (`'group'`) is rejected with a
+ * 400 before the resolver runs (MSG-HIGH-054). Typing the field as the wire
+ * union forces every caller through {@link toWireChannelType}, making the
+ * lowercase 400 a compile-time error instead of a runtime failure.
+ *
+ * @see web/apps/aquamobil/src/utils/channel-type-wire.ts
+ */
 export interface CreateChannelInput {
-  type: ChannelType;
+  type: ChannelTypeWire;
   name?: string;
   description?: string;
   memberIds: string[];

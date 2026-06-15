@@ -4,6 +4,8 @@
  * IP-3: Tests for domain logic extracted from batch.entity.ts.
  * Pure calculations — no database, no DI, no side effects.
  */
+import { BadRequestException } from '@nestjs/common';
+
 import { BatchDomainService } from '../../services/batch-domain.service';
 import { Batch, BatchStatus, BatchType } from '../../entities/batch.entity';
 
@@ -53,14 +55,25 @@ describe('BatchDomainService', () => {
 
   // ── Biomass & Weight ──────────────────────────────────────────────────
 
-  describe('getCurrentBiomass', () => {
-    it('should return actual biomass when available', () => {
-      const batch = createBatch();
+  describe('getCurrentBiomass (derive-on-read)', () => {
+    // Biomass is DERIVED: currentQuantity × effectiveAvgWeightG / 1000.
+    // It no longer reads the stored weight.actual.totalBiomass snapshot.
+
+    it('should derive from currentQuantity × actual avgWeight', () => {
+      const batch = createBatch(); // 9500 × 160 / 1000 = 1520
       expect(service.getCurrentBiomass(batch)).toBe(1520);
     });
 
-    it('should fall back to theoretical when actual is missing', () => {
+    it('should track currentQuantity decrements (cannot go stale)', () => {
+      // The stored snapshot still says totalBiomass=1520, but after 500 fish
+      // are removed the derived biomass drops — proving it tracks the live count.
+      const batch = createBatch({ currentQuantity: 9000 }); // 9000 × 160 / 1000
+      expect(service.getCurrentBiomass(batch)).toBe(1440);
+    });
+
+    it('should fall back to theoretical avgWeight when actual avgWeight is 0', () => {
       const batch = createBatch({
+        currentQuantity: 9500,
         weight: {
           initial: { avgWeight: 50, totalBiomass: 500, measuredAt: new Date() },
           theoretical: {
@@ -79,11 +92,12 @@ describe('BatchDomainService', () => {
           variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
         },
       });
-      expect(service.getCurrentBiomass(batch)).toBe(1425);
+      expect(service.getCurrentBiomass(batch)).toBe(1425); // 9500 × 150 / 1000
     });
 
-    it('should fall back to initial when theoretical is also missing', () => {
+    it('should fall back to initial avgWeight when actual+theoretical are 0', () => {
       const batch = createBatch({
+        currentQuantity: 9500,
         weight: {
           initial: { avgWeight: 50, totalBiomass: 500, measuredAt: new Date() },
           theoretical: {
@@ -102,11 +116,16 @@ describe('BatchDomainService', () => {
           variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
         },
       });
-      expect(service.getCurrentBiomass(batch)).toBe(500);
+      expect(service.getCurrentBiomass(batch)).toBe(475); // 9500 × 50 / 1000
     });
 
     it('should return 0 when no weight data exists', () => {
-      const batch = createBatch({ weight: undefined as any });
+      const batch = createBatch({ weight: undefined });
+      expect(service.getCurrentBiomass(batch)).toBe(0);
+    });
+
+    it('should return 0 when the batch is empty', () => {
+      const batch = createBatch({ currentQuantity: 0 });
       expect(service.getCurrentBiomass(batch)).toBe(0);
     });
   });
@@ -153,86 +172,46 @@ describe('BatchDomainService', () => {
 
   // ── Performance Metrics ───────────────────────────────────────────────
 
-  describe('calculateFCR', () => {
-    it('should calculate FCR = totalFeed / weightGain', () => {
-      const batch = createBatch({
-        totalFeedConsumed: 5000,
-        weight: {
-          initial: { avgWeight: 50, totalBiomass: 500, measuredAt: new Date() },
-          theoretical: {
-            avgWeight: 0,
-            totalBiomass: 0,
-            lastCalculatedAt: new Date(),
-            basedOnFCR: 0,
-          },
-          actual: {
-            avgWeight: 160,
-            totalBiomass: 1520,
-            lastMeasuredAt: new Date(),
-            sampleSize: 100,
-            confidencePercent: 95,
-          },
-          variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
-        },
-      });
-      // weightGain = 1520 - 500 + 0 = 1020
-      // FCR = 5000 / 1020 ≈ 4.9
-      expect(service.calculateFCR(batch)).toBeCloseTo(4.9, 1);
+  // NOTE: calculateFCR was removed from BatchDomainService (one-SSoT
+  // consolidation). The single FCR authority is now
+  // FcrCalculationService.calculateCumulativeFCR, which is covered by its own
+  // ledger-aware spec.
+
+  describe('assertFeedable', () => {
+    it.each([
+      BatchStatus.ACTIVE,
+      BatchStatus.GROWING,
+      BatchStatus.PRE_HARVEST,
+      BatchStatus.HARVESTING,
+    ])('should not throw for feedable status %s with live fish', (status) => {
+      const batch = createBatch({ status, currentQuantity: 9500 });
+      expect(() => service.assertFeedable(batch)).not.toThrow();
     });
 
-    it('should include mortality biomass in weight gain', () => {
-      const batch = createBatch({
-        totalFeedConsumed: 5000,
-        weight: {
-          initial: { avgWeight: 50, totalBiomass: 500, measuredAt: new Date() },
-          theoretical: {
-            avgWeight: 0,
-            totalBiomass: 0,
-            lastCalculatedAt: new Date(),
-            basedOnFCR: 0,
-          },
-          actual: {
-            avgWeight: 160,
-            totalBiomass: 1520,
-            lastMeasuredAt: new Date(),
-            sampleSize: 100,
-            confidencePercent: 95,
-          },
-          variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
-        },
-      });
-      // weightGain = 1520 - 500 + 100 = 1120 (100kg mortality biomass)
-      // FCR = 5000 / 1120 ≈ 4.46
-      expect(service.calculateFCR(batch, 100)).toBeCloseTo(4.46, 1);
+    it.each([
+      BatchStatus.QUARANTINE,
+      BatchStatus.HARVESTED,
+      BatchStatus.TRANSFERRED,
+      BatchStatus.FAILED,
+      BatchStatus.CLOSED,
+    ])('should throw BadRequestException for non-feedable status %s', (status) => {
+      const batch = createBatch({ status, currentQuantity: 9500 });
+      expect(() => service.assertFeedable(batch)).toThrow(BadRequestException);
     });
 
-    it('should return 0 when no feed consumed', () => {
-      const batch = createBatch({ totalFeedConsumed: 0 });
-      expect(service.calculateFCR(batch)).toBe(0);
+    it('should throw when the batch is empty (currentQuantity = 0)', () => {
+      const batch = createBatch({ status: BatchStatus.GROWING, currentQuantity: 0 });
+      expect(() => service.assertFeedable(batch)).toThrow(BadRequestException);
     });
 
-    it('should return 0 when weight gain is negative', () => {
-      const batch = createBatch({
-        totalFeedConsumed: 1000,
-        weight: {
-          initial: { avgWeight: 200, totalBiomass: 2000, measuredAt: new Date() },
-          theoretical: {
-            avgWeight: 0,
-            totalBiomass: 0,
-            lastCalculatedAt: new Date(),
-            basedOnFCR: 0,
-          },
-          actual: {
-            avgWeight: 100,
-            totalBiomass: 1000,
-            lastMeasuredAt: new Date(),
-            sampleSize: 50,
-            confidencePercent: 90,
-          },
-          variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
-        },
-      });
-      expect(service.calculateFCR(batch)).toBe(0);
+    it('should throw when currentQuantity is negative', () => {
+      const batch = createBatch({ status: BatchStatus.GROWING, currentQuantity: -5 });
+      expect(() => service.assertFeedable(batch)).toThrow(BadRequestException);
+    });
+
+    it('should prioritise the empty-batch error even for a feedable status', () => {
+      const batch = createBatch({ status: BatchStatus.ACTIVE, currentQuantity: 0 });
+      expect(() => service.assertFeedable(batch)).toThrow(/no live fish/);
     });
   });
 

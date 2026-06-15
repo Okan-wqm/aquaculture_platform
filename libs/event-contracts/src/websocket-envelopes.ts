@@ -33,11 +33,24 @@
 // Hydrated entity shapes (post-resolution; what the client renders)
 // ----------------------------------------------------------------------------
 
-/** Content type drives client message rendering (text bubble, image, file card…). */
-export type WsMessageContentType = 'text' | 'image' | 'file' | 'voice' | 'system';
+/**
+ * Content type drives client message rendering (text bubble, image, file card…).
+ *
+ * WIRE FORM = the GraphQL enum NAME (UPPERCASE), NOT the lowercase persisted DB
+ * value. The live WS path (gateway hydrator) and the GraphQL query path MUST
+ * agree on one wire form for `contentType`; the GraphQL `MessageContentType`
+ * enum serializes its NAME, so the WS hydrator projects the DB value → NAME via
+ * `toWireEnumName` (S1-CODEGEN). This union is field-for-field identical to the
+ * generated `MessageContentType` graphql-codegen union the AquaMobil client now
+ * consumes.
+ */
+export type WsMessageContentType = 'TEXT' | 'IMAGE' | 'FILE' | 'VOICE' | 'SYSTEM';
 
-/** Read/delivery receipt status. */
-export type WsReceiptStatus = 'delivered' | 'read';
+/**
+ * Read/delivery receipt status — GraphQL enum NAME (UPPERCASE) wire form, see
+ * {@link WsMessageContentType}. Identical to the generated `ReceiptStatus` union.
+ */
+export type WsReceiptStatus = 'DELIVERED' | 'READ';
 
 /**
  * Federation-resolved sender/member identity. Hydrated from auth-service

@@ -15,13 +15,16 @@
  * @returns error — last mutation error, if any
  */
 
-import { useCallback, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useCallback, useState } from 'react';
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { DIRECT_CHANNEL, CREATE_CHANNEL } from '@/graphql/messaging-operations';
-import type { Channel, ChannelType, CreateChannelInput } from '@/types/messaging';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { Channel, CreateChannelInput } from '@/types/messaging';
+import { toWireChannelType } from '@/utils/channel-type-wire';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /**
  * Channel creation hook for DM and group channel flows.
@@ -54,7 +57,7 @@ export function useCreateChannel() {
   const groupMutation = useMutation({
     mutationFn: async (params: { name: string; memberIds: string[] }) => {
       const input: CreateChannelInput = {
-        type: 'group' as ChannelType,
+        type: toWireChannelType('group'),
         name: params.name,
         memberIds: params.memberIds,
       };
@@ -79,7 +82,7 @@ export function useCreateChannel() {
   const aiMutation = useMutation({
     mutationFn: async (params: { aiPersona?: string; name?: string }) => {
       const input: CreateChannelInput = {
-        type: 'ai' as ChannelType,
+        type: toWireChannelType('ai'),
         name: params.name,
         memberIds: [], // Creator auto-added on backend
         aiPersona: params.aiPersona,

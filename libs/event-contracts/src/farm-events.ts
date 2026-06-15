@@ -1084,6 +1084,228 @@ export interface FeedInventoryLowEvent extends BaseEvent {
   status: 'low_stock' | 'critical';
 }
 
+// ====================================================================
+// Immediate Mattilsynet "varsling" reports (welfare / escape / disease)
+// ====================================================================
+//
+// WHY a separate event family — these three reports are NOT part of the
+// Mattilsynet `innrapportering-api` (Maskinporten REST) surface. That API
+// covers exactly lakselus / rensefisk / settefisk / slakt. Welfare events,
+// escapes, and notifiable-disease outbreaks are legally-immediate
+// "varsling" notifications that the regulation routes to
+// varsling.akva@mattilsynet.no (escapes additionally to
+// Fiskeridirektoratet). The real submission channel is therefore email,
+// already implemented in notification-service EmailService
+// (sendWelfareEventEmail / sendEscapeReportEmail / sendDiseaseOutbreakEmail).
+//
+// WHAT — farm-service emits one of these events transactionally via the
+// outbox; notification-service consumes them and dispatches the urgent
+// email. The event carries the full Mattilsynet identity block
+// (organisasjonsnummer, lokalitetsnummer, kontaktperson) plus the
+// report-specific payload the email template renders, so the consumer
+// needs no callback into farm-service.
+
+/**
+ * Contact person block carried on immediate regulatory varsling events.
+ * Mirrors the Mattilsynet `Kontaktperson` object required on every report.
+ */
+export interface RegulatoryContactPerson {
+  navn: string;
+  epost: string;
+  telefonnummer?: string;
+}
+
+/**
+ * Welfare event reported to Mattilsynet (varsling).
+ *
+ * Emitted when an operator submits a welfare incident (mortality
+ * threshold breach, equipment failure affecting welfare, or a
+ * general welfare-impact event). Consumed by notification-service,
+ * which renders + sends the urgent welfare email to Mattilsynet.
+ */
+export interface WelfareEventReportedEvent extends BaseEvent {
+  eventType: 'WelfareEventReported';
+  /** Client reference echoed in the email subject for traceability. */
+  klientReferanse: string;
+  organisasjonsnummer: string;
+  lokalitetsnummer: number;
+  siteId: string;
+  siteName: string;
+  siteCode?: string;
+  kontaktperson: RegulatoryContactPerson;
+  /** Site-manager CC recipient, when configured. */
+  siteManagerEmail?: string;
+  detectedAt: string;
+  reportedBy: string;
+  welfareEventType: 'mortality_threshold' | 'equipment_failure' | 'welfare_impact';
+  severity: 'high' | 'critical';
+  mortalityRate?: number;
+  mortalityPeriod?: string;
+  affectedBatches?: string[];
+  description: string;
+  immediateActions: string[];
+}
+
+/**
+ * Fish escape reported to Mattilsynet + Fiskeridirektoratet (varsling).
+ *
+ * Emitted when an operator submits an escape incident. Consumed by
+ * notification-service, which renders + sends the urgent escape email.
+ */
+export interface EscapeReportedEvent extends BaseEvent {
+  eventType: 'EscapeReported';
+  klientReferanse: string;
+  organisasjonsnummer: string;
+  lokalitetsnummer: number;
+  siteId: string;
+  siteName: string;
+  siteCode?: string;
+  kontaktperson: RegulatoryContactPerson;
+  siteManagerEmail?: string;
+  detectedAt: string;
+  reportedBy: string;
+  estimatedCount: number;
+  species: string;
+  avgWeightG: number;
+  totalBiomassKg: number;
+  cause: string;
+  affectedUnits: string[];
+  recoveryOngoing: boolean;
+}
+
+/**
+ * Notifiable disease outbreak reported to Mattilsynet (varsling).
+ *
+ * Emitted when an operator submits a Liste A/C/F disease outbreak.
+ * Consumed by notification-service, which renders + sends the urgent
+ * disease email.
+ */
+export interface DiseaseOutbreakReportedEvent extends BaseEvent {
+  eventType: 'DiseaseOutbreakReported';
+  klientReferanse: string;
+  organisasjonsnummer: string;
+  lokalitetsnummer: number;
+  siteId: string;
+  siteName: string;
+  siteCode?: string;
+  kontaktperson: RegulatoryContactPerson;
+  siteManagerEmail?: string;
+  detectedAt: string;
+  reportedBy: string;
+  diseaseCategory: 'A' | 'C' | 'F';
+  diseaseName: string;
+  confirmation: 'suspected' | 'confirmed';
+  affectedCount: number;
+  affectedPercentage: number;
+  clinicalSigns: string[];
+  veterinarianNotified: boolean;
+  veterinarianName?: string;
+}
+
+// ====================================================================
+// Harvest / mortality FOLLOW-UP events (dead-listeners produce-side cure)
+// ====================================================================
+//
+// WHY this family exists — these four events are emitted by the farm-service
+// event listeners AFTER they consume a trigger event (BatchHarvested /
+// MortalityRecorded). The pre-cure code published them as INLINE objects that
+// REUSED the trigger's `eventId`. Because NatsEventBus stamps `msgID =
+// event.eventId` on a single `events.>` stream with a 2-minute
+// `duplicate_window`, every follow-up collided with the still-resident trigger
+// msgID and was SILENTLY DROPPED — the whole follow-up chain was dead on the
+// wire. The cure mints a FRESH identity per follow-up with `createBaseEvent`
+// (branded EventId — see base-event.ts), threading `causationId = trigger
+// eventId` and `correlationId = trigger correlationId` so the chain stays
+// traceable. Promoting them to FIRST-CLASS flat contracts is what makes the
+// inline-construction footgun a compile error going forward (CLAUDE.md rule 4).
+//
+// FLAT per ADR-006 — no nested `performance` / `production` wrappers.
+// BatchProductionCompleted is flattened to top-level `final*` fields.
+//
+// CONSUMERS (wired in the same change-set):
+//   - MortalityAlertRaised      → alert-engine (creates a real AlertIncident)
+//   - HarvestRegulatoryRecorded → notification-service (traceability record)
+//   - TankCleared               → gateway-api FarmNatsBridge → tenant room
+//   - BatchProductionCompleted  → gateway-api FarmNatsBridge → tenant room
+
+/**
+ * Mortality alert raised by the farm-service mortality listener when a recorded
+ * mortality breaches a configured threshold (single-event count, daily rate, or
+ * cumulative rate). Distinct from the alert-engine-owned `AlertTriggered`: a farm
+ * producer cannot supply `alertId` / `ruleId` / `channels` / `recipients`, so it
+ * raises THIS lighter signal and the alert-engine converts it into a real alert.
+ */
+export interface MortalityAlertRaisedEvent extends BaseEvent {
+  eventType: 'MortalityAlertRaised';
+  batchId: string;
+  tankId?: string;
+  alertType: 'single_event' | 'daily_rate' | 'cumulative_rate';
+  severity: 'warning' | 'critical';
+  message: string;
+  mortalityRate: number;
+  reason: MortalityReasonCode;
+  recordedAt: Date;
+}
+
+/**
+ * Harvest regulatory / traceability record emitted on every harvest (partial or
+ * final). Food-safety recall chains (FDA 21 CFR 123 / EU 853/2004) require a
+ * per-harvest traceability anchor; this is the wire-visible record consumed by
+ * notification-service for the traceability log + operator confirmation.
+ */
+export interface HarvestRegulatoryRecordedEvent extends BaseEvent {
+  eventType: 'HarvestRegulatoryRecorded';
+  batchId: string;
+  harvestedQuantity: number;
+  totalWeight?: number;
+  averageWeight?: number;
+  harvestedAt: Date;
+  /** Operator who performed the harvest (BaseEvent.userId on the trigger). */
+  harvestedBy?: string;
+  /** True when this harvest emptied the batch (mirrors BatchHarvested.isFinal). */
+  isFinal: boolean;
+}
+
+/**
+ * Tank cleared — emitted when a final harvest empties the last batch out of a
+ * tank, so the tank is now free for re-stocking. A dashboard/read-model signal:
+ * consumed by the gateway FarmNatsBridge and broadcast into the tenant room so
+ * the tank-occupancy view updates in real time.
+ */
+export interface TankClearedEvent extends BaseEvent {
+  eventType: 'TankCleared';
+  tankId: string;
+  tankCode?: string;
+  previousBatchId: string;
+  clearedAt: Date;
+}
+
+/**
+ * Batch production completed — emitted on a final, fully-emptied harvest. Carries
+ * the frozen production + performance summary (flattened to `final*` fields per
+ * ADR-006) so a dashboard/read-model consumer can render the batch-cycle outcome
+ * without re-reading the Batch aggregate. This is a lifecycle SIGNAL only; the
+ * authoritative batch closure (final FCR/mortality freeze) is the separate
+ * CloseBatchCommand → BatchClosedEvent.
+ */
+export interface BatchProductionCompletedEvent extends BaseEvent {
+  eventType: 'BatchProductionCompleted';
+  batchId: string;
+  // ── Production (flattened from the former nested `production` object) ──
+  initialQuantity: number;
+  harvestedQuantity: number;
+  harvestedBiomassKg: number;
+  avgWeightG: number;
+  survivalRate: number;
+  mortalityRate: number;
+  // ── Performance (flattened from the former nested `performance` object) ──
+  daysInProduction: number;
+  fcr: number;
+  sgr: number;
+  totalFeedConsumedKg: number;
+  completedAt: Date;
+}
+
 // ==================== Type Union ====================
 
 /**
@@ -1141,4 +1363,11 @@ export type FarmEvent =
   | SubEquipmentUpdatedEvent
   | SubEquipmentDeletedEvent
   | FeederCalibrationsSavedEvent
-  | FeedInventoryLowEvent;
+  | FeedInventoryLowEvent
+  | WelfareEventReportedEvent
+  | EscapeReportedEvent
+  | DiseaseOutbreakReportedEvent
+  | MortalityAlertRaisedEvent
+  | HarvestRegulatoryRecordedEvent
+  | TankClearedEvent
+  | BatchProductionCompletedEvent;

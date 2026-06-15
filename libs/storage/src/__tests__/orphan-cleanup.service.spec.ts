@@ -84,6 +84,7 @@ describe('StorageOrphanCleanupService', () => {
     const result = await svc.cleanup({
       livePaths: new Set(),
       minAgeMs: 24 * 60 * 60 * 1000, // 24h default
+      allowEmptyLiveSet: true,
     });
     expect(result.tooNew).toBe(1);
     expect(result.deleted).toBe(0);
@@ -98,7 +99,7 @@ describe('StorageOrphanCleanupService', () => {
       ],
     });
     const svc = new StorageOrphanCleanupService(client);
-    const result = await svc.cleanup({ livePaths: new Set() });
+    const result = await svc.cleanup({ livePaths: new Set(), allowEmptyLiveSet: true });
     expect(result.deleted).toBe(2);
     expect(result.live).toBe(0);
     expect(deleteFile).toHaveBeenCalledTimes(2);
@@ -118,6 +119,7 @@ describe('StorageOrphanCleanupService', () => {
     const result = await svc.cleanup({
       livePaths: new Set(),
       maxDeletions: 2,
+      allowEmptyLiveSet: true,
     });
     expect(result.deleted).toBe(2);
     expect(result.capped).toBe(true);
@@ -134,7 +136,7 @@ describe('StorageOrphanCleanupService', () => {
       failingDeletes: new Set(['bad']),
     });
     const svc = new StorageOrphanCleanupService(client);
-    const result = await svc.cleanup({ livePaths: new Set() });
+    const result = await svc.cleanup({ livePaths: new Set(), allowEmptyLiveSet: true });
     expect(result.deleted).toBe(2);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]!.path).toBe('bad');
@@ -164,5 +166,64 @@ describe('StorageOrphanCleanupService', () => {
     expect(result.deleted).toBe(1);
     expect(result.tooNew).toBe(1);
     expect(result.live + result.deleted + result.tooNew).toBe(result.totalScanned);
+  });
+
+  // ---------------------------------------------------------------------
+  // STRUCTURAL SAFETY GATE — empty live-set over a non-empty bucket scan
+  // is the signature of a scope/context bug (the cross-tenant
+  // whole-bucket deletion class). It must refuse to delete by default.
+  // ---------------------------------------------------------------------
+
+  it('REFUSES to delete when live-set is empty and objects exist (no allowEmptyLiveSet)', async () => {
+    const { client, deleteFile } = makeClient({
+      objects: [
+        { name: 'tenant-a/x.pdf', size: 1, lastModified: daysAgo(30) },
+        { name: 'tenant-b/y.pdf', size: 1, lastModified: daysAgo(30) },
+      ],
+    });
+    const svc = new StorageOrphanCleanupService(client);
+    const result = await svc.cleanup({ livePaths: new Set() });
+    expect(result.refused).toBe(true);
+    expect(result.deleted).toBe(0);
+    expect(result.totalScanned).toBe(2);
+    expect(deleteFile).not.toHaveBeenCalled();
+  });
+
+  it('does NOT refuse on an empty bucket (nothing to delete, refused=false)', async () => {
+    const { client, deleteFile } = makeClient({ objects: [] });
+    const svc = new StorageOrphanCleanupService(client);
+    const result = await svc.cleanup({ livePaths: new Set() });
+    expect(result.refused).toBe(false);
+    expect(result.deleted).toBe(0);
+    expect(deleteFile).not.toHaveBeenCalled();
+  });
+
+  it('allowEmptyLiveSet:true permits deletion with an empty live-set (explicit authority)', async () => {
+    const { client, deleteFile } = makeClient({
+      objects: [{ name: 'stale.pdf', size: 1, lastModified: daysAgo(30) }],
+    });
+    const svc = new StorageOrphanCleanupService(client);
+    const result = await svc.cleanup({
+      livePaths: new Set(),
+      allowEmptyLiveSet: true,
+    });
+    expect(result.refused).toBe(false);
+    expect(result.deleted).toBe(1);
+    expect(deleteFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('a non-empty live-set proceeds normally (refused=false)', async () => {
+    const live = 'tenant-1/keep.pdf';
+    const { client } = makeClient({
+      objects: [
+        { name: live, size: 1, lastModified: daysAgo(30) },
+        { name: 'tenant-1/orphan.pdf', size: 1, lastModified: daysAgo(30) },
+      ],
+    });
+    const svc = new StorageOrphanCleanupService(client);
+    const result = await svc.cleanup({ livePaths: new Set([live]) });
+    expect(result.refused).toBe(false);
+    expect(result.live).toBe(1);
+    expect(result.deleted).toBe(1);
   });
 });

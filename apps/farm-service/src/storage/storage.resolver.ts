@@ -41,6 +41,7 @@ import { UpdatePurchaseOrderStatusInput } from './dto/update-purchase-order-stat
 import { ReceiveDeliveryInput } from './dto/receive-delivery.input';
 import { CreatePurchaseOrderCommand } from './commands/create-purchase-order.command';
 import { UpdatePurchaseOrderStatusCommand } from './commands/update-purchase-order-status.command';
+import { ApprovePurchaseOrderCommand } from './commands/approve-purchase-order.command';
 import { ReceiveDeliveryCommand } from './commands/receive-delivery.command';
 import { ListPurchaseOrdersQuery } from './queries/list-purchase-orders.query';
 import { GetPurchaseOrderQuery } from './queries/get-purchase-order.query';
@@ -366,6 +367,21 @@ export class StorageResolver {
     @CurrentUser() user: { sub: string },
   ): Promise<PurchaseOrderResponse> {
     const command = new UpdatePurchaseOrderStatusCommand(input, tenantId, user.sub);
+    return this.commandBus.execute(command);
+  }
+
+  // Maker-checker approval gate (SOC2 CC3.4). TENANT_ADMIN only — a MODULE_MANAGER
+  // can submit (DRAFT -> SUBMITTED) via updatePurchaseOrderStatus but cannot approve,
+  // and the handler additionally blocks self-approval (createdBy === userId).
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => PurchaseOrderResponse)
+  async approvePurchaseOrder(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; firstName?: string; lastName?: string },
+  ): Promise<PurchaseOrderResponse> {
+    const userName = [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined;
+    const command = new ApprovePurchaseOrderCommand(id, tenantId, user.sub, userName);
     return this.commandBus.execute(command);
   }
 

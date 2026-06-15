@@ -73,6 +73,16 @@ export class PurchaseOrderResponse {
   @Field()
   currency!: string;
 
+  // Maker-checker audit trail (SOC2 CC3.4). Populated when the PO reaches APPROVED.
+  @Field(() => ID, { nullable: true })
+  approvedBy?: string;
+
+  @Field({ nullable: true })
+  approvedByName?: string;
+
+  @Field({ nullable: true })
+  approvedAt?: Date;
+
   @Field(() => [PurchaseOrderItemResponse])
   items!: PurchaseOrderItemResponse[];
 

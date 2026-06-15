@@ -4,12 +4,18 @@
  * IP-3: CQRS handler test coverage — batch transfer between tanks.
  */
 import { NotFoundException } from '@nestjs/common';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { TransferBatchHandler } from '../../handlers/transfer-batch.handler';
 import { TransferBatchCommand } from '../../commands/transfer-batch.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { TankBatch } from '../../entities/tank-batch.entity';
 import { Equipment, EquipmentStatus } from '../../../equipment/entities/equipment.entity';
+import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+
+// FARM-HIGH-052: transfer is stock-mutating, so every command must carry the
+// idempotency envelope or the handler rejects it as legacy.
+const TRANSFER_ENVELOPE = { clientCommandId: 'cmd-t', payloadHash: 'hash-t' };
 
 describe('TransferBatchHandler', () => {
   let handler: TransferBatchHandler;
@@ -40,6 +46,9 @@ describe('TransferBatchHandler', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // The shared mock EntityManager lacks query() wired — MobileCommandReceiptService
+    // needs it for begin()/complete(). EntityManager.query exists on the type.
+    mockManager.query = jest.fn().mockResolvedValue([{ id: 'receipt-t' }]);
     handler = new TransferBatchHandler(
       mockDataSource as any,
       createMockRepository() as any,
@@ -51,6 +60,8 @@ describe('TransferBatchHandler', () => {
       createMockRepository() as any,
       mockOutboxPublisher as any,
       mockTankCapacityService as any,
+      ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
+      new MobileCommandReceiptService(),
     );
   });
 
@@ -71,6 +82,7 @@ describe('TransferBatchHandler', () => {
             quantity: 100,
           },
           USER,
+          TRANSFER_ENVELOPE,
         ),
       ),
     ).rejects.toThrow(NotFoundException);
@@ -155,6 +167,7 @@ describe('TransferBatchHandler', () => {
           quantity: 100,
         },
         USER,
+        TRANSFER_ENVELOPE,
       ),
     );
 
@@ -187,6 +200,7 @@ describe('TransferBatchHandler', () => {
             quantity: 100,
           },
           USER,
+          TRANSFER_ENVELOPE,
         ),
       ),
     ).rejects.toThrow();

@@ -29,6 +29,7 @@ import { GraphQLError } from 'graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
+import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
@@ -1085,13 +1086,17 @@ export class FeedingProgramResolver {
         });
       }
 
-      // Use service layer
+      // Use service layer.
+      // FARM-MEDIUM-051: pass the mobile command envelope so the durable receipt
+      // is keyed on the client command id — a retry of a committed feeding
+      // replays as an idempotent no-op success instead of a hard failure.
       const result = await this.dailyFeedingExecutionService.recordActualFeeding(
         input.executionId,
         input.actualKg,
         user.sub,
         tenantId,
         input.notes,
+        mobileCommandEnvelopeFromInput(input),
       );
 
       // Save feeder info if provided

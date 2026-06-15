@@ -564,7 +564,6 @@ export const GET_STOCK_EVENTS_SUMMARY: TypedDocumentNode<GetStockEventsSummaryQu
   query GetStockEventsSummary($daysBack: Int) {
     stockEventsSummary(daysBack: $daysBack) {
       thisWeekEventsCount
-      pendingTransferCount
       recentEvents {
         id
         type

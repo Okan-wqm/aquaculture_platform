@@ -15,10 +15,15 @@
  */
 import { randomUUID } from 'crypto';
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  MobileCommandReceiptService,
+  type MobileCommandEnvelope,
+} from '@aquaculture/backend-common/mobile-command';
+import { Injectable, Logger, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
+import { NatsEventBus } from '@platform/event-bus';
 import { FeedInventoryLowEvent , createBaseEvent } from '@platform/event-contracts';
 
 // Entities
@@ -129,6 +134,9 @@ export class DailyFeedingExecutionService {
     private readonly batchDomainService: BatchDomainService,
     private readonly stockMovementService: StockMovementService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: NatsEventBus,
   ) {}
 
   // ==========================================================================
@@ -426,6 +434,7 @@ export class DailyFeedingExecutionService {
     userId: string,
     tenantId: string,
     notes?: string,
+    mobileCommand?: MobileCommandEnvelope,
   ): Promise<FeedingRecordResult> {
     // Input validation for actualKg
     if (actualKg <= 0) {
@@ -448,6 +457,32 @@ export class DailyFeedingExecutionService {
     await queryRunner.startTransaction();
 
     try {
+      // FARM-MEDIUM-051: idempotency for daily feeding. A retry of an
+      // already-COMMITTED feeding previously surfaced as a hard failure because
+      // canRecordFeeding() is false once COMPLETED. With the durable receipt, a
+      // replay is a no-op SUCCESS that returns the committed result and bypasses
+      // canRecordFeeding(). Feeding is NOT stock-decrementing, so legacy mode
+      // (no envelope) is TOLERATED and runs once — unlike mortality/cull/transfer.
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope: mobileCommand,
+        operationType: 'recordDailyFeeding',
+        responseType: 'DailyFeedingExecution',
+      });
+      if (receipt.mode === 'replay') {
+        await queryRunner.commitTransaction();
+        const replayed = receipt.responsePayload as FeedingRecordResult | null;
+        if (replayed && replayed.executionId) {
+          return replayed;
+        }
+        // Receipt completed but the response payload is unavailable — surface a
+        // clear conflict instead of silently re-running the side effects.
+        throw new BadRequestException(
+          `Feeding for execution ${executionId} was already recorded (replay payload unavailable)`,
+        );
+      }
+
       // 1. Execution'i yukle with tenantId filter
       const execution = await queryRunner.manager.findOne(DailyFeedingExecution, {
         where: { id: executionId, tenantId },
@@ -603,6 +638,29 @@ export class DailyFeedingExecutionService {
         userId,
       );
 
+      const result: FeedingRecordResult = {
+        executionId,
+        actualKg,
+        growthKg,
+        newBiomassKg,
+        newAvgWeightG,
+        feedTransitioned,
+        newFeedId,
+        newFeedCode,
+      };
+
+      // FARM-MEDIUM-051: mark the receipt COMPLETED with the result payload, in
+      // the SAME transaction, so a later retry with the same clientCommandId
+      // replays this exact result instead of re-running the feeding. No-op for
+      // legacy mode (no envelope).
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'DailyFeedingExecution',
+        responseId: execution.id,
+        responsePayload: result,
+      });
+
       await queryRunner.commitTransaction();
 
       // 10. Audit log for state change
@@ -616,16 +674,7 @@ export class DailyFeedingExecutionService {
         (feedTransitioned ? `, transitioned to ${newFeedCode}` : ''),
       );
 
-      return {
-        executionId,
-        actualKg,
-        growthKg,
-        newBiomassKg,
-        newAvgWeightG,
-        feedTransitioned,
-        newFeedId,
-        newFeedCode,
-      };
+      return result;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(

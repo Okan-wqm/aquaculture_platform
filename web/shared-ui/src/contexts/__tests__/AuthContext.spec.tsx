@@ -268,6 +268,33 @@ describe('AuthContext', () => {
       ).rejects.toThrow('Invalid server response');
     });
 
+    it('should fail login and clear session when post-login session verification fails', async () => {
+      const user = createMockUser({ role: 'TENANT_ADMIN', tenantId: 'tenant-1' });
+
+      mockGraphqlRequest
+        .mockResolvedValueOnce(createLoginResponse(user, '/tenant'))
+        .mockRejectedValueOnce(new Error('Authentication required'));
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapper(false),
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.login({
+            email: 'test@example.com',
+            password: 'password',
+          });
+        })
+      ).rejects.toThrow('Session verification failed');
+
+      await waitFor(() => {
+        expect(mockClearSession).toHaveBeenCalled();
+      });
+      expect(result.current.isAuthenticated).toBe(false);
+      expect(result.current.user).toBeNull();
+    });
+
     it('should use default redirect for SUPER_ADMIN when redirectUrl is empty', async () => {
       const superAdmin = createMockUser({ role: 'SUPER_ADMIN', tenantId: null });
 

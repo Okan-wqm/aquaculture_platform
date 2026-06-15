@@ -389,11 +389,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
 
       // Fetch user data with modules after login
       const meData = await fetchMe();
-      const modules = meData?.modules || [];
+      if (!meData) {
+        clearSession();
+        throw new Error('Session verification failed');
+      }
 
       dispatch({
         type: 'AUTH_SUCCESS',
-        payload: { user, modules, redirectPath },
+        payload: { user: meData.user, modules: meData.modules, redirectPath },
       });
 
       return { redirectPath };
@@ -465,11 +468,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
 
       // Fetch user data with modules after login
       const meData = await fetchMe();
-      const modules = meData?.modules || [];
+      if (!meData) {
+        clearSession();
+        throw new Error('Session verification failed');
+      }
 
       dispatch({
         type: 'AUTH_SUCCESS',
-        payload: { user, modules, redirectPath },
+        payload: { user: meData.user, modules: meData.modules, redirectPath },
       });
 
       return { redirectPath };

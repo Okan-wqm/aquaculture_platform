@@ -378,6 +378,28 @@ describe('api-client', () => {
         expect(result.me.id).toBe('1');
         expect(mockFetch).toHaveBeenCalledTimes(3);
       });
+
+      it('should not clear session or refresh for service identity signature errors', async () => {
+        apiClient.setTokens('valid-user-token');
+
+        mockFetch.mockResolvedValueOnce(
+          mockResponse(200, {
+            errors: [
+              {
+                message: 'Invalid service identity signature. Request may be forged, expired, or fields tampered with.',
+                extensions: { code: 'GRAPHQL_ERROR' },
+              },
+            ],
+          })
+        );
+
+        await expect(
+          apiClient.graphqlClient.request('{ tenantBilling { id } }')
+        ).rejects.toThrow(apiClient.GraphQLClientError);
+
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(apiClient.getAccessToken()).toBe('valid-user-token');
+      });
     });
 
     describe('Error handling', () => {

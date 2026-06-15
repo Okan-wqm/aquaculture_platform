@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { getAccessToken, tokenLifecycle, useAuthContext } from '@aquaculture/shared-ui';
 import FishBackground from '../components/FishBackground';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -17,7 +17,7 @@ const CURRENT_YEAR = new Date().getFullYear();
 // ============================================================================
 
 const AuthLayout: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuthContext();
+  const { isAuthenticated, isLoading, user } = useAuthContext();
 
   if (isLoading) {
     return (
@@ -27,8 +27,14 @@ const AuthLayout: React.FC = () => {
     );
   }
 
-  // Redirect authenticated users through RoleBasedRedirect at "/"
-  if (isAuthenticated) {
+  const hasLiveSession =
+    isAuthenticated &&
+    !!user &&
+    tokenLifecycle.getState() === 'READY' &&
+    !!getAccessToken();
+
+  // Redirect only when the React auth state and token lifecycle agree.
+  if (hasLiveSession) {
     return <Navigate to="/" replace />;
   }
 

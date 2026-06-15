@@ -101,6 +101,22 @@ export interface GraphQLErrorResponse {
   };
 }
 
+function isUserSessionAuthError(message: string): boolean {
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes('authentication required') ||
+    normalized.includes('no authentication token provided') ||
+    normalized.includes('no auth token') ||
+    normalized.includes('session expired') ||
+    normalized.includes('token expired') ||
+    normalized.includes('jwt expired') ||
+    normalized.includes('invalid token') ||
+    normalized.includes('invalid access token') ||
+    normalized.includes('refresh token expired')
+  );
+}
+
 // ============================================================================
 // Default Configuration
 // ============================================================================
@@ -589,11 +605,14 @@ class GraphQLClient {
       if (result.errors && result.errors.length > 0) {
         const error = result.errors[0] as GraphQLErrorResponse;
 
-        // Check for auth-related GraphQL errors (HTTP 200 but token expired/invalid)
+        // Check for user-session auth errors (HTTP 200 but token expired/invalid).
+        // Do not match every "Invalid ..." message: downstream service-identity
+        // failures are backend/service-call errors, not a reason to clear the
+        // browser session.
         const isAuthError =
           error.extensions?.code === 'UNAUTHENTICATED' ||
-          error.extensions?.code === 'FORBIDDEN' ||
-          /expired|Invalid/i.test(error.message);
+          (error.extensions?.code === 'FORBIDDEN' && isUserSessionAuthError(error.message)) ||
+          isUserSessionAuthError(error.message);
 
         if (isAuthError && retryCount === 0) {
           try {

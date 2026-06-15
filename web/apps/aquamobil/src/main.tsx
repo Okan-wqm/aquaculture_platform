@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import { App as KonstaApp } from 'konsta/react';
 import { App } from './App';
+import { IdentityBoundary } from './components/IdentityBoundary';
 import { AuthProvider } from './hooks/useAuth';
 import { OfflineProvider } from './hooks/useOfflineQueue';
 import { registerSW } from 'virtual:pwa-register';
@@ -61,11 +62,13 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter basename="/mobile">
         <AuthProvider>
-          <OfflineProvider>
-            <KonstaApp theme={isIOS ? 'ios' : 'material'} safeAreas>
-              <App />
-            </KonstaApp>
-          </OfflineProvider>
+          <IdentityBoundary>
+            <OfflineProvider>
+              <KonstaApp theme={isIOS ? 'ios' : 'material'} safeAreas>
+                <App />
+              </KonstaApp>
+            </OfflineProvider>
+          </IdentityBoundary>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>

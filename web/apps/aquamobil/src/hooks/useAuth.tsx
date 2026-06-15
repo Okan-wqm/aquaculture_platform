@@ -1,9 +1,12 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { del } from 'idb-keyval';
 import type { AuthState } from '@/types';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
 import { markAuthReady, syncAuthStore } from '@/services/authenticated-fetch';
+import { runPushTeardown } from '@/services/push-lifecycle';
 import { clearBiometricData } from '@/hooks/useWebAuthn';
+import { TENANT_QUERY_KEY_ROOT } from '@/utils/tenant-query-keys';
 
 interface AuthContextValue extends AuthState {
   isLoading: boolean;
@@ -21,7 +24,7 @@ interface AuthContextValue extends AuthState {
     role: string;
     tenantId: string | null;
   }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
 }
 
@@ -125,6 +128,11 @@ async function clearAllUserData(userId?: string, tenantId?: string | null): Prom
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // MT-CRITICAL-050: AuthProvider is mounted inside <QueryClientProvider> (main.tsx),
+  // so it can reach the shared QueryClient. Logout AWAITS a full removal of the
+  // in-memory React Query cache here — otherwise tenant-A's cached query data
+  // survives for the 24h gcTime and is served to the next login on a shared device.
+  const queryClient = useQueryClient();
   const [state, setState] = useState<AuthState>({
     user: null,
     accessToken: null,
@@ -298,11 +306,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const logout = useCallback(() => {
+  // MT-CRITICAL-050 / MT-MEDIUM-050: logout is ASYNC and AWAITS a full local
+  // data wipe BEFORE the auth state is reset, so no window exists in which the
+  // identity has flipped to "logged out" while tenant-A data is still resident.
+  // The wipe (React Query in-memory cache + IndexedDB queue/cache + AES key +
+  // biometric PII + SW Cache Storage) is awaited as a unit; a wipe FAILURE
+  // REJECTS rather than presenting as a clean logout (MT-MEDIUM-050) — the auth
+  // state is NOT reset and the caller surfaces the error so the user is not told
+  // "logged out" while plaintext-recoverable data remains behind.
+  const logout = useCallback(async (): Promise<void> => {
     const currentUserId = state.user?.id;
     const currentTenantId = state.tenantId;
 
-    // Call logout mutation to clear httpOnly cookie server-side
+    // MT-HIGH-050: tear down the FCM device token FIRST, while the JWT/cookie are
+    // still valid, so the server-side unregisterDeviceToken call is authenticated
+    // and the local FCM subscription (deleteToken) is dropped. Tolerated on
+    // failure: the local deleteToken in the teardown's `finally` plus the SW
+    // userId backstop already prevent prior-tenant push from surfacing, so a
+    // network hiccup deregistering the token must not strand the user logged in.
+    await runPushTeardown().catch(() => {});
+
+    // Call logout mutation to clear httpOnly cookie server-side. This is the only
+    // step that may legitimately fail without compromising local-data safety
+    // (the server cookie expiry is independent of on-device residue), so it stays
+    // fire-and-forget and does not gate the local wipe.
     fetch('/graphql', {
       method: 'POST',
       headers: {
@@ -316,17 +343,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }),
     }).catch(() => {});
 
-    // BUG-03 / SEC-02 / SEC-04: Clear all user data stores before resetting state.
-    // Fire-and-forget — UI resets immediately, cleanup runs async.
-    clearAllUserData(currentUserId, currentTenantId).catch(() => {});
+    // MT-CRITICAL-050: wipe the in-memory React Query cache. removeQueries on the
+    // tenant key space drops every tenant-scoped entry; clear() then drops any
+    // residual (untenanted) query so nothing survives the 24h gcTime into the
+    // next session on this shared device.
+    if (currentTenantId) {
+      queryClient.removeQueries({ queryKey: [TENANT_QUERY_KEY_ROOT, currentTenantId] });
+    }
+    queryClient.clear();
 
-    // C-FE-01: Notify service worker to clear messaging caches (messaging-graphql-v1,
-    // messaging-media-v1). Without this, authenticated GraphQL responses remain in
-    // Cache Storage and are visible to the next user on shared devices.
+    // MT-CRITICAL-050 / MT-MEDIUM-050: AWAIT the persistent-store wipe. Any
+    // failure here propagates out of logout() (no .catch swallow), so a failed
+    // IndexedDB/AES-key wipe can never masquerade as a successful logout.
+    await clearAllUserData(currentUserId, currentTenantId);
+
+    // C-FE-01: Notify the service worker to clear messaging caches
+    // (messaging-graphql-v1, messaging-media-v1). Without this, authenticated
+    // GraphQL responses remain in Cache Storage and are visible to the next user
+    // on shared devices. Awaited so the cache purge completes before we report a
+    // clean logout.
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.ready
-        .then((reg) => reg.active?.postMessage({ type: 'LOGOUT' }))
-        .catch(() => {});
+      const reg = await navigator.serviceWorker.ready;
+      reg.active?.postMessage({ type: 'LOGOUT' });
     }
 
     setState({
@@ -337,7 +375,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: false,
     });
     setIsMobileDisabled(false);
-  }, [state.accessToken, state.user?.id, state.tenantId]);
+  }, [queryClient, state.accessToken, state.user?.id, state.tenantId]);
 
   // BUG-18: refreshAuth must update tenantId from the fresh server response.
   // Previously only accessToken was extracted, leaving tenantId stale in React
@@ -362,7 +400,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await response.json();
 
       if (result.errors || !result.data?.refreshToken?.accessToken) {
-        logout();
+        await logout();
         return;
       }
 
@@ -387,7 +425,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { ...prev, accessToken };
       });
     } catch {
-      logout();
+      await logout();
     }
   }, [logout]);
 

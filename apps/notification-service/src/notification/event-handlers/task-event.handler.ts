@@ -221,6 +221,12 @@ export class TaskEventHandler
         source: 'notification-service.task-event-handler',
         subject: `task.${eventType}.push`,
         message: `template:task.${eventType}.push`,
+        // MT-HIGH-050 (tier-1 SW backstop): stamp the INTENDED recipient userId on
+        // the push payload. AquaMobil runs on shared devices; the firebase SW drops
+        // any push whose userId does not match the currently-active session, so a
+        // push minted for user A on a device now logged into user B is discarded
+        // even if the device token was not yet deregistered.
+        pushData: { userId },
       });
     } catch (err) {
       this.logger.warn(

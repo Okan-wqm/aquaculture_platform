@@ -50,6 +50,35 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
+// MT-HIGH-050 (tier-1 backstop): the currently-active session userId, learned
+// from the app via a SET_ACTIVE_USER message and cleared on LOGOUT. AquaMobil
+// runs on SHARED devices, so a push minted for user A may arrive at a device now
+// logged into user B if the device token was not yet deregistered. A push whose
+// payload userId does not match this value is DROPPED below, so cross-user push
+// leakage cannot surface a notification regardless of token-deregistration races.
+let activeUserId = null;
+
+self.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (data.type === 'SET_ACTIVE_USER' && typeof data.userId === 'string') {
+    activeUserId = data.userId;
+  } else if (data.type === 'LOGOUT') {
+    activeUserId = null;
+  }
+});
+
+/**
+ * MT-HIGH-050: decide whether a push targeted at `payloadUserId` may be shown on
+ * this device given the active session. A push with NO userId (legacy/broadcast)
+ * is always allowed; a push WITH a userId is shown only when it matches the
+ * active session. When no session is active (logged out) a user-targeted push is
+ * dropped — there is no recipient to show it to.
+ */
+function isPushForActiveUser(payloadUserId) {
+  if (!payloadUserId) return true;
+  return payloadUserId === activeUserId;
+}
+
 /**
  * Update the app badge count with the unread count carried in the push payload.
  * FE-CRITICAL-050-SW: the Badge API update moved here from the workbox SW. Badge
@@ -102,6 +131,13 @@ messaging.onBackgroundMessage((payload) => {
   const notificationData = { ...payload.data };
   if (notificationData.url && !isAllowedNotificationUrl(notificationData.url)) {
     delete notificationData.url;
+  }
+
+  // MT-HIGH-050: drop a push whose intended recipient is not the active session.
+  // Returning a resolved promise (not showNotification) suppresses the banner on
+  // a shared device that has switched users since the token was last registered.
+  if (!isPushForActiveUser(notificationData.userId)) {
+    return Promise.resolve();
   }
 
   // FE-CRITICAL-050-SW: drive the app badge from the unread count carried in the

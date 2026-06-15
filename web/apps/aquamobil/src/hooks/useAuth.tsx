@@ -1,11 +1,12 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { del } from 'idb-keyval';
-import type { AuthState } from '@/types';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+
+import { clearBiometricData } from '@/hooks/useWebAuthn';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
 import { markAuthReady, syncAuthStore } from '@/services/authenticated-fetch';
 import { runPushTeardown } from '@/services/push-lifecycle';
-import { clearBiometricData } from '@/hooks/useWebAuthn';
+import type { AuthState } from '@/types';
 import { TENANT_QUERY_KEY_ROOT } from '@/utils/tenant-query-keys';
 
 interface AuthContextValue extends AuthState {
@@ -500,7 +501,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       return false;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [state.tenantId]);
 
   useEffect(() => {

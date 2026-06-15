@@ -17,15 +17,17 @@
  * @returns isFetchingNextPage — true while loading older messages
  */
 
-import { useMemo } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
-import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+
 import { GET_MESSAGES } from '@/graphql/messaging-operations';
+import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { Message, MessagePage } from '@/types/messaging';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
-import type { Message, MessagePage } from '@/types/messaging';
 
 /** Messages per page (cursor-based). */
 const PAGE_SIZE = 40;

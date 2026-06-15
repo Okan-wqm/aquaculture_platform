@@ -1,5 +1,3 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Moon,
   Sun,
@@ -15,12 +13,15 @@ import {
   X,
   Monitor,
 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+
 import { useAuth } from '@/hooks/useAuth';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { useNotifications } from '@/hooks/useNotifications';
-import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import type { DarkModePreference } from '@/hooks/useDarkMode';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 import { clearCache, clearAllOperations } from '@/pwa/offline-queue';
 
 // ============================================================================
@@ -493,7 +494,7 @@ export function AccountPage() {
   const userRole = user?.role ?? 'VIEWER';
   const userTenantId = user?.tenantId;
   const initials = getInitials(userName);
-  const roleBadge = ROLE_BADGE_CONFIG[userRole] ?? ROLE_BADGE_CONFIG['VIEWER']!;
+  const roleBadge = ROLE_BADGE_CONFIG[userRole] ?? ROLE_BADGE_CONFIG['VIEWER'];
 
   // Three-way theme options for the segmented control
   const themeOptions: Array<{ value: DarkModePreference; icon: typeof Sun; label: string }> = [

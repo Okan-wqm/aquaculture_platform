@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+
 import { useAuth } from './useAuth';
-import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
-import type { Task } from '@/types';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { GET_MY_TASKS } from '@/graphql/operations';
+import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { Task } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
@@ -13,7 +15,7 @@ type Segment = 'today' | 'upcoming' | 'overdue';
 
 function filterBySegment(tasks: Task[], segment: Segment): Task[] {
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0]!;
+  const todayStr = now.toISOString().split('T')[0];
 
   switch (segment) {
     case 'today':
@@ -22,11 +24,11 @@ function filterBySegment(tasks: Task[], segment: Segment): Task[] {
       );
     case 'upcoming':
       return tasks.filter(
-        (t) => t.dueDate?.split('T')[0]! > todayStr && t.status !== 'COMPLETED' && t.status !== 'CANCELLED',
+        (t) => t.dueDate?.split('T')[0] > todayStr && t.status !== 'COMPLETED' && t.status !== 'CANCELLED',
       );
     case 'overdue':
       return tasks.filter(
-        (t) => t.status === 'OVERDUE' || (t.dueDate?.split('T')[0]! < todayStr && t.status !== 'COMPLETED' && t.status !== 'CANCELLED'),
+        (t) => t.status === 'OVERDUE' || (t.dueDate?.split('T')[0] < todayStr && t.status !== 'COMPLETED' && t.status !== 'CANCELLED'),
       );
     default:
       return tasks;

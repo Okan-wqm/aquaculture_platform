@@ -1,4 +1,4 @@
-import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
+import { Roles, Role, ModuleUserOrHigher, AuditLog } from '@aquaculture/backend-common/decorators';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
@@ -309,7 +309,14 @@ export class LeaveResolver {
     );
   }
 
+  // SEC-MEDIUM-051: explicit, reflectable minimum-role contract on the
+  // self-service submit path (matches createLeaveRequest). The OWNERSHIP check
+  // (caller is creator OR owner of the request) is enforced transactionally in
+  // SubmitLeaveRequestHandler — NOT duplicated here. This @Roles gate is the
+  // defense-in-depth coarse layer beneath that ownership assertion.
   @Mutation(() => LeaveRequest)
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   @AuditLog({ action: 'SUBMIT_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Submit a leave request for approval' })
   async submitLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
@@ -357,7 +364,12 @@ export class LeaveResolver {
     );
   }
 
+  // SEC-MEDIUM-051: explicit, reflectable minimum-role contract on the
+  // self-service cancel path. Ownership (creator OR owner) is enforced in
+  // CancelLeaveRequestHandler — this @Roles gate is the coarse layer beneath it.
   @Mutation(() => LeaveRequest)
+  @UseGuards(RolesGuard)
+  @ModuleUserOrHigher()
   @AuditLog({ action: 'CANCEL_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Cancel a leave request' })
   async cancelLeaveRequest(
     @Args('id', { type: () => ID }) id: string,

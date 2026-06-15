@@ -4423,3 +4423,19 @@ Severity: MEDIUM. Discovered 2026-06-14 during S1-CODEGEN, validating that the c
 Status: OPEN (2026-06-14; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-MEDIUM-109 — `leave.integration.spec.ts` is stale RED (handlers refactored to transactional outbox; spec never updated)
+
+Severity: MEDIUM. Discovered 2026-06-15 during AquaMobil Phase 5 (SEC-MEDIUM-051) cross-review, running `nx test hr-service` on the leave domain.
+
+**Problem:** `apps/hr-service/src/leave/__tests__/leave.integration.spec.ts` is RED on a clean checkout (27/27 tests fail at the `Test.createTestingModule(...).compile()` call, line ~125) — independent of the Phase 5 branch (the file is untouched by it; confirmed by `git stash` + run on HEAD). The spec's module registers only `getRepositoryToken(LeaveRequest)`, `getRepositoryToken(LeaveBalance)` and `EventBus`, but the four handlers under test were refactored (CRITICAL-002 transactional-outbox work) to inject `OutboxPublisher` and `DataSource` and to read/write through `queryRunner.manager.findOne/save` inside a transaction. DI resolution fails for the missing `OutboxPublisher`/`DataSource` providers, and even past that the test bodies assert against `leaveRequestRepository.findOne` mocks that the handlers no longer call (they go through `queryRunner.manager`).
+
+**Effect:** the entire leave-lifecycle integration suite provides no signal — `nx affected --target=test` for hr-service is red on a path unrelated to any current change, masking real regressions in submit/approve/reject/cancel. Phase 5's SEC-MEDIUM-051 invariants are independently covered by the new `leave-ownership.spec.ts` (submit + cancel ownership reject + reflectable @Roles metadata, wired with the correct transactional providers), so the ownership guarantees ARE tested — but the broader lifecycle suite is not.
+
+**Why not fixed inline (Phase 5):** out of Phase 5 scope (authorization, not a test-infra rewrite), and a correct fix is a substantial rewrite of all 27 cases against the transactional `queryRunner.manager` surface (each `leaveRequestRepository.findOne` expectation must move to a mocked manager chain — the `createMockDataSource()` factory from `@platform/testing` is the right tool). Rewriting 27 stale mocks blind on a security branch risks masking a real handler bug behind a green-but-wrong test; it belongs in a dedicated hr-service test-infra slice.
+
+**Fix direction:** rebuild the spec's module with `createMockDataSource()` (provides the `DataSource → QueryRunner → EntityManager` chain) + an `OutboxPublisher` double + the `EventBus` double, register the missing providers, and re-point every `findOne/save` expectation onto `mockManager` instead of the injected repositories. Then assert the outbox `enqueue(event, manager)` atomicity the handlers now guarantee.
+
+Status: OPEN (2026-06-15; owner: hr-service maintainer; tracked follow-up). Registry: orphan-findings.md only.
+
+---

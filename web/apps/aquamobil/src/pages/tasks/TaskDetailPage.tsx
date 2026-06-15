@@ -41,7 +41,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 export function TaskDetailPage() {
   const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: string }>();
-  const { completeTask, startTask, toggleChecklistItem, addNote } = useTaskActions();
+  const { completeTask, startTask, setChecklistItem, addNote } = useTaskActions();
 
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
@@ -135,15 +135,19 @@ export function TaskDetailPage() {
     }
   };
 
-  const handleToggleChecklist = async (itemId: string): Promise<void> => {
+  // FARM-HIGH-057: resolve the ABSOLUTE target here — the page knows the item's
+  // current state, so a tap on a checked item targets `false` and vice versa. The
+  // backend SETs this value (no server-side flip), so the operation is idempotent
+  // and safe to queue offline.
+  const handleToggleChecklist = async (itemId: string, currentIsCompleted: boolean): Promise<void> => {
     if (!taskId) return;
     try {
-      await toggleChecklistItem(taskId, itemId);
+      await setChecklistItem(taskId, itemId, !currentIsCompleted);
       await fetchTask();
     } catch {
-      // WHY: Checklist toggles require network — show explicit error instead of
-      // silently failing, so users know their action was not recorded.
-      setError('Checklist toggle requires network connectivity');
+      // WHY: surface an explicit error instead of silently failing, so users know
+      // their action was not recorded.
+      setError('Failed to update checklist item');
     }
   };
 
@@ -322,7 +326,7 @@ export function TaskDetailPage() {
             {checklistItems.map((item, index) => (
               <button
                 key={item.id || index}
-                onClick={() => handleToggleChecklist(item.id)}
+                onClick={() => handleToggleChecklist(item.id, item.isCompleted)}
                 className={clsx(
                   'w-full flex items-center gap-3 p-4 text-left touch-feedback transition-all',
                   index < checklistItems.length - 1 && 'border-b border-gray-50 dark:border-gray-800',

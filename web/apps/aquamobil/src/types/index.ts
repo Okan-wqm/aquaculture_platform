@@ -232,7 +232,21 @@ export interface CreateLeaveRequestInput {
 }
 
 // Offline queue types
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead';
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead';
+
+/**
+ * FARM-HIGH-057 — offline payload for an idempotent checklist SET.
+ *
+ * Carries the ABSOLUTE target `isCompleted` (not a flip), so replaying a queued
+ * checklist toggle after reconnect converges to the same state instead of
+ * reverting it. `taskId`/`itemId` identify the row; the command envelope fields
+ * are stamped by the offline queue on enqueue.
+ */
+export interface ChecklistItemSetInput {
+  taskId: string;
+  itemId: string;
+  isCompleted: boolean;
+}
 
 export interface MobileCommandEnvelope {
   clientCommandId?: string;
@@ -252,7 +266,7 @@ export type MessagingOfflinePayload =
   | { channelId: string; messageId: string };
 
 export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload
+  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload
 ) & MobileCommandEnvelope;
 
 export interface QueuedOperation {

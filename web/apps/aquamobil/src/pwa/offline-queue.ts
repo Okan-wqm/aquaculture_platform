@@ -100,7 +100,7 @@ async function sha256Hex(value: string): Promise<string> {
  * replacing the per-domain `extractResourceId` heuristic that silently missed
  * any payload shape it did not enumerate (e.g. stock movements, transfers).
  */
-async function computePayloadHash(payload: OperationPayload): Promise<string> {
+export async function computePayloadHash(payload: OperationPayload): Promise<string> {
   return sha256Hex(stableStringify(payload));
 }
 
@@ -243,6 +243,14 @@ async function bumpQueueVersion(tenantId: string): Promise<void> {
  * @param type - The mutation type to execute on sync
  * @param payload - The operation payload (will be AES-GCM encrypted)
  * @param hasValidAuth - SEC-09: Only register background sync when credentials are valid
+ * @param clientCommandId - FARM-HIGH-057: optional caller-supplied at-most-once
+ *   command id. When a hook first ATTEMPTS the mutation online and only falls
+ *   back to the queue on network failure, the online attempt and the queued
+ *   replay are the SAME logical command — they MUST carry the SAME
+ *   `clientCommandId` so the server's command receipt dedups the retry. The
+ *   caller generates the id ONCE per action and threads it through both paths.
+ *   When omitted (pure-offline first submit), a fresh id is minted here, which
+ *   is the established behaviour for every other queued operation.
  */
 export async function queueOperation(
   tenantId: string,
@@ -253,6 +261,7 @@ export async function queueOperation(
   // the in-app sync path (executeGraphQL) will catch the 401 and surface an error
   // rather than silently incrementing retryCount for an auth failure.
   hasValidAuth = false,
+  clientCommandId?: string,
 ): Promise<AddToQueueResult> {
   // SECURITY (C11): tenantId is mandatory -- reject if missing
   if (!tenantId) {
@@ -289,7 +298,13 @@ export async function queueOperation(
   }
 
   const id = crypto.randomUUID();
-  const payloadWithEnvelope = await attachCommandEnvelope(type, payload, id, payloadHash);
+  // FARM-HIGH-057: the queue STORAGE id is always fresh (it keys the IndexedDB
+  // record), but the envelope's at-most-once `clientCommandId` is the
+  // caller-supplied one when present so an online attempt and its offline replay
+  // share a command identity. Absent a caller id, the storage id doubles as the
+  // command id, matching the historical single-id behaviour.
+  const commandId = clientCommandId ?? id;
+  const payloadWithEnvelope = await attachCommandEnvelope(type, payload, commandId, payloadHash);
 
   // SEC-03: Encrypt sensitive payload before writing to IndexedDB.
   const _enc = await encryptPayload(payloadWithEnvelope);

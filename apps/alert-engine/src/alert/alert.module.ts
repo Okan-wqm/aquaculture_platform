@@ -11,6 +11,7 @@ import { AuditEntryEntity } from '../audit/entities/audit-entry.entity';
 // Services
 import { AlertEvaluationService } from './services/alert-evaluation.service';
 import { AlertRuleService } from './services/alert-rule.service';
+import { MortalityAlertService } from './services/mortality-alert.service';
 import { AlertAuditService } from '../audit/alert-audit.service';
 
 // Escalation services
@@ -20,6 +21,7 @@ import { AcknowledgmentTrackerService } from '../escalation/acknowledgment-track
 
 // Event Handlers
 import { SensorReadingEventHandler } from './event-handlers/sensor-reading.handler';
+import { MortalityAlertEventHandler } from './event-handlers/mortality-alert.handler';
 
 // Resolvers
 import { AlertResolver } from './resolvers/alert.resolver';
@@ -54,6 +56,7 @@ import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver
     // Services
     AlertEvaluationService,
     AlertRuleService,
+    MortalityAlertService,
     AlertAuditService,
 
     // Escalation services
@@ -63,6 +66,7 @@ import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver
 
     // Event Handlers
     SensorReadingEventHandler,
+    MortalityAlertEventHandler,
 
     // Resolvers
     AlertResolver,

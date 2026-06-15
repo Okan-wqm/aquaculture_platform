@@ -2,16 +2,18 @@
  * Sentinel Hub Service
  *
  * Tenant bazlı Sentinel Hub kimlik bilgilerini yönetir.
- * Kimlik bilgileri AES-256-CBC ile şifrelenerek saklanır.
  *
- * SECURITY: Encryption key must be provided via environment variables.
- * No hardcoded fallback keys are used.
+ * SECURITY: Secret columns are encrypted at rest with the canonical
+ * authenticated AES-256-GCM column transformer attached to the entity
+ * (createEncryptedColumnTransformer('SENTINEL_HUB_ENCRYPTION_KEY')). The ORM
+ * encrypts on write and decrypts on read, so this service operates purely on
+ * plaintext — there is no bespoke crypto here. GCM replaces the previous
+ * unauthenticated AES-256-CBC scheme (malleability / padding-oracle class).
+ * @see HIGH sentinel-cbc
  */
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as crypto from 'crypto';
 import {
   SentinelHubSettings,
   SentinelHubStatus,
@@ -19,82 +21,17 @@ import {
   SentinelHubWmtsConfig,
 } from './entities/sentinel-hub-settings.entity';
 
-const IV_LENGTH = 16;
-
 @Injectable()
 export class SentinelHubService implements OnModuleInit {
   private readonly logger = new Logger(SentinelHubService.name);
-  private readonly encryptionKey: string;
 
   constructor(
     @InjectRepository(SentinelHubSettings)
     private readonly settingsRepo: Repository<SentinelHubSettings>,
-    private readonly configService: ConfigService,
-  ) {
-    // Get encryption key from environment variables - no hardcoded fallback
-    const key =
-      this.configService.get<string>('SENTINEL_HUB_ENCRYPTION_KEY') ||
-      this.configService.get<string>('ENCRYPTION_KEY');
+  ) {}
 
-    if (!key) {
-      throw new Error(
-        'Missing required encryption key. Set SENTINEL_HUB_ENCRYPTION_KEY or ENCRYPTION_KEY environment variable.',
-      );
-    }
-
-    if (key.length < 32) {
-      throw new Error(
-        'Encryption key must be at least 32 characters for AES-256.',
-      );
-    }
-
-    this.encryptionKey = key;
-  }
-
-  onModuleInit() {
-    this.logger.log('SentinelHubService initialized with secure encryption key from environment');
-  }
-
-  /**
-   * Encrypt text using AES-256-CBC
-   */
-  private encrypt(text: string): string {
-    try {
-      const iv = crypto.randomBytes(IV_LENGTH);
-      const cipher = crypto.createCipheriv(
-        'aes-256-cbc',
-        Buffer.from(this.encryptionKey.slice(0, 32)),
-        iv,
-      );
-      let encrypted = cipher.update(text);
-      encrypted = Buffer.concat([encrypted, cipher.final()]);
-      return iv.toString('hex') + ':' + encrypted.toString('hex');
-    } catch (error) {
-      this.logger.error('Encryption failed:', error);
-      throw new Error('Şifreleme hatası');
-    }
-  }
-
-  /**
-   * Decrypt text using AES-256-CBC
-   */
-  private decrypt(text: string): string {
-    try {
-      const parts = text.split(':');
-      const iv = Buffer.from(parts.shift()!, 'hex');
-      const encrypted = Buffer.from(parts.join(':'), 'hex');
-      const decipher = crypto.createDecipheriv(
-        'aes-256-cbc',
-        Buffer.from(this.encryptionKey.slice(0, 32)),
-        iv,
-      );
-      let decrypted = decipher.update(encrypted);
-      decrypted = Buffer.concat([decrypted, decipher.final()]);
-      return decrypted.toString();
-    } catch (error) {
-      this.logger.error('Decryption failed:', error);
-      throw new Error('Şifre çözme hatası');
-    }
+  onModuleInit(): void {
+    this.logger.log('SentinelHubService initialized (AES-256-GCM column encryption via ORM transformer)');
   }
 
   /**
@@ -123,14 +60,15 @@ export class SentinelHubService implements OnModuleInit {
         settings = this.settingsRepo.create({ tenantId });
       }
 
-      // Encrypt credentials
-      settings.clientId = this.encrypt(clientId);
-      settings.clientSecret = this.encrypt(clientSecret);
+      // Store plaintext — the entity's AES-256-GCM column transformer
+      // encrypts these fields transparently on save.
+      settings.clientId = clientId;
+      settings.clientSecret = clientSecret;
       settings.isConfigured = true;
 
-      // Encrypt instanceId if provided (for WMTS support)
+      // Store instanceId if provided (for WMTS support)
       if (instanceId) {
-        settings.instanceId = this.encrypt(instanceId);
+        settings.instanceId = instanceId;
       }
 
       await this.settingsRepo.save(settings);
@@ -158,25 +96,13 @@ export class SentinelHubService implements OnModuleInit {
         return null;
       }
 
-      // Decrypt clientId for masking (not the secret!)
-      let clientIdMasked = '****';
-      try {
-        const decryptedClientId = this.decrypt(settings.clientId);
-        clientIdMasked = this.maskClientId(decryptedClientId);
-      } catch {
-        // If decryption fails, use masked placeholder
-      }
+      // Values are already plaintext (ORM transformer decrypted on read).
+      // Mask clientId for display (never the secret).
+      const clientIdMasked = this.maskClientId(settings.clientId);
 
-      // Decrypt instanceId for masking if present
-      let instanceIdMasked: string | undefined;
-      if (settings.instanceId) {
-        try {
-          const decryptedInstanceId = this.decrypt(settings.instanceId);
-          instanceIdMasked = this.maskClientId(decryptedInstanceId);
-        } catch {
-          instanceIdMasked = '****';
-        }
-      }
+      const instanceIdMasked = settings.instanceId
+        ? this.maskClientId(settings.instanceId)
+        : undefined;
 
       // Return SAFE response - no secrets!
       return {
@@ -213,10 +139,10 @@ export class SentinelHubService implements OnModuleInit {
       settings.lastUsed = new Date();
       await this.settingsRepo.save(settings);
 
-      // Decrypt and return (INTERNAL USE ONLY)
+      // Values are already plaintext (ORM transformer decrypted on read).
       return {
-        clientId: this.decrypt(settings.clientId),
-        clientSecret: this.decrypt(settings.clientSecret),
+        clientId: settings.clientId,
+        clientSecret: settings.clientSecret,
       };
     } catch (error) {
       this.logger.error(
@@ -244,33 +170,19 @@ export class SentinelHubService implements OnModuleInit {
         };
       }
 
-      let clientIdMasked: string | undefined = undefined;
-      if (settings.clientId) {
-        try {
-          const decrypted = this.decrypt(settings.clientId);
-          clientIdMasked = this.maskClientId(decrypted);
-        } catch (error: unknown) {
-          this.logger.debug(`Error decrypting clientId in getStatus: ${error instanceof Error ? error.message : String(error)}`);
-          // If decryption fails, settings are corrupted
-          clientIdMasked = '****';
-        }
-      }
+      // Values are already plaintext (ORM transformer decrypted on read).
+      const clientIdMasked = settings.clientId
+        ? this.maskClientId(settings.clientId)
+        : undefined;
 
-      let instanceIdMasked: string | undefined = undefined;
-      if (settings.instanceId) {
-        try {
-          const decrypted = this.decrypt(settings.instanceId);
-          instanceIdMasked = this.maskClientId(decrypted);
-        } catch (error: unknown) {
-          this.logger.debug(`Error decrypting instanceId in getStatus: ${error instanceof Error ? error.message : String(error)}`);
-          instanceIdMasked = '****';
-        }
-      }
+      const instanceIdMasked = settings.instanceId
+        ? this.maskClientId(settings.instanceId)
+        : undefined;
 
       return {
         isConfigured: settings.isConfigured,
-        clientIdMasked: clientIdMasked ?? undefined,
-        instanceIdMasked: instanceIdMasked ?? undefined,
+        clientIdMasked,
+        instanceIdMasked,
         lastUsed: settings.lastUsed ?? undefined,
         usageCount: settings.usageCount,
       };
@@ -376,7 +288,8 @@ export class SentinelHubService implements OnModuleInit {
         throw new Error('Önce Sentinel Hub kimlik bilgilerini yapılandırın');
       }
 
-      settings.instanceId = this.encrypt(instanceId);
+      // Store plaintext — the entity transformer encrypts on save.
+      settings.instanceId = instanceId;
       await this.settingsRepo.save(settings);
 
       this.logger.log(`Instance ID updated for tenant: ${tenantId}`);
@@ -406,9 +319,9 @@ export class SentinelHubService implements OnModuleInit {
         return null;
       }
 
-      // Decrypt and return
+      // instanceId is already plaintext (ORM transformer decrypted on read).
       return {
-        instanceId: this.decrypt(settings.instanceId),
+        instanceId: settings.instanceId,
         accessToken: tokenResult.accessToken,
         expiresIn: tokenResult.expiresIn,
       };

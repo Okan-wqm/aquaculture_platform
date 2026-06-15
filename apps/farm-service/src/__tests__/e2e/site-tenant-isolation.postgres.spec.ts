@@ -14,7 +14,6 @@ import {
   withTenantContext,
 } from '@aquaculture/backend-common';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { ConfigService } from '@nestjs/config';
 import { CommandBus } from '@platform/cqrs';
 import {
   bootPostgresContainer,
@@ -270,6 +269,11 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   beforeAll(async () => {
+    // The SentinelHubSettings entity's AES-256-GCM column transformer resolves
+    // its key from process.env at encrypt/decrypt time. Provide a deterministic
+    // 32-char test key so the sentinel round-trip works in this harness.
+    process.env['SENTINEL_HUB_ENCRYPTION_KEY'] = '0123456789abcdef0123456789abcdef';
+
     pg = await bootPostgresContainer({ startTimeoutMs: 90_000 });
     await pg.dataSource.query('CREATE SCHEMA farm');
     await createFarmOutboxTable(pg.dataSource);
@@ -514,10 +518,10 @@ describe('Site tenant isolation on real Postgres', () => {
         parameterConfigRepository,
         parameterConfigCache,
       ),
-      sentinelHub: new SentinelHubService(
-        sentinelSettingsRepository,
-        createSentinelConfigService(),
-      ),
+      // SentinelHubService no longer holds an encryption key: the entity's
+      // AES-256-GCM column transformer reads SENTINEL_HUB_ENCRYPTION_KEY from
+      // process.env (set in beforeAll) and encrypts/decrypts transparently.
+      sentinelHub: new SentinelHubService(sentinelSettingsRepository),
       setSupplierApprovedSites: new SetSupplierApprovedSitesHandler(
         dataSource,
         new OutboxPublisher(FarmOutbox),
@@ -2190,12 +2194,6 @@ function createTankCommandBus(handlers: {
       );
     },
   } as unknown as CommandBus;
-}
-
-function createSentinelConfigService(): ConfigService {
-  return new ConfigService({
-    SENTINEL_HUB_ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef',
-  });
 }
 
 function createAuditLogService(): AuditLogService {

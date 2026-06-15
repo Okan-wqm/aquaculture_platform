@@ -1,80 +1,27 @@
 /**
  * CreateWaterQualityMeasurement Input DTO
+ *
+ * SINGLE-INGRESS (Tier-1): `dynamicParameters` is the SOLE parameter channel
+ * into a WaterQualityMeasurement. The legacy `WaterParametersInput` class and
+ * its fixed `parameters` field were removed so there is exactly ONE code path
+ * carrying measurement values, and that path ALWAYS routes through
+ * WaterQualityValidationService.validate() before persist. There is no longer
+ * a structural way to submit parameter values that bypass tenant-config
+ * validation.
+ *
+ * `dynamicParameters` and `equipmentId` are REQUIRED: every measurement is
+ * recorded against a specific piece of equipment whose mapped parameter
+ * configs define what may be submitted, and strict-mode validation rejects
+ * empty-with-keys / no-config submissions at the service layer.
  */
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
-import { InputType, Field, ID, Float } from '@nestjs/graphql';
+import { InputType, Field, ID } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
-import { IsDate, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsDate, IsEnum, IsNotEmpty, IsObject, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import GraphQLJSON from 'graphql-type-json';
 
 import { MeasurementSource } from '../entities/water-quality-measurement.entity';
 import { ValidateDynamicParameters } from '../validators/dynamic-parameters.validator';
-
-@InputType()
-export class WaterParametersInput {
-  @Field(() => Float, { nullable: true, description: 'Sıcaklık (°C)' })
-  @IsOptional()
-  @IsNumber()
-  @Min(-5)
-  @Max(40)
-  temperature?: number;
-
-  @Field(() => Float, { nullable: true, description: 'Çözünmüş Oksijen (mg/L)' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(20)
-  dissolvedOxygen?: number;
-
-  @Field(() => Float, { nullable: true, description: 'pH değeri' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(14)
-  pH?: number;
-
-  @Field(() => Float, { nullable: true, description: 'Amonyak (mg/L)' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  ammonia?: number;
-
-  @Field(() => Float, { nullable: true, description: 'Nitrit (mg/L)' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  nitrite?: number;
-
-  @Field(() => Float, { nullable: true, description: 'Nitrat (mg/L)' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  nitrate?: number;
-
-  @Field(() => Float, { nullable: true, description: 'Tuzluluk (ppt)' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  salinity?: number;
-
-  @Field(() => Float, { nullable: true, description: 'Bulanıklık (NTU)' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  turbidity?: number;
-
-  @Field(() => Float, { nullable: true, description: 'Alkalinite (mg/L CaCO3)' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  alkalinity?: number;
-
-  @Field(() => Float, { nullable: true, description: 'Sertlik (mg/L CaCO3)' })
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  hardness?: number;
-}
 
 @InputType()
 export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
@@ -112,19 +59,27 @@ export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
   @IsUUID()
   measuredBy?: string;
 
-  @Field(() => WaterParametersInput, { nullable: true, description: 'Su parametreleri' })
-  @IsOptional()
-  parameters?: WaterParametersInput;
-
-  @Field(() => ID, { nullable: true, description: 'Equipment ID' })
-  @IsOptional()
+  /**
+   * Equipment whose mapped parameter configs define what may be submitted.
+   * REQUIRED — the single-ingress contract validates `dynamicParameters`
+   * against this equipment's parameter-equipment mappings on every create.
+   */
+  @Field(() => ID, { description: 'Equipment ID' })
   @IsUUID()
-  equipmentId?: string;
+  equipmentId: string;
 
-  @Field(() => GraphQLJSON, { nullable: true, description: 'Dynamic parameters (tenant-configured JSONB)' })
-  @IsOptional()
+  /**
+   * SOLE parameter channel. REQUIRED. Every key is a tenant-configured
+   * parameter code; values are validated against the tenant's
+   * WaterQualityParameterConfig set (strict mode) before persist. The
+   * legacy fixed-shape `parameters` field was removed to guarantee a
+   * single validated ingress.
+   */
+  @Field(() => GraphQLJSON, { description: 'Dynamic parameters (tenant-configured JSONB)' })
+  @IsObject()
+  @IsNotEmpty()
   @ValidateDynamicParameters()
-  dynamicParameters?: Record<string, number | string | boolean>;
+  dynamicParameters: Record<string, number | string | boolean>;
 
   @Field(() => ID, { nullable: true, description: 'Idempotency key for offline retry safety' })
   @IsOptional()

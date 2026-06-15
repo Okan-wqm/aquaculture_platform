@@ -16,8 +16,9 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@ne
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, DataSource } from 'typeorm';
+import { Repository, In, DataSource, QueryRunner } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Entities
@@ -927,17 +928,101 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
-    try {
-      await this.orphanCleanup.run();
-    } catch (err) {
-      // FarmOrphanCleanupService's contract is non-throwing, but
-      // a catastrophic MinIO client failure could still leak out.
-      // Log + continue — the next nightly run retries.
-      this.logger.error(
-        `minioOrphanCleanup cron failed: ${(err as Error).message}`,
-        err instanceof Error ? err.stack : undefined,
-      );
+
+    // Per-tenant execution is MANDATORY for correctness. The live-paths
+    // providers read per-tenant document tables (cloned into tenant_<uuid>
+    // schemas) and the bucket keys are tenant-prefixed
+    // (`${tenantId}/...`, see MinioClientService.generateFilePath).
+    // Running the cleanup with no tenant context routes the live-set query
+    // to the EMPTY source `farm` schema while the bucket scan stays global
+    // — which would delete every tenant's objects. Driving it per-tenant
+    // inside withTenantContext makes the live-set scope and the
+    // bucket-delete scope structurally identical: one tenant's documents
+    // validated against one tenant's bucket prefix.
+    const tenantSchemas = await listTenantSchemas(this.dataSource);
+    let tenantsProcessed = 0;
+
+    for (const schema of tenantSchemas) {
+      let tenantId: string | null = null;
+
+      const discoveryRunner = this.dataSource.createQueryRunner();
+      await discoveryRunner.connect();
+      try {
+        await discoveryRunner.query(`SET search_path TO "${schema}", farm, public`);
+        tenantId = await this.resolveTenantIdForSchema(discoveryRunner);
+      } catch (err) {
+        this.logger.error(
+          `minioOrphanCleanup: tenant discovery failed for schema ${schema}: ` +
+            `${(err as Error).message}`,
+        );
+      } finally {
+        await discoveryRunner.query('RESET search_path').catch(() => {});
+        await discoveryRunner.release();
+      }
+
+      // No document references in this schema → nothing this cleanup
+      // could safely delete (the storage layer refuses to delete against
+      // an empty live-set), so skip rather than scan its prefix blind.
+      if (!tenantId) continue;
+
+      try {
+        await withTenantContext(tenantId, async () => {
+          // `prefix` confines the bucket scan + delete to THIS tenant's
+          // object namespace; withTenantContext routes the live-paths
+          // providers' repositories to THIS tenant's schema. Both scopes
+          // are the same tenant by construction.
+          const summary = await this.orphanCleanup!.run({ prefix: `${tenantId}/` });
+          tenantsProcessed += 1;
+          if (summary.refused) {
+            this.logger.warn(
+              `minioOrphanCleanup: storage layer refused deletion for tenant ` +
+                `${tenantId} (empty live-set over a non-empty scan) — ` +
+                'investigate before trusting subsequent runs.',
+            );
+          }
+        });
+      } catch (err) {
+        // One tenant's failure must not abort the whole sweep.
+        this.logger.error(
+          `minioOrphanCleanup failed for tenant ${tenantId} (schema ${schema}): ` +
+            `${(err as Error).message}`,
+          err instanceof Error ? err.stack : undefined,
+        );
+      }
     }
+
+    this.logger.log(
+      `minioOrphanCleanup complete — schemas=${tenantSchemas.length} ` +
+        `tenantsProcessed=${tenantsProcessed}`,
+    );
+  }
+
+  /**
+   * Resolve the full tenant UUID owning a tenant schema by reading it
+   * from any document-bearing table within that schema.
+   *
+   * The schema name (`tenant_<first16hex>`) is NOT reversible to the
+   * full UUID, and minioOrphanCleanup needs the full UUID for BOTH the
+   * tenant context (search_path routing) AND the bucket key prefix
+   * (`${tenantId}/...`). Returns null when the tenant has no document
+   * references at all — there is nothing this cleanup could safely
+   * delete in that case.
+   *
+   * The QueryRunner MUST already have its search_path pinned to the
+   * target schema. All three tables expose a camelCase `"tenantId"`
+   * column.
+   */
+  private async resolveTenantIdForSchema(
+    queryRunner: QueryRunner,
+  ): Promise<string | null> {
+    const documentTables = ['farm_documents', 'batch_documents', 'chemicals'];
+    for (const table of documentTables) {
+      const rows: Array<{ tenantId: string }> = await queryRunner.query(
+        `SELECT "tenantId" FROM "${table}" WHERE "tenantId" IS NOT NULL LIMIT 1`,
+      );
+      if (rows[0]?.tenantId) return rows[0].tenantId;
+    }
+    return null;
   }
 
   // -------------------------------------------------------------------------

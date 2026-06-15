@@ -1,15 +1,26 @@
 /**
  * useReportDraft Hook
- * Manages draft saving/loading for regulatory reports using localStorage
+ * Manages draft saving/loading for regulatory reports.
  *
  * Provides:
  * - Auto-save draft on form changes
  * - Load existing draft on form open
  * - Clear draft on successful submission
  * - Draft expiry (7 days default)
+ *
+ * Storage isolation (root-cause of the cross-tenant + survive-logout PII leak
+ * class): regulatory report drafts contain PII, so they MUST be (a) scoped to
+ * the full tenantId — never a substring(0,8) prefix that can collide between
+ * tenants on a shared browser — and (b) swept on logout. Rather than maintain a
+ * second, ad-hoc localStorage abstraction, this hook delegates ALL key-scoping
+ * and persistence to the platform's single sanctioned accessor
+ * `useTenantScopedStorage`, which writes under the `aqua.tss::<tenantId>::`
+ * namespace that `logoutCleanup` already sweeps. The version / expiry / shape
+ * checks below remain the responsibility of THIS hook (they encode the draft
+ * envelope contract, not the storage contract).
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, useTenantScopedStorage } from '@aquaculture/shared-ui';
 import { ReportType } from '../types/reports.types';
 
 // ============================================================================
@@ -52,10 +63,32 @@ interface UseReportDraftReturn<T> {
 // Constants
 // ============================================================================
 
-const DRAFT_KEY_PREFIX = 'regulatory_report_draft_';
 const DRAFT_VERSION = 1;
 const DEFAULT_EXPIRY_DAYS = 7;
 const DEFAULT_AUTO_SAVE_INTERVAL = 5000;
+
+// ============================================================================
+// Draft envelope validation (pure — exported for unit tests)
+// ============================================================================
+
+/**
+ * Narrow an arbitrary stored value to the {@link DraftData} envelope shape.
+ * Returns `null` for anything that is not a well-formed draft envelope so the
+ * caller can discard (and remove) corrupt / foreign data instead of trusting
+ * it. Pure: no React, no storage access — directly unit-testable.
+ */
+export function isDraftEnvelope(raw: unknown): raw is DraftData<unknown> {
+  return (
+    raw !== null &&
+    typeof raw === 'object' &&
+    !Array.isArray(raw) &&
+    'version' in raw &&
+    'savedAt' in raw &&
+    'data' in raw &&
+    typeof (raw as { savedAt: unknown }).savedAt === 'string' &&
+    typeof (raw as { version: unknown }).version === 'number'
+  );
+}
 
 // ============================================================================
 // Hook Implementation
@@ -72,12 +105,13 @@ export function useReportDraft<T>(
     enableAutoSave = true,
   } = options;
 
-  // LOW-04: Scope storage key to tenantId so drafts from one tenant are never
-  // loaded for a different tenant on shared browsers, and cleared automatically
-  // when the user authenticates under a different tenant.
+  // Drafts are per-(tenant, report). The platform's sanctioned accessor adds
+  // the `aqua.tss::<tenantId>::` prefix, so two tenants can never collide on a
+  // shared browser and the logout sweep clears the PII drafts. The accessor
+  // no-ops when no tenant is resolved, so nothing is ever written un-scoped.
   const { tenantId } = useAuth();
-  const tenantScope = tenantId ? `_t${tenantId.substring(0, 8)}` : '';
-  const storageKey = `${DRAFT_KEY_PREFIX}${reportType}_${reportId || 'new'}${tenantScope}`;
+  const baseKey = `${reportType}_${reportId || 'new'}`;
+  const draftStorage = useTenantScopedStorage<unknown>(baseKey, tenantId);
 
   // State
   const [isPending, setIsPending] = useState(false);
@@ -100,101 +134,71 @@ export function useReportDraft<T>(
   );
 
   /**
-   * Save draft to localStorage
+   * Save draft to tenant-scoped storage
    */
   const saveDraft = useCallback(
     (data: T) => {
-      try {
-        const draftData: DraftData<T> = {
-          data,
-          savedAt: new Date().toISOString(),
-          version: DRAFT_VERSION,
-        };
-        localStorage.setItem(storageKey, JSON.stringify(draftData));
-        setLastSaved(new Date());
-        setIsPending(false);
-      } catch (error) {
-        if (import.meta.env.DEV) console.error('Failed to save draft:', error);
-      }
+      const draftData: DraftData<T> = {
+        data,
+        savedAt: new Date().toISOString(),
+        version: DRAFT_VERSION,
+      };
+      draftStorage.write(draftData);
+      setLastSaved(new Date());
+      setIsPending(false);
     },
-    [storageKey]
+    [draftStorage]
   );
 
   /**
-   * Load draft from localStorage
+   * Load draft from tenant-scoped storage
    */
   const loadDraft = useCallback((): DraftData<T> | null => {
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (!stored) return null;
+    const raw = draftStorage.read();
 
-      const raw: unknown = JSON.parse(stored);
-
-      // HIGH-04: validate shape before trusting parsed data
-      if (
-        raw === null ||
-        typeof raw !== 'object' ||
-        Array.isArray(raw) ||
-        !('version' in raw) ||
-        !('savedAt' in raw) ||
-        !('data' in raw)
-      ) {
-        localStorage.removeItem(storageKey);
-        return null;
-      }
-
-      const parsed = raw as DraftData<T>;
-
-      // Check version compatibility
-      if (parsed.version !== DRAFT_VERSION) {
-        if (import.meta.env.DEV) console.warn('Draft version mismatch, discarding');
-        localStorage.removeItem(storageKey);
-        return null;
-      }
-
-      // Check expiry
-      if (isDraftExpired(parsed.savedAt)) {
-        if (import.meta.env.DEV) console.warn('Draft expired, discarding');
-        localStorage.removeItem(storageKey);
-        return null;
-      }
-
-      setLastSaved(new Date(parsed.savedAt));
-      return parsed;
-    } catch (error) {
-      if (import.meta.env.DEV) console.error('Failed to load draft:', error);
+    // HIGH-04: validate envelope shape before trusting stored data.
+    if (!isDraftEnvelope(raw)) {
+      if (raw !== null) draftStorage.remove();
       return null;
     }
-  }, [storageKey, isDraftExpired]);
+
+    // The envelope is validated; the payload `data` carries the caller's T.
+    const parsed = raw as DraftData<T>;
+
+    // Check version compatibility
+    if (parsed.version !== DRAFT_VERSION) {
+      draftStorage.remove();
+      return null;
+    }
+
+    // Check expiry
+    if (isDraftExpired(parsed.savedAt)) {
+      draftStorage.remove();
+      return null;
+    }
+
+    setLastSaved(new Date(parsed.savedAt));
+    return parsed;
+  }, [draftStorage, isDraftExpired]);
 
   /**
    * Check if draft exists
    */
   const hasDraft = useCallback((): boolean => {
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (!stored) return false;
-
-      const parsed: DraftData<T> = JSON.parse(stored);
-      return !isDraftExpired(parsed.savedAt);
-    } catch {
-      return false;
-    }
-  }, [storageKey, isDraftExpired]);
+    const raw = draftStorage.read();
+    if (!isDraftEnvelope(raw)) return false;
+    return !isDraftExpired(raw.savedAt);
+  }, [draftStorage, isDraftExpired]);
 
   /**
-   * Clear draft from localStorage
+   * Clear draft from tenant-scoped storage
    */
   const clearDraft = useCallback(() => {
-    try {
-      localStorage.removeItem(storageKey);
-      setLastSaved(null);
-      setIsPending(false);
-      pendingDataRef.current = null;
-    } catch (error) {
-      console.error('Failed to clear draft:', error);
-    }
-  }, [storageKey]);
+    draftStorage.remove();
+    setLastSaved(null);
+    setIsPending(false);
+    pendingDataRef.current = null;
+  }, [draftStorage]);
 
   /**
    * Calculate draft age
@@ -281,40 +285,6 @@ function formatDraftAge(savedAt: Date): string {
     return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
   }
   return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-}
-
-/**
- * Get all draft keys for a specific report type
- */
-export function getAllDraftKeys(reportType?: ReportType): string[] {
-  const keys: string[] = [];
-  const prefix = reportType
-    ? `${DRAFT_KEY_PREFIX}${reportType}_`
-    : DRAFT_KEY_PREFIX;
-
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith(prefix)) {
-      keys.push(key);
-    }
-  }
-
-  return keys;
-}
-
-/**
- * Clear all drafts (useful for logout or cleanup)
- * @param reportType - Optional filter by report type
- * @param tenantId - Optional filter by tenant ID (first 8 chars)
- */
-export function clearAllDrafts(reportType?: ReportType, tenantId?: string): void {
-  const keys = getAllDraftKeys(reportType);
-  const tenantSuffix = tenantId ? `_t${tenantId.substring(0, 8)}` : null;
-  keys.forEach((key) => {
-    if (!tenantSuffix || key.endsWith(tenantSuffix) || key.includes(`_t${tenantId?.substring(0, 8)}`)) {
-      localStorage.removeItem(key);
-    }
-  });
 }
 
 export default useReportDraft;

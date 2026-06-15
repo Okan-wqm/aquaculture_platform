@@ -2,7 +2,15 @@
  * Regulatory Settings Entity
  *
  * Stores company information and Maskinporten OAuth2 credentials per tenant.
- * Sensitive credentials are encrypted with AES-256-CBC.
+ *
+ * SECURITY: Maskinporten secret columns (client_id, private_key) are encrypted
+ * at rest with the canonical authenticated AES-256-GCM column transformer
+ * (createEncryptedColumnTransformer). GCM provides confidentiality AND integrity
+ * (auth tag) — replacing the previous bespoke unauthenticated AES-256-CBC scheme
+ * that was vulnerable to ciphertext malleability and the padding-oracle class.
+ * The ORM encrypts on write and decrypts on read, so the service layer never
+ * touches ciphertext.
+ * @see HIGH sentinel-cbc
  *
  * This entity is stored in tenant schemas (schema-level isolation):
  * - tenant_4b529829.regulatory_settings
@@ -19,6 +27,7 @@ import {
 } from 'typeorm';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
+import { createEncryptedColumnTransformer } from '@aquaculture/backend-common/security';
 
 /**
  * Site to Lokalitetsnummer mapping for Mattilsynet reports
@@ -71,12 +80,22 @@ export class RegulatorySettings {
   // Maskinporten OAuth2 Credentials (ENCRYPTED - NOT exposed via GraphQL)
   // ==========================================================================
 
-  /** Maskinporten Client ID (AES-256-CBC encrypted) */
-  @Column({ name: 'maskinporten_client_id', type: 'text', nullable: true })
+  /** Maskinporten Client ID (AES-256-GCM encrypted at rest; transparent on read/write) */
+  @Column({
+    name: 'maskinporten_client_id',
+    type: 'text',
+    nullable: true,
+    transformer: createEncryptedColumnTransformer('REGULATORY_ENCRYPTION_KEY'),
+  })
   maskinportenClientId?: string;
 
-  /** Maskinporten Private Key in PEM format (AES-256-CBC encrypted) */
-  @Column({ name: 'maskinporten_private_key_encrypted', type: 'text', nullable: true })
+  /** Maskinporten Private Key in PEM format (AES-256-GCM encrypted at rest; transparent on read/write) */
+  @Column({
+    name: 'maskinporten_private_key_encrypted',
+    type: 'text',
+    nullable: true,
+    transformer: createEncryptedColumnTransformer('REGULATORY_ENCRYPTION_KEY'),
+  })
   maskinportenPrivateKeyEncrypted?: string;
 
   /** Maskinporten Key ID (kid) for JWT header */

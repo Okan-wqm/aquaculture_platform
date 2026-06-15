@@ -227,6 +227,48 @@ export const SUBMIT_EXECUTED_SLAUGHTER_REPORT_MUTATION = `
 `;
 
 // ============================================================================
+// MUTATIONS - Immediate "varsling" Reports (Welfare / Escape / Disease)
+// ============================================================================
+//
+// These three are the legally-immediate Mattilsynet notifications. They are
+// NOT part of the Mattilsynet REST API — the backend dispatches them as urgent
+// email to varsling.akva@mattilsynet.no via the notification-service. The
+// resolver returns the same ReportSubmissionResult shape as the REST reports.
+
+/**
+ * Submit an immediate Welfare Event report (varsling) to Mattilsynet.
+ */
+export const SUBMIT_WELFARE_EVENT_MUTATION = `
+  mutation SubmitWelfareEvent($input: SubmitWelfareEventInput!) {
+    submitWelfareEvent(input: $input) {
+      ${REPORT_SUBMISSION_RESULT_FIELDS}
+    }
+  }
+`;
+
+/**
+ * Submit an immediate Escape report (varsling) to Mattilsynet.
+ */
+export const SUBMIT_ESCAPE_REPORT_MUTATION = `
+  mutation SubmitEscapeReport($input: SubmitEscapeReportInput!) {
+    submitEscapeReport(input: $input) {
+      ${REPORT_SUBMISSION_RESULT_FIELDS}
+    }
+  }
+`;
+
+/**
+ * Submit an immediate Disease Outbreak report (varsling) to Mattilsynet.
+ */
+export const SUBMIT_DISEASE_OUTBREAK_MUTATION = `
+  mutation SubmitDiseaseOutbreak($input: SubmitDiseaseOutbreakInput!) {
+    submitDiseaseOutbreak(input: $input) {
+      ${REPORT_SUBMISSION_RESULT_FIELDS}
+    }
+  }
+`;
+
+// ============================================================================
 // BIOMASS REPORT (phase 2.1)
 // ============================================================================
 

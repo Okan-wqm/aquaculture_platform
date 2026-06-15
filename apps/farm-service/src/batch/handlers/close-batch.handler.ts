@@ -31,6 +31,7 @@ import { DataSource } from 'typeorm';
 import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { BatchLifecyclePolicyService } from '../services/batch-lifecycle-policy.service';
@@ -46,6 +47,7 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
     private readonly outboxPublisher: OutboxPublisher,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
     private readonly lifecyclePolicy: BatchLifecyclePolicyService,
+    private readonly fcrCalculation: FCRCalculationService,
     @Optional()
     private readonly metricsService?: FarmDomainMetricsService,
   ) {}
@@ -153,17 +155,34 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
 
       this.lifecyclePolicy.assertCanCloseForReason(batch, reason);
 
-      // Final metrikleri hesapla (before mutation)
+      // Compute-at-close: freeze the authoritative final metrics here, inside
+      // the pessimistic_write block, so the persisted batch row and the
+      // BatchClosed event agree and can never be recomputed against later state.
+      //
+      // - finalFCR comes from the SINGLE FCR authority
+      //   (FcrCalculationService.calculateCumulativeFCR), which derives realized
+      //   growth from the TankOperation ledger + the live count. The previous
+      //   `batch.fcr.actual` read returned whatever the shadow updateBatchMetrics
+      //   path last persisted (often 0 / stale), so the closed event carried a
+      //   wrong FCR (FARM-MEDIUM-003).
+      // - finalBiomassKg is the derive-on-read value (currentQuantity ×
+      //   effectiveAvgWeightG / 1000), replacing the stale getCurrentBiomass
+      //   snapshot read. At CLOSED there are no further removals, so freezing
+      //   the snapshot here is the one correct place to persist it.
+      const cumulativeFcr = await this.fcrCalculation.calculateCumulativeFCR(batchId, tenantId);
+      const finalFCR = cumulativeFcr.fcr;
+      const finalBiomassKg = batch.getCurrentBiomass();
+
       const finalMetrics = {
         finalQuantity: batch.currentQuantity,
-        finalBiomass: batch.getCurrentBiomass(),
+        finalBiomass: finalBiomassKg,
         finalAvgWeight: batch.getCurrentAvgWeight(),
         totalMortality: batch.totalMortality,
         mortalityRate: batch.getMortalityRate(),
         survivalRate: batch.getSurvivalRate(),
         retentionRate: batch.getRetentionRate(),
         totalFeedConsumed: batch.totalFeedConsumed,
-        fcr: batch.fcr.actual,
+        fcr: finalFCR,
         sgr: batch.sgr,
         daysInProduction: batch.getDaysInProduction(),
         costPerKg: batch.costPerKg,
@@ -180,6 +199,16 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
 
       // Growth metrics güncelle
       batch.growthMetrics.daysInProduction = finalMetrics.daysInProduction;
+
+      // Persist the frozen final FCR + biomass onto the batch row in the same
+      // tx, so the closed record is the authoritative snapshot. fcr.actual is
+      // the column-backed FCR; weight.actual.totalBiomass freezes the at-close
+      // derived biomass (no further removals occur once CLOSED).
+      batch.fcr.actual = finalFCR;
+      batch.fcr.lastUpdatedAt = closedAt;
+      if (batch.weight?.actual) {
+        batch.weight.actual.totalBiomass = finalBiomassKg;
+      }
 
       // Hasat tarihi yoksa ve harvest completed ise şimdi ata
       if (reason === BatchCloseReason.HARVEST_COMPLETED && !batch.actualHarvestDate) {

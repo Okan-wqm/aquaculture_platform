@@ -4,7 +4,8 @@
  * Shows urgency indicator for large-scale escapes per Norwegian regulatory requirements
  */
 import React, { useState, useMemo } from 'react';
-import { useRegulatorySettings } from '../../../hooks/useRegulatory';
+import { useRegulatorySettings, useSubmitEscapeReport } from '../../../hooks/useRegulatory';
+import { buildVarslingIdentity } from '../utils/varslingIdentity';
 import { getMockReports } from '../mock/helpers';
 import { EscapeReport, EscapeStatus, EscapeCause } from '../types/reports.types';
 import { REGULATORY_CONTACTS } from '../utils/thresholds';
@@ -405,8 +406,10 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
   const [selectedEscape, setSelectedEscape] = useState<EscapeReport | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('all');
 
-  // Regulatory settings (pre-populates contact info; escape submission API TBD)
+  // Regulatory settings supply the Mattilsynet identity block; the mutation
+  // dispatches the immediate escape varsling via the backend.
   const { data: regulatorySettings } = useRegulatorySettings();
+  const submitEscapeReport = useSubmitEscapeReport();
 
   // Fetch tank data for stock context
   const { data: tanksData } = useTanksList({ isActive: true });
@@ -454,17 +457,40 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
   };
 
   const handleModalSubmit = async (data: Partial<EscapeReport>): Promise<void> => {
-    // TODO: Replace with real escape report submission mutation when backend endpoint is available
-    console.log('Submitting escape report:', data, {
-      organisationNumber: regulatorySettings?.organisationNumber,
-      siteMapping: regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId),
-      contact: {
-        navn: regulatorySettings?.defaultContactName,
-        epost: regulatorySettings?.defaultContactEmail,
-        telefonnummer: regulatorySettings?.defaultContactPhone,
-      },
+    // Resolve the Mattilsynet identity block — throws VarslingConfigError if
+    // the tenant is not configured. The modal surfaces the thrown message and
+    // stays open (it only closes when this promise RESOLVES).
+    const reportSiteId = data.siteId || siteId || 'site-001';
+    const identity = buildVarslingIdentity(regulatorySettings, reportSiteId);
+
+    const result = await submitEscapeReport.mutateAsync({
+      klientReferanse: crypto.randomUUID(),
+      organisasjonsnummer: identity.organisasjonsnummer,
+      lokalitetsnummer: identity.lokalitetsnummer,
+      siteId: reportSiteId,
+      siteName: data.siteName || 'Unknown site',
+      kontaktperson: identity.kontaktperson,
+      siteManagerEmail: identity.siteManagerEmail,
+      detectedAt: (data.detectedAt ?? new Date()).toISOString(),
+      reportedBy: identity.kontaktperson.navn,
+      estimatedCount: data.escape?.estimatedCount ?? 0,
+      species: data.escape?.species ?? 'Unknown',
+      avgWeightG: data.escape?.avgWeightG ?? 0,
+      totalBiomassKg: data.escape?.totalBiomassKg ?? 0,
+      cause: data.escape?.cause ?? 'unknown',
+      affectedUnits: data.affectedUnits?.map((u) => u.unitName) ?? [],
+      recoveryOngoing: data.recovery?.ongoingEfforts ?? false,
     });
-    setIsModalOpen(false);
+
+    // Surface a backend failure as an error so the modal stays open and shows
+    // it — NEVER fake success.
+    if (!result.success) {
+      throw new Error(
+        result.feilmelding || 'Mattilsynet rejected the escape report. Please review and retry.',
+      );
+    }
+
+    // On success the modal closes itself; only clear the tab selection.
     setSelectedEscape(null);
   };
 

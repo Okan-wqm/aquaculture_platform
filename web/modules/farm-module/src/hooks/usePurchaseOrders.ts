@@ -12,8 +12,14 @@ export enum PurchaseOrderCategory {
   HEALTHCARE = 'HEALTHCARE',
 }
 
+// Canonical PO status vocabulary — kept in lock-step with the backend
+// PurchaseOrderStatus enum (apps/farm-service/.../purchase-order.entity.ts).
+// SUBMITTED + APPROVED are the maker-checker gate states (SOC2 CC3.4):
+// DRAFT -> SUBMITTED (maker) -> APPROVED (checker) -> ORDERED (spend placed).
 export enum PurchaseOrderStatus {
   DRAFT = 'DRAFT',
+  SUBMITTED = 'SUBMITTED',
+  APPROVED = 'APPROVED',
   ORDERED = 'ORDERED',
   PARTIALLY_RECEIVED = 'PARTIALLY_RECEIVED',
   RECEIVED = 'RECEIVED',
@@ -46,6 +52,10 @@ export interface PurchaseOrder {
   notes?: string;
   totalAmount?: number;
   currency: string;
+  // Maker-checker audit trail (SOC2 CC3.4) — populated once the PO is APPROVED.
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: string;
   items: PurchaseOrderItem[];
   createdAt: string;
   updatedAt: string;
@@ -99,6 +109,9 @@ const PO_FIELDS = `
   notes
   totalAmount
   currency
+  approvedBy
+  approvedByName
+  approvedAt
   items {
     id
     itemId
@@ -163,6 +176,15 @@ const RECEIVE_DELIVERY = `
 const CANCEL_PO = `
   mutation CancelPurchaseOrder($id: ID!) {
     cancelPurchaseOrder(id: $id) { ${PO_FIELDS} }
+  }
+`;
+
+// Maker-checker approval gate (SOC2 CC3.4). Distinct from updatePurchaseOrderStatus
+// because the backend forbids the generic status mutation from reaching APPROVED —
+// only this TENANT_ADMIN-gated mutation (with server-side self-approval block) can.
+const APPROVE_PO = `
+  mutation ApprovePurchaseOrder($id: ID!) {
+    approvePurchaseOrder(id: $id) { ${PO_FIELDS} }
   }
 `;
 
@@ -298,6 +320,57 @@ export function useCancelPurchaseOrder() {
         { id }
       );
       return data.cancelPurchaseOrder;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'purchaseOrders') });
+    },
+  });
+}
+
+/**
+ * Submit a DRAFT purchase order for review (maker step, DRAFT -> SUBMITTED).
+ * Routes through the generic updatePurchaseOrderStatus mutation — the backend
+ * state machine allows DRAFT -> SUBMITTED but NOT SUBMITTED -> APPROVED there,
+ * so the checker gate stays enforced server-side.
+ */
+export function useSubmitPurchaseOrder() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      if (!token) throw new Error('Authentication required.');
+      if (!tenantId) throw new Error('Tenant context required.');
+      const data = await graphqlClient.request<{ updatePurchaseOrderStatus: PurchaseOrder }>(
+        UPDATE_PO_STATUS,
+        { input: { id, status: PurchaseOrderStatus.SUBMITTED } }
+      );
+      return data.updatePurchaseOrderStatus;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'purchaseOrders') });
+    },
+  });
+}
+
+/**
+ * Approve a SUBMITTED purchase order (checker step, SUBMITTED -> APPROVED).
+ * TENANT_ADMIN only; the backend additionally rejects self-approval
+ * (createdBy === current user) with a 403 — SOC2 CC3.4 separation of duties.
+ */
+export function useApprovePurchaseOrder() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      if (!token) throw new Error('Authentication required.');
+      if (!tenantId) throw new Error('Tenant context required.');
+      const data = await graphqlClient.request<{ approvePurchaseOrder: PurchaseOrder }>(
+        APPROVE_PO,
+        { id }
+      );
+      return data.approvePurchaseOrder;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'purchaseOrders') });

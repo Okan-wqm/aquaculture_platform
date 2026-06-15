@@ -21,6 +21,7 @@ import { BiomassReport } from './entities/biomass-report.entity';
 import { BiomassReportService } from './services/biomass-report.service';
 import { BiomassReportResolver } from './biomass-report.resolver';
 import { RegulatorySettingsSeederService } from './services/regulatory-settings-seeder.service';
+import { RegulatoryVarslingService } from './services/regulatory-varsling.service';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { RegulatorySettingsSeederService } from './services/regulatory-settings-
     BiomassReportService,
     BiomassReportResolver,
     RegulatorySettingsSeederService,
+    RegulatoryVarslingService,
   ],
   exports: [
     MaskinportenService,

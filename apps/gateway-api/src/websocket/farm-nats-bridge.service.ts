@@ -139,6 +139,11 @@ const FARM_SUBJECTS = [
   'events.*.SubEquipmentDeleted',
   'events.*.SupplierApprovedSitesChanged',
   'events.*.FeederCalibrationsSaved',
+  // Harvest follow-up lifecycle signals (dead-listeners produce-side cure):
+  // a final harvest frees a tank and completes the batch production cycle —
+  // both are dashboard read-model events the frontend renders in real time.
+  'events.*.TankCleared',
+  'events.*.BatchProductionCompleted',
 ] as const;
 
 /** Stable NATS queue group name — load-balances across gateway-api replicas. */
@@ -436,6 +441,12 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
         break;
       case 'FeederCalibrationsSaved':
         this.farmGateway.broadcastFeederCalibrationsSaved(routingTenantId, event);
+        break;
+      case 'TankCleared':
+        this.farmGateway.broadcastTankCleared(routingTenantId, event);
+        break;
+      case 'BatchProductionCompleted':
+        this.farmGateway.broadcastBatchProductionCompleted(routingTenantId, event);
         break;
       default:
         this.logger.debug(

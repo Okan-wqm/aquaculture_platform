@@ -14,9 +14,20 @@ export class ListWorkersHandler implements IQueryHandler<ListWorkersQuery> {
   async execute(query: ListWorkersQuery): Promise<Worker[]> {
     const { tenantId } = query;
 
-    return this.workerRepository.find({
+    const workers = await this.workerRepository.find({
       where: { tenantId, isDeleted: false },
-      order: { firstName: 'ASC', lastName: 'ASC' },
+    });
+
+    // SECURITY (pii-at-rest): firstName/lastName are AES-256-GCM ciphertext at
+    // rest with a fresh IV per write, so a DB `ORDER BY firstName, lastName`
+    // sorts ciphertext — effectively random output. The column transformer
+    // decrypts these on read, so the only place a correct alphabetical order
+    // can be produced is the application layer, over the decrypted plaintext.
+    // localeCompare gives locale-aware ordering (accents, case) rather than the
+    // raw UTF-16 code-unit order of a bare `<`/`>` comparison.
+    return workers.sort((a, b) => {
+      const byFirst = a.firstName.localeCompare(b.firstName);
+      return byFirst !== 0 ? byFirst : a.lastName.localeCompare(b.lastName);
     });
   }
 }

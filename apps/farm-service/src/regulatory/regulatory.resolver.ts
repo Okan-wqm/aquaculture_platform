@@ -41,6 +41,12 @@ import {
   ReportSubmissionResult,
 } from './dto/regulatory-inputs.dto';
 import {
+  SubmitWelfareEventInput,
+  SubmitEscapeReportInput,
+  SubmitDiseaseOutbreakInput,
+} from './dto/regulatory-varsling-inputs.dto';
+import { RegulatoryVarslingService } from './services/regulatory-varsling.service';
+import {
   RegulatorySettingsOutput,
   UpdateRegulatorySettingsInput,
   MaskinportenConnectionTestResult,
@@ -118,6 +124,7 @@ export class RegulatoryResolver {
     private readonly mattilsynetApi: MattilsynetApiService,
     private readonly maskinporten: MaskinportenService,
     private readonly settingsService: RegulatorySettingsService,
+    private readonly varslingService: RegulatoryVarslingService,
   ) {}
 
   // ==========================================================================
@@ -133,6 +140,18 @@ export class RegulatoryResolver {
       throw new UnauthorizedException('Tenant context required');
     }
     return tenantId;
+  }
+
+  /**
+   * Extract the authenticated user id (JWT `sub`) from the GraphQL context.
+   * Used to stamp the immediate-report events with `userId` for audit.
+   */
+  private getUserId(ctx: GraphQLContext): string {
+    const userId = ctx?.req?.user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException('User context required');
+    }
+    return userId;
   }
 
   /**
@@ -709,5 +728,60 @@ export class RegulatoryResolver {
         feilmelding: error instanceof Error ? error.message : 'Unknown error',
       };
     }
+  }
+
+  // ==========================================================================
+  // Mutations - Immediate "varsling" Reports (Welfare / Escape / Disease)
+  // ==========================================================================
+  //
+  // These three are legally-immediate notifications routed to
+  // varsling.akva@mattilsynet.no (escapes also to Fiskeridirektoratet).
+  // They are NOT part of the Mattilsynet REST `innrapportering-api`, so they
+  // go through RegulatoryVarslingService → transactional outbox →
+  // notification-service email dispatch, not MattilsynetApiService.
+
+  /**
+   * Submit a Welfare Event report (varsling) to Mattilsynet.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => ReportSubmissionResult, { description: 'Submit immediate Welfare Event report (varsling) to Mattilsynet' })
+  async submitWelfareEvent(
+    @Args('input') input: SubmitWelfareEventInput,
+    @Context() ctx: GraphQLContext,
+  ): Promise<ReportSubmissionResult> {
+    const tenantId = this.getTenantId(ctx);
+    const userId = this.getUserId(ctx);
+    this.logger.log(`Submitting Welfare Event report: ${input.klientReferanse}`);
+    return this.varslingService.submitWelfareEvent(tenantId, userId, input);
+  }
+
+  /**
+   * Submit a fish Escape report (varsling) to Mattilsynet + Fiskeridirektoratet.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => ReportSubmissionResult, { description: 'Submit immediate Escape report (varsling) to Mattilsynet' })
+  async submitEscapeReport(
+    @Args('input') input: SubmitEscapeReportInput,
+    @Context() ctx: GraphQLContext,
+  ): Promise<ReportSubmissionResult> {
+    const tenantId = this.getTenantId(ctx);
+    const userId = this.getUserId(ctx);
+    this.logger.log(`Submitting Escape report: ${input.klientReferanse}`);
+    return this.varslingService.submitEscapeReport(tenantId, userId, input);
+  }
+
+  /**
+   * Submit a notifiable Disease Outbreak report (varsling) to Mattilsynet.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Mutation(() => ReportSubmissionResult, { description: 'Submit immediate Disease Outbreak report (varsling) to Mattilsynet' })
+  async submitDiseaseOutbreak(
+    @Args('input') input: SubmitDiseaseOutbreakInput,
+    @Context() ctx: GraphQLContext,
+  ): Promise<ReportSubmissionResult> {
+    const tenantId = this.getTenantId(ctx);
+    const userId = this.getUserId(ctx);
+    this.logger.log(`Submitting Disease Outbreak report: ${input.klientReferanse}`);
+    return this.varslingService.submitDiseaseOutbreak(tenantId, userId, input);
   }
 }

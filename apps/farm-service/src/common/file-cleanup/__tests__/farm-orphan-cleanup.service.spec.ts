@@ -37,6 +37,7 @@ function makeCleanup() {
     capped: false,
     errors: [],
     durationMs: 42,
+    refused: false,
   });
   return { cleanup: { cleanup } as unknown as import('@platform/storage').StorageOrphanCleanupService, spy: cleanup };
 }
@@ -116,13 +117,24 @@ describe('FarmOrphanCleanupService', () => {
     expect(broken?.livePathCount).toBe(-1);
   });
 
-  it('empty provider list still runs (cleans every orphan older than threshold)', async () => {
+  it('forwards an empty live-set WITHOUT allowEmptyLiveSet (storage layer must refuse to delete)', async () => {
+    // CRITICAL invariant: farm never asserts that an empty live-set is
+    // authoritative. A tenant (or scope) with zero document references
+    // must NOT have its bucket objects deleted on the basis of "nothing
+    // is live" — that is exactly the cross-tenant whole-bucket deletion
+    // class. run() forwards livePaths untouched and leaves
+    // allowEmptyLiveSet unset; StorageOrphanCleanupService is what
+    // refuses (covered by its own spec).
     const { cleanup, spy } = makeCleanup();
     const svc = new FarmOrphanCleanupService(cleanup, []);
     const summary = await svc.run();
     expect(spy).toHaveBeenCalledTimes(1);
-    const call = spy.mock.calls[0]![0] as { livePaths: Set<string> };
+    const call = spy.mock.calls[0]![0] as {
+      livePaths: Set<string>;
+      allowEmptyLiveSet?: boolean;
+    };
     expect(call.livePaths.size).toBe(0);
+    expect(call.allowEmptyLiveSet).toBeUndefined();
     expect(summary.providersUsed).toEqual([]);
   });
 });

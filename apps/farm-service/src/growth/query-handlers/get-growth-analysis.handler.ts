@@ -18,6 +18,7 @@ import { GrowthMeasurement, GrowthPerformance } from '../entities/growth-measure
 import { Batch } from '../../batch/entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { FCRCalculationService } from '../services/fcr-calculation.service';
 
 @Injectable()
 @QueryHandler(GetGrowthAnalysisQuery)
@@ -31,6 +32,7 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
+    private readonly fcrCalculation: FCRCalculationService,
   ) {}
 
   async execute(query: GetGrowthAnalysisQuery): Promise<GrowthAnalysisResult> {
@@ -90,17 +92,25 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
       : 0;
 
     // Biomass bilgileri
+    // WHY: display the DERIVED live-count biomass (qty × avgWeight), not the
+    // stale measurement-time snapshot lastMeasurement.estimatedBiomass. The
+    // snapshot was captured when the sample was taken and goes stale the moment
+    // any mortality/cull/harvest decrements the count — leaving this handler's
+    // displayed biomass diverging from both batch.getCurrentBiomass() elsewhere
+    // and its own ledger-aware FCR below. WHAT: single derive-on-read SSoT.
     const initialBiomassKg = batch.weight?.initial?.totalBiomass || 0;
-    const currentBiomassKg = lastMeasurement
-      ? lastMeasurement.estimatedBiomass
-      : initialBiomassKg;
+    const currentBiomassKg = batch.getCurrentBiomass();
     const biomassGainKg = currentBiomassKg - initialBiomassKg;
     const biomassGainPercent = initialBiomassKg > 0
       ? (biomassGainKg / initialBiomassKg) * 100
       : 0;
 
-    // FCR bilgileri
-    const cumulativeFCR = batch.fcr?.actual || batch.calculateFCR(0);
+    // FCR bilgileri — single authority is FcrCalculationService, which derives
+    // realized growth from the TankOperation ledger + the live count. The old
+    // `batch.fcr?.actual || batch.calculateFCR(0)` fallback used the entity's
+    // naive weight-gain formula (ledger-blind), overstating FCR (FARM-HIGH-007).
+    const cumulativeFcrResult = await this.fcrCalculation.calculateCumulativeFCR(batchId, tenantId);
+    const cumulativeFCR = cumulativeFcrResult.fcr;
     const targetFCR = batch.fcr?.target || 1.5;
     const fcrVariancePercent = ((cumulativeFCR - targetFCR) / targetFCR) * 100;
     const fcrTrend = this.calculateFCRTrend(measurements);

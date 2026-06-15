@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { UpdateWorkerCommand } from '../commands/update-worker.command';
-import { Worker } from '../entities/worker.entity';
+import { Worker, workerEmailBlindIndex } from '../entities/worker.entity';
 
 @CommandHandler(UpdateWorkerCommand)
 export class UpdateWorkerHandler implements ICommandHandler<UpdateWorkerCommand, Worker> {
@@ -27,10 +27,12 @@ export class UpdateWorkerHandler implements ICommandHandler<UpdateWorkerCommand,
       throw new NotFoundException(`Worker with ID "${input.id}" not found`);
     }
 
-    // Check email uniqueness if changing
+    // Check email uniqueness if changing. The email column is encrypted
+    // (non-deterministic GCM), so equality must go through the deterministic
+    // blind index, which also backs the (tenantId, emailHash) UNIQUE constraint.
     if (input.email && input.email.toLowerCase().trim() !== worker.email) {
       const existingByEmail = await this.workerRepository.findOne({
-        where: { tenantId, email: input.email.toLowerCase().trim() },
+        where: { tenantId, emailHash: workerEmailBlindIndex(input.email) },
       });
       if (existingByEmail && existingByEmail.id !== worker.id) {
         throw new ConflictException(`Employee with email "${input.email}" already exists`);

@@ -15,8 +15,6 @@
  *
  * @module WaterQuality
  */
-import { randomUUID } from 'crypto';
-
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
@@ -33,6 +31,13 @@ import { CreateBatchWaterQualityInput } from './dto/create-batch-water-quality.i
 // INTERNAL INTERFACES (Service layer only)
 // ============================================================================
 
+/**
+ * SINGLE-INGRESS (Tier-1): `dynamicParameters` + `equipmentId` are the sole
+ * parameter channel. The legacy static `parameters` shape was removed from the
+ * DTO and from this service interface so there is no code path that can persist
+ * measurement values without first passing through
+ * WaterQualityValidationService.validate().
+ */
 export interface CreateWaterQualityData {
   tankId?: string;
   pondId?: string;
@@ -41,20 +46,8 @@ export interface CreateWaterQualityData {
   measuredAt: Date;
   source: MeasurementSource;
   measuredBy?: string;
-  parameters?: {
-    temperature?: number;
-    dissolvedOxygen?: number;
-    pH?: number;
-    ammonia?: number;
-    nitrite?: number;
-    nitrate?: number;
-    salinity?: number;
-    turbidity?: number;
-    alkalinity?: number;
-    hardness?: number;
-  };
-  equipmentId?: string;
-  dynamicParameters?: Record<string, number | string | boolean>;
+  equipmentId: string;
+  dynamicParameters: Record<string, number | string | boolean>;
   idempotencyKey?: string;
   notes?: string;
   weatherConditions?: string;
@@ -66,18 +59,7 @@ export interface CreateWaterQualityData {
 }
 
 export interface UpdateWaterQualityData {
-  parameters?: {
-    temperature?: number;
-    dissolvedOxygen?: number;
-    pH?: number;
-    ammonia?: number;
-    nitrite?: number;
-    nitrate?: number;
-    salinity?: number;
-    turbidity?: number;
-    alkalinity?: number;
-    hardness?: number;
-  };
+  dynamicParameters?: Record<string, number | string | boolean>;
   notes?: string;
   weatherConditions?: string;
 }
@@ -144,37 +126,28 @@ export class WaterQualityService {
       }
     }
 
-    // C2: Validate dynamic parameters against tenant configs if provided
-    if (input.dynamicParameters && Object.keys(input.dynamicParameters).length > 0) {
-      const validation = await this.validationService.validate(
-        tenantId,
-        input.dynamicParameters,
-        input.equipmentId,
-      );
-      if (!validation.valid) {
-        throw new BadRequestException({
-          message: 'Dynamic parameter validation failed',
-          errors: validation.errors,
-        });
-      }
+    // SINGLE-INGRESS (Tier-1): validation runs UNCONDITIONALLY on every create.
+    // dynamicParameters is the sole parameter channel; strict mode rejects
+    // empty-with-keys submissions and no-config tenants. There is no legacy
+    // bypass branch — every value persisted has passed validate().
+    const validation = await this.validationService.validate(
+      tenantId,
+      input.dynamicParameters,
+      input.equipmentId,
+    );
+    if (!validation.valid) {
+      throw new BadRequestException({
+        message: 'Dynamic parameter validation failed',
+        errors: validation.errors,
+      });
     }
 
-    // Merge static parameters + dynamic parameters into single JSONB
-    const mergedParameters = {
-      ...(input.parameters || {}),
-      ...(input.dynamicParameters || {}),
-    };
+    const mergedParameters = { ...input.dynamicParameters };
 
-    // Dynamic config-driven evaluation (falls back to hardcoded if no configs)
-    // Done before the transaction to avoid holding a DB lock during evaluation
-    const preEvalMeasurement = this.repository.create({
-      tenantId,
-      parameters: mergedParameters,
-      overallStatus: WaterQualityStatus.UNKNOWN,
-      hasAlarm: false,
-    });
-
-    const summary = await this.evaluationService.evaluate(tenantId, preEvalMeasurement.parameters);
+    // Config-driven evaluation is the SOLE evaluator (the entity's hardcoded
+    // evaluateParameters() was removed). Done before the transaction to avoid
+    // holding a DB lock during evaluation.
+    const summary = await this.evaluationService.evaluate(tenantId, mergedParameters);
 
     // ── Transaction: measurement save + outbox event(s) ───────────────
     const queryRunner = this.dataSource.createQueryRunner();
@@ -205,13 +178,14 @@ export class WaterQualityService {
         hasAlarm: false,
       });
 
+      // Config-driven evaluation is the SOLE evaluator. When strict validation
+      // passed, configs exist by construction, so summary.evaluations is
+      // populated. The measurement retains UNKNOWN status only when configs
+      // legitimately yield no numeric evaluations (e.g. enum/boolean-only sets).
       if (summary.evaluations.length > 0) {
         measurement.overallStatus = summary.overallStatus;
         measurement.summary = summary;
         measurement.hasAlarm = summary.criticalCount > 0;
-      } else {
-        // Fallback: no tenant configs, use hardcoded defaults
-        measurement.evaluateParameters();
       }
 
       saved = await queryRunner.manager.save(WaterQualityMeasurement, measurement);
@@ -339,12 +313,14 @@ export class WaterQualityService {
           hasAlarm: false,
         });
 
+        // Config-driven evaluation is the SOLE evaluator (the entity's
+        // hardcoded evaluateParameters() was removed). Batch items are
+        // validate()-gated above, so configs exist; UNKNOWN remains only when
+        // the config set yields no numeric evaluations.
         if (summary.evaluations.length > 0) {
           measurement.overallStatus = summary.overallStatus;
           measurement.summary = summary;
           measurement.hasAlarm = summary.criticalCount > 0;
-        } else {
-          measurement.evaluateParameters();
         }
 
         entities.push(measurement);
@@ -574,11 +550,29 @@ export class WaterQualityService {
   ): Promise<WaterQualityMeasurement> {
     const measurement = await this.findById(tenantId, id);
 
-    if (input.parameters) {
-      measurement.parameters = {
+    if (input.dynamicParameters) {
+      // SINGLE-INGRESS (Tier-1): merge the incoming dynamic parameters onto the
+      // existing measurement, then validate the MERGED set against the
+      // measurement's stored equipment mappings BEFORE persisting — identical
+      // strict gate to create. Rejects on !valid exactly like create.
+      const mergedParameters = {
         ...measurement.parameters,
-        ...input.parameters,
+        ...input.dynamicParameters,
       };
+
+      const validation = await this.validationService.validate(
+        tenantId,
+        mergedParameters as Record<string, number | string | boolean>,
+        measurement.equipmentId,
+      );
+      if (!validation.valid) {
+        throw new BadRequestException({
+          message: 'Dynamic parameter validation failed',
+          errors: validation.errors,
+        });
+      }
+
+      measurement.parameters = mergedParameters;
     }
 
     if (input.notes !== undefined) {
@@ -589,14 +583,14 @@ export class WaterQualityService {
       measurement.weatherConditions = input.weatherConditions;
     }
 
-    // Dynamic config-driven evaluation (falls back to hardcoded if no configs)
+    // Config-driven evaluation is the SOLE evaluator (the entity's hardcoded
+    // evaluateParameters() was removed). UNKNOWN remains only when the config
+    // set yields no numeric evaluations.
     const summary = await this.evaluationService.evaluate(tenantId, measurement.parameters);
     if (summary.evaluations.length > 0) {
       measurement.overallStatus = summary.overallStatus;
       measurement.summary = summary;
       measurement.hasAlarm = summary.criticalCount > 0;
-    } else {
-      measurement.evaluateParameters();
     }
 
     return this.repository.save(measurement);

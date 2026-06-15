@@ -110,6 +110,10 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Submission-level error (e.g. Mattilsynet rejection). Surfaced in a
+  // persistent role=alert region; the modal stays OPEN so the operator can
+  // act on a legally-immediate report instead of the error being swallowed.
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Fetch tank data for auto-population
   const { data: tanksData } = useTanksList({ isActive: true });
@@ -304,6 +308,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
   const handleSubmit = useCallback(async () => {
     if (!validateForm()) return;
 
+    setSubmitError(null);
     setIsSubmitting(true);
     try {
       const now = new Date();
@@ -360,7 +365,14 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
       setFormData(initialFormData);
       onClose();
     } catch (error) {
-      console.error('Failed to submit escape report:', error);
+      // Keep the modal open and surface the failure — a swallowed error on a
+      // legally-immediate report would leave the operator believing it was
+      // filed when Mattilsynet / Fiskeridirektoratet rejected it.
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to submit escape report. Please review and retry.',
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -422,6 +434,17 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
           {/* Body */}
           <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
             <div className="space-y-6">
+              {/* Submission error (persistent, screen-reader announced) */}
+              {submitError && (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="rounded-md bg-red-50 border border-red-300 p-3 text-sm text-red-800"
+                >
+                  {submitError}
+                </div>
+              )}
+
               {/* Site Info + GPS */}
               <div className="bg-gray-50 rounded-md p-3">
                 <div className="flex items-center justify-between">

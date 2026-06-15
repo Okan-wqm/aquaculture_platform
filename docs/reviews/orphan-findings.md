@@ -3838,6 +3838,18 @@ Status: RESOLVED (2026-06-13; #441 b4f484130). The heavy one-time bootstrap move
 
 ---
 
+## ORPHAN-HIGH-116 — ORPHAN-HIGH-092 successor: messaging E2E still hung after the first closure
+
+Severity: HIGH. `ORPHAN-HIGH-092` was marked resolved by the #441 bootstrap/readiness work, but once `ORPHAN-HIGH-102` restored the messaging E2E suite load path, the suite still self-cancelled in the first `createChannel` flow. The actual hang was in `TenantUserAdmissionService`: `firstValueFrom(natsClient.send(VALIDATE_TENANT_MEMBERSHIP).pipe(timeout()))` waited forever because the E2E `mockNatsClient.send` returned a non-emitting observable-shaped mock. The mocked `.pipe()` also swallowed the RxJS timeout, so the setup hook never failed loudly.
+
+Fix evidence: PR #482 / squash `0d95df9a7f76` changed the E2E NATS request-reply mock to return real `of(...)` observables for `send`/`emit`, making admission resolve. The messaging `E2E Tests` workflow then ran 12 suites / 111 tests green with 0 hook timeouts.
+
+Traceability note: `0d95df9a7f76` legitimately closes `ORPHAN-HIGH-092` in its commit message, not this successor id. The `ORPHAN-HIGH-116` registry row must therefore use a post-merge traceability commit that carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-116` as its `closing_commits` evidence, while keeping `0d95df9a7f76` in the narrative as the real code fix. This avoids amending merged history and avoids a false `closing_commits` edge.
+
+Status: RESOLVED (2026-06-15; post-merge traceability correction). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-116.
+
+---
+
 ## ORPHAN-MEDIUM-055 — messaging-service background sweep queries non-existent `m.embedding` column
 
 Severity: MEDIUM. The messaging-service E2E Postgres logs, on a fixed 5-minute cadence (12:50/12:55/13:00…): `ERROR: column m.embedding does not exist at character 138 … WHERE m."embedding" IS NULL`. A scheduled background worker / projection (an embedding-backfill or semantic-index sweep) filters on `m."embedding" IS NULL`, but the column does not exist in the schema the E2E migrations apply. Independent of B2 (zero embedding code touched); appears on every messaging E2E run.

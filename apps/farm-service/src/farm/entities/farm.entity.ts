@@ -74,7 +74,11 @@ export class Farm {
   description?: string;
 
   @Field(() => Float, { nullable: true })
-  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  // DecimalTransformer: node-postgres returns NUMERIC as a JS string; without
+  // the transformer the entity holds a string while @Field is Float, so any
+  // server-side arithmetic/comparison silently string-concatenates. Matches the
+  // batch.entity.ts convention (transformer per decimal column).
+  @Column('decimal', { precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   totalArea?: number; // in hectares
 
   // READ-ONLY LEGACY — the OneToMany relation stays for the GraphQL

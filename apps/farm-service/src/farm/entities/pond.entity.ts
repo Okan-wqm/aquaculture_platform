@@ -68,15 +68,18 @@ export class Pond {
   name: string;
 
   @Field(() => Float)
-  @Column('decimal', { precision: 10, scale: 2 })
+  // DecimalTransformer: NUMERIC comes back from pg as a string; without it the
+  // entity value is a string vs the Float contract, breaking arithmetic. Matches
+  // the batch.entity.ts convention.
+  @Column('decimal', { precision: 10, scale: 2, transformer: new DecimalTransformer() })
   capacity: number; // in cubic meters
 
   @Field(() => Float, { nullable: true })
-  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  @Column('decimal', { precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   depth?: number; // in meters
 
   @Field(() => Float, { nullable: true })
-  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  @Column('decimal', { precision: 10, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   surfaceArea?: number; // in square meters
 
   @Field(() => WaterType)

@@ -20,7 +20,7 @@ import {
 } from '@aquaculture/backend-common/security';
 
 /** Env var holding the AES-256 key for at-rest PII encryption (shared with nationalId). */
-const PII_ENCRYPTION_KEY = 'EMPLOYEE_PII_ENCRYPTION_KEY';
+const PII_KEY_ENV = 'EMPLOYEE_PII_ENCRYPTION_KEY';
 
 /**
  * Deterministic blind index for the encrypted `email` column. Separate key from
@@ -67,11 +67,11 @@ export class Worker {
    * SECURITY (pii-at-rest): encrypted at rest with AES-256-GCM. DB column stores
    * ciphertext; the transformer decrypts transparently on read.
    */
-  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_ENCRYPTION_KEY) })
+  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
   firstName: string;
 
   /** SECURITY (pii-at-rest): encrypted at rest with AES-256-GCM. */
-  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_ENCRYPTION_KEY) })
+  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
   lastName: string;
 
   /**
@@ -79,7 +79,7 @@ export class Worker {
    * and per-tenant uniqueness go through `emailHash`, NOT this column — see the
    * class-level @Index comment and the @BeforeInsert/@BeforeUpdate hook.
    */
-  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_ENCRYPTION_KEY) })
+  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
   email: string;
 
   /**
@@ -91,11 +91,11 @@ export class Worker {
   emailHash: string;
 
   /** SECURITY (pii-at-rest): JSONB PII encrypted at rest (JSON serialized, then AES-256-GCM). */
-  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_ENCRYPTION_KEY, { json: true }) })
+  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV, { json: true }) })
   contactInfo: WorkerContactInfo;
 
   /** SECURITY (pii-at-rest): JSONB PII encrypted at rest (JSON serialized, then AES-256-GCM). */
-  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_ENCRYPTION_KEY, { json: true }) })
+  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV, { json: true }) })
   address: WorkerAddress;
 
   /**
@@ -105,7 +105,7 @@ export class Worker {
    * `Date`. Typing it `Date` would be a lie the moment the transformer's
    * `from()` returns a decrypted string. Callers write a normalized ISO date.
    */
-  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_ENCRYPTION_KEY) })
+  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
   dateOfBirth: string;
 
   /**
@@ -113,7 +113,7 @@ export class Worker {
    * DB column stores ciphertext; application decrypts on read.
    * @see DB-CRITICAL-001
    */
-  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_ENCRYPTION_KEY) })
+  @Column({ type: 'text', transformer: createEncryptedColumnTransformer(PII_KEY_ENV) })
   nationalId: string;
 
   @Column({ type: 'varchar', default: 'active' })

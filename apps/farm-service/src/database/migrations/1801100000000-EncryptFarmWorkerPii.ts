@@ -58,10 +58,10 @@ import {
  */
 
 /** Env var holding the AES-256 key (shared with nationalId, ADR DB-CRITICAL-001). */
-const PII_ENCRYPTION_KEY = 'EMPLOYEE_PII_ENCRYPTION_KEY'; // gitleaks:allow (env var NAME, not a secret value)
+const PII_KEY_ENV = 'EMPLOYEE_PII_ENCRYPTION_KEY';
 
 /** Env var holding the HMAC key for the email blind index. */
-const PII_BLIND_INDEX_KEY = 'EMPLOYEE_PII_BLIND_INDEX_KEY'; // gitleaks:allow (env var NAME, not a secret value)
+const PII_BLIND_INDEX_KEY = 'EMPLOYEE_PII_BLIND_INDEX_KEY';
 
 /** Canonical GCM ciphertext prefix (see encrypted-column.transformer). */
 const GCM_PREFIX = 'enc:';
@@ -143,7 +143,7 @@ export class EncryptFarmWorkerPii1801100000000 implements MigrationInterface {
     const transformers = new Map(
       PII_COLUMNS.map((c) => [
         c.name,
-        createEncryptedColumnTransformer(PII_ENCRYPTION_KEY, { json: c.json }),
+        createEncryptedColumnTransformer(PII_KEY_ENV, { json: c.json }),
       ]),
     );
     const emailBlindIndex = createBlindIndex(PII_BLIND_INDEX_KEY);

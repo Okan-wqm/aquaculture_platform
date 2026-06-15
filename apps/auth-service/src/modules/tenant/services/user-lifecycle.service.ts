@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 
-import { SchemaManagerService, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
   Injectable,
@@ -104,7 +104,6 @@ export class UserLifecycleService {
     private readonly userModuleAssignmentRepository: Repository<UserModuleAssignment>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly schemaManager: SchemaManagerService,
     private readonly tenantRoleService: TenantRoleService,
     // DATA-HIGH-001: UserInvited is a notification trigger whose durable record
     // is the invitation row — routed through the allowlisted best-effort path,
@@ -142,8 +141,6 @@ export class UserLifecycleService {
     createdBy: string,
     sendInvitation = true,
   ): Promise<CreatedUserResult> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
     // Validate tenant exists and is active
     const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
     if (!tenant) {
@@ -215,9 +212,10 @@ export class UserLifecycleService {
       }
     }
 
-    // Create role assignment in tenant schema
+    // Create role assignment in auth.user_role_assignments (tenant-guarded
+    // via the role's tenantId — see createRoleAssignment).
     const roleAssignment = await this.createRoleAssignment(
-      schemaName,
+      tenantId,
       savedUser.id,
       input.roleId,
       role,
@@ -297,56 +295,83 @@ export class UserLifecycleService {
       throw new ForbiddenException('Cannot delete a tenant admin user');
     }
 
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
+    // SECURITY (foreign-actor email leak): pin the admin (actor) lookup to the
+    // tenant so a cross-tenant `deletedBy` id cannot surface another tenant's
+    // admin email into THIS tenant's audit row. A cross-tenant id resolves to
+    // null → no `performedByEmail` rather than a foreign email.
+    const admin = await this.userRepository.findOne({
+      where: { id: deletedBy, tenantId },
+    });
 
-    // 1. Deactivate the user
-    user.isActive = false;
-    await this.userRepository.save(user);
+    // SECURITY (SEC-MEDIUM-002): the soft-delete, role revocation, refresh-token
+    // revocation, and audit row commit ATOMICALLY. Previously the user was
+    // deactivated, roles revoked (swallowed try/catch), and tokens revoked
+    // first, then the audit ran in a swallowed try/catch (fail-OPEN) — a user
+    // deletion could persist with no audit evidence (SOC 2 CC6.1), and a
+    // swallowed role-revoke failure could leave a "deleted" user with live role
+    // assignments. A throwing audit, role revoke, or token revoke now rolls back
+    // the whole soft-delete (fail-CLOSED): no deletion persists without its role
+    // revocation, token revocation, AND audit trail.
+    await this.dataSource.transaction(async (manager) => {
+      // 1. Deactivate the user
+      user.isActive = false;
+      await manager.save(user);
 
-    // 2. Revoke role assignments in tenant schema
-    try {
-      await this.dataSource.query(
-        `UPDATE "${schemaName}"."user_role_assignments"
-         SET is_active = false, updated_at = NOW(), updated_by = $2
-         WHERE user_id = $1 AND is_active = true`,
-        [userId, deletedBy],
+      // 2. Revoke role assignments — repointed to "auth"."user_role_assignments"
+      // (ORPHAN-CRITICAL-100). The table has NO tenantId column, so tenant
+      // ownership is laundered through a write-side FROM-join to
+      // "auth"."tenant_roles" tr WHERE tr."tenantId" = $2: only assignments
+      // whose role belongs to this tenant are revoked. `updated_by` is NOT a
+      // column on this table (GROUND-TRUTH) — dropped; SET is_active=false +
+      // updated_at=NOW() only. tenantId is a bound param, never interpolated.
+      await manager.query(
+        `UPDATE "auth"."user_role_assignments" ura
+         SET is_active = false, updated_at = NOW()
+         FROM "auth"."tenant_roles" tr
+         WHERE ura.user_id = $1
+           AND ura.is_active = true
+           AND tr.id = ura.role_id
+           AND tr."tenantId" = $2`,
+        [userId, tenantId],
       );
-    } catch (error) {
-      this.logger.warn(`Failed to revoke role assignments for user ${userId}: ${(error as Error).message}`);
-    }
 
-    // 3. CRITICAL: Revoke ALL refresh tokens
-    // Without this, existing refresh tokens remain valid and can be used to obtain
-    // new access tokens even after the user is "deleted".
-    await this.refreshTokenRepository.update(
-      { userId, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date(), revokedReason: 'User deleted' },
-    );
+      // 3. CRITICAL: Revoke ALL refresh tokens. Without this, existing refresh
+      // tokens remain valid and can mint new access tokens after "deletion".
+      // EntityManager.update (not a repository handle) keeps this inside the tx.
+      await manager.update(
+        RefreshToken,
+        { userId, isRevoked: false },
+        { isRevoked: true, revokedAt: new Date(), revokedReason: 'User deleted' },
+      );
+
+      // 4. SECURITY AUDIT: Log user deletion. Pass `manager` so the audit row
+      // is written on THIS transaction's connection (fail-CLOSED): a throwing
+      // audit rolls back the soft-delete + role revoke + token revoke. Without
+      // the `manager` arg `log()` saves on a separate connection and a
+      // rolled-back deletion could still leave an orphan audit row (fail-OPEN),
+      // contradicting the SEC-MEDIUM-002 invariant above.
+      await this.auditLogService.log(
+        {
+          tenantId,
+          performedBy: deletedBy,
+          performedByEmail: admin?.email,
+          action: 'USER_DELETED',
+          entityType: 'User',
+          entityId: userId,
+          details: {
+            targetEmail: user.email,
+            targetRole: user.role,
+            refreshTokensRevoked: true,
+            timestamp: new Date().toISOString(),
+          },
+          severity: AuditLogSeverity.WARNING,
+        },
+        manager,
+      );
+    });
 
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
     this.logger.log(`Deleted (soft) userId=${user.id} from tenant ${tenantId}, revoked all refresh tokens`);
-
-    // SECURITY AUDIT: Log user deletion
-    try {
-      const admin = await this.userRepository.findOne({ where: { id: deletedBy } });
-      await this.auditLogService.log({
-        tenantId,
-        performedBy: deletedBy,
-        performedByEmail: admin?.email,
-        action: 'USER_DELETED',
-        entityType: 'User',
-        entityId: userId,
-        details: {
-          targetEmail: user.email,
-          targetRole: user.role,
-          refreshTokensRevoked: true,
-          timestamp: new Date().toISOString(),
-        },
-        severity: AuditLogSeverity.WARNING,
-      });
-    } catch (error) {
-      this.logger.error(`Failed to log audit event USER_DELETED: ${(error as Error).message}`);
-    }
 
     return true;
   }
@@ -928,10 +953,33 @@ export class UserLifecycleService {
   // ==========================================================================
 
   /**
-   * Create a new role assignment in tenant schema
+   * Create (or re-point) a user's role assignment in "auth"."user_role_assignments".
+   *
+   * # Why repointed to auth.* with an INSERT...SELECT tenant guard (ORPHAN-CRITICAL-100)
+   *
+   * WHAT: the row is written to the shared "auth"."user_role_assignments" table,
+   * NOT a per-tenant "tenant_<uuid>" clone. That table has NO tenantId column, so
+   * tenant ownership is laundered through the ROLE: the INSERT sources its row from
+   * `SELECT ... FROM "auth"."tenant_roles" tr WHERE tr.id = $2 AND tr."tenantId" = $6`.
+   * A roleId that does not belong to this tenant yields 0 source rows → no write →
+   * 0 rows RETURNING → NotFoundException. The write carries its own tenant guard,
+   * independent of the caller's prior `getRoleById` read.
+   *
+   * WHY the ON CONFLICT (user_id) re-point: "auth"."user_role_assignments" has a
+   * GLOBAL UNIQUE index on (user_id) ALONE (GROUND-TRUTH `idx_user_role_assignments_user_id`).
+   * A plain INSERT would violate that constraint whenever the user already holds a
+   * row (active OR inactive — e.g. a re-created user, or a soft-revoked prior
+   * assignment). `ON CONFLICT (user_id) DO UPDATE` re-points the single existing
+   * row to the tenant-owned role and reactivates it, satisfying the one-row-per-user
+   * invariant. The new role is still tenant-verified by the INSERT source.
+   *
+   * Only GROUND-TRUTH columns are written: user_id, role_id, permission_overrides,
+   * is_active, expires_at, assigned_by, assigned_at, created_at, updated_at. There is
+   * NO updated_by / removed_by / removed_at on this table. tenantId is a bound param,
+   * never interpolated.
    */
   private async createRoleAssignment(
-    schemaName: string,
+    tenantId: string,
     userId: string,
     roleId: string,
     role: TenantRoleWithDetails,
@@ -941,19 +989,38 @@ export class UserLifecycleService {
   ): Promise<UserRoleAssignmentResult> {
     const [inserted] = await this.dataSource.query<Array<{ id: string }>>(
       `
-      INSERT INTO "${schemaName}"."user_role_assignments" (
-        user_id, role_id, permission_overrides, is_active, expires_at, assigned_by, created_at, updated_at
-      ) VALUES ($1, $2, $3, true, $4, $5, NOW(), NOW())
+      INSERT INTO "auth"."user_role_assignments" (
+        user_id, role_id, permission_overrides, is_active, expires_at, assigned_by, assigned_at, created_at, updated_at
+      )
+      SELECT $1, tr.id, $3::jsonb, true, $4, $5, NOW(), NOW(), NOW()
+      FROM "auth"."tenant_roles" tr
+      WHERE tr.id = $2 AND tr."tenantId" = $6
+      ON CONFLICT (user_id) DO UPDATE
+        SET role_id = EXCLUDED.role_id,
+            permission_overrides = EXCLUDED.permission_overrides,
+            is_active = true,
+            expires_at = EXCLUDED.expires_at,
+            assigned_by = EXCLUDED.assigned_by,
+            assigned_at = NOW(),
+            updated_at = NOW()
       RETURNING id
       `,
-      [userId, roleId, JSON.stringify(permissionOverrides), expiresAt || null, assignedBy],
+      [
+        userId,
+        roleId,
+        JSON.stringify(permissionOverrides),
+        expiresAt || null,
+        assignedBy,
+        tenantId,
+      ],
     );
 
-    // INSERT ... RETURNING id always yields exactly one row; a missing row means
-    // the write silently did not happen — fail loud rather than carry undefined.
+    // 0 rows RETURNING means the INSERT...SELECT source was empty: the roleId is
+    // not owned by this tenant (or does not exist). Fail loud with a tenant-scoped
+    // NotFoundException rather than carrying an undefined id forward.
     if (!inserted) {
-      throw new Error(
-        `user_role_assignments INSERT for userId=${userId} returned no row`,
+      throw new NotFoundException(
+        `Role with ID "${roleId}" not found in tenant`,
       );
     }
     const assignmentId = inserted.id;

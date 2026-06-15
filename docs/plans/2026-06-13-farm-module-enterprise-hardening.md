@@ -188,3 +188,27 @@ Extend existing scaffolding (`cache-key-tenant-scope`, `farm-graphql-fe-be-parit
 - No duplication — reuse existing primitives (`createEncryptedColumnTransformer`, `withTenantContext`, `extractTenantIdSafe`, `subscribeWildcard`, `useTenantScopedStorage`, codegen).
 - Affected callers updated in the same batch (no breakage left behind).
 - Feature-branch → PR → CODEOWNERS merge. Commit freely; **ask before `git push`**.
+
+---
+
+## Finding registry cross-reference (three-store anchor)
+
+Each plan cluster is tracked as a registry finding (`docs/reviews/_registry/findings.jsonl`) whose `review_file` is THIS document. The verbatim ids below satisfy the three-store invariant (every finding's review_file cites its id) and let readers cross-reference a commit's `Closes:` trailer to the cluster it closed.
+
+| Finding id | Phase | Plan cluster / key |
+|---|---|---|
+| `FARM-CRITICAL-001` | 0 | `orphan-cleanup` — nightly MinIO cron, no tenant context (cross-tenant deletion) |
+| `FARM-HIGH-008` | 0 | `fe-mru-leak` — WQ MRU localStorage not tenant-scoped |
+| `FARM-HIGH-009` | 0 | `fe-draft-pii-persist` — regulatory report drafts (PII) not tenant-scoped |
+| `FARM-HIGH-010` | 0 | `sentinel-cbc` — Sentinel Hub + Maskinporten secrets bespoke CBC → GCM transformer |
+| `FARM-HIGH-011` | 0 | `pii-at-rest` — `farm_workers` PII encryption at rest + email blind index |
+| `FARM-HIGH-012` | 1 | `dead-listeners` — mortality/harvest `@OnEvent` never fired → subscribeWildcard (cross-service) |
+| `FARM-HIGH-013` | 1 | `fe-immediate-reports` — welfare/escape/disease varsling pipeline (no more console.log + fake success) |
+| `FARM-HIGH-014` | 2 | `biomass-ssot` — derive-on-read biomass (closes FARM-HIGH-007 + FARM-MEDIUM-003) |
+| `FARM-HIGH-015` | 2 | `growth-nolock` — growth-sample reads/writes the locked in-tx batch |
+| `FARM-HIGH-016` | 2 | `wq-legacy-bypass` — single validated WQ parameter ingress + aquamobil offline forward-compat |
+| `FARM-HIGH-017` | 2 | `po-approval` — PurchaseOrder SUBMITTED/APPROVED maker-checker (SOC2 CC3.4) |
+| `FARM-HIGH-058` | 2 | `feed-dual-ssot` (Phase A) — in-tx fail-aware storage deduction; kill swallowed divergence |
+| `FARM-HIGH-059` | 2 | `feed-empty` — `assertFeedable` gate on the locked batch in both feeding paths |
+
+Deferred / superseded references: `FARM-HIGH-007` + `FARM-MEDIUM-003` are closed by `FARM-HIGH-014`; `FARM-MEDIUM-002` is superseded (see `ORPHAN-MEDIUM-112`); feed-dual Phase B convergence is tracked as `ORPHAN-HIGH-114`.

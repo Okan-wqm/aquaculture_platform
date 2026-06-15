@@ -90,7 +90,10 @@ Object.defineProperty(globalThis, 'crypto', {
       // (clientCommandId+payloadHash) and offline dedup paths key off it — a fake
       // digest would silently mask hash-collision regressions in those tests.
       digest: (algorithm: AlgorithmIdentifier, data: BufferSource) =>
-        webcrypto.subtle.digest(algorithm, data),
+        webcrypto.subtle.digest(
+          algorithm,
+          data as Parameters<typeof webcrypto.subtle.digest>[1],
+        ),
     },
     randomUUID: () => `uuid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     getRandomValues: (arr: Uint8Array) => {

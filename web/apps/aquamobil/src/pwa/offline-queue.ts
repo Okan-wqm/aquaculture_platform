@@ -330,39 +330,42 @@ export async function queueOperation(
  * single-ingress shape before it reaches the server.
  */
 function migrateWaterQualityPayload(payload: OperationPayload): OperationPayload {
-  // Spread to a structural record so legacy keys (`parameters`) that are no
-  // longer part of the OperationPayload type can be read and removed. A single
-  // structural `as Record` cast is sufficient — no `unknown` bridge needed.
-  const record = { ...payload } as Record<string, unknown>;
-  if (!('parameters' in record) && record['equipmentId']) {
+  // A pre-migration WQ payload carries a legacy `parameters` key the current
+  // OperationPayload type no longer declares. Intersect with the optional
+  // legacy/transitional keys so they are readable + removable WITHOUT an
+  // `unknown` bridge; every added key is optional, so the intersection is a
+  // subtype of OperationPayload and `rest` below remains assignable back to it.
+  const record = payload as OperationPayload & {
+    parameters?: Record<string, unknown>;
+    dynamicParameters?: Record<string, number | string | boolean>;
+    equipmentId?: string;
+    tankId?: string;
+  };
+  if (!record.parameters && record.equipmentId) {
     return payload;
   }
 
-  const { parameters: legacyParameters, ...rest } = record;
-
   const foldedDynamic: Record<string, number | string | boolean> = {};
-  if (legacyParameters && typeof legacyParameters === 'object' && !Array.isArray(legacyParameters)) {
-    for (const [key, value] of Object.entries(legacyParameters as Record<string, unknown>)) {
+  if (record.parameters && typeof record.parameters === 'object' && !Array.isArray(record.parameters)) {
+    for (const [key, value] of Object.entries(record.parameters)) {
       if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
         foldedDynamic[key] = value;
       }
     }
   }
 
-  const existingDynamic =
-    rest['dynamicParameters'] && typeof rest['dynamicParameters'] === 'object'
-      ? (rest['dynamicParameters'] as Record<string, number | string | boolean>)
-      : {};
+  const existingDynamic = record.dynamicParameters ?? {};
 
   // Existing dynamicParameters keys take precedence over folded legacy ones.
-  rest['dynamicParameters'] = { ...foldedDynamic, ...existingDynamic };
+  const { parameters: _legacyParameters, ...rest } = record;
+  rest.dynamicParameters = { ...foldedDynamic, ...existingDynamic };
 
   // Backfill equipmentId from legacy tankId when the new required field is absent.
-  if (!rest['equipmentId'] && rest['tankId']) {
-    rest['equipmentId'] = rest['tankId'];
+  if (!rest.equipmentId && rest.tankId) {
+    rest.equipmentId = rest.tankId;
   }
 
-  return rest as OperationPayload;
+  return rest;
 }
 
 // Decrypt a StoredOperation back into a QueuedOperation. If decryption fails

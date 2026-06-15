@@ -10,6 +10,7 @@
  * builds while still being a single source of truth for the listener bus
  * doubles — no per-spec re-declaration drift.
  */
+/// <reference types="jest" />
 import type { EventBusHealth, IEventBus } from '@platform/event-bus';
 
 const HEALTHY: EventBusHealth = {

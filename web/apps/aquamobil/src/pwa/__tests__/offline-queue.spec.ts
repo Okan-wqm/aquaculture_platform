@@ -122,13 +122,34 @@ import type { OperationPayload } from '@/types';
 const TEST_QUEUE_TENANT = 'tenant-queue-001';
 
 /**
- * Build a legacy WQ queue payload (carries the removed `parameters` field) as a
- * structural record, then narrow once to OperationPayload for queueOperation.
- * A single structural `as` keeps the helper free of an `unknown` bridge while
- * still letting the test queue a shape the current type no longer admits.
+ * Build a legacy WQ queue payload (carries the removed `parameters` field) that
+ * the current OperationPayload type no longer admits. A JSON round-trip erases
+ * the loose record type and yields a value the OperationPayload return type
+ * accepts with NO `as` cast and no banned `unknown` bridge — the honest model of
+ * "deliberately-untyped pre-migration data the field worker queued offline".
  */
 function asQueuePayload(record: Record<string, unknown>): OperationPayload {
-  return record as OperationPayload;
+  return JSON.parse(JSON.stringify(record));
+}
+
+/**
+ * Read a queued payload back as a structural view so a test can assert on the
+ * legacy/transitional keys (`parameters`, `dynamicParameters`, `equipmentId`,
+ * `tankId`) that are not common to every OperationPayload union member. One `as`
+ * to a supertype-with-optionals — no `unknown` bridge, no TS2352.
+ */
+function readback(payload: OperationPayload): OperationPayload & {
+  parameters?: unknown;
+  dynamicParameters?: Record<string, unknown>;
+  equipmentId?: unknown;
+  tankId?: unknown;
+} {
+  return payload as OperationPayload & {
+    parameters?: unknown;
+    dynamicParameters?: Record<string, unknown>;
+    equipmentId?: unknown;
+    tankId?: unknown;
+  };
 }
 
 // --------------------------------------------------------------------------
@@ -668,7 +689,7 @@ describe('Offline Queue', () => {
       await queueOperation(WQ_TENANT, 'createWaterQuality', legacy);
 
       const [op] = await getPendingOperations(WQ_TENANT);
-      const payload = op!.payload as Record<string, unknown>;
+      const payload = readback(op!.payload);
 
       expect(payload).not.toHaveProperty('parameters');
       expect(payload.dynamicParameters).toEqual({ temperature: 14, ph: 7.2 });
@@ -686,7 +707,7 @@ describe('Offline Queue', () => {
       await queueOperation(WQ_TENANT, 'createWaterQuality', mixed);
 
       const [op] = await getPendingOperations(WQ_TENANT);
-      const payload = op!.payload as Record<string, unknown>;
+      const payload = readback(op!.payload);
 
       // The newer (validated) dynamicParameters channel wins.
       expect(payload.dynamicParameters).toEqual({ temperature: 14 });
@@ -703,7 +724,7 @@ describe('Offline Queue', () => {
       await queueOperation(WQ_TENANT, 'createWaterQuality', legacyTankOnly);
 
       const [op] = await getPendingOperations(WQ_TENANT);
-      const payload = op!.payload as Record<string, unknown>;
+      const payload = readback(op!.payload);
 
       expect(payload.equipmentId).toBe('tank-9');
       expect(payload.dynamicParameters).toEqual({ temperature: 12 });
@@ -719,7 +740,7 @@ describe('Offline Queue', () => {
       await queueOperation(WQ_TENANT, 'createWaterQuality', modern);
 
       const [op] = await getPendingOperations(WQ_TENANT);
-      const payload = op!.payload as Record<string, unknown>;
+      const payload = readback(op!.payload);
 
       expect(payload).not.toHaveProperty('parameters');
       expect(payload.dynamicParameters).toEqual({ temperature: 15, oxygen: 8 });
@@ -731,7 +752,7 @@ describe('Offline Queue', () => {
       await queueOperation(WQ_TENANT, 'recordMortality', mortality);
 
       const [op] = await getPendingOperations(WQ_TENANT);
-      const payload = op!.payload as Record<string, unknown>;
+      const payload = readback(op!.payload);
 
       // recordMortality legitimately carries tankId; no WQ migration applied.
       expect(payload.tankId).toBe('t1');

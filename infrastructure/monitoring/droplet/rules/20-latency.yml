@@ -1,0 +1,33 @@
+# Latency alert rules for the DROPLET Prometheus (B2 / OBS-HIGH-002).
+# Uses the app-emitted http_request_duration_seconds histogram; app + namespace
+# labels come from the file_sd target labels (D3). See 10-service-health.yml.
+groups:
+  - name: aquaculture.performance
+    rules:
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{namespace="aquaculture"}[5m])) by (le, app)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High latency on {{ $labels.app }}'
+          description: 'p95 request latency for {{ $labels.app }} is above 2s for 5 minutes.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/high-latency.md'
+
+      - alert: CriticalLatency
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(http_request_duration_seconds_bucket{namespace="aquaculture"}[5m])) by (le, app)
+          ) > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Critical latency on {{ $labels.app }}'
+          description: 'p99 request latency for {{ $labels.app }} is above 5s for 2 minutes.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/critical-latency.md'

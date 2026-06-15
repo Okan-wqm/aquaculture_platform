@@ -79,6 +79,20 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
+   * Multi-get: fetch several keys in ONE round-trip. Applies the same key
+   * prefix as get() to EVERY key (PERF-HIGH-002) — callers MUST use this rather
+   * than reaching getClient().mget(), which would read un-prefixed keys, miss
+   * every entry, and silently fail (a fail-open hazard on the auth hot path).
+   * Result order matches the input key order (ioredis MGET preserves order).
+   */
+  async mget(...keys: string[]): Promise<(string | null)[]> {
+    if (keys.length === 0) {
+      return [];
+    }
+    return this.client.mget(...keys.map((key) => this.prefixKey(key)));
+  }
+
+  /**
    * Delete a key
    */
   async del(key: string): Promise<number> {

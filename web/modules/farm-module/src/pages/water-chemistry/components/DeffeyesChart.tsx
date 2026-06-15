@@ -58,6 +58,8 @@ interface CustomizedLayerProps {
   yAxisMap?: Record<string, AxisScale>;
 }
 
+type PHIsoline = DeffeyesChartData['isolines'][number];
+
 function getChartScales(props: CustomizedLayerProps): {
   xScale: (value: number) => number;
   yScale: (value: number) => number;
@@ -414,6 +416,63 @@ function createOnDemandArrowLayer(
   };
 }
 
+function createPHLabelLayer(
+  isolines: PHIsoline[],
+  maxDIC: number,
+  maxALK: number
+): React.FC<CustomizedLayerProps> {
+  return function PHLabelLayer(props: CustomizedLayerProps) {
+    const scales = getChartScales(props);
+    if (!scales) return null;
+    const { xScale, yScale } = scales;
+
+    return (
+      <g data-testid="deffeyes-ph-labels">
+        {isolines.map((iso) => {
+          const visiblePoints = iso.points.filter(
+            point => point.CT >= 0 && point.CT <= maxDIC && point.AT >= 0 && point.AT <= maxALK
+          );
+          if (visiblePoints.length < 2) return null;
+
+          const labelIndex = Math.min(
+            visiblePoints.length - 2,
+            Math.max(1, Math.floor((visiblePoints.length - 1) * 0.52))
+          );
+          const point = visiblePoints[labelIndex];
+          const previous = visiblePoints[labelIndex - 1] ?? visiblePoints[0];
+          const next = visiblePoints[labelIndex + 1] ?? visiblePoints[visiblePoints.length - 1];
+          if (!point || !previous || !next) return null;
+
+          const x = xScale(point.CT);
+          const y = yScale(point.AT);
+          const dx = xScale(next.CT) - xScale(previous.CT);
+          const dy = yScale(next.AT) - yScale(previous.AT);
+          if (!isFinite(x) || !isFinite(y) || !isFinite(dx) || !isFinite(dy)) return null;
+
+          const angle = Math.max(-65, Math.min(65, Math.atan2(dy, dx) * 180 / Math.PI));
+
+          return (
+            <g key={`ph-label-${iso.pH}`} transform={`translate(${x} ${y}) rotate(${angle})`}>
+              <text
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={11}
+                fontWeight={700}
+                fill={iso.color}
+                stroke="#ffffff"
+                strokeWidth={3}
+                paintOrder="stroke"
+              >
+                {`pH ${iso.pH.toFixed(1)}`}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+    );
+  };
+}
+
 const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
   data,
   maxDIC = 6,
@@ -468,6 +527,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
     const lastPt = iso.points[iso.points.length - 1];
     return lastPt.AT > -2 && firstPt.AT < maxALK + 2;
   });
+  const PHLabelLayer = createPHLabelLayer(visibleMajor, maxDIC, maxALK);
 
   // Prepare CO2 toxic zone data for Area component
   // Area with baseValue={0} fills between curve and X-axis
@@ -536,7 +596,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
       </div>
       <div className="p-4" style={{ height: 700 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart margin={{ top: 10, right: 20, left: 5, bottom: 5 }}>
+          <ComposedChart margin={{ top: 10, right: 20, left: 25, bottom: 35 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis
               dataKey="CT"
@@ -545,6 +605,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
               allowDataOverflow={true}
               tickCount={Math.min(maxDIC + 1, 17)}
               tick={{ fontSize: 11 }}
+              label={{ value: 'DIC (mmol/L)', position: 'insideBottom', offset: -20, fontSize: 12, fill: '#374151' }}
             />
             <YAxis
               dataKey="AT"
@@ -553,6 +614,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
               allowDataOverflow={true}
               tickCount={maxALK + 1}
               tick={{ fontSize: 11 }}
+              label={{ value: 'Alkalinity (meq/L)', angle: -90, position: 'insideLeft', offset: -10, fontSize: 12, fill: '#374151' }}
             />
             <Tooltip
               formatter={(value: number, name: string) => [value.toFixed(3), name]}
@@ -629,6 +691,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 type="monotone"
                 legendType="none"
                 name={`pH ${iso.pH.toFixed(2)}`}
+                isAnimationActive={false}
               />
             ))}
 
@@ -645,8 +708,10 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 dot={false}
                 type="monotone"
                 legendType="none"
+                isAnimationActive={false}
               />
             ))}
+            {showIsolines && <Customized component={PHLabelLayer} />}
 
             {/* Reagent direction line */}
             {showDosing && data.reagentLine && (
@@ -660,6 +725,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 dot={false}
                 type="monotone"
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 
@@ -689,6 +755,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                   dot={false}
                   type="monotone"
                   legendType="none"
+                  isAnimationActive={false}
                 />
                 {/* Reagent 2 direction line (from current point) */}
                 <Line
@@ -702,6 +769,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                   dot={false}
                   type="monotone"
                   legendType="none"
+                  isAnimationActive={false}
                 />
 
                 {/* Step1/step2 bold path + intermediate point (only when target ON and dosing path computed) */}
@@ -716,6 +784,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                       dot={false}
                       type="monotone"
                       legendType="none"
+                      isAnimationActive={false}
                     />
                     <Line
                       data={dosingVisualization.step2Path}
@@ -726,6 +795,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                       dot={false}
                       type="monotone"
                       legendType="none"
+                      isAnimationActive={false}
                     />
                     <Scatter
                       data={[{ CT: dosingVisualization.intermediatePoint.DIC, AT: dosingVisualization.intermediatePoint.ALK }]}
@@ -754,6 +824,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 dot={false}
                 type="monotone"
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 
@@ -769,6 +840,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 dot={false}
                 type="monotone"
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 
@@ -787,6 +859,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 dot={false}
                 type="monotone"
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 
@@ -797,6 +870,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 data={[{ CT: data.currentPoint.DIC, AT: data.currentPoint.ALK }]}
                 shape={<StarShape />}
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 
@@ -807,6 +881,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 data={[{ CT: data.targetPoint.DIC, AT: data.targetPoint.ALK }]}
                 shape={<CrossShape />}
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 

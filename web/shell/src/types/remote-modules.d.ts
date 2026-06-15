@@ -42,27 +42,12 @@ declare module 'farmModule/SensorDashboard' {
   export default SensorDashboard;
 }
 
-// ============================================================================
-// Process Editor Module
-// ============================================================================
-
-declare module 'processEditor/Module' {
-  import { FC } from 'react';
-  const ProcessEditorModule: FC;
-  export default ProcessEditorModule;
-}
-
-declare module 'processEditor/ProcessList' {
-  import { FC } from 'react';
-  const ProcessList: FC;
-  export default ProcessList;
-}
-
-declare module 'processEditor/ProcessEditor' {
-  import { FC } from 'react';
-  const ProcessEditor: FC;
-  export default ProcessEditor;
-}
+// `processEditor/*` declarations removed in C1 PR-1b: there is no
+// `process-editor` federation remote — no Nx project, no vite.config remote
+// entry, and the shell registers no such remote. These were ghost ambient
+// stubs for a remote that was never built. The real process-editor lives as
+// an INTERNAL component tree inside sensor-module
+// (web/modules/sensor-module/.../components/process-editor/), not a remote.
 
 // ============================================================================
 // Admin Panel Module

@@ -72,13 +72,11 @@ export class MessageAttachment {
   @Column({ type: 'varchar', length: 512, nullable: true })
   thumbnailKey: string | null;
 
-  /** Presigned thumbnail download URL (computed at resolve time, not persisted). */
-  @Field(() => String, { nullable: true, description: 'Presigned thumbnail URL for image/video attachments' })
-  thumbnailUrl?: string | null;
-
-  /** Presigned file download URL (computed at resolve time, not persisted). */
-  @Field(() => String, { nullable: true, description: 'Presigned download URL for the attachment' })
-  downloadUrl?: string | null;
+  // `downloadUrl` and `thumbnailUrl` are NOT declared here (tier-1 make-it-impossible,
+  // MSG-CRITICAL-052). They are computed presigned URLs with no backing column; they
+  // exist in the schema ONLY via MessageAttachmentResolver.@ResolveField, so the field
+  // cannot ship without the resolver that signs it. The previous bare @Field declarations
+  // had no resolver and silently returned null for every attachment.
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

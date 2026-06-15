@@ -1,7 +1,7 @@
 import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { Module } from '@nestjs/common';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuditLogModule } from '../audit/audit.module';
@@ -68,8 +68,8 @@ const QueryHandlers = [
     ClientsModule.register([
       {
         name: 'AUTH_NATS_CLIENT',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('admin-api-service'),
+        customClass: NatsV3Client,
+        options: { serviceName: 'admin-api-service' },
       },
     ]),
     TypeOrmModule.forFeature([

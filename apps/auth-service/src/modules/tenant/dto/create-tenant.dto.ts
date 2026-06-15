@@ -11,7 +11,7 @@ import {
 } from 'class-validator';
 import GraphQLJSON from 'graphql-type-json';
 
-import { TenantPlan, TenantStatus } from '../entities/tenant.entity';
+import { TenantPlan } from '../entities/tenant.entity';
 
 @InputType()
 export class CreateTenantInput {
@@ -107,21 +107,13 @@ export class UpdateTenantInput {
   @IsString()
   taxId?: string;
 
-  @Field(() => TenantStatus, { nullable: true })
-  @IsOptional()
-  @IsEnum(TenantStatus)
-  status?: TenantStatus;
-
-  @Field(() => TenantPlan, { nullable: true })
-  @IsOptional()
-  @IsEnum(TenantPlan)
-  plan?: TenantPlan;
-
-  @Field(() => Int, { nullable: true })
-  @IsOptional()
-  @IsNumber()
-  @Min(1)
-  maxUsers?: number;
+  // HIGH-005 / MT-HIGH-001 tail: the privileged governance/billing fields
+  // (status / plan / maxUsers) were REMOVED from this input. They are not
+  // tenant-self-service editable — status transitions go through the lifecycle
+  // FSM, plan changes through the billing saga, and maxUsers through the
+  // provisioning command path. The generic updateTenant mutation is itself
+  // command-receipt-owned (the resolver rejects outright), so this input is the
+  // self-service profile allow-list, not a governance surface.
 
   @Field(() => String, { nullable: true })
   @IsOptional()

@@ -125,14 +125,27 @@ export class RedisTokenBlacklistStore implements TokenBlacklistStore {
 
   async isValidToken(jti: string, userId: string, issuedAt: number): Promise<boolean> {
     try {
+      // PERF-HIGH-002: collapse the two blacklist lookups into ONE Redis
+      // round-trip (was two serial GETs on every authenticated request). MGET
+      // preserves key order, so index [0]=jti sentinel, [1]=user-invalidation
+      // epoch. Both values are flat (jti sentinel '1'; user value String(epoch)),
+      // so there is no JSON.parse to remove. Ordering + fail-closed below are
+      // load-bearing — see redis-token-blacklist.store.spec.ts.
+      const [jtiRaw, userRaw] = await this.redisService.mget(
+        this.keyPrefix + jti,
+        `user_blacklist:${userId}`,
+      );
+      // mget positions are string | null at runtime; ?? null collapses the
+      // index-access `undefined` the type system adds so the narrowing is clean.
+      const jtiBlacklisted = jtiRaw ?? null;
+      const userInvalidatedAt = userRaw ?? null;
+
       // (1) Per-token blacklist check
-      const jtiBlacklisted = await this.redisService.get(this.keyPrefix + jti);
       if (jtiBlacklisted !== null) {
         return false;
       }
 
-      // (2) User-level invalidation check
-      const userInvalidatedAt = await this.redisService.get(`user_blacklist:${userId}`);
+      // (2) User-level invalidation check (flat epoch, no JSON)
       if (userInvalidatedAt !== null) {
         const invalidatedAt = parseInt(userInvalidatedAt, 10);
         if (!isNaN(invalidatedAt) && issuedAt < invalidatedAt) {

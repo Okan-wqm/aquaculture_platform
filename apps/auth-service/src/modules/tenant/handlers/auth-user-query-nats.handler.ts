@@ -7,12 +7,18 @@ import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import {
   AUTH_USER_QUERY_SUBJECTS,
+  ListTenantUserIdsQuery,
+  ListTenantUserIdsResult,
   ValidateTenantMembershipQuery,
   ValidateTenantMembershipResult,
   validateTenantMembershipQuerySchema,
 } from '@platform/event-contracts';
 
 import { User } from '../../authentication/entities/user.entity';
+
+/** UUID v4 format — the NATS trust-boundary guard for the tenantId before any query. */
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * Internal auth-service read-side membership query (cluster-8 DİLİM-2).
@@ -139,6 +145,37 @@ export class AuthUserQueryNatsHandler {
         errorCode: 'INTERNAL_ERROR',
         error: 'Unable to validate tenant membership',
       };
+    }
+  }
+
+  /**
+   * List the ACTIVE user IDs of a tenant (MSG-HIGH-051). Returns ONLY UUIDs —
+   * the same no-PII / no-profile-oracle posture as validateTenantMembership:
+   * `where: { tenantId, isActive: true }` is tenant-scoped (no cross-tenant
+   * enumeration), and display names are resolved elsewhere through the
+   * authorized GraphQL federation path (display-only). The `tenantId` is
+   * UUID-validated before any query (NATS trust boundary).
+   */
+  @MessagePattern(AUTH_USER_QUERY_SUBJECTS.LIST_TENANT_USER_IDS)
+  async listTenantUserIds(
+    @Payload() payload: ListTenantUserIdsQuery,
+  ): Promise<ListTenantUserIdsResult> {
+    const tenantId = payload?.tenantId;
+    if (typeof tenantId !== 'string' || !UUID_REGEX.test(tenantId)) {
+      return { success: false, userIds: [], error: 'Invalid tenantId' };
+    }
+    try {
+      const users = await this.userRepository.find({
+        select: ['id'],
+        where: { tenantId, isActive: true },
+      });
+      return { success: true, userIds: users.map((user) => user.id) };
+    } catch (error) {
+      this.logger.error(
+        `listTenantUserIds failed for tenant=${tenantId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return { success: false, userIds: [], error: 'Unable to list tenant users' };
     }
   }
 }

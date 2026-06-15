@@ -13,6 +13,7 @@ import { AiModule } from '../ai/ai.module';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { ComplianceModule } from '../compliance/compliance.module';
 import { Message } from '../message/entities/message.entity';
+import { MessageModule } from '../message/message.module';
 import { PartitionModule } from '../partition/partition.module';
 import { PresenceModule } from '../presence/presence.module';
 // ComplianceModule imported: MessagingNatsHandler.handleUserDeleted now calls
@@ -34,6 +35,9 @@ import { MessagingNatsHandler } from './messaging-nats.handler';
     PresenceModule,
     ComplianceModule,
     AiModule,
+    // MessageModule exports MediaService — MessagingNatsHandler.getMessageForBroadcast
+    // signs attachment download URLs when hydrating a message for the WS bridge.
+    MessageModule,
   ],
   controllers: [MessagingNatsHandler, MessagingAdminNatsHandler],
 })

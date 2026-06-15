@@ -1,6 +1,6 @@
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { Module } from '@nestjs/common';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 
 import { AuthTenantProvisioningClientService } from '../tenant/services/auth-tenant-provisioning-client.service';
 
@@ -12,8 +12,8 @@ import { ModulesService } from './modules.service';
     ClientsModule.register([
       {
         name: 'AUTH_NATS_CLIENT',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('admin-api-service'),
+        customClass: NatsV3Client,
+        options: { serviceName: 'admin-api-service' },
       },
     ]),
   ],

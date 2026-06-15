@@ -1,6 +1,6 @@
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { Module } from '@nestjs/common';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { InvoiceReadOnly } from '../analytics/entities/external/invoice.entity';
@@ -33,8 +33,8 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
     ClientsModule.register([
       {
         name: 'BILLING_NATS_CLIENT',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('admin-api-service'),
+        customClass: NatsV3Client,
+        options: { serviceName: 'admin-api-service' },
       },
     ]),
     TypeOrmModule.forFeature([

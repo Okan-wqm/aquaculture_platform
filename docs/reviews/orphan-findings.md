@@ -4002,6 +4002,53 @@ This branch (a) modified `.eslintrc.json` and (b) sits on a `tsconfig.base.json`
 
 **Status:** RESOLVED (this commit).
 
+---
+
+## ORPHAN-CRITICAL-100 — token.service + tenant-role.service query auth-role tables in the OLD per-tenant schema after they were centralized into `auth`
+
+Severity: CRITICAL. Discovered during W4 (PERF-HIGH-001). Migration `apps/admin-api-service/src/migrations/1800500000000-TenantProvisioningTopology.ts` MOVES `user_role_assignments` / `tenant_role_permissions` / `tenant_roles` from per-tenant `tenant_<uuid>` schemas into the shared `auth` schema (INSERT then `DROP TABLE ... tenant_<schema>.*`, lines 311-313) and its post-condition RAISEs if any tenant copy remains (line 333). But two auth-service consumers still query the OLD per-tenant schema:
+- `apps/auth-service/src/modules/authentication/services/token.service.ts` `getUserResourcePermissions` — the LOGIN hot path.
+- `apps/auth-service/src/modules/tenant/services/tenant-role.service.ts` — ALL 10 methods (read AND write: getTenantRoles/getRoleById/getDefaultRole/createRole/updateRole/deleteRole/seedDefaultRoles/assignRoleToUser/removeRoleFromUser), lines 296-1053, reachable via tenant-role.resolver (GraphQL CRUD) + tenant-user-management/user-lifecycle.
+
+On a fully-migrated DB these queries throw "relation does not exist". In token.service this was MASKED by a silent `catch → return []` (module users silently got EMPTY resource permissions — a covert authorization downgrade); tenant-role.service's role-management surface breaks outright.
+
+Fix (token.service — RESOLVED in W4 / this PR): repointed to `auth.user_role_assignments JOIN auth.tenant_roles JOIN auth.tenant_role_permissions`, **tenant-scoped** via `WHERE tr."tenantId" = $2` (parameter-bound; the schema-interpolation SEC-M13 surface is structurally gone), and the catch is now fail-loud. auth-security-expert reviewed: tenant isolation SAFE (the INNER JOIN + tenantId filter is stronger than the old per-schema boundary; `user.tenantId` is DB-loaded, not request-influenced).
+
+Fix (tenant-role.service — REMAINING): the 10-method read+WRITE surface must be repointed to `auth.*` tenant-scoped in a dedicated, security-reviewed PR — its write paths (createRole/assignRoleToUser/etc.) must enforce tenant ownership or risk cross-tenant role mutation. Too large + write-path-security-critical to safely cram into W4.
+
+Status: PARTIAL — token.service login path RESOLVED (W4 / this PR); tenant-role.service repoint OPEN. Owner: auth-security-expert + platform-services. Deadline: 2026-06-20.
+
+---
+
+## ORPHAN-HIGH-101 — Centralized `auth` role tables have NO database-layer RLS (tenant isolation rests on a single application WHERE clause)
+
+Severity: HIGH (defense-in-depth). Surfaced by the ORPHAN-CRITICAL-100 security review. Collapsing the per-tenant schema boundary into shared `auth` tables removed schema-level isolation but did NOT replace it with row-level security: `auth.user_role_assignments` + `auth.tenant_role_permissions` have no tenant column (the RLS helper discovers tables by `tenantId`/`tenant_id`, so it cannot protect them), and no migration applies RLS to the `auth` schema (the topology RLS sweep only touches `tenant_<uuid>` schemas). Net: cross-tenant isolation for role/permission reads now depends ENTIRELY on every query carrying a `tr."tenantId" = $X` predicate — one forgotten predicate (or a `getRepository()` without scoping) is an instant cross-tenant leak with no DB backstop.
+
+Fix direction: add a denormalized `tenantId` column to `auth.user_role_assignments` (carried at write time / trigger) and install `tenant_isolation_policy` on the three centralized tables via the existing helper; add a CI invariant asserting any SQL touching these tables carries a tenant predicate (Tier-3 detectable) until RLS lands.
+
+Status: OPEN (2026-06-13; owner: auth-security-expert + data-expert).
+
+---
+
+## ORPHAN-MEDIUM-104 — Topology migration de-dup picks an arbitrary tenant for a multi-tenant user (silent permission loss)
+
+Severity: MEDIUM. Surfaced by the ORPHAN-CRITICAL-100 security review. The `1800500000000` backfill enforces `UNIQUE(user_id)` on `auth.user_role_assignments` via `NOT EXISTS (... au.user_id = a.user_id)` while iterating tenant schemas in an UNORDERED loop. If the same `user_id` had an active assignment in two tenant schemas (a multi-tenant user), the migration keeps whichever tenant the loop reached first and silently discards the rest — that user then resolves permissions only for the surviving tenant (and the fail-loud catch will NOT surface it: the query succeeds, returns `[]`).
+
+Fix direction: if multi-tenant users are possible, add a pre-migration audit (`GROUP BY user_id HAVING count(distinct schema) > 1`) + explicit conflict resolution (not first-loop-wins); if structurally impossible, assert it post-migration (source row count == inserted count) so a violated invariant fails loudly.
+
+Status: OPEN (2026-06-13; owner: data-expert).
+
+---
+
+## ORPHAN-MEDIUM-105 — Missing index on `auth.tenant_role_permissions(role_id)` (token-mint JOIN seq-scans)
+
+Severity: MEDIUM (perf). The PERF-HIGH-001 token-mint JOIN `auth.user_role_assignments ⋈ auth.tenant_role_permissions ON role_id` has no index on `tenant_role_permissions(role_id)` — the table (created in `1800200000000-CreateAdminEntitySurfaceTables`) has only the PK on `id` + an FK on `role_id` (Postgres FKs are not auto-indexed). `user_role_assignments` already has its indexes (UNIQUE user_id, role_id, is_active). The W4 PERF-HIGH-001 cache (60s TTL) mitigates per-mint cost; the index is the durable fix.
+
+Fix direction: a new auth-schema migration `CREATE INDEX IF NOT EXISTS "idx_tenant_role_permissions_role_id" ON "auth"."tenant_role_permissions" ("role_id");` (idempotent, source-only).
+
+Status: OPEN (2026-06-13; owner: auth-security-expert; pairs with ORPHAN-CRITICAL-100's tenant-role.service repoint PR).
+
+---
 
 ## ORPHAN-HIGH-100 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
 
@@ -4085,9 +4132,90 @@ Severity: MEDIUM. Discovered 2026-06-13 during Wave-2 close-out (verifying the s
 
 Status: OPEN (2026-06-13; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.
 
+## ORPHAN-HIGH-101 — postgres-protocol/tokio-postgres newly-published RustSec advisories red-line all Rust CI
+
+Severity: HIGH. `cargo-audit` and `cargo-deny` (advisories check) fail on every Rust PR because of three newly-published advisories on transitive Postgres crates: **RUSTSEC-2026-0179** (HIGH 8.7 — `postgres-protocol` unbounded SCRAM iteration count, a malicious server can cause CPU-exhaustion DoS), **RUSTSEC-2026-0180** (MEDIUM — `postgres-protocol` panic decoding a malformed `hstore`), **RUSTSEC-2026-0178** (MEDIUM — `tokio-postgres` panic on a `DataRow` with fewer fields than columns). The platform's `.cargo/audit.toml` ignore list is empty, so these are denied. Main's last rust-ci runs are green only because they predate the advisory publication.
+
+Root cause: time-of-publication, not a code change — a fresh RustSec advisory on an already-resident dependency. Fix (highest tier — upgrade to the patched release, not an ignore): `postgres-protocol` 0.6.11 → 0.6.12, `tokio-postgres` 0.7.17 → 0.7.18 (cascades `postgres-types` 0.2.14). The direct dep `tokio-postgres = "0.7"` (crates/outbox-rs + apps/sensor-ingestion) already permits the patched release, so a lockfile bump suffices; no Cargo.toml change.
+
+Discovered gating R1's Rust CI (#450); affects the whole repo. Fixed in branch `security/rustsec-2026-postgres`. Only the root workspace is affected (sens-api-gateway does not use these crates).
+
+Status: OPEN (2026-06-14; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-101.
+
 ---
 
-## ORPHAN-MEDIUM-104 — `entity-migration-parity.spec.ts` (MA2/MA3) is a non-functional, CI-unreached invariant
+## ORPHAN-CRITICAL-101 — auth role-table consumers (tenant-role / tenant-user-management / user-lifecycle services) query the DROPPED per-tenant role tables
+
+Severity: CRITICAL. Discovered + RESOLVED 2026-06-14 during Wave-5 closeout (auth-service service-audit), lead-verified firsthand. This is the non-token-service half of the schema-centralization defect; the token.service login-path half is ORPHAN-CRITICAL-100 (token.service `getUserResourcePermissions`, repointed by W4 PR #440).
+
+**Problem:** Migration `apps/admin-api-service/src/migrations/1800500000000-TenantProvisioningTopology.ts` MOVES `user_role_assignments` / `tenant_roles` / `tenant_role_permissions` from per-tenant `tenant_<uuid>` schemas into the shared `auth` schema (INSERT then `DROP TABLE ... tenant_<schema>.*`, RAISEs if any tenant copy remains). But three auth-service services still issued `"${schemaName}"."<role table>"` (per-tenant, string-interpolated) queries — ~45 in `tenant-role.service.ts`, ~15 in `tenant-user-management.service.ts`, plus `user-lifecycle.service.ts` `deleteUser` role-revoke + private `createRoleAssignment`. On a migrated DB every role-management operation (create/update/delete role, assign/revoke user role, set default, user delete) throws `relation does not exist`.
+
+**Fix (RESOLVED, this PR):** repointed all role-table SQL to `"auth"."<table>"` tenant-scoped — `tenant_roles` by `AND tr."tenantId" = $x`; child tables (`user_role_assignments`, `tenant_role_permissions`, no tenantId column) by a write-side `JOIN/FROM "auth"."tenant_roles" tr ... AND tr."tenantId" = $x` so every WRITE carries its own tenant guard. Load-bearing corrections from the adversarial review swarm: (a) `assignRoleToUser` re-keyed to the global `UNIQUE(user_id)` (one-row-per-user re-point, never a 2nd INSERT) + a tenant-scoped `SELECT 1 FROM auth.users WHERE id=$1 AND "tenantId"=$2` user pre-validation (blocks attaching a foreign-tenant user to a tenant role); (b) `is_default` unset-writes carry `AND "tenantId"=$x` (else platform-wide default-role corruption); (c) only GROUND-TRUTH columns (auth.user_role_assignments has NO `updated_by`/`removed_by`/`removed_at`); (d) `assertRoleGrantAuthority` actor lookup tenant-pinned; (e) `audit-log.service.log()` gained a manager-aware overload so in-transaction audits are atomic with the mutation. Verified firsthand on every axis (columns, cross-tenant-write guard, interpolation=0, param-index, actor-pin, audit manager-threading) + 121/121 unit/regression tests.
+
+**Tracked follow-ups (NOT this PR):**
+- token.service `getUserResourcePermissions` repoint — owned by W4 PR #440 (intentionally not touched here to avoid a merge conflict on the same method).
+- Stale-row edge (MEDIUM): `assignRoleToUser`/`createRoleAssignment` existing-row SELECT JOINs `tr."tenantId"`, so a user whose single `user_role_assignments` row points to a non-current-tenant or NULL-tenant role is missed → falls to INSERT → `UNIQUE(user_id)` violation. Fails LOUD on anomalous data (the user pre-validation already blocks the cross-tenant write); robust fix = read the user's row by `user_id` alone. Owner: auth-security-expert.
+- DB-layer backstops (data-expert): partial `UNIQUE INDEX ON auth.tenant_roles ("tenantId") WHERE is_default` (single-default invariant is app-enforced only); NULL-tenant (platform-global) role semantics for equality predicates.
+- Tier-1 structural hardening (tracked by description — the `ORPHAN-HIGH-101` id is now held by an unrelated postgres-RustSec finding on main): add a `tenantId` column (+ FK/RLS) to `auth.user_role_assignments` so assignments are directly tenant-scoped, replacing the JOIN-laundering. Owner: auth-security-expert + data-expert.
+
+Status: RESOLVED (2026-06-14, this PR — tenant-role/tenant-user-management/user-lifecycle repoint); token.service via W4 #440; sub-items above OPEN. Owner: auth-security-expert. Registry: orphan-findings.md only.
+
+## ORPHAN-HIGH-102 — all messaging-service-e2e suites fail to LOAD with `Class extends value undefined is not a constructor or null`
+
+**Found:** 2026-06-14, while landing Wave-5 D2 (gateway rate-limit SSoT, PR #457). The CI `E2E Tests` job (run 27512311241, head 7a694107e) failed at the **Run E2E tests** step — NOT a test assertion and NOT the gateway/rate-limit change. Every `apps/messaging-service/test/*.e2e-spec.ts` suite (channel-management, messaging-core, compliance, offline-sync, messaging-features, tenant-isolation, content-sanitization, media-upload, ai-chat, gdpr, …) reports **`Test suite failed to run: TypeError: Class extends value undefined is not a constructor or null`**.
+
+**Why this matters (HIGH):** the entire messaging-service E2E safety net is silently disabled — the suites never execute, so any real messaging regression ships undetected. `Class extends value undefined` at import time means a base class / barrel export / module resolves to `undefined` when a subclass is evaluated — almost always a **circular import** (the base module hasn't finished initializing when the subclass `extends` it) or a barrel-ordering issue under the E2E `ts-jest` config.
+
+**NOT a D2 regression:** D2 (#457) only touches `apps/gateway-api` + `libs/backend-common/src/rate-limit` and never imports messaging-service. #457's branch was cut from old `main` (pre-D1/PR-2/Tier-4/D3/#453), so this is pre-existing platform E2E debt that #457's CI surfaced.
+
+**Root-cause TODO (owner: messaging-expert):**
+1. Verify whether current `main` (0c2370b04) still reproduces — re-run the `E2E Tests` job or boot one messaging E2E spec locally.
+2. If so, find the undefined base: grep the messaging E2E test base class + its import chain for a circular dependency or a barrel (`index.ts`) that re-exports the base before it is defined. The fix is usually to import the base from its concrete module (not the barrel) or break the cycle.
+
+Status: OPEN. Owner: messaging-expert. Registry: `ORPHAN-HIGH-102` in `docs/reviews/_registry/findings.jsonl`.
+
+> **D2 / CRITICAL-002 traceability note (not a registry close):** the gateway rate-limit consolidation (PR #457, `0c2370b04`) — which also fixed the gateway's fail-OPEN Redis store — is fully traced by its own commit message + PR. It is NOT seeded as a closable registry finding because the three-store invariant requires a closing commit to carry a `Closes: …#<id>` trailer *at commit time*; a finding seeded post-merge cannot be closed against an already-merged commit (no amend/force-push). The SEC-MEDIUM-001/002 closes in this same registry pass ARE valid because D1's commit (`bc79457d5`) carried their `Closes:` trailers.
+
+## ORPHAN-MEDIUM-106 — platform/configs typed config-schema SSoT is empty; services read process.env ad-hoc
+
+Severity: MEDIUM. Discovered 2026-06-13 during the AquaMobil e2e audit, frontend-expert. Out of scope for the AquaMobil remediation initiative — recorded here per the locked plan decision (config-SSoT is a separate initiative, but every found finding is registered).
+
+**Problem:** `platform/configs/` — intended as the typed configuration SSoT — is effectively empty. Backend services and the gateway read configuration directly from `process.env` ad-hoc (untyped `configService.get<string>(...)` / raw `process.env.X` accesses scattered across bootstrap, NATS, DB, and feature-flag paths), with no central schema, no fail-fast validation at boot, and no single place documenting which variables exist, their types, defaults, and required-ness. A missing or malformed env var surfaces as a late runtime failure (or a silent wrong-default) rather than a boot-time rejection, and there is no compile-time contract binding a consumer to a declared key.
+
+**Effect:** config drift is undetectable until runtime; a typo'd or absent env var can degrade a service silently; there is no typed surface a reviewer can read to know the full configuration contract of a service. This is the configuration analogue of the enum / WS-payload drift this initiative fixes elsewhere — the same SSoT gap on a different axis.
+
+**Fix direction (architectural, separate initiative):** populate `platform/configs/` with a typed, validated config-schema module (a Zod/joi schema per service, or a shared schema with per-service slices) loaded once at bootstrap with fail-fast validation (reject boot on a missing/malformed required key), and replace ad-hoc `process.env` / untyped `configService.get` reads with typed accessors derived from that schema. A CI invariant then asserts no service reads `process.env` outside the config layer. Tier-1 "make-it-impossible": a consumer cannot reference an undeclared key because the typed schema is the only access path.
+
+Status: OPEN (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
+
+---
+
+
+## ORPHAN-MEDIUM-107 — lint-gates husky pre-commit gate is broken under ESLint 9 (eslintrc-format parserOptions fed to a flat-config Linter)
+
+Severity: MEDIUM. Discovered 2026-06-13 while landing the aquamobil-msg-federation merge — the husky pre-commit hook blocked the merge commit (13/19 gate cases threw). RESOLVED in the same merge.
+
+**Problem:** `tools/lint-gates/lint-gates.spec.ts` — the ESLint gate-preservation test wired into `.husky/pre-commit` via the `tools/*gates/*.spec.ts` glob — calls `linter.verify(code, { parserOptions: { ecmaVersion: 2022, sourceType: 'module' }, rules })` against a `new Linter()` instance. The repo migrated to ESLint 9 + flat config (`eslint.config.mjs`; `.eslintrc.json` / `.eslintrc.cjs` deleted), and ESLint 9's `Linter` defaults to flat-config mode, which rejects a top-level `parserOptions` key: "Key 'parserOptions': This appears to be in eslintrc format rather than flat config format." All 13 gate-firing cases threw, so the hook exited 1 and blocked every commit. The test file is byte-identical to `origin/main` (`git diff origin/main` empty) under the repo's pinned `eslint@^9.39.4`, so this is a pre-existing main breakage, not a merge artifact.
+
+**Effect:** the pre-commit gate suite is unrunnable on ESLint 9. Either commits are hard-blocked, or developers bypass with `--no-verify` — which silently disables ALL the other pre-commit gates too (banned-phrase, banned-construct, migration-sql-lint, tier-claim-lint, and the rest of the gate-preservation suite guarding the getRepository() / JWT_SECRET / JSON.stringify bans). The safety net that proves the ESLint config still fires the custom AST-selector rules was dead under the repo's own pinned ESLint.
+
+**Fix (applied, tier-1, flat-config-consistent):** change the gate harness to speak flat config — `languageOptions: { ecmaVersion: 2022, sourceType: 'module' }` instead of the eslintrc-shape top-level `parserOptions`. This aligns the harness with the repo's flat-config SSoT rather than re-enabling an eslintrc compat mode. Verified: 19/19 spec cases pass under ESLint 9.39.4.
+
+Status: RESOLVED (2026-06-13; fixed in the aquamobil-msg-federation merge commit). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-HIGH-105 — Varsling events (WelfareEventReported / EscapeReported / DiseaseOutbreakReported) lack JSON Schema validators
+
+Surfaced by FARM-HIGH-013 (Phase 1). The three legally-immediate Mattilsynet varsling events are published over NATS to the notification-service email consumer but have NO AJV JSON Schema validator at the trust boundary (unlike the 4 dead-listeners follow-ups added in FARM-HIGH-012 and the existing farm events). Payload completeness is unproven before a legal filing is emailed — the consensus flagged this as why "provably reaches the regulator" is not yet fully satisfied. Fix: add flat JSON Schema validators for the 3 varsling events in `libs/event-contracts/src/schemas/farm-events.schema.ts` + wire into `FARM_EVENT_SCHEMAS`/`FarmEventType`, mirroring the dead-listeners follow-up schemas. Owner: data-expert (event-contracts). Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
+
+
+## ORPHAN-LOW-108 — Dead invalidateAllRegulatoryQueries predicate (query-key-factory mismatch)
+
+Surfaced by FARM-HIGH-013 (Phase 1, pre-existing). `useRegulatory.ts` `invalidateAllRegulatoryQueries` tests `query.queryKey[0] === REGULATORY_KEY`, but `createTenantQueryKey` returns `['tenant', tenantId, ...]` so index 0 is always the tenant sentinel — the predicate never matches and regulatory queries are never invalidated after a varsling submit. Pre-existing query-key-factory bug inherited by the new hooks; no correctness dependency for the immediate-report path (the submit itself is durable). Fix: match the REGULATORY_KEY segment at its real index (or use the factory's prefix matcher). Owner: frontend query-key-factory owner. Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
+
+
+## ORPHAN-MEDIUM-108 — `entity-migration-parity.spec.ts` (MA2/MA3) is a non-functional, CI-unreached invariant
 
 Severity: MEDIUM. Discovered 2026-06-14 while wiring the farm_workers PII-at-rest hardening (auth-security-expert REJECT-REDO item 3b), security-implementer.
 
@@ -4114,26 +4242,22 @@ Severity: MEDIUM. Discovered 2026-06-14 while wiring the farm_workers PII-at-res
 
 Status: OPEN (2026-06-14; owner: platform-architecture-expert; dedicated PR — invariant parser rewrite + cross-service triage). Registry: orphan-findings.md only.
 
-## ORPHAN-HIGH-105 — Varsling events (WelfareEventReported / EscapeReported / DiseaseOutbreakReported) lack JSON Schema validators
 
-Surfaced by FARM-HIGH-013 (Phase 1). The three legally-immediate Mattilsynet varsling events are published over NATS to the notification-service email consumer but have NO AJV JSON Schema validator at the trust boundary (unlike the 4 dead-listeners follow-ups added in FARM-HIGH-012 and the existing farm events). Payload completeness is unproven before a legal filing is emailed — the consensus flagged this as why "provably reaches the regulator" is not yet fully satisfied. Fix: add flat JSON Schema validators for the 3 varsling events in `libs/event-contracts/src/schemas/farm-events.schema.ts` + wire into `FARM_EVENT_SCHEMAS`/`FarmEventType`, mirroring the dead-listeners follow-up schemas. Owner: data-expert (event-contracts). Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
-
-## ORPHAN-MEDIUM-106 — BatchCreated + FeedingCompleted farm listeners also dead (@OnEvent, no in-process producer)
+## ORPHAN-MEDIUM-109 — BatchCreated + FeedingCompleted farm listeners also dead (@OnEvent, no in-process producer)
 
 Surfaced by FARM-HIGH-012 (Phase 1). `BatchCreatedListener` (`@OnEvent BATCH_CREATED`) and `FeedingCompletedListener` (`@OnEvent FEEDING_COMPLETED`) have the identical dead-bus disease the mortality/harvest listeners had — their producers publish via outbox->NATS, nothing emits the in-process event. They are FROZEN in the `dead-onevent-listener.invariant.spec` shrink-only baseline so that gate can land; they need the same `subscribeWildcard` migration. Owner: farm-expert. Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
 
-## ORPHAN-MEDIUM-107 — Varsling submissions have no durable per-submission audit row
+
+## ORPHAN-MEDIUM-110 — Varsling submissions have no durable per-submission audit row
 
 Surfaced by FARM-HIGH-013 (Phase 1). The 3 immediate reports are delivered purely via outbox->NATS->email with no durable per-submission audit/acknowledgement record. A legally-immediate Mattilsynet/Fiskeridirektoratet report should leave a queryable audit trail independent of email logs (SOC2 / akvakulturloven evidentiary). Fix: persist a varsling-submission audit row (event-as-record) on the regulatory path. Owner: compliance-expert. Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
 
-## ORPHAN-LOW-108 — Dead invalidateAllRegulatoryQueries predicate (query-key-factory mismatch)
 
-Surfaced by FARM-HIGH-013 (Phase 1, pre-existing). `useRegulatory.ts` `invalidateAllRegulatoryQueries` tests `query.queryKey[0] === REGULATORY_KEY`, but `createTenantQueryKey` returns `['tenant', tenantId, ...]` so index 0 is always the tenant sentinel — the predicate never matches and regulatory queries are never invalidated after a varsling submit. Pre-existing query-key-factory bug inherited by the new hooks; no correctness dependency for the immediate-report path (the submit itself is durable). Fix: match the REGULATORY_KEY segment at its real index (or use the factory's prefix matcher). Owner: frontend query-key-factory owner. Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
-
-## ORPHAN-MEDIUM-109 — BatchClosedEvent.closedAt: TS type (Date) vs JSON Schema validator (ISO_DATE_STRING) mismatch
+## ORPHAN-MEDIUM-111 — BatchClosedEvent.closedAt: TS type (Date) vs JSON Schema validator (ISO_DATE_STRING) mismatch
 
 Surfaced by FARM-HIGH-014/FARM-MEDIUM-003 (Phase 2 biomass-fcr-closure data/contract audit). `BatchClosedEvent.closedAt` is typed `Date` in `libs/event-contracts/src/farm-events.ts` and the handler enqueues a `Date` (close-batch.handler.ts), but the AJV validator types `closedAt` as `ISO_DATE_STRING` in `libs/event-contracts/src/schemas/farm-events.schema.ts`. If the outbox validates `BatchClosed` at the trust boundary, a `Date` instance fails ISO-string validation. The mismatch predates Phase 2 (the lane correctly did not touch event-contracts), but Phase 2 is the first to populate real non-zero `finalFCR`/`finalBiomassKg` flowing through that validator at scale — fix before it surfaces as a production outbox-validation failure. Fix: reconcile the contract type and the schema (serialize Date→ISO at enqueue, or type the field as ISO string end-to-end). Owner: data-expert (event-contracts). Status: OPEN (2026-06-14). Registry: orphan-findings.md only.
 
-## ORPHAN-MEDIUM-110 — Final-harvest → CloseBatch dispatch is best-effort with no outbox-backed retry (supersedes FARM-MEDIUM-002)
+
+## ORPHAN-MEDIUM-112 — Final-harvest → CloseBatch dispatch is best-effort with no outbox-backed retry (supersedes FARM-MEDIUM-002)
 
 Surfaced by the FARM-MEDIUM-002 refutation (Phase 2). `FARM-MEDIUM-002` (registry, OPEN) claimed `BatchHarvested.isFinal` had NO closure consumer; firsthand verification REFUTES it — `create-harvest-record.handler.ts` sets `HARVESTED` on a final harvest (currentQuantity≤0) and dispatches `CloseBatchCommand`→CLOSED, freezing final metrics. The real residual is narrower: that `CloseBatchCommand` dispatch is **best-effort post-commit** (create-harvest-record.handler.ts ~417-461) with NO outbox-backed durable retry — a transient CloseBatch failure leaves the batch in HARVESTED (isFinal=true emitted, so monitorable) with no frozen final metrics and no automatic retry; recovery is a manual closeBatch. FARM-MEDIUM-002 as written is SUPERSEDED by the verified closure chain; this durability gap is the true (Tier-2) finding. Fix: route the final-harvest closure through the transactional outbox (or a saga) so it retries durably. Owner: farm-expert. Status: OPEN (2026-06-14). Registry: orphan-findings.md only; FARM-MEDIUM-002 to be superseded in the registry ceremony.

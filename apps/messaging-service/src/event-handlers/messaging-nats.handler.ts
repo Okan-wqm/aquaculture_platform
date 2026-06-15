@@ -7,8 +7,19 @@ import { Repository, DataSource, In, IsNull } from 'typeorm';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { LegalHoldService } from '../compliance/services/legal-hold.service';
 import { Message } from '../message/entities/message.entity';
+import { MessageAttachment } from '../message/entities/message-attachment.entity';
+import { MessageReceipt } from '../message/entities/message-receipt.entity';
+import { MediaService } from '../message/services/media.service';
 import { PartitionManagerService } from '../partition/partition-manager.service';
 import { REDIS_CLIENT } from '../shared/redis.provider';
+import {
+  GET_MESSAGE_FOR_BROADCAST_SUBJECT,
+  type GetMessageForBroadcastRequest,
+  type GetMessageForBroadcastResponse,
+  type WsMessage,
+  type WsMessageAttachment,
+  type WsMessageReceipt,
+} from '@platform/event-contracts';
 
 /** UUID representing an anonymised / deleted user. */
 const ANONYMOUS_USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -139,6 +150,9 @@ export class MessagingNatsHandler {
     // BEFORE: handleUserDeleted anonymized all messages with no hold check —
     // messages in litigation-held channels had their content wiped, destroying evidence.
     private readonly legalHoldService: LegalHoldService,
+    // MediaService signs attachment download URLs when hydrating a message for
+    // the gateway WS bridge (getMessageForBroadcast).
+    private readonly mediaService: MediaService,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
   ) {}
@@ -248,6 +262,125 @@ export class MessagingNatsHandler {
       }));
     } finally {
       await queryRunner.release();
+    }
+  }
+
+  /**
+   * Hydrate one message into the full {@link WsMessage} the gateway WS bridge
+   * broadcasts (MSG-CRITICAL-050). The NATS domain events are thin (IDs only)
+   * per ADR-006; the bridge cannot emit a body the client can render without
+   * this hydration step.
+   *
+   * SECURITY: the response carries `sender: { id }` ONLY — display PII
+   * (name/avatar) is deliberately NOT exposed over NATS (auth-user-queries
+   * profile-oracle constraint). The client enriches the sender from its
+   * channel-members cache (loaded over the authorized GraphQL federation path).
+   * Attachments carry tenant-scoped presigned URLs (the same isolation guard as
+   * the GraphQL field resolver). Returns `{ message: null }` when the message is
+   * absent in the tenant — the bridge then drops the broadcast.
+   */
+  @MessagePattern(GET_MESSAGE_FOR_BROADCAST_SUBJECT)
+  async getMessageForBroadcast(
+    @Payload() data: GetMessageForBroadcastRequest,
+  ): Promise<GetMessageForBroadcastResponse> {
+    if (
+      !TENANT_ID_REGEX.test(data.tenantId) ||
+      !TENANT_ID_REGEX.test(data.channelId) ||
+      !TENANT_ID_REGEX.test(data.messageId)
+    ) {
+      this.logger.warn('Rejected getMessageForBroadcast with invalid id format');
+      return { message: null };
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    try {
+      await this.setTenantSchema(queryRunner, data.tenantId);
+
+      const message = await queryRunner.manager.findOne(Message, {
+        where: { id: data.messageId, channelId: data.channelId, isDeleted: false },
+      });
+      if (!message) {
+        return { message: null };
+      }
+
+      const [attachments, receipts] = await Promise.all([
+        queryRunner.manager.find(MessageAttachment, {
+          where: {
+            tenantId: data.tenantId,
+            messageId: message.id,
+            messageCreatedAt: message.createdAt,
+            isDeleted: false,
+          },
+          order: { createdAt: 'ASC' },
+        }),
+        queryRunner.manager.find(MessageReceipt, {
+          where: {
+            tenantId: data.tenantId,
+            messageId: message.id,
+            messageCreatedAt: message.createdAt,
+          },
+          order: { receiptCreatedAt: 'ASC' },
+        }),
+      ]);
+
+      const wsAttachments: WsMessageAttachment[] = await Promise.all(
+        attachments.map(async (a) => ({
+          id: a.id,
+          originalFilename: a.originalFilename,
+          mimeType: a.mimeType,
+          fileSize: Number(a.fileSize),
+          width: a.width,
+          height: a.height,
+          durationSeconds: a.durationSeconds,
+          downloadUrl: await this.safePresign(data.tenantId, a.storageKey),
+          thumbnailUrl: await this.safePresign(data.tenantId, a.thumbnailKey),
+        })),
+      );
+
+      const wsReceipts: WsMessageReceipt[] = receipts.map((r) => ({
+        userId: r.userId,
+        status: r.status,
+        deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
+        readAt: r.readAt ? r.readAt.toISOString() : null,
+      }));
+
+      const wsMessage: WsMessage = {
+        id: message.id,
+        channelId: message.channelId,
+        senderId: message.senderId,
+        content: message.content,
+        contentType: message.contentType,
+        parentId: message.parentId,
+        forwardedFrom: message.forwardedFrom,
+        isDeleted: message.isDeleted,
+        createdAt: message.createdAt.toISOString(),
+        editedAt: message.editedAt ? message.editedAt.toISOString() : null,
+        metadata: message.metadata,
+        idempotencyKey: message.idempotencyKey,
+        sender: { id: message.senderId },
+        attachments: wsAttachments,
+        receipts: wsReceipts,
+      };
+      return { message: wsMessage };
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /** Presign a storage key, returning null on absence or a cross-tenant/transient failure. */
+  private async safePresign(
+    tenantId: string,
+    storageKey: string | null,
+  ): Promise<string | null> {
+    if (!storageKey) {
+      return null;
+    }
+    try {
+      return await this.mediaService.generateDownloadUrl(tenantId, storageKey);
+    } catch (error) {
+      this.logger.warn(`Broadcast presign failed: ${(error as Error).message}`);
+      return null;
     }
   }
 

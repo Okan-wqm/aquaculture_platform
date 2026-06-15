@@ -7,8 +7,8 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { ClientsModule } from '@nestjs/microservices';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { PresenceModule } from '../presence/presence.module';
 import { MessageModule } from '../message/message.module';
@@ -22,8 +22,8 @@ import { MessagingPushNatsHandler } from './messaging-push-nats.handler';
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('messaging-service'),
+        customClass: NatsV3Client,
+        options: { serviceName: 'messaging-service' },
       },
     ]),
     PresenceModule,

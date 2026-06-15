@@ -10,6 +10,14 @@ import {
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
+import {
+  RATE_LIMIT_EDGE_CONFIG,
+  RATE_LIMIT_STORE,
+  RateLimitEdgeConfig,
+  RateLimitGuard,
+  RateLimitModule,
+  RateLimitStore,
+} from '@aquaculture/backend-common/rate-limit';
 import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
 import { ApolloGatewayDriver, ApolloGatewayDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule, Logger } from '@nestjs/common';
@@ -31,14 +39,12 @@ import {
 } from 'graphql-query-complexity';
 
 import { FEDERATED_SUBGRAPHS } from './config/federated-subgraphs.generated';
+import { buildGatewayEdgeConfig } from './config/rate-limit.config';
 import { RetryableIntrospectAndCompose } from './config/retryable-introspect';
 import { AuthenticatedDataSource } from './federation/authenticated-data-source';
 import type { GatewayContext, RequestWithUser } from './federation/authenticated-data-source';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { AuthGuard } from './guards/auth.guard';
-import { MutationRateLimitGuard } from './guards/mutation-rate-limit.guard';
-import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';
-import { RedisRateLimitStore } from './guards/redis-rate-limit.store';
 import {
   TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
@@ -426,6 +432,12 @@ function positiveIntConfig(
       }),
     }),
 
+    // Platform rate-limit SSoT (D2 / CRITICAL-002). Edge mode: the gateway is a
+    // proxy with no decorated routes, so it supplies a config-driven tier policy
+    // (built from env vars) instead of @RateLimit decorators. Imported AFTER
+    // RedisModule so the lib's atomic-Lua store resolves the gateway RedisService.
+    RateLimitModule.forRoot({ keyPrefix: 'ratelimit:', edge: buildGatewayEdgeConfig }),
+
     /**
      * REMOVED 2026-04-14 (architectural correction):
      *
@@ -499,7 +511,8 @@ function positiveIntConfig(
      * supports admin/platform_admin overrides with proper audit logging.
      *
      * Execution order: AuthGuard (authentication) -> TenantIsolationGuard
-     * (authorization/isolation) -> RateLimitGuard -> MutationRateLimitGuard.
+     * (authorization/isolation) -> RateLimitGuard (platform SSoT; the mutation
+     * cap is now an additive tier inside this one guard, not a separate guard).
      * This ensures the user is authenticated before tenant isolation is checked.
      */
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
@@ -509,24 +522,24 @@ function positiveIntConfig(
         new TenantIsolationGuard(reflector),
       inject: [Reflector],
     },
-    // Rate limiting guard
+    // Platform rate-limit guard (D2 / CRITICAL-002). ONE guard replaces the
+    // former local RateLimitGuard + MutationRateLimitGuard + local store: the
+    // config-driven edge policy (tiers + additive GraphQL-mutation cap) and the
+    // atomic-Lua store both come from RateLimitModule.forRoot above. It occupies
+    // the same slot, so the pre-handler rejection order (AuthGuard ->
+    // TenantIsolationGuard -> RateLimit) is preserved.
     {
       provide: APP_GUARD,
-      useFactory: (reflector: Reflector, configService: ConfigService, redisStore?: unknown): RateLimitGuard =>
-        new RateLimitGuard(reflector, configService, redisStore as never),
-      inject: [Reflector, ConfigService, { token: RATE_LIMIT_STORE, optional: true }],
-    },
-    // GraphQL mutation rate limiting guard (no deps)
-    {
-      provide: APP_GUARD,
-      useClass: MutationRateLimitGuard,
-    },
-    // Redis-based rate limit store for distributed deployments
-    // Enabled via RATE_LIMIT_USE_REDIS=true environment variable
-    {
-      provide: RATE_LIMIT_STORE,
-      useFactory: (redisService: RedisService) => new RedisRateLimitStore(redisService),
-      inject: [RedisService],
+      useFactory: (
+        reflector: Reflector,
+        store?: RateLimitStore,
+        edge?: RateLimitEdgeConfig,
+      ): RateLimitGuard => new RateLimitGuard(reflector, store, edge),
+      inject: [
+        Reflector,
+        { token: RATE_LIMIT_STORE, optional: true },
+        { token: RATE_LIMIT_EDGE_CONFIG, optional: true },
+      ],
     },
     // Redis-based token blacklist store for distributed token revocation
     // Falls back to in-memory if Redis is unavailable

@@ -11,21 +11,22 @@
     "lint": "eslint src",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:water-chemistry": "vitest run src/pages/water-chemistry/WaterChemistryPage.spec.ts src/pages/water-chemistry/components/DeffeyesChart.spec.tsx src/pages/water-chemistry/waterChemistryReportExport.spec.ts"
+    "test:water-chemistry": "vitest run --maxWorkers=1 --testTimeout=30000 src/pages/water-chemistry/WaterChemistryPage.spec.ts src/pages/water-chemistry/components/DeffeyesChart.spec.tsx src/pages/water-chemistry/waterChemistryReportExport.spec.ts"
   },
   "dependencies": {
     "@aquaculture/shared-ui": "file:../../shared-ui",
     "@geoman-io/leaflet-geoman-free": "^2.19.3",
-    "@tanstack/react-query": "^5.17.0",
+    "@tanstack/react-query": "5.90.10",
     "@turf/area": "^6.5.0",
     "@turf/turf": "^7.1.0",
     "date-fns": "^4.1.0",
     "leaflet": "^1.9.4",
+    "lucide-react": "0.469.0",
     "proj4": "^2.20.2",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "react-leaflet": "^4.2.1",
-    "react-router-dom": "^6.21.0",
+    "react-router-dom": "6.30.3",
     "recharts": "^2.10.0",
     "terraformer-wkt-parser": "^1.2.1"
   },
@@ -43,7 +44,7 @@
     "polygon-clipping": "^0.14.3",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
-    "typescript": "^5.3.0",
+    "typescript": "5.9.3",
     "vite": "^7.3.2",
     "vitest": "^3.2.4"
   }

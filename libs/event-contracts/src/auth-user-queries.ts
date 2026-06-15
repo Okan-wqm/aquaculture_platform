@@ -18,6 +18,14 @@
 
 export const AUTH_USER_QUERY_SUBJECTS = {
   VALIDATE_TENANT_MEMBERSHIP: 'request.auth.user.validateTenantMembership',
+  /**
+   * List the ACTIVE user IDs of a tenant (MSG-HIGH-051). Returns ONLY UUIDs —
+   * never names/emails — so it stays consistent with this surface's no-PII /
+   * no-profile-oracle posture. messaging's `channelEligibleUsers` (the New Chat
+   * picker, open to any messaging user) calls this to enumerate the tenant, then
+   * the gateway stitches display names from the federated `User` (display-only).
+   */
+  LIST_TENANT_USER_IDS: 'request.auth.user.listTenantUserIds',
 } as const;
 
 /**
@@ -55,5 +63,26 @@ export interface ValidateTenantMembershipResult {
   invalidUserIds: string[];
   inactiveUserIds: string[];
   errorCode?: 'VALIDATION_ERROR' | 'INTERNAL_ERROR';
+  error?: string;
+}
+
+/**
+ * Query for {@link AUTH_USER_QUERY_SUBJECTS.LIST_TENANT_USER_IDS}. Tenant-scoped:
+ * the responder filters `where: { tenantId, isActive: true }`, so it can never
+ * enumerate another tenant or surface inactive accounts.
+ */
+export interface ListTenantUserIdsQuery {
+  tenantId: string;
+  correlationId?: string;
+}
+
+/**
+ * Result — ONLY the active user IDs of the tenant (no PII). Display names are
+ * resolved separately through the authorized GraphQL federation path
+ * (auth's display-only `User` reference resolver).
+ */
+export interface ListTenantUserIdsResult {
+  success: boolean;
+  userIds: string[];
   error?: string;
 }

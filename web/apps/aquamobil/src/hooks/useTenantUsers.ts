@@ -25,18 +25,19 @@ import type { MessageUser } from '@/types/messaging';
 import { getUserDisplayName } from '@/utils/messaging-helpers';
 
 /**
- * GraphQL query to list users within the current tenant.
- * WHY: This uses a channel-agnostic user query. The messaging-service
- * extends the auth-service User type via federation, so we can query
- * user details with presence information.
+ * GraphQL query for the New Chat user picker (MSG-HIGH-051).
+ * WHY: `channelEligibleUsers` (messaging-service) is open to ANY messaging user
+ * and is tenant-scoped, unlike auth's admin-gated `tenantUsers` which 403'd
+ * field workers. firstName/lastName/profileImageUrl are stitched from the
+ * federated auth `User`; isOnline comes from messaging presence. `email` is
+ * deliberately NOT requested (display-only — not exposed to channel members).
  */
-const TENANT_USERS_QUERY = `
-  query TenantUsers {
-    tenantUsers {
+const CHANNEL_ELIGIBLE_USERS_QUERY = `
+  query ChannelEligibleUsers {
+    channelEligibleUsers {
       id
       firstName
       lastName
-      email
       profileImageUrl
       isOnline
     }
@@ -57,17 +58,19 @@ export interface TenantUserItem {
  */
 async function fetchTenantUsers(): Promise<TenantUserItem[]> {
   const result = await graphqlRequest<{
-    tenantUsers: MessageUser[];
-  }>(TENANT_USERS_QUERY);
+    channelEligibleUsers: MessageUser[];
+  }>(CHANNEL_ELIGIBLE_USERS_QUERY);
 
-  if (!result.tenantUsers) {
-    throw new Error('Failed to fetch tenant users');
+  if (!result.channelEligibleUsers) {
+    throw new Error('Failed to fetch eligible users');
   }
 
-  return result.tenantUsers.map((u) => ({
+  return result.channelEligibleUsers.map((u) => ({
     id: u.id,
     name: getUserDisplayName(u),
-    email: u.email ?? '',
+    // email is display-only (never exposed to channel members) — not requested;
+    // the picker renders name + avatar + presence.
+    email: '',
     avatarUrl: u.profileImageUrl ?? u.avatarUrl ?? null,
     isOnline: u.isOnline ?? false,
   }));
@@ -81,7 +84,7 @@ export function useTenantUsers() {
   const { isAuthenticated, tenantId } = useAuth();
 
   const query = useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'messaging', 'tenantUsers', tenantId),
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'channelEligibleUsers'),
     queryFn: fetchTenantUsers,
     enabled: isAuthenticated && !!tenantId,
     staleTime: 60_000,

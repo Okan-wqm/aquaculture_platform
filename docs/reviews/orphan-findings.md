@@ -4112,3 +4112,19 @@ Severity: CRITICAL. Discovered + RESOLVED 2026-06-14 during Wave-5 closeout (aut
 - Tier-1 structural hardening (tracked by description — the `ORPHAN-HIGH-101` id is now held by an unrelated postgres-RustSec finding on main): add a `tenantId` column (+ FK/RLS) to `auth.user_role_assignments` so assignments are directly tenant-scoped, replacing the JOIN-laundering. Owner: auth-security-expert + data-expert.
 
 Status: RESOLVED (2026-06-14, this PR — tenant-role/tenant-user-management/user-lifecycle repoint); token.service via W4 #440; sub-items above OPEN. Owner: auth-security-expert. Registry: orphan-findings.md only.
+
+## ORPHAN-HIGH-102 — all messaging-service-e2e suites fail to LOAD with `Class extends value undefined is not a constructor or null`
+
+**Found:** 2026-06-14, while landing Wave-5 D2 (gateway rate-limit SSoT, PR #457). The CI `E2E Tests` job (run 27512311241, head 7a694107e) failed at the **Run E2E tests** step — NOT a test assertion and NOT the gateway/rate-limit change. Every `apps/messaging-service/test/*.e2e-spec.ts` suite (channel-management, messaging-core, compliance, offline-sync, messaging-features, tenant-isolation, content-sanitization, media-upload, ai-chat, gdpr, …) reports **`Test suite failed to run: TypeError: Class extends value undefined is not a constructor or null`**.
+
+**Why this matters (HIGH):** the entire messaging-service E2E safety net is silently disabled — the suites never execute, so any real messaging regression ships undetected. `Class extends value undefined` at import time means a base class / barrel export / module resolves to `undefined` when a subclass is evaluated — almost always a **circular import** (the base module hasn't finished initializing when the subclass `extends` it) or a barrel-ordering issue under the E2E `ts-jest` config.
+
+**NOT a D2 regression:** D2 (#457) only touches `apps/gateway-api` + `libs/backend-common/src/rate-limit` and never imports messaging-service. #457's branch was cut from old `main` (pre-D1/PR-2/Tier-4/D3/#453), so this is pre-existing platform E2E debt that #457's CI surfaced.
+
+**Root-cause TODO (owner: messaging-expert):**
+1. Verify whether current `main` (0c2370b04) still reproduces — re-run the `E2E Tests` job or boot one messaging E2E spec locally.
+2. If so, find the undefined base: grep the messaging E2E test base class + its import chain for a circular dependency or a barrel (`index.ts`) that re-exports the base before it is defined. The fix is usually to import the base from its concrete module (not the barrel) or break the cycle.
+
+Status: OPEN. Owner: messaging-expert. Registry: `ORPHAN-HIGH-102` in `docs/reviews/_registry/findings.jsonl`.
+
+> **D2 / CRITICAL-002 traceability note (not a registry close):** the gateway rate-limit consolidation (PR #457, `0c2370b04`) — which also fixed the gateway's fail-OPEN Redis store — is fully traced by its own commit message + PR. It is NOT seeded as a closable registry finding because the three-store invariant requires a closing commit to carry a `Closes: …#<id>` trailer *at commit time*; a finding seeded post-merge cannot be closed against an already-merged commit (no amend/force-push). The SEC-MEDIUM-001/002 closes in this same registry pass ARE valid because D1's commit (`bc79457d5`) carried their `Closes:` trailers.

@@ -59,6 +59,21 @@ jest.mock('bcryptjs', () => {
   return { ...actual, compare: jest.fn(promiseCompare), hash: jest.fn(promiseHash) };
 });
 
+// SEC-LOW-001(a) cross-test support: keep the REAL enforceAccessTokenType so the
+// token-type symmetry (an mfa_challenge token rejected on the bearer
+// introspection surface) is genuinely exercised, but stub getJwtVerifyOptions to
+// a benign options object so validateToken() does not require JWT_PUBLIC_KEY at
+// unit-test time. verifyAsync is mocked per-test to supply the decoded payload.
+jest.mock('@aquaculture/backend-common/auth', () => {
+  const actual = jest.requireActual<typeof import('@aquaculture/backend-common/auth')>(
+    '@aquaculture/backend-common/auth',
+  );
+  return {
+    ...actual,
+    getJwtVerifyOptions: jest.fn().mockReturnValue({ algorithms: ['RS256'] }),
+  };
+});
+
 // Typed alias over the spy-able wrapper above: body assertions stub via
 // mockBcryptCompare.mockResolvedValue while jest.spyOn(bcrypt, 'compare')
 // remains equally valid — both views target the same jest.fn. The
@@ -159,6 +174,8 @@ const mockTenantRepository = {
 
 const mockJwtService = {
   signAsync: jest.fn().mockResolvedValue('mock-access-token'),
+  // verifyAsync drives validateToken(); individual tests set the decoded payload.
+  verifyAsync: jest.fn(),
 };
 
 const mockConfigService = {
@@ -422,6 +439,31 @@ describe('AuthenticationService', () => {
       );
     });
 
+    it('SEC-LOW-001(c): casts the lockout deadline to timestamptz (not tz-stripping timestamp)', async () => {
+      const user = createMockUser({ failedLoginAttempts: 2 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+
+      await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
+
+      // WHY: users.lockedUntil is TIMESTAMP WITH TIME ZONE and $3 is a JS Date
+      // (an absolute instant). ::timestamp (without tz) drops the offset and
+      // reinterprets the lockout deadline under the DB session TimeZone, drifting
+      // the lockout window on non-UTC sessions. The cast MUST be ::timestamptz.
+      const lockoutQueryCall = mockDataSource.query.mock.calls.find(
+        (call: unknown[]) =>
+          typeof call[0] === 'string' &&
+          (call[0] as string).includes('"failedLoginAttempts" = "failedLoginAttempts" + 1'),
+      );
+      expect(lockoutQueryCall).toBeDefined();
+      const sql = lockoutQueryCall![0] as string;
+      expect(sql).toMatch(/\$3::timestamptz/);
+      // Reject a tz-stripping ::timestamp cast (negative lookahead so the legit
+      // ::timestamptz match does not satisfy this assertion).
+      expect(sql).not.toMatch(/\$3::timestamp(?!tz)/);
+    });
+
     it('throws UnauthorizedException when account is locked (isLocked returns true)', async () => {
       const user = createMockUser({ isLocked: () => true });
       mockUserRepository.findOne.mockResolvedValue(user);
@@ -594,6 +636,46 @@ describe('AuthenticationService', () => {
       // WHAT: third argument is the blacklist reason — logout() always tags
       // entries with 'user_logout' for incident-triage attribution.
       expect(mockTokenBlacklist.add).toHaveBeenCalledWith('jti-123', accessExpiry, 'user_logout');
+    });
+  });
+
+  // ==========================================================================
+  // validateToken() — token-type symmetry (SEC-LOW-001(a))
+  // ==========================================================================
+  describe('validateToken()', () => {
+    it('SEC-LOW-001(a): rejects an mfa_challenge token on the bearer introspection surface', async () => {
+      // SYMMETRY: generateMfaChallenge mints type:'mfa_challenge'. enforceAccessTokenType
+      // (real, not mocked here) requires type === 'access' on every bearer surface,
+      // so a valid-but-MFA token must be reported invalid by validateToken() — it
+      // can never be replayed as an access token even though it is signed by the
+      // same keypair.
+      mockJwtService.verifyAsync.mockResolvedValue({
+        sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+      });
+
+      const result = await service.validateToken('an-mfa-challenge-token');
+
+      expect(result.valid).toBe(false);
+      expect(result.payload).toBeUndefined();
+    });
+
+    it('accepts a genuine access token', async () => {
+      mockJwtService.verifyAsync.mockResolvedValue({
+        sub: 'user-uuid-123',
+        type: 'access',
+        role: Role.MODULE_USER,
+        roles: [Role.MODULE_USER],
+        tenantId: 'tenant-uuid-123',
+        jti: 'mock-jti',
+      });
+
+      const result = await service.validateToken('a-real-access-token');
+
+      expect(result.valid).toBe(true);
+      expect(result.payload?.type).toBe('access');
     });
   });
 });

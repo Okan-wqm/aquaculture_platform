@@ -135,6 +135,22 @@ export class TokenService {
   // WHY: In-memory cache — stale for up to TTL across pods. Use Redis pub/sub for instant invalidation when multi-pod.
   private readonly moduleCacheTtlMs = 60 * 1000; // 60 seconds
 
+  // PERF (PERF-HIGH-001): In-memory LRU cache for resolved tenant-level resource
+  // permissions, mirroring the module cache above.
+  // WHY: getUserResourcePermissions runs on every token mint and performs a
+  // two-table JOIN against the role-assignment tables. Resource permissions
+  // change far less often than tokens are minted, so caching the resolved set
+  // per user collapses the hot-path read to a single round-trip on a miss.
+  // WHAT: Same Map insertion-order LRU + MAX_MODULE_CACHE_SIZE cap + 60s TTL as
+  // the module cache, keyed by user.id, so memory is always bounded against
+  // mass account creation / enumeration. A miss (or stale entry) re-queries;
+  // capacity eviction drops the oldest (least-recently-inserted) entry first.
+  private readonly resourcePermissionCache = new Map<string, {
+    permissions: string[];
+    cachedAt: number;
+  }>();
+  private readonly resourcePermissionCacheTtlMs = 60 * 1000; // 60 seconds
+
   constructor(
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
@@ -173,6 +189,18 @@ export class TokenService {
       await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
     }
 
+    // PERF (PERF-HIGH-003): the refresh-token random bytes are independent of
+    // every DB read, and bcrypt.hash is CPU-bound (~tens of ms). Generate the
+    // random material now and START the hash promise BEFORE awaiting the reads
+    // so the hash runs concurrently with the module/permission/plan round-trips
+    // instead of serially after them. When HASH_REFRESH_TOKENS is off the raw
+    // value is wrapped in an already-resolved promise so the await below is a
+    // no-op — semantics are preserved either way.
+    const refreshTokenRandom = crypto.randomBytes(64).toString('hex');
+    const tokenToStorePromise: Promise<string> = this.hashRefreshTokens
+      ? bcrypt.hash(refreshTokenRandom, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS)
+      : Promise.resolve(refreshTokenRandom);
+
     // Hot-path reads run concurrently: the user's module codes, tenant-level
     // resource permissions, and the tenant's plan-tier ordinal (the
     // MT-MEDIUM-001 JWT claim) are independent, so a single Promise.all keeps
@@ -201,8 +229,11 @@ export class TokenService {
       roles: [user.role],
       tenantId: user.tenantId ?? null,
       ...(planLevel !== undefined ? { planLevel } : {}),
-      modules: moduleCodes.length > 0 ? moduleCodes : undefined,
-      resourcePermissions: resourcePermissions.length > 0 ? resourcePermissions : undefined,
+      // OMIT the keys entirely when empty (spread, not `: undefined`) so the
+      // payload object has no `modules`/`resourcePermissions` property at all —
+      // `'modules' in payload` is false, matching the omit-when-empty contract.
+      ...(moduleCodes.length > 0 ? { modules: moduleCodes } : {}),
+      ...(resourcePermissions.length > 0 ? { resourcePermissions } : {}),
       type: 'access',
       jti,
       // IP-2: MFA step-up claim — set after successful TOTP verification.
@@ -219,18 +250,16 @@ export class TokenService {
       audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
       keyid: getActiveSigningKid(this.configService),
     });
-    const refreshTokenRandom = crypto.randomBytes(64).toString('hex');
 
     // SECURITY: Prefix refresh token with userId so the lookup can be scoped per-user.
     const refreshTokenValue = this.hashRefreshTokens
       ? `${user.id}:${refreshTokenRandom}`
       : refreshTokenRandom;
 
-    // SECURITY: Hash refresh token before storage
-    let tokenToStore = refreshTokenRandom;
-    if (this.hashRefreshTokens) {
-      tokenToStore = await bcrypt.hash(refreshTokenRandom, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
-    }
+    // PERF (PERF-HIGH-003): collect the bcrypt result started before the reads.
+    // By now the hash has run concurrently with the module/permission/plan
+    // round-trips, so this await is usually already-settled work.
+    const tokenToStore = await tokenToStorePromise;
 
     // SECURITY (SEC-MEDIUM-003): a fresh login starts a NEW token family; a
     // rotation (refresh) passes the rotated token's familyId so the lineage
@@ -248,16 +277,23 @@ export class TokenService {
       userAgent,
     });
 
-    await this.refreshTokenRepository.save(refreshToken);
-
-    // Create session if session manager is available
+    // PERF (PERF-HIGH-003): the refresh-token row insert and the session
+    // creation are independent writes (the session limit was already enforced
+    // up front), so issue both concurrently and await together rather than
+    // serially. Order does not matter: neither depends on the other's result.
+    const persistPromises: Array<Promise<unknown>> = [
+      this.refreshTokenRepository.save(refreshToken),
+    ];
     if (this.sessionManager) {
-      await this.sessionManager.createSession(user.id, {
-        ipAddress,
-        userAgent,
-        tenantId: user.tenantId ?? undefined,
-      });
+      persistPromises.push(
+        this.sessionManager.createSession(user.id, {
+          ipAddress,
+          userAgent,
+          tenantId: user.tenantId ?? undefined,
+        }),
+      );
     }
+    await Promise.all(persistPromises);
 
     const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
     const expiresInSeconds = parseExpiresIn(expiresIn);
@@ -276,10 +312,14 @@ export class TokenService {
   }
 
   /**
-   * Invalidate module cache for a user (call when module assignments change).
+   * Invalidate the per-user hot-path caches (call when module OR role
+   * assignments change). Clears both the module cache and the
+   * resource-permission cache (PERF-HIGH-001) so a permission change is not
+   * masked for up to the TTL after an explicit invalidation.
    */
   invalidateModuleCache(userId: string): void {
     this.moduleCache.delete(userId);
+    this.resourcePermissionCache.delete(userId);
   }
 
   // ==========================================================================
@@ -373,6 +413,20 @@ export class TokenService {
 
   /**
    * Get user's tenant-level resource permissions from their role assignment.
+   *
+   * PERF-HIGH-001 (a) — FAIL LOUD: a query failure here must NOT be swallowed.
+   * The previous `catch → return []` minted a token with ZERO resource
+   * permissions whenever the read failed (e.g. relation missing, connection
+   * blip), silently downgrading the user's authorization. That is a security
+   * regression masquerading as resilience: a transient DB error must abort the
+   * token mint, not issue a wrongly-scoped token. The DB error is now
+   * log-and-rethrown (diagnostic breadcrumb preserved) so the caller
+   * (generateTokens) rejects and the login fails cleanly instead of handing out
+   * an under-privileged token.
+   *
+   * PERF-HIGH-001 (b) — the resolved permission set is cached per user in a
+   * bounded LRU (see resourcePermissionCache) so this two-table JOIN does not
+   * run on every token mint.
    */
   private async getUserResourcePermissions(user: User): Promise<string[]> {
     if (user.role === Role.SUPER_ADMIN || user.role === Role.TENANT_ADMIN) {
@@ -383,28 +437,36 @@ export class TokenService {
       return [];
     }
 
+    // Cache hit within TTL short-circuits the JOIN. Same lazy-TTL eviction as
+    // the module cache: stale entries fall through and re-query below.
+    const cached = this.resourcePermissionCache.get(user.id);
+    if (cached && (Date.now() - cached.cachedAt) < this.resourcePermissionCacheTtlMs) {
+      return cached.permissions;
+    }
+
+    let permissions: string[];
     try {
-      const cleanId = user.tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
-      const schemaName = `tenant_${cleanId}`;
-
-      /**
-       * SEC-M13: Validate schema name before SQL interpolation to prevent injection.
-       * Defense-in-depth — the cleanId derivation above already constrains the format,
-       * but explicit validation ensures no code path can bypass the check.
-       */
-      const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
-      if (!TENANT_SCHEMA_REGEX.test(schemaName)) {
-        throw new Error(`SEC-M13: Invalid schema name format: ${schemaName}`);
-      }
-
+      // CENTRALIZED auth-schema role tables: the 1800500000000 topology migration
+      // moved user_role_assignments / tenant_role_permissions / tenant_roles out of
+      // per-tenant schemas into `auth` and DROPs the tenant copies (post-condition
+      // RAISEs if any remain). This query targets auth.* with PARAMETER-BOUND
+      // user_id + tenantId — no schema-name interpolation, so the prior SEC-M13
+      // injection surface is structurally gone. TENANT ISOLATION is enforced by the
+      // JOIN to auth.tenant_roles + WHERE tr."tenantId" = $2: only roles owned by
+      // THIS user's tenant contribute, so a cross-tenant role_id can never leak
+      // another tenant's resource permissions (stronger than the old per-schema
+      // boundary, which the migration removed).
       const rows: Array<{ resource_permissions: string[] | null }> = await this.dataSource.query(
         `
         SELECT trp.resource_permissions
-        FROM "${schemaName}"."user_role_assignments" ura
-        JOIN "${schemaName}"."tenant_role_permissions" trp ON ura.role_id = trp.role_id
-        WHERE ura.user_id = $1 AND ura.is_active = true
+        FROM "auth"."user_role_assignments" ura
+        JOIN "auth"."tenant_roles" tr ON ura.role_id = tr.id
+        JOIN "auth"."tenant_role_permissions" trp ON ura.role_id = trp.role_id
+        WHERE ura.user_id = $1
+          AND ura.is_active = true
+          AND tr."tenantId" = $2
         `,
-        [user.id],
+        [user.id, user.tenantId],
       );
 
       const permissionSet = new Set<string>();
@@ -416,13 +478,29 @@ export class TokenService {
         }
       }
 
-      return Array.from(permissionSet);
+      permissions = Array.from(permissionSet);
     } catch (error) {
-      this.logger.warn(
+      // PERF-HIGH-001 (a): log-and-rethrow — preserve the diagnostic breadcrumb
+      // (which user/tenant) for operators, then FAIL LOUD so generateTokens
+      // rejects. The previous behaviour swallowed this and returned [], minting
+      // an under-privileged token; that silent authorization downgrade is the
+      // exact regression this finding closes.
+      this.logger.error(
         `Failed to load resource permissions for user ${user.id} in tenant ${user.tenantId}: ${(error as Error).message}`,
       );
-      return [];
+      throw error;
     }
+
+    // LRU eviction: if at capacity, remove the oldest entry before inserting.
+    // Map.keys() returns keys in insertion order — first key is the oldest entry.
+    if (this.resourcePermissionCache.size >= TokenService.MAX_MODULE_CACHE_SIZE) {
+      const oldestKey = this.resourcePermissionCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.resourcePermissionCache.delete(oldestKey);
+      }
+    }
+    this.resourcePermissionCache.set(user.id, { permissions, cachedAt: Date.now() });
+    return permissions;
   }
 
   private getRedirectUrl(

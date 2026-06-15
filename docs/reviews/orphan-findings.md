@@ -4002,6 +4002,53 @@ This branch (a) modified `.eslintrc.json` and (b) sits on a `tsconfig.base.json`
 
 **Status:** RESOLVED (this commit).
 
+---
+
+## ORPHAN-CRITICAL-100 — token.service + tenant-role.service query auth-role tables in the OLD per-tenant schema after they were centralized into `auth`
+
+Severity: CRITICAL. Discovered during W4 (PERF-HIGH-001). Migration `apps/admin-api-service/src/migrations/1800500000000-TenantProvisioningTopology.ts` MOVES `user_role_assignments` / `tenant_role_permissions` / `tenant_roles` from per-tenant `tenant_<uuid>` schemas into the shared `auth` schema (INSERT then `DROP TABLE ... tenant_<schema>.*`, lines 311-313) and its post-condition RAISEs if any tenant copy remains (line 333). But two auth-service consumers still query the OLD per-tenant schema:
+- `apps/auth-service/src/modules/authentication/services/token.service.ts` `getUserResourcePermissions` — the LOGIN hot path.
+- `apps/auth-service/src/modules/tenant/services/tenant-role.service.ts` — ALL 10 methods (read AND write: getTenantRoles/getRoleById/getDefaultRole/createRole/updateRole/deleteRole/seedDefaultRoles/assignRoleToUser/removeRoleFromUser), lines 296-1053, reachable via tenant-role.resolver (GraphQL CRUD) + tenant-user-management/user-lifecycle.
+
+On a fully-migrated DB these queries throw "relation does not exist". In token.service this was MASKED by a silent `catch → return []` (module users silently got EMPTY resource permissions — a covert authorization downgrade); tenant-role.service's role-management surface breaks outright.
+
+Fix (token.service — RESOLVED in W4 / this PR): repointed to `auth.user_role_assignments JOIN auth.tenant_roles JOIN auth.tenant_role_permissions`, **tenant-scoped** via `WHERE tr."tenantId" = $2` (parameter-bound; the schema-interpolation SEC-M13 surface is structurally gone), and the catch is now fail-loud. auth-security-expert reviewed: tenant isolation SAFE (the INNER JOIN + tenantId filter is stronger than the old per-schema boundary; `user.tenantId` is DB-loaded, not request-influenced).
+
+Fix (tenant-role.service — REMAINING): the 10-method read+WRITE surface must be repointed to `auth.*` tenant-scoped in a dedicated, security-reviewed PR — its write paths (createRole/assignRoleToUser/etc.) must enforce tenant ownership or risk cross-tenant role mutation. Too large + write-path-security-critical to safely cram into W4.
+
+Status: PARTIAL — token.service login path RESOLVED (W4 / this PR); tenant-role.service repoint OPEN. Owner: auth-security-expert + platform-services. Deadline: 2026-06-20.
+
+---
+
+## ORPHAN-HIGH-101 — Centralized `auth` role tables have NO database-layer RLS (tenant isolation rests on a single application WHERE clause)
+
+Severity: HIGH (defense-in-depth). Surfaced by the ORPHAN-CRITICAL-100 security review. Collapsing the per-tenant schema boundary into shared `auth` tables removed schema-level isolation but did NOT replace it with row-level security: `auth.user_role_assignments` + `auth.tenant_role_permissions` have no tenant column (the RLS helper discovers tables by `tenantId`/`tenant_id`, so it cannot protect them), and no migration applies RLS to the `auth` schema (the topology RLS sweep only touches `tenant_<uuid>` schemas). Net: cross-tenant isolation for role/permission reads now depends ENTIRELY on every query carrying a `tr."tenantId" = $X` predicate — one forgotten predicate (or a `getRepository()` without scoping) is an instant cross-tenant leak with no DB backstop.
+
+Fix direction: add a denormalized `tenantId` column to `auth.user_role_assignments` (carried at write time / trigger) and install `tenant_isolation_policy` on the three centralized tables via the existing helper; add a CI invariant asserting any SQL touching these tables carries a tenant predicate (Tier-3 detectable) until RLS lands.
+
+Status: OPEN (2026-06-13; owner: auth-security-expert + data-expert).
+
+---
+
+## ORPHAN-MEDIUM-104 — Topology migration de-dup picks an arbitrary tenant for a multi-tenant user (silent permission loss)
+
+Severity: MEDIUM. Surfaced by the ORPHAN-CRITICAL-100 security review. The `1800500000000` backfill enforces `UNIQUE(user_id)` on `auth.user_role_assignments` via `NOT EXISTS (... au.user_id = a.user_id)` while iterating tenant schemas in an UNORDERED loop. If the same `user_id` had an active assignment in two tenant schemas (a multi-tenant user), the migration keeps whichever tenant the loop reached first and silently discards the rest — that user then resolves permissions only for the surviving tenant (and the fail-loud catch will NOT surface it: the query succeeds, returns `[]`).
+
+Fix direction: if multi-tenant users are possible, add a pre-migration audit (`GROUP BY user_id HAVING count(distinct schema) > 1`) + explicit conflict resolution (not first-loop-wins); if structurally impossible, assert it post-migration (source row count == inserted count) so a violated invariant fails loudly.
+
+Status: OPEN (2026-06-13; owner: data-expert).
+
+---
+
+## ORPHAN-MEDIUM-105 — Missing index on `auth.tenant_role_permissions(role_id)` (token-mint JOIN seq-scans)
+
+Severity: MEDIUM (perf). The PERF-HIGH-001 token-mint JOIN `auth.user_role_assignments ⋈ auth.tenant_role_permissions ON role_id` has no index on `tenant_role_permissions(role_id)` — the table (created in `1800200000000-CreateAdminEntitySurfaceTables`) has only the PK on `id` + an FK on `role_id` (Postgres FKs are not auto-indexed). `user_role_assignments` already has its indexes (UNIQUE user_id, role_id, is_active). The W4 PERF-HIGH-001 cache (60s TTL) mitigates per-mint cost; the index is the durable fix.
+
+Fix direction: a new auth-schema migration `CREATE INDEX IF NOT EXISTS "idx_tenant_role_permissions_role_id" ON "auth"."tenant_role_permissions" ("role_id");` (idempotent, source-only).
+
+Status: OPEN (2026-06-13; owner: auth-security-expert; pairs with ORPHAN-CRITICAL-100's tenant-role.service repoint PR).
+
+---
 
 ## ORPHAN-HIGH-100 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
 
@@ -4112,16 +4159,19 @@ Severity: CRITICAL. Discovered + RESOLVED 2026-06-14 during Wave-5 closeout (aut
 - Tier-1 structural hardening (tracked by description — the `ORPHAN-HIGH-101` id is now held by an unrelated postgres-RustSec finding on main): add a `tenantId` column (+ FK/RLS) to `auth.user_role_assignments` so assignments are directly tenant-scoped, replacing the JOIN-laundering. Owner: auth-security-expert + data-expert.
 
 Status: RESOLVED (2026-06-14, this PR — tenant-role/tenant-user-management/user-lifecycle repoint); token.service via W4 #440; sub-items above OPEN. Owner: auth-security-expert. Registry: orphan-findings.md only.
-## ORPHAN-MEDIUM-104 — zustand 5 cannot be a single-version federation singleton while the graph library (reactflow 11 / @xyflow/react 12) hard-depends on zustand ^4
 
-Severity: MEDIUM. Discovered 2026-06-14 during C1 PR-1b (frontend version alignment), frontend-expert / conductor firsthand.
+## ORPHAN-HIGH-102 — all messaging-service-e2e suites fail to LOAD with `Class extends value undefined is not a constructor or null`
 
-**Problem:** The plan's C1 PR-1b scope and C2 step-1 assume zustand can be bumped 4→5 platform-wide, with C2's `reactflow 11 → @xyflow/react 12` migration "unlocking" it. Firsthand verification refutes this: **every** `@xyflow/react` 12.x release through the current **12.11.0** declares `dependencies.zustand: "^4.4.0"` — it does NOT widen to v5. reactflow 11 (`@reactflow/core` et al.) likewise pins `zustand ^4.4.1`. `sensor-module` depends on BOTH `reactflow ^11.10.0` AND zustand directly. So while any graph library is in the tree, npm resolves zustand 4.x (for the graph lib) AND would resolve 5.x (for shell/sensor) → **two versions** → the `federation-shared-singleton` invariant's "core singleton packages resolve to exactly one version == SSoT pin" (`SINGLE_VERSION_PACKAGES` includes zustand) fails. Migrating reactflow→xyflow12 does NOT change this, because xyflow12 also pins `^4.4.0`.
+**Found:** 2026-06-14, while landing Wave-5 D2 (gateway rate-limit SSoT, PR #457). The CI `E2E Tests` job (run 27512311241, head 7a694107e) failed at the **Run E2E tests** step — NOT a test assertion and NOT the gateway/rate-limit change. Every `apps/messaging-service/test/*.e2e-spec.ts` suite (channel-management, messaging-core, compliance, offline-sync, messaging-features, tenant-isolation, content-sanitization, media-upload, ai-chat, gdpr, …) reports **`Test suite failed to run: TypeError: Class extends value undefined is not a constructor or null`**.
 
-**Effect:** Bumping zustand to 5.0.14 (as PR-1b originally attempted) breaks the singleton invariant locally and in CI (proven: lockfile resolved `['4.5.7','5.0.14']`). There is **no functional benefit lost** by staying on 4.5.7: the only v5 API the frontend uses is `useShallow` (`zustand/react/shallow`), which exists since zustand **4.4.0** — the code is already written in the forward-compatible style and runs identically on 4.5.7.
+**Why this matters (HIGH):** the entire messaging-service E2E safety net is silently disabled — the suites never execute, so any real messaging regression ships undetected. `Class extends value undefined` at import time means a base class / barrel export / module resolves to `undefined` when a subclass is evaluated — almost always a **circular import** (the base module hasn't finished initializing when the subclass `extends` it) or a barrel-ordering issue under the E2E `ts-jest` config.
 
-**Why not fixed inline:** zustand 5 is structurally blocked by a third-party (`@xyflow/react`) dependency range we don't control. The only paths to zustand 5 are (a) `@xyflow/react` widening to `^4.4.0 || ^5.0.0` in a future release (not shipped as of 12.11.0), or (b) dropping the graph library entirely. Neither is a session-end change; forcing it now would break the singleton or require pinning a non-existent xyflow release.
+**NOT a D2 regression:** D2 (#457) only touches `apps/gateway-api` + `libs/backend-common/src/rate-limit` and never imports messaging-service. #457's branch was cut from old `main` (pre-D1/PR-2/Tier-4/D3/#453), so this is pre-existing platform E2E debt that #457's CI surfaced.
 
-**Fix direction:** Keep zustand pinned at **4.5.7** in the SSoT (`federationSharedConfig.ts SHARED_VERSIONS.zustand`) and all consumers (done — reverted in this PR). Correct the plan: REMOVE "zustand 4→5" from C1 PR-1b and from C2 step-1's "unlocks zustand 5" claim. Gate any future zustand-5 bump on `@xyflow/react` advertising a zustand-5-compatible range. Until then the existing `federation-shared-singleton` invariant is the make-it-detectable guard preventing an accidental re-attempt.
+**Root-cause TODO (owner: messaging-expert):**
+1. Verify whether current `main` (0c2370b04) still reproduces — re-run the `E2E Tests` job or boot one messaging E2E spec locally.
+2. If so, find the undefined base: grep the messaging E2E test base class + its import chain for a circular dependency or a barrel (`index.ts`) that re-exports the base before it is defined. The fix is usually to import the base from its concrete module (not the barrel) or break the cycle.
 
-Status: OPEN (2026-06-14; owner: frontend-expert; gated on `@xyflow/react` zustand-5 range support, no deadline). Registry: orphan-findings.md only (keeps PR-1b's findings.jsonl footprint zero — same convention as ORPHAN-MEDIUM-102/103).
+Status: OPEN. Owner: messaging-expert. Registry: `ORPHAN-HIGH-102` in `docs/reviews/_registry/findings.jsonl`.
+
+> **D2 / CRITICAL-002 traceability note (not a registry close):** the gateway rate-limit consolidation (PR #457, `0c2370b04`) — which also fixed the gateway's fail-OPEN Redis store — is fully traced by its own commit message + PR. It is NOT seeded as a closable registry finding because the three-store invariant requires a closing commit to carry a `Closes: …#<id>` trailer *at commit time*; a finding seeded post-merge cannot be closed against an already-merged commit (no amend/force-push). The SEC-MEDIUM-001/002 closes in this same registry pass ARE valid because D1's commit (`bc79457d5`) carried their `Closes:` trailers.

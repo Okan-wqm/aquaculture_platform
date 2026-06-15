@@ -5,13 +5,14 @@ import {
   queueOperation,
   getPendingOperations,
   getPendingCount,
+  getQueueVersion,
   syncAllOperations,
   removeOperation,
   MAX_RETRY_COUNT,
 } from '@/pwa/offline-queue';
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
-import type { QueuedOperation, OperationType, OperationPayload } from '@/types';
+import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
 
 interface SyncResult {
   success: number;
@@ -26,7 +27,7 @@ interface OfflineContextValue {
   isOnline: boolean;
   isSyncing: boolean;
   syncError: string | null;
-  addToQueue: (type: OperationType, payload: OperationPayload) => Promise<string>;
+  addToQueue: (type: OperationType, payload: OperationPayload) => Promise<AddToQueueResult>;
   syncNow: () => Promise<SyncResult>;
   removeFromQueue: (id: string) => Promise<void>;
   getSyncStatus: (id: string) => SyncStatus;
@@ -206,13 +207,22 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   const isOnline = useNetworkStatus();
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingOperations, setPendingOperations] = useState<QueuedOperation[]>([]);
+  // FE-HIGH-051: monotonic per-tenant queue version surfaced into React state so
+  // the auto-sync effect re-arms on a queue CONTENT change (any enqueue), not on
+  // a pending-COUNT delta. A drain-to-N-then-enqueue-back-to-N leaves the count
+  // unchanged but bumps the version, so this is the only signal that catches it.
+  const [queueVersion, setQueueVersion] = useState(0);
   const [syncResults, setSyncResults] = useState<Map<string, SyncStatus>>(() => new Map());
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
   // Use ref to track syncing state to avoid infinite loops
   const isSyncingRef = useRef(false);
-  const hasSyncedOnReconnectRef = useRef(false);
+  // FE-HIGH-051: the queue version we last armed an auto-sync for. The reconnect
+  // effect fires only when the current version differs from this. Reset to a
+  // sentinel (-1, never a real version) when going offline so the next reconnect
+  // always re-arms even if the queue content did not change while offline.
+  const lastArmedVersionRef = useRef(-1);
   // PERF-04: Hold syncNow in a ref so the auto-sync effect does not re-run when
   // syncNow changes due to pendingCount updates during a sync session.
   const syncNowRef = useRef<() => Promise<SyncResult>>(async () => ({ success: 0, failed: 0 }));
@@ -222,12 +232,14 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   // cross-tenant data leakage on shared devices.
   const refreshQueue = useCallback(async () => {
     try {
-      const [count, operations] = await Promise.all([
+      const [count, operations, version] = await Promise.all([
         getPendingCount(tenantId ?? undefined),
-        getPendingOperations(tenantId ?? undefined)
+        getPendingOperations(tenantId ?? undefined),
+        tenantId ? getQueueVersion(tenantId) : Promise.resolve(0),
       ]);
       setPendingCount(count);
       setPendingOperations(operations);
+      setQueueVersion(version);
     } catch (error) {
       console.error('Failed to refresh queue:', error);
     }
@@ -255,7 +267,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   }, [refreshQueue]);
 
   const addToQueue = useCallback(
-    async (type: OperationType, payload: OperationPayload): Promise<string> => {
+    async (type: OperationType, payload: OperationPayload): Promise<AddToQueueResult> => {
       // SECURITY (C11): tenantId is required -- reject if not authenticated
       if (!tenantId) {
         throw new Error('Cannot queue operations without an active tenant');
@@ -263,9 +275,9 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       // SEC-09: pass auth presence so background sync is only registered when
       // credentials are confirmed valid, preventing auth-failure retryCount inflation.
       const hasValidAuth = Boolean(accessToken && tenantId && user);
-      const id = await queueOperation(tenantId, type, payload, hasValidAuth);
+      const result = await queueOperation(tenantId, type, payload, hasValidAuth);
       await refreshQueue();
-      return id;
+      return result;
     },
     [refreshQueue, accessToken, tenantId, user]
   );
@@ -424,11 +436,11 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         .map((op) => op.type);
       await invalidateSyncedOperationQueries(queryClient, tenantId, syncedOperationTypes);
 
-      // BUG-07: Reset the reconnect guard after a successful sync so that
-      // new items queued while online will trigger auto-sync on next effect run.
-      if (result.success > 0) {
-        hasSyncedOnReconnectRef.current = false;
-      }
+      // FE-HIGH-051: no manual guard reset here. The reconnect auto-sync guard
+      // is keyed on the monotonic queue version, which refreshQueue() (called
+      // above) has just re-read. Any subsequent enqueue bumps the version and
+      // re-arms the guard automatically — including the same-count
+      // drain-then-enqueue case the old success-delta reset could not see.
 
       return result;
     } catch (error) {
@@ -478,22 +490,28 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   // Auto-sync when coming online - with debounce to prevent loops.
   // PERF-04: syncNow is accessed via ref, not listed as a dependency,
   // preventing 50+ re-evaluations during a bulk sync session.
+  //
+  // FE-HIGH-051: re-arm on the queue VERSION token, not a pending-count delta.
+  // The guard fires when (a) we are online, (b) there is work pending, and
+  // (c) the current queue version differs from the version we last armed for.
+  // Because every enqueue bumps the version, a drain-to-N-then-enqueue-back-to-N
+  // (same count) still changes the version and re-triggers sync. Going offline
+  // resets the armed version to a sentinel so the next reconnect always re-fires.
   useEffect(() => {
-    if (isOnline && pendingCount > 0 && !hasSyncedOnReconnectRef.current) {
-      hasSyncedOnReconnectRef.current = true;
+    if (!isOnline) {
+      lastArmedVersionRef.current = -1;
+      return;
+    }
+    if (pendingCount > 0 && lastArmedVersionRef.current !== queueVersion) {
+      lastArmedVersionRef.current = queueVersion;
       // Small delay to ensure network is stable
       const timer = setTimeout(() => {
         syncNowRef.current();
       }, 1000);
       return () => clearTimeout(timer);
     }
-
-    // Reset flag when going offline so the next reconnect triggers sync
-    if (!isOnline) {
-      hasSyncedOnReconnectRef.current = false;
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOnline, pendingCount]);
+  }, [isOnline, pendingCount, queueVersion]);
 
   // BUG-17: Periodic retry for failed operations.
   // When online with failed items in the queue, schedule automatic retries

@@ -84,7 +84,8 @@ describe('useTaskActions — offline regression coverage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsOnline = true;
-    mockAddToQueue.mockResolvedValue('op-queued-123');
+    // FE-HIGH-050: addToQueue now resolves a discriminated AddToQueueResult.
+    mockAddToQueue.mockResolvedValue({ status: 'queued', id: 'op-queued-123' });
     mockInvalidateQueries.mockResolvedValue(undefined);
   });
 

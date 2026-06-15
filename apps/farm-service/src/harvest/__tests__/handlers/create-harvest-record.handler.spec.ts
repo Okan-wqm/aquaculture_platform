@@ -15,6 +15,7 @@
  */
 import { BadRequestException, Logger } from '@nestjs/common';
 import { createMockRepository } from '@aquaculture/testing';
+import { getMetadataStorage } from 'class-validator';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
 import type { QueryRunner } from 'typeorm';
 
@@ -25,6 +26,7 @@ import { TankOperation } from '../../../batch/entities/tank-operation.entity';
 import { BatchWithdrawalBlockedError } from '../../../common/errors/farm-errors';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { CreateHarvestRecordCommand } from '../../commands/create-harvest-record.command';
+import { CreateHarvestRecordInput } from '../../dto/create-harvest-record.input';
 import { HarvestRecord, QualityGrade } from '../../entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../handlers/create-harvest-record.handler';
 
@@ -68,7 +70,11 @@ function makeHarness(opts: HarnessOpts = {}) {
     if (entity === Tank) return Promise.resolve(tank);
     return Promise.resolve(null);
   });
-  const managerCreate = jest.fn((_entity: unknown, data: Record<string, unknown>) => data);
+  const createdHarvestRecords: Array<Record<string, unknown>> = [];
+  const managerCreate = jest.fn((entity: unknown, data: Record<string, unknown>) => {
+    if (entity === HarvestRecord) createdHarvestRecords.push(data);
+    return data;
+  });
   const managerSave = jest.fn((_entity: unknown, value: unknown) => Promise.resolve(value));
 
   const manager = {
@@ -138,7 +144,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     mobileCommandReceipts as never,
   );
 
-  return { handler, batch, commit, rollback, enqueuedEvents, executeCommand };
+  return { handler, batch, commit, rollback, enqueuedEvents, executeCommand, createdHarvestRecords };
 }
 
 function makeCommand(overrides: Partial<Record<string, unknown>> = {}) {
@@ -275,5 +281,79 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
     ).rejects.toThrow(BadRequestException);
 
     expect(enqueuedEvents).toHaveLength(0);
+  });
+});
+
+describe('CreateHarvestRecordHandler — server-derived harvest identity (FARM-HIGH-051)', () => {
+  it('persists supervisorId and stamps event userId from the server-supplied principal, never from the input', async () => {
+    // recordedBy is the authenticated principal the resolver threads from
+    // @CurrentUser → user.sub. It is the THIRD constructor argument of the
+    // command and is the ONLY identity source the handler reads.
+    const principal = 'authenticated-user-sub';
+    const { handler, enqueuedEvents, createdHarvestRecords } = makeHarness({
+      currentQuantity: 1000,
+    });
+
+    // The input deliberately carries an attacker-style attribution override
+    // (`harvestedBy`) plus a stray `supervisorId`. Neither is part of the
+    // command interface nor read by the handler, so identity must still come
+    // from `recordedBy`.
+    const validInput: CreateHarvestRecordCommand['input'] = {
+      batchId: 'batch-1',
+      tankId: 'tank-1',
+      quantityHarvested: 400,
+      averageWeight: 500,
+      totalBiomass: 200,
+      qualityGrade: QualityGrade.GRADE_A,
+      harvestDate: '2026-06-10T08:00:00.000Z',
+    };
+    // The attacker-style overrides (`harvestedBy`, `supervisorId`) are NOT part of
+    // the command input interface. Carrying them on a structurally-wider object
+    // lets the literal type-check WITHOUT a cast — the handler must ignore them
+    // regardless, which is exactly what this test proves.
+    const input: CreateHarvestRecordCommand['input'] & Record<string, unknown> = {
+      ...validInput,
+      harvestedBy: 'spoofed-other-user',
+      supervisorId: 'spoofed-supervisor',
+    };
+
+    await handler.execute(new CreateHarvestRecordCommand('tenant-1', input, principal));
+
+    expect(createdHarvestRecords).toHaveLength(1);
+    expect(createdHarvestRecords[0]?.supervisorId).toBe(principal);
+    // The spoofed override never reaches persistence.
+    expect(createdHarvestRecords[0]?.supervisorId).not.toBe('spoofed-other-user');
+    expect(createdHarvestRecords[0]?.supervisorId).not.toBe('spoofed-supervisor');
+
+    const [event] = enqueuedEvents;
+    expect(event?.userId).toBe(principal);
+  });
+
+  it('CreateHarvestRecordInput exposes no client-settable harvestedBy field', () => {
+    // Regression guard for FARM-HIGH-051: `harvestedBy` was a required ID!
+    // input field with no consumer — its arity 400'd every caller (mobile
+    // included) while contributing nothing, since identity is server-derived.
+    // Re-introducing the field is the regression we forbid here.
+    //
+    // The field was decorated with @IsNotEmpty()/@IsUUID(), so class-validator's
+    // metadata storage is the authoritative, schema-build-free source of truth
+    // for whether the property still exists on the validated input contract.
+    // (The GraphQL @Field set is only fully materialised after a Nest schema
+    // build, which a unit test must not require.) Re-adding `harvestedBy` as a
+    // validated @Field would repopulate this metadata and fail the assertion.
+    const properties = new Set(
+      getMetadataStorage()
+        .getTargetValidationMetadatas(
+          CreateHarvestRecordInput,
+          CreateHarvestRecordInput.name,
+          false,
+          false,
+        )
+        .map((m) => m.propertyName),
+    );
+
+    expect(properties.has('batchId')).toBe(true);
+    expect(properties.has('tankId')).toBe(true);
+    expect(properties.has('harvestedBy')).toBe(false);
   });
 });

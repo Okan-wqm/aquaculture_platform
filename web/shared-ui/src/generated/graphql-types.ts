@@ -1313,8 +1313,6 @@ export type CreateHarvestRecordInput = {
   harvestCost?: InputMaybe<Scalars['Float']['input']>;
   /** Harvest date (ISO 8601 format) */
   harvestDate: Scalars['String']['input'];
-  /** User ID who performed the harvest */
-  harvestedBy: Scalars['ID']['input'];
   /** Lot number for traceability */
   lotNumber?: InputMaybe<Scalars['String']['input']>;
   /** Harvest method used */

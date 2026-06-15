@@ -16,14 +16,17 @@
  * @returns fetchMore — load the next page of channels
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+
 import { MY_CHANNELS } from '@/graphql/messaging-operations';
+import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { ChannelPage } from '@/types/messaging';
+import { normalizeChannelType } from '@/utils/channel-type-wire';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 /** Number of channels per page. */
 const PAGE_SIZE = 30;
@@ -51,7 +54,15 @@ async function fetchChannels(limit: number, offset: number): Promise<ChannelPage
     throw new Error('Invalid response: no channel data');
   }
 
-  return result.myChannels;
+  // MSG-HIGH-054 (read half): the messaging subgraph registers `ChannelType`
+  // without a valuesMap, so graphql-js SERIALIZES the stored lowercase value
+  // back to the wire KEY (`'group'` -> `'GROUP'`). Normalize at this single read
+  // boundary so every downstream `channel.type === 'group'` comparison stays
+  // correct and the wire casing never leaks into the UI or the offline cache.
+  return {
+    ...result.myChannels,
+    items: result.myChannels.items.map(normalizeChannelType),
+  };
 }
 
 /**

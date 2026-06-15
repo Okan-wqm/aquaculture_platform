@@ -1,0 +1,121 @@
+/**
+ * Service Worker build-artifact invariant (FE-CRITICAL-050-SW)
+ *
+ * WHY THIS TEST EXISTS:
+ * The finding FE-CRITICAL-050 flagged a service worker whose hand-written
+ * handlers (background `sync`, `notificationclick`, the LOGOUT cache-purge
+ * `message` handler) and precache manifest were ALL ABSENT from the deployed
+ * artifact. Under the old VitePWA `generateSW` strategy, `src/pwa/messaging-sw.ts`
+ * was never bundled; `dist/sw.js` was an auto-generated worker with ZERO of those
+ * listeners, so `offline-queue.ts`'s `sync-operations` / `sync-messages`
+ * registrations had no handler to run and queued operations never replayed in
+ * the background.
+ *
+ * A unit test that imports the SW source cannot catch this class of bug — the
+ * SOURCE was always correct; the BUILD threw it away. The only test that proves
+ * the fix is one that runs the REAL `vite build` and inspects the REAL emitted
+ * artifact. This is a Tier-3 "make it detectable" guard: if anyone reverts
+ * vite.config.ts to `generateSW`, or renames/deletes the SW, or drops the sync
+ * handler, this test goes RED at build time.
+ *
+ * It deliberately runs the full production build once (in beforeAll) and asserts
+ * against `dist/messaging-sw.js` — the exact file `virtual:pwa-register`
+ * registers (filename: 'messaging-sw.ts' → emitted as messaging-sw.js).
+ */
+
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import { describe, it, expect, beforeAll } from 'vitest';
+
+const APP_DIR = resolve(__dirname, '../../..');
+const VITE_BIN = resolve(APP_DIR, '../../../node_modules/.bin/vite');
+// FE-CRITICAL-050-SW: vite.config.ts sets filename: 'messaging-sw.ts', so the
+// injectManifest sub-build emits dist/messaging-sw.js — NOT dist/sw.js. This is
+// the file virtual:pwa-register registers; asserting against it is asserting
+// against the artifact the browser actually runs.
+const SW_ARTIFACT = resolve(APP_DIR, 'dist/messaging-sw.js');
+
+// A production vite build (app + injectManifest SW sub-build) takes ~30s on a
+// loaded CI runner. Give the one-time build a wide ceiling; the assertions
+// themselves are instant.
+const BUILD_TIMEOUT_MS = 300_000;
+
+let swSource = '';
+
+describe('FE-CRITICAL-050-SW: deployed service worker artifact', () => {
+  beforeAll(() => {
+    // Run the REAL production build. `vite build` drives VitePWA's injectManifest
+    // strategy, which compiles src/pwa/messaging-sw.ts through its own Vite
+    // sub-build and injects the precache manifest into self.__WB_MANIFEST.
+    execFileSync(VITE_BIN, ['build'], {
+      cwd: APP_DIR,
+      stdio: 'pipe',
+      env: { ...process.env, NODE_ENV: 'production' },
+    });
+    expect(existsSync(SW_ARTIFACT)).toBe(true);
+    swSource = readFileSync(SW_ARTIFACT, 'utf8');
+  }, BUILD_TIMEOUT_MS);
+
+  it('emits the SW as dist/messaging-sw.js (injectManifest, not generateSW)', () => {
+    // If the build reverted to generateSW, the emitted dist/sw.js would be a
+    // workbox-generated shell and messaging-sw.js would not exist.
+    expect(swSource.length).toBeGreaterThan(0);
+  });
+
+  it('contains a background "sync" event listener (the dead handler the finding flagged)', () => {
+    // offline-queue.ts registers sync-operations / sync-messages tags. They are
+    // inert without a deployed `sync` listener. Minifiers preserve the event
+    // name string literal, so a tolerant regex over single/double quotes proves
+    // addEventListener('sync', ...) survived into the artifact.
+    const syncListener = /addEventListener\(\s*["']sync["']/.test(swSource);
+    expect(syncListener).toBe(true);
+  });
+
+  it('responds to the sync-operations / sync-messages tags from offline-queue.ts', () => {
+    // The tag strings the queue registers must appear in the worker so the sync
+    // handler actually matches them. This binds the SW artifact to the queue's
+    // registration contract (offline-queue.ts queueOperation()).
+    expect(swSource).toContain('sync-operations');
+    expect(swSource).toContain('sync-messages');
+  });
+
+  it('inlines the precache manifest (self.__WB_MANIFEST was substituted, not left as a placeholder)', () => {
+    // After injectManifest substitution the literal `self.__WB_MANIFEST` token is
+    // GONE — replaced by an array of { url, revision } entries. Presence of the
+    // unsubstituted token would mean precaching is broken (the generateSW
+    // artifact the finding flagged had no precache entries at all).
+    expect(swSource).not.toContain('__WB_MANIFEST');
+    // The substituted manifest is an array of precache entries each carrying a
+    // `revision` field; at least one real entry must be present.
+    expect(swSource).toMatch(/revision\s*:/);
+    // And it must reference at least one content-hashed app asset (the app shell
+    // bundle), proving the manifest is non-empty.
+    expect(swSource).toMatch(/index-[A-Za-z0-9_-]+\.js/);
+  });
+
+  it('preserves the LOGOUT cache-purge message handler (used by useAuth.tsx logout)', () => {
+    // C-FE-01: on shared devices, logout must purge messaging caches via a
+    // postMessage({ type: 'LOGOUT' }). The handler and the cache-key prefix it
+    // clears must both survive into the artifact.
+    const messageListener = /addEventListener\(\s*["']message["']/.test(swSource);
+    expect(messageListener).toBe(true);
+    expect(swSource).toContain('LOGOUT');
+    expect(swSource).toContain('messaging-');
+  });
+
+  it('preserves the notificationclick handler', () => {
+    const clickListener = /addEventListener\(\s*["']notificationclick["']/.test(swSource);
+    expect(clickListener).toBe(true);
+  });
+
+  it('does NOT register a raw "push" listener (FCM owns push via firebase-messaging-sw.js — FE-HIGH-057)', () => {
+    // Push for AquaMobil is delivered by FCM through firebase-messaging-sw.js's
+    // onBackgroundMessage, NOT as a raw `push` event in this workbox worker. A
+    // `push` listener here would be dead code. Asserting its ABSENCE keeps the
+    // FE-HIGH-057 boundary explicit in the artifact.
+    const rawPushListener = /addEventListener\(\s*["']push["']/.test(swSource);
+    expect(rawPushListener).toBe(false);
+  });
+});

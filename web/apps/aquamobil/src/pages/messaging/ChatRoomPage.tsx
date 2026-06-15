@@ -29,6 +29,7 @@ import { MessageInput } from '@/components/messaging/MessageInput';
 import { TypingIndicator } from '@/components/messaging/TypingIndicator';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
+import { useEditMessage } from '@/hooks/useEditMessage';
 import { useMarkRead } from '@/hooks/useMarkRead';
 import { useMediaUpload } from '@/hooks/useMediaUpload';
 import { useMessages } from '@/hooks/useMessages';
@@ -96,6 +97,7 @@ export function ChatRoomPage() {
   } = useMessages(channelId, socketRef);
   const { channel, isLoading: channelLoading } = useChannelDetail(channelId);
   const { sendMessage, isSending } = useSendMessage(channelId);
+  const { editMessage } = useEditMessage(channelId);
   const { markRead } = useMarkRead(channelId);
   const { stopTyping, typingUsers } = useTypingIndicator(
     channelId,
@@ -107,6 +109,12 @@ export function ChatRoomPage() {
   const { addToQueue } = useOfflineQueue();
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  // MSG-MEDIUM-053: the message currently being edited. Mutually exclusive with
+  // replyingTo — entering edit mode clears any active reply. MessageInput is
+  // internally stateful with no edit-mode prop, so we reuse its onSend channel:
+  // while editingMessage is set, the next submitted text is routed to the
+  // editMessage producer instead of sendMessage.
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
 
@@ -246,6 +254,20 @@ export function ChatRoomPage() {
     }
   }, [messages]);
 
+  /**
+   * MSG-MEDIUM-053: enter edit mode for the selected own message. Editing and
+   * replying are mutually exclusive composer modes, so entering edit clears any
+   * active reply. The next text submitted via MessageInput is routed to the
+   * editMessage producer (online mutation or offline queue) in onSend below.
+   */
+  const handleEdit = useCallback((messageId: string) => {
+    const msg = messages.find((m) => m.id === messageId);
+    if (msg) {
+      setReplyingTo(null);
+      setEditingMessage(msg);
+    }
+  }, [messages]);
+
   /** Delete a message via deleteMessage GraphQL mutation (soft-delete). */
   const handleDelete = useCallback(async (messageId: string) => {
     if (!channelId) return;
@@ -272,10 +294,12 @@ export function ChatRoomPage() {
     if (!channelId) return;
     try {
       const storageKey = await uploadMedia(file);
-      const contentType = file.type.startsWith('image/') ? 'image' : 'file';
+      // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum
+      // NAME; the union literal flows straight into the typed SendMessageParams.
+      const contentType = file.type.startsWith('image/') ? 'IMAGE' : 'FILE';
       await sendMessage({
         content: null,
-        contentType: contentType as 'image' | 'file',
+        contentType,
         attachmentKeys: [storageKey],
       });
     } catch {
@@ -297,7 +321,7 @@ export function ChatRoomPage() {
         const storageKey = await uploadMedia(file);
         await sendMessage({
           content: null,
-          contentType: 'voice',
+          contentType: 'VOICE',
           attachmentKeys: [storageKey],
           metadata: { durationSeconds },
         });
@@ -463,7 +487,7 @@ export function ChatRoomPage() {
                   // Map attachment data
                   const firstAttachment = msg.attachments?.[0];
                   const image =
-                    msg.contentType === 'image' && firstAttachment
+                    msg.contentType === 'IMAGE' && firstAttachment
                       ? {
                           url: firstAttachment.downloadUrl ?? '',
                           thumbnailUrl: firstAttachment.thumbnailUrl ?? undefined,
@@ -472,7 +496,7 @@ export function ChatRoomPage() {
                         }
                       : undefined;
                   const file =
-                    msg.contentType === 'file' && firstAttachment
+                    msg.contentType === 'FILE' && firstAttachment
                       ? {
                           name: firstAttachment.originalFilename,
                           size: `${Math.round(firstAttachment.fileSize / 1024)}KB`,
@@ -485,9 +509,9 @@ export function ChatRoomPage() {
                     ? 'pending' as const
                     : msg._status === 'failed'
                       ? 'pending' as const
-                      : msg.receipts?.some((r) => r.status === 'read')
+                      : msg.receipts?.some((r) => r.status === 'READ')
                         ? 'read' as const
-                        : msg.receipts?.some((r) => r.status === 'delivered')
+                        : msg.receipts?.some((r) => r.status === 'DELIVERED')
                           ? 'delivered' as const
                           : 'sent' as const;
 
@@ -510,6 +534,11 @@ export function ChatRoomPage() {
                       onReply={handleReply}
                       onCopy={handleCopy}
                       onForward={handleForward}
+                      onEdit={
+                        isOwn && msg.contentType === 'TEXT' && !msg.isDeleted
+                          ? handleEdit
+                          : undefined
+                      }
                       onDelete={isOwn ? handleDelete : undefined}
                     />
                   );
@@ -528,11 +557,21 @@ export function ChatRoomPage() {
        * "Send" when offline, giving the user honest feedback about delivery. */}
       <MessageInput
         onSend={(text) => {
-          setReplyingTo(null);
           stopTyping();
+          // MSG-MEDIUM-053: in edit mode the submitted text replaces the edited
+          // message via the editMessage producer (online mutation or offline
+          // queue); otherwise it is a fresh send. Both clear their composer mode.
+          if (editingMessage) {
+            const editedId = editingMessage.id;
+            setEditingMessage(null);
+            void editMessage(editedId, text);
+            return;
+          }
+          setReplyingTo(null);
           sendMessage({
             content: text,
-            contentType: 'text',
+            // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum NAME.
+            contentType: 'TEXT',
             parentId: replyingTo?.id,
           });
         }}
@@ -553,7 +592,16 @@ export function ChatRoomPage() {
           handleVoiceRecordingComplete(blob, durationSeconds, mimeType);
         }}
         replyTo={
-          replyingTo
+          editingMessage
+            ? {
+                // MSG-MEDIUM-053: reuse the preview bar to show the original
+                // text being edited (MessageInput has no edit-mode prop), so
+                // the operator sees what they are replacing before retyping.
+                messageId: editingMessage.id,
+                senderName: 'Editing message',
+                text: editingMessage.content ?? '',
+              }
+            : replyingTo
             ? {
                 messageId: replyingTo.id,
                 senderName: replyingTo.sender
@@ -563,7 +611,10 @@ export function ChatRoomPage() {
               }
             : null
         }
-        onCancelReply={() => setReplyingTo(null)}
+        onCancelReply={() => {
+          setReplyingTo(null);
+          setEditingMessage(null);
+        }}
         channelMembers={channel?.members ?? []}
         disabled={isSending || isUploading}
         isOnline={isOnline}

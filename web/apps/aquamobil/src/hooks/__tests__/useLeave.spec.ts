@@ -10,6 +10,8 @@
  * - Dedup fingerprint prevents duplicate leave requests (same leaveTypeId+startDate+endDate)
  */
 
+import { webcrypto } from 'node:crypto';
+
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // --------------------------------------------------------------------------
@@ -39,17 +41,12 @@ Object.defineProperty(globalThis, 'crypto', {
   value: {
     subtle: {
       generateKey: vi.fn().mockResolvedValue({ type: 'secret', algorithm: 'AES-GCM' }),
-      digest: vi.fn((_algo: unknown, data: ArrayBuffer | ArrayBufferView) => {
-        const bytes =
-          data instanceof ArrayBuffer
-            ? new Uint8Array(data)
-            : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-        const digest = new Uint8Array(32);
-        for (let i = 0; i < digest.length; i += 1) {
-          digest[i] = bytes.length ? bytes[i % bytes.length] : i;
-        }
-        return Promise.resolve(digest.buffer as ArrayBuffer);
-      }),
+      // Real SHA-256 via Node's WebCrypto. FE-HIGH-050 keys offline dedup off
+      // the payload fingerprint, so a fake digest would mask hash collisions and
+      // produce false dedup matches between distinct payloads — exactly the bug
+      // the "different leave types" / "different date ranges" cases must catch.
+      digest: (algorithm: AlgorithmIdentifier, data: BufferSource) =>
+        webcrypto.subtle.digest(algorithm, data),
       encrypt: vi.fn((_algo: unknown, _key: unknown, data: ArrayBuffer) =>
         Promise.resolve(new Uint8Array(data).buffer),
       ),
@@ -238,7 +235,10 @@ describe('useLeave — offline regression coverage', () => {
         reason: 'Family event',
       };
 
-      const id = await queueOperation('tenant-1', 'createLeaveRequest', payload);
+      // FE-HIGH-050: queueOperation returns a discriminated AddToQueueResult.
+      const result = await queueOperation('tenant-1', 'createLeaveRequest', payload);
+      expect(result.status).toBe('queued');
+      const id = result.id;
       const op = await getOperation('tenant-1', id);
 
       expect(op).toBeDefined();
@@ -263,8 +263,8 @@ describe('useLeave — offline regression coverage', () => {
   // AQ-01: Dedup fingerprint prevents duplicate leave requests
   // ========================================================================
 
-  describe('Leave dedup fingerprint (AQ-01)', () => {
-    it('should dedup createLeaveRequest by leaveTypeId+startDate+endDate within window', async () => {
+  describe('Leave dedup fingerprint (AQ-01, FE-HIGH-050 payloadHash)', () => {
+    it('should dedup an identical createLeaveRequest within the window (status duplicate)', async () => {
       const { queueOperation } = await import('@/pwa/offline-queue');
 
       const payload = {
@@ -274,14 +274,16 @@ describe('useLeave — offline regression coverage', () => {
         totalDays: 3,
       };
 
-      // First submission should succeed
-      const id1 = await queueOperation('tenant-1', 'createLeaveRequest', payload);
-      expect(id1).toBeTruthy();
-      expect(id1.length).toBeGreaterThan(0);
+      // First submission writes a fresh op.
+      const r1 = await queueOperation('tenant-1', 'createLeaveRequest', payload);
+      expect(r1.status).toBe('queued');
+      expect(r1.id.length).toBeGreaterThan(0);
 
-      // Second identical submission within 5s window should be deduped (returns empty string)
-      const id2 = await queueOperation('tenant-1', 'createLeaveRequest', payload);
-      expect(id2).toBe('');
+      // FE-HIGH-050: a byte-identical re-submit within the window is collapsed
+      // onto the existing op — status 'duplicate', id pointing at the first op.
+      const r2 = await queueOperation('tenant-1', 'createLeaveRequest', payload);
+      expect(r2.status).toBe('duplicate');
+      expect(r2.id).toBe(r1.id);
     });
 
     it('should NOT dedup leave requests with different date ranges', async () => {
@@ -301,14 +303,13 @@ describe('useLeave — offline regression coverage', () => {
         totalDays: 3,
       };
 
-      const id1 = await queueOperation('tenant-1', 'createLeaveRequest', payload1);
-      const id2 = await queueOperation('tenant-1', 'createLeaveRequest', payload2);
+      const r1 = await queueOperation('tenant-1', 'createLeaveRequest', payload1);
+      const r2 = await queueOperation('tenant-1', 'createLeaveRequest', payload2);
 
-      // Both should succeed — different date ranges
-      expect(id1).toBeTruthy();
-      expect(id1.length).toBeGreaterThan(0);
-      expect(id2).toBeTruthy();
-      expect(id2.length).toBeGreaterThan(0);
+      // Both write fresh ops — different date ranges hash differently.
+      expect(r1.status).toBe('queued');
+      expect(r2.status).toBe('queued');
+      expect(r2.id).not.toBe(r1.id);
     });
 
     it('should NOT dedup leave requests with different leave types', async () => {
@@ -328,14 +329,13 @@ describe('useLeave — offline regression coverage', () => {
         totalDays: 3,
       };
 
-      const id1 = await queueOperation('tenant-1', 'createLeaveRequest', payload1);
-      const id2 = await queueOperation('tenant-1', 'createLeaveRequest', payload2);
+      const r1 = await queueOperation('tenant-1', 'createLeaveRequest', payload1);
+      const r2 = await queueOperation('tenant-1', 'createLeaveRequest', payload2);
 
-      // Both should succeed — different leave types
-      expect(id1).toBeTruthy();
-      expect(id1.length).toBeGreaterThan(0);
-      expect(id2).toBeTruthy();
-      expect(id2.length).toBeGreaterThan(0);
+      // Both write fresh ops — different leave types hash differently.
+      expect(r1.status).toBe('queued');
+      expect(r2.status).toBe('queued');
+      expect(r2.id).not.toBe(r1.id);
     });
   });
 });

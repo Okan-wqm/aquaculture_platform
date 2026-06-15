@@ -18,6 +18,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { gql } from 'graphql-tag';
 import { useCallback } from 'react';
 
 
@@ -49,10 +50,16 @@ interface UseAiConsentReturn {
 }
 
 // ---------------------------------------------------------------------------
-// GraphQL Operations (TODO: Move to graphql/messaging-operations.ts)
+// GraphQL Operations
+//
+// S1-CODEGEN: gql-tagged so the bare-query-string lint stays clean and
+// graphql-tag-pluck can fold them into the codegen contract once these queries
+// are promoted into graphql/*. `aiConsentStatus`/`toggleAiConsent` are not yet
+// in the composed supergraph SDL, so they stay inline `gql` DocumentNodes here
+// (the explicit result type annotation on graphqlRequest carries their shape).
 // ---------------------------------------------------------------------------
 
-const GET_AI_CONSENT_STATUS = `
+const GET_AI_CONSENT_STATUS = gql`
   query GetAiConsentStatus {
     aiConsentStatus {
       isAiEnabled
@@ -61,7 +68,7 @@ const GET_AI_CONSENT_STATUS = `
   }
 `;
 
-const TOGGLE_AI_CONSENT = `
+const TOGGLE_AI_CONSENT = gql`
   mutation ToggleAiConsent($consented: Boolean!) {
     toggleAiConsent(consented: $consented) {
       hasConsented

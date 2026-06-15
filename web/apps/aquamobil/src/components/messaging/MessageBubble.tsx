@@ -15,7 +15,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
-import { File as FileIcon, Reply, Copy, Forward, Trash2, CornerUpRight } from 'lucide-react';
+import { File as FileIcon, Reply, Copy, Forward, Trash2, CornerUpRight, Pencil } from 'lucide-react';
 import { clsx } from 'clsx';
 import { ReadReceipt } from './ReadReceipt';
 import { VoicePlayer } from './VoicePlayer';
@@ -89,6 +89,8 @@ interface MessageBubbleProps {
   onCopy?: (messageId: string) => void;
   /** Callback when Forward is selected from context menu. */
   onForward?: (messageId: string) => void;
+  /** Callback when Edit is selected from context menu (own text messages only). */
+  onEdit?: (messageId: string) => void;
   /** Callback when Delete is selected from context menu. */
   onDelete?: (messageId: string) => void;
   /** Callback when a @mention is tapped. */
@@ -215,7 +217,8 @@ export function MessageBubble({
   senderName,
   senderColorIndex = 0,
   text,
-  contentType = 'text',
+  // S1-CODEGEN: MessageContentType is the UPPERCASE GraphQL enum NAME wire form.
+  contentType = 'TEXT',
   timestamp,
   status,
   isEdited = false,
@@ -231,6 +234,7 @@ export function MessageBubble({
   onReply,
   onCopy,
   onForward,
+  onEdit,
   onDelete,
   onMentionTap,
 }: MessageBubbleProps) {
@@ -285,10 +289,10 @@ export function MessageBubble({
 
   // Voice note metadata
   const voiceDuration =
-    contentType === 'voice' && metadata
+    contentType === 'VOICE' && metadata
       ? (metadata['voiceDurationSeconds'] as number | undefined)
       : undefined;
-  const voiceAttachment = contentType === 'voice' && attachments?.length
+  const voiceAttachment = contentType === 'VOICE' && attachments?.length
     ? attachments[0]
     : undefined;
 
@@ -369,7 +373,7 @@ export function MessageBubble({
         )}
 
         {/* Voice note — render VoicePlayer instead of text */}
-        {contentType === 'voice' && voiceAttachment?.downloadUrl && isSafeUrl(voiceAttachment.downloadUrl) && (
+        {contentType === 'VOICE' && voiceAttachment?.downloadUrl && isSafeUrl(voiceAttachment.downloadUrl) && (
           <VoicePlayer
             src={voiceAttachment.downloadUrl}
             durationSeconds={voiceDuration ?? voiceAttachment.durationSeconds ?? undefined}
@@ -422,7 +426,7 @@ export function MessageBubble({
         )}
 
         {/* Text content with @mention and URL rendering */}
-        {text && contentType !== 'voice' && (
+        {text && contentType !== 'VOICE' && (
           <p className={clsx('text-sm leading-relaxed break-words whitespace-pre-wrap', isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100')}>
             {renderRichText(text, isOwn, onMentionTap)}
           </p>
@@ -477,6 +481,15 @@ export function MessageBubble({
               >
                 <Forward size={16} className="text-gray-500" />
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Forward</span>
+              </button>
+            )}
+            {onEdit && (
+              <button
+                onClick={() => handleAction(onEdit)}
+                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
+              >
+                <Pencil size={16} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Edit</span>
               </button>
             )}
             {onDelete && (

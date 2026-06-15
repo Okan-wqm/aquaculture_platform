@@ -2,16 +2,119 @@
 
 /**
  * @module messaging-sw
- * @description Service worker extensions for the messaging feature.
- * Handles background sync for offline message queue, push notification display
- * for CHAT_MESSAGE type, notification click navigation, Badge API updates,
- * and caching strategies for messaging GraphQL and media resources.
+ * @description The DEPLOYED AquaMobil service worker.
+ *
+ * FE-CRITICAL-050-SW: This file is the artifact VitePWA emits as
+ * `dist/messaging-sw.js` via `strategies: 'injectManifest'` with
+ * `filename: 'messaging-sw.ts'` (configured in vite.config.ts), and it is what
+ * `virtual:pwa-register` registers at scope `/mobile/`. It is the single, real
+ * workbox service worker for the app — there is no separate generateSW artifact.
+ * Everything the SW must do lives here:
+ *   - precache the build manifest (`self.__WB_MANIFEST`, injected at build time)
+ *   - runtime caching + SPA navigation fallback (registerRoute rules below)
+ *   - background sync for the offline operation queue (sync-operations / sync-messages)
+ *   - notification click navigation + Badge API
+ *   - the LOGOUT cache-purge message handler (used by useAuth.tsx)
+ *
+ * PUSH NOTE (FE-HIGH-057, NOT solved here): foreground/background push is
+ * delivered by Firebase Cloud Messaging through its OWN service worker
+ * (public/firebase-messaging-sw.js → onBackgroundMessage), which
+ * useFirebaseMessaging registers at the DISTINCT sub-scope
+ * `/mobile/firebase-cloud-messaging-push-scope` — deliberately disjoint from this
+ * worker's `/mobile/` scope so the two registrations never evict each other. A
+ * raw `push` listener in THIS workbox SW would never fire for FCM messages, so no
+ * `push` handler is registered here. Adding one would be dead code. The FCM SW
+ * registration wiring is tracked as FE-HIGH-057.
+ *
  * @see ADR-012 section 7 (Offline / PWA)
  */
 
-export {};
+import { clientsClaim } from 'workbox-core';
+import { ExpirationPlugin } from 'workbox-expiration';
+import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
+import { registerRoute } from 'workbox-routing';
+import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 
-const sw = self as unknown as ServiceWorkerGlobalScope & typeof globalThis;
+declare const self: ServiceWorkerGlobalScope & typeof globalThis;
+
+// ============================================================================
+// Lifecycle: activate immediately, claim all clients
+// ============================================================================
+// FIX(SW-002, preserved from the prior generateSW config): skipWaiting +
+// clientsClaim ensure a freshly deployed SW takes control without waiting for
+// every tab to close, so field workers always run the latest version.
+// `void`: skipWaiting() returns a Promise the SW deliberately does not await —
+// it is the standard fire-and-forget activation idiom.
+void self.skipWaiting();
+clientsClaim();
+
+// ============================================================================
+// Precache (FE-CRITICAL-050-SW)
+// ============================================================================
+// `self.__WB_MANIFEST` is replaced at build time by VitePWA's injectManifest
+// sub-build with the content-hashed precache manifest. Precaching the built
+// assets is what makes the app shell available offline — the generateSW
+// artifact this file replaces had ZERO precache entries.
+precacheAndRoute(self.__WB_MANIFEST);
+
+// Drop precaches written by a previous SW revision so storage does not grow
+// unbounded across deployments.
+cleanupOutdatedCaches();
+
+// ============================================================================
+// Runtime caching (moved here from vite.config.ts workbox.runtimeCaching)
+// ============================================================================
+// CRIT-2 / SEC-02 / PERF-01: GraphQL POST responses are NEVER cached — caching
+// authenticated GraphQL on a shared device leaks tenant data to the next user
+// and silently discards offline-queue mutations. GraphQL passes straight to the
+// network via handleFetchEvent below; no runtime route is registered for it.
+
+// FIX(SW-003): SPA navigation fallback via NetworkFirst. For navigation
+// requests (HTML), always try the network first so deployments are picked up
+// immediately, falling back to cache when offline. This replaces the broken
+// precache-bound NavigationRoute that required index.html in the precache
+// manifest.
+registerRoute(
+  ({ request }) => request.mode === 'navigate',
+  new NetworkFirst({
+    cacheName: 'navigation-cache',
+    networkTimeoutSeconds: 5,
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 1,
+        maxAgeSeconds: 60 * 60 * 24, // 1 day
+      }),
+    ],
+  }),
+);
+
+// Static assets — CacheFirst (content-hashed filenames make this safe).
+registerRoute(
+  ({ url }) => /\.(?:js|css|woff2?)$/.test(url.pathname),
+  new CacheFirst({
+    cacheName: 'static-cache',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 100,
+        maxAgeSeconds: 60 * 60 * 24 * 7, // 7 days
+      }),
+    ],
+  }),
+);
+
+// Images — StaleWhileRevalidate.
+registerRoute(
+  ({ url }) => /\.(?:png|jpg|jpeg|gif|webp)$/.test(url.pathname),
+  new StaleWhileRevalidate({
+    cacheName: 'image-cache',
+    plugins: [
+      new ExpirationPlugin({
+        maxEntries: 100,
+        maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+      }),
+    ],
+  }),
+);
 
 // WHY: AquaMobil is mounted at /mobile (BrowserRouter basename). The service
 // worker must use the same base path when opening windows or matching existing
@@ -46,67 +149,13 @@ function handleSyncEvent(event: ExtendableEvent & { tag: string }): void {
 }
 
 async function notifyClientsToSync(): Promise<void> {
-  const clients = await sw.clients.matchAll({ type: 'window', includeUncontrolled: false });
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
   for (const client of clients) {
     // WHY: SYNC_COMPLETE is the event the OfflineProvider listens for.
     // Previously this posted SYNC_MESSAGES which was silently dropped,
     // leaving messaging operations stranded after background sync fired.
     client.postMessage({ type: 'SYNC_COMPLETE' });
   }
-}
-
-// ============================================================================
-// Push Notification Handler
-// ============================================================================
-
-/**
- * Handle incoming push notifications for CHAT_MESSAGE type.
- * SECURITY: Push payload never contains message content — only metadata.
- */
-function handlePushEvent(event: PushEvent): void {
-  if (!event.data) return;
-
-  let payload: {
-    title?: string;
-    body?: string;
-    data?: { type?: string; notificationRef?: string };
-    badge?: number;
-  };
-
-  try {
-    payload = event.data.json() as typeof payload;
-  } catch {
-    return;
-  }
-
-  // Only handle CHAT_MESSAGE notifications
-  if (payload.data?.type !== 'CHAT_MESSAGE') return;
-
-  const title = payload.title ?? 'New Message';
-  const options: NotificationOptions & {
-    renotify?: boolean;
-    actions?: Array<{ action: string; title: string; icon?: string }>;
-  } = {
-    body: payload.body ?? 'You have a new message',
-    icon: '/icons/messaging-icon-192.png',
-    badge: '/icons/messaging-badge-72.png',
-    tag: `chat-${payload.data.notificationRef ?? 'unknown'}`,
-    renotify: true,
-    data: {
-      notificationRef: payload.data.notificationRef,
-    },
-    actions: [
-      { action: 'open', title: 'Open' },
-      { action: 'dismiss', title: 'Dismiss' },
-    ],
-  };
-
-  event.waitUntil(
-    Promise.all([
-      sw.registration.showNotification(title, options),
-      updateBadgeCount(payload.badge ?? 0),
-    ]),
-  );
 }
 
 // ============================================================================
@@ -119,6 +168,10 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 /**
  * Navigate to messaging with an opaque notificationRef when clicked.
  * The authenticated app resolves the ref before opening a channel.
+ *
+ * NOTE: FCM notifications shown by firebase-messaging-sw.js fire THAT worker's
+ * own notificationclick handler. This handler covers notifications shown by
+ * this workbox SW (e.g. local/badge notifications).
  */
 function handleNotificationClick(event: NotificationEvent): void {
   event.notification.close();
@@ -138,7 +191,7 @@ function handleNotificationClick(event: NotificationEvent): void {
     : `${APP_BASENAME}/messages`;
 
   event.waitUntil(
-    sw.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       // Focus an existing window if one is open
       for (const client of clients) {
         // WHY: Match against APP_BASENAME + /messages to avoid false positives
@@ -148,44 +201,17 @@ function handleNotificationClick(event: NotificationEvent): void {
             type: 'NAVIGATE_TO_NOTIFICATION_REF',
             notificationRef,
           });
-          return (client).focus();
+          return client.focus();
         }
       }
       // Otherwise open a new window
-      return sw.clients.openWindow(targetUrl);
+      return self.clients.openWindow(targetUrl);
     }),
   );
 }
 
 // ============================================================================
-// Badge API
-// ============================================================================
-
-/**
- * Update the app badge count with unread message count.
- * Falls back gracefully if the Badge API is not supported.
- */
-async function updateBadgeCount(count: number): Promise<void> {
-  try {
-    const badgeNavigator = sw.navigator as unknown as {
-      setAppBadge?: (n: number) => Promise<void>;
-      clearAppBadge?: () => Promise<void>;
-    };
-
-    if (badgeNavigator.setAppBadge) {
-      if (count > 0) {
-        await badgeNavigator.setAppBadge(count);
-      } else {
-        await badgeNavigator.clearAppBadge?.();
-      }
-    }
-  } catch {
-    // Badge API not available — no-op
-  }
-}
-
-// ============================================================================
-// Cache Strategies
+// Cache Strategies — GraphQL pass-through + media
 // ============================================================================
 
 /** Messaging GraphQL endpoint pattern. */
@@ -197,6 +223,11 @@ const MEDIA_PATTERN = /\/(messaging|media)\//;
  * Fetch event handler with messaging-specific cache strategies:
  * - Pass-through for GraphQL (authenticated responses must NEVER be cached)
  * - StaleWhileRevalidate for media files (images, documents)
+ *
+ * NOTE: This listener runs BEFORE workbox's registerRoute router for these
+ * specific URL shapes (GraphQL POST, /messaging/ and /media/ GETs) because it
+ * calls event.respondWith() first. All other requests fall through to the
+ * registerRoute rules above.
  */
 function handleFetchEvent(event: FetchEvent): void {
   const url = new URL(event.request.url);
@@ -243,10 +274,9 @@ async function staleWhileRevalidateStrategy(request: Request): Promise<Response>
 // Event Listener Registration
 // ============================================================================
 
-sw.addEventListener('sync', handleSyncEvent as EventListener);
-sw.addEventListener('push', handlePushEvent as EventListener);
-sw.addEventListener('notificationclick', handleNotificationClick as EventListener);
-sw.addEventListener('fetch', handleFetchEvent as EventListener);
+self.addEventListener('sync', handleSyncEvent as EventListener);
+self.addEventListener('notificationclick', handleNotificationClick as EventListener);
+self.addEventListener('fetch', handleFetchEvent as EventListener);
 
 // ============================================================================
 // C-FE-01: Logout cache clearing
@@ -254,10 +284,10 @@ sw.addEventListener('fetch', handleFetchEvent as EventListener);
 // worker must be purged on logout so the next user cannot access prior user's
 // data. Main thread calls: navigator.serviceWorker.ready.then(r =>
 //   r.active?.postMessage({ type: 'LOGOUT' }))
-// This is wired in the auth store's logout action (authStore.logout()).
+// This is wired in useAuth.tsx's logout action.
 // ============================================================================
 
-sw.addEventListener('message', ((event: ExtendableMessageEvent) => {
+self.addEventListener('message', ((event: ExtendableMessageEvent) => {
   if ((event.data as { type?: string })?.type === 'LOGOUT') {
     event.waitUntil(clearMessagingCaches());
   }

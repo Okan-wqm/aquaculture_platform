@@ -1,4 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
+import { gql } from 'graphql-tag';
+
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
@@ -8,7 +10,7 @@ import type { Tank } from '@/types';
 // tenantId comes from X-Tenant-Id header (extracted from JWT by backend)
 const TANK_PAGE_SIZE = 100;
 
-const FARM_STOCK_INVENTORY_QUERY = `
+const FARM_STOCK_INVENTORY_QUERY = gql`
   query FarmStockInventory($filter: FarmStockInventoryFilterInput) {
     farmStockInventory(filter: $filter) {
       items {

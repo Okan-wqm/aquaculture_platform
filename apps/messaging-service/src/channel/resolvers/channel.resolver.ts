@@ -54,6 +54,9 @@ import { GetChannelsResult } from '../queries/get-channels.handler';
 import { User } from '../../message/resolvers/message.resolver';
 import { PresenceService } from '../../presence/presence.service';
 
+// Enum input-boundary normalization SSoT (NAME → DB VALUE)
+import { normalizeEnumInput } from '../../shared/enum-wire.util';
+
 // ============================================================================
 // RESPONSE TYPES
 // ============================================================================
@@ -215,14 +218,11 @@ export class ChannelResolver {
     // INFRA-CRITICAL-013: GraphQL enum input boundary normalization.
     // The GraphQL enum literal can be either the TS enum NAME ('MEMBER')
     // or VALUE ('member') depending on coercion path; the CHECK constraint
-    // chk_member_role only accepts the VALUE form. Normalize at the input
-    // boundary so every downstream consumer sees the canonical lowercase
-    // value. ChannelMemberRole[input] returns the value when input is a
-    // valid key, otherwise undefined; the ?? input fallback preserves
-    // already-normalized values without round-tripping.
-    const normalizedRole = (
-      (ChannelMemberRole as Record<string, ChannelMemberRole>)[role] ?? role
-    );
+    // chk_member_role only accepts the VALUE form. normalizeEnumInput is the
+    // single canonical NAME→VALUE projection (derived from the enum object, so
+    // it cannot drift) — the same helper the receipt/content WS path inverts via
+    // toWireEnumName, and the same one updateNotificationPreference now uses.
+    const normalizedRole = normalizeEnumInput(ChannelMemberRole, role);
     return this.commandBus.execute<AddMemberCommand, ChannelMember>(
       new AddMemberCommand(tenantId, user.sub, channelId, targetUserId, normalizedRole),
     );
@@ -271,7 +271,15 @@ export class ChannelResolver {
           );
         }
 
-        activeMember.notificationPreference = preference;
+        // INFRA-CRITICAL-013 (parity with addChannelMember): the GraphQL enum
+        // literal may arrive as the UPPERCASE NAME ('ALL') or the lowercase VALUE
+        // ('all') depending on coercion path; chk_notification_pref accepts ONLY
+        // the VALUE. Normalize through the same canonical helper so this write
+        // path is uniformly constraint-safe (no fragile raw assignment).
+        activeMember.notificationPreference = normalizeEnumInput(
+          NotificationPreference,
+          preference,
+        );
         return queryRunner.manager.save(ChannelMember, activeMember);
       },
     );

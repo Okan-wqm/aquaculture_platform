@@ -59,4 +59,19 @@ describe('offline queue synced operation invalidation', () => {
       ['tenant', 'tenant-1', 'messaging', 'unreadCount'],
     ]);
   });
+
+  it('invalidates the Daily Ops clocked-in KPI and attendance read models on clockIn/clockOut sync (FE-HIGH-052)', () => {
+    // Before the fix, clockIn/clockOut were absent from the (Partial) map, so a
+    // synced offline attendance write produced ZERO invalidation keys and the
+    // Daily Ops "clocked-in" badge + attendance screens stayed stale until the
+    // cache TTL elapsed. The map is now exhaustive (satisfies Record<OperationType>).
+    const expected = [
+      ['tenant', 'tenant-1', 'dailyOpsCounts'],
+      ['tenant', 'tenant-1', 'todaysAttendance'],
+      ['tenant', 'tenant-1', 'attendanceRecords'],
+      ['tenant', 'tenant-1', 'attendanceSummary'],
+    ];
+    expect(getSyncedOperationInvalidationKeys('tenant-1', ['clockIn'])).toEqual(expected);
+    expect(getSyncedOperationInvalidationKeys('tenant-1', ['clockOut'])).toEqual(expected);
+  });
 });

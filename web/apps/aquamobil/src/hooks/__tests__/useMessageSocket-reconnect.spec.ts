@@ -100,7 +100,8 @@ describe('useMessageSocket — Wave-6 M3 reconnect reconciliation', () => {
             channelId: 'chan-7',
             senderId: 'other-user',
             content: 'sent while you were offline',
-            contentType: 'text',
+            // S1-CODEGEN: wire contentType is the UPPERCASE GraphQL enum NAME.
+            contentType: 'TEXT',
             createdAt: '2026-06-13T12:00:00.000Z',
           },
         ],

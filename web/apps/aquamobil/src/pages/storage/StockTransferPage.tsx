@@ -10,15 +10,9 @@
  * accidental no-op transfers that would create confusing audit trails.
  */
 
-import { useState, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { graphqlRequest } from '@/services/authenticated-fetch';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
-import { isRecoverableNetworkError } from '@/utils/network-error';
+import { clsx } from 'clsx';
+import { gql } from 'graphql-tag';
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -30,8 +24,16 @@ import {
   Search,
   Package,
 } from 'lucide-react';
-import { clsx } from 'clsx';
+import { useState, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { useAuth } from '@/hooks/useAuth';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { StorageItemType, StockTransferInput } from '@/types';
+import { isRecoverableNetworkError } from '@/utils/network-error';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
 // TYPES
@@ -62,7 +64,7 @@ interface StorageInventoryItem {
 // GRAPHQL
 // ============================================================================
 
-const STORAGE_ITEMS_QUERY = `
+const STORAGE_ITEMS_QUERY = gql`
   query StorageInventoryItems($itemType: StorageItemType) {
     storageInventory(itemType: $itemType, limit: 100) {
       itemId
@@ -73,7 +75,7 @@ const STORAGE_ITEMS_QUERY = `
   }
 `;
 
-const STORAGE_LOCATIONS_QUERY = `
+const STORAGE_LOCATIONS_QUERY = gql`
   query StorageLocations {
     storageLocations {
       items { id name code }
@@ -81,7 +83,7 @@ const STORAGE_LOCATIONS_QUERY = `
   }
 `;
 
-const TRANSFER_STOCK_MUTATION = `
+const TRANSFER_STOCK_MUTATION = gql`
   mutation TransferStock($input: TransferStockInput!) {
     transferStock(input: $input) {
       id quantity

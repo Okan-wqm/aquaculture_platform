@@ -131,7 +131,8 @@ function emptyCache(): TestCache {
 /** Apply the updater to `old` and return the newest item of the first page. */
 function lastWritten(old: TestCache): TestMessage {
   const next = messagesUpdater()(old);
-  const item = next?.pages[0]?.items.at(-1);
+  const items = next?.pages[0]?.items;
+  const item = items?.[items.length - 1];
   if (!item) throw new Error('no message written into the cache');
   return item;
 }

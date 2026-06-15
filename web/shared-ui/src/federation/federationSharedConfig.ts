@@ -43,6 +43,14 @@ export const SHARED_VERSIONS = {
   'react-router-dom': '6.30.3',
   '@tanstack/react-query': '5.90.10',
   '@aquaculture/shared-ui': '1.0.0',
+  // zustand stays 4.5.7 until the graph lib (reactflow 11 / @xyflow/react 12)
+  // widens its hard `zustand ^4.4.0` dependency to allow v5. As of xyflow
+  // 12.11.0 it still pins ^4.4.0, so bumping zustand to 5 would resolve TWO
+  // versions in the lockfile (4.x for the graph lib + 5.x here) and break the
+  // single-version singleton invariant. The code already uses the v5-style
+  // `useShallow` API, which exists since 4.4.0 — so there is no functional gap.
+  // See docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-104. zustand 5 is gated
+  // on the graph-lib range widening, NOT on the C2 reactflow→xyflow migration.
   zustand: '4.5.7',
   reactflow: '11.11.4',
   // C0 federation rails (FE-HIGH-005): these two were previously inline

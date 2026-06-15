@@ -43,6 +43,9 @@ import {
   FishAppetite,
 } from '../../feeding/entities/feeding-record.entity';
 import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feeding-record.handler';
+import { BatchDomainService } from '../../batch/services/batch-domain.service';
+import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { LotMixService } from '../../storage/services/lot-mix.service';
 import { GetFeedingRecordsHandler } from '../../feeding/query-handlers/get-feeding-records.handler';
 import { GetFeedingSummaryHandler } from '../../feeding/query-handlers/get-feeding-summary.handler';
 import { GetFeedingRecordsQuery } from '../../feeding/queries/get-feeding-records.query';
@@ -170,6 +173,12 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       dataSource,
       outboxPublisher,
       backdatePolicy as never,
+      // feed-dual Phase A added these two deps: assertFeedable gate + in-tx
+      // storage deduction. This farm tenant uses feed_inventory (no storage
+      // lots seeded), so feedHasStoragePresence() is false and the storage OUT
+      // is observably skipped — the feed_inventory-only path this test asserts.
+      new BatchDomainService(),
+      new StockMovementService(new LotMixService()),
     );
     getFeedingRecords = new GetFeedingRecordsHandler(feedingRecordRepository);
     getFeedingSummary = new GetFeedingSummaryHandler(

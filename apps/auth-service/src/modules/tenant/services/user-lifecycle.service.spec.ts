@@ -1,4 +1,3 @@
-import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
   BadRequestException,
@@ -29,7 +28,6 @@ import { UserLifecycleService } from './user-lifecycle.service';
 // ============================================================================
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
-const TENANT_SCHEMA = `tenant_${TENANT_ID.replace(/-/g, '_')}`;
 const USER_ID = 'user-uuid-001';
 const ADMIN_USER_ID = 'admin-uuid-001';
 const ROLE_ID = 'role-uuid-001';
@@ -142,7 +140,6 @@ describe('UserLifecycleService', () => {
   let tenantRepository: jest.Mocked<Repository<Tenant>>;
   let refreshTokenRepository: jest.Mocked<Repository<RefreshToken>>;
   let mockDataSource: jest.Mocked<Pick<DataSource, 'query' | 'transaction'>>;
-  let mockSchemaManager: jest.Mocked<Pick<SchemaManagerService, 'getTenantSchemaName'>>;
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
   let mockEventBus: { publish: jest.Mock<Promise<void>, [UserInvitedEvent]> };
   let mockAuditLogService: { log: jest.Mock };
@@ -168,18 +165,29 @@ describe('UserLifecycleService', () => {
         const mockManager = {
           getRepository: jest.fn().mockReturnValue(mockUserRepo),
           create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
-          save: jest.fn((_entity: unknown, data: Record<string, unknown>) =>
-            Promise.resolve({ id: 'action-token-id', ...data }),
+          // Two save shapes: save(Entity, data) (createUser action-token path)
+          // and save(entity) (deleteUser soft-delete). The 1-arg form delegates
+          // to the user repo mock so userRepository.save assertions still observe
+          // the soft-delete write.
+          save: jest.fn((entityOrData: unknown, data?: Record<string, unknown>) =>
+            data !== undefined
+              ? Promise.resolve({ id: 'action-token-id', ...data })
+              : mockUserRepo.save(entityOrData),
+          ),
+          // SEC-MEDIUM-002: deleteUser revokes refresh tokens via
+          // manager.update(RefreshToken, ...) inside the transaction; route it to
+          // the injected refresh-token repo mock so refreshTokenRepository.update
+          // assertions still observe the call.
+          update: jest.fn((entity: unknown, criteria: unknown, partial: unknown) =>
+            entity === RefreshToken
+              ? mockRefreshTokenRepo.update(criteria, partial)
+              : mockUserRepo.update(criteria, partial),
           ),
           createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
           query: mockDataSource.query,
         };
         return cb(mockManager);
       }),
-    };
-
-    mockSchemaManager = {
-      getTenantSchemaName: jest.fn().mockReturnValue(TENANT_SCHEMA),
     };
 
     mockTenantRoleService = {
@@ -205,7 +213,6 @@ describe('UserLifecycleService', () => {
         { provide: getRepositoryToken(ActionToken), useValue: mockActionTokenRepo },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepo },
         { provide: DataSource, useValue: mockDataSource },
-        { provide: SchemaManagerService, useValue: mockSchemaManager },
         { provide: TenantRoleService, useValue: mockTenantRoleService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
         // The service injects BestEffortEventPublisher (not the raw bus) for the
@@ -283,6 +290,69 @@ describe('UserLifecycleService', () => {
       tenantRepository.findOne.mockResolvedValue(createMockTenant());
       userRepository.findOne.mockResolvedValue(null);
       mockTenantRoleService.getRoleById.mockResolvedValue(null);
+
+      await expect(
+        service.createUser(TENANT_ID, createInput, ADMIN_USER_ID),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    // ORPHAN-CRITICAL-100: the role-assignment write (private createRoleAssignment)
+    // must target "auth"."user_role_assignments" via an INSERT...SELECT sourced
+    // from "auth"."tenant_roles" tr WHERE tr.id=$2 AND tr."tenantId"=$6 — the
+    // write's own tenant-ownership guard — handle the GLOBAL UNIQUE(user_id) via
+    // ON CONFLICT (user_id) DO UPDATE, and use only GROUND-TRUTH columns.
+    it('ORPHAN-CRITICAL-100: createRoleAssignment INSERT...SELECTs from "auth"."tenant_roles", ON CONFLICT(user_id), bound tenantId, GROUND-TRUTH columns only', async () => {
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.findOne.mockResolvedValue(null);
+      userRepository.save.mockResolvedValue(createMockUser({ email: 'newuser@tenant.com' }));
+      mockDataSource.query.mockResolvedValueOnce([{ id: 'assignment-001' }]);
+
+      await service.createUser(TENANT_ID, createInput, ADMIN_USER_ID);
+
+      const insertCall = mockDataSource.query.mock.calls.find(
+        ([sql]) =>
+          typeof sql === 'string' &&
+          sql.includes('INSERT INTO') &&
+          sql.includes('user_role_assignments'),
+      );
+      expect(insertCall).toBeDefined();
+      const [sql, params] = insertCall as [string, unknown[]];
+
+      // Literal auth.* qualification, never an interpolated tenant schema.
+      expect(sql).toContain('"auth"."user_role_assignments"');
+      expect(sql).toContain('FROM "auth"."tenant_roles" tr');
+      // No interpolated per-tenant "tenant_<uuid>" schema (the only legitimate
+      // "tenant_" token is the auth.tenant_roles TABLE, not a SCHEMA prefix).
+      expect(sql).not.toMatch(/"tenant_[0-9a-f]/i);
+      // Write-side tenant-ownership guard.
+      expect(sql).toContain('tr.id = $2');
+      expect(sql).toContain('tr."tenantId" = $6');
+      // Global UNIQUE(user_id) reconciliation.
+      expect(sql).toContain('ON CONFLICT (user_id) DO UPDATE');
+      // Banned (non-existent) columns must NOT appear.
+      expect(sql).not.toContain('updated_by');
+      expect(sql).not.toContain('removed_by');
+      expect(sql).not.toContain('removed_at');
+      // tenantId bound as $6 (last positional param), roleId as $2.
+      expect(params).toEqual([
+        USER_ID,
+        ROLE_ID,
+        JSON.stringify({ grants: [], revokes: [] }),
+        null,
+        ADMIN_USER_ID,
+        TENANT_ID,
+      ]);
+    });
+
+    // ORPHAN-CRITICAL-100: a roleId not owned by the tenant yields 0 source rows
+    // from the INSERT...SELECT → 0 rows RETURNING → tenant-scoped NotFoundException
+    // (fail loud), NOT a silent undefined id.
+    it('ORPHAN-CRITICAL-100: createRoleAssignment throws NotFoundException when the INSERT...SELECT returns no row (foreign-tenant role)', async () => {
+      tenantRepository.findOne.mockResolvedValue(createMockTenant());
+      userRepository.findOne.mockResolvedValue(null);
+      userRepository.save.mockResolvedValue(createMockUser({ email: 'newuser@tenant.com' }));
+      // INSERT...SELECT source empty → RETURNING yields no row.
+      mockDataSource.query.mockResolvedValueOnce([]);
 
       await expect(
         service.createUser(TENANT_ID, createInput, ADMIN_USER_ID),
@@ -494,11 +564,49 @@ describe('UserLifecycleService', () => {
 
       await service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
 
-      // Should query tenant schema to revoke role assignments
+      // Should query the role-assignments table to revoke role assignments
       expect(mockDataSource.query).toHaveBeenCalledWith(
         expect.stringContaining('user_role_assignments'),
         expect.arrayContaining([USER_ID]),
       );
+    });
+
+    // ORPHAN-CRITICAL-100: the role-revoke UPDATE must target the shared
+    // "auth"."user_role_assignments" table (NOT an interpolated per-tenant
+    // "tenant_<uuid>" schema), launder tenant ownership through a write-side
+    // FROM-join to "auth"."tenant_roles" with tenantId BOUND, and must NOT
+    // reference the non-existent `updated_by` column.
+    it('ORPHAN-CRITICAL-100: role-revoke targets "auth"."user_role_assignments" with a tenant-guarded FROM-join, no updated_by, tenantId bound', async () => {
+      const user = createMockUser();
+      userRepository.findOne.mockResolvedValue(user);
+
+      await service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
+
+      const revokeCall = mockDataSource.query.mock.calls.find(
+        ([sql]) =>
+          typeof sql === 'string' &&
+          sql.includes('UPDATE') &&
+          sql.includes('user_role_assignments'),
+      );
+      expect(revokeCall).toBeDefined();
+      const [sql, params] = revokeCall as [string, unknown[]];
+
+      // Literal auth.* qualification — never the interpolated tenant schema.
+      expect(sql).toContain('"auth"."user_role_assignments"');
+      expect(sql).toContain('"auth"."tenant_roles"');
+      // No interpolated per-tenant "tenant_<uuid>" schema (the only legitimate
+      // "tenant_" token is the auth.tenant_roles TABLE, not a SCHEMA prefix).
+      expect(sql).not.toMatch(/"tenant_[0-9a-f]/i);
+      // Write-side tenant guard through the role JOIN.
+      expect(sql).toContain('tr."tenantId" = $2');
+      expect(sql).toContain('tr.id = ura.role_id');
+      // `updated_by` is NOT a real column — must be absent.
+      expect(sql).not.toContain('updated_by');
+      // Only GROUND-TRUTH mutation columns.
+      expect(sql).toContain('is_active = false');
+      expect(sql).toContain('updated_at = NOW()');
+      // tenantId is a bound param, never deletedBy (no updated_by anymore).
+      expect(params).toEqual([USER_ID, TENANT_ID]);
     });
 
     it('should log audit event for user deletion', async () => {
@@ -509,12 +617,49 @@ describe('UserLifecycleService', () => {
 
       await service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
 
+      // ORPHAN-CRITICAL-100: the audit `log()` MUST be passed the enclosing
+      // transaction's `manager` as the 2nd arg (fail-CLOSED — audit row is
+      // atomic with the soft-delete + role revoke + token revoke).
       expect(mockAuditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'USER_DELETED',
           entityId: USER_ID,
         }),
+        expect.objectContaining({ getRepository: expect.any(Function) }),
       );
+    });
+
+    // ORPHAN-CRITICAL-100: the admin (actor) lookup that supplies
+    // `performedByEmail` must be pinned to the tenant so a cross-tenant
+    // `deletedBy` id cannot leak a foreign tenant's admin email into THIS
+    // tenant's audit row.
+    it('ORPHAN-CRITICAL-100: admin lookup is pinned to tenantId (no foreign-actor email leak)', async () => {
+      const user = createMockUser();
+      userRepository.findOne
+        .mockResolvedValueOnce(user) // target user lookup ({ id, tenantId })
+        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID, email: 'admin@tenant.com' })); // admin lookup
+
+      await service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
+
+      // 2nd findOne is the admin/actor lookup — it MUST carry { id, tenantId }.
+      expect(userRepository.findOne).toHaveBeenNthCalledWith(2, {
+        where: { id: ADMIN_USER_ID, tenantId: TENANT_ID },
+      });
+    });
+
+    it('SEC-MEDIUM-002: an audit failure ROLLS BACK the soft-delete (fail-closed)', async () => {
+      // Previously the soft-delete + token revoke committed first and the audit
+      // ran in a swallowed try/catch (fail-OPEN) — a deletion could persist with
+      // no audit evidence. The whole soft-delete now runs inside one
+      // transaction, so a throwing audit aborts it.
+      userRepository.findOne
+        .mockResolvedValueOnce(createMockUser()) // target user lookup
+        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID })); // admin lookup
+      mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
+
+      await expect(
+        service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID),
+      ).rejects.toThrow('audit DB down');
     });
   });
 });

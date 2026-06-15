@@ -1,0 +1,31 @@
+# Self-monitoring rules for the DROPLET Prometheus (B2 / OBS-HIGH-002).
+# "Who watches the watcher": if the monitoring stack itself dies, no app alert
+# can fire — so the operator must learn of it from OUTSIDE the droplet.
+groups:
+  - name: aquaculture.monitoring.self
+    rules:
+      - alert: Watchdog
+        # Deadman switch: this alert ALWAYS fires. Alertmanager routes it to a
+        # heartbeat receiver (an external uptime monitor / healthchecks.io ping).
+        # When the heartbeat STOPS arriving, the external monitor pages — that is
+        # the only signal that Prometheus or Alertmanager itself has stopped.
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: 'Monitoring stack heartbeat'
+          description: 'Always-firing deadman. If this stops reaching the external heartbeat, the droplet monitoring stack is down.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/watchdog.md'
+
+      - alert: MonitoringTargetDown
+        # The monitoring infrastructure scrape jobs (cAdvisor, node-exporter, the
+        # self/alertmanager scrapes) — distinct from app ServiceDown which is
+        # scoped to namespace="aquaculture".
+        expr: up{job=~"cadvisor|node-exporter|prometheus-self|alertmanager"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Monitoring target {{ $labels.job }} is down'
+          description: 'Monitoring infrastructure target {{ $labels.job }} ({{ $labels.instance }}) has been unreachable for 3 minutes — observability is degraded.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/monitoring-target-down.md'

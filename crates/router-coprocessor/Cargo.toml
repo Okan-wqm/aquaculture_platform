@@ -1,0 +1,23 @@
+[package]
+name = "router-coprocessor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Self-built Apollo Router coprocessor (R1, PATH 2 — no GraphOS Enterprise license). SubgraphRequest stage signs service-identity HMAC-v2 byte-for-byte compatible with the TS generateServiceIdentityHeadersV2 (subgraph guards re-verify the HMAC). RouterRequest auth stages (RS256 JWT, Redis blacklist/rate-limit, CSRF) land in later commits."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

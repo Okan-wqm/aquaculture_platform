@@ -39,13 +39,13 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import type { ValidationPipeOptions } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { MicroserviceOptions } from '@nestjs/microservices';
 import type { INestApplication, Type, VersioningOptions } from '@nestjs/common';
 import type { NestApplicationOptions } from '@nestjs/common/interfaces/nest-application-options.interface';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { StructuredLoggerService } from '../logging';
 import { logBootstrapError } from './safe-error-logger';
-import { buildNatsTransportOptions } from '../nats/nats-connection.factory';
+import { NatsV3Server } from '../nats/nats-v3-server.strategy';
 import { bootstrapSecrets } from '../config/secrets.provider';
 import helmet from 'helmet';
 import type { HelmetOptions } from 'helmet';
@@ -662,12 +662,13 @@ export async function createServiceApp(
   // 2a. NATS microservice transport (connectMicroservice early, startAll later)
   // -----------------------------------------------------------------------
   if (natsTransport) {
+    // PR-B (PLAT-HIGH-003): platform-owned v3 strategy replaces Nest's Transport.NATS
+    // (which binds the removed nats v2 JSONCodec). Wire-compatible — see nats-v3-codec.
     app.connectMicroservice<MicroserviceOptions>({
-      transport: Transport.NATS,
-      options: {
-        ...buildNatsTransportOptions(serviceName),
+      strategy: new NatsV3Server({
+        serviceName,
         ...(natsTransport.queue ? { queue: natsTransport.queue } : {}),
-      },
+      }),
     });
     logger.log(`NATS microservice transport connected (queue: ${natsTransport.queue ?? 'default'})`);
   }

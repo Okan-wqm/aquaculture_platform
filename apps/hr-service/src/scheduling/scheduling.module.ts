@@ -1,7 +1,7 @@
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
@@ -72,8 +72,8 @@ const QueryHandlers = [
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('hr-service'),
+        customClass: NatsV3Client,
+        options: { serviceName: 'hr-service' },
       },
     ]),
     CqrsModule,

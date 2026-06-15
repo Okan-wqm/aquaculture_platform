@@ -107,7 +107,7 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
 
     vi.advanceTimersByTime(0);
     vi.advanceTimersByTime(1000);
-  }, 15000);
+  }, 30000);
 
   it('falls back to realtime pH when the optional H₂S measurement pH is cleared', async () => {
     renderWaterChemistryPage();

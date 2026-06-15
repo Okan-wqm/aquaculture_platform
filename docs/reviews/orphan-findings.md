@@ -3834,7 +3834,7 @@ Root cause direction: container/service readiness race — the Jest global setup
 
 Discovered while gating B2 (#411). Pairs with ORPHAN-MEDIUM-055 (same E2E Postgres log surface).
 
-Status: OPEN (2026-06-12; owner: infra-expert + messaging-expert for the harness). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
+Status: RESOLVED (2026-06-13; #441 b4f484130). The heavy one-time bootstrap moved to Jest `globalSetup` (outside the 60s per-hook budget) behind a Postgres readiness poll with a loud explicit failure; the per-spec beforeAll is now a fast idempotent no-op. Root cause (boot cost inside the hook budget) eliminated. NOTE: flake-RATE reduction confirms over several post-merge E2E runs (the suite was ~50%; one green run is necessary but not sufficient) — re-open if cancellations persist. Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
 
 ---
 
@@ -3846,7 +3846,7 @@ Query↔migration drift: either the `embedding` column migration is missing from
 
 Discovered in the E2E Messaging logs during B2 (#411) gating. Pairs with ORPHAN-HIGH-092.
 
-Status: OPEN (2026-06-12; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.
+Status: RESOLVED (2026-06-13; #441 b4f484130). Root cause was query↔migration drift: the E2E migration array stopped at 1800600000000 and omitted `1800700000000-AddMessagesEmbeddingColumn` (#423), so the E2E schema lacked `messages.embedding` while the backfill sweep filtered on it. Added the migration to the E2E path (`e2e-setup.ts`) → E2E schema in lockstep with production, column present, no more `m.embedding does not exist`. Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.
 
 ---
 
@@ -4115,3 +4115,47 @@ Severity: MEDIUM. Discovered 2026-06-13 while building the dead-contract ratchet
 **Fix direction (burn-down, per-module owners):** for each baseline entry, either wire the operation to its intended call site (if it backs a real feature — the M2 fix shape) or delete it (if abandoned), then remove it from the baseline. Owners: farm-module (feedingProgram.mutations), hr-module (attendance/certification/leave/performance operations), aquamobil (messaging-operations residue), sensor-module. No silent baseline padding — the gate's honesty check forbids it.
 
 Status: OPEN (2026-06-13; owner: frontend-expert; burn-down tracked, no deadline). Registry: orphan-findings.md (not dual-registered to findings.jsonl — keeps the gate PR's findings.jsonl footprint zero to avoid the registry chain-conflict cascade).
+
+---
+
+## ORPHAN-MEDIUM-103 — two messaging CI gate scripts are registered but executed by nothing (dead gates)
+
+Severity: MEDIUM. Discovered 2026-06-13 during Wave-2 close-out (verifying the source branch's "CI invariant" slice vs main), messaging-expert.
+
+**Problem:** `scripts/ci/check-messaging-source-outbox.mjs` and `scripts/ci/check-messaging-canary-metrics.mjs` exist on main and are registered as `package.json` scripts (`gates:messaging-source-outbox`, `gates:messaging-canary-metrics`), but **no workflow, deploy script, husky hook, or aggregate gate invokes them** — only `check-messaging-tenant-entity-routing.mjs` is CI-wired (`quality-gates.yml:112`). The workflow that was meant to run them — `messaging-enterprise-release.yml` from `fix/messaging-enterprise-gates-2026-05-29` — was never ported to main (main uses the unified ADR-033 deploy instead). This is the same dead-artifact class as MSG-HIGH-004 (a complete check with no runner) and the Wave-6 M2 dead trigger.
+
+**Effect:** Limited, because the protected invariants are belt-and-suspandered elsewhere: the source-only-outbox contract is enforced at DDL/migration level by `1800400000000-EnforceSourceOnlyMessagingOutboxContract.ts` (`@SourceOnlyMigration`), so the dead `source-outbox` CI check is a redundant early-warning, not the only guard. `canary-metrics` is a post-deploy canary check that simply never runs, so messaging deploys get no canary-metric gate.
+
+**Why not fixed inline:** unlike `tenant-entity-routing` (static-only → runs in the no-DB `quality-gates` job), `check-messaging-source-outbox.mjs` also opens a live `pg.Client` (DATABASE_URL) and `canary-metrics` queries live deploy metrics — so wiring them needs a DB-backed gate job (or a static/live split of the source-outbox script) and a deploy-time canary step. That is a focused CI-infra change, not a safe session-end one-liner; rushing a DB-backed gate risks a broken required check.
+
+**Fix direction:** either (a) add a DB-backed messaging-gates job (postgres service + migrations) that runs `gates:messaging-source-outbox`, and a post-deploy canary step (deploy workflow) that runs `gates:messaging-canary-metrics`; or (b) refactor `check-messaging-source-outbox.mjs` to split its static asserts (runnable in `quality-gates`) from its live-DB asserts. Then remove the dead `package.json` entries if a script is dropped, so no gate is registered-but-unrun.
+
+Status: OPEN (2026-06-13; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+## ORPHAN-HIGH-101 — postgres-protocol/tokio-postgres newly-published RustSec advisories red-line all Rust CI
+
+Severity: HIGH. `cargo-audit` and `cargo-deny` (advisories check) fail on every Rust PR because of three newly-published advisories on transitive Postgres crates: **RUSTSEC-2026-0179** (HIGH 8.7 — `postgres-protocol` unbounded SCRAM iteration count, a malicious server can cause CPU-exhaustion DoS), **RUSTSEC-2026-0180** (MEDIUM — `postgres-protocol` panic decoding a malformed `hstore`), **RUSTSEC-2026-0178** (MEDIUM — `tokio-postgres` panic on a `DataRow` with fewer fields than columns). The platform's `.cargo/audit.toml` ignore list is empty, so these are denied. Main's last rust-ci runs are green only because they predate the advisory publication.
+
+Root cause: time-of-publication, not a code change — a fresh RustSec advisory on an already-resident dependency. Fix (highest tier — upgrade to the patched release, not an ignore): `postgres-protocol` 0.6.11 → 0.6.12, `tokio-postgres` 0.7.17 → 0.7.18 (cascades `postgres-types` 0.2.14). The direct dep `tokio-postgres = "0.7"` (crates/outbox-rs + apps/sensor-ingestion) already permits the patched release, so a lockfile bump suffices; no Cargo.toml change.
+
+Discovered gating R1's Rust CI (#450); affects the whole repo. Fixed in branch `security/rustsec-2026-postgres`. Only the root workspace is affected (sens-api-gateway does not use these crates).
+
+Status: OPEN (2026-06-14; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-101.
+
+---
+
+## ORPHAN-CRITICAL-101 — auth role-table consumers (tenant-role / tenant-user-management / user-lifecycle services) query the DROPPED per-tenant role tables
+
+Severity: CRITICAL. Discovered + RESOLVED 2026-06-14 during Wave-5 closeout (auth-service service-audit), lead-verified firsthand. This is the non-token-service half of the schema-centralization defect; the token.service login-path half is ORPHAN-CRITICAL-100 (token.service `getUserResourcePermissions`, repointed by W4 PR #440).
+
+**Problem:** Migration `apps/admin-api-service/src/migrations/1800500000000-TenantProvisioningTopology.ts` MOVES `user_role_assignments` / `tenant_roles` / `tenant_role_permissions` from per-tenant `tenant_<uuid>` schemas into the shared `auth` schema (INSERT then `DROP TABLE ... tenant_<schema>.*`, RAISEs if any tenant copy remains). But three auth-service services still issued `"${schemaName}"."<role table>"` (per-tenant, string-interpolated) queries — ~45 in `tenant-role.service.ts`, ~15 in `tenant-user-management.service.ts`, plus `user-lifecycle.service.ts` `deleteUser` role-revoke + private `createRoleAssignment`. On a migrated DB every role-management operation (create/update/delete role, assign/revoke user role, set default, user delete) throws `relation does not exist`.
+
+**Fix (RESOLVED, this PR):** repointed all role-table SQL to `"auth"."<table>"` tenant-scoped — `tenant_roles` by `AND tr."tenantId" = $x`; child tables (`user_role_assignments`, `tenant_role_permissions`, no tenantId column) by a write-side `JOIN/FROM "auth"."tenant_roles" tr ... AND tr."tenantId" = $x` so every WRITE carries its own tenant guard. Load-bearing corrections from the adversarial review swarm: (a) `assignRoleToUser` re-keyed to the global `UNIQUE(user_id)` (one-row-per-user re-point, never a 2nd INSERT) + a tenant-scoped `SELECT 1 FROM auth.users WHERE id=$1 AND "tenantId"=$2` user pre-validation (blocks attaching a foreign-tenant user to a tenant role); (b) `is_default` unset-writes carry `AND "tenantId"=$x` (else platform-wide default-role corruption); (c) only GROUND-TRUTH columns (auth.user_role_assignments has NO `updated_by`/`removed_by`/`removed_at`); (d) `assertRoleGrantAuthority` actor lookup tenant-pinned; (e) `audit-log.service.log()` gained a manager-aware overload so in-transaction audits are atomic with the mutation. Verified firsthand on every axis (columns, cross-tenant-write guard, interpolation=0, param-index, actor-pin, audit manager-threading) + 121/121 unit/regression tests.
+
+**Tracked follow-ups (NOT this PR):**
+- token.service `getUserResourcePermissions` repoint — owned by W4 PR #440 (intentionally not touched here to avoid a merge conflict on the same method).
+- Stale-row edge (MEDIUM): `assignRoleToUser`/`createRoleAssignment` existing-row SELECT JOINs `tr."tenantId"`, so a user whose single `user_role_assignments` row points to a non-current-tenant or NULL-tenant role is missed → falls to INSERT → `UNIQUE(user_id)` violation. Fails LOUD on anomalous data (the user pre-validation already blocks the cross-tenant write); robust fix = read the user's row by `user_id` alone. Owner: auth-security-expert.
+- DB-layer backstops (data-expert): partial `UNIQUE INDEX ON auth.tenant_roles ("tenantId") WHERE is_default` (single-default invariant is app-enforced only); NULL-tenant (platform-global) role semantics for equality predicates.
+- Tier-1 structural hardening (tracked by description — the `ORPHAN-HIGH-101` id is now held by an unrelated postgres-RustSec finding on main): add a `tenantId` column (+ FK/RLS) to `auth.user_role_assignments` so assignments are directly tenant-scoped, replacing the JOIN-laundering. Owner: auth-security-expert + data-expert.
+
+Status: RESOLVED (2026-06-14, this PR — tenant-role/tenant-user-management/user-lifecycle repoint); token.service via W4 #440; sub-items above OPEN. Owner: auth-security-expert. Registry: orphan-findings.md only.

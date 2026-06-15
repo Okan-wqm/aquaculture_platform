@@ -2,9 +2,10 @@ import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { cacheData, getCachedData, cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { LeaveRequest, LeaveBalance, LeaveType } from '@/types';
+import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 import {
   GET_MY_LEAVE_REQUESTS,
   GET_MY_LEAVE_BALANCES,
@@ -78,36 +79,36 @@ export function useMyLeaveBalances(
   year: number = new Date().getFullYear(),
   options?: LeaveQueryOptions,
 ) {
-  const { accessToken, tenantId, isAuthenticated } = useAuth();
-
-  // WHY tenantId + year in queryKey: prevents cross-tenant cache collision
-  // and ensures year changes trigger a refetch automatically.
-  const cacheKey = `leaveBalances-${tenantId}-${year}`;
+  const { accessToken, tenantId, user, isAuthenticated } = useAuth();
 
   return useQuery<LeaveBalance[]>({
-    queryKey: createTenantQueryKey(tenantId, 'leaveBalances', tenantId, year),
+    // SECURITY (MT-CRITICAL-051): myLeaveBalances are the CURRENT user's private
+    // balances. user.id partitions BOTH the React Query key (in-memory) and the
+    // IndexedDB cache key (offline) so a shared-device second user never inherits
+    // the prior user's balances. year still triggers a refetch when it changes.
+    queryKey: createTenantQueryKey(tenantId, 'leaveBalances', user?.id, year),
     queryFn: async () => {
-      if (!accessToken || !tenantId) {
+      if (!accessToken || !tenantId || !user?.id) {
         throw new Error('Not authenticated');
       }
 
+      const cacheKey = userScopedCacheKey(user.id, 'leaveBalances', year);
       try {
         const balances = await fetchLeaveBalances(year);
         // Write to IndexedDB as offline fallback only — React Query's own
         // gcTime handles in-memory caching for the online path.
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        await cacheData(tenantId!, cacheKey, balances, CACHE_TTL_LEAVE_BALANCES);
+        await cacheUserData(tenantId, cacheKey, balances, CACHE_TTL_LEAVE_BALANCES);
         return balances;
       } catch (error) {
         // Network failed — return IndexedDB cached data if available
-        const cached = await getCachedData<LeaveBalance[]>(tenantId!, cacheKey);
+        const cached = await getCachedUserData<LeaveBalance[]>(tenantId, cacheKey);
         if (cached) {
           return cached;
         }
         throw error;
       }
     },
-    enabled: isAuthenticated && !!tenantId,
+    enabled: isAuthenticated && !!tenantId && !!user?.id,
     // WHY 5 min staleTime: balances change infrequently (only when requests
     // are approved/cancelled), so aggressive refetching is wasteful.
     staleTime: 1000 * 60 * 5,
@@ -135,33 +136,34 @@ export function useMyLeaveRequests(
   limit: number = 20,
   options?: LeaveQueryOptions,
 ) {
-  const { accessToken, tenantId, isAuthenticated } = useAuth();
-
-  // WHY status and limit in cache key: different filter combos produce
-  // different result sets that must be cached independently.
-  const cacheKey = `leaveRequests-${tenantId}-${status ?? 'all'}-${limit}`;
+  const { accessToken, tenantId, user, isAuthenticated } = useAuth();
 
   return useQuery<LeaveRequest[]>({
-    queryKey: createTenantQueryKey(tenantId, 'leaveRequests', tenantId, status, limit),
+    // SECURITY (MT-CRITICAL-051): myLeaveRequests are the CURRENT user's private
+    // requests. user.id partitions both the React Query key and the IndexedDB
+    // cache key; status + limit still cache distinct filter result sets.
+    queryKey: createTenantQueryKey(tenantId, 'leaveRequests', user?.id, status, limit),
     queryFn: async () => {
-      if (!accessToken || !tenantId) {
+      if (!accessToken || !tenantId || !user?.id) {
         throw new Error('Not authenticated');
       }
 
+      // WHY status + limit in cache key: different filter combos produce
+      // different result sets that must be cached independently.
+      const cacheKey = userScopedCacheKey(user.id, 'leaveRequests', status ?? 'all', limit);
       try {
         const requests = await fetchLeaveRequests(status, limit);
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        await cacheData(tenantId!, cacheKey, requests, CACHE_TTL_LEAVE_REQUESTS);
+        await cacheUserData(tenantId, cacheKey, requests, CACHE_TTL_LEAVE_REQUESTS);
         return requests;
       } catch (error) {
-        const cached = await getCachedData<LeaveRequest[]>(tenantId!, cacheKey);
+        const cached = await getCachedUserData<LeaveRequest[]>(tenantId, cacheKey);
         if (cached) {
           return cached;
         }
         throw error;
       }
     },
-    enabled: isAuthenticated && !!tenantId,
+    enabled: isAuthenticated && !!tenantId && !!user?.id,
     // WHY 2 min staleTime: requests change more frequently than balances
     // (new submissions, status transitions), so shorter staleness window.
     staleTime: 1000 * 60 * 2,

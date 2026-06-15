@@ -1,5 +1,6 @@
 import { get, set, del, keys, entries, createStore } from 'idb-keyval';
 import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
+import type { UserScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 // Separate stores for queue and cache to avoid full-store scans (PERF-08)
 const queueStore = createStore('aquamobil-queue', 'queue');
@@ -571,6 +572,52 @@ export async function getCachedData<T>(tenantId: string, key: string): Promise<T
   // plaintext data, so the caller re-fetches and stores an encrypted copy.
   await del(`${CACHE_PREFIX}${tenantId}:${key}`, cacheStore);
   return null;
+}
+
+/**
+ * Store USER-scoped data in the encrypted IndexedDB cache.
+ *
+ * SECURITY (MT-CRITICAL-051): on shared field devices, two users of the SAME
+ * tenant must never share a cache namespace. The `key` is a branded
+ * {@link UserScopedCacheKey} that can ONLY be produced by `userScopedCacheKey`,
+ * which structurally REQUIRES a userId. So a callsite caching a `my*` resolver
+ * result cannot forget the user partition — it would not compile. This is the
+ * single user-scoped write path; it delegates to {@link cacheData} so the
+ * AES-GCM encryption + TTL handling remain one implementation (no duplicated
+ * crypto). The branded key still rides inside the `cache_${tenantId}:` prefix,
+ * so the logout wipe (`clearCache()` with no tenant) clears it too.
+ *
+ * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
+ * @param key - Branded user-scoped cache key (from `userScopedCacheKey`)
+ * @param data - Data to cache (will be AES-GCM encrypted)
+ * @param ttlMs - Time-to-live in milliseconds (default: 1 hour)
+ */
+export async function cacheUserData<T>(
+  tenantId: string,
+  key: UserScopedCacheKey,
+  data: T,
+  ttlMs: number = 1000 * 60 * 60,
+): Promise<void> {
+  await cacheData(tenantId, key, data, ttlMs);
+}
+
+/**
+ * Retrieve USER-scoped data from the encrypted IndexedDB cache.
+ *
+ * SECURITY (MT-CRITICAL-051): the branded {@link UserScopedCacheKey} guarantees
+ * the lookup namespace embeds the user id, so tenant A/user A's cached `my*`
+ * data is never returned for tenant A/user B on a shared device. Delegates to
+ * {@link getCachedData} so the decryption + TTL-expiry + legacy-purge logic stay
+ * the single source of truth.
+ *
+ * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
+ * @param key - Branded user-scoped cache key (from `userScopedCacheKey`)
+ */
+export async function getCachedUserData<T>(
+  tenantId: string,
+  key: UserScopedCacheKey,
+): Promise<T | null> {
+  return getCachedData<T>(tenantId, key);
 }
 
 /**

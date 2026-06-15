@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './useAuth';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
 import type { Task } from '@/types';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { GET_MY_TASKS } from '@/graphql/operations';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 
 type Segment = 'today' | 'upcoming' | 'overdue';
@@ -33,15 +34,21 @@ function filterBySegment(tasks: Task[], segment: Segment): Task[] {
 }
 
 export function useMyTasks(segment: Segment = 'today') {
-  const { accessToken, tenantId, isAuthenticated } = useAuth();
+  const { accessToken, tenantId, user, isAuthenticated } = useAuth();
 
   const query = useQuery<Task[]>({
     // WHY 2026-04-29: task actions invalidate `myTasks`; this hook must be a
     // React Query read model, not isolated local state, or completed/started
     // tasks stay stale until manual remount.
-    queryKey: createTenantQueryKey(tenantId, 'myTasks', tenantId),
+    // SECURITY (MT-CRITICAL-051): user.id is in the key because GET_MY_TASKS
+    // returns the CURRENT user's private tasks — without it, user A's tasks
+    // would be served to user B of the same tenant on a shared device.
+    queryKey: createTenantQueryKey(tenantId, 'myTasks', user?.id),
     queryFn: async () => {
-      if (!tenantId) return [];
+      if (!tenantId || !user?.id) return [];
+
+      // SECURITY (MT-CRITICAL-051): per-user offline cache namespace.
+      const cacheKey = userScopedCacheKey(user.id, 'myTasks');
       try {
         const result = await graphqlRequest<{ myTasks: Task[] }>(
           GET_MY_TASKS,
@@ -49,19 +56,18 @@ export function useMyTasks(segment: Segment = 'today') {
         );
 
         const tasks = result.myTasks || [];
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        await cacheData(tenantId, 'myTasks', tasks, 1000 * 60 * 30); // 30 min TTL
+        await cacheUserData(tenantId, cacheKey, tasks, 1000 * 60 * 30); // 30 min TTL
         return tasks;
       } catch (err) {
         // Try loading from cache on error
-        const cached = await getCachedData<Task[]>(tenantId, 'myTasks');
+        const cached = await getCachedUserData<Task[]>(tenantId, cacheKey);
         if (cached) {
           return cached;
         }
         throw err;
       }
     },
-    enabled: isAuthenticated && !!accessToken && !!tenantId,
+    enabled: isAuthenticated && !!accessToken && !!tenantId && !!user?.id,
     staleTime: 30_000,
     gcTime: 1000 * 60 * 30,
   });

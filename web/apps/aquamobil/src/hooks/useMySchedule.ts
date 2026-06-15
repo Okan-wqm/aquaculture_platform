@@ -4,9 +4,10 @@ import { gql } from 'graphql-tag';
 
 import { useAuth } from './useAuth';
 
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 export interface ShiftInfo {
   id: string;
@@ -116,25 +117,29 @@ export function useMySchedule(weekOffset = 0) {
   targetDate.setDate(targetDate.getDate() + weekOffset * 7);
   const weekStartDate = getWeekMonday(targetDate);
 
-  const cacheKey = `schedule_${weekStartDate}`;
-
   return useQuery({
+    // SECURITY (MT-CRITICAL-051): user.id is part of BOTH the React Query key
+    // (in-memory isolation) AND the IndexedDB cache key below (offline isolation)
+    // — mySchedule is the current user's PRIVATE schedule, so on a shared device
+    // user A's plan must never be served to user B of the same tenant.
     queryKey: createTenantQueryKey(tenantId, 'mySchedule', user?.id, weekStartDate),
     queryFn: async () => {
       if (!accessToken || !tenantId || !user?.id) {
         throw new Error('Not authenticated');
       }
 
+      // SECURITY (MT-CRITICAL-051): the branded user-scoped key STRUCTURALLY
+      // embeds user.id, so the offline cache namespace is per-user, not per-tenant.
+      const cacheKey = userScopedCacheKey(user.id, 'schedule', weekStartDate);
+
       try {
         const plan = await fetchMySchedule(weekStartDate);
         if (plan) {
-          // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-          await cacheData(tenantId, cacheKey, plan, 1000 * 60 * 30); // 30 min TTL
+          await cacheUserData(tenantId, cacheKey, plan, 1000 * 60 * 30); // 30 min TTL
         }
         return plan;
       } catch (error) {
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated cache reads
-        const cached = await getCachedData<WeeklyPlan>(tenantId, cacheKey);
+        const cached = await getCachedUserData<WeeklyPlan>(tenantId, cacheKey);
         if (cached) return cached;
         throw error;
       }

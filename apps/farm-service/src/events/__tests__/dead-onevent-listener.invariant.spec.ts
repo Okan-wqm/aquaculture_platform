@@ -23,14 +23,20 @@
  *   silently in production.
  *
  * Ratchet, not big-bang:
- *   Two pre-existing dead `@OnEvent` listeners (BatchCreatedListener,
- *   FeedingCompletedListener) have the SAME disease — their producers
- *   (`BatchCreatedEvent`, `FeedingRecordedEvent`) also go through outbox → NATS.
- *   They are tracked separately as ORPHAN-MEDIUM-106
- *   (docs/reviews/orphan-findings.md) — not part of the dead-listeners finding —
- *   and are FROZEN in the baseline below so this gate can land without a
- *   big-bang migration. The
- *   ratchet enforces BOTH directions:
+ *   BatchCreatedListener is a pre-existing dead `@OnEvent` listener with the
+ *   SAME disease — its producer (`BatchCreatedEvent`) also goes through
+ *   outbox → NATS. It is tracked as ORPHAN-MEDIUM-106
+ *   (docs/reviews/orphan-findings.md) — not part of the dead-listeners
+ *   finding — and is FROZEN in the baseline below so this gate can land
+ *   without a big-bang migration.
+ *
+ *   FeedingCompletedListener's dead `@OnEvent(FEEDING_COMPLETED)` handler was
+ *   REMOVED outright as part of the feed dual-SSoT write-path fix (its inline
+ *   Feed.quantity / batch-stat / low-stock mutations duplicated the
+ *   transactional feeding write path and could silently diverge from it), so
+ *   FEEDING_COMPLETED was dropped from the baseline — the ratchet only shrinks.
+ *
+ *   The ratchet enforces BOTH directions:
  *     1. No NEW dead @OnEvent — a dead subscription not in the baseline fails.
  *     2. The baseline stays honest — a baseline entry that has since been wired
  *        up or migrated off @OnEvent fails, forcing the list to shrink.
@@ -48,15 +54,20 @@ const EVENT_TYPES_PATH = join(FARM_SRC, 'events', 'event-types.ts');
 
 /**
  * Pre-existing dead @OnEvent listeners FROZEN at the time this gate was
- * introduced. These are tracked separately as ORPHAN-MEDIUM-106
- * (docs/reviews/orphan-findings.md) for a later subscribeWildcard migration —
- * not part of the dead-listeners finding. Keys are the
- * `EventNames.X` constant identifiers. This list may only SHRINK.
+ * introduced. Tracked as ORPHAN-MEDIUM-106 (docs/reviews/orphan-findings.md)
+ * for a later subscribeWildcard migration — not part of the dead-listeners
+ * finding. Keys are the `EventNames.X` constant identifiers. This list may
+ * only SHRINK.
+ *
+ * FEEDING_COMPLETED was removed from this baseline when the feed dual-SSoT
+ * write-path fix deleted FeedingCompletedListener's dead
+ * `@OnEvent(FEEDING_COMPLETED)` handler outright (deduction moved in-tx onto
+ * the feeding write path).
  */
-const BASELINE_DEAD_ONEVENT: readonly string[] = ['BATCH_CREATED', 'FEEDING_COMPLETED'];
+const BASELINE_DEAD_ONEVENT: readonly string[] = ['BATCH_CREATED'];
 
 /**
- * Strip block (`/* *​/`) and line (`//`) comments so docstring mentions of
+ * Strip block and line (`//`) comments so docstring mentions of
  * `@OnEvent(...)` (e.g. the migration notes explaining what was removed) are not
  * mistaken for live decorators. Lightweight, sufficient for source scanning —
  * not a full TS parser, but accurate for the decorator/emit patterns scanned.
@@ -170,8 +181,9 @@ describe('Dead in-process @OnEvent listener ratchet (farm-service)', () => {
       throw new Error(
         'Dead in-process @OnEvent listener(s) — NO producer emits the event ' +
           'in-process. Either migrate the listener onto the NATS event bus ' +
-          '(eventBus.subscribeWildcard, see FeedingStorageEventHandler) or wire ' +
-          'an eventEmitter.emit producer. Do NOT add to the baseline:\n' +
+          '(eventBus.subscribeWildcard, see MortalityRecordedListener / ' +
+          'HarvestCompletedListener) or wire an eventEmitter.emit producer. ' +
+          'Do NOT add to the baseline:\n' +
           offenders.map((o) => `  - ${o}`).join('\n'),
       );
     }

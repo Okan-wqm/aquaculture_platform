@@ -122,6 +122,11 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
   exports: [
     TypeOrmModule,
     BatchService,
+    // Exported so feeding handlers can call assertFeedable(batch) inside the
+    // feeding transaction (rejects feeding an empty / non-feedable batch).
+    // BatchDomainService is stateless pure domain logic (no DB access), so
+    // exporting it introduces no cross-module data coupling.
+    BatchDomainService,
     SGRCalculatorService,
     BiomassCalculatorService,
     BatchCostCalculatorService,

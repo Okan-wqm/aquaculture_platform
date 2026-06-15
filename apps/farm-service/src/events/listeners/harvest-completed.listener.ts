@@ -18,7 +18,7 @@
  *   partial-harvest → HARVESTING transition and the regulatory follow-up were
  *   dead.
  *
- *   The fix mirrors the in-repo reference pattern (FeedingStorageEventHandler):
+ *   The fix mirrors the in-repo reference pattern (MortalityRecordedListener):
  *   implement `IEventHandler<BatchHarvestedEvent>` + `OnModuleInit` and
  *   `eventBus.subscribeWildcard('BatchHarvested', this)`. The handler body is
  *   remapped onto the contract's flat field names.

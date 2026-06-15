@@ -55,6 +55,13 @@ import { FeedingResolvers } from './resolvers';
 import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
 // Phase 4.2: restoreFeedingProgram mutation delegates to RestoreService.
 import { RestoreModule } from '../common/services/restore.module';
+// Feed dual-SSoT write-path correctness (Phase A): the feeding write path
+// asserts the batch is feedable (BatchModule → BatchDomainService) and
+// deducts feed from the storage ledger inside the feeding transaction
+// (InventoryModule → StockMovementService). Neither module imports
+// FeedingModule, so there is no DI cycle.
+import { BatchModule } from '../batch/batch.module';
+import { InventoryModule } from '../storage/storage.module';
 
 @Module({
   imports: [
@@ -75,6 +82,8 @@ import { RestoreModule } from '../common/services/restore.module';
     ]),
     BackdatePolicyModule,
     RestoreModule,
+    BatchModule,
+    InventoryModule,
   ],
   providers: [
     FeedSelectorService,

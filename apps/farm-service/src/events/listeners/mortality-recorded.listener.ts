@@ -16,7 +16,7 @@
  *   `MortalityRecordedEvent`. Nothing ever emitted on the in-process bus, so the
  *   listener — and therefore every high-mortality alert — was dead.
  *
- *   The fix mirrors the in-repo reference pattern (FeedingStorageEventHandler):
+ *   The fix mirrors the in-repo reference pattern (HarvestCompletedListener):
  *   implement `IEventHandler<MortalityRecordedEvent>` + `OnModuleInit` and
  *   `eventBus.subscribeWildcard('MortalityRecorded', this)`. The handler body is
  *   remapped onto the contract's flat field names.

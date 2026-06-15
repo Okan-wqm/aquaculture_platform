@@ -8,41 +8,43 @@
 
 ## Finding Registry (state machine: OPEN unless noted)
 
-| ID | Sev | Title | Verified | Source |
-|---|---|---|---|---|
-| SEC-CRITICAL-001 | CRITICAL | Public `register` accepts unvalidated client-supplied `tenantId` — anonymous cross-tenant account injection | ✅ | SEC+MT |
-| SEC-CRITICAL-002 | CRITICAL | `rate-limit/` module is empty 0-byte stubs — no local brute-force/velocity defense on login, MFA-verify, reset, register; no per-tenant limits | ✅ | SEC+MT |
-| AUDIT-CRITICAL-004 | CRITICAL | Unit-test gate is RED on `main`: 11/16 suites fail (99/244 tests) from DI drift — zero regression protection on the trust anchor | run output | TEST |
-| AUDIT-CRITICAL-005 | CRITICAL | Refresh-token reuse detection (production `HASH_REFRESH_TOKENS=true` path) has ZERO test coverage in any layer | ✅ (grep) | TEST |
-| SEC-HIGH-001 | HIGH | TOTP codes are not one-time-use — no `lastUsedTimeStep` tracking, intra-window replay across login/step-up | ✅ | SEC |
-| SEC-HIGH-002 | HIGH | Login not-found branch compares against a malformed bcrypt dummy hash and skips peppering — asymmetric timing path | ✅ | SEC |
-| SEC-HIGH-003 | HIGH | Issued JWTs carry no `kid` header while JWKS advertises `kid` — key rotation not deterministically consumable | ✅ | SEC |
-| SEC-HIGH-004 | HIGH | JWKS response cached permanently (no TTL/invalidation) — stale key set served for process lifetime after rotation | ✅ | SEC |
-| MT-HIGH-001 | HIGH | `updateTenant` does `Object.assign(tenant, input)` over full input incl. `plan`/`status`/`maxUsers`; resolver comment claims field filtering that does not exist; plan change bypasses billing saga | ✅ | MT |
-| MT-HIGH-002 | HIGH | Synchronous tenant provisioning with silent partial-failure exits; `TenantCreated` published regardless of provisioning outcome → orphaned PENDING tenants + downstream artifacts | | MT |
-| MT-HIGH-003 | HIGH | Tenant lifecycle has no ARCHIVED/PURGED terminals and no transition-legality check — GDPR Art-17 purge precondition unrepresentable | | MT |
-| DATA-HIGH-001 | HIGH | No transactional outbox — every event publish is a dual-write; `TenantCreated`/`UserInvited` loss on crash between commit and publish | ✅ (grep) | DATA |
-| DATA-HIGH-002 | HIGH | `@CreateDateColumn`/`@UpdateDateColumn` emit `timestamp` (no tz) on 8 entities incl. 7-year-retention `auth.audit_logs` | | DATA |
-| DATA-HIGH-003 | HIGH | `AuthSchemaBootstrapService` runs ALTER/UPDATE/CREATE DDL at every cold start on the request pool, errors swallowed — second un-versioned schema writer violating single-writer deploy contract; its "webpack may strip migrations" premise is stale (backend builds use tsc) | ✅ | DATA |
-| PERF-HIGH-001 | HIGH | Un-indexed cross-schema permission JOIN on every token mint (`getUserResourcePermissions`), failures silently return `[]` | | PERF |
-| PERF-HIGH-002 | HIGH | Token validation does 2 serial Redis RTTs + per-request `JSON.parse` on the per-request platform-wide hot path | | PERF |
-| PERF-HIGH-003 | HIGH | `generateTokens()` stacks 4–6 serial awaits (modules, permissions, bcrypt, save, session) that are partially parallelizable | | PERF |
-| AUDIT-HIGH-009 | HIGH | Test coverage holes on security primitives: no `token.service.spec`, no `jwt-auth.guard` unit spec, no tenant-provisioning specs, no rate-limiter spec, no WebAuthn specs, no service-local ADR-011 entity-schema architecture spec, RBAC escalation e2e-only | | TEST |
-| SEC-MEDIUM-001 | MEDIUM | Tenant-role assign/update lacks role-ceiling and self-target checks (tenant-scoped privilege manipulation) | | SEC |
-| SEC-MEDIUM-002 | MEDIUM | Role-change/user-delete audit writes swallowed on failure (fail-open) vs MFA's fail-closed pattern | | SEC |
-| SEC-MEDIUM-003 | MEDIUM | Refresh reuse revocation is per-user not per-family (no `familyId` column) — over-revokes, SecurityEvent lacks family-id | ✅ (grep) | SEC |
-| SEC-MEDIUM-004 | MEDIUM | `validateToken` query omits `enforceAccessTokenType` — refresh/MFA tokens introspect as `valid:true` | | SEC |
-| MT-MEDIUM-001 | MEDIUM | `PlanTier` non-ordinal string enum; no `planLevel` JWT claim; `TRIAL` vs `isTrialActive` dual representation | ✅ RESOLVED (PR #390 W3.4) | MT |
-| MT-MEDIUM-002 | MEDIUM | `farmCount`/`sensorCount` denormalized on `auth.tenants` with no maintainer/reconcile (only `userCount` has one) | ✅ RESOLVED (PR #390 W3.4) | MT |
-| DATA-MEDIUM-001 | MEDIUM | No JSON Schema validators for any of the 13 auth/tenant event types crossing the NATS trust boundary | | DATA |
-| DATA-MEDIUM-002 | MEDIUM | `RefreshToken.tenantId`/`Invitation.tenantId` nullable on tenant-bound rows; mixed camelCase/snake_case naming in `auth` schema | | DATA |
-| PERF-MEDIUM-001 | MEDIUM | `getJwtVerifyOptions()` rebuilds (and in PATH mode `readFileSync`s) the public key per request — fix lands in backend-common, benefits all consumer services | | PERF |
-| PERF-MEDIUM-002 | MEDIUM | Session manager O(N) serial Redis round-trips on mint/revoke-all (no pipelining/MGET) | | PERF |
-| PERF-MEDIUM-003 | MEDIUM | No tier-0 p99 SLO rule for token validation/login (must sit above the deliberate 200ms login floor) | | PERF |
-| AUDIT-MEDIUM-015 | MEDIUM | Jest config: no `restoreMocks`/`clearMocks`; 60% global coverage floor below §4 minimum; no mutation testing; 29 bare `toHaveBeenCalled()` assertions | | TEST |
-| MT-LOW-001 | LOW | `tenantBySlug` public query returns internal tenant `id` + `status` — UUID-harvest leg feeding SEC-CRITICAL-001 | | MT |
-| DATA-LOW-001 | LOW | `auth.tenants` carries subscription-state columns (`plan`, `trialEndsAt`, `subscriptionEndsAt`, …) overlapping billing SSoT with no reconciliation path | ✅ RESOLVED (PR #390 W3.4) | DATA |
-| SEC-LOW-001 | LOW | MFA challenge token lacks `type` claim; recovery-code `timingSafeEqual` can throw on corrupted hash; `users` RLS exclusion lacks architecture-test backstop; `$3::timestamp` cast drops tz on `lockedUntil`; migration spec discovery/compile-exclude mismatch | | SEC+PERF+TEST |
+> **Status column** (added 2026-06-14, Tier-4 registry-close): reflects the current `docs/reviews/_registry/findings.jsonl` state; W2/W3 closes carry the wave's squash SHA. **Verified** = original 2026-06-10 audit-time verification mark (unchanged). W5-D1 (SEC-MEDIUM-001/002) RESOLVED on PR #447 branch, registry close on CODEOWNERS merge.
+
+| ID | Sev | Title | Status | Verified | Source |
+|---|---|---|---|---|---|
+| SEC-CRITICAL-001 | CRITICAL | Public `register` accepts unvalidated client-supplied `tenantId` — anonymous cross-tenant account injection | RESOLVED (PR #378) | ✅ | SEC+MT |
+| SEC-CRITICAL-002 | CRITICAL | `rate-limit/` module is empty 0-byte stubs — no local brute-force/velocity defense on login, MFA-verify, reset, register; no per-tenant limits | RESOLVED (PR #383) | ✅ | SEC+MT |
+| AUDIT-CRITICAL-004 | CRITICAL | Unit-test gate is RED on `main`: 11/16 suites fail (99/244 tests) from DI drift — zero regression protection on the trust anchor | RESOLVED (PR #378) | run output | TEST |
+| AUDIT-CRITICAL-005 | CRITICAL | Refresh-token reuse detection (production `HASH_REFRESH_TOKENS=true` path) has ZERO test coverage in any layer | RESOLVED (PR #385) | ✅ | TEST |
+| SEC-HIGH-001 | HIGH | TOTP codes are not one-time-use — no `lastUsedTimeStep` tracking, intra-window replay across login/step-up | RESOLVED (PR #385) | ✅ | SEC |
+| SEC-HIGH-002 | HIGH | Login not-found branch compares against a malformed bcrypt dummy hash and skips peppering — asymmetric timing path | RESOLVED (PR #385) | ✅ | SEC |
+| SEC-HIGH-003 | HIGH | Issued JWTs carry no `kid` header while JWKS advertises `kid` — key rotation not deterministically consumable | RESOLVED (PR #385) | ✅ | SEC |
+| SEC-HIGH-004 | HIGH | JWKS response cached permanently (no TTL/invalidation) — stale key set served for process lifetime after rotation | RESOLVED (PR #385) | ✅ | SEC |
+| MT-HIGH-001 | HIGH | `updateTenant` does `Object.assign(tenant, input)` over full input incl. `plan`/`status`/`maxUsers`; resolver comment claims field filtering that does not exist; plan change bypasses billing saga | RESOLVED (PR #390) | ✅ | MT |
+| MT-HIGH-002 | HIGH | Synchronous tenant provisioning with silent partial-failure exits; `TenantCreated` published regardless of provisioning outcome → orphaned PENDING tenants + downstream artifacts | RESOLVED (PR #390) |  | MT |
+| MT-HIGH-003 | HIGH | Tenant lifecycle has no ARCHIVED/PURGED terminals and no transition-legality check — GDPR Art-17 purge precondition unrepresentable | RESOLVED (PR #390) |  | MT |
+| DATA-HIGH-001 | HIGH | No transactional outbox — every event publish is a dual-write; `TenantCreated`/`UserInvited` loss on crash between commit and publish | RESOLVED (PR #390) | ✅ | DATA |
+| DATA-HIGH-002 | HIGH | `@CreateDateColumn`/`@UpdateDateColumn` emit `timestamp` (no tz) on 8 entities incl. 7-year-retention `auth.audit_logs` | RESOLVED (PR #390) |  | DATA |
+| DATA-HIGH-003 | HIGH | `AuthSchemaBootstrapService` runs ALTER/UPDATE/CREATE DDL at every cold start on the request pool, errors swallowed — second un-versioned schema writer violating single-writer deploy contract; its "webpack may strip migrations" premise is stale (backend builds use tsc) | RESOLVED (PR #390) | ✅ | DATA |
+| PERF-HIGH-001 | HIGH | Un-indexed cross-schema permission JOIN on every token mint (`getUserResourcePermissions`), failures silently return `[]` | OPEN (W4, PR #440) |  | PERF |
+| PERF-HIGH-002 | HIGH | Token validation does 2 serial Redis RTTs + per-request `JSON.parse` on the per-request platform-wide hot path | OPEN (W4, PR #440) |  | PERF |
+| PERF-HIGH-003 | HIGH | `generateTokens()` stacks 4–6 serial awaits (modules, permissions, bcrypt, save, session) that are partially parallelizable | OPEN (W4, PR #440) |  | PERF |
+| AUDIT-HIGH-009 | HIGH | Test coverage holes on security primitives: no `token.service.spec`, no `jwt-auth.guard` unit spec, no tenant-provisioning specs, no rate-limiter spec, no WebAuthn specs, no service-local ADR-011 entity-schema architecture spec, RBAC escalation e2e-only | OPEN (W4, PR #440) |  | TEST |
+| SEC-MEDIUM-001 | MEDIUM | Tenant-role assign/update lacks role-ceiling and self-target checks (tenant-scoped privilege manipulation) | OPEN (W5-D1, PR #447 pending merge) |  | SEC |
+| SEC-MEDIUM-002 | MEDIUM | Role-change/user-delete audit writes swallowed on failure (fail-open) vs MFA's fail-closed pattern | OPEN (W5-D1, PR #447 pending merge) |  | SEC |
+| SEC-MEDIUM-003 | MEDIUM | Refresh reuse revocation is per-user not per-family (no `familyId` column) — over-revokes, SecurityEvent lacks family-id | RESOLVED (PR #385) | ✅ | SEC |
+| SEC-MEDIUM-004 | MEDIUM | `validateToken` query omits `enforceAccessTokenType` — refresh/MFA tokens introspect as `valid:true` | RESOLVED (PR #385) |  | SEC |
+| MT-MEDIUM-001 | MEDIUM | `PlanTier` non-ordinal string enum; no `planLevel` JWT claim; `TRIAL` vs `isTrialActive` dual representation | RESOLVED (PR #390) | ✅ | MT |
+| MT-MEDIUM-002 | MEDIUM | `farmCount`/`sensorCount` denormalized on `auth.tenants` with no maintainer/reconcile (only `userCount` has one) | RESOLVED (PR #390) | ✅ | MT |
+| DATA-MEDIUM-001 | MEDIUM | No JSON Schema validators for any of the 13 auth/tenant event types crossing the NATS trust boundary | RESOLVED (PR #390) |  | DATA |
+| DATA-MEDIUM-002 | MEDIUM | `RefreshToken.tenantId`/`Invitation.tenantId` nullable on tenant-bound rows; mixed camelCase/snake_case naming in `auth` schema | RESOLVED (PR #390) |  | DATA |
+| PERF-MEDIUM-001 | MEDIUM | `getJwtVerifyOptions()` rebuilds (and in PATH mode `readFileSync`s) the public key per request — fix lands in backend-common, benefits all consumer services | OPEN (W4, PR #440) |  | PERF |
+| PERF-MEDIUM-002 | MEDIUM | Session manager O(N) serial Redis round-trips on mint/revoke-all (no pipelining/MGET) | OPEN (W4, PR #440) |  | PERF |
+| PERF-MEDIUM-003 | MEDIUM | No tier-0 p99 SLO rule for token validation/login (must sit above the deliberate 200ms login floor) | OPEN (W4, PR #440) |  | PERF |
+| AUDIT-MEDIUM-015 | MEDIUM | Jest config: no `restoreMocks`/`clearMocks`; 60% global coverage floor below §4 minimum; no mutation testing; 29 bare `toHaveBeenCalled()` assertions | OPEN (W4, PR #440) |  | TEST |
+| MT-LOW-001 | LOW | `tenantBySlug` public query returns internal tenant `id` + `status` — UUID-harvest leg feeding SEC-CRITICAL-001 | RESOLVED (PR #378) |  | MT |
+| DATA-LOW-001 | LOW | `auth.tenants` carries subscription-state columns (`plan`, `trialEndsAt`, `subscriptionEndsAt`, …) overlapping billing SSoT with no reconciliation path | RESOLVED (PR #390) | ✅ | DATA |
+| SEC-LOW-001 | LOW | MFA challenge token lacks `type` claim; recovery-code `timingSafeEqual` can throw on corrupted hash; `users` RLS exclusion lacks architecture-test backstop; `$3::timestamp` cast drops tz on `lockedUntil`; migration spec discovery/compile-exclude mismatch | OPEN (W4, PR #440) |  | SEC+PERF+TEST |
 
 ---
 

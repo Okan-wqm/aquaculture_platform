@@ -29,6 +29,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { NatsEventBus } from '@platform/event-bus';
 import Redis from 'ioredis';
+import { of } from 'rxjs';
 import supertest from 'supertest';
 import { DataSource } from 'typeorm';
 
@@ -264,8 +265,19 @@ export async function createE2eTestApp(
   //    for JetStream event publishing. Connects to NATS on init, so we
   //    override it with a no-op mock.
   const mockNatsClient = {
-    emit: jest.fn().mockReturnValue({ subscribe: jest.fn() }),
-    send: jest.fn().mockReturnValue({ subscribe: jest.fn(), pipe: jest.fn().mockReturnThis(), toPromise: jest.fn() }),
+    // WHY real rxjs observables (not bare jest.fn stubs): request-reply handlers
+    // such as TenantUserAdmissionService do
+    // `await firstValueFrom(natsClient.send(...).pipe(timeout(...)))`. A stub
+    // whose `subscribe`/`pipe` never emit makes firstValueFrom hang forever — and
+    // the mocked `.pipe` even swallows the real rxjs `timeout` — stalling the
+    // `beforeAll` past the 60s hook budget (ORPHAN-HIGH-092). `of(...)` emits and
+    // completes, so the round-trip resolves. The default reply admits all users
+    // (auth correctness is auth-service's E2E concern, not messaging's); the shape
+    // matches ValidateTenantMembershipResult.
+    emit: jest.fn().mockReturnValue(of(undefined)),
+    send: jest.fn().mockReturnValue(
+      of({ success: true, allValid: true, invalidUserIds: [], inactiveUserIds: [] }),
+    ),
     connect: jest.fn().mockResolvedValue(undefined),
     close: jest.fn().mockResolvedValue(undefined),
   };

@@ -130,7 +130,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
               continue;
             }
 
-            this.handleEvent(event);
+            await this.handleEvent(event);
           } catch (error) {
             this.logger.warn(`Failed to process ${subject}: ${(error as Error).message}`);
           }
@@ -141,7 +141,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  private handleEvent(event: MessagingNatsEvent): void {
+  private async handleEvent(event: MessagingNatsEvent): Promise<void> {
     const channelId = event.channelId;
     if (!channelId) {
       this.logger.warn(`Messaging event ${event.eventType} missing channelId, dropping`);
@@ -149,87 +149,76 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     }
 
     switch (event.eventType) {
+      // Hydrate the thin event into a full WsMessage before emitting, so the
+      // client receives the { channelId, message } envelope it renders directly
+      // (MSG-CRITICAL-050). The gateway owns the NATS hydration request.
       case 'MessageSent':
       case 'MessageForwarded':
-        this.messagingGateway.broadcastNewMessage(event.tenantId, channelId, {
-          messageId: event.messageId,
+      case 'MessageUpdated': {
+        const messageId = event.messageId;
+        if (!messageId) {
+          this.logger.warn(`${event.eventType} missing messageId, dropping`);
+          return;
+        }
+        const eventName =
+          event.eventType === 'MessageUpdated' ? 'messageUpdated' : 'newMessage';
+        await this.messagingGateway.broadcastHydratedMessage(
+          event.tenantId,
           channelId,
-          tenantId: event.tenantId,
-          userId: this.stringField(event, 'userId') ?? this.stringField(event, 'senderId'),
-          timestamp: event.timestamp,
-          ...this.stripInternalForwardFields(event.data ?? {}),
-          ...this.pickPublicEventFields(event),
-        });
+          messageId,
+          eventName,
+        );
         break;
-
-      case 'MessageUpdated':
-        this.messagingGateway.broadcastMessageUpdated(event.tenantId, channelId, {
-          messageId: event.messageId,
-          channelId,
-          tenantId: event.tenantId,
-          userId: event.userId,
-          timestamp: event.timestamp,
-          ...event.data,
-        });
-        break;
+      }
 
       case 'MessageDeleted':
+        // The gateway adds channelId to the MessageDeletedEnvelope.
         this.messagingGateway.broadcastMessageDeleted(event.tenantId, channelId, {
           messageId: event.messageId ?? '',
         });
         break;
 
-      case 'MessageRead':
+      case 'MessageRead': {
+        // ReadReceiptEnvelope uses `readAt` (ISO), not `timestamp`.
+        const readAt =
+          this.stringField(event, 'readAt') ??
+          (event.timestamp instanceof Date
+            ? event.timestamp.toISOString()
+            : String(event.timestamp));
         this.messagingGateway.broadcastReadReceipt(event.tenantId, channelId, {
-          userId: event.userId,
           channelId,
+          userId: event.userId,
           messageId: event.messageId,
-          timestamp: event.timestamp,
+          readAt,
         });
         break;
+      }
+
+      case 'ChannelMemberRemoved': {
+        const removedUserId =
+          this.stringField(event, 'userId') ?? this.stringField(event.data, 'userId');
+        if (removedUserId) {
+          this.messagingGateway.evictUserFromChannel(
+            event.tenantId,
+            channelId,
+            removedUserId,
+          );
+        }
+        // Channel lifecycle events ride a DISTINCT `channelEvent` name — never
+        // `messageUpdated` (which now carries a MessageEnvelope and would corrupt
+        // the client message cache). MSG-HIGH-050 / MSG-MEDIUM-050.
+        this.messagingGateway.broadcastChannelEvent(event.tenantId, channelId, {
+          eventType: event.eventType,
+          userId: this.stringField(event, 'userId'),
+        });
+        break;
+      }
 
       case 'ChannelCreated':
-        // ChannelCreated events notify channel members of new channels
-        this.messagingGateway.broadcastMessageUpdated(event.tenantId, channelId, {
-          eventType: event.eventType,
-          channelId,
-          tenantId: event.tenantId,
-          userId: event.userId,
-          timestamp: event.timestamp,
-        });
-        break;
-
-      case 'ChannelMemberRemoved':
-        {
-          const removedUserId =
-            this.stringField(event, 'userId') ??
-            this.stringField(event.data, 'userId');
-          if (removedUserId) {
-            this.messagingGateway.evictUserFromChannel(
-              event.tenantId,
-              channelId,
-              removedUserId,
-            );
-          }
-        }
-        // These events can trigger UI updates for channel member lists
-        this.messagingGateway.broadcastMessageUpdated(event.tenantId, channelId, {
-          eventType: event.eventType,
-          channelId,
-          tenantId: event.tenantId,
-          userId: event.userId,
-          timestamp: event.timestamp,
-        });
-        break;
-
       case 'ChannelMemberAdded':
-        // These events can trigger UI updates for channel member lists
-        this.messagingGateway.broadcastMessageUpdated(event.tenantId, channelId, {
+        this.messagingGateway.broadcastChannelEvent(event.tenantId, channelId, {
           eventType: event.eventType,
-          channelId,
-          tenantId: event.tenantId,
-          userId: event.userId,
-          timestamp: event.timestamp,
+          userId: this.stringField(event, 'userId'),
         });
         break;
 
@@ -328,30 +317,6 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     }
 
     return true;
-  }
-
-  private pickPublicEventFields(event: MessagingNatsEvent): Record<string, unknown> {
-    const payload = this.stripInternalForwardFields(event);
-    delete payload['data'];
-    delete payload['eventId'];
-    delete payload['eventType'];
-    delete payload['version'];
-    delete payload['aggregateId'];
-    delete payload['aggregateType'];
-    delete payload['tenantId'];
-    delete payload['timestamp'];
-    return payload;
-  }
-
-  private stripInternalForwardFields(
-    value: Record<string, unknown>,
-  ): Record<string, unknown> {
-    const {
-      sourceChannelId: _sourceChannelId,
-      sourceMessageId: _sourceMessageId,
-      ...rest
-    } = value;
-    return rest;
   }
 
   private stringField(

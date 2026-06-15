@@ -12,8 +12,10 @@ import {
   Directive,
   Context,
 } from '@nestjs/graphql';
-import { Logger, UseGuards, UseInterceptors, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Logger, UseGuards, UseInterceptors, ForbiddenException, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
+import { ClientProxy } from '@nestjs/microservices';
+import { firstValueFrom, timeout } from 'rxjs';
 import DataLoader from 'dataloader';
 import GraphQLJSON from 'graphql-type-json';
 import { MessagingRateLimit, MessagingRateLimitInterceptor } from '../../shared/interceptors/messaging-rate-limit.interceptor';
@@ -57,7 +59,13 @@ import { PresenceService } from '../../presence/presence.service';
 // Repositories
 import { DataSource, IsNull } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  BaseEvent,
+  AUTH_USER_QUERY_SUBJECTS,
+  type ListTenantUserIdsQuery,
+  type ListTenantUserIdsResult,
+} from '@platform/event-contracts';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { ChannelMember, ChannelMemberRole } from '../../channel/entities/channel-member.entity';
 
@@ -66,44 +74,31 @@ import { ChannelMember, ChannelMemberRole } from '../../channel/entities/channel
 // ============================================================================
 
 /**
- * Federation-compatible user entity (external reference).
- * This service extends the User type defined in auth-service.
- *
- * Includes firstName/lastName/email/profileImageUrl fields that the frontend
- * queries for sender display and channel member lists. These are resolved
- * via inter-service call to auth-service in batchLoadUsers.
+ * Federated `User` entity (Apollo Federation v2, MSG-MEDIUM-052). auth-service is
+ * the OWNER of the display fields (firstName/lastName/email/profileImageUrl); this
+ * subgraph contributes ONLY the key (`id`) and the presence fields
+ * (`isOnline`/`lastSeenAt`), which it resolves inline in resolveSender /
+ * ChannelMember.resolveUser. The gateway stitches the display fields from auth's
+ * federated User. Frontend `sender { firstName … }` now renders real names/avatars
+ * instead of the previous placeholder nulls; `email` resolves null over a federated
+ * reference (auth's reference resolver is display-only) but stays available on
+ * auth's own admin-gated queries.
  */
 @ObjectType()
 @Directive('@key(fields: "id")')
-export class MessageUser {
+export class User {
   @Field(() => ID)
   id: string;
 
-  /** User's first name from auth-service. */
-  @Field(() => String, { nullable: true })
-  firstName: string | null;
+  // Federation (MSG-MEDIUM-052): the display fields (firstName, lastName, email,
+  // profileImageUrl) are NOT declared here — they are owned by auth-service's
+  // federated User entity and stitched by the gateway via auth's __resolveReference
+  // (display-only: email is never exposed cross-subgraph). messaging contributes
+  // ONLY the key + the presence fields below, resolved INLINE by resolveSender /
+  // ChannelMember.resolveUser (which carry @Tenant), so messaging needs no
+  // reference resolver and no tenant-in-reference-resolver plumbing.
 
-  /** User's last name from auth-service. */
-  @Field(() => String, { nullable: true })
-  lastName: string | null;
-
-  /** User's email address from auth-service. */
-  @Field(() => String, { nullable: true })
-  email: string | null;
-
-  /** Computed display name (firstName + lastName or email prefix). */
-  @Field(() => String, { nullable: true })
-  displayName: string | null;
-
-  /** Profile image URL from auth-service. */
-  @Field(() => String, { nullable: true })
-  profileImageUrl: string | null;
-
-  /** Avatar URL (alias for profileImageUrl, used in some UI contexts). */
-  @Field(() => String, { nullable: true })
-  avatarUrl: string | null;
-
-  /** Whether the user is currently online (resolved via PresenceService). */
+  /** Whether the user is currently online (messaging-owned, via PresenceService). */
   @Field(() => Boolean)
   isOnline: boolean;
 
@@ -200,6 +195,8 @@ export class MessageResolver {
     private readonly presenceService: PresenceService,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    @Inject('NATS_SERVICE')
+    private readonly natsClient: ClientProxy,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -380,29 +377,56 @@ export class MessageResolver {
   /**
    * Get presence info for a list of users.
    */
-  @Query(() => [MessageUser], { name: 'userPresence' })
+  @Query(() => [User], { name: 'userPresence' })
   async getUserPresence(
     @Args('userIds', { type: () => [ID] }) userIds: string[],
     @Tenant() tenantId: string,
-  ): Promise<MessageUser[]> {
+  ): Promise<User[]> {
     const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
-    const results: MessageUser[] = [];
+    const results: User[] = [];
     for (const id of userIds) {
       const isOnline = onlineMap.get(id) ?? false;
       const lastSeenAt = isOnline ? null : await this.presenceService.getLastSeen(tenantId, id);
-      results.push({
-        id,
-        firstName: null,
-        lastName: null,
-        email: null,
-        displayName: null,
-        profileImageUrl: null,
-        avatarUrl: null,
-        isOnline,
-        lastSeenAt,
-      });
+      results.push({ id, isOnline, lastSeenAt });
     }
     return results;
+  }
+
+  /**
+   * Tenant users the caller can start a chat with — the New Chat picker source
+   * (MSG-HIGH-051). Open to ANY messaging user (the resolver is
+   * @UseGuards(TenantGuard)), unlike auth's admin-gated `tenantUsers` (which
+   * 403'd field workers). Enumerates the tenant via the IDs-only auth NATS query
+   * (no PII over NATS), excludes the caller, and returns the federated `User`
+   * (id + presence inline; display name/avatar stitched from auth, display-only),
+   * so the picker shows real people without a profile-harvesting oracle.
+   */
+  @Query(() => [User], { name: 'channelEligibleUsers' })
+  async channelEligibleUsers(
+    @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
+  ): Promise<User[]> {
+    let result: ListTenantUserIdsResult | undefined;
+    try {
+      result = await firstValueFrom(
+        this.natsClient
+          .send<ListTenantUserIdsResult, ListTenantUserIdsQuery>(
+            AUTH_USER_QUERY_SUBJECTS.LIST_TENANT_USER_IDS,
+            { tenantId },
+          )
+          .pipe(timeout(5000)),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `channelEligibleUsers: tenant user list failed: ${(error as Error).message}`,
+      );
+      return [];
+    }
+    if (!result?.success) {
+      return [];
+    }
+    const eligibleIds = result.userIds.filter((id) => id !== user.sub);
+    return this.batchLoadUsers(eligibleIds, tenantId);
   }
 
   // -------------------------------------------------------------------------
@@ -817,15 +841,16 @@ export class MessageResolver {
    * Resolve the sender field for a Message via request-scoped batched DataLoader.
    * Creates the DataLoader lazily on first access per request context.
    */
-  @ResolveField(() => MessageUser, { name: 'sender', nullable: true })
+  @ResolveField(() => User, { name: 'sender', nullable: true })
   async resolveSender(
     @Parent() message: Message,
-    @Context() ctx: { userLoader?: DataLoader<string, MessageUser> },
-  ): Promise<MessageUser> {
+    @Tenant() tenantId: string,
+    @Context() ctx: { userLoader?: DataLoader<string, User> },
+  ): Promise<User> {
     if (!ctx.userLoader) {
-      ctx.userLoader = new DataLoader<string, MessageUser>(
+      ctx.userLoader = new DataLoader<string, User>(
         async (userIds: readonly string[]) => {
-          return this.batchLoadUsers([...userIds]);
+          return this.batchLoadUsers([...userIds], tenantId);
         },
         { cache: true },
       );
@@ -952,24 +977,20 @@ export class MessageResolver {
   }
 
   /**
-   * Batch load users by IDs for the DataLoader.
-   * In production, this calls the auth-service via federation or inter-service HTTP/NATS.
-   *
-   * TODO: Replace with actual user lookup via federation __resolveReference
-   *       or an inter-service call to auth-service.
-   *       Current implementation returns placeholder data with all required fields.
+   * Batch load the messaging-owned User fields for the DataLoader (MSG-MEDIUM-052).
+   * messaging contributes ONLY id + presence; the gateway stitches the display
+   * fields (firstName/lastName/profileImageUrl) from auth-service's federated User.
    */
-  private async batchLoadUsers(userIds: string[]): Promise<MessageUser[]> {
-    return userIds.map((id) => ({
-      id,
-      firstName: null,
-      lastName: null,
-      email: null,
-      displayName: null,
-      profileImageUrl: null,
-      avatarUrl: null,
-      isOnline: false,
-      lastSeenAt: null,
-    }));
+  private async batchLoadUsers(userIds: string[], tenantId: string): Promise<User[]> {
+    const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
+    return Promise.all(
+      userIds.map(async (id) => {
+        const isOnline = onlineMap.get(id) ?? false;
+        const lastSeenAt = isOnline
+          ? null
+          : await this.presenceService.getLastSeen(tenantId, id);
+        return { id, isOnline, lastSeenAt };
+      }),
+    );
   }
 }

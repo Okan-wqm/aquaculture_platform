@@ -4175,3 +4175,32 @@ Status: RESOLVED (2026-06-14, this PR — tenant-role/tenant-user-management/use
 Status: OPEN. Owner: messaging-expert. Registry: `ORPHAN-HIGH-102` in `docs/reviews/_registry/findings.jsonl`.
 
 > **D2 / CRITICAL-002 traceability note (not a registry close):** the gateway rate-limit consolidation (PR #457, `0c2370b04`) — which also fixed the gateway's fail-OPEN Redis store — is fully traced by its own commit message + PR. It is NOT seeded as a closable registry finding because the three-store invariant requires a closing commit to carry a `Closes: …#<id>` trailer *at commit time*; a finding seeded post-merge cannot be closed against an already-merged commit (no amend/force-push). The SEC-MEDIUM-001/002 closes in this same registry pass ARE valid because D1's commit (`bc79457d5`) carried their `Closes:` trailers.
+
+## ORPHAN-MEDIUM-106 — platform/configs typed config-schema SSoT is empty; services read process.env ad-hoc
+
+Severity: MEDIUM. Discovered 2026-06-13 during the AquaMobil e2e audit, frontend-expert. Out of scope for the AquaMobil remediation initiative — recorded here per the locked plan decision (config-SSoT is a separate initiative, but every found finding is registered).
+
+**Problem:** `platform/configs/` — intended as the typed configuration SSoT — is effectively empty. Backend services and the gateway read configuration directly from `process.env` ad-hoc (untyped `configService.get<string>(...)` / raw `process.env.X` accesses scattered across bootstrap, NATS, DB, and feature-flag paths), with no central schema, no fail-fast validation at boot, and no single place documenting which variables exist, their types, defaults, and required-ness. A missing or malformed env var surfaces as a late runtime failure (or a silent wrong-default) rather than a boot-time rejection, and there is no compile-time contract binding a consumer to a declared key.
+
+**Effect:** config drift is undetectable until runtime; a typo'd or absent env var can degrade a service silently; there is no typed surface a reviewer can read to know the full configuration contract of a service. This is the configuration analogue of the enum / WS-payload drift this initiative fixes elsewhere — the same SSoT gap on a different axis.
+
+**Fix direction (architectural, separate initiative):** populate `platform/configs/` with a typed, validated config-schema module (a Zod/joi schema per service, or a shared schema with per-service slices) loaded once at bootstrap with fail-fast validation (reject boot on a missing/malformed required key), and replace ad-hoc `process.env` / untyped `configService.get` reads with typed accessors derived from that schema. A CI invariant then asserts no service reads `process.env` outside the config layer. Tier-1 "make-it-impossible": a consumer cannot reference an undeclared key because the typed schema is the only access path.
+
+Status: OPEN (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
+
+---
+
+
+## ORPHAN-MEDIUM-107 — lint-gates husky pre-commit gate is broken under ESLint 9 (eslintrc-format parserOptions fed to a flat-config Linter)
+
+Severity: MEDIUM. Discovered 2026-06-13 while landing the aquamobil-msg-federation merge — the husky pre-commit hook blocked the merge commit (13/19 gate cases threw). RESOLVED in the same merge.
+
+**Problem:** `tools/lint-gates/lint-gates.spec.ts` — the ESLint gate-preservation test wired into `.husky/pre-commit` via the `tools/*gates/*.spec.ts` glob — calls `linter.verify(code, { parserOptions: { ecmaVersion: 2022, sourceType: 'module' }, rules })` against a `new Linter()` instance. The repo migrated to ESLint 9 + flat config (`eslint.config.mjs`; `.eslintrc.json` / `.eslintrc.cjs` deleted), and ESLint 9's `Linter` defaults to flat-config mode, which rejects a top-level `parserOptions` key: "Key 'parserOptions': This appears to be in eslintrc format rather than flat config format." All 13 gate-firing cases threw, so the hook exited 1 and blocked every commit. The test file is byte-identical to `origin/main` (`git diff origin/main` empty) under the repo's pinned `eslint@^9.39.4`, so this is a pre-existing main breakage, not a merge artifact.
+
+**Effect:** the pre-commit gate suite is unrunnable on ESLint 9. Either commits are hard-blocked, or developers bypass with `--no-verify` — which silently disables ALL the other pre-commit gates too (banned-phrase, banned-construct, migration-sql-lint, tier-claim-lint, and the rest of the gate-preservation suite guarding the getRepository() / JWT_SECRET / JSON.stringify bans). The safety net that proves the ESLint config still fires the custom AST-selector rules was dead under the repo's own pinned ESLint.
+
+**Fix (applied, tier-1, flat-config-consistent):** change the gate harness to speak flat config — `languageOptions: { ecmaVersion: 2022, sourceType: 'module' }` instead of the eslintrc-shape top-level `parserOptions`. This aligns the harness with the repo's flat-config SSoT rather than re-enabling an eslintrc compat mode. Verified: 19/19 spec cases pass under ESLint 9.39.4.
+
+Status: RESOLVED (2026-06-13; fixed in the aquamobil-msg-federation merge commit). Registry: orphan-findings.md only.
+
+---

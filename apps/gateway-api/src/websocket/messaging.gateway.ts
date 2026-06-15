@@ -14,6 +14,12 @@ import {
 } from '@nestjs/websockets';
 import { firstValueFrom, timeout } from 'rxjs';
 import { Server, Socket } from 'socket.io';
+import {
+  GET_MESSAGE_FOR_BROADCAST_SUBJECT,
+  type GetMessageForBroadcastRequest,
+  type GetMessageForBroadcastResponse,
+  type MessageEnvelope,
+} from '@platform/event-contracts';
 
 // Types
 
@@ -45,7 +51,7 @@ interface ConnectedClient {
 
 interface JoinChannelPayload { channelId: string }
 interface LeaveChannelPayload { channelId: string }
-interface TypingPayload { channelId: string }
+interface TypingPayload { channelId: string; isTyping?: boolean }
 interface ResolveNotificationRefPayload { notificationRef: string }
 interface ResolveNotificationRefResult {
   channelId: string;
@@ -215,11 +221,11 @@ export class MessagingGateway
         tenantId,
       });
 
-      // Broadcast presence to tenant
+      // Broadcast presence to tenant (PresenceEnvelope: isOnline, not status)
       this.server.to(`tenant:${tenantId}`).emit('presence', {
         userId,
-        status: 'online',
-        timestamp: new Date().toISOString(),
+        isOnline: true,
+        lastSeenAt: null,
       });
     } catch (error) {
       this.logger.error(`Connection error: ${(error as Error).message}`);
@@ -233,11 +239,11 @@ export class MessagingGateway
       // Clear presence
       await this.clearPresence(clientData.tenantId, clientData.userId);
 
-      // Broadcast offline
+      // Broadcast offline (PresenceEnvelope: isOnline, not status)
       this.server.to(`tenant:${clientData.tenantId}`).emit('presence', {
         userId: clientData.userId,
-        status: 'offline',
-        timestamp: new Date().toISOString(),
+        isOnline: false,
+        lastSeenAt: new Date().toISOString(),
       });
     }
 
@@ -332,22 +338,26 @@ export class MessagingGateway
       return { success: false, reason: 'Invalid channelId' };
     }
 
-    // Throttle: max 1 typing event per 3 seconds per user per channel
+    // Relay the client-supplied isTyping flag (default true for legacy clients).
+    // Throttle only START-typing; a STOP (isTyping:false) must always propagate
+    // so remote indicators clear promptly (MSG-HIGH-050: the gateway previously
+    // dropped isTyping entirely and throttled stops, so indicators never showed).
+    const isTyping = payload?.isTyping !== false;
     const throttleKey = payload.channelId;
     const now = Date.now();
-    const lastTime = clientData.lastTyping.get(throttleKey) ?? 0;
-
-    if (now - lastTime < TYPING_THROTTLE_MS) {
-      return { success: false, reason: 'Throttled' };
+    if (isTyping) {
+      const lastTime = clientData.lastTyping.get(throttleKey) ?? 0;
+      if (now - lastTime < TYPING_THROTTLE_MS) {
+        return { success: false, reason: 'Throttled' };
+      }
+      clientData.lastTyping.set(throttleKey, now);
     }
 
-    clientData.lastTyping.set(throttleKey, now);
-
-    // Broadcast typing to channel (except sender)
+    // Broadcast typing to channel (except sender) — TypingEnvelope carries isTyping
     client.to(`channel:${clientData.tenantId}:${payload.channelId}`).emit('typing', {
       userId: clientData.userId,
       channelId: payload.channelId,
-      timestamp: new Date().toISOString(),
+      isTyping,
     });
 
     return { success: true };
@@ -450,20 +460,82 @@ export class MessagingGateway
     return { success: true };
   }
 
-  broadcastNewMessage(tenantId: string, channelId: string, message: Record<string, unknown>): void {
-    this.server.to(`channel:${tenantId}:${channelId}`).emit('newMessage', message);
-  }
-
-  broadcastMessageUpdated(tenantId: string, channelId: string, message: Record<string, unknown>): void {
-    this.server.to(`channel:${tenantId}:${channelId}`).emit('messageUpdated', message);
-  }
+  // newMessage / messageUpdated are emitted ONLY via broadcastHydratedMessage
+  // (below), so a thin/flat payload can never reach the client by accident
+  // (the MSG-CRITICAL-050 root cause). The old flat-payload broadcastNewMessage
+  // / broadcastMessageUpdated emitters were removed.
 
   broadcastMessageDeleted(tenantId: string, channelId: string, data: { messageId: string }): void {
-    this.server.to(`channel:${tenantId}:${channelId}`).emit('messageDeleted', data);
+    // MessageDeletedEnvelope carries channelId so the client targets the right
+    // cache key (MSG-MEDIUM-050: the previous payload omitted it).
+    this.server
+      .to(`channel:${tenantId}:${channelId}`)
+      .emit('messageDeleted', { channelId, messageId: data.messageId });
   }
 
   broadcastReadReceipt(tenantId: string, channelId: string, data: Record<string, unknown>): void {
     this.server.to(`channel:${tenantId}:${channelId}`).emit('readReceipt', data);
+  }
+
+  /**
+   * Hydrate a thin MessageSent/MessageUpdated/MessageForwarded event into the
+   * full WsMessage the client renders, then emit the matching envelope to the
+   * channel room (MSG-CRITICAL-050). The bridge cannot build the body itself —
+   * it requests it from messaging-service over NATS. On a missing message or a
+   * request failure the broadcast is dropped (never an empty envelope, which the
+   * client would choke on).
+   */
+  async broadcastHydratedMessage(
+    tenantId: string,
+    channelId: string,
+    messageId: string,
+    eventName: 'newMessage' | 'messageUpdated',
+  ): Promise<void> {
+    if (!this.natsClient) {
+      this.logger.warn(
+        `Cannot hydrate ${eventName} for ${messageId}: NATS client unavailable`,
+      );
+      return;
+    }
+    try {
+      const request: GetMessageForBroadcastRequest = { tenantId, channelId, messageId };
+      const response = await firstValueFrom(
+        this.natsClient
+          .send<GetMessageForBroadcastResponse, GetMessageForBroadcastRequest>(
+            GET_MESSAGE_FOR_BROADCAST_SUBJECT,
+            request,
+          )
+          .pipe(timeout(MessagingGateway.NATS_VERIFY_TIMEOUT_MS)),
+      );
+      if (!response?.message) {
+        this.logger.warn(
+          `Hydration returned no message for ${messageId} in ${channelId}; dropping ${eventName}`,
+        );
+        return;
+      }
+      const envelope: MessageEnvelope = { channelId, message: response.message };
+      this.server.to(`channel:${tenantId}:${channelId}`).emit(eventName, envelope);
+    } catch (error) {
+      this.logger.warn(
+        `Hydration request failed for ${messageId} in ${channelId}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Channel lifecycle notification (created / member added / member removed).
+   * Emitted on a DISTINCT `channelEvent` name — these MUST NOT ride the
+   * `messageUpdated` channel (which now carries a full MessageEnvelope), or they
+   * would corrupt the client's message cache (MSG-HIGH-050 / MSG-MEDIUM-050).
+   */
+  broadcastChannelEvent(
+    tenantId: string,
+    channelId: string,
+    data: { eventType: string; userId?: string },
+  ): void {
+    this.server
+      .to(`channel:${tenantId}:${channelId}`)
+      .emit('channelEvent', { channelId, ...data });
   }
 
   evictUserFromChannel(tenantId: string, channelId: string, userId: string): void {

@@ -116,6 +116,13 @@ export interface Message {
   createdAt: string;
   editedAt: string | null;
   metadata: Record<string, unknown> | null;
+  /**
+   * Server idempotency key, echoed back on the `newMessage` WS envelope so the
+   * client can replace its optimistic bubble with the server message instead of
+   * appending a duplicate (the sender receives its own message back over the
+   * channel room).
+   */
+  idempotencyKey?: string | null;
   /** Populated via field resolver. */
   sender?: MessageUser;
   /** Populated via field resolver. */

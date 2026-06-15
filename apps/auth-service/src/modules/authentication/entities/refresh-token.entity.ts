@@ -15,6 +15,7 @@ import { User } from './user.entity';
 @Index('IDX_refresh_tokens_token', ['token'], { unique: true })
 @Index('IDX_refresh_tokens_expires', ['expiresAt'])
 @Index('IDX_refresh_tokens_tenant', ['tenantId'])
+@Index('IDX_refresh_tokens_family', ['familyId'])
 export class RefreshToken {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -25,10 +26,26 @@ export class RefreshToken {
   @Column({ type: 'uuid' })
   userId!: string;
 
+  /**
+   * SECURITY (SEC-MEDIUM-003): rotation lineage id. A fresh login starts a
+   * NEW family; every rotation carries the SAME familyId forward. On
+   * reuse-detection the revocation is scoped to the suspect token's family
+   * (not the whole user) so a single stale-cookie replay does not nuke all
+   * of a user's other devices, and the emitted SecurityEvent carries a true
+   * family-id for incident correlation.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  familyId?: string | null;
+
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user!: User;
 
+  // DATA-MEDIUM-002: deliberately nullable. A SUPER_ADMIN / platform actor has
+  // NO tenant, so its refresh tokens legitimately carry NULL tenantId (mirrors
+  // auth.users.tenantId's documented platform-actor exception). A DB constraint
+  // cannot express "non-null unless the owner is SUPER_ADMIN" (cross-table), so
+  // the application contract sets tenantId for every tenant-scoped session.
   @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
@@ -53,7 +70,7 @@ export class RefreshToken {
   @Column({ type: 'varchar', length: 100, nullable: true })
   deviceId?: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   isExpired(): boolean {

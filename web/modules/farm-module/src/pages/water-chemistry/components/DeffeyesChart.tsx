@@ -31,6 +31,12 @@ interface DeffeyesChartProps {
   maxDIC?: number;
   maxALK?: number;
   onDemandPath?: OnDemandStep[];
+  /**
+   * When true, force the safety overlays (NH₃/CO₂/H₂S toxic zones + safe zone)
+   * visible regardless of the user's per-layer toggles. Used for the printed
+   * report so the exported chart always shows the toxicity bands.
+   */
+  forceSafetyOverlays?: boolean;
 }
 
 type AlkDicPoint = { CT: number; AT: number };
@@ -51,6 +57,8 @@ interface CustomizedLayerProps {
   xAxisMap?: Record<string, AxisScale>;
   yAxisMap?: Record<string, AxisScale>;
 }
+
+type PHIsoline = DeffeyesChartData['isolines'][number];
 
 function getChartScales(props: CustomizedLayerProps): {
   xScale: (value: number) => number;
@@ -408,17 +416,83 @@ function createOnDemandArrowLayer(
   };
 }
 
+function createPHLabelLayer(
+  isolines: PHIsoline[],
+  maxDIC: number,
+  maxALK: number
+): React.FC<CustomizedLayerProps> {
+  return function PHLabelLayer(props: CustomizedLayerProps) {
+    const scales = getChartScales(props);
+    if (!scales) return null;
+    const { xScale, yScale } = scales;
+
+    return (
+      <g data-testid="deffeyes-ph-labels">
+        {isolines.map((iso) => {
+          const visiblePoints = iso.points.filter(
+            point => point.CT >= 0 && point.CT <= maxDIC && point.AT >= 0 && point.AT <= maxALK
+          );
+          if (visiblePoints.length < 2) return null;
+
+          const labelIndex = Math.min(
+            visiblePoints.length - 2,
+            Math.max(1, Math.floor((visiblePoints.length - 1) * 0.52))
+          );
+          const point = visiblePoints[labelIndex];
+          const previous = visiblePoints[labelIndex - 1] ?? visiblePoints[0];
+          const next = visiblePoints[labelIndex + 1] ?? visiblePoints[visiblePoints.length - 1];
+          if (!point || !previous || !next) return null;
+
+          const x = xScale(point.CT);
+          const y = yScale(point.AT);
+          const dx = xScale(next.CT) - xScale(previous.CT);
+          const dy = yScale(next.AT) - yScale(previous.AT);
+          if (!isFinite(x) || !isFinite(y) || !isFinite(dx) || !isFinite(dy)) return null;
+
+          const angle = Math.max(-65, Math.min(65, Math.atan2(dy, dx) * 180 / Math.PI));
+
+          return (
+            <g key={`ph-label-${iso.pH}`} transform={`translate(${x} ${y}) rotate(${angle})`}>
+              <text
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={11}
+                fontWeight={700}
+                fill={iso.color}
+                stroke="#ffffff"
+                strokeWidth={3}
+                paintOrder="stroke"
+              >
+                {`pH ${iso.pH.toFixed(1)}`}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+    );
+  };
+}
+
 const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
   data,
   maxDIC = 6,
   maxALK = 6,
   onDemandPath,
+  forceSafetyOverlays = false,
 }) => {
   const [showIsolines, setShowIsolines] = useState(true);
   const [showSafeZone, setShowSafeZone] = useState(false);
   const [showNH3Zone, setShowNH3Zone] = useState(false);
   const [showCO2Zone, setShowCO2Zone] = useState(false);
+  const [showH2SZone, setShowH2SZone] = useState(false);
   const [showOmega, setShowOmega] = useState(false);
+
+  // Render flags: the per-layer checkboxes drive normal display, but a report
+  // export forces every toxicity overlay on without mutating user toggle state.
+  const renderSafeZone = showSafeZone || forceSafetyOverlays;
+  const renderNH3Zone = showNH3Zone || forceSafetyOverlays;
+  const renderCO2Zone = showCO2Zone || forceSafetyOverlays;
+  const renderH2SZone = showH2SZone || forceSafetyOverlays;
   const [showTarget, setShowTarget] = useState(true);
   const [showDosing, setShowDosing] = useState(true);
   const [showCurrentPoint, setShowCurrentPoint] = useState(true);
@@ -453,6 +527,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
     const lastPt = iso.points[iso.points.length - 1];
     return lastPt.AT > -2 && firstPt.AT < maxALK + 2;
   });
+  const PHLabelLayer = createPHLabelLayer(visibleMajor, maxDIC, maxALK);
 
   // Prepare CO2 toxic zone data for Area component
   // Area with baseValue={0} fills between curve and X-axis
@@ -461,6 +536,14 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
     const clipped = clipCO2Boundary(data.co2ToxicZone.points, maxDIC, maxALK);
     return clipped.length >= 2 ? clipped : null;
   }, [data.co2ToxicZone, maxDIC, maxALK]);
+
+  // H₂S toxic zone fills downward to the X-axis (low-pH region), exactly like
+  // CO₂, so it reuses clipCO2Boundary + an Area with baseValue={0}.
+  const h2sAreaData = useMemo(() => {
+    if (!data.h2sToxicZone) return null;
+    const clipped = clipCO2Boundary(data.h2sToxicZone.points, maxDIC, maxALK);
+    return clipped.length >= 2 ? clipped : null;
+  }, [data.h2sToxicZone, maxDIC, maxALK]);
 
   // Compute arrowhead for reagent line tip
   // The angle is in SVG coords (Y down), computed from last 2 data points
@@ -501,6 +584,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
           <LayerToggle label="Safe Zone" color="#22c55e" checked={showSafeZone} onChange={setShowSafeZone} />
           <LayerToggle label="NH₃ Toxic" color="#ef4444" checked={showNH3Zone} onChange={setShowNH3Zone} />
           <LayerToggle label="CO₂ Toxic" color="#f97316" checked={showCO2Zone} onChange={setShowCO2Zone} />
+          <LayerToggle label="H₂S Toxic" color="#b91c1c" checked={showH2SZone} onChange={setShowH2SZone} />
           <LayerToggle label="Ω Calcite/Ar" color="#8b5cf6" checked={showOmega} onChange={setShowOmega} />
           <LayerToggle label="Current" color="#2563eb" checked={showCurrentPoint} onChange={setShowCurrentPoint} />
           <LayerToggle label="Dosing Path" color="#f59e0b" checked={showDosing} onChange={setShowDosing} />
@@ -512,7 +596,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
       </div>
       <div className="p-4" style={{ height: 700 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart margin={{ top: 10, right: 20, left: 5, bottom: 5 }}>
+          <ComposedChart margin={{ top: 10, right: 20, left: 25, bottom: 35 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis
               dataKey="CT"
@@ -521,6 +605,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
               allowDataOverflow={true}
               tickCount={Math.min(maxDIC + 1, 17)}
               tick={{ fontSize: 11 }}
+              label={{ value: 'DIC (mmol/L)', position: 'insideBottom', offset: -20, fontSize: 12, fill: '#374151' }}
             />
             <YAxis
               dataKey="AT"
@@ -529,6 +614,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
               allowDataOverflow={true}
               tickCount={maxALK + 1}
               tick={{ fontSize: 11 }}
+              label={{ value: 'Alkalinity (meq/L)', angle: -90, position: 'insideLeft', offset: -10, fontSize: 12, fill: '#374151' }}
             />
             <Tooltip
               formatter={(value: number, name: string) => [value.toFixed(3), name]}
@@ -536,7 +622,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             />
 
             {/* CO2 Toxic Zone - filled area between curve and X-axis */}
-            {showCO2Zone && co2AreaData && (
+            {renderCO2Zone && co2AreaData && (
               <Area
                 data={co2AreaData}
                 dataKey="AT"
@@ -553,8 +639,26 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
               />
             )}
 
+            {/* H₂S Toxic Zone - filled area between critical-pH isoline and X-axis */}
+            {renderH2SZone && h2sAreaData && (
+              <Area
+                data={h2sAreaData}
+                dataKey="AT"
+                baseValue={0}
+                fill="rgba(185, 28, 28, 0.15)"
+                stroke="#b91c1c"
+                strokeWidth={1.5}
+                strokeDasharray="6 3"
+                dot={false}
+                type="monotone"
+                legendType="none"
+                name="H₂S Toxic Zone"
+                isAnimationActive={false}
+              />
+            )}
+
             {/* NH3 Toxic Zone - filled wedge between NH3 line and Y=maxALK */}
-            {showNH3Zone && nh3AreaData && (
+            {renderNH3Zone && nh3AreaData && (
               <Area
                 data={nh3AreaData}
                 dataKey="AT"
@@ -572,7 +676,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
             )}
 
             {/* Safe Zone (quadrilateral bounded by NH3 line, CO2 line, alkMin, alkMax) */}
-            {showSafeZone && SafeZoneLayer && <Customized component={SafeZoneLayer} />}
+            {renderSafeZone && SafeZoneLayer && <Customized component={SafeZoneLayer} />}
 
             {/* Minor pH isolines (thin, transparent) */}
             {showIsolines && visibleMinor.map((iso) => (
@@ -587,6 +691,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 type="monotone"
                 legendType="none"
                 name={`pH ${iso.pH.toFixed(2)}`}
+                isAnimationActive={false}
               />
             ))}
 
@@ -603,8 +708,10 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 dot={false}
                 type="monotone"
                 legendType="none"
+                isAnimationActive={false}
               />
             ))}
+            {showIsolines && <Customized component={PHLabelLayer} />}
 
             {/* Reagent direction line */}
             {showDosing && data.reagentLine && (
@@ -618,6 +725,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 dot={false}
                 type="monotone"
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 
@@ -647,6 +755,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                   dot={false}
                   type="monotone"
                   legendType="none"
+                  isAnimationActive={false}
                 />
                 {/* Reagent 2 direction line (from current point) */}
                 <Line
@@ -660,6 +769,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                   dot={false}
                   type="monotone"
                   legendType="none"
+                  isAnimationActive={false}
                 />
 
                 {/* Step1/step2 bold path + intermediate point (only when target ON and dosing path computed) */}
@@ -674,6 +784,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                       dot={false}
                       type="monotone"
                       legendType="none"
+                      isAnimationActive={false}
                     />
                     <Line
                       data={dosingVisualization.step2Path}
@@ -684,6 +795,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                       dot={false}
                       type="monotone"
                       legendType="none"
+                      isAnimationActive={false}
                     />
                     <Scatter
                       data={[{ CT: dosingVisualization.intermediatePoint.DIC, AT: dosingVisualization.intermediatePoint.ALK }]}
@@ -712,6 +824,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 dot={false}
                 type="monotone"
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 
@@ -727,6 +840,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 dot={false}
                 type="monotone"
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 
@@ -745,6 +859,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 dot={false}
                 type="monotone"
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 
@@ -755,6 +870,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 data={[{ CT: data.currentPoint.DIC, AT: data.currentPoint.ALK }]}
                 shape={<StarShape />}
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 
@@ -765,6 +881,7 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
                 data={[{ CT: data.targetPoint.DIC, AT: data.targetPoint.ALK }]}
                 shape={<CrossShape />}
                 legendType="none"
+                isAnimationActive={false}
               />
             )}
 

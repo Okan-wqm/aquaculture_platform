@@ -1,0 +1,7 @@
+{
+  "extends": "../gates/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"]
+}

@@ -192,4 +192,12 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Run Jest invariants (layer-1 + layer-3 fast subset)
+        # entity-diff-implies-migration.spec.ts runs the entity-diff-witness
+        # gate, which honours `ENTITY-DIFF-OK:` PR-body waivers via PR_BODY.
+        # Without this env the invariant cannot see the waiver and fails any
+        # entity edit that has no accompanying migration (e.g. a read-replica
+        # entity whose change is pure TypeScript typing, zero DDL). Mirrors
+        # db-migration-check.yml, which already sets PR_BODY for the same gate.
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run invariants:fast

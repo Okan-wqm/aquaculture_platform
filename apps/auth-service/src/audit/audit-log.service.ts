@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 
 import { AuditLog, AuditLogSeverity } from './audit-log.entity';
 
@@ -33,12 +33,43 @@ export class AuditLogService {
     private readonly configService: ConfigService,
   ) {}
 
-  async log(dto: CreateAuditLogDto): Promise<AuditLog> {
-    const auditLog = this.auditLogRepository.create({
+  /**
+   * Persist an audit-log row.
+   *
+   * # Why the optional EntityManager (SEC-MEDIUM-002 / FINDING #5)
+   *
+   * WHAT: when a caller passes the `manager` from an enclosing
+   * `dataSource.transaction(manager => ...)` block, the audit row is
+   * written on THAT transaction's connection via the EntityManager's
+   * entity-target `create`/`save` (no repository handle). When omitted,
+   * it falls back to the injected repository's own manager — behaviour
+   * identical to the previous single-connection implementation.
+   *
+   * WHY: the role-mutation tx blocks in tenant-user-management assert
+   * fail-CLOSED audit (audit must roll back with the mutation). Before
+   * this overload `log()` always saved on a SEPARATE connection, so a
+   * rolled-back role change still left an orphan audit row (fail-OPEN).
+   * Threading the caller's `manager` makes the audit write atomic with
+   * the mutation. `AuditLog` is `@Entity('audit_logs', { schema: 'auth' })`,
+   * so `manager.create(AuditLog, ...)` routes the write to
+   * `auth.audit_logs` inside the passed transaction.
+   */
+  async log(
+    dto: CreateAuditLogDto,
+    // Narrowed to the exact EntityManager surface this method uses (entity-target
+    // create/save) so a transaction manager threads in without a cast and the
+    // test double needs no `as`. A real EntityManager satisfies this.
+    manager?: Pick<EntityManager, 'create' | 'save'>,
+  ): Promise<AuditLog> {
+    // EntityManager.create/save (entity-target form) binds the write to the
+    // caller's transaction without a repository handle — atomic/fail-CLOSED
+    // audit. Pure INSERT with explicit dto.tenantId; no tenant-unscoped find.
+    const mgr = manager ?? this.auditLogRepository.manager;
+    const auditLog = mgr.create(AuditLog, {
       ...dto,
       severity: dto.severity ?? AuditLogSeverity.INFO,
     });
-    const saved = await this.auditLogRepository.save(auditLog);
+    const saved = await mgr.save(auditLog);
     this.logger.debug(`Audit log created: ${dto.action} for ${dto.entityType}`);
     return saved;
   }

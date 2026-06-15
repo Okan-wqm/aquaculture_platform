@@ -55,9 +55,22 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
 // Mock Setup
 // ============================================================================
 
+// WHY a shared builder with a default affected=1: the one-time-use consume
+// (SEC-HIGH-001) runs a conditional UPDATE via createQueryBuilder and reads
+// result.affected — affected=1 means "step consumed (first use)", affected=0
+// means "already consumed (replay)". Replay tests override execute to 0.
+const mockTotpConsumeBuilder = {
+  update: jest.fn().mockReturnThis(),
+  set: jest.fn().mockReturnThis(),
+  where: jest.fn().mockReturnThis(),
+  andWhere: jest.fn().mockReturnThis(),
+  execute: jest.fn().mockResolvedValue({ affected: 1 }),
+};
+
 const mockUserRepository = {
   findOne: jest.fn(),
   save: jest.fn((user: User) => Promise.resolve(user)),
+  createQueryBuilder: jest.fn(() => mockTotpConsumeBuilder),
 };
 
 const mockJwtService = {
@@ -443,6 +456,60 @@ describe('MfaService', () => {
       const savedUser = mockUserRepository.save.mock.calls[0]![0];
       expect(savedUser.mfaFailedAttempts).toBe(0);
       expect(savedUser.mfaLockedUntil).toBeNull();
+    });
+
+    it('SEC-HIGH-001: rejects a TOTP code REPLAYED within its validity window', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'mfa:user-uuid-123',
+        userId: 'user-uuid-123',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+      });
+
+      const secretBase32 = 'JBSWY3DPEHPK3PXP';
+      const validCode = generateTestTOTP(base32Decode(secretBase32));
+      const user = createMockUser({ mfaEnabled: true, mfaSecret: secretBase32 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      // WHY affected=0: the conditional UPDATE consumes the step on first use;
+      // a replay of the SAME code computes the same step, the WHERE clause
+      // (step > lastUsedTotpStep) matches no row, affected=0 → rejected even
+      // though the code is still inside its ±window TOTP validity.
+      mockTotpConsumeBuilder.execute.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(
+        service.verifyMfaLogin('valid-mfa-token', validCode, '127.0.0.1'),
+      ).rejects.toThrow(UnauthorizedException);
+
+      // The replayed code must NOT mint tokens.
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+    });
+
+    it('SEC-HIGH-001: verification persists the matched TOTP step (one-time consume)', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'mfa:user-uuid-123',
+        userId: 'user-uuid-123',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+      });
+
+      const secretBase32 = 'JBSWY3DPEHPK3PXP';
+      const validCode = generateTestTOTP(base32Decode(secretBase32));
+      const user = createMockUser({ mfaEnabled: true, mfaSecret: secretBase32 });
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      await service.verifyMfaLogin('valid-mfa-token', validCode, '127.0.0.1');
+
+      // The consume UPDATE must have set lastUsedTotpStep to the matched step
+      // (a large positive epoch/period counter) and guarded with the
+      // monotonic WHERE clause.
+      expect(mockTotpConsumeBuilder.set).toHaveBeenCalledWith(
+        expect.objectContaining({ lastUsedTotpStep: expect.any(String) }),
+      );
+      expect(mockTotpConsumeBuilder.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('lastUsedTotpStep'),
+        expect.objectContaining({ step: expect.any(String) }),
+      );
     });
 
     it('should accept recovery code and consume it', async () => {

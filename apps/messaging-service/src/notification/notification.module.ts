@@ -7,12 +7,13 @@
  */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { ClientsModule } from '@nestjs/microservices';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { PresenceModule } from '../presence/presence.module';
 import { MessageModule } from '../message/message.module';
 import { MessagingPushService } from './messaging-push.service';
+import { MessagingPushNatsHandler } from './messaging-push-nats.handler';
 
 @Module({
   imports: [
@@ -21,14 +22,17 @@ import { MessagingPushService } from './messaging-push.service';
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('messaging-service'),
+        customClass: NatsV3Client,
+        options: { serviceName: 'messaging-service' },
       },
     ]),
     PresenceModule,
     MessageModule,
   ],
-  providers: [MessagingPushService],
+  // MessagingPushNatsHandler owns the durable MessageSent subscription that
+  // drives MessagingPushService.handleMessageSent (MSG-HIGH-004). EVENT_BUS is
+  // provided by the global EventBusModule registered in app.module.
+  providers: [MessagingPushService, MessagingPushNatsHandler],
   exports: [MessagingPushService],
 })
 export class MessagingNotificationModule {}

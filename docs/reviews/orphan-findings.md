@@ -3755,6 +3755,19 @@ Fix: add workflow contract/preflight verification, evidence trust and ledger-ref
 
 Status: RESOLVED on `feat/aria-control-plane-proof-20260606`.
 
+## ORPHAN-063 — main carries a RED test: tenant-update-consolidation.spec asserts the superseded delegation contract
+
+**Severity:** HIGH (broken test on main — the CI gate is dark for this suite)
+**Discovered:** 2026-06-10, during Wave-2 auth audit remediation (branched off origin/main).
+
+**Evidence:** `apps/auth-service/src/modules/tenant/__tests__/tenant-update-consolidation.spec.ts` on origin/main expects `resolver.updateTenant` to delegate to `TenantService.update(id, input, role)`, but the resolver (`apps/auth-service/src/modules/tenant/resolvers/tenant.resolver.ts`) was converted by the enterprise-train lineage to REJECT outright (`BadRequestException('… command-receipt owned …')`). The spec and the implementation disagree → 3 failing tests (`should call TenantService.update with role parameter`, `should enforce tenant isolation`, `should allow SUPER_ADMIN`). Verified PRE-EXISTING on clean origin/main via `git stash` A/B.
+
+**Root cause:** the command-receipt/FSM ownership migration changed the resolver behaviour but did not update its consolidation spec — a half-landed migration from a parallel work lineage. CI's `nx affected -t test` did not re-run this suite for the resolver-only change (the same affected-graph gap as AUDIT-CRITICAL-004/006).
+
+**Fix:** rewrite the spec to pin the command-receipt refusal contract (resolver rejects for ALL roles; tenant-isolation 403 still fires first). Applied identically in PR #383 (Wave-1 W1.3) and on the Wave-2 branch — identical content, conflict-free merge. The deeper affected-graph gap is tracked under AUDIT-CRITICAL-004's cross-service watch item.
+
+**Status:** RESOLVED on `fix/auth-audit-wave2-security` (and `security/rate-limit-sec-critical-002` / PR #383).
+
 ## ORPHAN-HIGH-087 — Source-schema write-guard triggers (`guard_source_write`) are installed by nothing on main
 
 Severity: HIGH. The DB-level tenant-isolation defense layer (BEFORE-trigger `guard_source_write` + `block_source_writes()` rejecting INSERT/UPDATE/DELETE on source-schema template tables) is no longer installed by any active code path. `SourceSchemaWriteGuardService` was correctly neutered into a no-DDL runtime stub (commit 42695736f, "aqua-db-migrate owns source-schema trigger hardening"), but db-migrate never picked up the install side: `SchemaPostMigrationHardening` supports only `tenantRls` and `auditColumns` — there is no `sourceWriteGuards` step, and a repo-wide grep for `guard_source_write` / `block_source_writes` hits zero active files. Environments provisioned before the neutering retain stale triggers; fresh environments get none.
@@ -3801,6 +3814,18 @@ Status: OPEN (2026-06-11; owner: observability-expert; natural Wave B2 follow-on
 
 ---
 
+## ORPHAN-MEDIUM-093 — Platform libs lack a selected eslint-project tsconfig; lib files importing exports-only packages can't be type-resolved by @typescript-eslint
+
+Severity: MEDIUM. `.eslintrc.json` `parserOptions.project` lists `tsconfig.base.json` FIRST, then the per-project globs (`apps/*/tsconfig.json`, `platform/libs/*/tsconfig.json`, …). @typescript-eslint resolves each file to the FIRST listed project that includes it; `tsconfig.base.json` has no `include`, so it matches every `.ts` file and always wins. App files resolve modern packages anyway, but a platform LIB file type-checked standalone against bare `tsconfig.base.json` (moduleResolution:node) cannot resolve `@nats-io/*` (exports-only ESM, with a broken `types: ./lib/mod.d.js` field) — its imports widen to `any`/`error` and trip `@typescript-eslint/no-unsafe-*`. Surfaced by A3 (the first platform lib to import @nats-io): `platform/libs/event-bus/src/nats/nats-event-bus.ts` `connect()` is a verified false positive — the platform `type-check`, the `build`, and the event-bus unit tests all PASS (they run in the consumer context where @nats-io resolves). Suppressed via a scoped `.eslintrc.json` override (`no-unsafe-assignment` OFF for that one file) — the in-line `eslint-disable` form is banned by the repo's banned-construct gate, which directs false-positive suppressions to the .eslintrc lint-policy SSoT.
+
+Root cause: eslint project-selection order. Fix (highest tier first): (1) reorder `parserOptions.project` so the per-project globs precede `tsconfig.base.json` (or drop base if every linted file is covered by a project), so lib files type-check against a proper project where node_modules resolves; (2) failing that, give each platform lib a selected `tsconfig.json` (references its lib + spec). A3 created `platform/libs/event-bus/tsconfig.json` + `tsconfig.lib.json` but they were NOT selected (base wins) and were reverted pending the reorder. Cross-cutting eslint-config change — must be validated against the full lint surface, not one lib.
+
+Discovered while driving A3 (NATS v3, PR #424) to green. The `eslint-disable` is removable once the project-order fix lands.
+
+Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-093.
+
+---
+
 ## ORPHAN-HIGH-092 — E2E - Messaging Service chronic cancellation flake (~50%)
 
 Severity: HIGH. The `E2E - Messaging Service` workflow (`E2E Tests` job) cancels on roughly half its runs — sampled last 18 = 9 cancelled / 8 success / 1 failure. Cancellations are the job hitting its own wall-clock after repeated `Exceeded timeout of 60000 ms for a hook` (Jest setup hooks), ending in `##[error]The operation was canceled` — reproduced identically on two consecutive runs of the SAME commit (B2 head 4699f72dc), so it is environmental, not a code regression. The suite is NOT in `branches/main/protection/required_status_checks`; K7 (#410, 807dc90a5) deployed to production with it never green. It therefore masks real messaging-E2E signal behind noise while blocking no merge.
@@ -3809,7 +3834,7 @@ Root cause direction: container/service readiness race — the Jest global setup
 
 Discovered while gating B2 (#411). Pairs with ORPHAN-MEDIUM-055 (same E2E Postgres log surface).
 
-Status: OPEN (2026-06-12; owner: infra-expert + messaging-expert for the harness). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
+Status: RESOLVED (2026-06-13; #441 b4f484130). The heavy one-time bootstrap moved to Jest `globalSetup` (outside the 60s per-hook budget) behind a Postgres readiness poll with a loud explicit failure; the per-spec beforeAll is now a fast idempotent no-op. Root cause (boot cost inside the hook budget) eliminated. NOTE: flake-RATE reduction confirms over several post-merge E2E runs (the suite was ~50%; one green run is necessary but not sufficient) — re-open if cancellations persist. Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
 
 ---
 
@@ -3821,4 +3846,269 @@ Query↔migration drift: either the `embedding` column migration is missing from
 
 Discovered in the E2E Messaging logs during B2 (#411) gating. Pairs with ORPHAN-HIGH-092.
 
-Status: OPEN (2026-06-12; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.
+Status: RESOLVED (2026-06-13; #441 b4f484130). Root cause was query↔migration drift: the E2E migration array stopped at 1800600000000 and omitted `1800700000000-AddMessagesEmbeddingColumn` (#423), so the E2E schema lacked `messages.embedding` while the backfill sweep filtered on it. Added the migration to the E2E path (`e2e-setup.ts`) → E2E schema in lockstep with production, column present, no more `m.embedding does not exist`. Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-055.
+
+---
+
+## ORPHAN-CRITICAL-094 — Bootstrap-generated service-identity keyring fail-closed every login (verifier ↔ generator contract contradiction)
+
+Severity: CRITICAL. On any droplet provisioned by the deploy secret bootstrap, EVERY login (in fact every gateway→subgraph call) was rejected with `caller-not-allowed` (ServiceIdentityGuard), surfaced to the browser as the misleading "Invalid service identity signature…". Regression: commit `4473d2fc7` "fix(deploy): SERVICE_IDENTITY_KEYRING joins the droplet bootstrap secret SSOT" (#388, 2026-06-11) added `generate_service_identity_keyring()` (`scripts/deploy/lib/required-env-secrets.sh:56-61`) which emits a keyring entry carrying only `{kid,secret,status}`.
+
+Root cause: contract contradiction. The generator's comment (lines 43-48) claimed absent `callers`/`audiences` are "treated as unrestricted," but the verifier `resolveVerificationKey` (`libs/backend-common/src/utils/service-identity.util.ts:642-646`) did the OPPOSITE for a kid-matched entry — `if (!entry.callers …) return 'caller-not-allowed'`, fail-closed with no fallback. The sibling event-store `lookupKeyEntry` (`apps/event-store-service/src/guards/event-store-service-identity.guard.ts:238`) used `entry.callers && …` (absent ⇒ allow), so the two verifiers had contradictory absent-semantics; event-store ALSO routes through `resolveVerificationKey` (guard:126) so it was broken too. Why CI stayed green: every keyring test fixture (`service-identity.util.spec.ts`) and the gateway federation tests (`allowUnscopedDevKey`/`secret`-override path) always set callers/audiences — the production keyring shape was never exercised.
+
+Fix (RESOLVED, Tier-1 per architectural-arbiter): `callers`/`audiences` are NON-secret policy with a single SSoT — the service-catalog. New `serviceIdentityCallers()` (`platform/libs/service-catalog/src/index.ts`); `resolveVerificationKey` now derives the caller allowlist from the catalog when an entry carries no explicit policy (`entry.callers ?? serviceIdentityCallers()`), staying fail-closed (unknown caller rejected). The keyring JSON stays pure secret transport, so policy cannot drift from the catalog. Bridge test added (`service-identity.util.spec.ts`) reproducing the policy-less-entry shape.
+
+Status: RESOLVED (2026-06-13; owner: auth-security-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-CRITICAL-094.
+
+---
+
+## ORPHAN-HIGH-095 — messaging-service is the only active Apollo subgraph missing SERVICE_IDENTITY_KEYRING in droplet compose
+
+Severity: HIGH. `docker-compose.droplet.yml` injects `SERVICE_IDENTITY_KEYRING` + `SERVICE_IDENTITY_SIGNING_KID` into 12 backends but NOT into `messaging-service`. messaging is an active federated subgraph (`infrastructure/apollo-router/subgraphs.json`), so the gateway HMAC-signs every gateway→messaging call; messaging's `ServiceIdentityGuard` hard-throws `SERVICE_IDENTITY_KEYRING is not set… required in production` (`service-identity.guard.ts:79-83`) → every messaging GraphQL query 403s in production. A second latent outage independent of the login outage (ORPHAN-CRITICAL-094).
+
+Fix (RESOLVED): added both vars (`:?`-required, matching the auth/farm pattern) to the `messaging-service` env block, closing the 12-of-13 gap.
+
+Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-095.
+
+---
+
+## ORPHAN-HIGH-096 — Shared-secret service-identity keyring gives no real per-caller authorization (needs per-service keys / mTLS)
+
+Severity: HIGH (architectural / tracked hardening — NOT fixed here, deliberately). `docker-compose.droplet.yml` interpolates the SAME `${SERVICE_IDENTITY_KEYRING}` (one shared HMAC secret, one kid) into all 12+ backends. Under a shared secret, the `callers`/`audiences` allowlist is only a known-name sanity gate (defense-in-depth) — any holder of the shared secret can sign as ANY `serviceName`, so it is NOT a per-caller cryptographic boundary. The real per-receiver check is `matchesExpectedAudience` (catalog-derived); there is no enforced per-caller authZ.
+
+Fix direction: per-service keyrings (distinct kid+secret per signer, narrow `callers`/`audiences`) so possession of one service's secret cannot forge another's identity — meaningful only once identity is unforgeable, i.e. paired with mTLS-bound service identity (cert CN = identity, mirroring ADR-015 for NATS). Large blast radius (TLS termination, cert minting, every signer/verifier) → requires a `proposed` ADR + security review; do NOT mask the gap with a wildcard allowlist.
+
+Status: OPEN (2026-06-13; owner: auth-security-expert; escalated from the ORPHAN-CRITICAL-094 fix review). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-096.
+
+---
+
+## ORPHAN-MEDIUM-097 — Divergent absent-policy semantics between resolveVerificationKey and event-store lookupKeyEntry
+
+Severity: MEDIUM. The same `entry.callers`/`entry.audiences` keyring field was read with OPPOSITE absent-semantics by two verifiers: `resolveVerificationKey` (`service-identity.util.ts`) treated absent ⇒ DENY, while `lookupKeyEntry` (`event-store-service-identity.guard.ts:238-243`) treated absent ⇒ ALLOW. Divergent contracts on one shared data shape are how the #388 regression (ORPHAN-CRITICAL-094) slipped through.
+
+Fix (RESOLVED): `resolveVerificationKey` now resolves absent caller policy from the catalog SSoT (fail-closed) and defers absent audience policy to `matchesExpectedAudience`, aligning both verifiers on one coherent semantic (explicit list honored; absent ⇒ catalog/expected-audience derived).
+
+Status: RESOLVED (2026-06-13; owner: auth-security-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-097.
+
+---
+
+## ORPHAN-MEDIUM-098 — ServiceIdentityGuard collapses all rejection reasons into a misleading "forged/expired/tampered" message
+
+Severity: MEDIUM. `service-identity.guard.ts:130-134` maps every non-`missing-headers` outcome (including `caller-not-allowed` / `audience-not-allowed`, which are AUTHORIZATION/config failures) to the single browser text "Invalid service identity signature. Request may be forged, expired, or fields tampered with." During the ORPHAN-CRITICAL-094 outage this actively misled diagnosis — the real cause was an unauthorized caller, not forgery. The precise reason is already logged server-side (`outcome.reason`), only the client message is collapsed.
+
+Fix direction: keep the generic CLIENT message (no leak), but emit a distinct, non-sensitive operator signal (structured log field already present + a metric label by `reason`) so an authorization/config failure is not indistinguishable from a tamper attempt in dashboards.
+
+Status: OPEN (2026-06-13; owner: auth-security-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-098.
+
+---
+
+## ORPHAN-LOW-099 — Stale comments in the service-identity keyring generator
+
+Severity: LOW. `scripts/deploy/lib/required-env-secrets.sh` claimed "five droplet services" interpolate the keyring (it is twelve) and that absent `callers`/`audiences` are "treated as unrestricted" (the verifier fail-closed). The wrong comment is what authorized the #388 regression.
+
+Fix (RESOLVED): corrected both comments to state twelve services and that policy lives in the service-catalog SSoT (verifier-enforced, fail-closed), with an explicit "do not re-add policy fields to this generator" note.
+
+Status: RESOLVED (2026-06-13; owner: infra-expert; branch `fix/service-identity-keyring-catalog-policy`). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-LOW-099.
+
+---
+
+<!-- Wave-3 (auth-audit) ORPHAN findings restored during #390←main merge. These MEDIUM-0NN IDs were assigned on the W3 lineage before main's canonical HIGH-0NN existed; the {severity}-{number} scheme keeps them unique (see MEDIUM-088 numbering note). They are referenced by W3 commit Closes: trailers, so they must retain headings here. -->
+
+## ORPHAN-MEDIUM-087 — `libs/shared-contracts` is an unwired, zero-consumer "SSoT" lib
+
+**Found while:** wiring the canonical TenantStatus for W3.1 (MT-HIGH-003).
+
+**Problem:** `libs/shared-contracts` advertises itself (its `index.ts` header) as "the single source of truth for cross-cutting domain concepts," but:
+- it has NO `tsconfig.base.json` path alias and NO nx `project.json`, so it is not in the affected-graph and backend services cannot import `@aquaculture/shared-contracts` through the normal alias;
+- its own `tsconfig.json` is deliberately isolated (`baseUrl: "."`, only `@/*` → `src/*`), so it cannot import any other lib — a re-export from it to `@platform/event-contracts` fails type-check with TS2307;
+- a repo-wide grep finds ZERO real importers of `@aquaculture/shared-contracts` / `@platform/shared-contracts` in `apps/`, `web/`, or `libs/` (the one farm-service "reference" is a code comment).
+
+It still declares its own copies of `PlanTier`, `SubscriptionStatus`, `BillingCycle`, `PlanVisibility`, `ImpersonationStatus/Reason`, `DataRequestType/Status` — duplicate definitions that can silently drift from the wired SSoT in `@platform/event-contracts`, exactly the class of bug MT-HIGH-003 / DBR-HIGH-003 exist to kill.
+
+**Root cause:** the lib was created as an aspirational shared-contracts home but never wired into tsconfig paths / the nx graph, and the real platform SSoT consolidated into `@platform/event-contracts` instead. It is now dead weight that looks authoritative.
+
+**Fix (recommended, not done here):** delete `libs/shared-contracts` entirely after confirming each of its enums either already exists in `@platform/event-contracts` or has zero consumers; or, if it must stay, wire it (tsconfig path + project.json + extend the base tsconfig) and make every enum a re-export of the event-contracts canonical. Out of scope for the auth-service audit PR; tracked here so the drift surface is visible. W3.1 removed only its `TenantStatus` duplicate (the immediate type-check blocker).
+
+**Status:** OPEN.
+
+## ORPHAN-MEDIUM-088 — admin-api-service unit-test suite broken at baseline (quarantined)
+
+> Numbering note: this MEDIUM-088 and the unrelated `ORPHAN-HIGH-088` (tenant-schema runtime grants, data-expert) below were assigned `088` on two parallel lineages and merged here. They are distinct findings; the `{severity}-{number}` ID keeps them unique. MEDIUM-088 is referenced by commit e52ba895e, so it is not renumbered.
+
+**Found while:** wiring the admin-api-service consumer of the TenantStatus machine (MT-HIGH-003 W3.1). Running `nx test admin-api-service` at the wave3 base surfaced dozens of failures UNRELATED to the TenantStatus work; confirmed pre-existing via `git stash` A/B at 596e63595.
+
+**Problem (distinct root causes observed):**
+- **58×** `Nest can't resolve dependencies of CreateTenantHandler … "EVENT_BUS" at index [1]`. CreateTenantHandler was migrated to `@Inject('EVENT_BUS')` (platform IEventBus) but `create-tenant.handler.spec.ts`, `tenant-creation.spec.ts`, and `tenant.integration.spec.ts` still provide the `EventBus` (cqrs) class token — a spec-vs-production DI drift from the enterprise-train lineage.
+- **83×** `Nest can't resolve dependencies of DatabaseExplorerController … "explorer-readonlyDataSource"` — missing custom DataSource token provider in that controller's spec.
+- **39×** `EmailSenderService … this.settingsService.getEmailConfigForSending is not a function` — stale mock (the settings service gained a method the spec mock lacks).
+- ~30 assorted assertion failures (circuit-breaker `open` vs `closed`, `toBe`/`toHaveBeenCalledWith`) that may include REAL regressions from the same lineage and need per-case triage.
+
+**Why not fixed here:** out of scope for the auth-service audit (Wave 3); it is admin-api-service's own audit surface. It does NOT block this PR — `scripts/ci/affected-target-policy.json` already quarantines the admin-api-service `test` target (and `auth-service`, `gateway-api`, and ~16 others) as known unit-test debt, so these failures are non-gating. The new `suspend-tenant.handler.spec.ts` added here passes in isolation (type-check clean, 0 errors).
+
+**Fix (recommended, tracked for the admin-api-service audit):** repair the DI-drift specs (provide the `'EVENT_BUS'` / `explorer-readonlyDataSource` tokens), refresh the EmailSenderService mock, then triage the assertion failures for real regressions, and remove `admin-api-service` from the test quarantine so the suite gates again.
+
+**Status:** OPEN (quarantined — non-blocking).
+
+## ORPHAN-MEDIUM-090 — auth-service tenant consumer files carry diff-lint regressions (import-order + pre-existing type-safety debt)
+
+**Found while:** running the diff-lint gate (`scripts/ci/lint-changed-files.mjs`) over the Wave-3 branch (W3.4). The gate reported 32 new error-level findings across six auth-service files that the Wave-3 consumer refactors touched: `user-lifecycle.service.ts` (the bulk) plus the `invitation`, `webauthn-credential`, `module`, and `mobile-user-settings` entities and `tenant-update-consolidation.spec.ts`.
+
+**Problem (two lineages, same files):**
+- **Branch-introduced (import-order):** the DATA-HIGH-001 outbox migration swapped `@Inject('EVENT_BUS') IEventBus` for `BestEffortEventPublisher` and the MT-HIGH-003/DATA-HIGH-002 entity work changed entity imports — both reshuffled import blocks without re-running `import/order`. 8 import-order errors in `user-lifecycle.service.ts` + one each in the five other files; `tenant-update-consolidation.spec.ts` also imported `Role` from the non-canonical `@platform/backend-common` barrel (no-restricted-imports).
+- **Pre-existing type-safety debt surfaced by the diff (type-aware rules):** `require('crypto')` (no-require-imports + 3× unsafe-call/member), a non-null assertion `input.moduleIds!`, an `: boolean` inferrable annotation, an untyped `dataSource.query` result feeding `insertResult[0].id` (unsafe-assignment/member), and four `string === Role` enum comparisons (`no-unsafe-enum-comparison`) that became visible once `Role`/`TenantStatus` were typed as the canonical enums.
+
+**Fix (DONE in this commit — Tier-1/Tier-3, behavior-preserving):**
+- import-order auto-fixed across all six files; the spec's `Role` import re-pointed to the canonical `@aquaculture/backend-common/decorators`.
+- `require('crypto')` → the file's existing ESM `import * as crypto` (closes the ORPHAN-HIGH-090 adjacent-cleanup note).
+- a module-level `isCanonicalRole(value): value is Role` type guard replaces the `(Object.values(Role) as string[]).includes(...)` validation at both invite/create sites; the throwing negative branch narrows `input.role` to `Role`, which structurally removes the four `string === Role` comparisons AND three `as Role` assertions (Tier-1 make-impossible).
+- `assertRoleHierarchy(targetRole)` retyped `string → Role` (callers now pass the narrowed value).
+- the module-assignment presence check inlined into its `if` so TS narrows `input.moduleIds` (no non-null assertion).
+- `dataSource.query<Array<{ id: string }>>()` generic + a fail-loud empty-row guard replaces the untyped result + `insertResult[0].id` member access.
+- `sendInvitation: boolean = true` → `sendInvitation = true`.
+
+**Verification:** all six files lint clean (0 errors); auth-service type-check clean (only the pre-existing `@nestjs/apollo` module-resolution noise remains); `user-lifecycle.service.spec.ts` + `tenant-user-management.service.spec.ts` + `tenant-update-consolidation.spec.ts` = 45/45 green (behavior preserved).
+
+**Status:** RESOLVED (this commit). The deeper `createUser` non-transactional dual-write (ORPHAN-HIGH-090) is a separate, still-open finding.
+
+## ORPHAN-MEDIUM-091 — admin-api tenant-detail any-leak query debt surfaced by MT-MEDIUM-002 (+ spec-fixture phantom-field decision)
+
+**Found while:** MT-MEDIUM-002 (W3.4) touched `tenant-detail.service.ts` (real-source farm/sensor counting) and the two tenant provisioning specs (fixture caller-update). The blocking diff-lint gate (`scripts/ci/lint-changed-files.sh`; `ci-affected.yml` line 209 — "lint failures must block PR merge") re-lints any touched file head-vs-base. Its base worktree cannot run type-aware ESLint rules (the TS project is not built there), so it reports `base=0` for every type-aware rule and flags each touched file's FULL pre-existing type-aware debt as "new." Touching these files therefore dragged their unrelated, pre-existing debt into the gate.
+
+**Problem:**
+- `tenant-detail.service.ts` (production): `getUserStats` / `getModuleUsage` / `getResourceUsage` used untyped `dataSource.query` (an `any` leak feeding `result[0].x` / `result.map`), two `t.status === 'ACTIVE' | 'SUSPENDED'` string-literal comparisons (`no-unsafe-enum-comparison` vs the canonical `TenantStatus` enum), and two unused `catch (error)` bindings.
+- `tenant-api.integration.spec.ts` + `tenant-provisioning.service.spec.ts` (admin-api **quarantined broken test debt — ORPHAN-MEDIUM-088**, one crashes at runtime on an unhandled rejection): deep mock `any` (`as any`, `callback: any`, untyped `jest.fn()`), non-null assertions, and unused imports.
+
+**Fix:**
+- `tenant-detail.service.ts` (DONE — Tier-3 type, behavior-preserving): typed all three query results with local row types (`UserStatsRow`, `ModuleUsageRow`, `{ calls_24h; calls_7d }`) via the `dataSource.query<T>()` generic, dropping the field-level `as` casts in the `.map`; `'ACTIVE'`/`'SUSPENDED'` → `TenantStatus.ACTIVE` / `TenantStatus.SUSPENDED`; logged the previously-discarded `getModuleUsage` catch error (consistency with the `getUserStats` BUG-007 pattern) and bare-caught the genuinely-ignored metrics catch. 0 lint errors; admin-api type-check clean.
+- the two provisioning specs (REVERTED to origin/main): the MT-MEDIUM-002 fixture edit only removed the now-phantom `farmCount: 0` / `sensorCount: 0` lines from an `Object.assign(tenant, {...})` that tolerates excess props harmlessly. Cleaning their full pre-existing mock-`any` debt is high-churn / high-risk surgery on quarantined broken specs owned by ORPHAN-MEDIUM-088 — out of MT-MEDIUM-002's scope. Reverting returns them to a net-zero diff (out of the gate). The reverted fixtures still set `farmCount`/`sensorCount` via `Object.assign` — a harmless phantom property after the entity drop, to be removed when the admin-api specs are de-quarantined (ORPHAN-MEDIUM-088).
+
+**Status:** RESOLVED for the production service. The spec phantom-fixtures + admin-api mock-`any` debt stay with ORPHAN-MEDIUM-088 (quarantined, non-blocking).
+
+## ORPHAN-MEDIUM-092 — diff-lint gate linted base and head with DIFFERENT configs → a lint-config refactor flagged pre-existing debt as new regressions
+
+**Found while:** resolving the diff-lint cascade that MT-MEDIUM-001 / MT-MEDIUM-002 kept hitting (3× this session). Every time a commit touched a file that already carried lint debt, the blocking diff-lint gate (`scripts/ci/lint-changed-files.mjs`; `ci-affected.yml` line 209 — "lint failures must block PR merge") reported that file's FULL pre-existing debt as "new error-level findings" (e.g. 72 findings across two admin-api specs the MT-MEDIUM-001 entity drop forced me to touch).
+
+**Problem (root cause):** the gate measures whether a change introduces *new* lint errors by linting each changed file at base and at head and diffing the per-rule counts. But it linted the two sides with DIFFERENT configs:
+- **head** — in the real repo, with head's `.eslintrc.json` + head's tsconfigs.
+- **base** — in a detached worktree checked out at `origin/main`, with **origin/main's** config.
+
+This branch (a) modified `.eslintrc.json` and (b) sits on a `tsconfig.base.json` that advanced on `origin/main` after the branch's merge-base. So base linted these specs with the OLD, looser ruleset and found **0** type-aware errors, while head linted them with the NEW ruleset and found **N** — a pure CONFIG delta the gate mis-attributed to the code. Empirically reproduced: `tenant.integration.spec.ts` base-lint = 0 errors with base config, = 39 with head's config. A lint-config refactor therefore made every newly-linted pre-existing issue look like a regression on whatever commit happened to touch the file.
+
+**Fix (Tier-1, make-the-gate-correct):** `syncLintConfigFromHead()` overlays head's lint configuration onto the base worktree before base-linting — eslint configs (`**/.eslintrc*`, `**/eslint.config.*`, `**/.eslintignore`) + the tsconfigs its type-aware rules resolve (`**/tsconfig*.json`). It uses a **two-dot** `base..head` diff (NOT three-dot): the worktree is checked out at `origin/main` itself, so a config that advanced on base after the merge-base must still be overlaid — a three-dot diff would miss it. Now both sides lint with the SAME ruleset, so the base-vs-head delta isolates CODE changes from CONFIG changes; the gate flags only errors the diff actually introduced.
+
+**Verification:** the same branch HEAD that produced 72 false error-level findings now reports **"No new error-level lint findings relative to origin/main"** (NODE_EXIT=0). The gate's own unit suite (parseArgs / parseDiffHunkLines / range + prepush helpers, 25 tests) stays green. The two admin specs' pre-existing debt is correctly recognised as pre-existing (base=head=39) and left to its ORPHAN-MEDIUM-088 quarantine owner.
+
+**Known residual (tracked, non-blocking):** `@nx/enforce-module-boundaries` needs the cached nx ProjectGraph, which exists in the real repo but not the fresh worktree, so that one rule is base-skipped (it logs "No cached ProjectGraph … rule will be skipped"). It is a **warning**-level rule (report-only, never blocks), so the asymmetry is cosmetic; a complete fix would prime the nx graph in the worktree (`nx graph` / `NX_DAEMON`) — deferred as low-value vs. the blocking-error cascade this finding closes.
+
+**Status:** RESOLVED (this commit).
+
+
+## ORPHAN-HIGH-100 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
+
+Severity: HIGH. A2 (ESLint 8→9 flat migration) sırasında firsthand keşfedildi: `tools/eslint-rules`'deki 6 mimari-invariant kuralı (`require-entity-schema`, `no-bare-tenant-query-key`, `no-direct-event-publish`, `no-high-cardinality-metric-label`, `no-claude-sdk-raw-call`, `no-bare-graphql-query-string`) root `.eslintrc.json`'da **override** olarak tanımlıydı; ama her proje (apps/*, libs/event-contracts, libs/node-components, web/*, mcp/*, scripts, tests/invariants, tools/eslint-rules — 31 dizin) kendi `root: true` `.eslintrc.cjs`'ine sahip olduğundan eslintrc cascade proje sınırında DURUYORDU → bu kurallar proje dosyalarına HİÇ uygulanmadı. ESLint 8 `calculateConfigForFile` ile doğrulandı: `aquaculture/require-entity-schema` + `no-direct-event-publish` 55 proje-probe'unun **0**'ında tanımlı. Kurallar yalnız non-cjs zonlarda (`platform/libs/**`, `libs/backend-common/**`, `web/apps/aquamobil/**`) canlı.
+
+Sonuç: `require-entity-schema` (her `@Entity()` şema disiplinini zorlar — ADR-011) HİÇBİR `apps/*/src/**/*.entity.ts` üzerinde çalışmıyor; tenant-IDOR'a karşı `no-bare-tenant-query-key` hiçbir web modülünde çalışmıyor. PR-1 bu kurallar için RuleTester unit'leri ekledi (izole doğru çalışıyorlar) ama CI lint'inde tetiklenmiyorlar.
+
+Kök neden: nx'in proje-başına `root: true` `.eslintrc.cjs` üretme deseni, root-override-tabanlı custom kuralları yapısal olarak gölgeliyor. A2 flat migration bu davranışı SIFIR-DRIFT korudu (kurallar inert kalır) — aktivasyon bilinçli, ayrı, ölçülü bir değişiklik olmalı (platform genelinde binlerce yeni uyarı potansiyeli; her kural ayrı triyaj ister).
+
+Düzeltme yönü: `eslint.config.mjs`'in `PROJECT_GLOBS`-gated custom-rule bloklarındaki ignore'ı kaldırıp her kuralı tek tek aktive et + çıkan ihlalleri kural-bazında triyaj et (önce `require-entity-schema` — ADR-011 zaten zorunlu kılıyor, ihlal sayısı düşük olmalı). Make-it-detectable: aktivasyon sonrası bir invariant her kuralın ≥1 gerçek dosyada resolve olduğunu assert etsin.
+
+Status: OPEN (2026-06-12; sahip: platform-kernel-expert; A2 PR-2 firsthand bulgusu; aktivasyon ayrı PR).
+
+## ORPHAN-MEDIUM-101 — `no-restricted-syntax` (JWT_SECRET + getRepository + JSON.stringify gate'leri) web modüllerinde ve e2e'de tutarsız
+
+Severity: MEDIUM. A2 firsthand: `no-restricted-syntax` (6 selector: getRepository, JSON.stringify>2, 4×JWT_SECRET) ESLint 8 resolved davranışında zon-bazında tutarsız: apps + 4 web modülü (dashboard/farm-module/hr-module/hydroponics-module) = 6 selector (tam gate); ama **5 web modülü (shell, shared-ui, admin-panel, sensor-module, tenant-admin) = `off`** (cjs'leri `no-restricted-syntax: 'off'` set ediyor) ve **e2e = yalnız 2 selector** (root test override JWT_SECRET'i düşürüyor). Yani JWT_SECRET okuma yasağı 5 web modülünde + tüm e2e'de etkisiz; getRepository IDOR yasağı bu 5 web modülünde etkisiz.
+
+Sonuç: bu surface'lerde `process.env.JWT_SECRET` veya bare `getRepository()` lint'ten geçer. Frontend'de JWT_SECRET düşük risk (web'de secret okunmaz) ama asıl boşluk e2e testlerinde JWT_SECRET (test kodu secret pattern'i kopyalayabilir, sonra prod'a sızabilir).
+
+Kök neden: web modül cjs'leri React-ergonomisi için no-restricted-syntax'i toptan kapatmış (selector'lar AST gürültüsü üretiyordu); e2e override tarihsel olarak JWT_SECRET'i test-kolaylığı için düşürmüş. A2 bunu SIFIR-DRIFT korudu (faithful migration "iyileştirme" yapmaz).
+
+Düzeltme yönü: JWT_SECRET 4 selector'ını web + e2e'de yeniden aktive et; flat config'te ayrı bir "JWT_SECRET-everywhere" bloğu (`files: ['**/*.ts','**/*.tsx']`, ignore yok) tüm zonlarda 4 JWT_SECRET selector'ını zorlar — eslintrc'nin yapamadığı tutarlılık. Ölçülü PR: önce e2e, sonra web.
+
+Status: OPEN (2026-06-12; sahip: auth-security-expert; A2 PR-2 firsthand bulgusu; ORPHAN-HIGH-100 ile aynı aktivasyon dalgasında ele alınabilir).
+
+## ORPHAN-MEDIUM-094 — CI affected-lint step lacks a NODE_OPTIONS heap bump; type-aware ESLint OOMs at the runner default
+
+Severity: MEDIUM. The `Run linter (affected only)` step in `.github/workflows/ci-affected.yml:250` ran type-aware ESLint over the changed-file set with only `NX_DAEMON`/`NX_NO_CLOUD` in its env — no `NODE_OPTIONS`. Type-aware linting builds the full TypeScript project graph, which exceeds the runner's ~4GB default V8 heap: `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory`, and the wrapper reports `lint-changed-files: ESLint produced no JSON for HEAD (exit=null, signal=SIGABRT)`. The lint gate then fails with **no code defect**. Every other heavy step in the same workflow (type-check, build, test — lines 316/407/417/431/538/609) already declares `--max-old-space-size=4096`; the lint step was the lone omission, so it sits at the ceiling and OOMs flakily under runner memory pressure.
+
+Root cause: a TS-heavy CI step without a heap ceiling sized for the project-graph build. Fix (highest tier — make-it-automatic): add `NODE_OPTIONS: '--max-old-space-size=6144'` to the lint step env. 6144 matches the B1 wave's measurement (it clears the full-repo lint) and is safe on the 7GB ubuntu runner.
+
+Discovered gating C1 PR-1a (#429): the 10-file federation lint surface (8 `vite.config.ts` + `federationSharedConfig.ts` + a spec) tipped the type-aware lint over the default heap; the prior C1 iteration's lint job failed identically. Fixed in the same C1 commit that surfaced it (C1 is blocked by it); the A2 ESLint flat-config wave owns broader lint configuration but does not modify this step.
+
+Status: OPEN (2026-06-13; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-094.
+
+---
+
+## ORPHAN-MEDIUM-100 — messaging unread count disagrees between the Redis HASH counter and the DB subquery on a member's OWN messages
+
+Severity: MEDIUM. Discovered 2026-06-13 while implementing Wave-6 M2 (mobile read-cursor), messaging-expert.
+
+**Problem:** The two unread-count code paths apply different sender semantics:
+- `message.service.ts` `incrementUnreadForChannelMembers(channelId, senderId, tenantId)` increments the per-user Redis HASH for all members **except the sender** — so the Redis-backed `getUnreadCount` (total badge, also used for push `badge:`) EXCLUDES the user's own messages.
+- `get-channels.handler.ts:60` computes the per-channel badge as `SELECT COUNT(*) FROM messages m WHERE ... AND m."createdAt" > COALESCE(membership."lastReadAt", '1970-01-01')` — **no `senderId` filter** — so it INCLUDES the user's own messages until `lastReadAt` passes them. The DB fallback `getUnreadCountFromDb` shares this no-sender-filter shape.
+
+**Effect:** A user who sends a message can see a non-zero per-channel unread badge (DB subquery counts their own send) while the global Redis badge shows zero, until their read cursor advances past their own message. The two surfaces disagree. Wave-6 M2 masks the user-visible symptom (the mobile client now advances `lastReadAt` to the newest message *including own sends*, so the badge clears on view), but the underlying server-side inconsistency remains: anything that reads the DB subquery without an advanced cursor (e.g. a freshly-sent-then-backgrounded channel, or a non-mobile client) still mis-counts.
+
+**Fix direction (architectural, not masked):** make the two paths agree on sender semantics. Either (a) add `AND m."senderId" <> membership."userId"` to the `get-channels` + `getUnreadCountFromDb` subqueries so the DB matches Redis (own messages never count as unread — the semantically correct choice), or (b) decide own-messages DO count and increment Redis for the sender too. Option (a) is preferred: a user's own message is never "unread" to them. Requires updating both subqueries + a regression test asserting own-message sends do not inflate the per-channel badge.
+
+Status: OPEN (2026-06-13; owner: messaging-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-100.
+
+---
+
+## ORPHAN-MEDIUM-102 — 108 dead FE GraphQL operation contracts shipped across the four frontends
+
+Severity: MEDIUM. Discovered 2026-06-13 while building the dead-contract ratchet gate (Tier-3 follow-up to Wave-6 M2 / MSG-CRITICAL-001), messaging-expert.
+
+**Problem:** A token-frequency scan of `web/**` (`tests/invariants/lib/dead-contract-scan.ts`) found **108 exported GraphQL operation consts (68 mutations + 40 queries) of 584 total that are referenced nowhere** — defined in operation files, shipped to the bundle, reachable by no call site. This is the exact failure mode of M2 (`MARK_MESSAGES_READ` existed + had an offline-replay branch but no trigger, so mobile read state never advanced); M2 was one symptomatic instance of a systemic 108-wide debt. Each dead contract is either (a) a feature wired on the backend but never reachable from the UI (a silent product gap like M2), or (b) genuinely abandoned code (bundle bloat + reviewer noise). Without triage we cannot tell which.
+
+**Effect:** Latent — any of the 108 could be a non-functional feature a user expects to work (the M2 class), and all of them inflate the bundle and obscure which operations are live. Distribution skews to farm-module feedingProgram (15+) and hr-module operations (20+).
+
+**Containment (done):** the dead-contract ratchet invariant (`tests/invariants/dead-contract-fe-operations.spec.ts` + `dead-contract-fe-operations.baseline.json`) FREEZES these 108 and fails CI on any NEW dead contract or any baseline entry that has since been wired/deleted — so the set can only shrink. The bleeding is stopped; this finding tracks the burn-down.
+
+**Fix direction (burn-down, per-module owners):** for each baseline entry, either wire the operation to its intended call site (if it backs a real feature — the M2 fix shape) or delete it (if abandoned), then remove it from the baseline. Owners: farm-module (feedingProgram.mutations), hr-module (attendance/certification/leave/performance operations), aquamobil (messaging-operations residue), sensor-module. No silent baseline padding — the gate's honesty check forbids it.
+
+Status: OPEN (2026-06-13; owner: frontend-expert; burn-down tracked, no deadline). Registry: orphan-findings.md (not dual-registered to findings.jsonl — keeps the gate PR's findings.jsonl footprint zero to avoid the registry chain-conflict cascade).
+
+---
+
+## ORPHAN-MEDIUM-103 — two messaging CI gate scripts are registered but executed by nothing (dead gates)
+
+Severity: MEDIUM. Discovered 2026-06-13 during Wave-2 close-out (verifying the source branch's "CI invariant" slice vs main), messaging-expert.
+
+**Problem:** `scripts/ci/check-messaging-source-outbox.mjs` and `scripts/ci/check-messaging-canary-metrics.mjs` exist on main and are registered as `package.json` scripts (`gates:messaging-source-outbox`, `gates:messaging-canary-metrics`), but **no workflow, deploy script, husky hook, or aggregate gate invokes them** — only `check-messaging-tenant-entity-routing.mjs` is CI-wired (`quality-gates.yml:112`). The workflow that was meant to run them — `messaging-enterprise-release.yml` from `fix/messaging-enterprise-gates-2026-05-29` — was never ported to main (main uses the unified ADR-033 deploy instead). This is the same dead-artifact class as MSG-HIGH-004 (a complete check with no runner) and the Wave-6 M2 dead trigger.
+
+**Effect:** Limited, because the protected invariants are belt-and-suspandered elsewhere: the source-only-outbox contract is enforced at DDL/migration level by `1800400000000-EnforceSourceOnlyMessagingOutboxContract.ts` (`@SourceOnlyMigration`), so the dead `source-outbox` CI check is a redundant early-warning, not the only guard. `canary-metrics` is a post-deploy canary check that simply never runs, so messaging deploys get no canary-metric gate.
+
+**Why not fixed inline:** unlike `tenant-entity-routing` (static-only → runs in the no-DB `quality-gates` job), `check-messaging-source-outbox.mjs` also opens a live `pg.Client` (DATABASE_URL) and `canary-metrics` queries live deploy metrics — so wiring them needs a DB-backed gate job (or a static/live split of the source-outbox script) and a deploy-time canary step. That is a focused CI-infra change, not a safe session-end one-liner; rushing a DB-backed gate risks a broken required check.
+
+**Fix direction:** either (a) add a DB-backed messaging-gates job (postgres service + migrations) that runs `gates:messaging-source-outbox`, and a post-deploy canary step (deploy workflow) that runs `gates:messaging-canary-metrics`; or (b) refactor `check-messaging-source-outbox.mjs` to split its static asserts (runnable in `quality-gates`) from its live-DB asserts. Then remove the dead `package.json` entries if a script is dropped, so no gate is registered-but-unrun.
+
+Status: OPEN (2026-06-13; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+## ORPHAN-HIGH-101 — postgres-protocol/tokio-postgres newly-published RustSec advisories red-line all Rust CI
+
+Severity: HIGH. `cargo-audit` and `cargo-deny` (advisories check) fail on every Rust PR because of three newly-published advisories on transitive Postgres crates: **RUSTSEC-2026-0179** (HIGH 8.7 — `postgres-protocol` unbounded SCRAM iteration count, a malicious server can cause CPU-exhaustion DoS), **RUSTSEC-2026-0180** (MEDIUM — `postgres-protocol` panic decoding a malformed `hstore`), **RUSTSEC-2026-0178** (MEDIUM — `tokio-postgres` panic on a `DataRow` with fewer fields than columns). The platform's `.cargo/audit.toml` ignore list is empty, so these are denied. Main's last rust-ci runs are green only because they predate the advisory publication.
+
+Root cause: time-of-publication, not a code change — a fresh RustSec advisory on an already-resident dependency. Fix (highest tier — upgrade to the patched release, not an ignore): `postgres-protocol` 0.6.11 → 0.6.12, `tokio-postgres` 0.7.17 → 0.7.18 (cascades `postgres-types` 0.2.14). The direct dep `tokio-postgres = "0.7"` (crates/outbox-rs + apps/sensor-ingestion) already permits the patched release, so a lockfile bump suffices; no Cargo.toml change.
+
+Discovered gating R1's Rust CI (#450); affects the whole repo. Fixed in branch `security/rustsec-2026-postgres`. Only the root workspace is affected (sens-api-gateway does not use these crates).
+
+Status: OPEN (2026-06-14; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-101.
+
+---
+
+## ORPHAN-CRITICAL-101 — auth role-table consumers (tenant-role / tenant-user-management / user-lifecycle services) query the DROPPED per-tenant role tables
+
+Severity: CRITICAL. Discovered + RESOLVED 2026-06-14 during Wave-5 closeout (auth-service service-audit), lead-verified firsthand. This is the non-token-service half of the schema-centralization defect; the token.service login-path half is ORPHAN-CRITICAL-100 (token.service `getUserResourcePermissions`, repointed by W4 PR #440).
+
+**Problem:** Migration `apps/admin-api-service/src/migrations/1800500000000-TenantProvisioningTopology.ts` MOVES `user_role_assignments` / `tenant_roles` / `tenant_role_permissions` from per-tenant `tenant_<uuid>` schemas into the shared `auth` schema (INSERT then `DROP TABLE ... tenant_<schema>.*`, RAISEs if any tenant copy remains). But three auth-service services still issued `"${schemaName}"."<role table>"` (per-tenant, string-interpolated) queries — ~45 in `tenant-role.service.ts`, ~15 in `tenant-user-management.service.ts`, plus `user-lifecycle.service.ts` `deleteUser` role-revoke + private `createRoleAssignment`. On a migrated DB every role-management operation (create/update/delete role, assign/revoke user role, set default, user delete) throws `relation does not exist`.
+
+**Fix (RESOLVED, this PR):** repointed all role-table SQL to `"auth"."<table>"` tenant-scoped — `tenant_roles` by `AND tr."tenantId" = $x`; child tables (`user_role_assignments`, `tenant_role_permissions`, no tenantId column) by a write-side `JOIN/FROM "auth"."tenant_roles" tr ... AND tr."tenantId" = $x` so every WRITE carries its own tenant guard. Load-bearing corrections from the adversarial review swarm: (a) `assignRoleToUser` re-keyed to the global `UNIQUE(user_id)` (one-row-per-user re-point, never a 2nd INSERT) + a tenant-scoped `SELECT 1 FROM auth.users WHERE id=$1 AND "tenantId"=$2` user pre-validation (blocks attaching a foreign-tenant user to a tenant role); (b) `is_default` unset-writes carry `AND "tenantId"=$x` (else platform-wide default-role corruption); (c) only GROUND-TRUTH columns (auth.user_role_assignments has NO `updated_by`/`removed_by`/`removed_at`); (d) `assertRoleGrantAuthority` actor lookup tenant-pinned; (e) `audit-log.service.log()` gained a manager-aware overload so in-transaction audits are atomic with the mutation. Verified firsthand on every axis (columns, cross-tenant-write guard, interpolation=0, param-index, actor-pin, audit manager-threading) + 121/121 unit/regression tests.
+
+**Tracked follow-ups (NOT this PR):**
+- token.service `getUserResourcePermissions` repoint — owned by W4 PR #440 (intentionally not touched here to avoid a merge conflict on the same method).
+- Stale-row edge (MEDIUM): `assignRoleToUser`/`createRoleAssignment` existing-row SELECT JOINs `tr."tenantId"`, so a user whose single `user_role_assignments` row points to a non-current-tenant or NULL-tenant role is missed → falls to INSERT → `UNIQUE(user_id)` violation. Fails LOUD on anomalous data (the user pre-validation already blocks the cross-tenant write); robust fix = read the user's row by `user_id` alone. Owner: auth-security-expert.
+- DB-layer backstops (data-expert): partial `UNIQUE INDEX ON auth.tenant_roles ("tenantId") WHERE is_default` (single-default invariant is app-enforced only); NULL-tenant (platform-global) role semantics for equality predicates.
+- Tier-1 structural hardening (tracked by description — the `ORPHAN-HIGH-101` id is now held by an unrelated postgres-RustSec finding on main): add a `tenantId` column (+ FK/RLS) to `auth.user_role_assignments` so assignments are directly tenant-scoped, replacing the JOIN-laundering. Owner: auth-security-expert + data-expert.
+
+Status: RESOLVED (2026-06-14, this PR — tenant-role/tenant-user-management/user-lifecycle repoint); token.service via W4 #440; sub-items above OPEN. Owner: auth-security-expert. Registry: orphan-findings.md only.

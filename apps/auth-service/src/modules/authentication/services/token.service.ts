@@ -1,19 +1,21 @@
 import * as crypto from 'crypto';
-import * as bcrypt from 'bcryptjs';
 
+import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
+import { TenantPlan, PLAN_LEVEL } from '@platform/event-contracts';
+import * as bcrypt from 'bcryptjs';
 import { DataSource, Repository } from 'typeorm';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
+import { AuthPayload } from '../dto/auth-response.dto';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
-import { AuthPayload } from '../dto/auth-response.dto';
 
 /**
  * JWT access token payload.
@@ -38,6 +40,15 @@ export interface JwtPayload {
   role: Role;
   roles: Role[];
   tenantId: string | null;
+  /**
+   * Numeric tier rank of the tenant's plan (MT-MEDIUM-001) — the canonical
+   * `PLAN_LEVEL` ordinal (FREE/TRIAL=0, STARTER=1, PROFESSIONAL=2, ENTERPRISE=3).
+   * Lets the gateway and downstream services gate features by tier from the
+   * token alone, without a per-request tenant lookup. Absent for platform
+   * accounts with no tenant (SUPER_ADMIN). A few-minutes lag on a plan change
+   * (until the next token refresh) is acceptable for feature gating.
+   */
+  planLevel?: number;
   modules?: string[];
   resourcePermissions?: string[];
   /**
@@ -155,19 +166,23 @@ export class TokenService {
     user: User,
     ipAddress?: string,
     userAgent?: string,
-    options?: { mfaVerified?: boolean },
+    options?: { mfaVerified?: boolean; familyId?: string },
   ): Promise<AuthPayload> {
     // Enforce concurrent session limit
     if (this.sessionManager) {
       await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
     }
 
-    // Get user's module codes for JWT
-    const modules = await this.getUserModules(user);
+    // Hot-path reads run concurrently: the user's module codes, tenant-level
+    // resource permissions, and the tenant's plan-tier ordinal (the
+    // MT-MEDIUM-001 JWT claim) are independent, so a single Promise.all keeps
+    // token mint to one read latency instead of three serial round-trips.
+    const [modules, resourcePermissions, planLevel] = await Promise.all([
+      this.getUserModules(user),
+      this.getUserResourcePermissions(user),
+      this.resolveTenantPlanLevel(user.tenantId ?? null),
+    ]);
     const moduleCodes = modules.map((m) => m.code);
-
-    // Get user's tenant-level resource permissions for JWT (MODULE_MANAGER, MODULE_USER only)
-    const resourcePermissions = await this.getUserResourcePermissions(user);
 
     // Generate JWT ID for token blacklisting
     const jti = crypto.randomUUID();
@@ -185,6 +200,7 @@ export class TokenService {
       role: user.role,
       roles: [user.role],
       tenantId: user.tenantId ?? null,
+      ...(planLevel !== undefined ? { planLevel } : {}),
       modules: moduleCodes.length > 0 ? moduleCodes : undefined,
       resourcePermissions: resourcePermissions.length > 0 ? resourcePermissions : undefined,
       type: 'access',
@@ -194,9 +210,14 @@ export class TokenService {
       ...(options?.mfaVerified ? { mfaVerified: true } : {}),
     };
 
-    // SECURITY: Include audience claim to prevent cross-service token replay
+    // SECURITY (SEC-HIGH-003): include audience (anti cross-service replay)
+    // AND the `kid` header so verifiers can deterministically select the
+    // matching JWKS public key during a rotation overlap. The kid is derived
+    // from the same SSoT (getActiveSigningKid) the JWKS controller publishes,
+    // making header/JWKS drift impossible.
     const accessToken = await this.jwtService.signAsync(payload, {
       audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
+      keyid: getActiveSigningKid(this.configService),
     });
     const refreshTokenRandom = crypto.randomBytes(64).toString('hex');
 
@@ -211,11 +232,17 @@ export class TokenService {
       tokenToStore = await bcrypt.hash(refreshTokenRandom, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS);
     }
 
+    // SECURITY (SEC-MEDIUM-003): a fresh login starts a NEW token family; a
+    // rotation (refresh) passes the rotated token's familyId so the lineage
+    // is preserved. Reuse-detection later revokes by family, not by user.
+    const familyId = options?.familyId ?? crypto.randomUUID();
+
     // Create refresh token
     const refreshToken = this.refreshTokenRepository.create({
       token: tokenToStore,
       userId: user.id,
       tenantId: user.tenantId,
+      familyId,
       expiresAt: new Date(Date.now() + this.refreshTokenExpiryDays * 24 * 60 * 60 * 1000),
       ipAddress,
       userAgent,
@@ -319,6 +346,29 @@ export class TokenService {
     }
     this.moduleCache.set(user.id, { modules, cachedAt: Date.now() });
     return modules;
+  }
+
+  /**
+   * Resolve the tenant's plan-tier ordinal for the JWT `planLevel` claim
+   * (MT-MEDIUM-001). Platform accounts with no tenant (SUPER_ADMIN) have no
+   * plan, so the claim is omitted. An unrecognised plan string falls back to 0
+   * (FREE-equivalent) so a data anomaly can never silently unlock a paid tier.
+   */
+  private async resolveTenantPlanLevel(
+    tenantId: string | null,
+  ): Promise<number | undefined> {
+    if (!tenantId) {
+      return undefined;
+    }
+    const rows = await this.dataSource.query<Array<{ plan: string }>>(
+      `SELECT plan FROM auth.tenants WHERE id = $1 LIMIT 1`,
+      [tenantId],
+    );
+    const plan = rows[0]?.plan as TenantPlan | undefined;
+    if (!plan) {
+      return undefined;
+    }
+    return PLAN_LEVEL[plan] ?? 0;
   }
 
   /**

@@ -359,6 +359,13 @@ export class TenantProvisioningWorkflowService {
         );
       }
 
+      // W3.3-c: PENDING → PROVISIONING before any provisioning work, so the
+      // canonical lifecycle (PENDING → PROVISIONING → ACTIVE) is truthful and
+      // the tenant's in-flight provisioning state is observable.
+      await this.runStep(run.id, leaseToken, 'begin_provisioning', async () => {
+        await this.beginProvisioning(run, tenant.id);
+      });
+
       await this.runStep(run.id, leaseToken, 'audit_create_requested', async () => {
         await this.auditLogService.log({
           action: 'TENANT_CREATE_REQUESTED',
@@ -692,12 +699,9 @@ export class TenantProvisioningWorkflowService {
       settings,
       maxUsers: data.maxUsers ?? data.limits?.maxUsers ?? 5,
       maxStorage: data.maxStorage ?? data.limits?.storageGb ?? -1,
-      isTrialActive: (data.trialDays ?? 0) > 0,
       trialEndsAt: this.getTrialEndsAt(data.trialDays),
       createdBy: actorUserId,
       userCount: 0,
-      farmCount: 0,
-      sensorCount: 0,
     };
   }
 
@@ -741,7 +745,6 @@ export class TenantProvisioningWorkflowService {
       plan: tenantDraft.plan,
       maxUsers: tenantDraft.maxUsers,
       maxStorage: tenantDraft.maxStorage,
-      isTrialActive: tenantDraft.isTrialActive,
       trialEndsAt: tenantDraft.trialEndsAt?.toISOString(),
       settings: tenantDraft.settings as Record<string, unknown> | undefined,
       createdBy: run.actorUserId,
@@ -870,10 +873,11 @@ export class TenantProvisioningWorkflowService {
       createdBy: fallback.createdBy,
       maxUsers: fallback.maxUsers,
       maxStorage: fallback.maxStorage,
-      isTrialActive: fallback.isTrialActive,
+      // MT-MEDIUM-001: isTrialActive is now derived from trialEndsAt — copy the
+      // SSoT source, not the dropped boolean, so the rebuilt tenant keeps its
+      // trial window.
+      trialEndsAt: fallback.trialEndsAt,
       userCount: 0,
-      farmCount: 0,
-      sensorCount: 0,
       createdAt: snapshot.createdAt ? new Date(snapshot.createdAt) : new Date(),
       updatedAt: snapshot.updatedAt ? new Date(snapshot.updatedAt) : new Date(),
     });
@@ -1137,6 +1141,29 @@ export class TenantProvisioningWorkflowService {
     this.logger.log(
       `Queued db-migrate tenant schema job ${jobId} for operation ${run.id} tenant ${tenant.id}`,
     );
+  }
+
+  /**
+   * PENDING → PROVISIONING (W3.3-c). Issued right after the tenant is reserved
+   * and before any provisioning work, so the in-flight provisioning phase is a
+   * real, observable status and the canonical TenantStatusMachine governs the
+   * lifecycle with no PENDING→ACTIVE skip. auth-service is the sole writer.
+   */
+  private async beginProvisioning(
+    run: TenantProvisioningRunRow,
+    tenantId: string,
+  ): Promise<void> {
+    await this.authProvisioningClient.beginProvisioning({
+      ...this.buildAuthCommandMetadata(
+        'BeginProvisioning',
+        run.id,
+        tenantId,
+        run.idempotencyKey,
+        run.requestHash,
+        run.actorUserId,
+        { step: 'begin_provisioning' },
+      ),
+    });
   }
 
   private async activateTenantAfterVerification(
@@ -1623,7 +1650,7 @@ export class TenantProvisioningWorkflowService {
   ): CreateTenantAcceptedResponse {
     return {
       status: run.state,
-      tenantStatus: (tenant?.status as TenantStatus | undefined) ?? TenantStatus.PENDING,
+      tenantStatus: tenant?.status ?? TenantStatus.PENDING,
       statusUrl: `/tenants/provisioning/${run.id}`,
       retryAfterMs: this.retryAfterMs(run.state),
       availableActions: this.availableActions(run.state),

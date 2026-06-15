@@ -7,8 +7,8 @@
  */
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { ClientsModule } from '@nestjs/microservices';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { CqrsModule } from '@nestjs/cqrs';
 
 // Entities
@@ -59,8 +59,8 @@ const queryHandlers = [
     ClientsModule.register([
       {
         name: 'NATS_SERVICE',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('messaging-service'),
+        customClass: NatsV3Client,
+        options: { serviceName: 'messaging-service' },
       },
     ]),
     forwardRef(() => PresenceModule),

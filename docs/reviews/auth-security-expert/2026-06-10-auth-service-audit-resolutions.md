@@ -85,11 +85,139 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 
 ---
 
+# Wave 2 — Security hardening (PR #385, squash `2dfe96068`)
+
+> Bu bölüm Tier-4 registry-close (2026-06-14) sırasında eklendi: W2 düzeltmeleri PR #385 ile main'e merge'liydi ama resolution log'da per-finding bölüm + registry `closing_commits` yoktu. Her bölüm, kapanış öncesi 18-ajanlı adversarial doğrulama workflow'u + session-lead firsthand teyidiyle grounded.
+
+## AUDIT-CRITICAL-005 — Refresh-token reuse detection (production hashed path) test kapsamı SIFIRDI (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`)
+- **Sorun:** Üretimdeki `HASH_REFRESH_TOKENS=true` reuse-detection yolunun hiçbir katmanda (unit/integration/e2e) testi yoktu — trust-anchor üzerinde sıfır regresyon koruması.
+- **Çözüm:** `refresh-token-reuse.spec.ts` (249 satır, 5 senaryo) production hashed yolunu (`HASH_REFRESH_TOKENS=true`) açıkça koşuyor: replay tespiti (401), family-scoped revocation (user-wide değil), access-token blacklist, session revocation, `familyId` taşıyan SecurityEvent emission. Üretim akışı `refreshTokenWithHash → detectRefreshTokenReuse → revokeTokenFamilyOnReuseDetection` (authentication.service.ts:748-850) tamamen wired.
+- **Doğrulama:** firsthand-teyitli — spec mevcut (249 satır); W2 squash `2dfe96068` dosyaya dokundu (git show --stat).
+
+## SEC-HIGH-001 — TOTP kodları one-time-use değildi — intra-window replay (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`)
+- **Sorun:** TOTP doğrulaması `lastUsedTimeStep` izlemiyordu; aynı 6-haneli kod pencere içinde (login + step-up) tekrar oynatılabiliyordu.
+- **Çözüm (Tier-1, race-proof):** `verifyTOTP` eşleşen time-step'i döndürüyor; `lastUsedTotpStep` kolonu (user.entity.ts:236, migration 1800400000000) koşullu atomik UPDATE ile yazılıyor — yalnız `lastUsedTotpStep IS NULL OR < CAST(:step AS bigint)` olduğunda başarılı (affected=1); replay affected=0 ile reddedilir. Üç MFA yolunun (setup/login/step-up) hepsine uygulandı (mfa.service.ts:309-333).
+- **Doğrulama:** mfa.spec replay-reddini sabitliyor; firsthand-teyitli (conditional UPDATE `IS NULL OR < step` + affected check).
+
+## SEC-HIGH-002 — Login not-found dalı malformed bcrypt dummy hash ile karşılaştırıyordu — asimetrik timing (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`)
+- **Sorun:** Kullanıcı bulunamadığında geçersiz bir dummy hash string'i (`$2a$12$dummy.hash...`) ile karşılaştırılıyor ve pepper HMAC atlanıyordu — found/not-found timing farkı hesap-varlığı sızdırıyordu.
+- **Çözüm:** `getDummyPasswordHash()` (authentication.service.ts:141-146) `hashPassword(crypto.randomBytes())` ile GEÇERLİ peppered dummy hash üretiyor; not-found dalı bunu found dalıyla aynı `verifyPassword` pipeline'ından (pepper HMAC + bcrypt.compare, password.util.ts:121-148) geçiriyor (line 219). Eski malformed string tamamen kaldırıldı.
+- **Doğrulama:** firsthand-teyitli; her iki dal aynı peppered bcrypt yolunu koşuyor → timing simetrik.
+
+## SEC-HIGH-003 — Issued JWT'ler kid header taşımıyordu, JWKS kid yayınlıyordu (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`; underlying fix `c08d74aaa`)
+- **Sorun:** İmzalanan JWT'lerde `kid` header yoktu ama JWKS endpoint `kid` yayınlıyordu — key rotation deterministik tüketilemiyordu (consumer hangi anahtarın doğrulayacağını bilemiyor).
+- **Çözüm (Tier-1, make-impossible):** Merkezi `getActiveSigningKid()` SSoT (backend-common, jwt-verification.utils.ts:184-186) HEM token imzalayıcı (token.service.ts:220 `signAsync` keyid) HEM JWKS controller (jwks.controller.ts:62,126) tarafından tüketiliyor — her JWT'nin kid'i yayınlanan JWKS girdisiyle eşleşir, drift yapısal olarak imkansız.
+- **Doğrulama:** jwks.controller.spec kid SSoT-match + rotation overlap; firsthand-teyitli.
+
+## SEC-HIGH-004 — JWKS yanıtı kalıcı cache'leniyordu — rotation sonrası TTL/invalidation yok (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`; underlying fix `c08d74aaa`)
+- **Sorun:** JWKS yanıtı process ömrü boyunca cache'leniyordu; key rotation sonrası eski key-set servis ediliyor, yeni-key token'lar JWKS'i erken çekmiş servislerde doğrulanamıyordu.
+- **Çözüm:** TTL-bazlı invalidation — `JWKS_CACHE_TTL_MS` (default 5dk), `cacheExpiresAt` ile expiry takibi, request-anında TTL kontrolü (süresi dolunca refresh), in-process TTL ile eşleşen `Cache-Control` header (jwks.controller.ts:29-53,88).
+- **Doğrulama:** jwks.controller.spec TTL-expiry senaryosu (fake timers — pencere içi stale kid, sonra yeni kid); firsthand-teyitli.
+
+## SEC-MEDIUM-003 — Refresh reuse revocation per-user idi, per-family değil — familyId kolonu yoktu (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`; underlying fix `c55748b4c`)
+- **Sorun:** Reuse tespitinde tüm kullanıcı token'ları revoke ediliyordu (over-revoke); token soy-zinciri için `familyId` kolonu yoktu, SecurityEvent family-id taşımıyordu.
+- **Çözüm:** `familyId` kolonu (refresh-token.entity.ts:38, indexed, migration 1800500000000); reuse-detection family-scoped revocation yapıyor (`{userId, familyId}` koşullu UPDATE, legacy NULL family için `{userId}` fallback — authentication.service.ts:914); SecurityEvent family-id taşıyor (line 949).
+- **Doğrulama:** refresh-token-reuse.spec family-scoped revocation + SecurityEvent family-id alanını production yolunda sabitliyor; firsthand-teyitli.
+
+## SEC-MEDIUM-004 — validateToken enforceAccessTokenType'ı atlıyordu — refresh/MFA token'lar valid görünüyordu (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`; underlying fix `c55748b4c`)
+- **Sorun:** `validateToken` introspection sorgusu token tipini zorlamıyordu — refresh/MFA token'lar `valid:true` olarak introspect oluyordu.
+- **Çözüm:** `validateToken` (authentication.service.ts:1026) artık `enforceAccessTokenType(payload, logger, isProduction)` çağırıyor (line 1043) — `payload.type !== 'access'` ise UnauthorizedException. Aynı guard jwt-auth.guard.ts:78'de de var (backend-common SSoT, jwt-verification.utils.ts:73-96).
+- **Doğrulama:** validate-token.spec access geçer / refresh+MFA reddedilir; firsthand-teyitli.
+
+> **W2 NOT (SEC-MEDIUM-001/002 W2'de değil):** SEC-MEDIUM-001 (tenant-role assign/update role-ceiling + self-target guard) ve SEC-MEDIUM-002 (role-change/user-delete audit fail-closed) W2'de KAPANMADI — W2 kodu bunları gerçekten düzeltmemişti (canlı priv-esc olarak Wave-5 D1 audit'inde tespit edildi). Bunları Wave-5 D1 (PR #447) düzeltiyor; registry close #447 CODEOWNERS merge'inde olacak.
+
+---
+
+## MT-HIGH-003 — Tenant yaşam döngüsünde ARCHIVED/PURGED terminali ve geçiş-yasallığı kontrolü YOKTU (W3.1)
+
+- **Durum:** RESOLVED — backend (PR #390; W3.1 foundation + W3.3-c command-service consolidation; CI yeşil sha 92414ca4 + W3.3-c). **W3.3-c:** provisioning command-service'in kendi drifting yerel `lifecycleTransitionPolicy`'si (machine'le 6 geçişte sapan paralel legality tablosu) tamamen silindi; edge-legality artık tek SSoT `TenantStatusMachine.assertTransition`'a delege ediliyor. Yerel `LIFECYCLE_COMMANDS` haritası YALNIZCA command-authorization (machine edge'lerinin alt-kümesi: hangi komut hangi geçişi sürebilir — ActivateTenant'ın SUSPENDED tenant'ı reaktive etmesini engeller); subset invariant'ı bir architecture testiyle (`lifecycle-commands.spec`) sabitlendi. **Option B (yama değil, doğru model):** PROVISIONING artık gerçek persist edilen bir faz — yeni `BEGIN_PROVISIONING` komutuyla saga `reserve→PENDING → BeginProvisioning→PROVISIONING → ACTIVE`; PENDING→ACTIVE skip'i kalktı, machine katı+dürüst kaldı (gevşetilmedi). FailProvisioning tolerant compensation (PROVISIONING dışından no-op). admin-api saf NATS-client + `begin_provisioning` saga adımı. **Kalan (backend-dışı):** 3 frontend TenantStatus kopyası = ORPHAN-MEDIUM-089 (web codegen-owned). gateway + event tipleme W3.1'de tamamlandı.
+- **Sorun:** Tenant statüsü 8 ayrı yerde, 3'ü casing/değer-kümesi olarak uyumsuz kopyalanmıştı (shared-contracts unwired 6 değer; auth/admin 8 değer; gateway lowercase + non-canonical TRIAL/EXPIRED; 3 frontend kopyası). "Bu tenant suspended mı?" sorusunun cevabı modüle göre değişiyordu. GDPR Art-17 purge için temsil edilebilir bir terminal (PURGED) yoktu ve illegal sıçrama (örn. PURGED→ACTIVE) hiç engellenmiyordu. Login bloğu yalnız SUSPENDED+CANCELLED'ı reddediyordu — DEACTIVATED/ARCHIVED/PENDING/PROVISIONING* tenant'lar kimlik doğrulayabiliyordu (latent güvenlik açığı).
+- **Çözüm (Tier-1, make-it-impossible):** Canonical 9-değerli `TenantStatus` (+PURGED) + `TenantStatusMachine` `@platform/event-contracts`'ta (wired+her-yerde-tüketilen SSoT; shared-contracts unwired olduğu için orada değil). Makine tek geçiş matrisi: `canTransition`/`assertTransition` (yazımları kapılar), `isLoginAllowed` (fail-closed allow-list — yalnız ACTIVE, slip-through kapandı), `isTerminal` (PURGED). Yeni kural = tek satır tablo düzenlemesi. shared-contracts canonical'ı re-export ediyor. auth entity local enum'u bıraktı, canonical'ı re-export ediyor; login `isLoginAllowed`'a bağlandı. Test mock drift'i (`'active'`≠`'ACTIVE'`) düzeltildi.
+- **Değişen dosyalar:** `libs/event-contracts/src/enums/{tenant-status.enum,tenant-status.machine}.ts` (+spec), `libs/event-contracts/src/index.ts`, `libs/shared-contracts/src/enums/tenant-status.enum.ts` (re-export), `apps/auth-service/src/modules/tenant/entities/tenant.entity.ts`, `apps/auth-service/src/modules/authentication/services/authentication.service.ts`, `apps/auth-service/src/modules/authentication/__tests__/authentication.service.spec.ts`.
+- **Doğrulama:** event-contracts 217/217 (table-driven makine spec'i her legal/illegal çifti + login allow-list + terminallik + matris tamlığını sabitliyor); auth-service 287/287 (her non-ACTIVE statünün login'i blokladığını sabitleyen it.each). GitHub CI PR #390'da.
+
+---
+
+## DATA-HIGH-001 — Auth domain event'leri raw fire-and-forget event-bus ile yayınlanıyordu, durable garanti yoktu (W3.2)
+
+- **Durum:** RESOLVED (PR #390 — W3.2 outbox altyapısı + W3.3-a/b ile yapısal politika tamamlandı; CI yeşil sha 013076226 + 780e0c0e + 883bbda9). Artık **HİÇBİR auth domain servisi raw `EVENT_BUS` enjekte etmiyor** — durable state-change event'leri (UserDeleted, TenantStatusChanged, first-admin UserInvited) `auth_outbox`'a yazma transaction'ı içinde enqueue ediliyor; audit-log-backed telemetri + `createUser` non-transactional olduğu için (ORPHAN-HIGH-090) henüz durable-olamayan user-lifecycle UserInvited yalnızca allowlisted `BestEffortEventPublisher` üzerinden geçiyor. **W3.3-a:** ölü `tenant.service` lifecycle/create method'ları (raw publish'lerin taşıyıcısı) tamamen silindi (MT-HIGH-001/002). **W3.3-b:** `tenant-provisioning-command.service` raw event-bus'tan çıkarıldı — lifecycle geçişleri tek emission noktasından (transitionTenantStatus) TenantStatusChanged, first-admin createTenantAdmin'in receipt-tx'i içinde UserInvited enqueue ediyor (atomik). Kalan tek best-effort UserInvited = ORPHAN-HIGH-090 (ayrı izleniyor).
+- **Sorun:** Auth domain servisleri durumu değiştiren event'leri (UserDeleted, UserInvited, profil/parola sinyalleri, tenant yaşam döngüsü) `eventBus.publish()` ile fire-and-forget yayınlıyordu. DB yazımı commit olup event NATS'a ulaşmadan process ölürse, yayın kaybı kalıcı: downstream servisler (messaging/hr/farm/sensor) tutarsız kalır. En kritik vektör UserDeleted — kaybı GDPR Art-17 cross-service silmeyi hiç tetiklemez, kişisel veri downstream'de kalıcı olarak kalır (dual-write tutarsızlığı).
+- **Çözüm (Tier-1/Tier-2):** `auth_outbox` tablosu + `AuthOutboxModule` (`OutboxModule.forFeature`, `@Global`) + `@SourceOnlyMigration` (messaging-outbox şablonu). İki yönlü yapısal politika: durable event'ler `OutboxPublisher.enqueue(event, manager)` ile yazma transaction'ı **içinde** (atomik commit, dual-write kaybı imkansız); audit-log-backed/platform-scoped telemetri `BestEffortEventPublisher` allowlist'i üzerinden (lossy-kabul = açık, reviewable, allowlist dışı event throw eder → durable-outbox'a zorlar). Raw `@Inject('EVENT_BUS')` auth domain servislerinden yapısal olarak kaldırılıyor.
+  - **UserDeleted → DURABLE:** gdpr-compliance, erasure transaction'ı içinde enqueue — UserDeleted ile anonimleştirme atomik commit, GDPR cross-service tetikleyici kaybı imkansız.
+  - **UserProfileUpdated/UserPasswordChanged** (account.service), **UserLoggedIn + PasswordReset{Requested,Completed}** (authentication.service) → BestEffortEventPublisher (audit log = durable SoT).
+  - **UserInvited** (user-lifecycle + tenant-user-management) → BestEffortEventPublisher (invitation row = durable kayıt; kayıp event admin'in pending davetiyeyi görüp yeniden göndermesiyle kurtarılabilir, veri-kaybı vektörü değil). Henüz durable DEĞİL: `createUser` non-transactional dual-write (**ORPHAN-HIGH-090**) — durable upgrade önce user-creation akışının tek transaction'a sarılmasını gerektiriyor.
+- **Değişen dosyalar:** `apps/auth-service/src/outbox/{auth-outbox.entity,auth-outbox.module,best-effort-event-publisher}.ts` (+spec'ler), `apps/auth-service/src/migrations/1800600000000-CreateAuthOutboxTable.ts`, `apps/auth-service/src/privacy/gdpr-compliance.service.ts` (+spec), `apps/auth-service/src/modules/authentication/services/{account,authentication}.service.ts`, `apps/auth-service/src/modules/tenant/services/{user-lifecycle,tenant-user-management}.service.ts` (+spec'ler).
+- **Doğrulama:** auth-service **303/303 test yeşil** (best-effort allowlist it.each + durable-required event'leri REFUSES eden it.each + gdpr UserDeleted'ın outbox+tx-manager ile enqueue edildiğini sabitleyen spec). GitHub CI PR #390 (sha 013076226 + 780e0c0e). `tenant.service` taşıması W3.3'te tamamlanınca RESOLVED'e geçecek.
+
+---
+
+## MT-MEDIUM-002 — `auth.tenants.farm_count` / `sensor_count`: SSoT'su olmayan, hep-0 denormalizasyon (W3.4)
+
+- **Durum:** RESOLVED (PR #390 — W3.4). Stale denormalizasyon kolonları `auth.tenants`'tan kaldırıldı; admin-api gerçek sayıları okuma-anında **kaynak-tablolardan** (`tenant_<uuid>.farms` / `.sensors`) hesaplıyor.
+- **Sorun:** `auth.tenants` `farm_count` / `sensor_count` kolonlarını taşıyordu ama **hiçbir yazıcı bunları güncellemiyordu** — her provisioning yolu 0 yazıyor, tenant kendi şemasında farm/sensor oluşturdukça hiçbir şey reconcile etmiyordu. admin-api tenant-detail resource-usage görünümü bu kolonları okuyup kalıcı-0 bir kullanım rakamı gösteriyordu (canlı şemaya karşı doğrulandı: hep 0). `user_count`'tan farklı olarak (auth user-creation anında bakımlı), farms/sensors per-tenant `tenant_<uuid>.farms`/`.sensors` tablolarının sahipliğinde — auth bunları cross-service event tüketmeden bakamaz.
+- **Çözüm (Tier-1: doğru SSoT'yu yapısal kıl):** sahip per-tenant tablolar tek doğru kaynak. Migration `auth.tenants`'tan stale denormalizasyonu düşürüyor (`DROP COLUMN IF EXISTS` → idempotent, replay no-op; `-- DESTRUCTIVE:` marker + pg_dump/ops stage-gate). admin-api `TenantDetailService.countTenantResource()` ile gerçek sayıyı okuma-anında hesaplıyor: önce `information_schema` varlık-kontrolü (provisioning'i tamamlanmamış tenant / SUPER_ADMIN pseudo-tenant = 0 kaynak, hata değil), sonra `COUNT(*)` — auth user-stats için zaten kullandığı aynı cross-schema analitik deseni. Hiçbir hata yutulmuyor (tablo eksikliği fail-loud değil, kontrollü 0). Entity alanları + her iki servisteki provisioning yazıcıları + test fixture'ları (caller-update) temizlendi.
+- **Değişen dosyalar:** `apps/auth-service/src/migrations/1800900000000-DropTenantFarmSensorCounts.ts` (yeni), `apps/auth-service/src/modules/tenant/entities/tenant.entity.ts`, `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts`, `apps/admin-api-service/src/tenant/entities/tenant.entity.ts`, `apps/admin-api-service/src/tenant/services/{tenant-detail,tenant-provisioning-workflow}.service.ts`, `apps/admin-api-service/src/tenant/__tests__/{tenant-api.integration,tenant-provisioning.service}.spec.ts`.
+- **Doğrulama:** migration-sql-lint geçti (R1 marker + IF EXISTS idempotency); type-check her iki servis temiz; canlı DB'de çift-çalıştırma idempotency kanıtlandı (residual 0); gerçek-kaynak `COUNT` `tenant_<uuid>.farms`/`.sensors`'a karşı çalışıyor; `tenant-api.integration.spec.ts` PASS; diff-lint değişen dosyalarımda temiz (`countTenantResource` generic-typed query, cast yok). Reader düşürmeden önce 2-3× doğrulandı — kör drop değil, kaynak-tablo SSoT'su.
+
+---
+
+## MT-MEDIUM-001 — `PlanTier` non-ordinal + no `planLevel` JWT claim + `TRIAL`/`isTrialActive` dual representation (W3.4)
+
+- **Durum:** RESOLVED (PR #390 — W3.4, iki commit: ordinal + JWT claim, sonra TRIAL collapse).
+- **Sorun:** Üç ayrı kusur: (1) `TenantPlan` sırasız string enum'du — "en az PROFESSIONAL" tarzı tier-gating her callsite'ta ad-hoc bir rank map gerektiriyordu (drift vektörü). (2) JWT hiçbir plan-tier sinyali taşımıyordu — her tier kontrolü gateway'de request-başına tenant lookup demekti. (3) Trial-lik ÜÇ şekilde temsil ediliyordu: `plan === TRIAL`, stored `is_trial_active` boolean, ve `trialEndsAt` — ve bunlar drift ediyordu (canlı DB'de is_trial_active=false ama trialEndsAt set olan tenant var). En kötüsü: entity'nin `isOnTrial()` helper'ı `plan === TRIAL`'a kapı koyuyordu, ki canlı veride SIFIR satır eşleşiyor (tenant'lar gerçek tier'da trial yapıyor, plan='trial' değil) — yani her aktif trial sessizce "trial değil" olarak raporlanıyordu (latent bug).
+- **Çözüm (Tier-1):**
+  - **Ordinal SSoT:** `PLAN_LEVEL: Record<TenantPlan, number>` (`@platform/event-contracts`) — FREE/TRIAL=0, STARTER=1, PROFESSIONAL=2, ENTERPRISE=3. Tip-exhaustive (plan eklemek ama rank'lamamak compile error) + `planLevel()`/`planMeetsMinimum()`. TRIAL, FREE-eşdeğeri rank'lanır çünkü trial bir STATE'tir (trialEndsAt'tan türer), paid tier değil — plan string'i asla paid-tier minimum'u sağlamaz.
+  - **JWT claim:** `token.service` çözülen ordinal'i opsiyonel `planLevel` claim'i olarak access-token'a basar; `resolveTenantPlanLevel` mevcut module+permission read'leriyle **parallel** koşar (tek Promise.all, üçüncü serial round-trip değil); tenant'sız platform hesapları (SUPER_ADMIN) için omit edilir. Verify-side gateway JwtPayload eşleşen opsiyonel alanı kazanır.
+  - **TRIAL collapse:** `trialEndsAt` tek kaynak. `isOnTrial()`/`isTrialExpired()` yalnız trialEndsAt'tan türer (plan===TRIAL kapısı silindi — latent bug fix). auth entity'de `isTrialActive` derived getter (GraphQL @Field korunur, şema değişmez); admin-api read-replica entity'den TAMAMEN kaldırıldı (tenant-detail.service trialEndsAt'tan inline türetir — read-replica olmayan kolonu SELECT edemez). Stored `is_trial_active` kolonu drop edildi (idempotent migration). `ReserveTenantCommand`'dan redundant `isTrialActive` input'u + provisioning yazıcıları (auth handler, admin workflow ×3) kaldırıldı — command yalnız trialEndsAt taşır.
+- **Değişen dosyalar:** `libs/event-contracts/src/enums/tenant-plan.enum.ts` (+spec), `libs/event-contracts/src/tenant-commands.ts`, `apps/auth-service/src/modules/authentication/services/token.service.ts` (+spec), `apps/gateway-api/src/types/index.ts`, `apps/auth-service/src/modules/tenant/entities/tenant.entity.ts` (+spec), `apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts`, `apps/auth-service/src/migrations/1801000000000-DropTenantIsTrialActive.ts` (yeni), `apps/admin-api-service/src/tenant/{entities/tenant.entity,services/tenant-detail.service,services/tenant-provisioning-workflow.service}.ts` (+ tenant.integration/tenant-provisioning spec fixture'ları).
+- **Doğrulama:** tenant-plan.enum.spec (7) ikinci-tanık ordinal matrisi + gating semantiği; token.service.spec (3) claim include/omit/0-fallback; tenant.entity.spec (5) trial türetme + **bug-fix regresyon guard'ı** (STARTER + future trialEndsAt → isOnTrial=true); lifecycle-commands (16) + tenant.integration (28) + tenant-api.integration (36) yeşil (regresyon yok); migration-sql-lint + canlı DB idempotency (residual 0); auth+admin+event-contracts type-check temiz. **is_trial_active full cross-service drop** operator kararıyla (Tam drop now) yapıldı. (`DATA-LOW-001` — trialEndsAt'ı billing.subscriptions projeksiyonu yapma — ayrı, hâlâ açık.)
+
+---
+
+## DATA-LOW-001 — `auth.tenants` subscription kolonları billing SSoT'sini reconciliation'sız kopyalıyordu (W3.4)
+
+- **Durum:** RESOLVED (PR #390 — W3.4, cross-service event-driven projeksiyon: contract + billing emit + auth consumer + NATS authz).
+- **Sorun:** `auth.tenants` `plan` / `trialEndsAt` / `subscriptionEndsAt` kolonlarını taşıyor — bunlar billing.subscriptions'ın (abonelik durumunun SSoT'su) bir kopyası. Hiçbir reconciliation yolu yoktu: provisioning anında set ediliyorlardı, sonra billing tarafında plan değişimi / trial bitişi / iptal olduğunda auth kopyası **drift ediyordu**. `plan`, MT-MEDIUM-001 `planLevel` JWT claim'ini beslediği için stale plan = yanlış tier-gating.
+- **Çözüm (Tier-2: olay-güdümlü tek-yönlü projeksiyon):** billing tam abonelik durumunu taşıyan bir tenant-facing event emit ediyor; auth onu tüketip kendi kopyasını billing'e aynalıyor.
+  - **Contract:** `TenantSubscriptionChangedEvent` opsiyonel additive `trialEndsAt` / `subscriptionEndsAt` / `subscriptionStatus` alanlarıyla zenginleştirildi (eski producer'lar geçerli kalır; JSON Schema nullable-date dalı + alanlar; coverage fixture'ı taşıyor).
+  - **billing emit (SSoT yayını):** `change-subscription-plan` (plan değişimi — birincil drift + JWT-relevant) ve `cancel-subscription` (status→cancelled + endDate) handler'ları, kaydedilmiş subscription'dan (planTier / status / trialEndDate / endDate) tam durumu okuyup `TenantSubscriptionChanged` co-emit ediyor (fail-soft, mevcut SubscriptionUpdated/Cancelled emit'leri gibi — publish hatası abonelik değişimini rollback etmez). Expire (scheduler) yalnız status değiştirir; auth subscription-status kolonu saklamadığı + endDate zaten change/cancel anında projekte edildiği için ek emit gerektirmez.
+  - **auth consumer (projeksiyon):** yeni `TenantSubscriptionProjectionHandler` `onModuleInit`'te `subscribeWildcard('TenantSubscriptionChanged', this)` (platform-genelindeki yerleşik desen) ile abone oluyor; `handle()` yalnız event'in taşıdığı alanları `auth.tenants`'a yazıyor (tanımsız bırakılanı atlar), bilinmeyen plan'ı projekte etmez (fail-loud log), geçersiz tenantId'yi reddeder (cross-tenant yazımı önler), affected=0'da throw etmez. Tek-yönlü — billing'e asla geri yazmaz.
+  - **NATS authz (ADR-015):** `services.yaml`'a billing publish `AQUACULTURE_EVENTS.TenantSubscriptionChanged.>` eklendi + `nats.conf` regen edildi (auth zaten `AQUACULTURE_EVENTS.>` wildcard ile subscribe ettiği için auth değişikliği gerekmedi).
+- **Değişen dosyalar:** `libs/event-contracts/src/{tenant-events.ts,schemas/tenant-events.schema.ts}` (+spec), `apps/auth-service/src/modules/tenant/event-handlers/tenant-subscription-projection.handler.ts` (yeni, +spec), `apps/auth-service/src/modules/tenant/tenant.module.ts`, `apps/billing-service/src/billing/handlers/{change-subscription-plan,cancel-subscription}.handler.ts`, `infrastructure/nats/services.yaml`, `infrastructure/docker/nats/nats.conf`.
+- **Doğrulama:** tenant-events.schema.spec (19) projeksiyon alanlarını kabul ediyor (nullable-date dahil); `tenant-subscription-projection.handler.spec` (6) — subscribe-on-boot, plan+trial+sub-end projeksiyonu, explicit-null trial, unknown-plan skip-but-project-dates, invalid-tenantId refüze, affected=0 no-throw; auth + billing + event-contracts type-check temiz; billing handler'larının pre-existing test failure'ları (`repository.create` mock eksiği) STASH ile pre-existing + quarantined (billing-service affected-target-policy) doğrulandı — co-emit regresyon değil.
+
+---
+
 ## Bekleyen bulgular (denetim kayıt defteri)
 
 | ID | Dalga | Durum |
 |---|---|---|
-| AUDIT-CRITICAL-005 (reuse-detection test kapsamı) | W2 | OPEN |
-| SEC-HIGH-001..004, SEC-MEDIUM-001..004 | W2 | OPEN |
-| MT-HIGH-001..003, DATA-HIGH-001..003, MT-MEDIUM-001..002, DATA-MEDIUM-001..002, DATA-LOW-001 | W3 | OPEN |
+| AUDIT-CRITICAL-005 (reuse-detection test kapsamı) | W2 | RESOLVED (PR #385 — production hashed-path reuse spec, 249 satır) |
+| SEC-HIGH-001..004 (TOTP one-time-use, login timing, JWT kid, JWKS TTL) | W2 | RESOLVED (PR #385, squash 2dfe96068) |
+| SEC-MEDIUM-003..004 (refresh familyId, validateToken access-type) | W2 | RESOLVED (PR #385, squash 2dfe96068) |
+| SEC-MEDIUM-001..002 (role-ceiling/self-target guard, fail-closed audit) | W5-D1 | RESOLVED on branch (PR #447 CLEAN, CODEOWNERS merge bekliyor) — registry close #447 merge'inde |
+| MT-HIGH-003 (TenantStatus SSoT + state machine) | W3.1+W3.3-c | RESOLVED — backend (PR #390); web copies → ORPHAN-MEDIUM-089 |
+| DATA-HIGH-001 (transactional outbox adoption) | W3.2+W3.3-a/b | RESOLVED (PR #390 — no auth domain service injects raw EventBus) |
+| MT-HIGH-001..002 (dead sync-provisioning path + unsafe update) | W3.3-a | RESOLVED (PR #390, 883bbda9) |
+| DATA-MEDIUM-001 (JSON Schema validators, NATS trust boundary) | W3.4 | RESOLVED — 13 tenant + 10 auth events (23) validated; coverage specs green |
+| DATA-HIGH-003 (AuthSchemaBootstrapService — un-versioned schema writer) | W3.4 | RESOLVED — runtime DDL already gone (no-DDL guard); redundant with SchemaDriftModule, deleted |
+| DATA-HIGH-002 (timestamp → timestamptz) | W3.4 | RESOLVED — 27 auth cols converted (migration + entities); empirically verified vs live DB |
+| DATA-MEDIUM-002 (tenantId nullability) | W3.4 | RESOLVED — invitations.tenantId NOT NULL; refresh_tokens.tenantId stays nullable (all 317 NULL rows are SUPER_ADMIN, documented exception); broad camelCase/snake_case rename deliberately out of scope (cosmetic, high-risk) |
+| MT-MEDIUM-002 (unmaintained farm_count/sensor_count denormalization) | W3.4 | RESOLVED — dropped from auth.tenants; admin-api counts real-time from tenant_<uuid>.farms/.sensors (source-of-truth tables) |
+| MT-MEDIUM-001 (PlanTier ordinal + planLevel JWT claim + TRIAL/isTrialActive collapse) | W3.4 | RESOLVED — PLAN_LEVEL SSoT + planLevel claim + trial derived from trialEndsAt (is_trial_active dropped) |
+| DATA-LOW-001 (auth.tenants subscription columns vs billing SSoT) | W3.4 | RESOLVED — event-driven projection: billing emits TenantSubscriptionChanged on plan-change/cancel, auth TenantSubscriptionProjectionHandler mirrors plan/trialEndsAt/subscriptionEndsAt |
 | PERF-HIGH-001..003, AUDIT-HIGH-009, PERF-MEDIUM-001..003, AUDIT-MEDIUM-015, SEC-LOW-001 | W4 | OPEN |

@@ -15,7 +15,7 @@ import { Cron } from '@nestjs/schedule';
 import { ClientProxy } from '@nestjs/microservices';
 import { DataSource } from 'typeorm';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
-import { AiPrivacyService } from './ai-privacy.service';
+import { AiEgressGateService } from './ai-egress-gate.service';
 
 /** Batch size for embedding generation. */
 const BATCH_SIZE = 100;
@@ -51,7 +51,7 @@ export class EmbeddingService implements OnModuleDestroy {
     private readonly dataSource: DataSource,
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
-    private readonly privacyService: AiPrivacyService,
+    private readonly egressGate: AiEgressGateService,
   ) {}
 
   onModuleDestroy(): void {
@@ -126,9 +126,7 @@ export class EmbeddingService implements OnModuleDestroy {
     }
     for (const senderId of senderIds) {
       const tenantId = senderTenantMap.get(senderId) ?? '_current';
-      const canAnalyze = await this.privacyService
-        .canAnalyzeMessage(tenantId, senderId)
-        .catch(() => false);
+      const canAnalyze = await this.egressGate.isAllowed(tenantId, senderId, 'embedding');
       consentMap.set(senderId, canAnalyze);
     }
 

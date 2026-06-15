@@ -97,11 +97,11 @@ export class MessageThread {
   @Field()
   createdByAdmin!: boolean; // true if SuperAdmin started
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   @Field()
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   @Field()
   updatedAt!: Date;
 

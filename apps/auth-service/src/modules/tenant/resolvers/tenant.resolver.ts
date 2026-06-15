@@ -234,8 +234,12 @@ export class TenantResolver {
     return this.tenantService.removeModuleManager(tenantId, moduleId);
   }
 
-  // NOTE: updateTenantSettings mutation removed — consolidated into updateTenant
-  // which applies role-based field filtering via TenantService.update()
+  // NOTE: both updateTenantSettings and the writable TenantService lifecycle
+  // methods (create/update/activate/suspend/cancel/assignModules) were removed
+  // (W3.3, MT-HIGH-001/002). Tenant writes are command-receipt/FSM owned via
+  // TenantProvisioningCommandService; the resolver's updateTenant/lifecycle
+  // mutations reject outright. TenantService is now a read + module-manager
+  // service only.
 
   // ============================================================================
   // Audit Log & Activity Queries

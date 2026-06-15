@@ -1,0 +1,222 @@
+[
+  {
+    "zone": "app-src",
+    "path": "apps/auth-service/src/app.module.ts",
+    "nrs_selectors": 6,
+    "expected": {
+      "no-restricted-syntax": 2,
+      "no-restricted-imports": 2,
+      "no-console": 2,
+      "@typescript-eslint/no-explicit-any": 0,
+      "@typescript-eslint/no-floating-promises": 2,
+      "@typescript-eslint/no-unsafe-call": 0,
+      "import/order": 0,
+      "aquaculture/no-direct-event-publish": 0,
+      "aquaculture/no-high-cardinality-metric-label": 0,
+      "@nx/enforce-module-boundaries": 0,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  },
+  {
+    "zone": "app-spec",
+    "path": "apps/admin-api-service/src/__tests__/contract-validation.spec.ts",
+    "nrs_selectors": 6,
+    "expected": {
+      "no-restricted-syntax": 2,
+      "no-restricted-imports": 2,
+      "no-console": 0,
+      "@typescript-eslint/no-explicit-any": 0,
+      "@typescript-eslint/no-floating-promises": 2,
+      "@typescript-eslint/no-unsafe-call": 0,
+      "import/order": 0,
+      "aquaculture/no-direct-event-publish": 0,
+      "aquaculture/no-high-cardinality-metric-label": 0,
+      "@nx/enforce-module-boundaries": 0,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  },
+  {
+    "zone": "app-entity",
+    "path": "apps/admin-api-service/src/audit/audit.entity.ts",
+    "nrs_selectors": 6,
+    "expected": {
+      "no-restricted-syntax": 2,
+      "no-restricted-imports": 2,
+      "no-console": 2,
+      "@typescript-eslint/no-explicit-any": 0,
+      "@typescript-eslint/no-floating-promises": 2,
+      "@typescript-eslint/no-unsafe-call": 0,
+      "import/order": 0,
+      "aquaculture/no-direct-event-publish": 0,
+      "aquaculture/no-high-cardinality-metric-label": 0,
+      "@nx/enforce-module-boundaries": 0,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  },
+  {
+    "zone": "web-off",
+    "path": "web/shell/src/components/ConsentBanner.tsx",
+    "nrs_selectors": 0,
+    "expected": {
+      "no-restricted-syntax": 0,
+      "no-restricted-imports": 2,
+      "no-console": 0,
+      "@typescript-eslint/no-explicit-any": 0,
+      "@typescript-eslint/no-floating-promises": 0,
+      "@typescript-eslint/no-unsafe-call": 0,
+      "import/order": 0,
+      "aquaculture/no-direct-event-publish": 0,
+      "aquaculture/no-high-cardinality-metric-label": 0,
+      "@nx/enforce-module-boundaries": 0,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  },
+  {
+    "zone": "web-on",
+    "path": "web/modules/farm-module/src/pages/MapViewPage.tsx",
+    "nrs_selectors": 6,
+    "expected": {
+      "no-restricted-syntax": 2,
+      "no-restricted-imports": 2,
+      "no-console": 0,
+      "@typescript-eslint/no-explicit-any": 0,
+      "@typescript-eslint/no-floating-promises": 0,
+      "@typescript-eslint/no-unsafe-call": 0,
+      "import/order": 0,
+      "aquaculture/no-direct-event-publish": 0,
+      "aquaculture/no-high-cardinality-metric-label": 0,
+      "@nx/enforce-module-boundaries": 0,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  },
+  {
+    "zone": "platform-lib",
+    "path": "platform/libs/event-bus/src/index.ts",
+    "nrs_selectors": 6,
+    "expected": {
+      "no-restricted-syntax": 2,
+      "no-restricted-imports": 2,
+      "no-console": 2,
+      "@typescript-eslint/no-explicit-any": 2,
+      "@typescript-eslint/no-floating-promises": 2,
+      "@typescript-eslint/no-unsafe-call": 2,
+      "import/order": 2,
+      "aquaculture/no-direct-event-publish": 1,
+      "aquaculture/no-high-cardinality-metric-label": 1,
+      "@nx/enforce-module-boundaries": 2,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  },
+  {
+    "zone": "backend-common",
+    "path": "libs/backend-common/src/index.ts",
+    "nrs_selectors": 6,
+    "expected": {
+      "no-restricted-syntax": 2,
+      "no-restricted-imports": 2,
+      "no-console": 2,
+      "@typescript-eslint/no-explicit-any": 2,
+      "@typescript-eslint/no-floating-promises": 2,
+      "@typescript-eslint/no-unsafe-call": 2,
+      "import/order": 2,
+      "aquaculture/no-direct-event-publish": 1,
+      "aquaculture/no-high-cardinality-metric-label": 1,
+      "@nx/enforce-module-boundaries": 2,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  },
+  {
+    "zone": "migration-harness",
+    "path": "libs/migration-harness/src/define-migration-test.ts",
+    "nrs_selectors": 6,
+    "expected": {
+      "no-restricted-syntax": 2,
+      "no-restricted-imports": 2,
+      "no-console": 2,
+      "@typescript-eslint/no-explicit-any": 2,
+      "@typescript-eslint/no-floating-promises": 2,
+      "@typescript-eslint/no-unsafe-call": 2,
+      "import/order": 2,
+      "aquaculture/no-direct-event-publish": 0,
+      "aquaculture/no-high-cardinality-metric-label": 0,
+      "@nx/enforce-module-boundaries": 2,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  },
+  {
+    "zone": "eslint-rules",
+    "path": "tools/eslint-rules/rules/no-bare-graphql-query-string.ts",
+    "nrs_selectors": 6,
+    "expected": {
+      "no-restricted-syntax": 2,
+      "no-restricted-imports": 2,
+      "no-console": 2,
+      "@typescript-eslint/no-explicit-any": 2,
+      "@typescript-eslint/no-floating-promises": 2,
+      "@typescript-eslint/no-unsafe-call": 2,
+      "import/order": 2,
+      "aquaculture/no-direct-event-publish": 0,
+      "aquaculture/no-high-cardinality-metric-label": 0,
+      "@nx/enforce-module-boundaries": 0,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  },
+  {
+    "zone": "e2e",
+    "path": "e2e/tests/integration/audit-immutability.spec.ts",
+    "nrs_selectors": 2,
+    "expected": {
+      "no-restricted-syntax": 2,
+      "no-restricted-imports": 2,
+      "no-console": 0,
+      "@typescript-eslint/no-explicit-any": 0,
+      "@typescript-eslint/no-floating-promises": 2,
+      "@typescript-eslint/no-unsafe-call": 2,
+      "import/order": 2,
+      "aquaculture/no-direct-event-publish": 0,
+      "aquaculture/no-high-cardinality-metric-label": 0,
+      "@nx/enforce-module-boundaries": 2,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  },
+  {
+    "zone": "tools",
+    "path": "tools/gates/agent-dispatch-gate.ts",
+    "nrs_selectors": 6,
+    "expected": {
+      "no-restricted-syntax": 2,
+      "no-restricted-imports": 2,
+      "no-console": 2,
+      "@typescript-eslint/no-explicit-any": 2,
+      "@typescript-eslint/no-floating-promises": 2,
+      "@typescript-eslint/no-unsafe-call": 2,
+      "import/order": 2,
+      "aquaculture/no-direct-event-publish": 0,
+      "aquaculture/no-high-cardinality-metric-label": 0,
+      "@nx/enforce-module-boundaries": 2,
+      "no-mixed-spaces-and-tabs": 0,
+      "@typescript-eslint/adjacent-overload-signatures": 2,
+      "@typescript-eslint/no-empty-interface": 2
+    }
+  }
+]

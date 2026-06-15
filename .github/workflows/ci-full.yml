@@ -252,13 +252,13 @@ jobs:
           const fs = require('node:fs');
           const path = 'web/shell/src/generated/remoteHashes.json';
           const expected = [
-            '/remotes/admin-panel/assets/remoteEntry.js',
-            '/remotes/dashboard/assets/remoteEntry.js',
-            '/remotes/farm-module/assets/remoteEntry.js',
-            '/remotes/hr-module/assets/remoteEntry.js',
-            '/remotes/hydroponics-module/assets/remoteEntry.js',
-            '/remotes/sensor-module/assets/remoteEntry.js',
-            '/remotes/tenant-admin/assets/remoteEntry.js',
+            '/remotes/admin-panel/remoteEntry.js',
+            '/remotes/dashboard/remoteEntry.js',
+            '/remotes/farm-module/remoteEntry.js',
+            '/remotes/hr-module/remoteEntry.js',
+            '/remotes/hydroponics-module/remoteEntry.js',
+            '/remotes/sensor-module/remoteEntry.js',
+            '/remotes/tenant-admin/remoteEntry.js',
           ];
           const map = JSON.parse(fs.readFileSync(path, 'utf8'));
           const keys = Object.keys(map).sort();
@@ -312,6 +312,12 @@ jobs:
         run: npm run graphql:generate-registry-artifacts -- --check
 
       - name: Run fast invariants
+        # entity-diff-implies-migration.spec.ts (inside invariants:fast) honours
+        # `ENTITY-DIFF-OK:` PR-body waivers via PR_BODY. Mirrors ci-affected.yml,
+        # quality-gates.yml, and db-migration-check.yml. Empty on push (the spec
+        # skips the gate when no PR base resolves), so it is a no-op off-PR.
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run invariants:fast
 
       - name: Run schema drift registration gate

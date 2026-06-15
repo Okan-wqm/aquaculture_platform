@@ -52,6 +52,8 @@ if [ -z "${command}" ]; then
   exit 2
 fi
 
+DOCKER_ROOT_DIR="${DOCKER_ROOT_DIR:-$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "/var/lib/docker")}"
+
 unique_paths() {
   local seen=" "
   local p
@@ -69,7 +71,7 @@ unique_paths() {
 }
 
 docker_root() {
-  docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo "/var/lib/docker"
+  echo "${DOCKER_ROOT_DIR}"
 }
 
 runtime_paths() {

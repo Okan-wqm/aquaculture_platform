@@ -268,6 +268,23 @@ export interface QueuedOperation {
   status: 'pending' | 'syncing' | 'failed';
 }
 
+/**
+ * FE-HIGH-050: Discriminated result of enqueueing an offline operation.
+ *
+ * - `queued`: a fresh operation was written; `id` is the new operation's id.
+ * - `duplicate`: a byte-identical submission of the same type already sits in
+ *   the queue within the dedup window; `id` points at THAT existing operation
+ *   so the UI can still track its sync status. Callers MUST render this as
+ *   "Already recorded" — never a second success.
+ *
+ * Returning a discriminated union (instead of a bare string with an empty
+ * sentinel) makes it a compile-time error to confuse a duplicate with a fresh
+ * write: the `status` field forces every consumer to handle both branches.
+ */
+export type AddToQueueResult =
+  | { status: 'queued'; id: string }
+  | { status: 'duplicate'; id: string };
+
 // UI helper types
 export interface SelectOption<T = string> {
   value: T;
@@ -340,12 +357,20 @@ export interface InAppNotification {
 }
 
 // Transfer types
+// CONTRACT (FARM-MEDIUM-050): this payload is sent verbatim as the backend
+// GraphQL `TransferBatchInput`. The backend SSoT is `avgWeightG` — average
+// weight PER FISH in grams — from which it derives total biomass internally
+// (`biomassKg = quantity * avgWeightG / 1000`, transfer-batch.handler.ts).
+// A `biomassKg` field here would be rejected by the backend ValidationPipe
+// (`forbidNonWhitelisted: true`) AND carries different semantics (total kg vs
+// avg g/fish). Keeping this interface aligned to the backend input type is the
+// single source of truth — do not reintroduce `biomassKg`.
 export interface TransferInput {
   batchId: string;
   sourceTankId: string;
   destinationTankId: string;
   quantity: number;
-  biomassKg?: number;
+  avgWeightG?: number;
   transferReason?: string;
   transferredAt?: string;
 }
@@ -358,23 +383,30 @@ export type MeasurementSource =
   | 'LAB_ANALYSIS'
   | 'CALIBRATION';
 
-/**
- * SINGLE-INGRESS (Tier-1): `dynamicParameters` + `equipmentId` are the sole
- * parameter channel, mirroring the backend CreateWaterQualityInput DTO. The
- * legacy fixed `parameters` / `WaterQualityParameters` shape was removed so a
- * queued offline payload can never carry a field the production ValidationPipe
- * ({ whitelist, forbidNonWhitelisted }) would reject on replay.
- */
+export interface WaterQualityParameters {
+  temperature?: number;
+  dissolvedOxygen?: number;
+  pH?: number;
+  ammonia?: number;
+  nitrite?: number;
+  nitrate?: number;
+  salinity?: number;
+  turbidity?: number;
+  alkalinity?: number;
+  hardness?: number;
+}
+
 export interface CreateWaterQualityInput {
   tankId?: string;
   pondId?: string;
   siteId?: string;
   batchId?: string;
-  equipmentId: string;
+  equipmentId?: string;
   measuredAt: string;
   source: MeasurementSource;
   measuredBy?: string;
-  dynamicParameters: Record<string, number | string | boolean>;
+  parameters: WaterQualityParameters;
+  dynamicParameters?: Record<string, number | string | boolean>;
   idempotencyKey?: string;
   notes?: string;
   weatherConditions?: string;

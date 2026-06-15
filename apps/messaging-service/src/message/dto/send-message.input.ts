@@ -8,15 +8,22 @@ import {
   IsArray,
   ArrayMaxSize,
 } from 'class-validator';
+import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { MessageContentType } from '../entities/message.entity';
 import GraphQLJSON from 'graphql-type-json';
 
 /**
  * Input for sending a new message.
- * idempotencyKey is required to prevent duplicate sends on retry.
+ *
+ * Extends MobileCommandEnvelopeInput so the offline queue's injected envelope
+ * fields (clientCommandId, payloadHash, deviceId, ...) are part of the input
+ * schema. Without this, the gateway ValidationPipe (forbidNonWhitelisted: true)
+ * rejected an offline send carrying the envelope with a 400, and the message was
+ * lost behind a false "Queued" badge (MSG-CRITICAL-054). idempotencyKey below is
+ * the message-specific at-most-once key and is independent of the envelope.
  */
 @InputType()
-export class SendMessageInput {
+export class SendMessageInput extends MobileCommandEnvelopeInput {
   @Field(() => ID, { description: 'Target channel UUID' })
   @IsUUID()
   channelId: string;

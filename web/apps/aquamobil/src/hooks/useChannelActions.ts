@@ -40,6 +40,7 @@ export function useChannelActions(channelId: string | undefined) {
 
   const notifMutation = useMutation({
     mutationFn: async (preference: NotificationPreference) => {
+      if (!channelId) throw new Error('No channel selected');
       await graphqlRequest(UPDATE_NOTIFICATION_PREFERENCE, {
         channelId,
         preference,
@@ -60,6 +61,7 @@ export function useChannelActions(channelId: string | undefined) {
   const leaveMutation = useMutation({
     mutationFn: async () => {
       if (!user?.id) throw new Error('Not authenticated');
+      if (!channelId) throw new Error('No channel selected');
       await graphqlRequest(REMOVE_CHANNEL_MEMBER, {
         channelId,
         userId: user.id,
@@ -79,6 +81,7 @@ export function useChannelActions(channelId: string | undefined) {
 
   const archiveMutation = useMutation({
     mutationFn: async () => {
+      if (!channelId) throw new Error('No channel selected');
       await graphqlRequest(ARCHIVE_CHANNEL, { id: channelId });
     },
     onSuccess: () => {
@@ -95,10 +98,12 @@ export function useChannelActions(channelId: string | undefined) {
 
   const addMemberMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role?: ChannelMemberRole }) => {
+      if (!channelId) throw new Error('No channel selected');
       await graphqlRequest(ADD_CHANNEL_MEMBER, {
         channelId,
         userId,
-        role: role ?? 'member',
+        // S1-CODEGEN: ChannelMemberRole wire form is the UPPERCASE GraphQL enum NAME.
+        role: role ?? 'MEMBER',
       });
     },
     onSuccess: () => {

@@ -195,6 +195,10 @@ export function RecordEntityPage<
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [queuedOperationId, setQueuedOperationId] = useState('');
+  // FE-HIGH-050: when the queue collapses a double-tap onto an existing op, the
+  // submit must NOT read as a fresh success. We track the dedup outcome and the
+  // success screen renders "Already recorded" instead of the queued badge.
+  const [wasDuplicate, setWasDuplicate] = useState(false);
   const [step, setStep] = useState<FormStep>('entry');
 
   useEffect(() => {
@@ -217,8 +221,9 @@ export function RecordEntityPage<
 
     try {
       const payload = buildPayload();
-      const opId = await addToQueue(operationName, payload);
-      setQueuedOperationId(opId);
+      const result = await addToQueue(operationName, payload);
+      setQueuedOperationId(result.id);
+      setWasDuplicate(result.status === 'duplicate');
       setShowSuccess(true);
       setTimeout(() => navigate(successRedirectPath), 2000);
     } catch (error) {
@@ -236,11 +241,18 @@ export function RecordEntityPage<
   };
 
   /* Two-phase success UX — surface real queue status via QueuedStatusBadge
-     instead of a premature green checkmark. (C7) */
+     instead of a premature green checkmark. (C7)
+     FE-HIGH-050: a deduped double-tap is NOT a fresh record — show an honest
+     "Already recorded" notice so the operator is not led to believe a second
+     entry was created. */
   if (showSuccess) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
-        <QueuedStatusBadge operationId={queuedOperationId} />
+        {wasDuplicate ? (
+          <AlreadyRecordedNotice />
+        ) : (
+          <QueuedStatusBadge operationId={queuedOperationId} />
+        )}
       </div>
     );
   }
@@ -440,6 +452,26 @@ function OfflineNotice(): JSX.Element {
     <p className="text-center text-amber-500 text-sm font-medium">
       Offline -- will sync when connected
     </p>
+  );
+}
+
+/**
+ * FE-HIGH-050: shown when a submit was collapsed onto an existing queued op by
+ * the dedup window (double-tap). It deliberately does NOT use the success
+ * checkmark or the queued badge — the operator already recorded this entry, so
+ * the honest message is "Already recorded", not a second confirmation.
+ */
+function AlreadyRecordedNotice(): JSX.Element {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
+        <AlertCircle size={48} className="text-amber-600" />
+      </div>
+      <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Already recorded</h2>
+      <p className="text-sm text-amber-600 dark:text-amber-400">
+        This entry was already submitted moments ago -- no duplicate was created.
+      </p>
+    </div>
   );
 }
 

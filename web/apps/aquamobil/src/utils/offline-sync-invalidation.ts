@@ -5,7 +5,13 @@ import type { QueryClient } from '@tanstack/react-query';
 // WHY: offline sync is the only write path when field users reconnect. Mapping
 // each synced mutation to tenant-scoped read models prevents DB-committed farm
 // changes from remaining invisible in cached mobile list/card/detail screens.
-const SYNC_INVALIDATION_SEGMENTS: Partial<Record<OperationType, readonly (readonly unknown[])[]>> = {
+// `satisfies Record<OperationType, ...>` (NOT Partial) makes this map EXHAUSTIVE:
+// adding a queueable OperationType without a sync-invalidation entry is now a
+// compile-time error (tier-1 make-it-impossible), so an offline write can never
+// again silently leave its read model stale. FE-HIGH-052: clockIn/clockOut were
+// the missing entries that left the Daily Ops "clocked-in" KPI (and the
+// attendance screens) stale after offline attendance sync.
+const SYNC_INVALIDATION_SEGMENTS = {
   recordMortality: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   recordCull: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
   createHarvestRecord: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
@@ -14,6 +20,8 @@ const SYNC_INVALIDATION_SEGMENTS: Partial<Record<OperationType, readonly (readon
   createWaterQuality: [['tanks'], ['equipment-params'], ['waterQuality'], ['dailyOpsCounts'], ['ai']],
   recordStockMovement: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
   transferStock: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
+  clockIn: [['dailyOpsCounts'], ['todaysAttendance'], ['attendanceRecords'], ['attendanceSummary']],
+  clockOut: [['dailyOpsCounts'], ['todaysAttendance'], ['attendanceRecords'], ['attendanceSummary']],
   createLeaveRequest: [['leaveRequests'], ['leaveBalances']],
   completeTask: [['myTasks'], ['taskStats'], ['dailyOpsCounts']],
   startTask: [['myTasks'], ['taskStats'], ['dailyOpsCounts']],
@@ -21,7 +29,7 @@ const SYNC_INVALIDATION_SEGMENTS: Partial<Record<OperationType, readonly (readon
   editMessage: [['messaging', 'channels'], ['messaging', 'messages']],
   deleteMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
   markMessagesRead: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
-};
+} satisfies Record<OperationType, readonly (readonly unknown[])[]>;
 
 export function getSyncedOperationInvalidationKeys(
   tenantId: string,

@@ -376,7 +376,8 @@ export function AiChatPage() {
 
     await sendMessage({
       content: text,
-      contentType: 'text',
+      // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum NAME.
+      contentType: 'TEXT',
     });
 
     if (isOnline) {

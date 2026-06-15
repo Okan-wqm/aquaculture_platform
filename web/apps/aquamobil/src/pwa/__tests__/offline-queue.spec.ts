@@ -6,6 +6,8 @@
  * Retry policy: 3 attempts then permanent fail
  */
 
+import { webcrypto } from 'node:crypto';
+
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // --------------------------------------------------------------------------
@@ -14,34 +16,42 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 const idbStore = new Map<string, unknown>();
 const cacheIdbStore = new Map<string, unknown>();
+// Durable KEY store (AES session key + device-id) — a SEPARATE IndexedDB store
+// in production ('aquamobil-keys'). Kept distinct here so device-id/key writes
+// never pollute the queue store the enqueue tests assert against.
+const keyIdbStore = new Map<string, unknown>();
 
 vi.mock('idb-keyval', () => {
   return {
     get: vi.fn((key: string, store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
+      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
       return Promise.resolve(target.get(key));
     }),
     set: vi.fn((key: string, value: unknown, store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
+      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
       target.set(key, value);
       return Promise.resolve();
     }),
     del: vi.fn((key: string, store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
+      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
       target.delete(key);
       return Promise.resolve();
     }),
     keys: vi.fn((store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
+      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
       return Promise.resolve(Array.from(target.keys()));
     }),
     entries: vi.fn((store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
+      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
       return Promise.resolve(Array.from(target.entries()));
     }),
     createStore: vi.fn((dbName: string, _storeName: string) => {
-      // Return a sentinel so the mock can distinguish stores
+      // Return a sentinel so the mock can distinguish stores. The durable KEY
+      // store (encryption key + device-id) is a separate store in production
+      // ('aquamobil-keys'); the mock must mirror that, else device-id/key writes
+      // land in the queue store and break the enqueue assertions.
       if (dbName.includes('cache')) return 'cache-store';
+      if (dbName.includes('keys')) return 'key-store';
       return 'queue-store';
     }),
   };
@@ -75,6 +85,12 @@ Object.defineProperty(globalThis, 'crypto', {
       generateKey: mockGenerateKey,
       encrypt: mockEncrypt,
       decrypt: mockDecrypt,
+      // Real SHA-256 via Node's WebCrypto. sha256Hex/attachCommandEnvelope's
+      // payloadHash must be a TRUE, collision-free digest because the idempotency
+      // (clientCommandId+payloadHash) and offline dedup paths key off it — a fake
+      // digest would silently mask hash-collision regressions in those tests.
+      digest: (algorithm: AlgorithmIdentifier, data: BufferSource) =>
+        webcrypto.subtle.digest(algorithm, data),
     },
     randomUUID: () => `uuid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     getRandomValues: (arr: Uint8Array) => {
@@ -107,6 +123,7 @@ import {
   queueOperation,
   getPendingOperations,
   getPendingCount,
+  getQueueVersion,
   getOperation,
   updateOperation,
   clearAllOperations,
@@ -116,40 +133,25 @@ import {
   syncOperation,
   syncAllOperations,
 } from '../offline-queue';
-import type { OperationPayload } from '@/types';
 
 /** SECURITY (C11): All queue operations are tenant-scoped. Tests use a fixed tenant UUID. */
 const TEST_QUEUE_TENANT = 'tenant-queue-001';
 
 /**
- * Build a legacy WQ queue payload (carries the removed `parameters` field) that
- * the current OperationPayload type no longer admits. A JSON round-trip erases
- * the loose record type and yields a value the OperationPayload return type
- * accepts with NO `as` cast and no banned `unknown` bridge — the honest model of
- * "deliberately-untyped pre-migration data the field worker queued offline".
+ * FE-HIGH-050: queueOperation now returns a discriminated AddToQueueResult.
+ * Most legacy assertions only need the freshly-written op id, so this helper
+ * unwraps it and fails loudly if a write was unexpectedly deduped.
  */
-function asQueuePayload(record: Record<string, unknown>): OperationPayload {
-  return JSON.parse(JSON.stringify(record));
-}
-
-/**
- * Read a queued payload back as a structural view so a test can assert on the
- * legacy/transitional keys (`parameters`, `dynamicParameters`, `equipmentId`,
- * `tankId`) that are not common to every OperationPayload union member. One `as`
- * to a supertype-with-optionals — no `unknown` bridge, no TS2352.
- */
-function readback(payload: OperationPayload): OperationPayload & {
-  parameters?: unknown;
-  dynamicParameters?: Record<string, unknown>;
-  equipmentId?: unknown;
-  tankId?: unknown;
-} {
-  return payload as OperationPayload & {
-    parameters?: unknown;
-    dynamicParameters?: Record<string, unknown>;
-    equipmentId?: unknown;
-    tankId?: unknown;
-  };
+async function enqueueId(
+  tenantId: string,
+  type: Parameters<typeof queueOperation>[1],
+  payload: Parameters<typeof queueOperation>[2],
+): Promise<string> {
+  const result = await queueOperation(tenantId, type, payload);
+  if (result.status !== 'queued') {
+    throw new Error(`expected a fresh queued op, got status=${result.status}`);
+  }
+  return result.id;
 }
 
 // --------------------------------------------------------------------------
@@ -161,6 +163,11 @@ describe('Offline Queue', () => {
     vi.clearAllMocks();
     idbStore.clear();
     cacheIdbStore.clear();
+    // FE-HIGH-051: the monotonic queue-version token lives in the durable KEY
+    // store. Clear it so per-test version assertions start from a clean slate.
+    // The session key is module-cached (_sessionKey), so wiping the persisted
+    // copy here does not break decryption in the rest of the suite.
+    keyIdbStore.clear();
   });
 
   // NOTE: vi.restoreAllMocks() was removed because it resets factory mock
@@ -177,7 +184,7 @@ describe('Offline Queue', () => {
   describe('queueOperation (enqueue)', () => {
     it('should enqueue an operation and return an ID', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       expect(id).toBeTruthy();
       expect(typeof id).toBe('string');
@@ -217,7 +224,7 @@ describe('Offline Queue', () => {
 
     it('should use tenant-scoped key format (C11)', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const storedKeys = Array.from(idbStore.keys());
       expect(storedKeys[0]).toBe(`pending_${TEST_QUEUE_TENANT}_${id}`);
@@ -251,6 +258,182 @@ describe('Offline Queue', () => {
       const storedEntries = Array.from(idbStore.values());
       const stored = storedEntries[0] as Record<string, unknown>;
       expect(stored.type).toBe('recordMortality');
+    });
+  });
+
+  // ========================================================================
+  // FE-HIGH-050 / FE-MEDIUM-050: payloadHash dedup + discriminated result
+  // ========================================================================
+
+  describe('queueOperation dedup (FE-HIGH-050 payloadHash)', () => {
+    it('returns { status: "queued" } for a fresh op and writes exactly one entry', async () => {
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const result = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+
+      expect(result.status).toBe('queued');
+      expect(result.id).toBeTruthy();
+      expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(1);
+    });
+
+    it('collapses a byte-identical re-submit onto the existing op (status duplicate, same id)', async () => {
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const first = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const second = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+
+      expect(first.status).toBe('queued');
+      expect(second.status).toBe('duplicate');
+      // FE-HIGH-050: the duplicate result points at the EXISTING op, not a new one.
+      expect(second.id).toBe(first.id);
+      // And no second row was written.
+      expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(1);
+    });
+
+    it('does NOT dedup when a single payload field differs', async () => {
+      const a = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const b = { batchId: 'b1', tankId: 't1', quantity: 6, reason: 'DISEASE' as const };
+      const r1 = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', a);
+      const r2 = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', b);
+
+      expect(r1.status).toBe('queued');
+      expect(r2.status).toBe('queued');
+      expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(2);
+    });
+
+    it('FE-MEDIUM-050: dedups identical recordStockMovement (previously un-deduped)', async () => {
+      // The old extractResourceId heuristic had no branch for stock movements,
+      // so two identical taps both queued. payloadHash dedup now collapses them.
+      const input = {
+        movementType: 'OUT' as const,
+        itemType: 'FEED' as const,
+        itemId: 'item-1',
+        quantity: 10,
+        fromLocationId: 'loc-1',
+        idempotencyKey: 'fixed-key-for-dedup',
+      };
+      const r1 = await queueOperation(TEST_QUEUE_TENANT, 'recordStockMovement', input);
+      const r2 = await queueOperation(TEST_QUEUE_TENANT, 'recordStockMovement', input);
+
+      expect(r1.status).toBe('queued');
+      expect(r2.status).toBe('duplicate');
+      expect(r2.id).toBe(r1.id);
+      expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(1);
+    });
+
+    it('FE-MEDIUM-050: dedups identical transferStock (previously un-deduped)', async () => {
+      const input = {
+        itemType: 'CHEMICAL' as const,
+        itemId: 'item-9',
+        fromLocationId: 'loc-1',
+        toLocationId: 'loc-2',
+        quantity: 3,
+        idempotencyKey: 'fixed-transfer-key',
+      };
+      const r1 = await queueOperation(TEST_QUEUE_TENANT, 'transferStock', input);
+      const r2 = await queueOperation(TEST_QUEUE_TENANT, 'transferStock', input);
+
+      expect(r1.status).toBe('queued');
+      expect(r2.status).toBe('duplicate');
+      expect(r2.id).toBe(r1.id);
+    });
+
+    it('dedups within tenant only — an identical payload under another tenant still queues', async () => {
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
+      const r1 = await queueOperation('tenant-A', 'recordMortality', payload);
+      const r2 = await queueOperation('tenant-B', 'recordMortality', payload);
+
+      expect(r1.status).toBe('queued');
+      expect(r2.status).toBe('queued');
+      expect(r2.id).not.toBe(r1.id);
+    });
+  });
+
+  // ========================================================================
+  // FE-HIGH-051: monotonic per-tenant queue version (auto-sync re-arm token)
+  // ========================================================================
+
+  describe('queue version (FE-HIGH-051 re-arm token)', () => {
+    it('starts at 0 before any enqueue', async () => {
+      expect(await getQueueVersion(TEST_QUEUE_TENANT)).toBe(0);
+    });
+
+    it('increments on every fresh enqueue', async () => {
+      await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
+        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+      });
+      expect(await getQueueVersion(TEST_QUEUE_TENANT)).toBe(1);
+
+      await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
+        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const,
+      });
+      expect(await getQueueVersion(TEST_QUEUE_TENANT)).toBe(2);
+    });
+
+    it('does NOT increment when a submit is deduped (no new content)', async () => {
+      const payload = { batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const };
+      await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const afterFirst = await getQueueVersion(TEST_QUEUE_TENANT);
+
+      const dup = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      expect(dup.status).toBe('duplicate');
+      expect(await getQueueVersion(TEST_QUEUE_TENANT)).toBe(afterFirst);
+    });
+
+    it('bumps version on a drain-then-enqueue even when the count returns to the same value', async () => {
+      // FE-HIGH-051 core case: the OLD count-delta guard could not see this —
+      // count goes 1 -> 0 -> 1, an unchanged observation, yet a genuinely new op
+      // must sync. The version strictly increases, giving the re-arm signal.
+      const first = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
+        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+      });
+      const v1 = await getQueueVersion(TEST_QUEUE_TENANT);
+      expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(1);
+
+      // Drain the only op (simulating a completed sync).
+      const mockExecutor = vi.fn().mockResolvedValue({ ok: true });
+      const firstOp = await getOperation(TEST_QUEUE_TENANT, first.id);
+      expect(firstOp).toBeDefined();
+      if (!firstOp) throw new Error('expected the queued op to be readable');
+      await syncOperation(firstOp, mockExecutor);
+      expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(0);
+
+      // Enqueue a different op — count is back to 1 (same as before), but version moved.
+      await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', {
+        batchId: 'b9', tankId: 't9', quantity: 9, reason: 'OXYGEN' as const,
+      });
+      const v2 = await getQueueVersion(TEST_QUEUE_TENANT);
+      expect(await getPendingCount(TEST_QUEUE_TENANT)).toBe(1);
+      expect(v2).toBeGreaterThan(v1);
+    });
+
+    it('resets the version token to 0 on a tenant-scoped clear', async () => {
+      await queueOperation('tenant-A', 'recordMortality', {
+        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+      });
+      await queueOperation('tenant-B', 'recordMortality', {
+        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const,
+      });
+      expect(await getQueueVersion('tenant-A')).toBe(1);
+      expect(await getQueueVersion('tenant-B')).toBe(1);
+
+      await clearAllOperations('tenant-A');
+
+      // tenant-A's token is wiped; tenant-B's survives.
+      expect(await getQueueVersion('tenant-A')).toBe(0);
+      expect(await getQueueVersion('tenant-B')).toBe(1);
+    });
+
+    it('wipes all version tokens on a full (logout) clear', async () => {
+      await queueOperation('tenant-A', 'recordMortality', {
+        batchId: 'b1', tankId: 't1', quantity: 1, reason: 'DISEASE' as const,
+      });
+      await queueOperation('tenant-B', 'recordMortality', {
+        batchId: 'b2', tankId: 't2', quantity: 2, reason: 'STRESS' as const,
+      });
+
+      await clearAllOperations();
+
+      expect(await getQueueVersion('tenant-A')).toBe(0);
+      expect(await getQueueVersion('tenant-B')).toBe(0);
     });
   });
 
@@ -310,7 +493,7 @@ describe('Offline Queue', () => {
         tenantId: TEST_QUEUE_TENANT,
         type: 'recordMortality',
         _enc: { iv: 'invalid', ciphertext: 'corrupted' },
-        _resourceId: '',
+        _payloadHash: '',
         createdAt: new Date().toISOString(),
         retryCount: 0,
         status: 'pending',
@@ -328,7 +511,7 @@ describe('Offline Queue', () => {
   describe('getOperation (single)', () => {
     it('should store operation with correct tenant-scoped key', async () => {
       const payload = { batchId: 'getop-b1', tankId: 'getop-t1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Verify via direct idbStore access (bypasses mock get/entries)
       const expectedKey = `pending_${TEST_QUEUE_TENANT}_${id}`;
@@ -346,7 +529,7 @@ describe('Offline Queue', () => {
 
     it('should return undefined when querying wrong tenant (C11)', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation('tenant-A', 'recordMortality', payload);
+      const id = await enqueueId('tenant-A', 'recordMortality', payload);
 
       const op = await getOperation('tenant-B', id);
       expect(op).toBeUndefined();
@@ -511,7 +694,7 @@ describe('Offline Queue', () => {
     it('should reset stale syncing entries before processing (BUG-02)', async () => {
       // Manually insert a stale 'syncing' entry
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
       await updateOperation(TEST_QUEUE_TENANT, id, { status: 'syncing' });
 
       const mockExecutor = vi.fn().mockResolvedValue({ success: true });
@@ -530,7 +713,7 @@ describe('Offline Queue', () => {
   describe('Retry Policy', () => {
     it('should increment retryCount on failure', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const mockExecutor = vi.fn().mockRejectedValue(new Error('Fail'));
       const op = await getOperation(TEST_QUEUE_TENANT, id);
@@ -544,7 +727,7 @@ describe('Offline Queue', () => {
 
     it('should skip operations with retryCount >= MAX_RETRY_COUNT (permanent fail)', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Manually set retryCount to MAX_RETRY_COUNT
       await updateOperation(TEST_QUEUE_TENANT, id, { retryCount: 5, status: 'failed' });
@@ -561,7 +744,7 @@ describe('Offline Queue', () => {
 
     it('should promote retryable failed operations back to pending (BUG-17)', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Simulate a failed operation with retryCount < MAX_RETRY_COUNT
       await updateOperation(TEST_QUEUE_TENANT, id, { retryCount: 2, status: 'failed', lastError: 'Network timeout' });
@@ -578,7 +761,7 @@ describe('Offline Queue', () => {
 
     it('should NOT retry operations with permanent error messages', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       // Simulate a permanent failure (validation error)
       await updateOperation(TEST_QUEUE_TENANT, id, { retryCount: 1, status: 'failed', lastError: 'Validation failed: quantity must be positive' });
@@ -595,7 +778,7 @@ describe('Offline Queue', () => {
 
     it('should truncate error messages to 200 chars (SEC-07)', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const longError = 'A'.repeat(500);
       const mockExecutor = vi.fn().mockRejectedValue(new Error(longError));
@@ -609,7 +792,7 @@ describe('Offline Queue', () => {
 
     it('should remove operation on successful sync', async () => {
       const payload = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'recordMortality', payload);
+      const id = await enqueueId(TEST_QUEUE_TENANT, 'recordMortality', payload);
 
       const mockExecutor = vi.fn().mockResolvedValue({ success: true });
       const op = await getOperation(TEST_QUEUE_TENANT, id);
@@ -659,104 +842,6 @@ describe('Offline Queue', () => {
 
       expect(await getCachedData(TEST_TENANT, 'tanks')).toBeNull();
       expect(await getCachedData(TEST_TENANT, 'batches')).toBeNull();
-    });
-  });
-
-  // ========================================================================
-  // SINGLE-INGRESS (Tier-1): forward-compat WQ payload upgrade on replay.
-  //
-  // A legacy CreateWaterQualityInput queued BEFORE the `parameters` field was
-  // removed must be upgraded to {dynamicParameters, equipmentId} when it is
-  // read back for replay, otherwise the production ValidationPipe
-  // ({ whitelist, forbidNonWhitelisted }) rejects it and the field worker's
-  // offline measurement is silently lost. The transform runs at the single
-  // read ingress (decryptOperation), so both getPendingOperations and
-  // getOperation surface the upgraded shape.
-  // ========================================================================
-  describe('water-quality forward-compat migration', () => {
-    const WQ_TENANT = 'tenant-wq-001';
-
-    it('folds a legacy `parameters` payload into dynamicParameters and drops `parameters`', async () => {
-      // Simulate a payload queued by the OLD app: empty dynamicParameters but a
-      // populated legacy `parameters` object.
-      const legacy = asQueuePayload({
-        equipmentId: 'eq-1',
-        measuredAt: '2026-06-14T08:00:00.000Z',
-        source: 'MANUAL',
-        idempotencyKey: 'idem-1',
-        parameters: { temperature: 14, ph: 7.2 },
-      });
-      await queueOperation(WQ_TENANT, 'createWaterQuality', legacy);
-
-      const [op] = await getPendingOperations(WQ_TENANT);
-      const payload = readback(op!.payload);
-
-      expect(payload).not.toHaveProperty('parameters');
-      expect(payload.dynamicParameters).toEqual({ temperature: 14, ph: 7.2 });
-      expect(payload.equipmentId).toBe('eq-1');
-    });
-
-    it('keeps existing dynamicParameters keys over folded legacy values', async () => {
-      const mixed = asQueuePayload({
-        equipmentId: 'eq-2',
-        measuredAt: '2026-06-14T08:00:00.000Z',
-        source: 'MANUAL',
-        parameters: { temperature: 99 },
-        dynamicParameters: { temperature: 14 },
-      });
-      await queueOperation(WQ_TENANT, 'createWaterQuality', mixed);
-
-      const [op] = await getPendingOperations(WQ_TENANT);
-      const payload = readback(op!.payload);
-
-      // The newer (validated) dynamicParameters channel wins.
-      expect(payload.dynamicParameters).toEqual({ temperature: 14 });
-      expect(payload).not.toHaveProperty('parameters');
-    });
-
-    it('backfills equipmentId from legacy tankId when equipmentId is absent', async () => {
-      const legacyTankOnly = asQueuePayload({
-        tankId: 'tank-9',
-        measuredAt: '2026-06-14T08:00:00.000Z',
-        source: 'MANUAL',
-        parameters: { temperature: 12 },
-      });
-      await queueOperation(WQ_TENANT, 'createWaterQuality', legacyTankOnly);
-
-      const [op] = await getPendingOperations(WQ_TENANT);
-      const payload = readback(op!.payload);
-
-      expect(payload.equipmentId).toBe('tank-9');
-      expect(payload.dynamicParameters).toEqual({ temperature: 12 });
-    });
-
-    it('leaves an already-migrated payload untouched (idempotent transform)', async () => {
-      const modern = asQueuePayload({
-        equipmentId: 'eq-3',
-        measuredAt: '2026-06-14T08:00:00.000Z',
-        source: 'MANUAL',
-        dynamicParameters: { temperature: 15, oxygen: 8 },
-      });
-      await queueOperation(WQ_TENANT, 'createWaterQuality', modern);
-
-      const [op] = await getPendingOperations(WQ_TENANT);
-      const payload = readback(op!.payload);
-
-      expect(payload).not.toHaveProperty('parameters');
-      expect(payload.dynamicParameters).toEqual({ temperature: 15, oxygen: 8 });
-      expect(payload.equipmentId).toBe('eq-3');
-    });
-
-    it('does NOT transform non-WQ operations', async () => {
-      const mortality = { batchId: 'b1', tankId: 't1', quantity: 5, reason: 'DISEASE' as const };
-      await queueOperation(WQ_TENANT, 'recordMortality', mortality);
-
-      const [op] = await getPendingOperations(WQ_TENANT);
-      const payload = readback(op!.payload);
-
-      // recordMortality legitimately carries tankId; no WQ migration applied.
-      expect(payload.tankId).toBe('t1');
-      expect(payload).not.toHaveProperty('dynamicParameters');
     });
   });
 });

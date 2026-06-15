@@ -47,7 +47,10 @@ export function useTaskActions(): {
           // Network error despite isOnline — fall through to queue
         }
       }
-      const operationId = await addToQueue('completeTask', { id: taskId });
+      // FE-HIGH-050: addToQueue returns a discriminated result. For both 'queued'
+      // and 'duplicate' the op is in the queue, so wasQueued stays true; operationId
+      // tracks the (existing, on dedup) queued op for the two-phase status badge.
+      const { id: operationId } = await addToQueue('completeTask', { id: taskId });
       return { wasQueued: true, operationId };
     },
     [addToQueue, isOnline, queryClient, tenantId],
@@ -66,7 +69,7 @@ export function useTaskActions(): {
           // Network error despite isOnline — fall through to queue
         }
       }
-      const operationId = await addToQueue('startTask', { id: taskId });
+      const { id: operationId } = await addToQueue('startTask', { id: taskId });
       return { wasQueued: true, operationId };
     },
     [addToQueue, isOnline, queryClient, tenantId],

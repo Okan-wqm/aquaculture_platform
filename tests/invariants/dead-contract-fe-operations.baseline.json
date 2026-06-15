@@ -1,7 +1,7 @@
 {
   "_comment": "Ratchet baseline for the FE dead-contract invariant. Each entry is a GraphQL operation const DEFINED in web/** but referenced nowhere (a dead contract). FROZEN: the gate fails on any NEW dead contract, and on any entry here since wired or deleted (forcing this list to shrink). Burn-down owned per-module; see ORPHAN-MEDIUM-102. Do NOT add entries to silence the gate — wire or delete the operation instead.",
-  "generated_against": "origin/main @ #432 (da590d886)",
-  "count": 108,
+  "generated_against": "origin/main @ #459 (f03cf29d0)",
+  "count": 91,
   "entries": [
     {
       "id": "ACTIVATE_FEEDING_PROGRAM",
@@ -31,11 +31,6 @@
     {
       "id": "ADD_MILESTONE",
       "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "ADD_REACTION",
-      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
       "kind": "mutation"
     },
     {
@@ -129,11 +124,6 @@
       "kind": "mutation"
     },
     {
-      "id": "CREATE_HARVEST_RECORD",
-      "file": "web/apps/aquamobil/src/graphql/operations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "CREATE_LEAVE_TYPE",
       "file": "web/modules/hr-module/src/graphql/leave.operations.ts",
       "kind": "mutation"
@@ -167,11 +157,6 @@
       "id": "EDGE_DEVICE_IO_TAGS_QUERY",
       "file": "web/modules/sensor-module/src/graphql/device-tags.queries.ts",
       "kind": "query"
-    },
-    {
-      "id": "EDIT_MESSAGE",
-      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
-      "kind": "mutation"
     },
     {
       "id": "FEEDING_PROGRAMS_QUERY",
@@ -221,11 +206,6 @@
     {
       "id": "GET_OFFSHORE_HEADCOUNT",
       "file": "web/modules/hr-module/src/graphql/aquaculture.operations.ts",
-      "kind": "query"
-    },
-    {
-      "id": "GET_PINNED_MESSAGES",
-      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
       "kind": "query"
     },
     {
@@ -294,16 +274,6 @@
       "kind": "query"
     },
     {
-      "id": "GET_TANKS_WITH_BATCHES",
-      "file": "web/apps/aquamobil/src/graphql/operations.ts",
-      "kind": "query"
-    },
-    {
-      "id": "GET_TODAYS_TASKS",
-      "file": "web/apps/aquamobil/src/graphql/operations.ts",
-      "kind": "query"
-    },
-    {
       "id": "GET_TRAINING_CALENDAR",
       "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
       "kind": "query"
@@ -329,18 +299,8 @@
       "kind": "query"
     },
     {
-      "id": "MESSAGES_SINCE",
-      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
-      "kind": "query"
-    },
-    {
       "id": "PAUSE_FEEDING_PROGRAM",
       "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "PIN_MESSAGE",
-      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
       "kind": "mutation"
     },
     {
@@ -374,26 +334,6 @@
       "kind": "mutation"
     },
     {
-      "id": "RECORD_CULL",
-      "file": "web/apps/aquamobil/src/graphql/operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "RECORD_MORTALITY",
-      "file": "web/apps/aquamobil/src/graphql/operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "RECORD_TRANSFER",
-      "file": "web/apps/aquamobil/src/graphql/operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "REGISTER_DEVICE_TOKEN",
-      "file": "web/apps/aquamobil/src/graphql/operations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "REGISTER_PARENT_WITH_CHILDREN",
       "file": "web/modules/sensor-module/src/services/sensorRegistrationApi.ts",
       "kind": "mutation"
@@ -409,11 +349,6 @@
       "kind": "mutation"
     },
     {
-      "id": "REMOVE_REACTION",
-      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "REMOVE_TANK_FROM_PROGRAM",
       "file": "web/modules/farm-module/src/graphql/feedingProgram.mutations.ts",
       "kind": "mutation"
@@ -422,11 +357,6 @@
       "id": "REOPEN_REVIEW",
       "file": "web/modules/hr-module/src/graphql/performance.operations.ts",
       "kind": "mutation"
-    },
-    {
-      "id": "SEARCH_MESSAGES",
-      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
-      "kind": "query"
     },
     {
       "id": "SKIP_DAILY_FEEDING",
@@ -459,18 +389,8 @@
       "kind": "mutation"
     },
     {
-      "id": "UNPIN_MESSAGE",
-      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
-      "kind": "mutation"
-    },
-    {
       "id": "UPDATE_CERTIFICATION_TYPE",
       "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
-      "kind": "mutation"
-    },
-    {
-      "id": "UPDATE_CHANNEL",
-      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
       "kind": "mutation"
     },
     {
@@ -527,11 +447,6 @@
       "id": "UPDATE_TRAINING_COURSE",
       "file": "web/modules/hr-module/src/graphql/certification.operations.ts",
       "kind": "mutation"
-    },
-    {
-      "id": "USER_PRESENCE",
-      "file": "web/apps/aquamobil/src/graphql/messaging-operations.ts",
-      "kind": "query"
     },
     {
       "id": "VALIDATE_PROTOCOL_CONFIG",

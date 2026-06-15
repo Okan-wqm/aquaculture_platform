@@ -1,18 +1,19 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { BlockTitle, List, ListInput } from 'konsta/react';
-import { ArrowLeft, Droplets, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
 import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
-import { useTenantScopedStorage } from '@aquaculture/shared-ui';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { gql } from 'graphql-tag';
+import { BlockTitle, List, ListInput } from 'konsta/react';
+import { ArrowLeft, Droplets, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
-import { isRecoverableNetworkError } from '@/utils/network-error';
 import type { CreateWaterQualityInput } from '@/types';
+import { isRecoverableNetworkError } from '@/utils/network-error';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
 // TYPES
@@ -48,13 +49,13 @@ type FieldValue = number | string | boolean;
  * ensuring non-tank equipment (sensors, pumps, filters) with
  * status='operational' are included alongside tank equipment (status='active').
  */
-const EQUIPMENT_LIST_QUERY = `
+const EQUIPMENT_LIST_QUERY = gql`
   query EquipmentList($filter: EquipmentFilterInput) {
     equipmentList(filter: $filter) { items { id name code equipmentType { category name } } }
   }
 `;
 
-const EQUIPMENT_PARAMS_QUERY = `
+const EQUIPMENT_PARAMS_QUERY = gql`
   query EquipmentParameters($equipmentId: ID!) {
     equipmentParameters(equipmentId: $equipmentId) {
       parameterConfig {
@@ -66,7 +67,7 @@ const EQUIPMENT_PARAMS_QUERY = `
   }
 `;
 
-const CREATE_WQ_MUTATION = `
+const CREATE_WQ_MUTATION = gql`
   mutation CreateWaterQualityMeasurement($input: CreateWaterQualityInput!) {
     createWaterQualityMeasurement(input: $input) { id overallStatus hasAlarm }
   }
@@ -76,12 +77,18 @@ const CREATE_WQ_MUTATION = `
 // MRU (Most Recently Used)
 // ============================================================================
 
-// Base key for the per-tenant MRU equipment list. The real localStorage key is
-// namespaced + tenant-scoped by useTenantScopedStorage, so equipment IDs never
-// leak across tenants on a shared device and are swept on logout. The list
-// logic lives in the component (recordMru) so it can read the active tenant.
-const MRU_BASE_KEY = 'aquamobil-wq-mru';
-const MAX_MRU = 3;
+const MRU_KEY = 'aquamobil-wq-mru';
+
+function getMRU(): string[] {
+  try { return JSON.parse(localStorage.getItem(MRU_KEY) || '[]') as string[]; }
+  catch { return []; }
+}
+
+function addMRU(id: string): void {
+  const mru = getMRU().filter((x) => x !== id);
+  mru.unshift(id);
+  localStorage.setItem(MRU_KEY, JSON.stringify(mru.slice(0, 3)));
+}
 
 // ============================================================================
 // COMPONENT
@@ -91,15 +98,6 @@ export function WaterQualityRecordPage() {
   const navigate = useNavigate();
   const { equipmentId: routeEquipmentId } = useParams<{ equipmentId?: string }>();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
-  const mruStorage = useTenantScopedStorage<string[]>(MRU_BASE_KEY, tenantId);
-  const recordMru = useCallback(
-    (id: string) => {
-      const next = (mruStorage.read() ?? []).filter((x) => x !== id);
-      next.unshift(id);
-      mruStorage.write(next.slice(0, MAX_MRU));
-    },
-    [mruStorage],
-  );
   const { isOnline, addToQueue } = useOfflineQueue();
   const queryClient = useQueryClient();
 
@@ -133,7 +131,7 @@ export function WaterQualityRecordPage() {
   const equipment = equipmentData ?? [];
 
   // -- MRU-sorted + grouped equipment for <select> ---------------------------
-  const mruIds = useMemo(() => mruStorage.read() ?? [], [mruStorage]);
+  const mruIds = useMemo(() => getMRU(), []);
 
   const groupedEquipment = useMemo(() => {
     const groups: Record<string, Array<{ id: string; name: string; code: string }>> = {};
@@ -205,15 +203,12 @@ export function WaterQualityRecordPage() {
           value,
         ]),
       ) as Record<string, number | string | boolean>;
-      // SINGLE-INGRESS (Tier-1): dynamicParameters is the sole parameter
-      // channel. The legacy empty `parameters: {}` field was removed — under the
-      // production ValidationPipe { whitelist, forbidNonWhitelisted } it is now
-      // a rejected unknown field, so it must not appear in the payload.
       const input: CreateWaterQualityInput = {
         equipmentId: selectedEquipmentId,
         measuredAt: new Date().toISOString(),
         source: 'MANUAL',
         idempotencyKey: crypto.randomUUID(),
+        parameters: {},
         dynamicParameters,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(weatherConditions?.trim() ? { weatherConditions: weatherConditions.trim() } : {}),
@@ -225,7 +220,7 @@ export function WaterQualityRecordPage() {
         } else {
           await addToQueue('createWaterQuality', input);
         }
-        recordMru(selectedEquipmentId);
+        addMRU(selectedEquipmentId);
         setShowSuccess(true);
         setTimeout(() => navigate('/'), 1500);
       } catch (error) {
@@ -233,7 +228,7 @@ export function WaterQualityRecordPage() {
         if (isRecoverableNetworkError(error)) {
           try {
             await addToQueue('createWaterQuality', input);
-            recordMru(selectedEquipmentId);
+            addMRU(selectedEquipmentId);
             setShowSuccess(true);
             setTimeout(() => navigate('/'), 1500);
             return;

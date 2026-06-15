@@ -11950,11 +11950,6 @@ input CreateHarvestRecordInput {
   rejectionReason: String
 
   """
-  User ID who performed the harvest
-  """
-  harvestedBy: ID!
-
-  """
   Additional notes
   """
   notes: String

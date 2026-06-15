@@ -1,11 +1,95 @@
 // ============================================================================
-// AquaMobil GraphQL Operations
+// AquaMobil GraphQL Operations — S1-CODEGEN
 // ============================================================================
 // Note: tenantId/userId come from @Tenant() and @CurrentUser() decorators on backend,
 // NOT from GraphQL variables. They are extracted from JWT token.
+//
+// S1-CODEGEN: every operation is a `gql`-tagged document so graphql-codegen can
+// pluck it and generate a TypedDocumentNode + result types into
+// ../generated/graphql.ts. No JS string interpolation here — each document is
+// standalone.
+
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { gql } from 'graphql-tag';
+
+
+import type {
+  GetTanksWithBatchesQuery,
+  GetTanksWithBatchesQueryVariables,
+  RecordMortalityMutation,
+  RecordMortalityMutationVariables,
+  RecordCullMutation,
+  RecordCullMutationVariables,
+  CreateHarvestRecordMutation,
+  CreateHarvestRecordMutationVariables,
+  TodaysFeedingPlanQuery,
+  TodaysFeedingPlanQueryVariables,
+  RecordDailyFeedingMutation,
+  RecordDailyFeedingMutationVariables,
+  MyAttendanceRecordsQuery,
+  MyAttendanceRecordsQueryVariables,
+  MyAttendanceSummaryQuery,
+  MyAttendanceSummaryQueryVariables,
+  MyTodaysAttendanceQuery,
+  MyTodaysAttendanceQueryVariables,
+  ClockInMutation,
+  ClockInMutationVariables,
+  ClockOutMutation,
+  ClockOutMutationVariables,
+  MyLeaveRequestsQuery,
+  MyLeaveRequestsQueryVariables,
+  MyLeaveBalancesQuery,
+  MyLeaveBalancesQueryVariables,
+  LeaveTypesQuery,
+  LeaveTypesQueryVariables,
+  CreateLeaveRequestMutation,
+  CreateLeaveRequestMutationVariables,
+  SubmitLeaveRequestMutation,
+  SubmitLeaveRequestMutationVariables,
+  CancelLeaveRequestMutation,
+  CancelLeaveRequestMutationVariables,
+  GetMyTasksQuery,
+  GetMyTasksQueryVariables,
+  GetTodaysTasksQuery,
+  GetTodaysTasksQueryVariables,
+  GetTaskDetailQuery,
+  GetTaskDetailQueryVariables,
+  GetTaskStatsQuery,
+  GetTaskStatsQueryVariables,
+  CompleteTaskMutation,
+  CompleteTaskMutationVariables,
+  StartTaskMutation,
+  StartTaskMutationVariables,
+  ToggleChecklistItemMutation,
+  ToggleChecklistItemMutationVariables,
+  AddTaskNoteMutation,
+  AddTaskNoteMutationVariables,
+  GetMyNotificationsQuery,
+  GetMyNotificationsQueryVariables,
+  GetUnreadNotificationCountQuery,
+  GetUnreadNotificationCountQueryVariables,
+  MarkNotificationAsReadMutation,
+  MarkNotificationAsReadMutationVariables,
+  MarkAllNotificationsAsReadMutation,
+  MarkAllNotificationsAsReadMutationVariables,
+  RegisterDeviceTokenMutation,
+  RegisterDeviceTokenMutationVariables,
+  RecordTransferMutation,
+  RecordTransferMutationVariables,
+  GetTodaysDailyOpsCountsQuery,
+  GetTodaysDailyOpsCountsQueryVariables,
+  GetStockEventsSummaryQuery,
+  GetStockEventsSummaryQueryVariables,
+  GetWarehouseSummaryQuery,
+  GetWarehouseSummaryQueryVariables,
+} from '@/generated/graphql';
+
+// S1-CODEGEN: each operation is annotated with its generated
+// `TypedDocumentNode<XQuery, XQueryVariables>` (no cast — gql DocumentNode is
+// structurally assignable). The gql template stays the codegen pluck source.
 
 // Queries - tenantId comes from X-Tenant-Id header (set from JWT)
-export const GET_TANKS_WITH_BATCHES = `
+export const GET_TANKS_WITH_BATCHES: TypedDocumentNode<GetTanksWithBatchesQuery, GetTanksWithBatchesQueryVariables> = gql`
   query GetTanksWithBatches {
     tanks {
       items {
@@ -34,7 +118,7 @@ export const GET_TANKS_WITH_BATCHES = `
 `;
 
 // Mutations - tenantId/userId extracted from JWT by backend decorators
-export const RECORD_MORTALITY = `
+export const RECORD_MORTALITY: TypedDocumentNode<RecordMortalityMutation, RecordMortalityMutationVariables> = gql`
   mutation RecordMortality($input: RecordMortalityInput!) {
     recordMortality(input: $input) {
       id
@@ -47,7 +131,7 @@ export const RECORD_MORTALITY = `
   }
 `;
 
-export const RECORD_CULL = `
+export const RECORD_CULL: TypedDocumentNode<RecordCullMutation, RecordCullMutationVariables> = gql`
   mutation RecordCull($input: RecordCullInput!) {
     recordCull(input: $input) {
       id
@@ -59,7 +143,7 @@ export const RECORD_CULL = `
   }
 `;
 
-export const CREATE_HARVEST_RECORD = `
+export const CREATE_HARVEST_RECORD: TypedDocumentNode<CreateHarvestRecordMutation, CreateHarvestRecordMutationVariables> = gql`
   mutation CreateHarvestRecord($input: CreateHarvestRecordInput!) {
     createHarvestRecord(input: $input) {
       id
@@ -75,7 +159,7 @@ export const CREATE_HARVEST_RECORD = `
 `;
 
 // Feeding queries and mutations
-export const GET_TODAYS_FEEDING_PLAN = `
+export const GET_TODAYS_FEEDING_PLAN: TypedDocumentNode<TodaysFeedingPlanQuery, TodaysFeedingPlanQueryVariables> = gql`
   query TodaysFeedingPlan($date: DateTime!) {
     dailyFeedingExecutions(date: $date) {
       id
@@ -91,7 +175,7 @@ export const GET_TODAYS_FEEDING_PLAN = `
   }
 `;
 
-export const RECORD_DAILY_FEEDING = `
+export const RECORD_DAILY_FEEDING: TypedDocumentNode<RecordDailyFeedingMutation, RecordDailyFeedingMutationVariables> = gql`
   mutation RecordDailyFeeding($input: RecordDailyFeedingInput!) {
     recordDailyFeeding(input: $input) {
       id
@@ -104,7 +188,7 @@ export const RECORD_DAILY_FEEDING = `
 `;
 
 // Attendance queries and mutations
-export const GET_MY_ATTENDANCE_RECORDS = `
+export const GET_MY_ATTENDANCE_RECORDS: TypedDocumentNode<MyAttendanceRecordsQuery, MyAttendanceRecordsQueryVariables> = gql`
   query MyAttendanceRecords($startDate: String, $endDate: String, $limit: Int) {
     myAttendanceRecords(startDate: $startDate, endDate: $endDate, limit: $limit) {
       id
@@ -125,7 +209,7 @@ export const GET_MY_ATTENDANCE_RECORDS = `
   }
 `;
 
-export const GET_MY_ATTENDANCE_SUMMARY = `
+export const GET_MY_ATTENDANCE_SUMMARY: TypedDocumentNode<MyAttendanceSummaryQuery, MyAttendanceSummaryQueryVariables> = gql`
   query MyAttendanceSummary($month: Int!, $year: Int!) {
     myAttendanceSummary(month: $month, year: $year) {
       totalWorkingDays: totalWorkDays
@@ -140,7 +224,7 @@ export const GET_MY_ATTENDANCE_SUMMARY = `
   }
 `;
 
-export const GET_TODAYS_ATTENDANCE = `
+export const GET_TODAYS_ATTENDANCE: TypedDocumentNode<MyTodaysAttendanceQuery, MyTodaysAttendanceQueryVariables> = gql`
   query MyTodaysAttendance {
     myTodaysAttendance {
       id
@@ -156,7 +240,7 @@ export const GET_TODAYS_ATTENDANCE = `
   }
 `;
 
-export const CLOCK_IN = `
+export const CLOCK_IN: TypedDocumentNode<ClockInMutation, ClockInMutationVariables> = gql`
   mutation ClockIn($input: ClockInInput!) {
     clockIn(input: $input) {
       id
@@ -169,7 +253,7 @@ export const CLOCK_IN = `
   }
 `;
 
-export const CLOCK_OUT = `
+export const CLOCK_OUT: TypedDocumentNode<ClockOutMutation, ClockOutMutationVariables> = gql`
   mutation ClockOut($input: ClockOutInput!) {
     clockOut(input: $input) {
       id
@@ -183,7 +267,7 @@ export const CLOCK_OUT = `
 
 // Leave queries and mutations
 // Backend accepts "page" not "offset" — fix parameter name to match resolver signature
-export const GET_MY_LEAVE_REQUESTS = `
+export const GET_MY_LEAVE_REQUESTS: TypedDocumentNode<MyLeaveRequestsQuery, MyLeaveRequestsQueryVariables> = gql`
   query MyLeaveRequests($status: LeaveRequestStatus, $limit: Int, $page: Int) {
     myLeaveRequests(status: $status, limit: $limit, page: $page) {
       id
@@ -209,19 +293,18 @@ export const GET_MY_LEAVE_REQUESTS = `
   }
 `;
 
-export const GET_MY_LEAVE_BALANCES = `
+// S1-CODEGEN: the HR `LeaveBalance` GraphQL type has NO nested `leaveType`
+// field (only `leaveTypeId`) — the previous `leaveType { … }` selection asked
+// for a field the schema does not expose, so it returned nothing at runtime and
+// the codegen client-contract gate now rejects it. The UI resolves the display
+// type by joining `leaveTypeId` against the separately-fetched `leaveTypes`
+// list; MyLeavesPage already falls back to a generic label when the join is
+// absent. (Enrichment gap tracked as orphan finding S1-ORPHAN-LEAVE-TYPE.)
+export const GET_MY_LEAVE_BALANCES: TypedDocumentNode<MyLeaveBalancesQuery, MyLeaveBalancesQueryVariables> = gql`
   query MyLeaveBalances($year: Int!) {
     myLeaveBalances(year: $year) {
       id
       leaveTypeId
-      leaveType {
-        id
-        name
-        code
-        category
-        isPaid
-        color
-      }
       totalEntitlement: currentBalance
       usedDays: used
       pendingDays: pending
@@ -231,7 +314,7 @@ export const GET_MY_LEAVE_BALANCES = `
   }
 `;
 
-export const GET_LEAVE_TYPES = `
+export const GET_LEAVE_TYPES: TypedDocumentNode<LeaveTypesQuery, LeaveTypesQueryVariables> = gql`
   query LeaveTypes {
     leaveTypes {
       id
@@ -245,7 +328,7 @@ export const GET_LEAVE_TYPES = `
   }
 `;
 
-export const CREATE_LEAVE_REQUEST = `
+export const CREATE_LEAVE_REQUEST: TypedDocumentNode<CreateLeaveRequestMutation, CreateLeaveRequestMutationVariables> = gql`
   mutation CreateLeaveRequest($input: CreateLeaveRequestInput!) {
     createLeaveRequest(input: $input) {
       id
@@ -257,7 +340,7 @@ export const CREATE_LEAVE_REQUEST = `
   }
 `;
 
-export const SUBMIT_LEAVE_REQUEST = `
+export const SUBMIT_LEAVE_REQUEST: TypedDocumentNode<SubmitLeaveRequestMutation, SubmitLeaveRequestMutationVariables> = gql`
   mutation SubmitLeaveRequest($id: ID!) {
     submitLeaveRequest(id: $id) {
       id
@@ -266,7 +349,7 @@ export const SUBMIT_LEAVE_REQUEST = `
   }
 `;
 
-export const CANCEL_LEAVE_REQUEST = `
+export const CANCEL_LEAVE_REQUEST: TypedDocumentNode<CancelLeaveRequestMutation, CancelLeaveRequestMutationVariables> = gql`
   mutation CancelLeaveRequest($id: ID!) {
     cancelLeaveRequest(id: $id) {
       id
@@ -279,7 +362,7 @@ export const CANCEL_LEAVE_REQUEST = `
 // Task queries and mutations
 // ============================================================================
 
-export const GET_MY_TASKS = `
+export const GET_MY_TASKS: TypedDocumentNode<GetMyTasksQuery, GetMyTasksQueryVariables> = gql`
   query GetMyTasks($status: [TaskStatus!]) {
     myTasks(status: $status) {
       id
@@ -305,7 +388,7 @@ export const GET_MY_TASKS = `
   }
 `;
 
-export const GET_TODAYS_TASKS = `
+export const GET_TODAYS_TASKS: TypedDocumentNode<GetTodaysTasksQuery, GetTodaysTasksQueryVariables> = gql`
   query GetTodaysTasks {
     todaysTasks {
       id
@@ -320,7 +403,7 @@ export const GET_TODAYS_TASKS = `
   }
 `;
 
-export const GET_TASK_DETAIL = `
+export const GET_TASK_DETAIL: TypedDocumentNode<GetTaskDetailQuery, GetTaskDetailQueryVariables> = gql`
   query GetTaskDetail($id: ID!) {
     task(id: $id) {
       id
@@ -349,7 +432,7 @@ export const GET_TASK_DETAIL = `
   }
 `;
 
-export const GET_TASK_STATS = `
+export const GET_TASK_STATS: TypedDocumentNode<GetTaskStatsQuery, GetTaskStatsQueryVariables> = gql`
   query GetTaskStats {
     taskStats {
       totalToday
@@ -362,7 +445,7 @@ export const GET_TASK_STATS = `
   }
 `;
 
-export const COMPLETE_TASK = `
+export const COMPLETE_TASK: TypedDocumentNode<CompleteTaskMutation, CompleteTaskMutationVariables> = gql`
   mutation CompleteTask($id: ID!) {
     completeTask(id: $id) {
       id
@@ -373,7 +456,7 @@ export const COMPLETE_TASK = `
   }
 `;
 
-export const START_TASK = `
+export const START_TASK: TypedDocumentNode<StartTaskMutation, StartTaskMutationVariables> = gql`
   mutation StartTask($id: ID!) {
     startTask(id: $id) {
       id
@@ -382,7 +465,7 @@ export const START_TASK = `
   }
 `;
 
-export const TOGGLE_CHECKLIST_ITEM = `
+export const TOGGLE_CHECKLIST_ITEM: TypedDocumentNode<ToggleChecklistItemMutation, ToggleChecklistItemMutationVariables> = gql`
   mutation ToggleChecklistItem($taskId: ID!, $itemId: String!) {
     toggleChecklistItem(taskId: $taskId, itemId: $itemId) {
       id
@@ -391,7 +474,7 @@ export const TOGGLE_CHECKLIST_ITEM = `
   }
 `;
 
-export const ADD_TASK_NOTE = `
+export const ADD_TASK_NOTE: TypedDocumentNode<AddTaskNoteMutation, AddTaskNoteMutationVariables> = gql`
   mutation AddTaskNote($taskId: ID!, $text: String!) {
     addTaskNote(taskId: $taskId, text: $text) {
       id
@@ -404,7 +487,7 @@ export const ADD_TASK_NOTE = `
 // Notification queries and mutations
 // ============================================================================
 
-export const GET_MY_NOTIFICATIONS = `
+export const GET_MY_NOTIFICATIONS: TypedDocumentNode<GetMyNotificationsQuery, GetMyNotificationsQueryVariables> = gql`
   query GetMyNotifications($unreadOnly: Boolean, $limit: Int) {
     myNotifications(unreadOnly: $unreadOnly, limit: $limit) {
       id
@@ -418,25 +501,25 @@ export const GET_MY_NOTIFICATIONS = `
   }
 `;
 
-export const GET_UNREAD_COUNT = `
+export const GET_UNREAD_COUNT: TypedDocumentNode<GetUnreadNotificationCountQuery, GetUnreadNotificationCountQueryVariables> = gql`
   query GetUnreadNotificationCount {
     unreadNotificationCount
   }
 `;
 
-export const MARK_NOTIFICATION_READ = `
+export const MARK_NOTIFICATION_READ: TypedDocumentNode<MarkNotificationAsReadMutation, MarkNotificationAsReadMutationVariables> = gql`
   mutation MarkNotificationAsRead($id: ID!) {
     markNotificationAsRead(id: $id)
   }
 `;
 
-export const MARK_ALL_READ = `
+export const MARK_ALL_READ: TypedDocumentNode<MarkAllNotificationsAsReadMutation, MarkAllNotificationsAsReadMutationVariables> = gql`
   mutation MarkAllNotificationsAsRead {
     markAllNotificationsAsRead
   }
 `;
 
-export const REGISTER_DEVICE_TOKEN = `
+export const REGISTER_DEVICE_TOKEN: TypedDocumentNode<RegisterDeviceTokenMutation, RegisterDeviceTokenMutationVariables> = gql`
   mutation RegisterDeviceToken($token: String!, $platform: String!) {
     registerDeviceToken(token: $token, platform: $platform)
   }
@@ -446,7 +529,7 @@ export const REGISTER_DEVICE_TOKEN = `
 // Transfer mutation
 // ============================================================================
 
-export const RECORD_TRANSFER = `
+export const RECORD_TRANSFER: TypedDocumentNode<RecordTransferMutation, RecordTransferMutationVariables> = gql`
   mutation RecordTransfer($input: TransferBatchInput!) {
     transferBatch(input: $input) {
       id
@@ -466,7 +549,7 @@ export const RECORD_TRANSFER = `
 // for the hub page initial render. Graceful fallback: if the backend resolver
 // is not yet deployed, the hooks handle the error and default to zero values.
 
-export const GET_TODAYS_DAILY_OPS_COUNTS = `
+export const GET_TODAYS_DAILY_OPS_COUNTS: TypedDocumentNode<GetTodaysDailyOpsCountsQuery, GetTodaysDailyOpsCountsQueryVariables> = gql`
   query GetTodaysDailyOpsCounts {
     todaysDailyOpsCounts {
       mortalityCount
@@ -477,7 +560,7 @@ export const GET_TODAYS_DAILY_OPS_COUNTS = `
   }
 `;
 
-export const GET_STOCK_EVENTS_SUMMARY = `
+export const GET_STOCK_EVENTS_SUMMARY: TypedDocumentNode<GetStockEventsSummaryQuery, GetStockEventsSummaryQueryVariables> = gql`
   query GetStockEventsSummary($daysBack: Int) {
     stockEventsSummary(daysBack: $daysBack) {
       thisWeekEventsCount
@@ -494,7 +577,7 @@ export const GET_STOCK_EVENTS_SUMMARY = `
   }
 `;
 
-export const GET_WAREHOUSE_SUMMARY = `
+export const GET_WAREHOUSE_SUMMARY: TypedDocumentNode<GetWarehouseSummaryQuery, GetWarehouseSummaryQueryVariables> = gql`
   query GetWarehouseSummary {
     warehouseSummary {
       totalItems

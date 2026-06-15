@@ -4,6 +4,7 @@ import { BlockTitle, List, ListInput } from 'konsta/react';
 import { ArrowLeft, Droplets, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
 import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
+import { useTenantScopedStorage } from '@aquaculture/shared-ui';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -75,18 +76,12 @@ const CREATE_WQ_MUTATION = `
 // MRU (Most Recently Used)
 // ============================================================================
 
-const MRU_KEY = 'aquamobil-wq-mru';
-
-function getMRU(): string[] {
-  try { return JSON.parse(localStorage.getItem(MRU_KEY) || '[]') as string[]; }
-  catch { return []; }
-}
-
-function addMRU(id: string): void {
-  const mru = getMRU().filter((x) => x !== id);
-  mru.unshift(id);
-  localStorage.setItem(MRU_KEY, JSON.stringify(mru.slice(0, 3)));
-}
+// Base key for the per-tenant MRU equipment list. The real localStorage key is
+// namespaced + tenant-scoped by useTenantScopedStorage, so equipment IDs never
+// leak across tenants on a shared device and are swept on logout. The list
+// logic lives in the component (recordMru) so it can read the active tenant.
+const MRU_BASE_KEY = 'aquamobil-wq-mru';
+const MAX_MRU = 3;
 
 // ============================================================================
 // COMPONENT
@@ -96,6 +91,15 @@ export function WaterQualityRecordPage() {
   const navigate = useNavigate();
   const { equipmentId: routeEquipmentId } = useParams<{ equipmentId?: string }>();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
+  const mruStorage = useTenantScopedStorage<string[]>(MRU_BASE_KEY, tenantId);
+  const recordMru = useCallback(
+    (id: string) => {
+      const next = (mruStorage.read() ?? []).filter((x) => x !== id);
+      next.unshift(id);
+      mruStorage.write(next.slice(0, MAX_MRU));
+    },
+    [mruStorage],
+  );
   const { isOnline, addToQueue } = useOfflineQueue();
   const queryClient = useQueryClient();
 
@@ -129,7 +133,7 @@ export function WaterQualityRecordPage() {
   const equipment = equipmentData ?? [];
 
   // -- MRU-sorted + grouped equipment for <select> ---------------------------
-  const mruIds = useMemo(() => getMRU(), []);
+  const mruIds = useMemo(() => mruStorage.read() ?? [], [mruStorage]);
 
   const groupedEquipment = useMemo(() => {
     const groups: Record<string, Array<{ id: string; name: string; code: string }>> = {};
@@ -201,12 +205,15 @@ export function WaterQualityRecordPage() {
           value,
         ]),
       ) as Record<string, number | string | boolean>;
+      // SINGLE-INGRESS (Tier-1): dynamicParameters is the sole parameter
+      // channel. The legacy empty `parameters: {}` field was removed — under the
+      // production ValidationPipe { whitelist, forbidNonWhitelisted } it is now
+      // a rejected unknown field, so it must not appear in the payload.
       const input: CreateWaterQualityInput = {
         equipmentId: selectedEquipmentId,
         measuredAt: new Date().toISOString(),
         source: 'MANUAL',
         idempotencyKey: crypto.randomUUID(),
-        parameters: {},
         dynamicParameters,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(weatherConditions?.trim() ? { weatherConditions: weatherConditions.trim() } : {}),
@@ -218,7 +225,7 @@ export function WaterQualityRecordPage() {
         } else {
           await addToQueue('createWaterQuality', input);
         }
-        addMRU(selectedEquipmentId);
+        recordMru(selectedEquipmentId);
         setShowSuccess(true);
         setTimeout(() => navigate('/'), 1500);
       } catch (error) {
@@ -226,7 +233,7 @@ export function WaterQualityRecordPage() {
         if (isRecoverableNetworkError(error)) {
           try {
             await addToQueue('createWaterQuality', input);
-            addMRU(selectedEquipmentId);
+            recordMru(selectedEquipmentId);
             setShowSuccess(true);
             setTimeout(() => navigate('/'), 1500);
             return;

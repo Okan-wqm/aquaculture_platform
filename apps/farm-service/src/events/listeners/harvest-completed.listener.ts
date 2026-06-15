@@ -1,32 +1,89 @@
 /**
  * HarvestCompletedListener
  *
- * Handles HarvestCompletedEvent and performs follow-up actions:
- * - Updates batch status (partial or complete harvest)
- * - Creates harvest reports
- * - Updates farm-level statistics
- * - Triggers inventory and sales notifications
+ * Subscribes to the `BatchHarvested` NATS domain event (published by
+ * CreateHarvestRecordHandler through the transactional outbox) and performs the
+ * follow-up actions that close the harvest loop:
+ *   - Advances batch status (partial harvest → HARVESTING; final → HARVESTED)
+ *   - Generates a harvest report for dashboards
+ *   - Publishes a regulatory/traceability follow-up event
+ *   - Publishes a tank-cleared follow-up on a final, fully-emptied harvest
+ *
+ * WHY THIS WAS REWRITTEN (dead-listeners HIGH):
+ *   The previous implementation subscribed via `@OnEvent(EventNames.HARVEST_COMPLETED)`
+ *   on the in-process EventEmitter2 bus, expecting a `HarvestCompletedEventPayload`.
+ *   But the producer (CreateHarvestRecordHandler) publishes ONLY through
+ *   `@platform/outbox` → NATS, emitting the flat `@platform/event-contracts`
+ *   `BatchHarvestedEvent`. Nothing ever emitted on the in-process bus, so the
+ *   partial-harvest → HARVESTING transition and the regulatory follow-up were
+ *   dead.
+ *
+ *   The fix mirrors the in-repo reference pattern (MortalityRecordedListener):
+ *   implement `IEventHandler<BatchHarvestedEvent>` + `OnModuleInit` and
+ *   `eventBus.subscribeWildcard('BatchHarvested', this)`. The handler body is
+ *   remapped onto the contract's flat field names.
+ *
+ * FIELD REMAP (local payload → contract):
+ *   The old `HarvestCompletedEventPayload` carried `batchNumber`, `harvestId`,
+ *   `harvestedBiomass`, `avgWeight`, `isPartialHarvest`, `remainingQuantity`,
+ *   `harvestedBy`, `qualityGrade`, `destinationInfo`. The wire contract
+ *   `BatchHarvestedEvent` is flat and minimal: `batchId`, `harvestedQuantity`,
+ *   `harvestedAt`, `averageWeight?`, `totalWeight?`, `isFinal?` (+ BaseEvent
+ *   `userId`/`tenantId`). The crucial remap is `isPartialHarvest := !isFinal`
+ *   (TOLERANT READER: a missing `isFinal` MUST be read as `false` → partial,
+ *   per the contract docstring). `remainingQuantity` is re-derived from the
+ *   batch's post-write `currentQuantity`. No contract field is invented.
+ *
+ * TENANT CONTEXT:
+ *   NATS handlers run OUTSIDE the HTTP request context. All repository work is
+ *   wrapped in `withTenantContext(event.tenantId, ...)` so the injected
+ *   repositories route to the correct `tenant_<uuid>` schema via search_path.
+ *
+ * FRESH FOLLOW-UP IDENTITY (dead-listeners CRITICAL):
+ *   Each follow-up (HarvestRegulatoryRecorded / TankCleared /
+ *   BatchProductionCompleted) is minted with `createBaseEvent` — a FRESH branded
+ *   `eventId` and timestamp — threading `causationId = trigger.eventId` and
+ *   `correlationId = trigger.correlationId`. The previous code REUSED
+ *   `trigger.eventId`, which NatsEventBus stamps as the JetStream `msgID`; with a
+ *   2-minute `duplicate_window` on a single `events.>` stream every follow-up
+ *   collided with the still-resident trigger msgID and was silently dropped. A
+ *   fresh id per follow-up is the only correct fix (CLAUDE.md rule 4).
+ *
+ * INBOUND IDEMPOTENCY (dead-listeners HIGH):
+ *   NATS is at-least-once and the consumer's `max_deliver` is 3. A redelivery of
+ *   the SAME BatchHarvested would re-run the status transition AND re-publish the
+ *   regulatory / tank-cleared / production-completed follow-ups — emitting
+ *   duplicate regulatory records. A Redis `setNx` claim keyed by the trigger
+ *   eventId (the same atomic primitive the alert-engine uses for cooldown) makes
+ *   the side-effecting path run ONCE per trigger. The claim is RELEASED on
+ *   failure so a legitimate retry can still proceed (claim-and-release).
  *
  * @module Events/Listeners
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { isValidUUID } from '@aquaculture/backend-common/database';
+import { withTenantContext } from '@aquaculture/backend-common/context';
+import { RedisService } from '@aquaculture/backend-common/redis';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { IEventBus, IEventHandler } from '@platform/event-bus';
+import {
+  createBaseEvent,
+  type BatchHarvestedEvent,
+  type BatchProductionCompletedEvent,
+  type HarvestRegulatoryRecordedEvent,
+  type TankClearedEvent,
+} from '@platform/event-contracts';
 import { Repository } from 'typeorm';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
-import { HarvestRecord } from '../../harvest/entities/harvest-record.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
-import { EventNames, HarvestCompletedEventPayload } from '../event-types';
 
 /**
- * Harvest report structure
+ * Harvest report structure (a subset of the original — fields that depend on
+ * data NOT present on the flat contract are derived from the batch aggregate).
  */
-interface HarvestReport {
+export interface HarvestReport {
   batchId: string;
-  batchNumber: string;
-  harvestId: string;
   harvestDate: Date;
   production: {
     initialQuantity: number;
@@ -48,157 +105,248 @@ interface HarvestReport {
     estimatedRevenue: number;
     costPerKg: number;
   };
-  quality?: {
-    grade: string;
-    gradeDistribution?: Record<string, number>;
-  };
 }
 
 @Injectable()
-export class HarvestCompletedListener {
+export class HarvestCompletedListener
+  implements IEventHandler<BatchHarvestedEvent>, OnModuleInit
+{
   private readonly logger = new Logger(HarvestCompletedListener.name);
+
+  /**
+   * Idempotency-claim TTL. Comfortably exceeds the consumer's redelivery window
+   * (max_deliver 3 × ack_wait) so every retry of one trigger sees the claim,
+   * while still expiring so the key space does not grow unbounded.
+   */
+  private static readonly DEDUP_TTL_SECONDS = 24 * 60 * 60; // 24h
 
   constructor(
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
-    @InjectRepository(HarvestRecord)
-    private readonly harvestRecordRepository: Repository<HarvestRecord>,
     @InjectRepository(TankBatch)
     private readonly tankBatchRepository: Repository<TankBatch>,
-    private readonly eventEmitter: EventEmitter2,
+    @Optional() @Inject('EVENT_BUS')
+    private readonly eventBus?: IEventBus,
+    // RedisService is provided globally (RedisModule @Global). @Optional() keeps
+    // the listener constructible in NATS-/Redis-less unit harnesses; without it
+    // the dedup guard is skipped (single-instance dev) but the publish path
+    // still mints fresh ids, so correctness does not depend on Redis.
+    //
+    // The DI token is the RedisService class (@Inject(RedisService)); the TS
+    // type is NARROWED to the two methods the listener actually uses
+    // (Tier-1 "depend on exactly what you need") — this also lets unit tests
+    // pass a minimal double with no unsafe casts cast.
+    @Optional() @Inject(RedisService)
+    private readonly redisService?: Pick<RedisService, 'setNx' | 'del'>,
   ) {}
 
-  /**
-   * Handle HarvestCompleted event
-   */
-  @OnEvent(EventNames.HARVEST_COMPLETED)
-  async handleHarvestCompleted(payload: HarvestCompletedEventPayload): Promise<void> {
-    this.logger.log(
-      `[HarvestCompleted] Processing event for batch ${payload.batchNumber}: ` +
-      `${payload.harvestedQuantity} fish, ${payload.harvestedBiomass.toFixed(2)}kg`,
-    );
-
-    try {
-      // 1. Log harvest details
-      this.logHarvestDetails(payload);
-
-      // 2. Update batch status
-      await this.updateBatchStatus(payload);
-
-      // 3. Generate harvest report
-      const report = await this.generateHarvestReport(payload);
-
-      // 4. Update farm statistics
-      await this.updateFarmStatistics(payload);
-
-      // 5. Emit follow-up events
-      await this.emitFollowUpEvents(payload, report);
-
-      this.logger.log(
-        `[HarvestCompleted] Successfully processed event for batch ${payload.batchNumber}`,
+  async onModuleInit(): Promise<void> {
+    if (!this.eventBus) {
+      this.logger.warn(
+        'EVENT_BUS not available — BatchHarvested subscription skipped. ' +
+          'Harvest status transitions and regulatory follow-ups will not fire.',
       );
-    } catch (error) {
-      this.logger.error(
-        `[HarvestCompleted] Failed to process event: ${error}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-    }
-  }
-
-  /**
-   * Log harvest details
-   */
-  private logHarvestDetails(payload: HarvestCompletedEventPayload): void {
-    this.logger.log(
-      `[Harvest] Batch: ${payload.batchNumber}, ` +
-      `Quantity: ${payload.harvestedQuantity}, Biomass: ${payload.harvestedBiomass.toFixed(2)}kg, ` +
-      `Avg Weight: ${payload.avgWeight.toFixed(1)}g, ` +
-      `Partial: ${payload.isPartialHarvest}, Remaining: ${payload.remainingQuantity}`,
-    );
-
-    if (payload.destinationInfo) {
-      this.logger.debug(
-        `Destination: ${payload.destinationInfo.customerName || 'N/A'} - ` +
-        `${payload.destinationInfo.destination || 'N/A'}`,
-      );
-    }
-  }
-
-  /**
-   * Update batch status based on harvest type
-   */
-  private async updateBatchStatus(payload: HarvestCompletedEventPayload): Promise<void> {
-    const batch = await this.batchRepository.findOne({
-      where: { id: payload.batchId, tenantId: payload.tenantId },
-    });
-
-    if (!batch) {
-      this.logger.warn(`Batch ${payload.batchId} not found for status update`);
       return;
     }
 
-    if (payload.isPartialHarvest) {
-      // Partial harvest - update status to HARVESTING if not already
+    // `subscribeWildcard` builds `events.*.BatchHarvested`, matching the
+    // producer's per-tenant `events.{tenantId}.BatchHarvested`.
+    await this.eventBus.subscribeWildcard('BatchHarvested', this);
+    this.logger.log(
+      'Subscribed to BatchHarvested events for status transitions and ' +
+        'regulatory follow-ups (cross-tenant wildcard)',
+    );
+  }
+
+  getEventType(): string {
+    return 'BatchHarvested';
+  }
+
+  /**
+   * Handle a BatchHarvested contract event.
+   *
+   * Fault-tolerant: the harvest record is already committed (outbox guarantee),
+   * so a failure here must not redeliver indefinitely. Errors are logged and
+   * swallowed.
+   */
+  async handle(event: BatchHarvestedEvent): Promise<void> {
+    if (!event.tenantId || !isValidUUID(event.tenantId)) {
+      this.logger.error(
+        'BatchHarvested event has missing/invalid tenantId — skipping to ' +
+          'prevent cross-tenant status corruption.',
+      );
+      return;
+    }
+
+    // TOLERANT READER (contract mandate): a missing/undefined `isFinal` MUST be
+    // treated as `false` (partial). Defaulting to `true` would wrongly advance
+    // batches to HARVESTED on replayed v1 events.
+    const isFinal = event.isFinal === true;
+
+    this.logger.log(
+      `[BatchHarvested] Processing batch=${event.batchId} ` +
+        `quantity=${event.harvestedQuantity} ` +
+        `totalWeight=${event.totalWeight ?? 'n/a'} isFinal=${isFinal} ` +
+        `tenant=${event.tenantId.substring(0, 8)}...`,
+    );
+
+    // INBOUND IDEMPOTENCY: claim this trigger eventId atomically. If the claim
+    // was already taken, a prior delivery already ran the side effects — skip to
+    // avoid duplicate regulatory / tank-cleared / production-completed events.
+    const claimed = await this.claimEvent(event);
+    if (!claimed) {
+      this.logger.log(
+        `[BatchHarvested] eventId=${event.eventId} already processed — ` +
+          'skipping to avoid duplicate follow-ups.',
+      );
+      return;
+    }
+
+    try {
+      await withTenantContext(event.tenantId, async () => {
+        // 1. Advance batch status (the real, previously-dead side effect).
+        const remainingQuantity = await this.updateBatchStatus(event, isFinal);
+
+        // 2. Generate a harvest report for dashboards.
+        const report = await this.generateHarvestReport(event);
+
+        // 3. Publish follow-up events (regulatory + tank-cleared) onto the bus.
+        await this.publishFollowUps(event, isFinal, remainingQuantity, report);
+      });
+
+      this.logger.log(
+        `[BatchHarvested] Successfully processed batch=${event.batchId}`,
+      );
+    } catch (error) {
+      // Release the idempotency claim so a legitimate redelivery (NATS
+      // max_deliver) can retry the side effects rather than being permanently
+      // suppressed by a transient failure.
+      await this.releaseEvent(event);
+      this.logger.error(
+        `[BatchHarvested] Failed to process batch=${event.batchId}: ` +
+          `${(error as Error).message}`,
+        (error as Error).stack,
+      );
+    }
+  }
+
+  /** Redis key for the inbound idempotency claim of one trigger eventId. */
+  private dedupKey(event: BatchHarvestedEvent): string {
+    return `harvest-listener:processed:${event.tenantId}:${event.eventId}`;
+  }
+
+  /**
+   * Atomically claim this trigger eventId. Returns true when this delivery won
+   * the claim (first to process), false when a prior delivery already claimed
+   * it. When Redis is unavailable the claim is treated as won (best-effort
+   * single-instance dev) — fresh follow-up ids still prevent the msgID-collision
+   * class, so duplicate-suppression degrades gracefully without breaking output.
+   */
+  private async claimEvent(event: BatchHarvestedEvent): Promise<boolean> {
+    if (!this.redisService) {
+      return true;
+    }
+    try {
+      return await this.redisService.setNx(
+        this.dedupKey(event),
+        '1',
+        HarvestCompletedListener.DEDUP_TTL_SECONDS,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Idempotency claim failed (treating as won): ${(error as Error).message}`,
+      );
+      return true;
+    }
+  }
+
+  /** Release a previously-won claim so a redelivery can retry after a failure. */
+  private async releaseEvent(event: BatchHarvestedEvent): Promise<void> {
+    if (!this.redisService) {
+      return;
+    }
+    try {
+      await this.redisService.del(this.dedupKey(event));
+    } catch (error) {
+      this.logger.warn(
+        `Idempotency claim release failed: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Advance batch status based on harvest finality and return the batch's
+   * post-write `currentQuantity` (the contract carries no `remainingQuantity`,
+   * so it is the source of truth derived from the aggregate).
+   */
+  private async updateBatchStatus(
+    event: BatchHarvestedEvent,
+    isFinal: boolean,
+  ): Promise<number> {
+    const batch = await this.batchRepository.findOne({
+      where: { id: event.batchId, tenantId: event.tenantId },
+    });
+
+    if (!batch) {
+      this.logger.warn(`Batch ${event.batchId} not found for status update`);
+      return 0;
+    }
+
+    if (!isFinal) {
+      // Partial harvest — advance to HARVESTING if not already there. The
+      // producer already moves the batch to HARVESTED on a FINAL harvest, so
+      // this listener owns ONLY the partial → HARVESTING signal.
       if (batch.status !== BatchStatus.HARVESTING) {
         batch.status = BatchStatus.HARVESTING;
         batch.statusChangedAt = new Date();
         batch.statusReason = 'Partial harvest in progress';
-        this.logger.log(`Batch ${payload.batchNumber} status updated to HARVESTING`);
+        batch.updatedBy = event.userId;
+        await this.batchRepository.save(batch);
+        this.logger.log(
+          `Batch ${event.batchId} status updated to HARVESTING`,
+        );
       }
-    } else {
-      // Complete harvest
-      batch.status = BatchStatus.HARVESTED;
-      batch.statusChangedAt = new Date();
-      batch.statusReason = 'Harvest completed';
-      batch.actualHarvestDate = payload.harvestedAt;
-      batch.harvestedQuantity = (batch.harvestedQuantity || 0) + payload.harvestedQuantity;
-
-      this.logger.log(`Batch ${payload.batchNumber} status updated to HARVESTED`);
     }
 
-    // Update batch metrics
-    batch.currentQuantity = payload.remainingQuantity;
-    batch.updatedBy = payload.harvestedBy;
-
-    await this.batchRepository.save(batch);
+    return batch.currentQuantity ?? 0;
   }
 
   /**
-   * Generate comprehensive harvest report
+   * Generate a harvest report from the batch aggregate + the contract figures.
    */
   private async generateHarvestReport(
-    payload: HarvestCompletedEventPayload,
+    event: BatchHarvestedEvent,
   ): Promise<HarvestReport> {
     const batch = await this.batchRepository.findOne({
-      where: { id: payload.batchId, tenantId: payload.tenantId },
+      where: { id: event.batchId, tenantId: event.tenantId },
     });
 
     if (!batch) {
-      throw new Error(`Batch ${payload.batchId} not found`);
+      throw new Error(`Batch ${event.batchId} not found for harvest report`);
     }
 
     const daysInProduction = batch.getDaysInProduction();
     const survivalRate = batch.getSurvivalRate();
     const mortalityRate = batch.getMortalityRate();
 
-    // Calculate economics (simplified)
-    const estimatedPricePerKg = 50; // This should come from configuration
-    const estimatedRevenue = payload.harvestedBiomass * estimatedPricePerKg;
+    const harvestedBiomass = event.totalWeight ?? 0;
+    const estimatedPricePerKg = 50; // TODO: source from config-service
+    const estimatedRevenue = harvestedBiomass * estimatedPricePerKg;
     const totalCost = (batch.totalFeedCost || 0) + (batch.purchaseCost || 0);
-    const costPerKg = payload.harvestedBiomass > 0
-      ? totalCost / payload.harvestedBiomass
-      : 0;
+    const costPerKg = harvestedBiomass > 0 ? totalCost / harvestedBiomass : 0;
 
     const report: HarvestReport = {
-      batchId: payload.batchId,
-      batchNumber: payload.batchNumber,
-      harvestId: payload.harvestId,
-      harvestDate: payload.harvestedAt,
+      batchId: event.batchId,
+      // WIRE FIDELITY (dead-listeners HIGH): NatsEventBus.deserializeEvent
+      // returns timestamps as ISO STRINGS (JSON has no Date), but the contract
+      // types `harvestedAt` as Date and HarvestReport.harvestDate is Date. Coerce
+      // at the boundary so this never assigns a string into a Date-typed field.
+      harvestDate: new Date(event.harvestedAt),
       production: {
         initialQuantity: batch.initialQuantity,
-        harvestedQuantity: payload.harvestedQuantity,
-        harvestedBiomass: payload.harvestedBiomass,
-        avgWeight: payload.avgWeight,
+        harvestedQuantity: event.harvestedQuantity,
+        harvestedBiomass,
+        avgWeight: event.averageWeight ?? 0,
         survivalRate,
         mortalityRate,
       },
@@ -216,146 +364,114 @@ export class HarvestCompletedListener {
       },
     };
 
-    if (payload.qualityGrade) {
-      report.quality = {
-        grade: payload.qualityGrade,
-      };
-    }
-
-    // Log report summary
     this.logger.log(
-      `[HarvestReport] Batch ${payload.batchNumber}: ` +
-      `FCR: ${report.performance.fcr.toFixed(2)}, ` +
-      `Survival: ${survivalRate.toFixed(1)}%, ` +
-      `Days: ${daysInProduction}, ` +
-      `Cost/kg: ${costPerKg.toFixed(2)}`,
+      `[HarvestReport] Batch ${event.batchId}: ` +
+        `FCR: ${report.performance.fcr.toFixed(2)}, ` +
+        `Survival: ${survivalRate.toFixed(1)}%, ` +
+        `Days: ${daysInProduction}, Cost/kg: ${costPerKg.toFixed(2)}`,
     );
-
-    // Emit report generated event
-    this.eventEmitter.emit('report.harvestGenerated', {
-      tenantId: payload.tenantId,
-      report,
-    });
 
     return report;
   }
 
   /**
-   * Update farm-level statistics
+   * Publish the harvest follow-up events onto the NATS bus as FIRST-CLASS flat
+   * `@platform/event-contracts` events, each with a FRESH `createBaseEvent`
+   * identity (see class header for the msgID-collision rationale):
+   *   - HarvestRegulatoryRecorded → notification-service (traceability)
+   *   - TankCleared               → gateway FarmNatsBridge → tenant room
+   *   - BatchProductionCompleted  → gateway FarmNatsBridge → tenant room
+   *
+   * `causationId` threads back to the trigger event; `correlationId` carries the
+   * trigger's correlation so the whole chain is traceable end-to-end.
    */
-  private async updateFarmStatistics(
-    payload: HarvestCompletedEventPayload,
-  ): Promise<void> {
-    // Emit statistics update event
-    this.eventEmitter.emit('farm.statistics.updated', {
-      tenantId: payload.tenantId,
-      triggeredBy: 'harvest.completed',
-      batchId: payload.batchId,
-      quantityChange: -payload.harvestedQuantity,
-      biomassChange: -payload.harvestedBiomass,
-      harvestedQuantity: payload.harvestedQuantity,
-      harvestedBiomass: payload.harvestedBiomass,
-    });
-
-    // Update tank batch if applicable
-    await this.updateTankBatchAfterHarvest(payload);
-  }
-
-  /**
-   * Update tank batch after harvest
-   */
-  private async updateTankBatchAfterHarvest(
-    payload: HarvestCompletedEventPayload,
-  ): Promise<void> {
-    // Find tank batches associated with this batch
-    const tankBatches = await this.tankBatchRepository.find({
-      where: {
-        tenantId: payload.tenantId,
-        primaryBatchId: payload.batchId,
-      },
-    });
-
-    for (const tankBatch of tankBatches) {
-      // Check if tank should be cleared after complete harvest
-      if (!payload.isPartialHarvest && payload.remainingQuantity === 0) {
-        this.logger.log(
-          `Tank ${tankBatch.tankCode || tankBatch.tankId} cleared after complete harvest`,
-        );
-
-        // Emit tank cleared event
-        this.eventEmitter.emit('tank.cleared', {
-          tenantId: payload.tenantId,
-          tankId: tankBatch.tankId,
-          tankCode: tankBatch.tankCode,
-          previousBatchId: payload.batchId,
-          previousBatchNumber: payload.batchNumber,
-          clearedAt: payload.harvestedAt,
-        });
-      }
-    }
-  }
-
-  /**
-   * Emit follow-up events
-   */
-  private async emitFollowUpEvents(
-    payload: HarvestCompletedEventPayload,
+  private async publishFollowUps(
+    event: BatchHarvestedEvent,
+    isFinal: boolean,
+    remainingQuantity: number,
     report: HarvestReport,
   ): Promise<void> {
-    // Notify about successful harvest
-    this.eventEmitter.emit('notification.send', {
-      tenantId: payload.tenantId,
-      type: 'harvest_completed',
-      priority: 'normal',
-      title: `Harvest Completed - ${payload.batchNumber}`,
-      message: `Successfully harvested ${payload.harvestedQuantity} fish (${payload.harvestedBiomass.toFixed(1)}kg) from batch ${payload.batchNumber}.`,
-      data: {
-        batchId: payload.batchId,
-        harvestId: payload.harvestId,
-        avgWeight: payload.avgWeight,
-      },
-    });
-
-    // If complete harvest, emit batch completion event
-    if (!payload.isPartialHarvest && payload.remainingQuantity === 0) {
-      this.eventEmitter.emit('batch.production.completed', {
-        tenantId: payload.tenantId,
-        batchId: payload.batchId,
-        batchNumber: payload.batchNumber,
-        performance: report.performance,
-        production: report.production,
-        completedAt: payload.harvestedAt,
-      });
+    if (!this.eventBus) {
+      return;
     }
 
-    // Emit for inventory/sales integration
-    if (payload.destinationInfo?.customerId) {
-      this.eventEmitter.emit('sales.harvestDelivery', {
-        tenantId: payload.tenantId,
-        batchId: payload.batchId,
-        batchNumber: payload.batchNumber,
-        harvestId: payload.harvestId,
-        customerId: payload.destinationInfo.customerId,
-        customerName: payload.destinationInfo.customerName,
-        quantity: payload.harvestedQuantity,
-        biomass: payload.harvestedBiomass,
-        avgWeight: payload.avgWeight,
-        qualityGrade: payload.qualityGrade,
-        harvestedAt: payload.harvestedAt,
-      });
-    }
+    // WIRE FIDELITY: coerce the wire ISO string once for every Date-typed
+    // contract field below.
+    const harvestedAt = new Date(event.harvestedAt);
 
-    // Emit for regulatory/traceability
-    this.eventEmitter.emit('regulatory.harvestRecorded', {
-      tenantId: payload.tenantId,
-      batchId: payload.batchId,
-      batchNumber: payload.batchNumber,
-      harvestId: payload.harvestId,
-      quantity: payload.harvestedQuantity,
-      biomass: payload.harvestedBiomass,
-      avgWeight: payload.avgWeight,
-      harvestedAt: payload.harvestedAt,
-      harvestedBy: payload.harvestedBy,
-    });
+    // Shared identity threading for every follow-up minted from this trigger.
+    const lineage = {
+      causationId: event.eventId,
+      correlationId: event.correlationId,
+      userId: event.userId,
+      aggregateId: event.batchId,
+      aggregateType: 'Batch' as const,
+    };
+
+    // Regulatory / traceability follow-up — ALWAYS published (every harvest is
+    // a traceability event for food-safety recall chains).
+    const regulatory: HarvestRegulatoryRecordedEvent = {
+      ...createBaseEvent<HarvestRegulatoryRecordedEvent>(
+        'HarvestRegulatoryRecorded',
+        event.tenantId,
+        lineage,
+      ),
+      batchId: event.batchId,
+      harvestedQuantity: event.harvestedQuantity,
+      totalWeight: event.totalWeight,
+      averageWeight: event.averageWeight,
+      harvestedAt,
+      harvestedBy: event.userId,
+      isFinal,
+    };
+    await this.eventBus.publish(regulatory);
+
+    // Tank-cleared follow-up — only on a final harvest that emptied the batch.
+    if (isFinal && remainingQuantity === 0) {
+      const tankBatches = await this.tankBatchRepository.find({
+        where: { tenantId: event.tenantId, primaryBatchId: event.batchId },
+      });
+
+      for (const tankBatch of tankBatches) {
+        this.logger.log(
+          `Tank ${tankBatch.tankCode || tankBatch.tankId} cleared after final harvest`,
+        );
+        const tankCleared: TankClearedEvent = {
+          ...createBaseEvent<TankClearedEvent>(
+            'TankCleared',
+            event.tenantId,
+            { ...lineage, aggregateId: tankBatch.tankId, aggregateType: 'Tank' },
+          ),
+          tankId: tankBatch.tankId,
+          tankCode: tankBatch.tankCode,
+          previousBatchId: event.batchId,
+          clearedAt: harvestedAt,
+        };
+        await this.eventBus.publish(tankCleared);
+      }
+
+      // Batch-production-completed follow-up carries the frozen report,
+      // FLATTENED per ADR-006 (no nested performance/production objects).
+      const completed: BatchProductionCompletedEvent = {
+        ...createBaseEvent<BatchProductionCompletedEvent>(
+          'BatchProductionCompleted',
+          event.tenantId,
+          lineage,
+        ),
+        batchId: event.batchId,
+        initialQuantity: report.production.initialQuantity,
+        harvestedQuantity: report.production.harvestedQuantity,
+        harvestedBiomassKg: report.production.harvestedBiomass,
+        avgWeightG: report.production.avgWeight,
+        survivalRate: report.production.survivalRate,
+        mortalityRate: report.production.mortalityRate,
+        daysInProduction: report.performance.daysInProduction,
+        fcr: report.performance.fcr,
+        sgr: report.performance.sgr,
+        totalFeedConsumedKg: report.performance.totalFeedConsumed,
+        completedAt: harvestedAt,
+      };
+      await this.eventBus.publish(completed);
+    }
   }
 }

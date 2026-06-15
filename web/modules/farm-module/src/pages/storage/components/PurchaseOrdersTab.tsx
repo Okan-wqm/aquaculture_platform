@@ -5,6 +5,8 @@ import React, { useState } from 'react';
 import {
   usePurchaseOrders,
   useUpdatePurchaseOrderStatus,
+  useSubmitPurchaseOrder,
+  useApprovePurchaseOrder,
   useCancelPurchaseOrder,
   PurchaseOrderCategory,
   PurchaseOrderStatus,
@@ -15,6 +17,8 @@ import { ReceiveDeliveryModal } from './ReceiveDeliveryModal';
 
 const statusColors: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-800',
+  SUBMITTED: 'bg-yellow-100 text-yellow-800',
+  APPROVED: 'bg-teal-100 text-teal-800',
   ORDERED: 'bg-indigo-100 text-indigo-800',
   PARTIALLY_RECEIVED: 'bg-orange-100 text-orange-800',
   RECEIVED: 'bg-green-100 text-green-800',
@@ -30,6 +34,8 @@ const categoryColors: Record<string, string> = {
 
 const STATUSES: PurchaseOrderStatus[] = [
   PurchaseOrderStatus.DRAFT,
+  PurchaseOrderStatus.SUBMITTED,
+  PurchaseOrderStatus.APPROVED,
   PurchaseOrderStatus.ORDERED,
   PurchaseOrderStatus.PARTIALLY_RECEIVED,
   PurchaseOrderStatus.RECEIVED,
@@ -58,10 +64,33 @@ export const PurchaseOrdersTab: React.FC = () => {
   });
 
   const updateStatus = useUpdatePurchaseOrderStatus();
+  const submitPO = useSubmitPurchaseOrder();
+  const approvePO = useApprovePurchaseOrder();
   const cancelPO = useCancelPurchaseOrder();
 
   const orders = data?.items || [];
 
+  // Maker step: DRAFT -> SUBMITTED (sends the PO into the approval queue).
+  const handleSubmit = async (po: PurchaseOrder) => {
+    try {
+      await submitPO.mutateAsync(po.id);
+    } catch (err) {
+      console.error('Failed to submit PO for approval:', err);
+    }
+  };
+
+  // Checker step: SUBMITTED -> APPROVED. The backend rejects self-approval
+  // (creator === approver) with a 403 — surface that message to the user.
+  const handleApprove = async (po: PurchaseOrder) => {
+    try {
+      await approvePO.mutateAsync(po.id);
+    } catch (err) {
+      console.error('Failed to approve PO:', err);
+    }
+  };
+
+  // Post-approval: APPROVED -> ORDERED (places the authorized spend). ORDERED is
+  // reachable ONLY from APPROVED, so this button only appears on APPROVED rows.
   const handleMarkOrdered = async (po: PurchaseOrder) => {
     try {
       await updateStatus.mutateAsync({ id: po.id, status: PurchaseOrderStatus.ORDERED });
@@ -128,6 +157,7 @@ export const PurchaseOrdersTab: React.FC = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expected</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Approved By</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
@@ -162,9 +192,31 @@ export const PurchaseOrdersTab: React.FC = () => {
                       {po.status.replace('_', ' ')}
                     </span>
                   </td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {po.approvedByName || po.approvedBy ? (
+                      <div>
+                        <div className="text-xs text-gray-700">{po.approvedByName || po.approvedBy}</div>
+                        {po.approvedAt && (
+                          <div className="text-xs text-gray-400">{new Date(po.approvedAt).toLocaleDateString('nb-NO')}</div>
+                        )}
+                      </div>
+                    ) : <span className="text-gray-400">-</span>}
+                  </td>
                   <td className="px-6 py-4">
                     <div className="flex gap-2">
                       {po.status === 'DRAFT' && (
+                        <button onClick={() => handleSubmit(po)}
+                          className="text-xs px-2 py-1 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100">
+                          Submit for Approval
+                        </button>
+                      )}
+                      {po.status === 'SUBMITTED' && (
+                        <button onClick={() => handleApprove(po)}
+                          className="text-xs px-2 py-1 bg-teal-50 text-teal-700 rounded hover:bg-teal-100">
+                          Approve
+                        </button>
+                      )}
+                      {po.status === 'APPROVED' && (
                         <button onClick={() => handleMarkOrdered(po)}
                           className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100">
                           Mark Ordered

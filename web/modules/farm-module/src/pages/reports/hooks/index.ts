@@ -3,7 +3,7 @@
  * Exports all report-related hooks
  */
 
-export { useReportDraft, getAllDraftKeys, clearAllDrafts } from './useReportDraft';
+export { useReportDraft } from './useReportDraft';
 export { useDeadlines, getUrgencyColorClasses, getUrgencyLabel } from './useDeadlines';
 export type { DeadlineUrgency, DeadlineInfo, UpcomingDeadline, UseDeadlinesOptions, UseDeadlinesReturn } from './useDeadlines';
 export { useThresholdCheck } from './useThresholdCheck';

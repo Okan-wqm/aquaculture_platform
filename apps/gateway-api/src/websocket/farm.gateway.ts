@@ -362,6 +362,16 @@ export class FarmGateway
     this.emitFarmEvent(tenantId, 'feederCalibrationsSaved', payload);
   }
 
+  /** Broadcast a TankCleared lifecycle event (tank freed after final harvest). */
+  broadcastTankCleared(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'tankCleared', payload);
+  }
+
+  /** Broadcast a BatchProductionCompleted lifecycle event (batch cycle finished). */
+  broadcastBatchProductionCompleted(tenantId: string, payload: Record<string, unknown>): void {
+    this.emitFarmEvent(tenantId, 'batchProductionCompleted', payload);
+  }
+
   /** Get connected client count (used by health probes / metrics). */
   getConnectedClientCount(): number {
     return this.clients.size;

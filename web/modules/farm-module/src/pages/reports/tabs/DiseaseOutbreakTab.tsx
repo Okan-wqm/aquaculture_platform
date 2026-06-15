@@ -4,7 +4,8 @@
  * Connected to Health Events system with tank context and urgency indicators
  */
 import React, { useState, useMemo } from 'react';
-import { useRegulatorySettings } from '../../../hooks/useRegulatory';
+import { useRegulatorySettings, useSubmitDiseaseOutbreak } from '../../../hooks/useRegulatory';
+import { buildVarslingIdentity } from '../utils/varslingIdentity';
 import { getMockReports } from '../mock/helpers';
 import { DiseaseOutbreakReport, DiseaseCategory, DiseaseStatus } from '../types/reports.types';
 import { REGULATORY_CONTACTS, DISEASE_LISTS } from '../utils/thresholds';
@@ -363,8 +364,10 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'A' | 'C' | 'F'>('all');
   const [showHealthEventLink, setShowHealthEventLink] = useState(false);
 
-  // Regulatory settings (pre-populates contact info; disease submission API TBD)
+  // Regulatory settings supply the Mattilsynet identity block; the mutation
+  // dispatches the immediate disease varsling via the backend.
   const { data: regulatorySettings } = useRegulatorySettings();
+  const submitDiseaseOutbreak = useSubmitDiseaseOutbreak();
 
   // Fetch tanks for context
   const { data: tanksData } = useTanksList({ isActive: true });
@@ -427,17 +430,42 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
   };
 
   const handleModalSubmit = async (data: Partial<DiseaseOutbreakReport>): Promise<void> => {
-    // TODO: Replace with real disease outbreak submission mutation when backend endpoint is available
-    console.log('Submitting disease outbreak:', data, {
-      organisationNumber: regulatorySettings?.organisationNumber,
-      siteMapping: regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId),
-      contact: {
-        navn: regulatorySettings?.defaultContactName,
-        epost: regulatorySettings?.defaultContactEmail,
-        telefonnummer: regulatorySettings?.defaultContactPhone,
-      },
+    // Resolve the Mattilsynet identity block — throws VarslingConfigError if
+    // the tenant is not configured. The modal surfaces the thrown message and
+    // stays open (it only closes when this promise RESOLVES).
+    const reportSiteId = data.siteId || siteId || 'site-001';
+    const identity = buildVarslingIdentity(regulatorySettings, reportSiteId);
+
+    const result = await submitDiseaseOutbreak.mutateAsync({
+      klientReferanse: crypto.randomUUID(),
+      organisasjonsnummer: identity.organisasjonsnummer,
+      lokalitetsnummer: identity.lokalitetsnummer,
+      siteId: reportSiteId,
+      siteName: data.siteName || 'Unknown site',
+      kontaktperson: identity.kontaktperson,
+      siteManagerEmail: identity.siteManagerEmail,
+      detectedAt: (data.detectedAt ?? new Date()).toISOString(),
+      reportedBy: identity.kontaktperson.navn,
+      diseaseCategory: data.disease?.category ?? 'F',
+      diseaseName: data.disease?.name ?? 'Unknown disease',
+      confirmation:
+        data.disease?.suspectedOrConfirmed === 'lab_confirmed' ? 'confirmed' : 'suspected',
+      affectedCount: data.affectedPopulation?.estimatedCount ?? 0,
+      affectedPercentage: data.affectedPopulation?.percentage ?? 0,
+      clinicalSigns: data.clinicalSigns ?? [],
+      veterinarianNotified: data.veterinarianNotified ?? false,
+      veterinarianName: data.veterinarianName,
     });
-    setIsModalOpen(false);
+
+    // Surface a backend failure as an error so the modal stays open and shows
+    // it — NEVER fake success.
+    if (!result.success) {
+      throw new Error(
+        result.feilmelding || 'Mattilsynet rejected the disease report. Please review and retry.',
+      );
+    }
+
+    // On success the modal closes itself; only clear the tab selection.
     setSelectedOutbreak(null);
   };
 

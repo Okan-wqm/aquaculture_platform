@@ -19,10 +19,10 @@ import { Repository } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetBatchPerformanceQuery, BatchPerformanceResult } from '../queries/get-batch-performance.query';
 import { Batch } from '../entities/batch.entity';
-import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { Species } from '../../species/entities/species.entity';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { BatchCostCalculatorService } from '../services/batch-cost-calculator.service';
+import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 
 @Injectable()
 @QueryHandler(GetBatchPerformanceQuery)
@@ -32,11 +32,10 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
   constructor(
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
-    @InjectRepository(TankOperation)
-    private readonly operationRepository: Repository<TankOperation>,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
     private readonly costCalculator: BatchCostCalculatorService,
+    private readonly fcrCalculation: FCRCalculationService,
   ) {}
 
   async execute(query: GetBatchPerformanceQuery): Promise<BatchPerformanceResult> {
@@ -82,12 +81,13 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
       ? ((avgDailyGrowthG - targetDailyGrowthG) / targetDailyGrowthG) * 100
       : 0;
 
-    // FCR - mortality biomass'ı hesapla
-    const mortalityOps = await this.operationRepository.find({
-      where: { tenantId, batchId, operationType: OperationType.MORTALITY, isDeleted: false },
-    });
-    const mortalityBiomassKg = mortalityOps.reduce((sum, op) => sum + Number(op.biomassKg || 0), 0);
-    const actualFCR = batch.calculateFCR(mortalityBiomassKg);
+    // FCR — the single authority is FcrCalculationService.calculateCumulativeFCR,
+    // which reads net-exited biomass (mortality + cull + harvest + transfer-out
+    // − transfer-in) from the TankOperation ledger. The previous
+    // batch.calculateFCR(mortalityBiomass) only credited mortality biomass and
+    // used the stored snapshot, overstating FCR (FARM-HIGH-007).
+    const cumulativeFCR = await this.fcrCalculation.calculateCumulativeFCR(batchId, tenantId);
+    const actualFCR = cumulativeFCR.fcr;
     const targetFCR = batch.fcr.target;
     const fcrVariance = actualFCR - targetFCR;
     const fcrStatus = this.getFCRStatus(actualFCR, targetFCR);

@@ -34,15 +34,14 @@ import { Species } from '../species/entities/species.entity';
 import { Site } from '../site/entities/site.entity';
 
 // Maintenance entities
-import { WorkOrder } from '../maintenance/entities/work-order.entity';
-import { MaintenanceSchedule } from '../maintenance/entities/maintenance-schedule.entity';
+// NOTE: WorkOrder + MaintenanceSchedule were dropped from this module's
+// forFeature set when the dead `@OnEvent(MAINTENANCE_SCHEDULE_DUE)` work-order
+// creation branch was removed (dead-listeners HIGH) — CronJobsService owns that
+// path. SparePart remains: LowStockAlertListener still reads it.
 import { SparePart } from '../maintenance/entities/spare-part.entity';
 
 // Feed entity
 import { Feed } from '../feed/entities/feed.entity';
-
-// Harvest entity
-import { HarvestRecord } from '../harvest/entities/harvest-record.entity';
 
 // ============================================================================
 // LISTENERS
@@ -82,14 +81,11 @@ const EventListeners = [
       Species,
       Site,
 
-      // Maintenance related
-      WorkOrder,
-      MaintenanceSchedule,
+      // Maintenance related (SparePart only — LowStockAlertListener)
       SparePart,
 
-      // Feed and Harvest
+      // Feed
       Feed,
-      HarvestRecord,
     ]),
   ],
   providers: [...EventListeners],

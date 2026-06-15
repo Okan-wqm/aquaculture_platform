@@ -288,18 +288,9 @@ export class FCRCalculationService {
 
     const totalFeed = Number(feedResult?.totalFeed || 0);
 
-    // Son ölçümü al
-    const measurementQuery = this.growthMeasurementRepository.createQueryBuilder('gm')
-      .where('gm.tenantId = :tenantId', { tenantId })
-      .andWhere('gm.batchId = :batchId', { batchId });
-
-    if (endDate) {
-      measurementQuery.andWhere('gm.measurementDate <= :endDate', { endDate });
-    }
-
-    const latestMeasurement = await measurementQuery
-      .orderBy('gm.measurementDate', 'DESC')
-      .getOne();
+    // NOTE: the latest growth measurement is no longer queried here. Current
+    // biomass is the derive-on-read value (batch.getCurrentBiomass), so the
+    // stale-prone measurement snapshot does not feed the FCR growth term.
 
     // Ledger: biomass that LEFT the batch (mortality/cull/harvest/transfer-out)
     // or entered it feed-free (transfer-in). Counting TRANSFER_OUT and
@@ -337,7 +328,16 @@ export class FCRCalculationService {
     // Başlangıç biomass (initialQuantity * initial avgWeight)
     const initialWeight = batch.weight?.initial?.avgWeight || 0;
     const startBiomass = (batch.initialQuantity * initialWeight) / 1000; // kg
-    const currentBiomass = latestMeasurement?.estimatedBiomass || startBiomass;
+    // Current biomass is the single derive-on-read value (currentQuantity ×
+    // effectiveAvgWeightG / 1000) — the SAME source the GraphQL resolver and
+    // removal handlers read. Sourcing it from the stored measurement snapshot
+    // (GrowthMeasurement.estimatedBiomass) would let FCR growth and the
+    // displayed biomass diverge, because that snapshot goes stale on every
+    // removal while the derived value tracks the live count. When no count is
+    // available yet, fall back to the start biomass.
+    const currentBiomass = batch.currentQuantity > 0
+      ? batch.getCurrentBiomass()
+      : startBiomass;
     // Realized growth includes the growth of biomass that exited the system.
     const totalGrowth = currentBiomass + removedBiomassKg - startBiomass;
 

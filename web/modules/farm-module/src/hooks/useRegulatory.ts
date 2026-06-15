@@ -27,6 +27,9 @@ import {
   SUBMIT_SMOLT_REPORT_MUTATION,
   SUBMIT_PLANNED_SLAUGHTER_REPORT_MUTATION,
   SUBMIT_EXECUTED_SLAUGHTER_REPORT_MUTATION,
+  SUBMIT_WELFARE_EVENT_MUTATION,
+  SUBMIT_ESCAPE_REPORT_MUTATION,
+  SUBMIT_DISEASE_OUTBREAK_MUTATION,
 } from '../graphql/regulatory.operations';
 
 // ============================================================================
@@ -306,6 +309,62 @@ export interface SubmitExecutedSlaughterInput {
       utkastKg: number;
     }[];
   }[];
+}
+
+// --- Immediate "varsling" Report Inputs (Welfare / Escape / Disease) ---
+// These three are legally-immediate Mattilsynet notifications dispatched by
+// the backend as urgent email (no Mattilsynet REST endpoint exists for them).
+
+/** Contact person carried on every varsling report. */
+export interface VarslingKontaktpersonInput {
+  navn: string;
+  epost: string;
+  telefonnummer?: string;
+}
+
+/** Shared identity block for all three immediate reports. */
+interface VarslingBaseInput {
+  klientReferanse: string;
+  organisasjonsnummer: string;
+  lokalitetsnummer: number;
+  siteId: string;
+  siteName: string;
+  siteCode?: string;
+  kontaktperson: VarslingKontaktpersonInput;
+  siteManagerEmail?: string;
+  detectedAt: string;
+  reportedBy: string;
+}
+
+export interface SubmitWelfareEventInput extends VarslingBaseInput {
+  welfareEventType: 'mortality_threshold' | 'equipment_failure' | 'welfare_impact';
+  severity: 'high' | 'critical';
+  mortalityRate?: number;
+  mortalityPeriod?: string;
+  affectedBatches?: string[];
+  description: string;
+  immediateActions: string[];
+}
+
+export interface SubmitEscapeReportInput extends VarslingBaseInput {
+  estimatedCount: number;
+  species: string;
+  avgWeightG: number;
+  totalBiomassKg: number;
+  cause: string;
+  affectedUnits: string[];
+  recoveryOngoing: boolean;
+}
+
+export interface SubmitDiseaseOutbreakInput extends VarslingBaseInput {
+  diseaseCategory: 'A' | 'C' | 'F';
+  diseaseName: string;
+  confirmation: 'suspected' | 'confirmed';
+  affectedCount: number;
+  affectedPercentage: number;
+  clinicalSigns: string[];
+  veterinarianNotified: boolean;
+  veterinarianName?: string;
 }
 
 // ============================================================================
@@ -622,6 +681,91 @@ export function useSubmitExecutedSlaughterReport() {
         { input },
       );
       return data.submitExecutedSlaughterReport;
+    },
+    onSuccess: () => {
+      invalidateAllRegulatoryQueries(queryClient);
+    },
+  });
+}
+
+// ============================================================================
+// MUTATION HOOKS - Immediate "varsling" Reports (Welfare / Escape / Disease)
+// ============================================================================
+
+/**
+ * Hook to submit an immediate Welfare Event report (varsling) to Mattilsynet.
+ */
+export function useSubmitWelfareEvent() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: SubmitWelfareEventInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ submitWelfareEvent: ReportSubmissionResult }>(
+        SUBMIT_WELFARE_EVENT_MUTATION,
+        { input },
+      );
+      return data.submitWelfareEvent;
+    },
+    onSuccess: () => {
+      invalidateAllRegulatoryQueries(queryClient);
+    },
+  });
+}
+
+/**
+ * Hook to submit an immediate Escape report (varsling) to Mattilsynet.
+ */
+export function useSubmitEscapeReport() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: SubmitEscapeReportInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ submitEscapeReport: ReportSubmissionResult }>(
+        SUBMIT_ESCAPE_REPORT_MUTATION,
+        { input },
+      );
+      return data.submitEscapeReport;
+    },
+    onSuccess: () => {
+      invalidateAllRegulatoryQueries(queryClient);
+    },
+  });
+}
+
+/**
+ * Hook to submit an immediate Disease Outbreak report (varsling) to Mattilsynet.
+ */
+export function useSubmitDiseaseOutbreak() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: SubmitDiseaseOutbreakInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ submitDiseaseOutbreak: ReportSubmissionResult }>(
+        SUBMIT_DISEASE_OUTBREAK_MUTATION,
+        { input },
+      );
+      return data.submitDiseaseOutbreak;
     },
     onSuccess: () => {
       invalidateAllRegulatoryQueries(queryClient);

@@ -135,6 +135,10 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [healthEventExpanded, setHealthEventExpanded] = useState(showHealthEventLink);
+  // Submission-level error (e.g. Mattilsynet rejection). Surfaced in a
+  // persistent role=alert region; the modal stays OPEN so the operator can
+  // act on a legally-immediate report instead of the error being swallowed.
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Fetch tanks for selection
   const { data: tanksData } = useTanksList({ isActive: true });
@@ -262,6 +266,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
   const handleSubmit = useCallback(async () => {
     if (!validateForm()) return;
 
+    setSubmitError(null);
     setIsSubmitting(true);
     try {
       const now = new Date();
@@ -338,7 +343,14 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
       setFormData(initialFormData);
       onClose();
     } catch (error) {
-      console.error('Failed to submit disease outbreak:', error);
+      // Keep the modal open and surface the failure — a swallowed error on a
+      // legally-immediate report would leave the operator believing it was
+      // filed when Mattilsynet rejected it.
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to submit disease outbreak report. Please review and retry.',
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -419,6 +431,16 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
           {/* Body */}
           <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
             <div className="space-y-6">
+              {/* Submission error (persistent, screen-reader announced) */}
+              {submitError && (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="rounded-md bg-red-50 border border-red-300 p-3 text-sm text-red-800"
+                >
+                  {submitError}
+                </div>
+              )}
 
               {/* Link to Health Event (Optional) */}
               <div className="border border-gray-200 rounded-md">

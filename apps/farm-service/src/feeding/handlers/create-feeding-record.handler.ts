@@ -12,13 +12,33 @@
  *    pessimistic_write lock on Batch to eliminate the TOCTOU race where the
  *    batch could be deactivated between the pre-check and the feeding write.
  *
+ * Feed dual-SSoT write-path correctness (Phase A):
+ *  - Asserts the locked batch is feedable (BatchDomainService.assertFeedable)
+ *    INSIDE the tx — feeding an empty / non-feedable batch is rejected before
+ *    any stock is touched.
+ *  - Deducts feed from the storage ledger (StorageInventory + Feed.quantity
+ *    roll-up) via StockMovementService.recordMovement on the SAME
+ *    queryRunner.manager — but ONLY when the feed is storage-tracked
+ *    (feedHasStoragePresence). For a storage-tracked feed, insufficient stock
+ *    / no-lot throws and ROLLS BACK the whole feeding — replacing the old
+ *    async storage event handler that swallowed its failure and let the two
+ *    ledgers diverge silently. For a feed the tenant does NOT track in storage
+ *    (zero storage rows — e.g. a tenant that never adopted the warehouse
+ *    module), the storage OUT is SKIPPED with an observable structured warn
+ *    and the feed_inventory-only path applies, so a pre-Phase-B tenant is not
+ *    pushed off a fail-closed cliff.
+ *  - KEEPS the legacy feed_inventory decrement: the GetFeedInventory read
+ *    path still reads feed_inventory.quantityKg, so both ledgers update
+ *    atomically (or roll back together). Collapsing onto one ledger is
+ *    Phase B (table merge + read re-points + destructive migration).
+ *
  * @module Feeding/Handlers
  */
 import { randomUUID } from 'crypto';
 
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, EntityManager, In } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { OutboxPublisher } from '@platform/outbox';
 import { FeedInventoryLowEvent, FeedingRecordedEvent , createBaseEvent } from '@platform/event-contracts';
@@ -27,6 +47,10 @@ import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity'
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
+import { BatchDomainService } from '../../batch/services/batch-domain.service';
+import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { MovementType } from '../../storage/entities/stock-movement.entity';
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
 
 @Injectable()
@@ -46,6 +70,8 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly backdatePolicy: BackdatePolicyService,
+    private readonly batchDomainService: BatchDomainService,
+    private readonly stockMovementService: StockMovementService,
   ) {}
 
   async execute(command: CreateFeedingRecordCommand): Promise<FeedingRecord> {
@@ -87,6 +113,13 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       if (!batch.isActive) {
         throw new BadRequestException('Aktif olmayan batch için yemleme kaydı oluşturulamaz');
       }
+
+      // Reject feeding an empty (currentQuantity ≤ 0) or non-feedable
+      // (HARVESTED / CLOSED / FAILED / …) batch. Recording feed against such
+      // a batch inflates totalFeedConsumed with no biomass and corrupts FCR.
+      // Runs on the pessimistically-locked batch so the decision cannot race
+      // a concurrent CloseBatch / final harvest. Throws BadRequestException.
+      this.batchDomainService.assertFeedable(batch);
 
       // Feed'i doğrula (inside TX)
       const feed = await queryRunner.manager.findOne(Feed, {
@@ -143,8 +176,29 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       batch.totalFeedCost = Number(batch.totalFeedCost || 0) + (saved.feedCost ?? 0);
       await queryRunner.manager.save(batch);
 
-      // Otomatik stok düşüm — may also enqueue a FeedInventoryLowEvent on the
-      // outbox if stock hits the reorder point.
+      // Storage-ledger deduction (StorageInventory + Feed.quantity roll-up),
+      // INSIDE this transaction, fail-closed. Replaces the old async
+      // FeedingStorageEventHandler that swallowed insufficient-stock / errors
+      // and let the storage ledger drift from the feeding ledger. If the feed
+      // has no usable lot in any storage location, or the located lot has
+      // insufficient stock, this throws and the whole feeding rolls back.
+      await this.deductFromStorageLedger(
+        queryRunner.manager,
+        tenantId,
+        payload.feedId,
+        payload.actualAmount,
+        payload.feedBatchNumber,
+        new Date(payload.feedingDate),
+        saved.id,
+        userId,
+      );
+
+      // Legacy feed_inventory deduction — STILL the SSoT the GetFeedInventory
+      // read path uses, so it must stay in sync with the storage ledger. Both
+      // deductions run inside the same tx: they commit or roll back together,
+      // so the two ledgers never diverge. May also enqueue a
+      // FeedInventoryLowEvent on the outbox if stock hits the reorder point.
+      // (Collapsing onto a single ledger is Phase B.)
       await this.deductFeedInventory(
         queryRunner.manager,
         tenantId,
@@ -155,10 +209,10 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
       );
 
       // Enqueue FeedingRecordedEvent into the transactional outbox BEFORE commit.
-      // The storage module consumes this NATS event to auto-deduct feed inventory
-      // and update reorder projections — this is the key integration that
-      // connects farm operations to inventory management. With the outbox the
-      // feeding record and integration event commit atomically.
+      // Storage deduction is now done IN-TX above (no longer driven by this
+      // event), so this event is purely a downstream-integration / analytics
+      // notification. Enqueued on the outbox so it commits atomically with the
+      // feeding record and never fires for a rolled-back feeding.
       const feedingEvent: FeedingRecordedEvent = {
         ...createBaseEvent<FeedingRecordedEvent>('FeedingRecorded', tenantId, { aggregateId: payload.batchId, aggregateType: 'Batch' }),
         userId,
@@ -187,10 +241,127 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
   }
 
   /**
+   * Deduct the fed amount from the storage ledger (StorageInventory +
+   * Feed.quantity roll-up + immutable StockMovement audit row) INSIDE the
+   * caller's transaction, fail-closed FOR STORAGE-TRACKED FEEDS.
+   *
+   * # Two independently-populated ledgers, two correct outcomes (Phase A)
+   *
+   * Feed stock is populated by two separate operator workflows:
+   * `feed_inventory` (add-feed-inventory) and `storage_inventory`
+   * (receive-delivery). A tenant may use feeding + feed_inventory and never
+   * have adopted the storage/warehouse module — for that tenant there are
+   * ZERO storage rows for the feed, and the feed_inventory-only path is the
+   * correct (pre-existing) behaviour. So this method first distinguishes
+   * "tenant does not track this feed in storage" from "storage-tracked feed
+   * is short":
+   *
+   *   - NO storage presence for the feed (feedHasStoragePresence == false)
+   *     → the tenant does not manage this feed in storage. SKIP the storage
+   *       OUT deduction and proceed (the legacy feed_inventory deduction
+   *       still runs). Emit an OBSERVABLE structured warn so the pre-Phase-B
+   *       divergence is visible — NOT a swallowed catch, NOT a failure.
+   *   - Storage presence EXISTS but no usable lot / insufficient quantity
+   *     → a REAL shortage for a storage-managed feed → FAIL-CLOSED: let
+   *       recordMovement (or the no-lot guard) throw so the whole feeding
+   *       rolls back.
+   *
+   * The presence check + the resolve both run on the SAME locked/in-tx
+   * manager so they are consistent with each other and with the deduction.
+   *
+   * When a concrete feed batch (lotNumber) is on the payload, the location is
+   * resolved for THAT supplied lot (Blocker-4): a lot that exists only in
+   * feed_inventory but not in storage routes into the no-usable-lot policy
+   * with a lot-specific message instead of silently deducting a different
+   * FEFO lot. The idempotency key is derived from the feeding record id so a
+   * retried feeding does not double-deduct.
+   */
+  private async deductFromStorageLedger(
+    manager: EntityManager,
+    tenantId: string,
+    feedId: string,
+    actualAmountKg: number,
+    feedBatchNumber: string | undefined,
+    feedingDate: Date,
+    feedingRecordId: string,
+    userId: string,
+  ): Promise<void> {
+    // Does the tenant track this feed in storage at all? If not, the
+    // feed_inventory-only path is correct and the storage OUT is skipped —
+    // observably, so the divergence is not silent.
+    const hasStoragePresence = await this.stockMovementService.feedHasStoragePresence(
+      manager,
+      tenantId,
+      feedId,
+    );
+
+    if (!hasStoragePresence) {
+      this.logger.warn(
+        'Storage ledger not tracked for feed — skipping in-transaction storage ' +
+          'deduction; feed_inventory-only path applies (pre-Phase-B divergence is ' +
+          'expected for this tenant). ' +
+          `feedId=${feedId}, tenantId=${tenantId}, feedingRecordId=${feedingRecordId}, ` +
+          `actualAmountKg=${actualAmountKg}`,
+      );
+      return;
+    }
+
+    // Storage-tracked feed: resolve the location of the supplied lot (or the
+    // FEFO-preferred usable lot when no lot is named), as of the feeding
+    // instant.
+    const location = await this.stockMovementService.resolveFeedDeductionLocation(
+      manager,
+      tenantId,
+      feedId,
+      feedingDate,
+      feedBatchNumber,
+    );
+
+    if (!location) {
+      // Storage-tracked feed with no usable lot (expired / out-of-stock, or
+      // the SUPPLIED lot is absent from storage) → REAL shortage →
+      // fail-closed: throw rolls back the whole feeding.
+      throw new BadRequestException(
+        feedBatchNumber
+          ? `Feed ${feedId} lot "${feedBatchNumber}" has no available storage stock to deduct ` +
+              `${actualAmountKg}kg. Receive this lot into a storage location before recording this feeding.`
+          : `Feed ${feedId} has no available storage stock to deduct ${actualAmountKg}kg. ` +
+              `Receive feed into a storage location before recording this feeding.`,
+      );
+    }
+
+    await this.stockMovementService.recordMovement(
+      manager,
+      {
+        movementType: MovementType.OUT,
+        itemType: StorageItemType.FEED,
+        itemId: feedId,
+        quantity: actualAmountKg,
+        fromLocationId: location.storageLocationId,
+        // The resolved location already corresponds to the supplied lot (when
+        // one was named) — resolveFeedDeductionLocation constrained the read
+        // to it — so use the resolved lot for the OUT deduction.
+        lotNumber: location.lotNumber,
+        reference: `FEEDING: ${feedingRecordId}`,
+        reason: 'Auto-deducted from feeding record (in-transaction).',
+        idempotencyKey: `feeding-deduct-${feedingRecordId}`,
+        movementDate: feedingDate,
+      },
+      { tenantId, userId, userName: 'Feeding' },
+    );
+  }
+
+  /**
    * Stoktan yem düşümü yapar.
    * feedBatchNumber (lotNumber) verilmişse önce o lot'tan düşer.
    * Verilmemişse FIFO mantığıyla en eski AVAILABLE stoktan düşer.
-   * Stok yetersiz olsa bile feeding record engellenmez (operasyonel gereklilik).
+   *
+   * Legacy feed_inventory ledger. KEPT in Phase A because the
+   * GetFeedInventory read path still reads feed_inventory.quantityKg. Runs in
+   * the same tx as the storage deduction (above) so the two ledgers stay in
+   * sync. Insufficient feed_inventory is clamped to 0 (not fail-closed) here
+   * because the fail-closed authority is the storage ledger; this writer's
+   * sole job in Phase A is to keep the legacy read surface consistent.
    */
   private async deductFeedInventory(
     manager: import('typeorm').EntityManager,

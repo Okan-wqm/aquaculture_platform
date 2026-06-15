@@ -308,6 +308,66 @@ export async function queueOperation(
   return id;
 }
 
+/**
+ * Forward-compat queue UPGRADE for water-quality payloads (Tier-1 single-ingress).
+ *
+ * WHY: aquamobil persists serialized CreateWaterQualityInput payloads in the
+ * encrypted IndexedDB queue and replays them via raw GraphQL later — possibly
+ * AFTER a deploy that removed the legacy `parameters` field. Under the
+ * production ValidationPipe ({ whitelist: true, forbidNonWhitelisted: true }) a
+ * replayed payload still carrying `parameters` would be REJECTED, silently
+ * losing a measurement the field worker believed was saved offline.
+ *
+ * WHAT: this transform runs at the SINGLE queue read/replay ingress
+ * (decryptOperation, which feeds both getPendingOperations/sync and getOperation).
+ * For `createWaterQuality` operations it:
+ *   1. folds any legacy `parameters` values into `dynamicParameters` (existing
+ *      dynamicParameters keys win — they were the newer, validated channel),
+ *   2. drops the now-forbidden `parameters` field,
+ *   3. backfills `equipmentId` from a legacy `tankId` when equipmentId is absent
+ *      (the pre-migration web path conflated the two).
+ * No queued record is lost: a legacy payload is upgraded in-flight to the new
+ * single-ingress shape before it reaches the server.
+ */
+function migrateWaterQualityPayload(payload: OperationPayload): OperationPayload {
+  // A pre-migration WQ payload carries a legacy `parameters` key the current
+  // OperationPayload type no longer declares. Intersect with the optional
+  // legacy/transitional keys so they are readable + removable WITHOUT an
+  // `unknown` bridge; every added key is optional, so the intersection is a
+  // subtype of OperationPayload and `rest` below remains assignable back to it.
+  const record = payload as OperationPayload & {
+    parameters?: Record<string, unknown>;
+    dynamicParameters?: Record<string, number | string | boolean>;
+    equipmentId?: string;
+    tankId?: string;
+  };
+  if (!record.parameters && record.equipmentId) {
+    return payload;
+  }
+
+  const foldedDynamic: Record<string, number | string | boolean> = {};
+  if (record.parameters && typeof record.parameters === 'object' && !Array.isArray(record.parameters)) {
+    for (const [key, value] of Object.entries(record.parameters)) {
+      if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+        foldedDynamic[key] = value;
+      }
+    }
+  }
+
+  const existingDynamic = record.dynamicParameters ?? {};
+
+  // Existing dynamicParameters keys take precedence over folded legacy ones.
+  const { parameters: _legacyParameters, ...rest } = record;
+  rest.dynamicParameters = { ...foldedDynamic, ...existingDynamic };
+
+  // Backfill equipmentId from legacy tankId when the new required field is absent.
+  if (!rest.equipmentId && rest.tankId) {
+    rest.equipmentId = rest.tankId;
+  }
+
+  return rest;
+}
+
 // Decrypt a StoredOperation back into a QueuedOperation. If decryption fails
 // (e.g., the session key was rotated due to a full page reload) the entry is
 // skipped rather than crashing the queue -- it will be cleaned up on logout.
@@ -315,7 +375,11 @@ async function decryptOperation(stored: StoredOperation): Promise<QueuedOperatio
   try {
     const payload = await decryptPayload(stored._enc.iv, stored._enc.ciphertext);
     const { _enc: _ignored, _resourceId: _ignored2, ...rest } = stored;
-    return { ...rest, payload };
+    // Forward-compat single-ingress upgrade for legacy WQ payloads queued
+    // before the `parameters` field was removed (see migrateWaterQualityPayload).
+    const migratedPayload =
+      stored.type === 'createWaterQuality' ? migrateWaterQualityPayload(payload) : payload;
+    return { ...rest, payload: migratedPayload };
   } catch {
     return null;
   }

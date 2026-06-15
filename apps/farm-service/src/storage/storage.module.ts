@@ -13,13 +13,13 @@ import { InventoryCount } from './entities/inventory-count.entity';
 import { InventoryCountItem } from './entities/inventory-count-item.entity';
 import { StorageLotMix } from './entities/storage-lot-mix.entity';
 import { LotMixService } from './services/lot-mix.service';
+import { StockMovementService } from './services/stock-movement.service';
 import { Site } from '../site/entities/site.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
 import { Consumable } from '../consumable/entities/consumable.entity';
 
 import { StorageResolver } from './storage.resolver';
-import { FeedingStorageEventHandler } from './event-handlers/feeding-storage-event.handler';
 
 import { CreateStorageLocationHandler } from './handlers/create-storage-location.handler';
 import { UpdateStorageLocationHandler } from './handlers/update-storage-location.handler';
@@ -33,6 +33,7 @@ import { CreateInventoryCountHandler } from './handlers/create-inventory-count.h
 import { UpdateInventoryCountHandler } from './handlers/update-inventory-count.handler';
 import { SubmitInventoryCountHandler } from './handlers/submit-inventory-count.handler';
 import { ApproveInventoryCountHandler } from './handlers/approve-inventory-count.handler';
+import { ApprovePurchaseOrderHandler } from './handlers/approve-purchase-order.handler';
 
 import { GetStorageLocationHandler } from './handlers/get-storage-location.handler';
 import { ListStorageLocationsHandler } from './handlers/list-storage-locations.handler';
@@ -56,6 +57,7 @@ const CommandHandlers = [
   TransferStockHandler,
   CreatePurchaseOrderHandler,
   UpdatePurchaseOrderStatusHandler,
+  ApprovePurchaseOrderHandler,
   ReceiveDeliveryHandler,
   CreateInventoryCountHandler,
   UpdateInventoryCountHandler,
@@ -79,10 +81,6 @@ const QueryHandlers = [
   TraceLotHandler,
 ];
 
-const EventHandlers = [
-  FeedingStorageEventHandler,
-];
-
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -103,12 +101,17 @@ const EventHandlers = [
   providers: [
     StorageResolver,
     LotMixService,
+    // StockMovementService holds the inventory-mutation core that
+    // RecordStockMovementHandler (here) and the feeding callers both use.
+    // Exported so FeedingModule can deduct feed stock INSIDE the feeding
+    // transaction (fail-closed, atomic) — see StockMovementService header.
+    StockMovementService,
     ...CommandHandlers,
     ...QueryHandlers,
-    ...EventHandlers,
   ],
   exports: [
     TypeOrmModule,
+    StockMovementService,
   ],
 })
 export class InventoryModule {}

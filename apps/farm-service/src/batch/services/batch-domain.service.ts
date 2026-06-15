@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { Batch, BatchStatus, BatchType } from '../entities/batch.entity';
 
@@ -25,17 +25,19 @@ export class BatchDomainService {
   // ── Biomass & Weight ──────────────────────────────────────────────────────
 
   /**
-   * Current biomass in kg.
-   * Priority: actual measurement → theoretical calculation → initial stocking.
+   * Current biomass in kg, DERIVED from the live count.
+   *
+   * WHY: avgWeight changes only at a sampling event; currentQuantity is
+   * atomically decremented under pessimistic_write by every removal handler
+   * (mortality, cull, harvest). Deriving qty × avgWeight makes it structurally
+   * impossible for the displayed biomass to drift from the live count — the
+   * previously-stored weight.actual.totalBiomass snapshot went stale the moment
+   * any removal happened, overstating biomass (and therefore understating FCR).
+   * WHAT: kg = currentQuantity × effectiveAvgWeightG / 1000.
    */
   getCurrentBiomass(batch: Batch): number {
-    if (batch.weight?.actual?.totalBiomass) {
-      return batch.weight.actual.totalBiomass;
-    }
-    if (batch.weight?.theoretical?.totalBiomass) {
-      return batch.weight.theoretical.totalBiomass;
-    }
-    return batch.weight?.initial?.totalBiomass || 0;
+    const avgWeightG = this.getCurrentAvgWeight(batch);
+    return (batch.currentQuantity * avgWeightG) / 1000;
   }
 
   /**
@@ -83,23 +85,13 @@ export class BatchDomainService {
 
   // ── Performance Metrics ───────────────────────────────────────────────────
 
-  /**
-   * Feed Conversion Ratio (FCR).
-   * FCR = totalFeedConsumed / (currentBiomass - initialBiomass + mortalityBiomass)
-   *
-   * Lower is better — 1.0 means 1kg feed per 1kg weight gain.
-   * Typical range: 1.0-2.5 for salmon, 1.5-3.0 for seabass.
-   *
-   * @param mortalityBiomass - Estimated biomass lost to mortality (kg)
-   */
-  calculateFCR(batch: Batch, mortalityBiomass: number = 0): number {
-    const initialBiomass = batch.weight?.initial?.totalBiomass || 0;
-    const currentBiomass = this.getCurrentBiomass(batch);
-    const weightGain = currentBiomass - initialBiomass + mortalityBiomass;
-
-    if (weightGain <= 0 || batch.totalFeedConsumed <= 0) return 0;
-    return batch.totalFeedConsumed / weightGain;
-  }
+  // FCR authority removed from the domain service (Tier-1 one-SSoT
+  // consolidation). The single FCR calculator is
+  // FcrCalculationService.calculateCumulativeFCR, which reads net-exited
+  // biomass from the TankOperation ledger. The naive `current − initial +
+  // mortalityBiomass` weight-gain formula that lived here overstated FCR by
+  // undercounting the growth of biomass that left the system via cull /
+  // harvest / transfer-out, masking herd-health degradation.
 
   /**
    * Specific Growth Rate (SGR) — daily percentage body weight gain.
@@ -165,5 +157,37 @@ export class BatchDomainService {
 
   isProductionBatch(batch: Batch): boolean {
     return batch.batchType === BatchType.PRODUCTION;
+  }
+
+  /**
+   * Guard a batch against feeding when it has no live fish to feed.
+   *
+   * WHY: Recording feed against an emptied (currentQuantity ≤ 0) or
+   * non-feedable batch silently inflates totalFeedConsumed with no
+   * corresponding biomass, which corrupts FCR (feed without growth) and lets
+   * operators log feed against harvested/closed/failed batches. Feeding is only
+   * valid while the batch is in an operational production state AND still holds
+   * live fish. The feedable status set is exactly isOperational() — ACTIVE,
+   * GROWING, PRE_HARVEST, HARVESTING — and excludes HARVESTED, CLOSED, FAILED,
+   * TRANSFERRED, QUARANTINE.
+   *
+   * WHAT: throws BadRequestException when the batch is empty or its status is
+   * not feedable. Returns void on success so feeding handlers can call it as a
+   * precondition assertion. This is the cross-lane primitive the feed lane
+   * wires into its feeding handlers.
+   */
+  assertFeedable(batch: Batch): void {
+    if (batch.currentQuantity <= 0) {
+      throw new BadRequestException(
+        `Batch ${batch.id} has no live fish (currentQuantity=${batch.currentQuantity}); ` +
+          `feeding an empty batch would inflate feed consumption without growth and corrupt FCR.`,
+      );
+    }
+    if (!this.isOperational(batch)) {
+      throw new BadRequestException(
+        `Batch ${batch.id} is not feedable in status ${batch.status}; ` +
+          `feeding is only permitted while ACTIVE, GROWING, PRE_HARVEST or HARVESTING.`,
+      );
+    }
   }
 }

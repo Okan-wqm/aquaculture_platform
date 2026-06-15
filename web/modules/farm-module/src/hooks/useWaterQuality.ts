@@ -121,26 +121,24 @@ export interface WaterQualityFilters {
   offset?: number;
 }
 
+/**
+ * SINGLE-INGRESS (Tier-1): `dynamicParameters` keyed by tenant-config parameter
+ * codes is the SOLE parameter channel, mirroring the backend
+ * CreateWaterQualityInput DTO. The legacy fixed `parameters` object was removed.
+ * `equipmentId` is required so the backend can validate the submitted values
+ * against the equipment's mapped parameter configs.
+ */
 export interface CreateWaterQualityInput {
   tankId?: string;
   pondId?: string;
   siteId?: string;
   batchId?: string;
+  equipmentId: string;
   measuredAt: string;
   source: MeasurementSource;
   measuredBy?: string;
-  parameters: {
-    temperature?: number;
-    dissolvedOxygen?: number;
-    pH?: number;
-    ammonia?: number;
-    nitrite?: number;
-    nitrate?: number;
-    salinity?: number;
-    turbidity?: number;
-    alkalinity?: number;
-    hardness?: number;
-  };
+  dynamicParameters: Record<string, number | string | boolean>;
+  idempotencyKey?: string;
   notes?: string;
   weatherConditions?: string;
 }
@@ -174,18 +172,7 @@ export interface CreateBatchWaterQualityInput {
 
 export interface UpdateWaterQualityInput {
   id: string;
-  parameters?: {
-    temperature?: number;
-    dissolvedOxygen?: number;
-    pH?: number;
-    ammonia?: number;
-    nitrite?: number;
-    nitrate?: number;
-    salinity?: number;
-    turbidity?: number;
-    alkalinity?: number;
-    hardness?: number;
-  };
+  dynamicParameters?: Record<string, number | string | boolean>;
   notes?: string;
   weatherConditions?: string;
 }

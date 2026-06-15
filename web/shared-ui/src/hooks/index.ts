@@ -5,6 +5,11 @@
 export { useAuth, useRequireAuth } from './useAuth';
 export { useTenant } from './useTenant';
 export {
+  useTenantScopedStorage,
+  TENANT_SCOPED_STORAGE_NAMESPACE,
+} from './useTenantScopedStorage';
+export type { TenantScopedStorage } from './useTenantScopedStorage';
+export {
   useGraphQLQuery,
   useGraphQLMutation,
   usePrefetchQuery,

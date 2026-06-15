@@ -10,7 +10,7 @@ export const purchaseOrders: PurchaseOrder[] = [
     totalAmount: 204000, currency: 'NOK', orderDate: '2026-02-04', expectedDelivery: '2026-02-10',
   },
   {
-    id: 'po2', poNumber: 'PO-2026-044', supplierName: 'SafeWork AS', status: 'PENDING',
+    id: 'po2', poNumber: 'PO-2026-044', supplierName: 'SafeWork AS', status: 'SUBMITTED',
     items: [
       { id: 'poi3', itemName: 'Nitrile Gloves (L)', quantity: 200, unit: 'box', unitPrice: 89, totalPrice: 17800 },
       { id: 'poi4', itemName: 'Chemical Goggles', quantity: 20, unit: 'pcs', unitPrice: 350, totalPrice: 7000 },

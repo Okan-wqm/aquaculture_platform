@@ -7,9 +7,12 @@ export default {
     '^.+\\.[tj]s$': ['ts-jest', { tsconfig: '<rootDir>/../tsconfig.spec.json' }],
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
-  moduleNameMapper: {
-    '^@nestjs/microservices$': '<rootDir>/../src/__mocks__/@nestjs/microservices.ts',
-  },
+  // ORPHAN-HIGH-102: the `@nestjs/microservices` moduleNameMapper stub was
+  // removed. The real package (^11.1.19, a declared dependency) now loads, so
+  // the backend-common/nats barrel's `class NatsV3Server extends Server`
+  // resolves a real base class at import time instead of `undefined`. NATS is
+  // isolated at the DI seam (`.overrideProvider('NATS_SERVICE')` in e2e-setup),
+  // not by replacing the whole module — the idiomatic, drift-proof pattern.
   // ORPHAN-HIGH-092: run the heavy one-time DB bootstrap (readiness poll +
   // migrations + extensions) ONCE here, outside the per-hook testTimeout, so a
   // cold-container boot no longer overruns the 60s hook budget and cancels the

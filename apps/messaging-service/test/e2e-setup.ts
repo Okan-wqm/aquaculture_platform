@@ -253,8 +253,12 @@ export async function createE2eTestApp(
   //
   // 1. NATS_SERVICE (@nestjs/microservices ClientProxy) — used by GdprService,
   //    AiChatBridgeService, EventHandlersModule for request-reply patterns.
-  //    The @nestjs/microservices mock provides the module shell but NOT the
-  //    provider token, so we override it explicitly.
+  //    WHY override: the REAL @nestjs/microservices ClientsModule registers the
+  //    NATS_SERVICE token via `customClass: NatsV3Client` (whose connect() is
+  //    lazy). We still override the token with a no-op client so no spec can
+  //    open a real NATS socket — there is no broker in CI. As of ORPHAN-HIGH-102
+  //    the module is NOT mocked at the moduleNameMapper layer anymore: the real
+  //    package loads so `NatsV3Server extends Server` resolves at import time.
   //
   // 2. EVENT_BUS (@platform/event-bus NatsEventBus) — used by OutboxPublisher
   //    for JetStream event publishing. Connects to NATS on init, so we

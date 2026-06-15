@@ -165,4 +165,50 @@ describe('useAuth.logout — shared-device wipe (MT-CRITICAL-050 / MT-MEDIUM-050
     // Session is still authenticated — the user was NOT told logout succeeded.
     expect(captured!.isAuthenticated).toBe(true);
   });
+
+  it('does NOT deadlock when the service worker never activates, and purges via controller (MT-CRITICAL-050)', async () => {
+    const client = new QueryClient();
+    renderAuth(client);
+    await waitFor(() => expect(captured).not.toBeNull());
+    await login();
+
+    const controllerPost = vi.fn();
+    // A `.ready` that NEVER resolves models the deadlock condition: a registered
+    // SW that never reaches an ACTIVE worker (first-load race, plain-HTTP / iOS
+    // PWA). logout() must post to `controller` and NEVER await `.ready` — if it
+    // awaited `.ready` this test would hang until the vitest timeout (the exact
+    // unrecoverable-logout regression this guards).
+    vi.stubGlobal('navigator', {
+      ...globalThis.navigator,
+      serviceWorker: {
+        controller: { postMessage: controllerPost },
+        ready: new Promise<never>(() => undefined),
+      },
+    });
+
+    await act(async () => {
+      await captured!.logout();
+    });
+
+    // Reached here ⇒ logout resolved (no deadlock); the cache purge went to the
+    // controlling worker.
+    expect(captured!.isAuthenticated).toBe(false);
+    expect(controllerPost).toHaveBeenCalledWith({ type: 'LOGOUT' });
+  });
+
+  it('cancels in-flight queries before clearing so none repopulates the wiped cache (MT-CRITICAL-050)', async () => {
+    const client = new QueryClient();
+    const cancelSpy = vi.spyOn(client, 'cancelQueries');
+    renderAuth(client);
+    await waitFor(() => expect(captured).not.toBeNull());
+    await login();
+
+    await act(async () => {
+      await captured!.logout();
+    });
+
+    // React Query clear() does not abort running fetches; cancelQueries() does,
+    // so a query dispatched pre-logout cannot resolve into the just-cleared cache.
+    expect(cancelSpy).toHaveBeenCalled();
+  });
 });

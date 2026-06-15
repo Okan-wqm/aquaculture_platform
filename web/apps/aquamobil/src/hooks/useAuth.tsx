@@ -343,29 +343,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }),
     }).catch(() => {});
 
-    // MT-CRITICAL-050: wipe the in-memory React Query cache. removeQueries on the
-    // tenant key space drops every tenant-scoped entry; clear() then drops any
-    // residual (untenanted) query so nothing survives the 24h gcTime into the
-    // next session on this shared device.
-    if (currentTenantId) {
-      queryClient.removeQueries({ queryKey: [TENANT_QUERY_KEY_ROOT, currentTenantId] });
-    }
-    queryClient.clear();
+    // MT-CRITICAL-050: abort in-flight fetches BEFORE clearing. React Query
+    // clear() does NOT cancel running requests, so a query dispatched before
+    // logout could resolve during the awaited wipe below and repopulate the
+    // cache we just cleared — a cross-user residue path on a shared device (the
+    // repopulated entry then survives the 24h gcTime into user-B's session).
+    // cancelQueries() rejects those in-flight promises so none writes back.
+    await queryClient.cancelQueries();
 
     // MT-CRITICAL-050 / MT-MEDIUM-050: AWAIT the persistent-store wipe. Any
     // failure here propagates out of logout() (no .catch swallow), so a failed
     // IndexedDB/AES-key wipe can never masquerade as a successful logout.
     await clearAllUserData(currentUserId, currentTenantId);
 
-    // C-FE-01: Notify the service worker to clear messaging caches
-    // (messaging-graphql-v1, messaging-media-v1). Without this, authenticated
-    // GraphQL responses remain in Cache Storage and are visible to the next user
-    // on shared devices. Awaited so the cache purge completes before we report a
-    // clean logout.
-    if ('serviceWorker' in navigator) {
-      const reg = await navigator.serviceWorker.ready;
-      reg.active?.postMessage({ type: 'LOGOUT' });
+    // C-FE-01: tell the page-controlling workbox SW to purge messaging Cache
+    // Storage (messaging-graphql-v1, messaging-media-v1) — otherwise authenticated
+    // GraphQL responses stay visible to the next user on a shared device. We post
+    // to `controller` (the active worker that OWNS those caches), NOT
+    // `serviceWorker.ready`: per spec `.ready` never rejects and stays pending
+    // FOREVER until a worker is active (first-load race, plain-HTTP / iOS-PWA
+    // contexts where the SW never activates), which would deadlock logout and
+    // strand the user logged in. No controller ⇒ no SW cache exists to purge, so
+    // skipping is correct.
+    navigator.serviceWorker?.controller?.postMessage({ type: 'LOGOUT' });
+
+    // MT-CRITICAL-050: wipe the in-memory React Query cache LAST — after the
+    // awaited persistent wipe — so anything a still-mounted observer refetched
+    // during the wipe window is dropped before the device is handed over.
+    // removeQueries drops the tenant key space; clear() drops any residual
+    // (untenanted) entry.
+    if (currentTenantId) {
+      queryClient.removeQueries({ queryKey: [TENANT_QUERY_KEY_ROOT, currentTenantId] });
     }
+    queryClient.clear();
 
     setState({
       user: null,

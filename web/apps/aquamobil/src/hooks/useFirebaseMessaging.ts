@@ -102,12 +102,16 @@ export function useFirebaseMessaging(): void {
     const activeUserId = user.id;
     let unsubscribe: (() => void) | null = null;
 
-    (async () => {
+    void (async () => {
       try {
         const { initializeApp, getApps } = await import('firebase/app');
         const { getMessaging, getToken, onMessage, deleteToken } = await import('firebase/messaging');
 
-        const app = getApps().length === 0 ? initializeApp(FIREBASE_CONFIG) : getApps()[0]!;
+        // Reuse the already-initialized Firebase app if present (a second
+        // initializeApp with the same name throws). Destructure rather than
+        // index-with-`!` so the "no app yet" branch is expressed by `?? init`.
+        const [existingApp] = getApps();
+        const app = existingApp ?? initializeApp(FIREBASE_CONFIG);
         const messaging = getMessaging(app);
         messagingRef.current = messaging;
 
@@ -175,18 +179,19 @@ export function useFirebaseMessaging(): void {
         if (token) {
           // Only register if token is new or changed
           if (token !== previousTokenRef.current) {
-            const response = await authenticatedFetch('/graphql', {
+            // A failed registration is non-fatal — push simply won't arrive and
+            // the app stays fully functional. There is no logger sink in this
+            // PWA (and the surrounding hooks likewise swallow non-fatal
+            // background failures), so the HTTP result is not inspected/logged.
+            // Record the token as last-attempted regardless, so it is not
+            // re-POSTed on every render.
+            await authenticatedFetch('/graphql', {
               method: 'POST',
               body: JSON.stringify({
                 query: REGISTER_DEVICE_TOKEN_MUTATION,
                 variables: { token, platform: 'web' },
               }),
             });
-
-            if (!response.ok) {
-              console.warn('Failed to register device token:', response.status);
-            }
-
             previousTokenRef.current = token;
           }
 
@@ -225,8 +230,10 @@ export function useFirebaseMessaging(): void {
 
         // Listen for foreground messages
         unsubscribe = onMessage(messaging, handleForegroundMessage);
-      } catch (err) {
-        console.warn('Firebase messaging setup failed:', err);
+      } catch {
+        // FCM setup is best-effort: a failure degrades to no-push (the app
+        // stays fully functional), never an app error. No logger sink exists in
+        // this PWA, matching the silent non-fatal handling above.
       }
     })();
 

@@ -176,6 +176,12 @@ describe('NotificationCommandHandler', () => {
         pushData: {
           type: 'CHAT_MESSAGE',
           notificationRef: 'notification-ref-1',
+          // MT-HIGH-050: a userId-kind recipient is stamped with the recipient
+          // userId CENTRALLY, so the AquaMobil FCM service-worker shared-device
+          // backstop (drop a push whose userId != the active on-device session)
+          // covers chat push — the highest-volume user-targeted push — without
+          // per-template opt-in.
+          userId: 'user-1',
         },
         badge: 3,
       }),
@@ -183,5 +189,23 @@ describe('NotificationCommandHandler', () => {
     const [firstDispatchCall] = dispatcher.dispatchCommandNotification.mock
       .calls as readonly (readonly unknown[])[];
     expect(JSON.stringify(firstDispatchCall?.[0])).not.toMatch(/channel-1|message-1/);
+  });
+
+  it('MT-HIGH-050: stamps the recipient userId on every userId-kind push (backstop is complete-by-construction)', async () => {
+    const { handler, dispatcher, deviceTokenRepository } = createHandler();
+    deviceTokenRepository.findOne.mockResolvedValue({ token: 'device-token-2' });
+
+    // A chat push for a DIFFERENT recipient — the stamped userId must be THAT
+    // recipient's id (recipientRef.ref), proving it is the genuine recipient
+    // partition rather than a hard-coded value, so the SW can compare it against
+    // the active session and drop a cross-user push on a shared device.
+    await handler.sendPush(
+      pushCommand({ recipientRef: { kind: 'userId', ref: 'user-B' } }),
+    );
+
+    const [call] = dispatcher.dispatchCommandNotification.mock.calls as readonly (readonly {
+      pushData?: { userId?: string };
+    }[])[];
+    expect(call?.[0]?.pushData?.userId).toBe('user-B');
   });
 });

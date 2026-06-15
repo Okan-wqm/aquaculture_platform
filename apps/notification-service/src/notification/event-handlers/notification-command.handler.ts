@@ -72,6 +72,19 @@ export class NotificationCommandHandler {
         channel,
       );
       const rendered = this.renderTemplate(command, commandChannel);
+      // MT-HIGH-050 (tier-2, complete-by-default): stamp the recipient userId on
+      // EVERY user-targeted push centrally here, so the AquaMobil FCM service
+      // worker's shared-device backstop (drop a push whose userId != the active
+      // on-device session) covers every template BY CONSTRUCTION — not per-template
+      // opt-in, which silently missed the highest-volume push (chat messages) and
+      // surfaced sender name + unread badge to the next user on a shared device.
+      // For userId-kind recipients recipientRef.ref IS the user id (a UUID, not raw
+      // PII — assertCommand already rejects raw recipient material); other kinds
+      // (tenantContact, broadcast) legitimately carry no userId and stay broadcast.
+      const pushData =
+        command.recipientRef.kind === 'userId'
+          ? { ...(rendered.pushData ?? {}), userId: command.recipientRef.ref }
+          : rendered.pushData;
       const result = await this.dispatcher.dispatchCommandNotification({
         tenantId: command.tenantId,
         channel,
@@ -83,7 +96,7 @@ export class NotificationCommandHandler {
         commandPayloadHash: this.hashCommandPayload(command, commandChannel),
         subject: rendered.subject,
         message: rendered.message,
-        pushData: rendered.pushData,
+        pushData,
         badge: rendered.badge,
       });
       return {

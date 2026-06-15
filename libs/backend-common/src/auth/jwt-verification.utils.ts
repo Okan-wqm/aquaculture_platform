@@ -104,21 +104,32 @@ export function enforceAccessTokenType(
  *
  * @throws Error if neither JWT_PUBLIC_KEY nor JWT_PUBLIC_KEY_PATH is set
  */
-function loadPublicKey(configService: ConfigService): string {
+/**
+ * Resolve the verification public key from config, returning BOTH the raw config
+ * inputs (so the memoization cache is keyed by config VALUE, not file bytes) and
+ * the materialized PEM. readFileSync runs ONLY here — i.e. only on a cache miss
+ * (PERF-MEDIUM-001: previously a per-request synchronous read on ~12 hot-path
+ * verify callsites).
+ */
+function resolvePublicKey(configService: ConfigService): {
+  inlinePem?: string;
+  keyPath?: string;
+  pem: string;
+} {
   // SECURITY: Try inline PEM first (Kubernetes secrets, cloud env vars)
   const inlinePem = configService.get<string>('JWT_PUBLIC_KEY');
   if (inlinePem) {
     // Support base64-encoded PEM (common in container orchestrators)
-    if (!inlinePem.includes('-----BEGIN')) {
-      return Buffer.from(inlinePem, 'base64').toString('utf8');
-    }
-    return inlinePem;
+    const pem = inlinePem.includes('-----BEGIN')
+      ? inlinePem
+      : Buffer.from(inlinePem, 'base64').toString('utf8');
+    return { inlinePem, pem };
   }
 
   // Fall back to file path (docker-compose volume mounts)
   const keyPath = configService.get<string>('JWT_PUBLIC_KEY_PATH');
   if (keyPath) {
-    return readFileSync(keyPath, 'utf8');
+    return { keyPath, pem: readFileSync(keyPath, 'utf8') };
   }
 
   throw new Error(
@@ -126,6 +137,32 @@ function loadPublicKey(configService: ConfigService): string {
     'All services require the RSA public key to verify JWT tokens signed by auth-service. ' +
     'Application startup aborted.',
   );
+}
+
+/**
+ * PERF-MEDIUM-001 memoization cache. Process-local (each service instance caches
+ * independently — matches PlatformJwtModule's per-instance useFactory). Keyed on
+ * the resolved CONFIG VALUES (inline PEM / key path / issuer / audience), NOT on
+ * file contents, so a rotation that points JWT_PUBLIC_KEY_PATH at a new file or
+ * swaps the inline PEM misses the cache and re-reads. In-place file replacement
+ * at the SAME path must go through the existing config-reload/SIGHUP path (same
+ * constraint as HMAC secret rotation).
+ */
+interface JwtVerifyCache {
+  inlinePem?: string;
+  keyPath?: string;
+  issuer: string;
+  audience: string;
+  options: Readonly<JwtVerifyConfig>;
+}
+let jwtVerifyCache: JwtVerifyCache | undefined;
+
+/**
+ * Test-only: clear the memoization cache so specs can assert cold-start
+ * readFileSync-once behaviour deterministically. Not used in production code.
+ */
+export function __resetJwtVerifyOptionsCache(): void {
+  jwtVerifyCache = undefined;
 }
 
 /**
@@ -146,28 +183,46 @@ function loadPublicKey(configService: ConfigService): string {
  * @throws Error at startup if JWT_PUBLIC_KEY is not configured.
  */
 export function getJwtVerifyOptions(configService: ConfigService): JwtVerifyConfig {
-  return {
-    // SECURITY: RS256 public key for verification — getOrThrow-equivalent via loadPublicKey.
-    // BEFORE: shared JWT_SECRET meant any compromised service could forge tokens.
-    // AFTER: only auth-service holds the private key; consumers verify with public key.
-    publicKey: loadPublicKey(configService),
+  // PERF-MEDIUM-001: resolve the cheap config scalars first; only re-read the key
+  // file + rebuild the (frozen) options object on a cache MISS — i.e. first call
+  // and any time a config value actually changes (rotation). Eliminates the
+  // per-request readFileSync that ran on every verify across ~12 hot-path
+  // callsites. SECURITY semantics are unchanged: RS256-only (algorithm-confusion
+  // safe), issuer + audience enforced at the library level (missing/mismatched
+  // iss|aud throws). The cache key is the CONFIG VALUE, never file contents, so
+  // stale key material cannot be served after a config-driven rotation.
+  const inlinePemCfg = configService.get<string>('JWT_PUBLIC_KEY');
+  const keyPathCfg = configService.get<string>('JWT_PUBLIC_KEY_PATH');
+  const issuer = configService.get<string>('JWT_ISSUER', 'aquaculture-platform');
+  const audience = configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform');
 
-    // SECURITY: RS256 only — prevents algorithm confusion attacks.
-    // BEFORE: HS256 with shared secret across all services.
-    // AFTER: RS256 asymmetric — even if the public key leaks, tokens cannot be forged.
+  if (
+    jwtVerifyCache &&
+    jwtVerifyCache.inlinePem === inlinePemCfg &&
+    jwtVerifyCache.keyPath === keyPathCfg &&
+    jwtVerifyCache.issuer === issuer &&
+    jwtVerifyCache.audience === audience
+  ) {
+    return jwtVerifyCache.options;
+  }
+
+  const resolved = resolvePublicKey(configService);
+  // Object.freeze<JwtVerifyConfig> so the literal is contextually typed (keeps
+  // algorithms as Algorithm[] not string[]) AND the cached options are immutable.
+  const options: Readonly<JwtVerifyConfig> = Object.freeze<JwtVerifyConfig>({
+    publicKey: resolved.pem,
     algorithms: ['RS256'],
-
-    // SECURITY: issuer enforcement at library level.
-    // When issuer is passed to verifyAsync, jsonwebtoken throws JsonWebTokenError
-    // if the token's `iss` claim is MISSING or MISMATCHED — not a conditional check.
-    // BEFORE (gateway): if (payload.iss && ...) — tokens without iss were accepted.
-    // AFTER: library rejects tokens without iss unconditionally.
-    issuer: configService.get<string>('JWT_ISSUER', 'aquaculture-platform'),
-
-    // SECURITY: audience enforcement at library level (same rationale as issuer).
-    // BEFORE (gateway): if (payload.aud) { ... } — tokens without aud were accepted.
-    audience: configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
+    issuer,
+    audience,
+  });
+  jwtVerifyCache = {
+    inlinePem: resolved.inlinePem,
+    keyPath: resolved.keyPath,
+    issuer,
+    audience,
+    options,
   };
+  return options;
 }
 
 /**

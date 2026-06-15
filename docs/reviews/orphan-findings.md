@@ -4002,6 +4002,53 @@ This branch (a) modified `.eslintrc.json` and (b) sits on a `tsconfig.base.json`
 
 **Status:** RESOLVED (this commit).
 
+---
+
+## ORPHAN-CRITICAL-100 — token.service + tenant-role.service query auth-role tables in the OLD per-tenant schema after they were centralized into `auth`
+
+Severity: CRITICAL. Discovered during W4 (PERF-HIGH-001). Migration `apps/admin-api-service/src/migrations/1800500000000-TenantProvisioningTopology.ts` MOVES `user_role_assignments` / `tenant_role_permissions` / `tenant_roles` from per-tenant `tenant_<uuid>` schemas into the shared `auth` schema (INSERT then `DROP TABLE ... tenant_<schema>.*`, lines 311-313) and its post-condition RAISEs if any tenant copy remains (line 333). But two auth-service consumers still query the OLD per-tenant schema:
+- `apps/auth-service/src/modules/authentication/services/token.service.ts` `getUserResourcePermissions` — the LOGIN hot path.
+- `apps/auth-service/src/modules/tenant/services/tenant-role.service.ts` — ALL 10 methods (read AND write: getTenantRoles/getRoleById/getDefaultRole/createRole/updateRole/deleteRole/seedDefaultRoles/assignRoleToUser/removeRoleFromUser), lines 296-1053, reachable via tenant-role.resolver (GraphQL CRUD) + tenant-user-management/user-lifecycle.
+
+On a fully-migrated DB these queries throw "relation does not exist". In token.service this was MASKED by a silent `catch → return []` (module users silently got EMPTY resource permissions — a covert authorization downgrade); tenant-role.service's role-management surface breaks outright.
+
+Fix (token.service — RESOLVED in W4 / this PR): repointed to `auth.user_role_assignments JOIN auth.tenant_roles JOIN auth.tenant_role_permissions`, **tenant-scoped** via `WHERE tr."tenantId" = $2` (parameter-bound; the schema-interpolation SEC-M13 surface is structurally gone), and the catch is now fail-loud. auth-security-expert reviewed: tenant isolation SAFE (the INNER JOIN + tenantId filter is stronger than the old per-schema boundary; `user.tenantId` is DB-loaded, not request-influenced).
+
+Fix (tenant-role.service — REMAINING): the 10-method read+WRITE surface must be repointed to `auth.*` tenant-scoped in a dedicated, security-reviewed PR — its write paths (createRole/assignRoleToUser/etc.) must enforce tenant ownership or risk cross-tenant role mutation. Too large + write-path-security-critical to safely cram into W4.
+
+Status: PARTIAL — token.service login path RESOLVED (W4 / this PR); tenant-role.service repoint OPEN. Owner: auth-security-expert + platform-services. Deadline: 2026-06-20.
+
+---
+
+## ORPHAN-HIGH-101 — Centralized `auth` role tables have NO database-layer RLS (tenant isolation rests on a single application WHERE clause)
+
+Severity: HIGH (defense-in-depth). Surfaced by the ORPHAN-CRITICAL-100 security review. Collapsing the per-tenant schema boundary into shared `auth` tables removed schema-level isolation but did NOT replace it with row-level security: `auth.user_role_assignments` + `auth.tenant_role_permissions` have no tenant column (the RLS helper discovers tables by `tenantId`/`tenant_id`, so it cannot protect them), and no migration applies RLS to the `auth` schema (the topology RLS sweep only touches `tenant_<uuid>` schemas). Net: cross-tenant isolation for role/permission reads now depends ENTIRELY on every query carrying a `tr."tenantId" = $X` predicate — one forgotten predicate (or a `getRepository()` without scoping) is an instant cross-tenant leak with no DB backstop.
+
+Fix direction: add a denormalized `tenantId` column to `auth.user_role_assignments` (carried at write time / trigger) and install `tenant_isolation_policy` on the three centralized tables via the existing helper; add a CI invariant asserting any SQL touching these tables carries a tenant predicate (Tier-3 detectable) until RLS lands.
+
+Status: OPEN (2026-06-13; owner: auth-security-expert + data-expert).
+
+---
+
+## ORPHAN-MEDIUM-104 — Topology migration de-dup picks an arbitrary tenant for a multi-tenant user (silent permission loss)
+
+Severity: MEDIUM. Surfaced by the ORPHAN-CRITICAL-100 security review. The `1800500000000` backfill enforces `UNIQUE(user_id)` on `auth.user_role_assignments` via `NOT EXISTS (... au.user_id = a.user_id)` while iterating tenant schemas in an UNORDERED loop. If the same `user_id` had an active assignment in two tenant schemas (a multi-tenant user), the migration keeps whichever tenant the loop reached first and silently discards the rest — that user then resolves permissions only for the surviving tenant (and the fail-loud catch will NOT surface it: the query succeeds, returns `[]`).
+
+Fix direction: if multi-tenant users are possible, add a pre-migration audit (`GROUP BY user_id HAVING count(distinct schema) > 1`) + explicit conflict resolution (not first-loop-wins); if structurally impossible, assert it post-migration (source row count == inserted count) so a violated invariant fails loudly.
+
+Status: OPEN (2026-06-13; owner: data-expert).
+
+---
+
+## ORPHAN-MEDIUM-105 — Missing index on `auth.tenant_role_permissions(role_id)` (token-mint JOIN seq-scans)
+
+Severity: MEDIUM (perf). The PERF-HIGH-001 token-mint JOIN `auth.user_role_assignments ⋈ auth.tenant_role_permissions ON role_id` has no index on `tenant_role_permissions(role_id)` — the table (created in `1800200000000-CreateAdminEntitySurfaceTables`) has only the PK on `id` + an FK on `role_id` (Postgres FKs are not auto-indexed). `user_role_assignments` already has its indexes (UNIQUE user_id, role_id, is_active). The W4 PERF-HIGH-001 cache (60s TTL) mitigates per-mint cost; the index is the durable fix.
+
+Fix direction: a new auth-schema migration `CREATE INDEX IF NOT EXISTS "idx_tenant_role_permissions_role_id" ON "auth"."tenant_role_permissions" ("role_id");` (idempotent, source-only).
+
+Status: OPEN (2026-06-13; owner: auth-security-expert; pairs with ORPHAN-CRITICAL-100's tenant-role.service repoint PR).
+
+---
 
 ## ORPHAN-HIGH-100 — 6 custom `aquaculture/*` architectural-invariant lint kuralı, 31 root:true per-project projede İNERT
 

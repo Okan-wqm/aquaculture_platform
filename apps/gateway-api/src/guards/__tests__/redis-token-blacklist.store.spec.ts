@@ -9,12 +9,14 @@ describe('RedisTokenBlacklistStore', () => {
   let mockRedisService: jest.Mocked<{
     get: jest.Mock;
     set: jest.Mock;
+    mget: jest.Mock;
   }>;
 
   beforeEach(() => {
     mockRedisService = {
       get: jest.fn(),
       set: jest.fn(),
+      mget: jest.fn(),
     };
     store = new RedisTokenBlacklistStore(mockRedisService as any);
   });
@@ -103,6 +105,47 @@ describe('RedisTokenBlacklistStore', () => {
       const result = await store.isBlacklisted(jti);
 
       expect(result).toBe(true);
+    });
+  });
+
+  describe('isValidToken (PERF-HIGH-002 — single MGET round-trip)', () => {
+    const JTI = 'jti-abc';
+    const USER = 'user-1';
+    const IAT = 1_000_000;
+
+    it('issues ONE mget in [jti, user] order and accepts a clean token', async () => {
+      mockRedisService.mget.mockResolvedValue([null, null]);
+      await expect(store.isValidToken(JTI, USER, IAT)).resolves.toBe(true);
+      expect(mockRedisService.mget).toHaveBeenCalledTimes(1);
+      expect(mockRedisService.mget).toHaveBeenCalledWith(
+        `token:blacklist:${JTI}`,
+        `user_blacklist:${USER}`,
+      );
+    });
+
+    it('denies when the jti sentinel (index 0) is present', async () => {
+      mockRedisService.mget.mockResolvedValue(['1', null]);
+      await expect(store.isValidToken(JTI, USER, IAT)).resolves.toBe(false);
+    });
+
+    it('denies when the token was issued BEFORE a user-level invalidation (index 1)', async () => {
+      mockRedisService.mget.mockResolvedValue([null, String(IAT + 500)]);
+      await expect(store.isValidToken(JTI, USER, IAT)).resolves.toBe(false);
+    });
+
+    it('accepts when the token was issued AFTER the user-level invalidation', async () => {
+      mockRedisService.mget.mockResolvedValue([null, String(IAT - 500)]);
+      await expect(store.isValidToken(JTI, USER, IAT)).resolves.toBe(true);
+    });
+
+    it('fails CLOSED (returns false) when the store throws', async () => {
+      mockRedisService.mget.mockRejectedValue(new Error('redis down'));
+      await expect(store.isValidToken(JTI, USER, IAT)).resolves.toBe(false);
+    });
+
+    it('treats a non-numeric user invalidation value as not-invalidated', async () => {
+      mockRedisService.mget.mockResolvedValue([null, 'not-a-number']);
+      await expect(store.isValidToken(JTI, USER, IAT)).resolves.toBe(true);
     });
   });
 });

@@ -10,6 +10,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
   Inject,
   Optional,
@@ -18,6 +19,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { Cron } from '@nestjs/schedule';
+import {
+  MobileCommandReceiptService,
+  type MobileCommandEnvelope,
+} from '@aquaculture/backend-common/mobile-command';
+import { assertSelfOrManager, type SelfScopeCaller } from '@aquaculture/backend-common/security';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -106,6 +112,7 @@ export class TaskService {
     private readonly recurringTemplateRepository: Repository<RecurringTemplate>,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly mobileCommandReceipts: MobileCommandReceiptService,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -174,14 +181,27 @@ export class TaskService {
 
   /**
    * Görevi günceller
+   *
+   * SEC-HIGH-050: a non-owner edit (peer reassignment / status change) is
+   * blocked unless the caller is MODULE_MANAGER+ (the object-level layer beneath
+   * the coarse @Roles gate). FARM-HIGH-056: a status reopen (out of COMPLETED)
+   * clears the completion fields in the SAME write, and the whole body runs in a
+   * transaction whose domain write + TaskAssigned/TaskStatusChanged events are
+   * enqueued through the transactional outbox (atomic — no fire-and-forget).
    */
   async update(
     tenantId: string,
     input: UpdateTaskInput,
-    userId: string,
+    caller: SelfScopeCaller,
   ): Promise<Task> {
+    const userId = caller.sub;
     const task = await this.findById(tenantId, input.id);
+
+    // SEC-HIGH-050: only the assignee or a MODULE_MANAGER+ may mutate the task.
+    assertSelfOrManager({ ownerId: task.assignedTo, caller });
+
     const previousAssignedTo = task.assignedTo;
+    const previousStatus = task.status;
 
     if (input.title !== undefined) task.title = input.title;
     if (input.description !== undefined) task.description = input.description;
@@ -211,27 +231,63 @@ export class TaskService {
     if (input.isRecurring !== undefined) task.isRecurring = input.isRecurring;
     if (input.recurringTemplateId !== undefined) task.recurringTemplateId = input.recurringTemplateId;
 
-    const saved = await this.taskRepository.save(task);
-
-    // Publish TaskAssigned event if assignee changed
-    if (input.assignedTo && input.assignedTo !== previousAssignedTo && this.eventBus) {
-      try {
-        await this.eventBus.publish({
-          ...createBaseEvent('TaskAssigned', tenantId, { userId }),
-          taskId: saved.id,
-          title: saved.title,
-          assignedTo: saved.assignedTo,
-          assignedBy: userId,
-          dueDate: saved.dueDate.toISOString(),
-          priority: saved.priority,
-        });
-        this.logger.debug(`Published TaskAssigned event for task ${saved.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish TaskAssigned event: ${(eventError as Error).message}`);
-      }
+    // FARM-HIGH-056: a reopen (transition OUT of COMPLETED) nulls the completion
+    // fields so a reopened PENDING task never lies about being done and the stats
+    // SQL (which keys off completedAt) is not corrupted.
+    const isReopen =
+      previousStatus === TaskStatus.COMPLETED &&
+      task.status !== TaskStatus.COMPLETED;
+    if (isReopen) {
+      task.clearCompletion();
     }
 
-    return saved;
+    const statusChanged = task.status !== previousStatus;
+    const assigneeChanged =
+      input.assignedTo !== undefined && input.assignedTo !== previousAssignedTo;
+
+    // Atomic: save + outbox enqueue(s) in one transaction.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const saved = await queryRunner.manager.save(task);
+
+      if (assigneeChanged) {
+        await this.outboxPublisher.enqueue(
+          {
+            ...createBaseEvent('TaskAssigned', tenantId, { userId }),
+            taskId: saved.id,
+            title: saved.title,
+            assignedTo: saved.assignedTo,
+            assignedBy: userId,
+            dueDate: saved.dueDate.toISOString(),
+            priority: saved.priority,
+          },
+          queryRunner.manager,
+        );
+      }
+
+      if (statusChanged) {
+        await this.outboxPublisher.enqueue(
+          {
+            ...createBaseEvent('TaskStatusChanged', tenantId, { userId }),
+            taskId: saved.id,
+            previousStatus,
+            newStatus: saved.status,
+            changedBy: userId,
+          },
+          queryRunner.manager,
+        );
+      }
+
+      await queryRunner.commitTransaction();
+      return saved;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   /**
@@ -366,31 +422,77 @@ export class TaskService {
 
   /**
    * Görevi tamamlar
+   *
+   * SEC-HIGH-050: only the assignee or a MODULE_MANAGER+ may complete the task.
+   * FARM-HIGH-057: the offline-queued completion is idempotent via the
+   * at-most-once receipt — a replay returns the stored COMPLETED task WITHOUT a
+   * second transition (no "already completed" error), and the legacy (no-envelope)
+   * path is rejected so a retry can never double-apply.
    */
   async completeTask(
     tenantId: string,
     taskId: string,
-    completedBy: string,
+    caller: SelfScopeCaller,
+    envelope?: MobileCommandEnvelope | null,
   ): Promise<Task> {
-    const task = await this.findById(tenantId, taskId);
+    const completedBy = caller.sub;
 
-    if (task.status === TaskStatus.COMPLETED) {
-      throw new BadRequestException('Görev zaten tamamlanmış');
-    }
-    if (task.status === TaskStatus.CANCELLED) {
-      throw new BadRequestException('İptal edilmiş görev tamamlanamaz');
-    }
-
-    const previousStatus = task.status;
-    task.status = TaskStatus.COMPLETED;
-    task.completedAt = new Date();
-    task.completedBy = completedBy;
-
-    // Atomic: save + outbox enqueue in one transaction
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope,
+        operationType: 'completeTask',
+        responseType: 'Task',
+      });
+
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(Task, {
+              where: { id: receipt.responseId, tenantId },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
+      // FARM-HIGH-057: offline-queued task mutations REQUIRE an idempotency
+      // envelope. 'legacy' (no clientCommandId) is the no-key path where a retry
+      // would double-apply; reject it (same backstop as record-mortality).
+      if (receipt.mode === 'legacy') {
+        throw new BadRequestException(
+          'completeTask requires an idempotency envelope (clientCommandId + payloadHash)',
+        );
+      }
+
+      const task = await queryRunner.manager.findOne(Task, {
+        where: { id: taskId, tenantId },
+      });
+      if (!task) {
+        throw new NotFoundException(`Görev bulunamadı: ${taskId}`);
+      }
+
+      // SEC-HIGH-050: object-level authorization beneath the @Roles gate.
+      assertSelfOrManager({ ownerId: task.assignedTo, caller });
+
+      if (task.status === TaskStatus.COMPLETED) {
+        throw new BadRequestException('Görev zaten tamamlanmış');
+      }
+      if (task.status === TaskStatus.CANCELLED) {
+        throw new BadRequestException('İptal edilmiş görev tamamlanamaz');
+      }
+
+      const previousStatus = task.status;
+      task.status = TaskStatus.COMPLETED;
+      task.completedAt = new Date();
+      task.completedBy = completedBy;
+
       const saved = await queryRunner.manager.save(task);
 
       await this.outboxPublisher.enqueue(
@@ -406,6 +508,14 @@ export class TaskService {
         queryRunner.manager,
       );
 
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'Task',
+        responseId: saved.id,
+        responsePayload: { id: saved.id },
+      });
+
       await queryRunner.commitTransaction();
       this.logger.debug(`Published TaskCompleted event for task ${saved.id}`);
       return saved;
@@ -419,40 +529,89 @@ export class TaskService {
 
   /**
    * Görevi başlatır (IN_PROGRESS)
+   *
+   * SEC-HIGH-050: only the assignee or a MODULE_MANAGER+ may start the task.
+   * FARM-HIGH-057: idempotent via the at-most-once receipt — a replay returns the
+   * stored IN_PROGRESS task without a second transition; the legacy path is rejected.
    */
   async startTask(
     tenantId: string,
     taskId: string,
-    userId: string,
+    caller: SelfScopeCaller,
+    envelope?: MobileCommandEnvelope | null,
   ): Promise<Task> {
-    const task = await this.findById(tenantId, taskId);
+    const userId = caller.sub;
 
-    if (task.status !== TaskStatus.PENDING && task.status !== TaskStatus.OVERDUE) {
-      throw new BadRequestException(
-        'Sadece bekleyen veya gecikmiş görevler başlatılabilir',
-      );
-    }
-
-    const previousStatus = task.status;
-    task.status = TaskStatus.IN_PROGRESS;
-
-    // Atomic: save + outbox enqueue in one transaction
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
     try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope,
+        operationType: 'startTask',
+        responseType: 'Task',
+      });
+
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(Task, {
+              where: { id: receipt.responseId, tenantId },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
+      if (receipt.mode === 'legacy') {
+        throw new BadRequestException(
+          'startTask requires an idempotency envelope (clientCommandId + payloadHash)',
+        );
+      }
+
+      const task = await queryRunner.manager.findOne(Task, {
+        where: { id: taskId, tenantId },
+      });
+      if (!task) {
+        throw new NotFoundException(`Görev bulunamadı: ${taskId}`);
+      }
+
+      // SEC-HIGH-050: object-level authorization beneath the @Roles gate.
+      assertSelfOrManager({ ownerId: task.assignedTo, caller });
+
+      if (task.status !== TaskStatus.PENDING && task.status !== TaskStatus.OVERDUE) {
+        throw new BadRequestException(
+          'Sadece bekleyen veya gecikmiş görevler başlatılabilir',
+        );
+      }
+
+      const previousStatus = task.status;
+      task.status = TaskStatus.IN_PROGRESS;
+
       const saved = await queryRunner.manager.save(task);
 
       await this.outboxPublisher.enqueue(
         {
           ...createBaseEvent('TaskStatusChanged', tenantId, { userId }),
           taskId: saved.id,
-          title: saved.title,
           previousStatus,
           newStatus: TaskStatus.IN_PROGRESS,
+          changedBy: userId,
         },
         queryRunner.manager,
       );
+
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'Task',
+        responseId: saved.id,
+        responsePayload: { id: saved.id },
+      });
 
       await queryRunner.commitTransaction();
       return saved;
@@ -465,49 +624,120 @@ export class TaskService {
   }
 
   /**
-   * Checklist öğesini toggle eder
+   * Checklist öğesini verilen ABSOLUTE değere ayarlar (idempotent).
+   *
+   * FARM-HIGH-057: the old `toggleChecklistItem` FLIPPED the item, so a replayed
+   * offline toggle REVERTED it (lost update). This SETS `isCompleted` to the
+   * supplied absolute value, so any number of replays converge to the same state
+   * (idempotent by construction). The at-most-once receipt also short-circuits a
+   * replay to the stored task, and `completedAt` is derived from the target state.
+   *
+   * SEC-HIGH-050: only the assignee or a MODULE_MANAGER+ may set checklist items.
    */
-  async toggleChecklistItem(
+  async setChecklistItem(
     tenantId: string,
     taskId: string,
     itemId: string,
+    isCompleted: boolean,
+    caller: SelfScopeCaller,
+    envelope?: MobileCommandEnvelope | null,
   ): Promise<Task> {
-    const task = await this.findById(tenantId, taskId);
+    const userId = caller.sub;
 
-    if (!Array.isArray(task.checklistItems)) {
-      throw new BadRequestException('Görevde checklist bulunamadı');
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const receipt = await this.mobileCommandReceipts.begin(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        tenantId,
+        envelope,
+        operationType: 'setChecklistItem',
+        responseType: 'Task',
+      });
+
+      if (receipt.mode === 'replay') {
+        const replayed = receipt.responseId
+          ? await queryRunner.manager.findOne(Task, {
+              where: { id: receipt.responseId, tenantId },
+            })
+          : null;
+        if (!replayed) {
+          throw new ConflictException('Mobile command receipt response is no longer available');
+        }
+        await queryRunner.commitTransaction();
+        return replayed;
+      }
+
+      if (receipt.mode === 'legacy') {
+        throw new BadRequestException(
+          'setChecklistItem requires an idempotency envelope (clientCommandId + payloadHash)',
+        );
+      }
+
+      const task = await queryRunner.manager.findOne(Task, {
+        where: { id: taskId, tenantId },
+      });
+      if (!task) {
+        throw new NotFoundException(`Görev bulunamadı: ${taskId}`);
+      }
+
+      // SEC-HIGH-050: object-level authorization beneath the @Roles gate.
+      assertSelfOrManager({ ownerId: task.assignedTo, caller });
+
+      if (!Array.isArray(task.checklistItems)) {
+        throw new BadRequestException('Görevde checklist bulunamadı');
+      }
+
+      // Normalise the whole list so any legacy rows (missing id, or `completed`
+      // instead of `isCompleted`) are repaired on the same save.
+      task.checklistItems = task.checklistItems.map((i) =>
+        TaskService.normaliseChecklistItem(i),
+      );
+
+      const item = task.checklistItems.find((i) => i.id === itemId);
+      if (!item) {
+        throw new NotFoundException(`Checklist öğesi bulunamadı: ${itemId}`);
+      }
+
+      // Idempotent SET to the absolute target value (not a flip).
+      item.isCompleted = isCompleted;
+      item.completedAt = isCompleted ? new Date().toISOString() : null;
+      item.completedBy = isCompleted ? userId : undefined;
+
+      const saved = await queryRunner.manager.save(task);
+
+      await this.mobileCommandReceipts.complete(queryRunner.manager, {
+        tableName: 'farm_mobile_command_receipts',
+        receipt,
+        responseType: 'Task',
+        responseId: saved.id,
+        responsePayload: { id: saved.id },
+      });
+
+      await queryRunner.commitTransaction();
+      return saved;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    // Normalise the entire list before mutating so any legacy rows
-    // (missing id, or `completed` instead of `isCompleted`) are
-    // repaired on the same save. This prevents a toggle from leaving
-    // a half-legacy half-canonical list behind.
-    task.checklistItems = task.checklistItems.map((i) =>
-      TaskService.normaliseChecklistItem(i),
-    );
-
-    const item = task.checklistItems.find((i) => i.id === itemId);
-    if (!item) {
-      throw new NotFoundException(`Checklist öğesi bulunamadı: ${itemId}`);
-    }
-
-    // Canonical: `isCompleted` (UI field). The legacy `completed`
-    // field is dropped by the normaliser above.
-    item.isCompleted = !item.isCompleted;
-    item.completedAt = item.isCompleted ? new Date().toISOString() : null;
-
-    return this.taskRepository.save(task);
   }
 
   /**
    * Göreve not ekler
+   *
+   * SEC-HIGH-050: only the assignee or a MODULE_MANAGER+ may add a note.
    */
   async addNote(
     tenantId: string,
     taskId: string,
     text: string,
-    userId: string,
+    caller: SelfScopeCaller,
   ): Promise<Task> {
+    const userId = caller.sub;
+
     if (!text || text.trim().length === 0) {
       throw new BadRequestException('Not metni boş olamaz');
     }
@@ -516,6 +746,9 @@ export class TaskService {
     }
 
     const task = await this.findById(tenantId, taskId);
+
+    // SEC-HIGH-050: object-level authorization beneath the @Roles gate.
+    assertSelfOrManager({ ownerId: task.assignedTo, caller });
 
     if (!Array.isArray(task.notes)) {
       task.notes = [];

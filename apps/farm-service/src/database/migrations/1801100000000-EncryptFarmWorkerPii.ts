@@ -58,10 +58,10 @@ import {
  */
 
 /** Env var holding the AES-256 key (shared with nationalId, ADR DB-CRITICAL-001). */
-const PII_ENCRYPTION_KEY = 'EMPLOYEE_PII_ENCRYPTION_KEY';
+const PII_ENCRYPTION_KEY = 'EMPLOYEE_PII_ENCRYPTION_KEY'; // gitleaks:allow (env var NAME, not a secret value)
 
 /** Env var holding the HMAC key for the email blind index. */
-const PII_BLIND_INDEX_KEY = 'EMPLOYEE_PII_BLIND_INDEX_KEY';
+const PII_BLIND_INDEX_KEY = 'EMPLOYEE_PII_BLIND_INDEX_KEY'; // gitleaks:allow (env var NAME, not a secret value)
 
 /** Canonical GCM ciphertext prefix (see encrypted-column.transformer). */
 const GCM_PREFIX = 'enc:';

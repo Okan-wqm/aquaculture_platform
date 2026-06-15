@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WelfareEventTab } from '../WelfareEventTab';
 import { EscapeReportTab } from '../EscapeReportTab';
 import { DiseaseOutbreakTab } from '../DiseaseOutbreakTab';
+import '@testing-library/jest-dom/vitest';
 
 // ── graphqlClient.request is the seam we drive success/failure through ──
 // Hoisted so the (hoisted) vi.mock factories below can safely reference it.

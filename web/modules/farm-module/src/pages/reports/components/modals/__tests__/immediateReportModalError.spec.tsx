@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WelfareEventModal } from '../WelfareEventModal';
 import { EscapeReportModal } from '../EscapeReportModal';
 import { DiseaseOutbreakModal } from '../DiseaseOutbreakModal';
+import '@testing-library/jest-dom/vitest';
 
 // Empty tank/batch lists → modals render text-input fallbacks (no live data).
 vi.mock('../../../../../hooks/useTanks', () => ({

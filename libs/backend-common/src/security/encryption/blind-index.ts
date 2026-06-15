@@ -1,5 +1,6 @@
-import { Logger } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'crypto';
+
+import { Logger } from '@nestjs/common';
 
 /**
  * Blind index (deterministic keyed hash) for encrypted-at-rest lookup columns.

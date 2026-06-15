@@ -29,6 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from .implementation_rejections import V9_MERGE_PATH_DISABLED_REJECTION_CLASS
 from .ledger import load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir
 
@@ -581,7 +582,7 @@ def evaluate_v9_implementation_merge(
         eligible=False,
         plan_id=plan_id,
         pr_number=pr_number,
-        rejection_class="v9_merge_path_disabled_use_merge_if_green",
+        rejection_class=V9_MERGE_PATH_DISABLED_REJECTION_CLASS,
         idempotency_key_hash=idempotency_key,
         decision_at_utc=decision_at,
         pre_merge_branch_tip_sha=None,

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 
 import { SettingsModule } from '../settings/settings.module';
 
@@ -27,15 +27,15 @@ import { UsersService } from './users.service';
      * auth-service the SINGLE writer — the `password` column name lives on
      * the entity once, and admin-api never knows or cares what it's called.
      *
-     * Shares the naming convention (`*_NATS_CLIENT`) and factory
-     * (`buildNatsTransportOptions`) with `MessagingAdminModule` so all
+     * Shares the naming convention (`*_NATS_CLIENT`) and the platform
+     * `NatsV3Client` transport with `MessagingAdminModule` so all
      * cross-service RPC in admin-api is consistent.
      */
     ClientsModule.register([
       {
         name: 'AUTH_NATS_CLIENT',
-        transport: Transport.NATS,
-        options: buildNatsTransportOptions('admin-api-service'),
+        customClass: NatsV3Client,
+        options: { serviceName: 'admin-api-service' },
       },
     ]),
   ],

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
-import { connect, StringCodec } from 'nats';
+import { connect } from '@nats-io/transport-node';
 
 const root = process.cwd();
 
@@ -171,26 +171,25 @@ if (mode === 'static') {
 const connection = await connect(buildNatsOptions());
 
 try {
-  const sc = StringCodec();
   const tenantId = process.env.NATS_ACL_SMOKE_TENANT_ID ?? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const allowedSubject = `events.${tenantId}.MessageSent`;
+  // v3: publish accepts a string payload directly (UTF-8 encoded) — byte-identical
+  // to the removed nats v2 StringCodec().encode().
   connection.publish(
     allowedSubject,
-    sc.encode(
-      JSON.stringify({
-        eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-        eventType: 'MessageSent',
-        timestamp: new Date().toISOString(),
-        tenantId,
-        version: 1,
-        channelId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-        messageId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-        senderId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-        contentType: 'TEXT',
-        hasAttachments: false,
-        createdAt: new Date().toISOString(),
-      }),
-    ),
+    JSON.stringify({
+      eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      eventType: 'MessageSent',
+      timestamp: new Date().toISOString(),
+      tenantId,
+      version: 1,
+      channelId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      messageId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      senderId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      contentType: 'TEXT',
+      hasAttachments: false,
+      createdAt: new Date().toISOString(),
+    }),
   );
   await connection.flush();
 } finally {

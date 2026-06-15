@@ -3836,8 +3836,6 @@ Discovered while gating B2 (#411). Pairs with ORPHAN-MEDIUM-055 (same E2E Postgr
 
 Status: RESOLVED (2026-06-13; #441 b4f484130). The heavy one-time bootstrap moved to Jest `globalSetup` (outside the 60s per-hook budget) behind a Postgres readiness poll with a loud explicit failure; the per-spec beforeAll is now a fast idempotent no-op. Root cause (boot cost inside the hook budget) eliminated. NOTE: flake-RATE reduction confirms over several post-merge E2E runs (the suite was ~50%; one green run is necessary but not sufficient) — re-open if cancellations persist. Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-092.
 
-**PERSISTS — should be RE-OPENED (2026-06-13, post-#441):** cancellations have NOT stopped. Two independent runs hit the job's 20-minute hard ceiling and cancel: pure-main **#445** (`fix/messaging-e2e-eventbus-mock`, E2E job `81223560372`: "The job has exceeded the maximum execution time of 20m0s" → "The operation was canceled") and the **aquamobil-msg-federation PR #442** (job `81229811520`, 20m14s, 8× `FAIL messaging-service-e2e`, identical "operation was canceled"). #441 removed the 60s-per-hook self-cancel by moving boot to `globalSetup`, but the SUITE WALL-CLOCK still exceeds 20m — `channel-management.e2e-spec.ts` alone ran **503 s**, and per-hook `Exceeded timeout of 60000 ms` still appears, so individual suites keep hanging and the total blows the job limit. Confirmed **environmental / pre-existing** (identical failure on pure-main #445, including suites unrelated to #442 such as Content Sanitization) and **NOT introduced by #442** — its messaging resolvers resolve presence locally (Redis `PresenceService`, no unbounded NATS; `channelEligibleUsers` is `rxjs timeout`-guarded). E2E Tests is NOT in `branches/main/protection/required_status_checks`, so it blocks no merge — but it gives ZERO signal (incl. the SECURITY-CRITICAL `Tenant B cannot read Tenant A messages` test that never completes). Fix direction (separate infra initiative): profile per-suite `createE2eTestApp` cost (likely NATS v3 connect timing + shared-DB contention), shard messaging-e2e or parallelize + raise the timeout, and gate "RESOLVED" on a confirmed green run.
-
 ---
 
 ## ORPHAN-MEDIUM-055 — messaging-service background sweep queries non-existent `m.embedding` column
@@ -4087,7 +4085,33 @@ Severity: MEDIUM. Discovered 2026-06-13 during Wave-2 close-out (verifying the s
 
 Status: OPEN (2026-06-13; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.
 
+## ORPHAN-HIGH-101 — postgres-protocol/tokio-postgres newly-published RustSec advisories red-line all Rust CI
+
+Severity: HIGH. `cargo-audit` and `cargo-deny` (advisories check) fail on every Rust PR because of three newly-published advisories on transitive Postgres crates: **RUSTSEC-2026-0179** (HIGH 8.7 — `postgres-protocol` unbounded SCRAM iteration count, a malicious server can cause CPU-exhaustion DoS), **RUSTSEC-2026-0180** (MEDIUM — `postgres-protocol` panic decoding a malformed `hstore`), **RUSTSEC-2026-0178** (MEDIUM — `tokio-postgres` panic on a `DataRow` with fewer fields than columns). The platform's `.cargo/audit.toml` ignore list is empty, so these are denied. Main's last rust-ci runs are green only because they predate the advisory publication.
+
+Root cause: time-of-publication, not a code change — a fresh RustSec advisory on an already-resident dependency. Fix (highest tier — upgrade to the patched release, not an ignore): `postgres-protocol` 0.6.11 → 0.6.12, `tokio-postgres` 0.7.17 → 0.7.18 (cascades `postgres-types` 0.2.14). The direct dep `tokio-postgres = "0.7"` (crates/outbox-rs + apps/sensor-ingestion) already permits the patched release, so a lockfile bump suffices; no Cargo.toml change.
+
+Discovered gating R1's Rust CI (#450); affects the whole repo. Fixed in branch `security/rustsec-2026-postgres`. Only the root workspace is affected (sens-api-gateway does not use these crates).
+
+Status: OPEN (2026-06-14; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-101.
+
 ---
+
+## ORPHAN-CRITICAL-101 — auth role-table consumers (tenant-role / tenant-user-management / user-lifecycle services) query the DROPPED per-tenant role tables
+
+Severity: CRITICAL. Discovered + RESOLVED 2026-06-14 during Wave-5 closeout (auth-service service-audit), lead-verified firsthand. This is the non-token-service half of the schema-centralization defect; the token.service login-path half is ORPHAN-CRITICAL-100 (token.service `getUserResourcePermissions`, repointed by W4 PR #440).
+
+**Problem:** Migration `apps/admin-api-service/src/migrations/1800500000000-TenantProvisioningTopology.ts` MOVES `user_role_assignments` / `tenant_roles` / `tenant_role_permissions` from per-tenant `tenant_<uuid>` schemas into the shared `auth` schema (INSERT then `DROP TABLE ... tenant_<schema>.*`, RAISEs if any tenant copy remains). But three auth-service services still issued `"${schemaName}"."<role table>"` (per-tenant, string-interpolated) queries — ~45 in `tenant-role.service.ts`, ~15 in `tenant-user-management.service.ts`, plus `user-lifecycle.service.ts` `deleteUser` role-revoke + private `createRoleAssignment`. On a migrated DB every role-management operation (create/update/delete role, assign/revoke user role, set default, user delete) throws `relation does not exist`.
+
+**Fix (RESOLVED, this PR):** repointed all role-table SQL to `"auth"."<table>"` tenant-scoped — `tenant_roles` by `AND tr."tenantId" = $x`; child tables (`user_role_assignments`, `tenant_role_permissions`, no tenantId column) by a write-side `JOIN/FROM "auth"."tenant_roles" tr ... AND tr."tenantId" = $x` so every WRITE carries its own tenant guard. Load-bearing corrections from the adversarial review swarm: (a) `assignRoleToUser` re-keyed to the global `UNIQUE(user_id)` (one-row-per-user re-point, never a 2nd INSERT) + a tenant-scoped `SELECT 1 FROM auth.users WHERE id=$1 AND "tenantId"=$2` user pre-validation (blocks attaching a foreign-tenant user to a tenant role); (b) `is_default` unset-writes carry `AND "tenantId"=$x` (else platform-wide default-role corruption); (c) only GROUND-TRUTH columns (auth.user_role_assignments has NO `updated_by`/`removed_by`/`removed_at`); (d) `assertRoleGrantAuthority` actor lookup tenant-pinned; (e) `audit-log.service.log()` gained a manager-aware overload so in-transaction audits are atomic with the mutation. Verified firsthand on every axis (columns, cross-tenant-write guard, interpolation=0, param-index, actor-pin, audit manager-threading) + 121/121 unit/regression tests.
+
+**Tracked follow-ups (NOT this PR):**
+- token.service `getUserResourcePermissions` repoint — owned by W4 PR #440 (intentionally not touched here to avoid a merge conflict on the same method).
+- Stale-row edge (MEDIUM): `assignRoleToUser`/`createRoleAssignment` existing-row SELECT JOINs `tr."tenantId"`, so a user whose single `user_role_assignments` row points to a non-current-tenant or NULL-tenant role is missed → falls to INSERT → `UNIQUE(user_id)` violation. Fails LOUD on anomalous data (the user pre-validation already blocks the cross-tenant write); robust fix = read the user's row by `user_id` alone. Owner: auth-security-expert.
+- DB-layer backstops (data-expert): partial `UNIQUE INDEX ON auth.tenant_roles ("tenantId") WHERE is_default` (single-default invariant is app-enforced only); NULL-tenant (platform-global) role semantics for equality predicates.
+- Tier-1 structural hardening (tracked by description — the `ORPHAN-HIGH-101` id is now held by an unrelated postgres-RustSec finding on main): add a `tenantId` column (+ FK/RLS) to `auth.user_role_assignments` so assignments are directly tenant-scoped, replacing the JOIN-laundering. Owner: auth-security-expert + data-expert.
+
+Status: RESOLVED (2026-06-14, this PR — tenant-role/tenant-user-management/user-lifecycle repoint); token.service via W4 #440; sub-items above OPEN. Owner: auth-security-expert. Registry: orphan-findings.md only.
 
 ## ORPHAN-MEDIUM-104 — platform/configs typed config-schema SSoT is empty; services read process.env ad-hoc
 
@@ -4102,7 +4126,6 @@ Severity: MEDIUM. Discovered 2026-06-13 during the AquaMobil e2e audit, frontend
 Status: OPEN (2026-06-13; owner: frontend-expert → platform; separate initiative). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-MEDIUM-104.
 
 ---
-
 ## ORPHAN-MEDIUM-105 — lint-gates husky pre-commit gate is broken under ESLint 9 (eslintrc-format parserOptions fed to a flat-config Linter)
 
 Severity: MEDIUM. Discovered 2026-06-13 while landing the aquamobil-msg-federation merge — the husky pre-commit hook blocked the merge commit (13/19 gate cases threw). RESOLVED in the same merge.
@@ -4116,7 +4139,6 @@ Severity: MEDIUM. Discovered 2026-06-13 while landing the aquamobil-msg-federati
 Status: RESOLVED (2026-06-13; fixed in the aquamobil-msg-federation merge commit). Registry: orphan-findings.md only.
 
 ---
-
 ## ORPHAN-MEDIUM-106 — hr-module GraphQL fragments drift from the live schema (codegen-blocking)
 
 Severity: MEDIUM. Discovered 2026-06-14 while standing up the AquaMobil graphql-codegen client-contract SSoT (S1-CODEGEN). Out of the S1 scope (S1 is the AquaMobil client contract + messaging enum-casing) — recorded here per the every-found-finding-is-registered rule.
@@ -4134,7 +4156,6 @@ These documents fail GraphQL document validation, so codegen aborts the ENTIRE r
 Status: OPEN (2026-06-14; owner: frontend-expert → hr-module; tracked follow-up). Registry: orphan-findings.md only.
 
 ---
-
 ## ORPHAN-LOW-107 — AquaMobil leave-balance rows show a generic "Leave" label (no per-type enrichment)
 
 Severity: LOW. Discovered 2026-06-14 during S1-CODEGEN, fixing a client-contract drift the codegen gate caught.

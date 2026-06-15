@@ -45,20 +45,17 @@ export default defineConfig({
       },
       selfDestroying: false,
       workbox: {
-        // Disable precaching entirely -- all assets use runtimeCaching.
-        // This prevents vite-plugin-pwa from failing when glob patterns match no files in Docker builds.
-        globPatterns: [],
-
-        // FIX(SW-001): Disable the auto-generated NavigationRoute that binds to
-        // createHandlerBoundToURL("index.html"). vite-plugin-pwa auto-generates this
-        // when registerType is 'autoUpdate', but createHandlerBoundToURL requires the
-        // URL to exist in the precache manifest. Since globPatterns is [], index.html
-        // is NOT precached, causing:
-        //   "Uncaught (in promise) non-precached-url :: [{"url":"index.html"}]"
-        // Using navigateFallbackDenylist with a catch-all regex prevents the NavigationRoute
-        // from matching any request. SPA navigation is handled by the NetworkFirst
-        // runtimeCaching rule below instead.
-        navigateFallbackDenylist: [/./],
+        // FE-HIGH-058 / FIX(SW-001): navigation fallback must point at a
+        // precached app shell. Keeping globPatterns empty while using the
+        // default "index.html" fallback makes Workbox throw
+        // `non-precached-url` at service-worker startup.
+        globPatterns: [
+          'index.html',
+          'assets/index-*.{js,css}',
+          'assets/vendor-*.js',
+          'assets/query-*.js',
+        ],
+        navigateFallback: 'index.html',
 
         // FIX(SW-002): skipWaiting + clientsClaim ensure the new service worker activates
         // immediately on deployment, replacing the old SW without waiting for all tabs to close.

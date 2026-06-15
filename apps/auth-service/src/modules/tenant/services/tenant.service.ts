@@ -623,9 +623,13 @@ export class TenantService {
     return saved;
   }
 
-  // NOTE: updateTenantSettings was removed — role-based field filtering is
-  // consolidated into update(id, input, role) above (single update path,
-  // single TenantUpdated emission point). See tenant-update-consolidation.spec.
+  // NOTE: there is no service-level tenant-update method here. The W1 slice
+  // (CLAUDE-HIGH-015) added a role-filtering update(id, input, role); the
+  // enterprise train then converged tenant mutation authority onto the
+  // command-receipt/FSM path, so the GraphQL updateTenant resolver now rejects
+  // outright (stronger than field filtering — nothing mutates tenants outside
+  // the governed command path) and the service-level update + updateTenantSettings
+  // were both removed. See tenant.resolver.updateTenant + tenant-update-consolidation.spec.
 
   /**
    * Count active sessions for a tenant.

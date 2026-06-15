@@ -24,6 +24,18 @@ function makeLegacyData(): DeffeyesChartData {
 }
 
 describe('DeffeyesChart', () => {
+  it('labels DIC on the x-axis, alkalinity on the y-axis, and pH isolines inside the chart', () => {
+    render(
+      <div style={{ width: 900, height: 760 }}>
+        <DeffeyesChart data={makeLegacyData()} />
+      </div>
+    );
+
+    expect(screen.getByText('DIC (mmol/L)')).toBeInTheDocument();
+    expect(screen.getByText('Alkalinity (meq/L)')).toBeInTheDocument();
+    expect(screen.getByText('pH 7.0')).toHaveAttribute('text-anchor', 'middle');
+  });
+
   it('keeps the target path visible when only the current marker is toggled off', async () => {
     const user = userEvent.setup();
     const { container } = render(

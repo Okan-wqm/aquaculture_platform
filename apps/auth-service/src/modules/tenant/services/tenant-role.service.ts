@@ -1,7 +1,6 @@
 import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common/database';
 
 /**
  * Default tenant roles seed data
@@ -287,21 +286,16 @@ export class TenantRoleService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly schemaManager: SchemaManagerService,
   ) {}
 
   /**
    * Get all roles for a tenant
    */
   async getTenantRoles(tenantId: string): Promise<TenantRoleWithDetails[]> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
-    const tableExists = await this.schemaManager.tableExists(schemaName, 'tenant_roles');
-    if (!tableExists) {
-      this.logger.warn(`tenant_roles table does not exist in schema ${schemaName}`);
-      return [];
-    }
-
+    // Repointed to auth.* (ORPHAN-CRITICAL-100): tenant_roles is the only table
+    // carrying "tenantId"; the user_count subquery launders tenant ownership
+    // through an inner join on tenant_roles so foreign-tenant assignments cannot
+    // inflate the count. tenant_role_permissions has no tenantId column.
     const roles = await this.dataSource.query(
       `
       SELECT
@@ -310,16 +304,19 @@ export class TenantRoleService {
         p.panel_permissions,
         p.resource_permissions,
         COALESCE(uc.user_count, 0)::int as user_count
-      FROM "${schemaName}"."tenant_roles" r
-      LEFT JOIN "${schemaName}"."tenant_role_permissions" p ON r.id = p.role_id
+      FROM "auth"."tenant_roles" r
+      LEFT JOIN "auth"."tenant_role_permissions" p ON r.id = p.role_id
       LEFT JOIN (
-        SELECT role_id, COUNT(*)::int as user_count
-        FROM "${schemaName}"."user_role_assignments"
-        WHERE is_active = true
-        GROUP BY role_id
+        SELECT ura.role_id, COUNT(*)::int as user_count
+        FROM "auth"."user_role_assignments" ura
+        JOIN "auth"."tenant_roles" trc ON trc.id = ura.role_id AND trc."tenantId" = $1
+        WHERE ura.is_active = true
+        GROUP BY ura.role_id
       ) uc ON r.id = uc.role_id
+      WHERE r."tenantId" = $1
       ORDER BY r.level DESC, r.name ASC
       `,
+      [tenantId],
     );
 
     return roles.map((row: Record<string, unknown>) => this.mapRowToRole(row));
@@ -329,8 +326,10 @@ export class TenantRoleService {
    * Get a single role by ID
    */
   async getRoleById(tenantId: string, roleId: string): Promise<TenantRoleWithDetails | null> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
+    // Repointed to auth.* (ORPHAN-CRITICAL-100, FINDING #3): this is the
+    // in-tenant validator other methods (createRole/updateRole/setDefaultRole)
+    // re-read through, so it MUST scope to "tenantId" — previously it filtered
+    // by id alone, returning a foreign-tenant role to its callers.
     const result = await this.dataSource.query(
       `
       SELECT
@@ -339,17 +338,18 @@ export class TenantRoleService {
         p.panel_permissions,
         p.resource_permissions,
         COALESCE(uc.user_count, 0)::int as user_count
-      FROM "${schemaName}"."tenant_roles" r
-      LEFT JOIN "${schemaName}"."tenant_role_permissions" p ON r.id = p.role_id
+      FROM "auth"."tenant_roles" r
+      LEFT JOIN "auth"."tenant_role_permissions" p ON r.id = p.role_id
       LEFT JOIN (
-        SELECT role_id, COUNT(*)::int as user_count
-        FROM "${schemaName}"."user_role_assignments"
-        WHERE is_active = true
-        GROUP BY role_id
+        SELECT ura.role_id, COUNT(*)::int as user_count
+        FROM "auth"."user_role_assignments" ura
+        JOIN "auth"."tenant_roles" trc ON trc.id = ura.role_id AND trc."tenantId" = $2
+        WHERE ura.is_active = true
+        GROUP BY ura.role_id
       ) uc ON r.id = uc.role_id
-      WHERE r.id = $1
+      WHERE r.id = $1 AND r."tenantId" = $2
       `,
-      [roleId],
+      [roleId, tenantId],
     );
 
     if (result.length === 0) {
@@ -363,8 +363,10 @@ export class TenantRoleService {
    * Get the default role for a tenant
    */
   async getDefaultRole(tenantId: string): Promise<TenantRoleWithDetails | null> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
-
+    // Repointed to auth.* (ORPHAN-CRITICAL-100, FINDING #3 CRITICAL site):
+    // without the tenantId predicate this returned ANY tenant's default role.
+    // Equality on "tenantId" intentionally skips NULL-tenant (platform-global)
+    // rows — see NULL-tenant decision in the blueprint.
     const result = await this.dataSource.query(
       `
       SELECT
@@ -373,11 +375,12 @@ export class TenantRoleService {
         p.panel_permissions,
         p.resource_permissions,
         0 as user_count
-      FROM "${schemaName}"."tenant_roles" r
-      LEFT JOIN "${schemaName}"."tenant_role_permissions" p ON r.id = p.role_id
-      WHERE r.is_default = true
+      FROM "auth"."tenant_roles" r
+      LEFT JOIN "auth"."tenant_role_permissions" p ON r.id = p.role_id
+      WHERE r.is_default = true AND r."tenantId" = $1
       LIMIT 1
       `,
+      [tenantId],
     );
 
     if (result.length === 0) {
@@ -407,7 +410,6 @@ export class TenantRoleService {
     },
     createdBy: string,
   ): Promise<TenantRoleWithDetails> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
@@ -415,32 +417,39 @@ export class TenantRoleService {
 
     try {
       // Check for duplicate name with FOR UPDATE to prevent race conditions
-      // This locks any matching rows and prevents concurrent inserts with same name
+      // This locks any matching rows and prevents concurrent inserts with same name.
+      // Repointed to auth.* (ORPHAN-CRITICAL-100): the dup check is scoped to
+      // this tenant so a same name in another tenant is not a conflict.
       const existing = await queryRunner.query(
-        `SELECT id FROM "${schemaName}"."tenant_roles" WHERE LOWER(name) = LOWER($1) FOR UPDATE`,
-        [input.name],
+        `SELECT id FROM "auth"."tenant_roles" WHERE LOWER(name) = LOWER($1) AND "tenantId" = $2 FOR UPDATE`,
+        [input.name, tenantId],
       );
 
       if (existing.length > 0) {
         throw new ConflictException(`Role with name "${input.name}" already exists`);
       }
 
-      // If this is set as default, unset other defaults (with locking)
+      // If this is set as default, unset other defaults (with locking).
+      // CRITICAL (FINDING #3): the AND "tenantId" = $1 guard prevents
+      // platform-wide default-role corruption across every other tenant.
       if (input.isDefault) {
         await queryRunner.query(
-          `UPDATE "${schemaName}"."tenant_roles" SET is_default = false, updated_at = NOW() WHERE is_default = true`,
+          `UPDATE "auth"."tenant_roles" SET is_default = false, updated_at = NOW() WHERE is_default = true AND "tenantId" = $1`,
+          [tenantId],
         );
       }
 
-      // Create the role
+      // Create the role. "tenantId" is the leading bound param ($1); every
+      // subsequent positional param shifted +1 from the pre-repoint shape.
       const roleResult = await queryRunner.query(
         `
-        INSERT INTO "${schemaName}"."tenant_roles" (
-          name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, false, $6, $7, NOW(), NOW())
+        INSERT INTO "auth"."tenant_roles" (
+          "tenantId", name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8, NOW(), NOW())
         RETURNING *
         `,
         [
+          tenantId,
           input.name,
           input.description || null,
           input.color || '#6366F1',
@@ -453,12 +462,14 @@ export class TenantRoleService {
 
       const roleId = roleResult[0].id;
 
-      // Create role permissions within the same transaction
+      // Create role permissions within the same transaction. tenant_role_permissions
+      // has no tenantId column; ownership is transitive via the role_id of the
+      // tenant-owned role inserted above in the same SERIALIZABLE tx.
       const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
 
       await queryRunner.query(
         `
-        INSERT INTO "${schemaName}"."tenant_role_permissions" (
+        INSERT INTO "auth"."tenant_role_permissions" (
           role_id, panel_permissions, resource_permissions, created_at, updated_at
         ) VALUES ($1, $2, $3, NOW(), NOW())
         `,
@@ -508,23 +519,24 @@ export class TenantRoleService {
     },
     _updatedBy: string,
   ): Promise<TenantRoleWithDetails> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // Lock the role row for update to prevent concurrent modifications
+      // Lock the role row for update to prevent concurrent modifications.
+      // Repointed to auth.* (ORPHAN-CRITICAL-100): the tenantId predicate makes
+      // a foreign roleId return 0 rows → NotFoundException (no cross-tenant peek).
       const existingResult = await queryRunner.query(
         `
         SELECT r.*, p.id as permission_id, p.panel_permissions, p.resource_permissions
-        FROM "${schemaName}"."tenant_roles" r
-        LEFT JOIN "${schemaName}"."tenant_role_permissions" p ON r.id = p.role_id
-        WHERE r.id = $1
+        FROM "auth"."tenant_roles" r
+        LEFT JOIN "auth"."tenant_role_permissions" p ON r.id = p.role_id
+        WHERE r.id = $1 AND r."tenantId" = $2
         FOR UPDATE OF r
         `,
-        [roleId],
+        [roleId, tenantId],
       );
 
       if (existingResult.length === 0) {
@@ -539,22 +551,25 @@ export class TenantRoleService {
         }
       }
 
-      // Check for duplicate name with locking to prevent race conditions
+      // Check for duplicate name with locking to prevent race conditions.
+      // Repointed to auth.* (ORPHAN-CRITICAL-100): scoped to this tenant.
       if (input.name && input.name !== existing.name) {
         const duplicate = await queryRunner.query(
-          `SELECT id FROM "${schemaName}"."tenant_roles" WHERE LOWER(name) = LOWER($1) AND id != $2 FOR UPDATE`,
-          [input.name, roleId],
+          `SELECT id FROM "auth"."tenant_roles" WHERE LOWER(name) = LOWER($1) AND id != $2 AND "tenantId" = $3 FOR UPDATE`,
+          [input.name, roleId, tenantId],
         );
         if (duplicate.length > 0) {
           throw new ConflictException(`Role with name "${input.name}" already exists`);
         }
       }
 
-      // If setting as default, unset other defaults within transaction
+      // If setting as default, unset other defaults within transaction.
+      // CRITICAL (FINDING #3): AND "tenantId" = $2 scopes the unset to this
+      // tenant; without it the write would clear defaults in every tenant.
       if (input.isDefault && !existing.isDefault) {
         await queryRunner.query(
-          `UPDATE "${schemaName}"."tenant_roles" SET is_default = false, updated_at = NOW() WHERE is_default = true AND id != $1`,
-          [roleId],
+          `UPDATE "auth"."tenant_roles" SET is_default = false, updated_at = NOW() WHERE is_default = true AND id != $1 AND "tenantId" = $2`,
+          [roleId, tenantId],
         );
       }
 
@@ -588,26 +603,37 @@ export class TenantRoleService {
       }
 
       updateFields.push(`updated_at = NOW()`);
+      // Param-index discipline (ORPHAN-CRITICAL-100): roleId occupies
+      // $${paramIndex}; tenantId is pushed immediately after at $${paramIndex + 1}.
+      // The WHERE carries its own tenant guard so the write is fail-closed
+      // independent of the lock-load above. An off-by-one here would silently
+      // drop the tenant guard, so the two pushes mirror the two positional refs.
       values.push(roleId);
+      values.push(tenantId);
+      const roleIdParam = paramIndex;
+      const tenantIdParam = paramIndex + 1;
 
       if (updateFields.length > 1) {
         await queryRunner.query(
-          `UPDATE "${schemaName}"."tenant_roles" SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`,
+          `UPDATE "auth"."tenant_roles" SET ${updateFields.join(', ')} WHERE id = $${roleIdParam} AND "tenantId" = $${tenantIdParam}`,
           values,
         );
       }
 
-      // Update permissions within the same transaction
+      // Update permissions within the same transaction. tenant_role_permissions
+      // has no tenantId column, so ownership is laundered through a write-side
+      // join on tenant_roles (ORPHAN-CRITICAL-100).
       if (input.panelPermissions) {
         const resourcePermissions = panelPermissionsToResourceArray(input.panelPermissions);
 
         await queryRunner.query(
           `
-          UPDATE "${schemaName}"."tenant_role_permissions"
+          UPDATE "auth"."tenant_role_permissions" trp
           SET panel_permissions = $1, resource_permissions = $2, updated_at = NOW()
-          WHERE role_id = $3
+          FROM "auth"."tenant_roles" tr
+          WHERE trp.role_id = tr.id AND trp.role_id = $3 AND tr."tenantId" = $4
           `,
-          [JSON.stringify(input.panelPermissions), resourcePermissions, roleId],
+          [JSON.stringify(input.panelPermissions), resourcePermissions, roleId, tenantId],
         );
       }
 
@@ -641,30 +667,32 @@ export class TenantRoleService {
    * - Prevents deletion while users are being assigned
    */
   async deleteRole(tenantId: string, roleId: string, _deletedBy: string): Promise<boolean> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // Lock the role and get accurate user count within transaction
+      // Lock the role and get accurate user count within transaction.
+      // Repointed to auth.* (ORPHAN-CRITICAL-100): outer filter on r."tenantId"
+      // and the user_count subquery join on trc."tenantId" both scope to tenant.
       const roleResult = await queryRunner.query(
         `
         SELECT
           r.*,
           COALESCE(uc.user_count, 0)::int as user_count
-        FROM "${schemaName}"."tenant_roles" r
+        FROM "auth"."tenant_roles" r
         LEFT JOIN (
-          SELECT role_id, COUNT(*)::int as user_count
-          FROM "${schemaName}"."user_role_assignments"
-          WHERE is_active = true
-          GROUP BY role_id
+          SELECT ura.role_id, COUNT(*)::int as user_count
+          FROM "auth"."user_role_assignments" ura
+          JOIN "auth"."tenant_roles" trc ON trc.id = ura.role_id AND trc."tenantId" = $2
+          WHERE ura.is_active = true
+          GROUP BY ura.role_id
         ) uc ON r.id = uc.role_id
-        WHERE r.id = $1
+        WHERE r.id = $1 AND r."tenantId" = $2
         FOR UPDATE OF r
         `,
-        [roleId],
+        [roleId, tenantId],
       );
 
       if (roleResult.length === 0) {
@@ -683,16 +711,18 @@ export class TenantRoleService {
         );
       }
 
-      // Delete role permissions first (if not using CASCADE)
+      // Delete role permissions first (if not using CASCADE). tenant_role_permissions
+      // has no tenantId column, so the delete is laundered through a write-side
+      // join on tenant_roles (ORPHAN-CRITICAL-100).
       await queryRunner.query(
-        `DELETE FROM "${schemaName}"."tenant_role_permissions" WHERE role_id = $1`,
-        [roleId],
+        `DELETE FROM "auth"."tenant_role_permissions" trp USING "auth"."tenant_roles" tr WHERE trp.role_id = tr.id AND trp.role_id = $1 AND tr."tenantId" = $2`,
+        [roleId, tenantId],
       );
 
-      // Delete the role
+      // Delete the role. Carries its own tenant guard (ORPHAN-CRITICAL-100).
       await queryRunner.query(
-        `DELETE FROM "${schemaName}"."tenant_roles" WHERE id = $1`,
-        [roleId],
+        `DELETE FROM "auth"."tenant_roles" WHERE id = $1 AND "tenantId" = $2`,
+        [roleId, tenantId],
       );
 
       await queryRunner.commitTransaction();
@@ -721,16 +751,19 @@ export class TenantRoleService {
    * - Prevents race conditions if called multiple times
    */
   async seedDefaultRoles(tenantId: string, createdBy: string): Promise<TenantRoleWithDetails[]> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // Check if roles already exist (with lock to prevent race condition)
+      // Check if roles already exist (with lock to prevent race condition).
+      // Repointed to auth.* (ORPHAN-CRITICAL-100): WHERE "tenantId" = $1 is
+      // load-bearing — without it a brand-new tenant is told roles already
+      // exist (skipping its seed) and takes a cross-tenant lock.
       const existingRoles = await queryRunner.query(
-        `SELECT COUNT(*)::int as count FROM "${schemaName}"."tenant_roles" FOR UPDATE`,
+        `SELECT COUNT(*)::int as count FROM "auth"."tenant_roles" WHERE "tenantId" = $1 FOR UPDATE`,
+        [tenantId],
       );
 
       if (existingRoles[0].count > 0) {
@@ -742,14 +775,16 @@ export class TenantRoleService {
       this.logger.log(`Seeding default roles for tenant ${tenantId}`);
 
       for (const roleTemplate of DEFAULT_TENANT_ROLES) {
+        // "tenantId" prepended as $1 (ORPHAN-CRITICAL-100); template params shift +1.
         const roleResult = await queryRunner.query(
           `
-          INSERT INTO "${schemaName}"."tenant_roles" (
-            name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+          INSERT INTO "auth"."tenant_roles" (
+            "tenantId", name, description, color, icon, level, is_system, is_default, created_by, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
           RETURNING id
           `,
           [
+            tenantId,
             roleTemplate.name,
             roleTemplate.description,
             roleTemplate.color,
@@ -765,9 +800,10 @@ export class TenantRoleService {
         const defaultPermissions = DEFAULT_ROLE_PERMISSIONS[roleTemplate.name] || {};
         const resourcePermissions = panelPermissionsToResourceArray(defaultPermissions);
 
+        // Tenant-safe transitively via the role_id inserted above in this tx.
         await queryRunner.query(
           `
-          INSERT INTO "${schemaName}"."tenant_role_permissions" (
+          INSERT INTO "auth"."tenant_role_permissions" (
             role_id, panel_permissions, resource_permissions, created_at, updated_at
           ) VALUES ($1, $2, $3, NOW(), NOW())
           `,
@@ -815,54 +851,77 @@ export class TenantRoleService {
     roleId: string,
     assignedBy: string,
   ): Promise<{ id: string; userId: string; roleId: string; isActive: boolean }> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // Lock the role to ensure it exists and is not being deleted
+      // Tenant-scoped user pre-validation (ORPHAN-CRITICAL-100, FINDING #1).
+      // Load-bearing: without it a T2 caller could attach a foreign-tenant T1
+      // user to a T2-owned role. auth.users carries "tenantId"; user_role_assignments
+      // does not, so this is the only place the user's tenant can be checked.
+      const userResult = await queryRunner.query(
+        `SELECT 1 FROM "auth"."users" WHERE id = $1 AND "tenantId" = $2`,
+        [userId, tenantId],
+      );
+
+      if (userResult.length === 0) {
+        throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
+      }
+
+      // Lock the role to ensure it exists, is in this tenant, and is not being deleted.
       const roleResult = await queryRunner.query(
-        `SELECT id, name, is_system FROM "${schemaName}"."tenant_roles" WHERE id = $1 FOR UPDATE`,
-        [roleId],
+        `SELECT id, name, is_system FROM "auth"."tenant_roles" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,
+        [roleId, tenantId],
       );
 
       if (roleResult.length === 0) {
         throw new NotFoundException(`Role with ID "${roleId}" not found`);
       }
 
-      // Check for existing active assignment (with lock to prevent duplicates)
+      // Check for existing assignment, RE-KEYED to user_id ONLY (FINDING #2):
+      // auth.user_role_assignments has a UNIQUE index on user_id alone, so each
+      // user holds at most one row. The JOIN to tenant_roles launders ownership —
+      // the row is only returned if the user's current role belongs to THIS
+      // tenant, so a foreign-tenant row falls through to the no-row (INSERT)
+      // branch and is never silently hijacked. FOR UPDATE OF ura locks the
+      // assignment row only.
       const existingAssignment = await queryRunner.query(
         `
-        SELECT id, is_active
-        FROM "${schemaName}"."user_role_assignments"
-        WHERE user_id = $1 AND role_id = $2
-        FOR UPDATE
+        SELECT ura.id, ura.is_active, ura.role_id
+        FROM "auth"."user_role_assignments" ura
+        JOIN "auth"."tenant_roles" tr ON tr.id = ura.role_id AND tr."tenantId" = $2
+        WHERE ura.user_id = $1
+        FOR UPDATE OF ura
         `,
-        [userId, roleId],
+        [userId, tenantId],
       );
 
       let assignmentId: string;
 
       if (existingAssignment.length > 0) {
-        // Reactivate existing assignment if inactive
-        if (!existingAssignment[0].is_active) {
-          await queryRunner.query(
-            `
-            UPDATE "${schemaName}"."user_role_assignments"
-            SET is_active = true, assigned_by = $1, assigned_at = NOW(), updated_at = NOW()
-            WHERE id = $2
-            `,
-            [assignedBy, existingAssignment[0].id],
-          );
-        }
+        // One-row-per-user reconciliation: re-point the single existing row to
+        // the (newly validated) target role and (re)activate it. UPDATE — never
+        // a 2nd INSERT — so UNIQUE(user_id) is satisfied. The write-side join
+        // guards on the PRE-IMAGE current role's tenantId (you must own the row
+        // you mutate); the new role was already validated by the role lock above.
+        await queryRunner.query(
+          `
+          UPDATE "auth"."user_role_assignments" ura
+          SET is_active = true, role_id = $4, assigned_by = $1, assigned_at = NOW(), updated_at = NOW()
+          FROM "auth"."tenant_roles" tr
+          WHERE ura.id = $2 AND tr.id = ura.role_id AND tr."tenantId" = $3
+          `,
+          [assignedBy, existingAssignment[0].id, tenantId, roleId],
+        );
         assignmentId = existingAssignment[0].id;
       } else {
-        // Create new assignment
+        // Create new assignment. Tenant-safe: role validated by the role lock,
+        // user validated by the pre-check above (ORPHAN-CRITICAL-100).
         const insertResult = await queryRunner.query(
           `
-          INSERT INTO "${schemaName}"."user_role_assignments" (
+          INSERT INTO "auth"."user_role_assignments" (
             user_id, role_id, is_active, assigned_by, assigned_at, created_at, updated_at
           ) VALUES ($1, $2, true, $3, NOW(), NOW(), NOW())
           RETURNING id
@@ -905,38 +964,61 @@ export class TenantRoleService {
     tenantId: string,
     userId: string,
     roleId: string,
-    removedBy: string,
+    _removedBy: string,
   ): Promise<boolean> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // Lock the assignment row
+      // Tenant-scoped user pre-validation for symmetry with assignRoleToUser
+      // (ORPHAN-CRITICAL-100, FINDING #1): a foreign-tenant userId cannot reach
+      // the assignment write at all.
+      const userResult = await queryRunner.query(
+        `SELECT 1 FROM "auth"."users" WHERE id = $1 AND "tenantId" = $2`,
+        [userId, tenantId],
+      );
+
+      if (userResult.length === 0) {
+        throw new NotFoundException(`User with ID "${userId}" not found in tenant`);
+      }
+
+      // Lock the active assignment row. Repointed to auth.* (ORPHAN-CRITICAL-100):
+      // user_role_assignments has no tenantId column, so ownership is laundered
+      // through a JOIN on tenant_roles. FOR UPDATE OF ura locks the assignment only.
       const assignment = await queryRunner.query(
         `
-        SELECT id, is_active
-        FROM "${schemaName}"."user_role_assignments"
-        WHERE user_id = $1 AND role_id = $2 AND is_active = true
-        FOR UPDATE
+        SELECT ura.id, ura.is_active
+        FROM "auth"."user_role_assignments" ura
+        JOIN "auth"."tenant_roles" tr ON tr.id = ura.role_id AND tr."tenantId" = $3
+        WHERE ura.user_id = $1 AND ura.role_id = $2 AND ura.is_active = true
+        FOR UPDATE OF ura
         `,
-        [userId, roleId],
+        [userId, roleId, tenantId],
       );
 
       if (assignment.length === 0) {
         throw new NotFoundException(`Active role assignment not found for user ${userId} and role ${roleId}`);
       }
 
-      // Soft delete the assignment
+      // Soft delete the assignment via a write-side join on tenant_roles so the
+      // mutation carries its own tenant guard (ORPHAN-CRITICAL-100).
+      //
+      // WHAT: SET only is_active=false and updated_at=NOW(). WHY: auth.user_role_assignments
+      // has NO removed_by / removed_at / updated_by columns (GROUND TRUTH, migration
+      // 1800200000000) — writing them fails at runtime. The actor (_removedBy) is not
+      // persisted on this table; soft-delete provenance is carried by the audit trail,
+      // not by columns that do not exist. Param indices re-counted after dropping the
+      // removed_by bind: ura.id=$1, tr."tenantId"=$2.
       await queryRunner.query(
         `
-        UPDATE "${schemaName}"."user_role_assignments"
-        SET is_active = false, removed_by = $1, removed_at = NOW(), updated_at = NOW()
-        WHERE id = $2
+        UPDATE "auth"."user_role_assignments" ura
+        SET is_active = false, updated_at = NOW()
+        FROM "auth"."tenant_roles" tr
+        WHERE ura.id = $1 AND tr.id = ura.role_id AND tr."tenantId" = $2
         `,
-        [removedBy, assignment[0].id],
+        [assignment[0].id, tenantId],
       );
 
       await queryRunner.commitTransaction();
@@ -966,41 +1048,43 @@ export class TenantRoleService {
     roleId: string,
     updatedBy: string,
   ): Promise<TenantRoleWithDetails> {
-    const schemaName = this.schemaManager.getTenantSchemaName(tenantId);
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // Lock the target role
+      // Lock the target role. Repointed to auth.* (ORPHAN-CRITICAL-100):
+      // tenantId predicate makes a foreign roleId return 0 rows → NotFoundException.
       const roleResult = await queryRunner.query(
-        `SELECT * FROM "${schemaName}"."tenant_roles" WHERE id = $1 FOR UPDATE`,
-        [roleId],
+        `SELECT * FROM "auth"."tenant_roles" WHERE id = $1 AND "tenantId" = $2 FOR UPDATE`,
+        [roleId, tenantId],
       );
 
       if (roleResult.length === 0) {
         throw new NotFoundException(`Role with ID "${roleId}" not found`);
       }
 
-      // Lock and unset any current default roles
+      // Lock and unset any current default roles.
+      // CRITICAL (FINDING #3): AND "tenantId" = $2 scopes the unset to this
+      // tenant; otherwise it would clear defaults platform-wide.
       await queryRunner.query(
         `
-        UPDATE "${schemaName}"."tenant_roles"
+        UPDATE "auth"."tenant_roles"
         SET is_default = false, updated_at = NOW()
-        WHERE is_default = true AND id != $1
+        WHERE is_default = true AND id != $1 AND "tenantId" = $2
         `,
-        [roleId],
+        [roleId, tenantId],
       );
 
-      // Set the new default role
+      // Set the new default role. Carries its own tenant guard (ORPHAN-CRITICAL-100).
       await queryRunner.query(
         `
-        UPDATE "${schemaName}"."tenant_roles"
+        UPDATE "auth"."tenant_roles"
         SET is_default = true, updated_at = NOW()
-        WHERE id = $1
+        WHERE id = $1 AND "tenantId" = $2
         `,
-        [roleId],
+        [roleId, tenantId],
       );
 
       await queryRunner.commitTransaction();

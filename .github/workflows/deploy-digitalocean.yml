@@ -1060,7 +1060,7 @@ jobs:
       (needs.build-infra-images.result == 'success' || needs.build-infra-images.result == 'skipped') &&
       needs.prepare.outputs.deploy_services != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     permissions:
       contents: read
       packages: read
@@ -1105,7 +1105,10 @@ jobs:
   # ===========================================================================
   capacity-preflight:
     needs: [prepare, verify-images]
-    if: needs.verify-images.result == 'success'
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.verify-images.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
@@ -1124,7 +1127,7 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          command_timeout: 8m
+          command_timeout: 20m
           envs: DEPLOY_SERVICES,FULL_DEPLOY,DEPLOY_MODE,DEPLOY_SHA,IMAGE_PREFIX
           script: |
             set -e

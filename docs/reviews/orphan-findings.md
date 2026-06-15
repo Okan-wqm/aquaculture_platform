@@ -4095,6 +4095,23 @@ Discovered gating R1's Rust CI (#450); affects the whole repo. Fixed in branch `
 
 Status: OPEN (2026-06-14; owner: infra-expert). Registered: docs/reviews/_registry/findings.jsonl#ORPHAN-HIGH-101.
 
+---
+
+## ORPHAN-CRITICAL-101 — auth role-table consumers (tenant-role / tenant-user-management / user-lifecycle services) query the DROPPED per-tenant role tables
+
+Severity: CRITICAL. Discovered + RESOLVED 2026-06-14 during Wave-5 closeout (auth-service service-audit), lead-verified firsthand. This is the non-token-service half of the schema-centralization defect; the token.service login-path half is ORPHAN-CRITICAL-100 (token.service `getUserResourcePermissions`, repointed by W4 PR #440).
+
+**Problem:** Migration `apps/admin-api-service/src/migrations/1800500000000-TenantProvisioningTopology.ts` MOVES `user_role_assignments` / `tenant_roles` / `tenant_role_permissions` from per-tenant `tenant_<uuid>` schemas into the shared `auth` schema (INSERT then `DROP TABLE ... tenant_<schema>.*`, RAISEs if any tenant copy remains). But three auth-service services still issued `"${schemaName}"."<role table>"` (per-tenant, string-interpolated) queries — ~45 in `tenant-role.service.ts`, ~15 in `tenant-user-management.service.ts`, plus `user-lifecycle.service.ts` `deleteUser` role-revoke + private `createRoleAssignment`. On a migrated DB every role-management operation (create/update/delete role, assign/revoke user role, set default, user delete) throws `relation does not exist`.
+
+**Fix (RESOLVED, this PR):** repointed all role-table SQL to `"auth"."<table>"` tenant-scoped — `tenant_roles` by `AND tr."tenantId" = $x`; child tables (`user_role_assignments`, `tenant_role_permissions`, no tenantId column) by a write-side `JOIN/FROM "auth"."tenant_roles" tr ... AND tr."tenantId" = $x` so every WRITE carries its own tenant guard. Load-bearing corrections from the adversarial review swarm: (a) `assignRoleToUser` re-keyed to the global `UNIQUE(user_id)` (one-row-per-user re-point, never a 2nd INSERT) + a tenant-scoped `SELECT 1 FROM auth.users WHERE id=$1 AND "tenantId"=$2` user pre-validation (blocks attaching a foreign-tenant user to a tenant role); (b) `is_default` unset-writes carry `AND "tenantId"=$x` (else platform-wide default-role corruption); (c) only GROUND-TRUTH columns (auth.user_role_assignments has NO `updated_by`/`removed_by`/`removed_at`); (d) `assertRoleGrantAuthority` actor lookup tenant-pinned; (e) `audit-log.service.log()` gained a manager-aware overload so in-transaction audits are atomic with the mutation. Verified firsthand on every axis (columns, cross-tenant-write guard, interpolation=0, param-index, actor-pin, audit manager-threading) + 121/121 unit/regression tests.
+
+**Tracked follow-ups (NOT this PR):**
+- token.service `getUserResourcePermissions` repoint — owned by W4 PR #440 (intentionally not touched here to avoid a merge conflict on the same method).
+- Stale-row edge (MEDIUM): `assignRoleToUser`/`createRoleAssignment` existing-row SELECT JOINs `tr."tenantId"`, so a user whose single `user_role_assignments` row points to a non-current-tenant or NULL-tenant role is missed → falls to INSERT → `UNIQUE(user_id)` violation. Fails LOUD on anomalous data (the user pre-validation already blocks the cross-tenant write); robust fix = read the user's row by `user_id` alone. Owner: auth-security-expert.
+- DB-layer backstops (data-expert): partial `UNIQUE INDEX ON auth.tenant_roles ("tenantId") WHERE is_default` (single-default invariant is app-enforced only); NULL-tenant (platform-global) role semantics for equality predicates.
+- Tier-1 structural hardening (tracked by description — the `ORPHAN-HIGH-101` id is now held by an unrelated postgres-RustSec finding on main): add a `tenantId` column (+ FK/RLS) to `auth.user_role_assignments` so assignments are directly tenant-scoped, replacing the JOIN-laundering. Owner: auth-security-expert + data-expert.
+
+Status: RESOLVED (2026-06-14, this PR — tenant-role/tenant-user-management/user-lifecycle repoint); token.service via W4 #440; sub-items above OPEN. Owner: auth-security-expert. Registry: orphan-findings.md only.
 ## ORPHAN-MEDIUM-104 — zustand 5 cannot be a single-version federation singleton while the graph library (reactflow 11 / @xyflow/react 12) hard-depends on zustand ^4
 
 Severity: MEDIUM. Discovered 2026-06-14 during C1 PR-1b (frontend version alignment), frontend-expert / conductor firsthand.

@@ -85,6 +85,63 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 
 ---
 
+# Wave 2 — Security hardening (PR #385, squash `2dfe96068`)
+
+> Bu bölüm Tier-4 registry-close (2026-06-14) sırasında eklendi: W2 düzeltmeleri PR #385 ile main'e merge'liydi ama resolution log'da per-finding bölüm + registry `closing_commits` yoktu. Her bölüm, kapanış öncesi 18-ajanlı adversarial doğrulama workflow'u + session-lead firsthand teyidiyle grounded.
+
+## AUDIT-CRITICAL-005 — Refresh-token reuse detection (production hashed path) test kapsamı SIFIRDI (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`)
+- **Sorun:** Üretimdeki `HASH_REFRESH_TOKENS=true` reuse-detection yolunun hiçbir katmanda (unit/integration/e2e) testi yoktu — trust-anchor üzerinde sıfır regresyon koruması.
+- **Çözüm:** `refresh-token-reuse.spec.ts` (249 satır, 5 senaryo) production hashed yolunu (`HASH_REFRESH_TOKENS=true`) açıkça koşuyor: replay tespiti (401), family-scoped revocation (user-wide değil), access-token blacklist, session revocation, `familyId` taşıyan SecurityEvent emission. Üretim akışı `refreshTokenWithHash → detectRefreshTokenReuse → revokeTokenFamilyOnReuseDetection` (authentication.service.ts:748-850) tamamen wired.
+- **Doğrulama:** firsthand-teyitli — spec mevcut (249 satır); W2 squash `2dfe96068` dosyaya dokundu (git show --stat).
+
+## SEC-HIGH-001 — TOTP kodları one-time-use değildi — intra-window replay (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`)
+- **Sorun:** TOTP doğrulaması `lastUsedTimeStep` izlemiyordu; aynı 6-haneli kod pencere içinde (login + step-up) tekrar oynatılabiliyordu.
+- **Çözüm (Tier-1, race-proof):** `verifyTOTP` eşleşen time-step'i döndürüyor; `lastUsedTotpStep` kolonu (user.entity.ts:236, migration 1800400000000) koşullu atomik UPDATE ile yazılıyor — yalnız `lastUsedTotpStep IS NULL OR < CAST(:step AS bigint)` olduğunda başarılı (affected=1); replay affected=0 ile reddedilir. Üç MFA yolunun (setup/login/step-up) hepsine uygulandı (mfa.service.ts:309-333).
+- **Doğrulama:** mfa.spec replay-reddini sabitliyor; firsthand-teyitli (conditional UPDATE `IS NULL OR < step` + affected check).
+
+## SEC-HIGH-002 — Login not-found dalı malformed bcrypt dummy hash ile karşılaştırıyordu — asimetrik timing (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`)
+- **Sorun:** Kullanıcı bulunamadığında geçersiz bir dummy hash string'i (`$2a$12$dummy.hash...`) ile karşılaştırılıyor ve pepper HMAC atlanıyordu — found/not-found timing farkı hesap-varlığı sızdırıyordu.
+- **Çözüm:** `getDummyPasswordHash()` (authentication.service.ts:141-146) `hashPassword(crypto.randomBytes())` ile GEÇERLİ peppered dummy hash üretiyor; not-found dalı bunu found dalıyla aynı `verifyPassword` pipeline'ından (pepper HMAC + bcrypt.compare, password.util.ts:121-148) geçiriyor (line 219). Eski malformed string tamamen kaldırıldı.
+- **Doğrulama:** firsthand-teyitli; her iki dal aynı peppered bcrypt yolunu koşuyor → timing simetrik.
+
+## SEC-HIGH-003 — Issued JWT'ler kid header taşımıyordu, JWKS kid yayınlıyordu (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`; underlying fix `c08d74aaa`)
+- **Sorun:** İmzalanan JWT'lerde `kid` header yoktu ama JWKS endpoint `kid` yayınlıyordu — key rotation deterministik tüketilemiyordu (consumer hangi anahtarın doğrulayacağını bilemiyor).
+- **Çözüm (Tier-1, make-impossible):** Merkezi `getActiveSigningKid()` SSoT (backend-common, jwt-verification.utils.ts:184-186) HEM token imzalayıcı (token.service.ts:220 `signAsync` keyid) HEM JWKS controller (jwks.controller.ts:62,126) tarafından tüketiliyor — her JWT'nin kid'i yayınlanan JWKS girdisiyle eşleşir, drift yapısal olarak imkansız.
+- **Doğrulama:** jwks.controller.spec kid SSoT-match + rotation overlap; firsthand-teyitli.
+
+## SEC-HIGH-004 — JWKS yanıtı kalıcı cache'leniyordu — rotation sonrası TTL/invalidation yok (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`; underlying fix `c08d74aaa`)
+- **Sorun:** JWKS yanıtı process ömrü boyunca cache'leniyordu; key rotation sonrası eski key-set servis ediliyor, yeni-key token'lar JWKS'i erken çekmiş servislerde doğrulanamıyordu.
+- **Çözüm:** TTL-bazlı invalidation — `JWKS_CACHE_TTL_MS` (default 5dk), `cacheExpiresAt` ile expiry takibi, request-anında TTL kontrolü (süresi dolunca refresh), in-process TTL ile eşleşen `Cache-Control` header (jwks.controller.ts:29-53,88).
+- **Doğrulama:** jwks.controller.spec TTL-expiry senaryosu (fake timers — pencere içi stale kid, sonra yeni kid); firsthand-teyitli.
+
+## SEC-MEDIUM-003 — Refresh reuse revocation per-user idi, per-family değil — familyId kolonu yoktu (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`; underlying fix `c55748b4c`)
+- **Sorun:** Reuse tespitinde tüm kullanıcı token'ları revoke ediliyordu (over-revoke); token soy-zinciri için `familyId` kolonu yoktu, SecurityEvent family-id taşımıyordu.
+- **Çözüm:** `familyId` kolonu (refresh-token.entity.ts:38, indexed, migration 1800500000000); reuse-detection family-scoped revocation yapıyor (`{userId, familyId}` koşullu UPDATE, legacy NULL family için `{userId}` fallback — authentication.service.ts:914); SecurityEvent family-id taşıyor (line 949).
+- **Doğrulama:** refresh-token-reuse.spec family-scoped revocation + SecurityEvent family-id alanını production yolunda sabitliyor; firsthand-teyitli.
+
+## SEC-MEDIUM-004 — validateToken enforceAccessTokenType'ı atlıyordu — refresh/MFA token'lar valid görünüyordu (W2)
+
+- **Durum:** RESOLVED (PR #385, squash `2dfe96068`; underlying fix `c55748b4c`)
+- **Sorun:** `validateToken` introspection sorgusu token tipini zorlamıyordu — refresh/MFA token'lar `valid:true` olarak introspect oluyordu.
+- **Çözüm:** `validateToken` (authentication.service.ts:1026) artık `enforceAccessTokenType(payload, logger, isProduction)` çağırıyor (line 1043) — `payload.type !== 'access'` ise UnauthorizedException. Aynı guard jwt-auth.guard.ts:78'de de var (backend-common SSoT, jwt-verification.utils.ts:73-96).
+- **Doğrulama:** validate-token.spec access geçer / refresh+MFA reddedilir; firsthand-teyitli.
+
+> **W2 NOT (SEC-MEDIUM-001/002 W2'de değil):** SEC-MEDIUM-001 (tenant-role assign/update role-ceiling + self-target guard) ve SEC-MEDIUM-002 (role-change/user-delete audit fail-closed) W2'de KAPANMADI — W2 kodu bunları gerçekten düzeltmemişti (canlı priv-esc olarak Wave-5 D1 audit'inde tespit edildi). Bunları Wave-5 D1 (PR #447) düzeltiyor; registry close #447 CODEOWNERS merge'inde olacak.
+
+---
+
 ## MT-HIGH-003 — Tenant yaşam döngüsünde ARCHIVED/PURGED terminali ve geçiş-yasallığı kontrolü YOKTU (W3.1)
 
 - **Durum:** RESOLVED — backend (PR #390; W3.1 foundation + W3.3-c command-service consolidation; CI yeşil sha 92414ca4 + W3.3-c). **W3.3-c:** provisioning command-service'in kendi drifting yerel `lifecycleTransitionPolicy`'si (machine'le 6 geçişte sapan paralel legality tablosu) tamamen silindi; edge-legality artık tek SSoT `TenantStatusMachine.assertTransition`'a delege ediliyor. Yerel `LIFECYCLE_COMMANDS` haritası YALNIZCA command-authorization (machine edge'lerinin alt-kümesi: hangi komut hangi geçişi sürebilir — ActivateTenant'ın SUSPENDED tenant'ı reaktive etmesini engeller); subset invariant'ı bir architecture testiyle (`lifecycle-commands.spec`) sabitlendi. **Option B (yama değil, doğru model):** PROVISIONING artık gerçek persist edilen bir faz — yeni `BEGIN_PROVISIONING` komutuyla saga `reserve→PENDING → BeginProvisioning→PROVISIONING → ACTIVE`; PENDING→ACTIVE skip'i kalktı, machine katı+dürüst kaldı (gevşetilmedi). FailProvisioning tolerant compensation (PROVISIONING dışından no-op). admin-api saf NATS-client + `begin_provisioning` saga adımı. **Kalan (backend-dışı):** 3 frontend TenantStatus kopyası = ORPHAN-MEDIUM-089 (web codegen-owned). gateway + event tipleme W3.1'de tamamlandı.
@@ -149,8 +206,10 @@ Dalga planı: `/root/.claude/plans/tamam-bulgular-duzeltme-plan-fancy-taco.md` (
 
 | ID | Dalga | Durum |
 |---|---|---|
-| AUDIT-CRITICAL-005 (reuse-detection test kapsamı) | W2 | OPEN |
-| SEC-HIGH-001..004, SEC-MEDIUM-001..004 | W2 | OPEN |
+| AUDIT-CRITICAL-005 (reuse-detection test kapsamı) | W2 | RESOLVED (PR #385 — production hashed-path reuse spec, 249 satır) |
+| SEC-HIGH-001..004 (TOTP one-time-use, login timing, JWT kid, JWKS TTL) | W2 | RESOLVED (PR #385, squash 2dfe96068) |
+| SEC-MEDIUM-003..004 (refresh familyId, validateToken access-type) | W2 | RESOLVED (PR #385, squash 2dfe96068) |
+| SEC-MEDIUM-001..002 (role-ceiling/self-target guard, fail-closed audit) | W5-D1 | RESOLVED on branch (PR #447 CLEAN, CODEOWNERS merge bekliyor) — registry close #447 merge'inde |
 | MT-HIGH-003 (TenantStatus SSoT + state machine) | W3.1+W3.3-c | RESOLVED — backend (PR #390); web copies → ORPHAN-MEDIUM-089 |
 | DATA-HIGH-001 (transactional outbox adoption) | W3.2+W3.3-a/b | RESOLVED (PR #390 — no auth domain service injects raw EventBus) |
 | MT-HIGH-001..002 (dead sync-provisioning path + unsafe update) | W3.3-a | RESOLVED (PR #390, 883bbda9) |

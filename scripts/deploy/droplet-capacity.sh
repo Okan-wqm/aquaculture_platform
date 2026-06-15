@@ -292,7 +292,17 @@ protected_image_ids_file() {
 is_protected_id() {
   local id="$1"
   local file="$2"
-  grep -qx "${id}" "${file}" 2>/dev/null
+  local needle="${id#sha256:}"
+  awk -v needle="${needle}" '
+    {
+      candidate = $0
+      sub(/^sha256:/, "", candidate)
+      if (candidate == needle || index(candidate, needle) == 1 || index(needle, candidate) == 1) {
+        found = 1
+      }
+    }
+    END { exit found ? 0 : 1 }
+  ' "${file}" 2>/dev/null
 }
 
 gc_remove_ref() {
@@ -351,7 +361,7 @@ safe_image_gc() {
       removed_rollback=$((removed_rollback + 1))
   done < <(docker image ls --format '{{.Repository}} {{.Tag}} {{.ID}}' 2>/dev/null)
 
-  local removed=0
+  local removed=0 removed_untagged=0
   while read -r repo tag id; do
       [ -n "${repo:-}" ] || continue
       case "${repo}" in
@@ -359,8 +369,21 @@ safe_image_gc() {
         *) continue ;;
       esac
 
+      if [ "${tag}" = "<none>" ]; then
+        if is_protected_id "${id}" "${protected}"; then
+          echo "  keep protected untagged app image ${repo}@${id}"
+          skipped=$((skipped + 1))
+          continue
+        fi
+
+        echo "  remove unused untagged app image ${repo}@${id}"
+        gc_remove_ref "${id}"
+        removed_untagged=$((removed_untagged + 1))
+        continue
+      fi
+
       case "${tag}" in
-        latest|staging|buildcache-*|"<none>") continue ;;
+        latest|staging|buildcache-*) continue ;;
       esac
       if [ -n "${DEPLOY_SHA}" ] && [ "${tag}" = "${DEPLOY_SHA}" ]; then
         continue
@@ -390,7 +413,7 @@ safe_image_gc() {
   fi
 
   after=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1 || true)
-  echo "Safe GC complete; removed_tags=${removed:-0} removed_rollback_retags=${removed_rollback:-0} skipped_protected=${skipped:-0} dry_run=${GC_DRY_RUN:-false} before=${before:-unknown} after=${after:-unknown}"
+  echo "Safe GC complete; removed_tags=${removed:-0} removed_untagged=${removed_untagged:-0} removed_rollback_retags=${removed_rollback:-0} skipped_protected=${skipped:-0} dry_run=${GC_DRY_RUN:-false} before=${before:-unknown} after=${after:-unknown}"
 }
 
 run_gate() {

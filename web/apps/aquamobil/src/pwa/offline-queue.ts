@@ -389,7 +389,14 @@ export async function getPendingCount(tenantId?: string): Promise<number> {
   const prefix = tenantId
     ? `${QUEUE_PREFIX}${tenantId}_`
     : QUEUE_PREFIX;
-  return allKeys.filter((k) => String(k).startsWith(prefix)).length;
+  // WHY the `k is string` guard, not `String(k)`: idb-keyval types keys as
+  // IDBValidKey (string | number | Date | BufferSource | IDBValidKey[]), so
+  // String(k) would stringify a non-string key to "[object Object]" and mis-count.
+  // Our queue keys are ALWAYS the `${QUEUE_PREFIX}…` strings we wrote, so narrowing
+  // to string is both correct and avoids the base-to-string hazard.
+  return allKeys.filter(
+    (k): k is string => typeof k === 'string' && k.startsWith(prefix),
+  ).length;
 }
 
 /**

@@ -338,10 +338,10 @@ describe('RecordEntityPage shell — duplicate (FE-HIGH-050)', () => {
     renderPage(<RecordCullPage />);
 
     await act(async () => {
-      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'tank-1' } });
+      fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'tank-1' } });
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Review .* Culled Fish/i }));
+      fireEvent.click(await screen.findByRole('button', { name: /Review .* Culled Fish/i }));
     });
     await act(async () => {
       fireEvent.click(await screen.findByRole('button', { name: /Confirm & Record/i }));

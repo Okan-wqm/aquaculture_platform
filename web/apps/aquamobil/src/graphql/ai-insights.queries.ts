@@ -16,9 +16,9 @@
  * and emits a TypedDocumentNode + result types into ../generated/graphql.ts.
  */
 
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { gql } from 'graphql-tag';
 
-import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 
 import type {
   FarmDashboardInsightsQuery,

@@ -13,9 +13,9 @@
 // constants in the hooks makes operation-result drift a compile error and the
 // enum wire-casing class structurally impossible.
 
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { gql } from 'graphql-tag';
 
-import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 
 import type {
   MyChannelsQuery,

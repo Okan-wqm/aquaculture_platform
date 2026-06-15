@@ -21,7 +21,7 @@ import {
   shutdownHarness,
 } from '@platform/migration-harness';
 import { OutboxPublisher } from '@platform/outbox';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { Batch, BatchInputType, BatchStatus } from '../../batch/entities/batch.entity';
 import { BatchDocument } from '../../batch/entities/batch-document.entity';
@@ -29,6 +29,8 @@ import { TankAllocation, AllocationType } from '../../batch/entities/tank-alloca
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation } from '../../batch/entities/tank-operation.entity';
 import { BatchService } from '../../batch/services/batch.service';
+import { BatchDomainService } from '../../batch/services/batch-domain.service';
+import { BatchLifecyclePolicyService } from '../../batch/services/batch-lifecycle-policy.service';
 import {
   Department,
   DepartmentStatus,
@@ -63,6 +65,8 @@ import {
   TankType,
   WaterType,
 } from '../../tank/entities/tank.entity';
+import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { LotMixService } from '../../storage/services/lot-mix.service';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
@@ -76,6 +80,20 @@ interface TenantFixture {
   batch: Batch;
   feed: Feed;
   inventory: FeedInventory;
+}
+
+class FeedInventoryOnlyStockMovementService extends StockMovementService {
+  constructor() {
+    super(new LotMixService());
+  }
+
+  override async feedHasStoragePresence(
+    _manager: EntityManager,
+    _tenantId: string,
+    _feedId: string,
+  ): Promise<boolean> {
+    return false;
+  }
 }
 
 jest.setTimeout(120_000);
@@ -162,6 +180,8 @@ describe('Feeding record tenant isolation on real Postgres', () => {
 
     const outboxPublisher = new OutboxPublisher(FarmOutbox);
     const backdatePolicy = { validate: jest.fn() };
+    const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
+    const stockMovementService = new FeedInventoryOnlyStockMovementService();
     createFeedingRecord = new CreateFeedingRecordHandler(
       feedingRecordRepository,
       batchRepository,
@@ -170,6 +190,8 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       dataSource,
       outboxPublisher,
       backdatePolicy as never,
+      batchDomainService,
+      stockMovementService,
     );
     getFeedingRecords = new GetFeedingRecordsHandler(feedingRecordRepository);
     getFeedingSummary = new GetFeedingSummaryHandler(

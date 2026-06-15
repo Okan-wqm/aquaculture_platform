@@ -13,8 +13,11 @@
  *
  * @module Feeding
  */
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile-command-receipt.entity';
 
 // Entities
 import { FeedingTable } from './entities/feeding-table.entity';
@@ -72,6 +75,7 @@ import { RestoreModule } from '../common/services/restore.module';
       Tank,
       Site,
       Equipment,
+      FarmMobileCommandReceipt,
     ]),
     BackdatePolicyModule,
     RestoreModule,
@@ -83,6 +87,7 @@ import { RestoreModule } from '../common/services/restore.module';
     FeedConsumptionForecastService,
     FeedingProgramService,
     DailyFeedingExecutionService,
+    MobileCommandReceiptService,
     ...FeedingCommandHandlers,
     ...FeedingQueryHandlers,
     ...FeedingResolvers,

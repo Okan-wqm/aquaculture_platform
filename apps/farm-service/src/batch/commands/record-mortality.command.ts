@@ -9,18 +9,12 @@
 import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 import { ITenantCommand } from '@platform/cqrs';
 
-export enum MortalityReason {
-  DISEASE = 'disease',           // Hastalık
-  WATER_QUALITY = 'water_quality', // Su kalitesi
-  STRESS = 'stress',             // Stres
-  HANDLING = 'handling',         // Taşıma/işleme
-  TEMPERATURE = 'temperature',   // Sıcaklık şoku
-  OXYGEN = 'oxygen',             // Oksijen yetersizliği
-  PREDATION = 'predation',       // Predatör
-  CANNIBALISM = 'cannibalism',   // Yamyamlık
-  UNKNOWN = 'unknown',           // Bilinmiyor
-  OTHER = 'other',               // Diğer
-}
+// SSoT: MortalityReason is owned by tank-operation.enums.ts. Re-export so every
+// existing `import { MortalityReason } from '../commands/record-mortality.command'`
+// keeps compiling against ONE enum identity (the DB column now carries
+// PREDATION + CANNIBALISM — no more silent UNKNOWN coercion).
+export { MortalityReason } from '../entities/tank-operation.enums';
+import { MortalityReason } from '../entities/tank-operation.enums';
 
 export interface RecordMortalityPayload {
   tankId: string;                // Tank ID (hangi tank'ta)

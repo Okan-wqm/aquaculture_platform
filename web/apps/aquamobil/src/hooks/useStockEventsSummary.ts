@@ -11,7 +11,6 @@ import type { StockEventsSummary, StockEvent } from '@/types';
 // with the query that produces it, avoiding a global type for an internal detail.
 interface StockEventsSummaryResponse {
   thisWeekEventsCount: number;
-  pendingTransferCount: number;
   recentEvents: StockEvent[];
 }
 
@@ -57,11 +56,16 @@ export function useStockEventsSummary(): {
     // active batch stocked. Tanks in MAINTENANCE or empty have null batchMetrics.
     const activeBatchCount = tanks?.filter((t) => t.batchMetrics !== null).length ?? 0;
 
+    const recentEvents = eventsSummary?.recentEvents ?? [];
+    // FARM-HIGH-055: derive the transfer KPI from the real recent events instead
+    // of the removed always-zero backend pendingTransferCount field.
+    const recentTransferCount = recentEvents.filter((e) => e.type === 'TRANSFER').length;
+
     return {
       activeBatchCount,
       thisWeekEventsCount: eventsSummary?.thisWeekEventsCount ?? 0,
-      pendingTransferCount: eventsSummary?.pendingTransferCount ?? 0,
-      recentEvents: eventsSummary?.recentEvents ?? [],
+      recentTransferCount,
+      recentEvents,
     };
   }, [tanks, eventsSummary]);
 

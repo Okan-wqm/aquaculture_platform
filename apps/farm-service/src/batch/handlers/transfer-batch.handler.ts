@@ -112,6 +112,16 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         return replayed;
       }
 
+      // FARM-HIGH-052: transfer is stock-mutating, so it must carry an idempotency
+      // envelope (clientCommandId + payloadHash). 'legacy' (no-key) retries would
+      // double-move stock; we REJECT it for parity with mortality/cull. The
+      // GraphQL input + REST controller now make the envelope mandatory.
+      if (receipt.mode === 'legacy') {
+        throw new BadRequestException(
+          'transferBatch requires an idempotency envelope (clientCommandId + payloadHash)',
+        );
+      }
+
       // Batch bul with pessimistic lock
       const batch = await queryRunner.manager.findOne(Batch, {
         where: { id: batchId, tenantId, isActive: true },

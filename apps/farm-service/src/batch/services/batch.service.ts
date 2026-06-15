@@ -13,6 +13,7 @@ import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
 import { TankAllocation, AllocationType } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, MortalityReason, CullReason } from '../entities/tank-operation.entity';
+import { isMortalityReason, isCullReason } from '../entities/tank-operation.enums';
 import { Tank } from '../../tank/entities/tank.entity';
 
 // ============================================================================
@@ -702,11 +703,25 @@ export class BatchService {
     // Operation tipine göre ek alanları doldur
     switch (input.operationType) {
       case OperationType.MORTALITY:
-        operation.mortalityReason = input.reason as MortalityReason | undefined;
+        // FARM-MEDIUM-052: validate against the SSoT enum instead of an unchecked
+        // cast. A missing reason stays undefined; an unknown string falls back to
+        // OTHER rather than being unsafely asserted (which silently persisted an
+        // out-of-range label, e.g. the old PREDATION/CANNIBALISM coercion).
+        operation.mortalityReason =
+          input.reason == null
+            ? undefined
+            : isMortalityReason(input.reason)
+              ? input.reason
+              : MortalityReason.OTHER;
         operation.mortalityDetail = input.detail;
         break;
       case OperationType.CULL:
-        operation.cullReason = input.reason as CullReason | undefined;
+        operation.cullReason =
+          input.reason == null
+            ? undefined
+            : isCullReason(input.reason)
+              ? input.reason
+              : CullReason.OTHER;
         operation.cullDetail = input.detail;
         break;
       case OperationType.TRANSFER_OUT:

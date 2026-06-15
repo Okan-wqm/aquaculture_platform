@@ -18,7 +18,7 @@
  * @module Batch/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
-import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { MortalityRecordedEvent } from '@platform/event-contracts';
@@ -32,13 +32,16 @@ import {
   defaultMobileCommandReceiptsForDirectHandlerConstruction,
 } from '../../common/services/direct-handler-dependency-defaults';
 import { toMortalityReasonCode } from '../../common/utils/reason-codecs';
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { Tank } from '../../tank/entities/tank.entity';
 import { RecordMortalityCommand } from '../commands/record-mortality.command';
 import { Batch } from '../entities/batch.entity';
-import { MortalityRecord, MortalityCause } from '../entities/mortality-record.entity';
+import { MortalityRecord, MortalityCause, isMortalityCause } from '../entities/mortality-record.entity';
+import { isMortalityReason } from '../entities/tank-operation.enums';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
 import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
@@ -67,6 +70,7 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly backdatePolicy: BackdatePolicyService,
+    private readonly auditLogService: AuditLogService,
     private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
@@ -120,6 +124,18 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         return replayed;
       }
 
+      // FARM-HIGH-052: mortality is stock-mutating, so it must carry an
+      // idempotency envelope (clientCommandId + payloadHash). 'legacy' mode is
+      // the no-key path where a retry would double-decrement stock; we REJECT it
+      // here. The GraphQL input (RecordMortalityInput) and REST controller now
+      // make the envelope mandatory, so this throw is structurally unreachable
+      // from either front — it is the last-line backstop.
+      if (receipt.mode === 'legacy') {
+        throw new BadRequestException(
+          'recordMortality requires an idempotency envelope (clientCommandId + payloadHash)',
+        );
+      }
+
       // Batch bul with pessimistic lock (prevents concurrent mortality on same batch)
       const foundBatch = await queryRunner.manager.findOne(Batch, {
         where: { id: batchId, tenantId, isActive: true },
@@ -146,11 +162,35 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
 
       const tank = tankLookup.equipment;
 
+      // FARM-CRITICAL-050: reject mortality on a terminal/closed batch. The batch
+      // row is pessimistically locked above, so a concurrent status flip is
+      // serialised. isOperational() (status-derived) is the authoritative gate —
+      // isActive is an overloaded soft-delete flag and can lie post-transition.
+      this.mortalityCullPolicy.assertStockMutable(batch);
+
       this.mortalityCullPolicy.assertQuantityWithinCurrent({
         operation: 'Mortality',
         quantity: payload.quantity,
         currentQuantity: batch.currentQuantity,
       });
+
+      // FARM-LOW-050: cumulative removals (mortality + cull + harvest + this one)
+      // must never exceed the initial stocked quantity. Hard lifecycle ceiling
+      // the point-in-time currentQuantity check cannot catch on re-stock edges.
+      this.mortalityCullPolicy.assertAggregateWithinInitial({
+        batch,
+        addedRemoval: payload.quantity,
+      });
+
+      // FARM-HIGH-053: load the tank's batch occupancy (pessimistically locked)
+      // and assert this batch is actually held in this tank BEFORE writing any
+      // row. A wrong/empty tankId would otherwise decrement a tank holding a
+      // DIFFERENT batch and diverge batch-vs-tank inventory.
+      const tankBatch = await queryRunner.manager.findOne(TankBatch, {
+        where: { tenantId, tankId: payload.tankId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      this.mortalityCullPolicy.assertBatchInTank({ batchId, tankBatch });
 
       // Biomass hesapla
       const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();
@@ -164,19 +204,18 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         recordDate: payload.observedAt,
         count: payload.quantity,
         estimatedBiomassLoss: biomassKg,
-        cause: MortalityCause[payload.reason.toUpperCase() as keyof typeof MortalityCause] ?? MortalityCause.UNKNOWN,
+        // MortalityReason VALUES (lowercase) are a subset of MortalityCause's
+        // VALUES, so a direct value match is the correct mapping. The previous
+        // `MortalityCause[reason.toUpperCase()]` keyed by ENUM NAME and silently
+        // fell back to UNKNOWN — that indirection was the coercion bug. Falls
+        // back to OTHER only for a genuinely unmapped value.
+        cause: this.toMortalityCause(payload.reason),
         causeDetail: payload.detail,
         notes: payload.notes,
         recordedBy,
       });
 
       await queryRunner.manager.save(MortalityRecord, mortalityRecord);
-
-      // Tank operation kaydı oluştur
-      const tankBatch = await queryRunner.manager.findOne(TankBatch, {
-        where: { tenantId, tankId: payload.tankId },
-        lock: { mode: 'pessimistic_write' },
-      });
 
       const preOperationState = tankBatch ? {
         quantity: tankBatch.totalQuantity,
@@ -193,7 +232,12 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         quantity: payload.quantity,
         avgWeightG,
         biomassKg,
-        mortalityReason: MortalityReason[payload.reason.toUpperCase() as keyof typeof MortalityReason] ?? MortalityReason.UNKNOWN,
+        // FARM-MEDIUM-052: payload.reason is already a valid SSoT MortalityReason
+        // VALUE. The previous `MortalityReason[reason.toUpperCase()]` keyed the
+        // enum by NAME against the OLD entity enum (which lacked PREDATION /
+        // CANNIBALISM) and silently fell back to UNKNOWN — destroying cause
+        // analytics. Persist the real reason; isMortalityReason guards a bad value.
+        mortalityReason: isMortalityReason(payload.reason) ? payload.reason : MortalityReason.OTHER,
         mortalityDetail: payload.detail,
         preOperationState,
         performedBy: recordedBy,
@@ -273,6 +317,33 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         newMortalityRate: batch.getMortalityRate(),
       };
       await this.outboxPublisher.enqueue(mortalityEvent, queryRunner.manager);
+
+      // FARM-MEDIUM-054: durable audit trail for the stock removal. Written
+      // through the txn manager (logWithManager) so the audit row commits or
+      // rolls back atomically with the decrement + outbox row — never lies about
+      // an event that didn't happen. Mirrors allocate-to-tank's CAPACITY_BLOCKED.
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'Batch',
+        entityId: batchId,
+        action: AuditAction.MORTALITY_RECORDED,
+        userId: recordedBy,
+        changes: {
+          after: {
+            tankId: payload.tankId,
+            quantity: payload.quantity,
+            reason: payload.reason,
+            biomassKg,
+            newCurrentQuantity: batch.currentQuantity,
+            newTotalMortality: batch.totalMortality,
+          },
+        },
+        metadata: { source: 'RecordMortalityHandler' },
+        summary:
+          `Mortality ${payload.quantity} from batch ${batch.batchNumber} ` +
+          `tank ${payload.tankId} (${payload.reason})`,
+      });
+
       await this.mobileCommandReceipts.complete(queryRunner.manager, {
         tableName: 'farm_mobile_command_receipts',
         receipt,
@@ -294,5 +365,16 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
 
     // Return the updated batch (GraphQL expects Batch, not MortalityRecord)
     return batch;
+  }
+
+  /**
+   * Map a MortalityReason VALUE to its MortalityCause counterpart by VALUE.
+   *
+   * MortalityReason VALUES are a subset of MortalityCause VALUES (both lowercase),
+   * so a direct value match is correct and lossless. Falls back to OTHER for an
+   * unmapped value rather than silently coercing to UNKNOWN.
+   */
+  private toMortalityCause(reason: string): MortalityCause {
+    return isMortalityCause(reason) ? reason : MortalityCause.OTHER;
   }
 }

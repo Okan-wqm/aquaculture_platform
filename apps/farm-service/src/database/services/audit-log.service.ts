@@ -478,6 +478,8 @@ export class AuditLogService {
       [AuditAction.SOFT_DELETE]: 'soft deleted',
       [AuditAction.RESTORE]: 'restored',
       [AuditAction.CAPACITY_BLOCKED]: 'over-capacity (admin override)',
+      [AuditAction.MORTALITY_RECORDED]: 'mortality recorded',
+      [AuditAction.CULL_RECORDED]: 'cull recorded',
     };
 
     const changedFields = params.changes?.changedFields;

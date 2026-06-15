@@ -8,6 +8,7 @@
  * @module Batch
  */
 import type { Role } from '@aquaculture/backend-common/decorators';
+import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 import type { TenantRequest } from '@aquaculture/backend-common/types';
 import {
   Controller,
@@ -44,6 +45,7 @@ import {
   UpdateBatchStatusCommand,
 } from '../commands';
 import { BatchInputType, BatchStatus } from '../entities/batch.entity';
+import { isCullReason, isMortalityReason } from '../entities/tank-operation.enums';
 import { GetBatchPerformanceQuery, GetBatchQuery, ListBatchesQuery } from '../queries';
 import { BatchService } from '../services/batch.service';
 
@@ -95,7 +97,14 @@ class AllocateBatchDto {
   notes?: string;
 }
 
+// FARM-HIGH-052: the REST front for stock-mutating operations must also supply
+// the idempotency envelope, otherwise the command reaches the handler in
+// 'legacy' mode and the handler's mandatory-key reject would 500 every REST
+// mortality/cull/transfer. clientCommandId + payloadHash are required here so
+// the REST path furnishes the key in the SAME change as the handler reject.
 class RecordMortalityDto {
+  clientCommandId: string;
+  payloadHash: string;
   tankId: string;
   batchId: string;
   operationDate: string;
@@ -107,6 +116,8 @@ class RecordMortalityDto {
 }
 
 class RecordCullDto {
+  clientCommandId: string;
+  payloadHash: string;
   tankId: string;
   batchId: string;
   operationDate: string;
@@ -118,6 +129,8 @@ class RecordCullDto {
 }
 
 class RecordTransferDto {
+  clientCommandId: string;
+  payloadHash: string;
   tankId: string;
   batchId: string;
   destinationTankId: string;
@@ -162,15 +175,27 @@ function verifiedContext(req: TenantRequest): VerifiedBatchContext {
 }
 
 function parseMortalityReason(value: string | undefined): MortalityReason {
-  return Object.values(MortalityReason).includes(value as MortalityReason)
-    ? (value as MortalityReason)
-    : MortalityReason.OTHER;
+  return isMortalityReason(value) ? value : MortalityReason.OTHER;
 }
 
 function parseCullReason(value: string | undefined): CullReason {
-  return Object.values(CullReason).includes(value as CullReason)
-    ? (value as CullReason)
-    : CullReason.OTHER;
+  return isCullReason(value) ? value : CullReason.OTHER;
+}
+
+/**
+ * FARM-HIGH-052: build the idempotency envelope from a REST DTO so the
+ * stock-mutating command reaches the handler with a clientCommandId +
+ * payloadHash (non-legacy mode). The REST caller supplies both fields.
+ */
+function restMobileEnvelope(
+  dto: { clientCommandId: string; payloadHash: string },
+  operationType: string,
+): MobileCommandEnvelope {
+  return {
+    clientCommandId: dto.clientCommandId,
+    payloadHash: dto.payloadHash,
+    operationType,
+  };
 }
 
 // ============================================================================
@@ -458,6 +483,7 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        restMobileEnvelope(dto, 'recordMortality'),
       ),
     );
 
@@ -492,6 +518,7 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        restMobileEnvelope(dto, 'recordCull'),
       ),
     );
 
@@ -526,6 +553,7 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        restMobileEnvelope(dto, 'transferBatch'),
       ),
     );
 

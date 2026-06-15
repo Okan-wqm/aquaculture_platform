@@ -439,6 +439,21 @@ export class Batch {
     return [BatchStatus.ACTIVE, BatchStatus.GROWING, BatchStatus.PRE_HARVEST, BatchStatus.HARVESTING].includes(this.status);
   }
 
+  /**
+   * FARM-CRITICAL-050 — the states in which the batch still holds LIVE, physically
+   * present stock, so recording a death (mortality) or a cull is legitimate.
+   *
+   * WHY this is NOT isOperational(): isOperational() excludes QUARANTINE, but
+   * quarantined fish are alive and do die / get culled — gating mortality/cull on
+   * isOperational() alone would reject those legitimate removals and leave the
+   * batch count inflated. So stock-mutable = operational OR quarantine. The
+   * terminal states (HARVESTED / TRANSFERRED / FAILED / CLOSED) are excluded: the
+   * cycle is closed and any further removal corrupts closed-cycle inventory.
+   */
+  isStockMutable(): boolean {
+    return this.isOperational() || this.status === BatchStatus.QUARANTINE;
+  }
+
   isCleanerFishBatch(): boolean { return this.batchType === BatchType.CLEANER_FISH; }
   isProductionBatch(): boolean { return this.batchType === BatchType.PRODUCTION; }
 }

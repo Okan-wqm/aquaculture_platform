@@ -487,7 +487,11 @@ export interface DailyOpsStats {
 export interface StockEventsSummary {
   activeBatchCount: number;
   thisWeekEventsCount: number;
-  pendingTransferCount: number;
+  // FARM-HIGH-055: replaces the always-zero backend pendingTransferCount.
+  // Transfers commit atomically (no pending half-state), so the meaningful KPI
+  // is the count of transfer events in the recent window, derived client-side
+  // from recentEvents (type === 'TRANSFER').
+  recentTransferCount: number;
   recentEvents: StockEvent[];
 }
 

@@ -139,7 +139,7 @@ export function OperationsHubPage() {
 
   const batchesDisplay = safe(stockSummary?.activeBatchCount);
   const weekEventsDisplay = safe(stockSummary?.thisWeekEventsCount);
-  const transfersDisplay = safe(stockSummary?.pendingTransferCount);
+  const transfersDisplay = safe(stockSummary?.recentTransferCount);
 
   const itemsDisplay = safe(warehouseSummary?.totalItems);
   const lowStockDisplay = safe(warehouseSummary?.lowStockAlertCount);

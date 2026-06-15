@@ -9,15 +9,12 @@
 import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 import { ITenantCommand } from '@platform/cqrs';
 
-export enum CullReason {
-  SMALL_SIZE = 'small_size',     // Küçük boy
-  DEFORMED = 'deformed',         // Deformite
-  SICK = 'sick',                 // Hasta
-  POOR_GROWTH = 'poor_growth',   // Zayıf büyüme
-  GRADING = 'grading',           // Grading sonucu
-  QUALITY = 'quality',           // Kalite yetersizliği
-  OTHER = 'other',               // Diğer
-}
+// SSoT: CullReason is owned by tank-operation.enums.ts. Re-export so every
+// existing `import { CullReason } from '../commands/record-cull.command'`
+// keeps compiling against ONE enum identity (the DB column + the command now
+// agree — QUALITY is no longer a command-only value the DB rejects).
+export { CullReason } from '../entities/tank-operation.enums';
+import { CullReason } from '../entities/tank-operation.enums';
 
 export interface RecordCullPayload {
   tankId: string;                // Tank ID

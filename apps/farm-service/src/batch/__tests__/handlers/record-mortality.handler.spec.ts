@@ -10,9 +10,13 @@
  *
  * @module Batch/Tests
  */
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { DataSource, Repository, EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
+import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
+import { AuditLogService } from '../../../database/services/audit-log.service';
+import { MortalityCullPolicyService } from '../../services/mortality-cull-policy.service';
 import { RecordMortalityHandler } from '../../handlers/record-mortality.handler';
 import { RecordMortalityCommand, MortalityReason } from '../../commands/record-mortality.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
@@ -23,6 +27,8 @@ import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { EquipmentType } from '../../../equipment/entities/equipment-type.entity';
 
+const ENVELOPE = { clientCommandId: 'cmd-1', payloadHash: 'hash-1' };
+
 // ============================================================================
 // Mock helpers (shared with race-conditions.spec.ts pattern)
 // ============================================================================
@@ -31,6 +37,7 @@ interface MockManager {
   findOne: jest.Mock;
   create: jest.Mock;
   save: jest.Mock;
+  query: jest.Mock;
 }
 
 function createMockManager(): MockManager {
@@ -38,6 +45,9 @@ function createMockManager(): MockManager {
     findOne: jest.fn(),
     create: jest.fn().mockImplementation((_entity: unknown, data: unknown) => data),
     save: jest.fn().mockImplementation((_entity: unknown, data: unknown) => Promise.resolve(data)),
+    // MobileCommandReceiptService.begin: with an envelope the INSERT returns a
+    // receipt id (started mode). complete() UPDATE returns nothing.
+    query: jest.fn().mockResolvedValue([{ id: 'receipt-1' }]),
   };
 }
 
@@ -75,14 +85,19 @@ describe('RecordMortalityHandler', () => {
     return {
       id: batchId,
       tenantId,
+      batchNumber: 'B-001',
       isActive: true,
+      initialQuantity: 100_000,
       currentQuantity: 10_000,
       totalMortality: 0,
+      cullCount: 0,
       status: BatchStatus.ACTIVE,
       mortalitySummary: {
         totalMortality: 0,
         mortalityRate: 0,
       },
+      isOperational: jest.fn().mockReturnValue(true),
+      isStockMutable: jest.fn().mockReturnValue(true),
       getCurrentAvgWeight: jest.fn().mockReturnValue(200),
       getMortalityRate: jest.fn().mockReturnValue(0),
       getRetentionRate: jest.fn().mockReturnValue(100),
@@ -94,6 +109,8 @@ describe('RecordMortalityHandler', () => {
     return {
       tenantId,
       tankId,
+      // assertBatchInTank requires the batch to be held in this tank
+      primaryBatchId: batchId,
       totalQuantity: 10_000,
       totalBiomassKg: 2_000,
       densityKgM3: 2,
@@ -117,6 +134,7 @@ describe('RecordMortalityHandler', () => {
     reason: MortalityReason;
     observedAt: Date;
     avgWeightG: number;
+    envelope: { clientCommandId: string; payloadHash: string } | undefined;
   }> = {}) {
     return new RecordMortalityCommand(tenantId, batchId, {
       tankId,
@@ -124,7 +142,7 @@ describe('RecordMortalityHandler', () => {
       reason: overrides.reason ?? MortalityReason.DISEASE,
       observedAt: overrides.observedAt ?? new Date(),
       avgWeightG: overrides.avgWeightG,
-    }, 'user-001');
+    }, 'user-001', 'envelope' in overrides ? overrides.envelope : ENVELOPE);
   }
 
   function buildHandler(
@@ -142,6 +160,15 @@ describe('RecordMortalityHandler', () => {
         isBackdated: false,
       }),
     };
+    const auditLogService = {
+      logWithManager: jest.fn().mockResolvedValue({}),
+    } as Partial<AuditLogService> as AuditLogService;
+    // Real receipt service drives begin()/complete() against manager.query;
+    // a no-op projection avoids the throwing direct-handler default.
+    const mobileCommandReceipts = new MobileCommandReceiptService();
+    const farmStockProjection = {
+      refreshContainers: jest.fn().mockResolvedValue(undefined),
+    } as Partial<FarmStockProjectionService> as FarmStockProjectionService;
 
     const handler = new RecordMortalityHandler(
       dataSource,
@@ -154,9 +181,13 @@ describe('RecordMortalityHandler', () => {
       {} as Repository<EquipmentType>,
       outboxPublisher,
       backdatePolicy as any,
+      auditLogService,
+      new MortalityCullPolicyService(),
+      farmStockProjection,
+      mobileCommandReceipts,
     );
 
-    return { handler, manager, queryRunner, outboxPublisher };
+    return { handler, manager, queryRunner, outboxPublisher, auditLogService };
   }
 
   describe('validation', () => {
@@ -204,6 +235,7 @@ describe('RecordMortalityHandler', () => {
       manager.findOne.mockImplementation((entity: unknown) => {
         if (entity === Batch) return Promise.resolve(batch);
         if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch({ totalQuantity: 30 }));
         return Promise.resolve(null);
       });
 
@@ -238,6 +270,7 @@ describe('RecordMortalityHandler', () => {
       manager.findOne.mockImplementation((entity: unknown) => {
         if (entity === Batch) return Promise.resolve(makeBatch());
         if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch());
         return Promise.resolve(null);
       });
       manager.save.mockRejectedValueOnce(new Error('DB write failed'));
@@ -288,6 +321,124 @@ describe('RecordMortalityHandler', () => {
       await expect(handler.execute(makeCommand())).rejects.toThrow('outbox write failed');
       expect(queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
       expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('AquaMobil Phase 4 domain correctness', () => {
+    it('FARM-CRITICAL-050: rejects mortality on a terminal batch even when isActive', async () => {
+      const { handler, manager, outboxPublisher } = buildHandler();
+      const terminal = makeBatch({
+        status: BatchStatus.HARVESTED,
+        isActive: true,
+        isOperational: jest.fn().mockReturnValue(false),
+        isStockMutable: jest.fn().mockReturnValue(false),
+      });
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(terminal);
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        return Promise.resolve(null);
+      });
+
+      await expect(handler.execute(makeCommand(50))).rejects.toThrow(ConflictException);
+      expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('FARM-HIGH-052: rejects legacy mode (no idempotency envelope)', async () => {
+      // No envelope → begin() returns legacy
+      const { handler, manager } = buildHandler({ query: jest.fn().mockResolvedValue([]) });
+      await expect(
+        handler.execute(makeCommand(50, { envelope: undefined })),
+      ).rejects.toThrow(BadRequestException);
+      expect(manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it('FARM-HIGH-052: same clientCommandId twice replays without double decrement', async () => {
+      const queryMock = jest.fn()
+        .mockResolvedValueOnce([]) // INSERT DO NOTHING → conflict
+        .mockResolvedValueOnce([{ payloadHash: 'hash-1', status: 'COMPLETED', responseType: 'Batch', responseId: batchId, responsePayload: { id: batchId } }]);
+      const { handler, manager, outboxPublisher } = buildHandler({ query: queryMock });
+      manager.findOne.mockResolvedValueOnce(makeBatch()); // replay reload
+
+      await handler.execute(makeCommand(50));
+
+      expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('FARM-HIGH-053: rejects when the batch is not held in the supplied tank', async () => {
+      const { handler, manager, outboxPublisher } = buildHandler();
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(makeBatch());
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        // TankBatch holds a DIFFERENT batch
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch({ primaryBatchId: 'other-batch' }));
+        return Promise.resolve(null);
+      });
+
+      await expect(handler.execute(makeCommand(50))).rejects.toThrow(NotFoundException);
+      expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('FARM-MEDIUM-052: PREDATION persists mortalityReason="predation" (not "unknown")', async () => {
+      const { handler, manager } = buildHandler();
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(makeBatch());
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch());
+        return Promise.resolve(null);
+      });
+
+      await handler.execute(makeCommand(50, { reason: MortalityReason.PREDATION }));
+
+      const savedOp = manager.save.mock.calls
+        .map((c) => c[1] as { mortalityReason?: string })
+        .find((d) => d?.mortalityReason !== undefined);
+      expect(savedOp?.mortalityReason).toBe('predation');
+    });
+
+    it('FARM-MEDIUM-052: CANNIBALISM persists mortalityReason="cannibalism"', async () => {
+      const { handler, manager } = buildHandler();
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(makeBatch());
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch());
+        return Promise.resolve(null);
+      });
+
+      await handler.execute(makeCommand(50, { reason: MortalityReason.CANNIBALISM }));
+
+      const savedOp = manager.save.mock.calls
+        .map((c) => c[1] as { mortalityReason?: string })
+        .find((d) => d?.mortalityReason !== undefined);
+      expect(savedOp?.mortalityReason).toBe('cannibalism');
+    });
+
+    it('FARM-LOW-050: rejects mortality that breaches the cumulative-initial ceiling', async () => {
+      const { handler, manager } = buildHandler();
+      const batch = makeBatch({ initialQuantity: 100, totalMortality: 90, cullCount: 0, currentQuantity: 10_000 });
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(batch);
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        return Promise.resolve(null);
+      });
+      // 90 + 0 + 0 + 20 = 110 > 100 → reject
+      await expect(handler.execute(makeCommand(20))).rejects.toThrow(BadRequestException);
+    });
+
+    it('FARM-MEDIUM-054: writes a MORTALITY_RECORDED audit row via the txn manager', async () => {
+      const { handler, manager, auditLogService } = buildHandler();
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(makeBatch());
+        if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch());
+        return Promise.resolve(null);
+      });
+
+      await handler.execute(makeCommand(50));
+
+      expect(auditLogService.logWithManager).toHaveBeenCalledWith(
+        manager,
+        expect.objectContaining({ action: 'MORTALITY_RECORDED', entityId: batchId, tenantId }),
+      );
     });
   });
 });

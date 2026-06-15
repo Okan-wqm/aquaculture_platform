@@ -20,6 +20,7 @@ import { RecordCleanerMortalityCommand } from '../commands/record-cleaner-mortal
 import { Batch, BatchType } from '../entities/batch.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
+import { isMortalityReason } from '../entities/tank-operation.enums';
 import { MortalityRecord, MortalityCause } from '../entities/mortality-record.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Species } from '../../species/entities/species.entity';
@@ -218,7 +219,9 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       quantity: payload.quantity,
       avgWeightG,
       biomassKg,
-      mortalityReason: payload.reason as MortalityReason,
+      // FARM-MEDIUM-052 parity: validate against the SSoT enum (an unknown value
+      // falls back to OTHER) instead of an unchecked cast onto MortalityReason.
+      mortalityReason: isMortalityReason(payload.reason) ? payload.reason : MortalityReason.OTHER,
       mortalityDetail: payload.detail,
       isCleanerFishOperation: true,
       cleanerSpeciesName: speciesName,

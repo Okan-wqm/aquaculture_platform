@@ -44,7 +44,9 @@ describe('deploy SSOT contract', () => {
     expect(staging).toContain('CATALOG_NX_FRONTEND_PROJECTS');
     expect(staging).toContain('CATALOG_NON_NX_FRONTEND_PROJECTS');
     // No hardcoded project list survives — the specific drifted list is gone.
-    expect(staging).not.toContain('--projects=shell,dashboard,farm-module,admin-panel,tenant-admin');
+    expect(staging).not.toContain(
+      '--projects=shell,dashboard,farm-module,admin-panel,tenant-admin',
+    );
     expect(staging).not.toMatch(/for mod in sensor-module hr-module hydroponics-module/);
   });
 
@@ -132,9 +134,7 @@ describe('deploy SSOT contract', () => {
     expect(partitionDefiner).toContain(
       'GRANT EXECUTE ON FUNCTION platform.create_messaging_partition(text, text, integer, integer) TO messaging_service',
     );
-    expect(leastPrivilege).not.toContain(
-      "IF spec.schema_name = 'messaging' THEN",
-    );
+    expect(leastPrivilege).not.toContain("IF spec.schema_name = 'messaging' THEN");
 
     expect(provisioner).toContain('Platform Bootstrap — Stage 9');
     expect(provisioner).toContain('aqua-db-migrate provisioner is the sole DDL worker');
@@ -196,18 +196,22 @@ describe('deploy SSOT contract', () => {
     }
   });
 
-  it('gates post-deploy verification on an actual deployment (INFRA-MEDIUM-005)', () => {
-    // A reusable-workflow caller's `result == success` only proves the
-    // called workflow did not fail; the internal deploy job legitimately
-    // skips on docs/registry-only pushes. Verification must key on the
-    // explicit production-mutation contract or every ceremony commit
-    // goes red against an untouched, healthy production.
+  it('keeps the deployment mutation output explicit while CI-Affected stays code-health only', () => {
+    // A reusable-workflow caller's `result == success` only proves the called
+    // workflow did not fail. The production deploy workflow keeps an explicit
+    // mutation output for callers that need it, while CI-Affected no longer
+    // calls deploy/post-deploy jobs from ordinary PR/main code-health checks.
     const deployWorkflow = read('.github/workflows/deploy-digitalocean.yml');
     const ciAffected = read('.github/workflows/ci-affected.yml');
     expect(deployWorkflow).toContain('deployed:');
     expect(deployWorkflow).toContain("value: ${{ jobs.deploy.outputs.performed == 'true' }}");
     expect(deployWorkflow).toContain('Mark deployment performed');
-    expect(ciAffected).toContain("needs.deploy.outputs.deployed == 'true'");
+    expect(ciAffected).toContain(
+      'Push-to-main runs affected lint/type-check/test/build as code-health',
+    );
+    expect(ciAffected).not.toContain("needs.deploy.outputs.deployed == 'true'");
+    expect(ciAffected).not.toContain('uses: ./.github/workflows/deploy-digitalocean.yml');
+    expect(ciAffected).not.toContain('deploy-staging:');
   });
 
   it('verifies SHA images and capacity before SSH mutation', () => {

@@ -17,6 +17,7 @@ CATCHER for `apps/billing-service/**` — Stripe webhook handlers, metered billi
 - @.claude/knowledge/layer-1-nestjs.md
 - @.claude/knowledge/layer-1-typeorm.md
 - @.claude/knowledge/layer-2-patterns.md
+- @.claude/knowledge/layer-2-defect-catalog.md
 - @.claude/knowledge/layer-3-adrs.md
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
@@ -27,9 +28,9 @@ CQRS layering, outbox-only publish, NUMERIC + DecimalTransformer discipline, sch
 
 ## Primary Ownership
 
-- `apps/billing-service/**` — primary (89 files, ~21K LoC: 11 commands, 6 queries, Stripe webhook, scheduled jobs, entities Subscription/Invoice/Payment/Plan/SubscriptionModuleItem/TenantUsageMetrics/UsageAggregation).
+- `apps/billing-service/**` — primary (commands, queries, Stripe webhook ingress, scheduled jobs; entities Subscription/Invoice/Payment/Plan/SubscriptionModuleItem/TenantUsageMetrics/UsageAggregation/StripeWebhookEvent).
 - `apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts` — primary (Stripe webhook ingress: HMAC verify, idempotency, raw body parse).
-- Stripe-related migrations under `database/migrations/modules/billing/` — primary.
+- Billing migrations under `apps/billing-service/src/database/migrations/` (service-local; NOT the root `database/migrations/modules/` tree, which carries only alert/farm/hydroponics/sensor) — primary.
 - `libs/event-contracts/src/billing-events.ts` — secondary reviewer (primary: data-expert; consumer-side billing semantics here).
 - Plan-tier gating in `apps/gateway-api/src/middleware/tenant-context.middleware.ts` (PLAN_LIMITS) — **delegated from multi-tenant-saas-expert** (tenant-contract slice; billing-expert reviews plan-tier ENFORCEMENT correctness, multi-tenant reviews plan-tier CONTRACT semantics).
 
@@ -37,13 +38,15 @@ CQRS layering, outbox-only publish, NUMERIC + DecimalTransformer discipline, sch
 
 ## Domain-specific invariants (beyond SSoT)
 
+Generic real-defect classes (injection, secret-in-log, money/precision, error-swallowing, duplication) live in `@.claude/knowledge/layer-2-defect-catalog.md` (Canonical References above) — Read it and hunt them; the rules below are billing-domain-specific.
+
 ### Stripe webhook discipline
 
 - `stripe.webhooks.constructEvent` MUST be invoked with the RAW body (not JSON-parsed). Express-level `body-parser.raw({ type: 'application/json' })` mandatory on the route. Parsed body = signature verification fails silently in tests, fires falsely in prod = **CRITICAL**.
 - HMAC verification timestamp freshness ≤ 5 min skew. Missing freshness check = **CRITICAL** (replay window unbounded).
 - Idempotency on `event.id` MANDATORY at TWO layers:
   - Layer-1 (transient): Redis `SETNX EX 72h` cache; race-safe.
-  - Layer-2 (persistent): `billing.stripe_webhook_events(event_id UUID PK, received_at, processed_at, status, result JSONB)` table. After 72h Redis TTL, DB-side dedup catches replay. Missing layer-2 = HIGH (rare-event double-processing).
+  - Layer-2 (persistent): `billing.stripe_webhook_events` — the `StripeWebhookEvent` entity + `1800000000000-Baseline` migration SHIP today. After 72h Redis TTL, DB-side dedup catches replay. A handler path that takes a Redis-only fast-path and skips this persistent check = HIGH (rare-event double-processing).
 - Webhook handler MUST return 200 to Stripe in ≤ 5s; any business processing dispatched via outbox / NATS to async worker. Synchronous heavy work in handler = **CRITICAL** (Stripe retries flood within 1h on timeout).
 - Errors during processing logged + persisted to `stripe_webhook_events.status='FAILED'`; manual replay via admin UI. Missing visibility = HIGH.
 - `Webhook signature failed` event MUST emit security alert (potential attack vector). Silent log-only = HIGH.
@@ -74,7 +77,7 @@ CQRS layering, outbox-only publish, NUMERIC + DecimalTransformer discipline, sch
 
 ### Plan-tier enforcement (delegated from multi-tenant-saas-expert)
 
-- `PLAN_LIMITS` in `apps/gateway-api/src/middleware/tenant-context.middleware.ts:187-233` MUST enforce all 6 limits: `maxUsers`, `maxFarms`, `maxPonds`, `maxSensors`, `maxStorageGb`, `maxApiRequests`. Currently only `maxUsers` enforced — **MT-HIGH-002 escalated** (revenue-leak: customers exceed plan, no upcharge).
+- `PLAN_LIMITS` (`apps/gateway-api/src/middleware/tenant-context.middleware.ts:186-232`; interface `TenantLimits` at :77-85) is fully populated per tier with all 7 limits — `maxUsers`, `maxFarms`, `maxPonds`, `maxSensors`, `maxApiRequests`, `maxStorageGb`, `dataRetentionDays` — but has **no enforcement consumer**: no resource-creation command reads the tenant's limit and checks the current count before persist (grep: `PLAN_LIMITS` appears only at its definition). **MT-HIGH-002** (revenue-leak: tenants exceed plan, no upcharge). NB the billing event-handler keeps its OWN inline limit table (`tenant-subscription-requested.handler.ts:83-118`) — two limit sources that can drift (**duplication** finding; point both at one SSoT).
 - Every resource-creation command (CreateFarm, CreatePond, RegisterSensor, etc.) MUST read tenant's planLevel + check resource count against limit BEFORE persist. 429 PLAN_LIMIT_EXCEEDED on breach.
 - Plan downgrade MUST check current usage ≤ new plan limits BEFORE Stripe PIVOT. Silent downgrade with feature loss = HIGH (customer-experience disaster + churn).
 
@@ -86,9 +89,9 @@ CQRS layering, outbox-only publish, NUMERIC + DecimalTransformer discipline, sch
 
 ## Active findings this agent owns
 
-Inherited from platform-services.md (Phase 11 split):
-- Stripe webhook dedup persistence layer (Phase 8.4 partial) — `billing.stripe_webhook_events` table migration pending.
-- `MT-HIGH-002` (PLAN_LIMITS partial enforcement) — escalated to billing-expert as primary; multi-tenant retains contract review.
+Inherited from the platform-services split (Phase 11):
+- Stripe webhook dedup persistence — `billing.stripe_webhook_events` now SHIPS (`StripeWebhookEvent` entity + Baseline migration + controller usage + integration test). Open work: confirm every webhook path consults it (no Redis-only bypass).
+- `MT-HIGH-002` (PLAN_LIMITS defined but unconsumed by any enforcement path) — billing-expert primary; multi-tenant retains contract review.
 
 Historical references:
 - `docs/reviews/platform-services/2026-04-*.md` — pre-split cycles
@@ -116,7 +119,7 @@ See `@.claude/shared/operating-modes.md`. Agent-specific overrides:
 
 ## References
 
-- `apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts:82-175` — current webhook handler (good baseline; needs DB dedup layer)
+- `apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts` — webhook handler (raw-body HMAC verify + idempotency; verify it consults the shipped `StripeWebhookEvent` dedup table)
 - `apps/gateway-api/src/middleware/tenant-context.middleware.ts:187-233` — PLAN_LIMITS partial enforcement (MT-HIGH-002)
 - `libs/backend-common/src/monetary/decimal.transformer.ts` — DecimalTransformer SSoT
 - `docs/adr/006-event-contracts-flat-pattern.md` — billing-events shape

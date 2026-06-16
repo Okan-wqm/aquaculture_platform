@@ -19,6 +19,7 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - @.claude/knowledge/layer-1-nestjs.md            (NestJS 11.1.17 runtime — image entrypoint + DI bootstrap discipline, schema-drift module wiring)
 - @.claude/knowledge/layer-1-typeorm.md           (TypeORM 0.3.27 — migration runner factory, DATABASE_MIGRATIONS_RUN=false production invariant)
 - @.claude/knowledge/layer-2-patterns.md          (circuit breaker, bounded queues, tenant isolation at infra boundaries, CI invariant discipline)
+- @.claude/knowledge/layer-2-defect-catalog.md    (generic real-defect classes — secret-handling, injection, dup, hygiene; Read + hunt across IaC/CI/Docker)
 - @.claude/knowledge/layer-3-adrs.md              (canonical ADRs 001-016 — ADR-001, ADR-014/015, ADR-016 are load-bearing here)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
@@ -37,7 +38,7 @@ Exclusive CATCHER for:
 - `infrastructure/**` — `infrastructure/docker/` (Dockerfiles, init-scripts, nats/nats.conf, nginx/*), `infrastructure/kubernetes/base|overlays/`, `infrastructure/monitoring/{prometheus,grafana,loki}/`, `infrastructure/terraform/`, `infrastructure/mosquitto/`, `infrastructure/simulators/`
 - `deploy/**` — `deploy/base/`, `deploy/staging/`, `deploy/production/`
 - `.github/actions/**` — composite actions: `affected-services`, `deployment-health-check`, `docker-build-push`, `install-platform-binaries`, `setup-node-env`
-- `.github/workflows/**` — 22 workflows incl. `ci-affected.yml`, `ci-full.yml`, `deploy-digitalocean.yml`, `deploy-staging.yml`, `backup-production.yml`, `backup-manifest-invariant.yml`, `security-{trivy,snyk,gitleaks}.yml`, `dependency-review.yml`, `infra-{helm-lint,terraform-apply,terraform-drift,terraform-plan}.yml`, `secret-rotation-reminder.yml`, `db-migration-check.yml`, `edge-agent-release.yml`, `performance-benchmark.yml`, `e2e-*.yml`
+- `.github/workflows/**` — the full workflow suite, incl. `ci-affected.yml`, `ci-full.yml`, `deploy-digitalocean.yml`, `deploy-staging.yml`, `backup-production.yml`, `backup-manifest-invariant.yml`, `security-{trivy,snyk,gitleaks}.yml`, `dependency-review.yml`, `infra-{helm-lint,terraform-apply,terraform-drift,terraform-plan}.yml`, `secret-rotation-reminder.yml`, `db-migration-check.yml`, `edge-agent-release.yml`, `performance-benchmark.yml`, `e2e-*.yml`
 - `.github/manifests/**` — backup-script.sha256 and companion manifest invariants
 - `.github/dependabot.yml` — github-actions ecosystem weekly SHA rotation config
 - `docker-compose*.yml` — root compose (dev/prod/infra/watch overlays)
@@ -52,7 +53,7 @@ Explicitly out-of-scope: `apps/*/src/`, `web/*/src/`, `sens-api-gateway/` (Rust 
 
 ## Domain-specific invariants (beyond SSoT)
 
-The rules below are unique to infra-expert's surface and have no equivalent in `layer-1-*` / `layer-2-patterns.md` / `layer-3-adrs.md`. Every non-trivial rule traces to `docs/research/infra-expert/`.
+The rules below are unique to infra-expert's surface and have no equivalent in `layer-1-*` / `layer-2-patterns.md` / `layer-2-defect-catalog.md` / `layer-3-adrs.md`. Every non-trivial rule traces to `docs/research/infra-expert/`. Generic real-defect classes (secret-handling, injection, dup, hygiene) live in `layer-2-defect-catalog.md` — Read it and hunt them across IaC/CI/Docker too; the rules below are infra-domain-specific.
 
 ### GHA supply-chain + workflow hardening (post 2026-03 trivy-action incident)
 

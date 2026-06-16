@@ -9,7 +9,6 @@ import './styles.css';
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
-import SensorDashboardPage from './pages/SensorDashboardPage';
 import MapViewPage from './pages/MapViewPage';
 import SetupPage from './pages/setup/SetupPage';
 import ReportsPage from './pages/reports/ReportsPage';
@@ -58,9 +57,13 @@ const FarmModule: React.FC = () => {
       {/* Site Düzenleme — same cleanup as above */}
       <Route path=":siteId/edit" element={<Navigate to="/sites/setup/sites" replace />} />
 
-      {/* Sensör Dashboard */}
-      <Route path="sensors" element={<SensorDashboardPage />} />
-      <Route path=":siteId/sensors" element={<SensorDashboardPage />} />
+      {/* Sensör Dashboard — the farm-module SensorDashboardPage was REMOVED
+          (fe-sensor-fake / FARM-CRITICAL-051): it rendered Math.random() mock
+          telemetry as LIVE water quality. Real sensor telemetry is owned by
+          sensor-module at /sensor; redirect there so no fabricated readings
+          can render. Mirrors the FarmDetailPage/FarmFormPage retirement above. */}
+      <Route path="sensors" element={<Navigate to="/sensor" replace />} />
+      <Route path=":siteId/sensors" element={<Navigate to="/sensor" replace />} />
 
       {/* Tanks & Ponds Listesi */}
       <Route path="tanks" element={<TanksPage />} />

@@ -31,7 +31,7 @@ Finding IDs are used in commit `Closes:` lines (`Closes: docs/plans/2026-06-13-f
 | ID | Sev | Confirmed | Tier | Root cause (one line) |
 |---|---|---|---|---|
 | `orphan-cleanup` | **CRITICAL** | ✅ | T1 | Nightly MinIO cleanup runs with no tenant context → DB live-set reads empty source schema while the delete scans the whole shared bucket → deletes every tenant's objects >24h old. |
-| `fe-sensor-fake` | **CRITICAL** | ✅ | T1 | Federation-exposed `/sites/sensors` renders `Math.random()` mock telemetry as live water quality; real sensor pipeline already exists in sensor-module. |
+| `fe-sensor-fake` | **CRITICAL** | ✅ `FARM-CRITICAL-051` | T1 | RETIRED — federation-exposed `/sites/sensors` rendered `Math.random()` mock telemetry as live water quality; deleted the mock + redirect to sensor-module `/sensor`. |
 | `fe-reports-mock` | **CRITICAL** | ✅ | T1 | Entire regulatory compliance dashboard (summary, overdue/penalty banner, deadlines, 7/8 tab histories) is mock-backed and ships unconditionally in prod. |
 | `fe-immediate-reports` | HIGH→**CRITICAL** truth | ✅ | T3 | Welfare/Escape/Disease (legally-immediate Mattilsynet reports) `console.log` the payload + fake-success; **no submission path at any layer**. |
 | `sentinel-cbc` | HIGH | ✅ | T1 | Bespoke unauthenticated AES-256-CBC for Sentinel + regulatory secrets instead of canonical GCM column transformer (malleability/padding-oracle class). |
@@ -221,5 +221,6 @@ Each plan cluster is tracked as a registry finding (`docs/reviews/_registry/find
 | `FARM-HIGH-066` | 4 | `feed-reminder-tenant` — `tenantId` added to `FeedingReminderEventPayload` + consumed in the `notification.send` fan-out (was hardcoded `undefined`). Sibling dead-bus tracked as `ORPHAN-HIGH-122` |
 | `FARM-MEDIUM-059` | 4 | `cache-tenant` — both cache interceptors key off the exported trusted `extractTenantIdSafe` SSoT, never the raw `x-tenant-id` header; arch invariant extended to `common/cache/**` |
 | `FARM-HIGH-067` | 4 | `no-stampede` — `RedisService.getOrCompute` single-flight SSoT (via `setNx`); `CacheableInterceptor` + all 5 `AiInsightsService` MCP cache-asides route through it (one recompute per TTL-expiry miss, not a thundering herd) |
+| `FARM-CRITICAL-051` | 5 | `fe-sensor-fake` — RETIRED the farm `/sites/sensors` mock dashboard (rendered `Math.random()` telemetry as live water quality); deleted the component, redirected routes to sensor-module `/sensor`, removed the federation expose + shell decl, repointed the dead QuickAction |
 
 Deferred / superseded references: `FARM-HIGH-007` + `FARM-MEDIUM-003` are closed by `FARM-HIGH-014`; `FARM-MEDIUM-002` is superseded (see `ORPHAN-MEDIUM-112`); feed-dual Phase B convergence is tracked as `ORPHAN-HIGH-114`.

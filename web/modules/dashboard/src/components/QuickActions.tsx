@@ -43,7 +43,10 @@ const quickActions: QuickAction[] = [
     id: 'add-sensor',
     label: 'Sensör Ekle',
     description: 'Yeni sensör',
-    path: '/sites/sensors/new',
+    // Real sensor management is owned by sensor-module at /sensor. The old
+    // /sites/sensors/new path landed on the farm catch-all (→ /sites/map) after
+    // the mock farm SensorDashboard was retired (fe-sensor-fake).
+    path: '/sensor',
     color: 'bg-green-500',
     icon: <SensorIcon />,
   },

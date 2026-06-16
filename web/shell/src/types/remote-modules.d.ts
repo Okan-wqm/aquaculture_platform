@@ -30,17 +30,11 @@ declare module 'farmModule/Module' {
   export default FarmModule;
 }
 
-// `farmModule/FarmList` and `farmModule/FarmDetail` declarations removed
-// together with their source pages (FarmListPage, FarmDetailPage) in commit
-// 67c9c472 ("refactor(farm): remove legacy farm concept from frontend").
-// The remote no longer exposes these paths — see web/modules/farm-module/
-// vite.config.ts.
-
-declare module 'farmModule/SensorDashboard' {
-  import { FC } from 'react';
-  const SensorDashboard: FC;
-  export default SensorDashboard;
-}
+// `farmModule/FarmList`, `farmModule/FarmDetail`, and `farmModule/SensorDashboard`
+// declarations removed together with their source pages (FarmListPage,
+// FarmDetailPage — commit 67c9c472; SensorDashboardPage — fe-sensor-fake /
+// FARM-CRITICAL-051, mock telemetry rendered as live). The remote no longer
+// exposes these paths — see web/modules/farm-module/vite.config.ts.
 
 // `processEditor/*` declarations removed in C1 PR-1b: there is no
 // `process-editor` federation remote — no Nx project, no vite.config remote

@@ -32,13 +32,14 @@ export default defineConfig(({ mode }) => {
         filename: 'remoteEntry.js',
         exposes: {
           './Module': './src/Module.tsx',
-          // NOTE: `./FarmList` and `./FarmDetail` exposures were removed together
-          // with the stub/mock pages they pointed at (FarmListPage, FarmDetailPage)
-          // in commit 67c9c472 ("refactor(farm): remove legacy farm concept from
-          // frontend"). The shell no longer imports them — all site surfaces go
-          // through SetupPage > SitesTab. Re-adding them would break the build
-          // because the source files no longer exist.
-          './SensorDashboard': './src/pages/SensorDashboardPage.tsx',
+          // NOTE: `./FarmList`, `./FarmDetail`, and `./SensorDashboard` exposures
+          // were removed together with the stub/mock pages they pointed at
+          // (FarmListPage, FarmDetailPage — commit 67c9c472; SensorDashboardPage —
+          // fe-sensor-fake / FARM-CRITICAL-051, which rendered Math.random() mock
+          // telemetry as live water quality). The shell imports none of them — all
+          // site surfaces go through SetupPage > SitesTab, and sensor telemetry is
+          // owned by sensor-module at /sensor. Re-adding would break the build (the
+          // source files no longer exist).
         },
         // FE-HIGH-004: Single source of truth with strictVersion:true
         shared: getCoreSharedConfig(),

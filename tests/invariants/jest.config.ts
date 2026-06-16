@@ -139,6 +139,7 @@ export default {
         '<rootDir>/farm-identity-ssot.spec.ts',
         '<rootDir>/farm-rest-cqrs-ssot.spec.ts',
         '<rootDir>/farm-graphql-fe-be-parity.spec.ts',
+        '<rootDir>/farm-module-no-fabricated-data.spec.ts',
         '<rootDir>/dead-contract-fe-operations.spec.ts',
         '<rootDir>/farm-batch-policy-transaction-ssot.spec.ts',
         '<rootDir>/farm-site-system-eventing-transaction-ssot.spec.ts',

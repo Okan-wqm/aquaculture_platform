@@ -11,11 +11,6 @@
 import { useMemo, useCallback } from 'react';
 import { ReportType, ReportBase } from '../types/reports.types';
 import {
-  getReportsWithUpcomingDeadlines,
-  getOverdueReports,
-  getReportSummary,
-} from '../mock/helpers';
-import {
   getNextDeadline,
   getDaysUntilDeadline,
   isDeadlineOverdue,
@@ -97,31 +92,17 @@ export function useDeadlines(options: UseDeadlinesOptions = {}): UseDeadlinesRet
 
   /**
    * Get upcoming deadlines with urgency
+   * fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
    */
-  const upcomingDeadlines = useMemo((): UpcomingDeadline[] => {
-    const raw = getReportsWithUpcomingDeadlines(lookAheadDays);
-
-    return raw
-      .filter((item) => !siteId || item.report.siteId === siteId)
-      .map((item) => {
-        const deadline = 'deadline' in item.report ? (item.report.deadline as Date) : new Date();
-        return {
-          reportType: item.reportType,
-          report: item.report,
-          deadline,
-          daysRemaining: item.daysUntilDeadline,
-          urgency: getUrgency(deadline),
-        };
-      });
-  }, [lookAheadDays, siteId, getUrgency]);
+  const upcomingDeadlines = useMemo<UpcomingDeadline[]>(() => [], [lookAheadDays, siteId, getUrgency]);
 
   /**
    * Get overdue reports
+   * fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
    */
-  const overdueReports = useMemo(() => {
-    const raw = getOverdueReports();
-    return raw.filter((item) => !siteId || item.report.siteId === siteId);
-  }, [siteId]);
+  const overdueReports = useMemo<
+    { reportType: ReportType; report: ReportBase; daysOverdue: number }[]
+  >(() => [], [siteId]);
 
   /**
    * Get next deadline for a specific report type
@@ -180,16 +161,17 @@ export function useDeadlines(options: UseDeadlinesOptions = {}): UseDeadlinesRet
 
   /**
    * Get summary statistics
+   * fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
    */
-  const summary = useMemo(() => {
-    const rawSummary = getReportSummary(siteId);
-    return {
-      totalPending: rawSummary.totalPending,
-      totalOverdue: rawSummary.totalOverdue,
-      urgentCount: rawSummary.urgentCount,
-      upcomingCount: rawSummary.upcomingDeadlines,
-    };
-  }, [siteId]);
+  const summary = useMemo(
+    () => ({
+      totalPending: 0,
+      totalOverdue: 0,
+      urgentCount: 0,
+      upcomingCount: 0,
+    }),
+    [siteId]
+  );
 
   /**
    * Check if any reports need immediate attention

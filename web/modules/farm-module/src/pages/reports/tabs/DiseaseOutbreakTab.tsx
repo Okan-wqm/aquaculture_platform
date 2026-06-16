@@ -6,7 +6,6 @@
 import React, { useState, useMemo } from 'react';
 import { useRegulatorySettings, useSubmitDiseaseOutbreak } from '../../../hooks/useRegulatory';
 import { buildVarslingIdentity } from '../utils/varslingIdentity';
-import { getMockReports } from '../mock/helpers';
 import { DiseaseOutbreakReport, DiseaseCategory, DiseaseStatus } from '../types/reports.types';
 import { REGULATORY_CONTACTS, DISEASE_LISTS } from '../utils/thresholds';
 import { ReportStatusBadge } from '../components/common';
@@ -379,10 +378,8 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
     return map;
   }, [tanksData]);
 
-  // Get disease outbreaks
-  const allOutbreaks = useMemo(() => {
-    return getMockReports<DiseaseOutbreakReport>('disease', siteId ? { siteId } : undefined);
-  }, [siteId]);
+  // fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
+  const allOutbreaks = useMemo<DiseaseOutbreakReport[]>(() => [], [siteId]);
 
   // Filter outbreaks
   const filteredOutbreaks = useMemo(() => {

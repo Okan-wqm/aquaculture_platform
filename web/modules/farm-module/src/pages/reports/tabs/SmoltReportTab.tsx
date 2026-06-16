@@ -10,7 +10,6 @@ import {
   useSubmitSmoltReport,
 } from '../../../hooks/useRegulatory';
 import type { SubmitSmoltReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
-import { mockSmoltReports } from '../mock/smoltData';
 import {
   SmoltReport,
   SmoltUnitCount,
@@ -962,29 +961,16 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
   const submitSmoltMutation = useSubmitSmoltReport();
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
-  // Filter reports
-  const reports = useMemo(() => {
-    let filtered = siteId
-      ? mockSmoltReports.filter((r) => r.siteId === siteId)
-      : mockSmoltReports;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((r) => r.status === statusFilter);
-    }
-
-    return filtered.sort((a, b) => {
-      if (a.year !== b.year) return b.year - a.year;
-      return b.month - a.month;
-    });
-  }, [siteId, statusFilter]);
+  // fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
+  const reports = useMemo<SmoltReport[]>(() => [], [siteId, statusFilter]);
 
   // Stats
   const stats = useMemo(() => {
-    const totalFish = mockSmoltReports.reduce((sum, r) => sum + r.fishCounts.total, 0);
-    const pending = mockSmoltReports.filter((r) => r.status === 'pending' || r.status === 'overdue').length;
-    const landBased = mockSmoltReports.filter((r) => r.facilityType === 'land_based').length;
-    return { totalFish, pending, landBased, total: mockSmoltReports.length };
-  }, []);
+    const totalFish = reports.reduce((sum, r) => sum + r.fishCounts.total, 0);
+    const pending = reports.filter((r) => r.status === 'pending' || r.status === 'overdue').length;
+    const landBased = reports.filter((r) => r.facilityType === 'land_based').length;
+    return { totalFish, pending, landBased, total: reports.length };
+  }, [reports]);
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<SmoltFormData>) => {

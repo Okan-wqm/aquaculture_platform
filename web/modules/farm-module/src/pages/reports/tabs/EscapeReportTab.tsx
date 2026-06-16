@@ -6,7 +6,6 @@
 import React, { useState, useMemo } from 'react';
 import { useRegulatorySettings, useSubmitEscapeReport } from '../../../hooks/useRegulatory';
 import { buildVarslingIdentity } from '../utils/varslingIdentity';
-import { getMockReports } from '../mock/helpers';
 import { EscapeReport, EscapeStatus, EscapeCause } from '../types/reports.types';
 import { REGULATORY_CONTACTS } from '../utils/thresholds';
 import { ReportStatusBadge } from '../components/common';
@@ -418,10 +417,8 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
     return tanks.reduce((sum, t) => sum + (t.batchMetrics?.pieces || 0), 0);
   }, [tanksData]);
 
-  // Get escape reports
-  const allEscapes = useMemo(() => {
-    return getMockReports<EscapeReport>('escape', siteId ? { siteId } : undefined);
-  }, [siteId]);
+  // fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
+  const allEscapes = useMemo<EscapeReport[]>(() => [], [siteId]);
 
   // Filter escapes
   const filteredEscapes = useMemo(() => {

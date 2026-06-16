@@ -11,7 +11,6 @@ import {
   useSubmitSeaLiceReport,
 } from '../../../hooks/useRegulatory';
 import type { SubmitSeaLiceReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
-import { mockSeaLiceReports } from '../mock/seaLiceData';
 import {
   SeaLiceReport,
   SeaLiceCounts,
@@ -1331,29 +1330,16 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
     return 'Current Site';
   }, [selectedReport, tanks]);
 
-  // Filter reports
-  const reports = useMemo(() => {
-    let filtered = siteId
-      ? mockSeaLiceReports.filter((r) => r.siteId === siteId)
-      : mockSeaLiceReports;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((r) => r.status === statusFilter);
-    }
-
-    return filtered.sort((a, b) => {
-      if (a.year !== b.year) return b.year - a.year;
-      return b.weekNumber - a.weekNumber;
-    });
-  }, [siteId, statusFilter]);
+  // fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
+  const reports = useMemo<SeaLiceReport[]>(() => [], [siteId, statusFilter]);
 
   // Stats
   const stats = useMemo(() => {
-    const pending = mockSeaLiceReports.filter((r) => r.status === 'pending' || r.status === 'overdue').length;
-    const overdue = mockSeaLiceReports.filter((r) => r.status === 'overdue').length;
-    const thresholdExceeded = mockSeaLiceReports.filter((r) => r.thresholdExceeded).length;
-    return { pending, overdue, thresholdExceeded, total: mockSeaLiceReports.length };
-  }, []);
+    const pending = reports.filter((r) => r.status === 'pending' || r.status === 'overdue').length;
+    const overdue = reports.filter((r) => r.status === 'overdue').length;
+    const thresholdExceeded = reports.filter((r) => r.thresholdExceeded).length;
+    return { pending, overdue, thresholdExceeded, total: reports.length };
+  }, [reports]);
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<SeaLiceFormData>) => {

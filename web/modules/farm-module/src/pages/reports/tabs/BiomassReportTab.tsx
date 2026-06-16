@@ -7,7 +7,6 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { graphqlClient } from '@aquaculture/shared-ui';
 import { useRegulatorySettings } from '../../../hooks/useRegulatory';
-import { mockBiomassReports } from '../mock/biomassData';
 import {
   BiomassReport,
   BiomassSpeciesBreakdown,
@@ -1470,29 +1469,16 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
   // Regulatory settings (pre-populates contact info; biomass submission API TBD)
   const { data: regulatorySettings } = useRegulatorySettings();
 
-  // Filter reports
-  const reports = useMemo(() => {
-    let filtered = siteId
-      ? mockBiomassReports.filter((r) => r.siteId === siteId)
-      : mockBiomassReports;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((r) => r.status === statusFilter);
-    }
-
-    return filtered.sort((a, b) => {
-      if (a.year !== b.year) return b.year - a.year;
-      return b.month - a.month;
-    });
-  }, [siteId, statusFilter]);
+  // fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
+  const reports = useMemo<BiomassReport[]>(() => [], [siteId, statusFilter]);
 
   // Stats
   const stats = useMemo(() => {
-    const totalBiomass = mockBiomassReports.reduce((sum, r) => sum + r.currentBiomass.totalKg, 0);
-    const totalMortality = mockBiomassReports.reduce((sum, r) => sum + r.mortality.totalCount, 0);
-    const pending = mockBiomassReports.filter((r) => r.status === 'pending' || r.status === 'overdue').length;
-    return { totalBiomass, totalMortality, pending, total: mockBiomassReports.length };
-  }, []);
+    const totalBiomass = reports.reduce((sum, r) => sum + r.currentBiomass.totalKg, 0);
+    const totalMortality = reports.reduce((sum, r) => sum + r.mortality.totalCount, 0);
+    const pending = reports.filter((r) => r.status === 'pending' || r.status === 'overdue').length;
+    return { totalBiomass, totalMortality, pending, total: reports.length };
+  }, [reports]);
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<BiomassFormData>) => {

@@ -19,7 +19,6 @@ import type {
   SubmitExecutedSlaughterInput,
   ReportSubmissionResult,
 } from '../../../hooks/useRegulatory';
-import { mockSlaughterReports } from '../mock/slaughterData';
 import {
   SlaughterReport,
   PlannedSlaughter,
@@ -1412,30 +1411,16 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
   const submitExecutedMutation = useSubmitExecutedSlaughterReport();
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
-  // Filter reports
-  const reports = useMemo(() => {
-    let filtered = siteId
-      ? mockSlaughterReports.filter((r) => r.siteId === siteId)
-      : mockSlaughterReports;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((r) => r.status === statusFilter);
-    }
-
-    if (typeFilter !== 'all') {
-      filtered = filtered.filter((r) => r.reportPeriodType === typeFilter);
-    }
-
-    return filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  }, [siteId, statusFilter, typeFilter]);
+  // fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
+  const reports = useMemo<SlaughterReport[]>(() => [], [siteId, statusFilter, typeFilter]);
 
   // Stats
   const stats = useMemo(() => {
-    const totalPlanned = mockSlaughterReports.reduce((sum, r) => sum + r.summary.totalPlanned, 0);
-    const totalCompleted = mockSlaughterReports.reduce((sum, r) => sum + r.summary.totalCompleted, 0);
-    const pending = mockSlaughterReports.filter((r) => r.status === 'pending' || r.status === 'draft').length;
-    return { totalPlanned, totalCompleted, pending, total: mockSlaughterReports.length };
-  }, []);
+    const totalPlanned = reports.reduce((sum, r) => sum + r.summary.totalPlanned, 0);
+    const totalCompleted = reports.reduce((sum, r) => sum + r.summary.totalCompleted, 0);
+    const pending = reports.filter((r) => r.status === 'pending' || r.status === 'draft').length;
+    return { totalPlanned, totalCompleted, pending, total: reports.length };
+  }, [reports]);
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<SlaughterFormData>) => {

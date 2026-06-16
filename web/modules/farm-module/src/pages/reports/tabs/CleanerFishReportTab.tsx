@@ -15,7 +15,6 @@ import {
   useSubmitCleanerFishReport,
 } from '../../../hooks/useRegulatory';
 import type { SubmitCleanerFishReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
-import { mockCleanerFishReports } from '../mock/cleanerFishData';
 import {
   CleanerFishReport,
   CleanerFishSpecies,
@@ -1213,29 +1212,16 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
   const submitCleanerFishMutation = useSubmitCleanerFishReport();
   const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
-  // Filter reports
-  const reports = useMemo(() => {
-    let filtered = siteId
-      ? mockCleanerFishReports.filter((r) => r.siteId === siteId)
-      : mockCleanerFishReports;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((r) => r.status === statusFilter);
-    }
-
-    return filtered.sort((a, b) => {
-      if (a.year !== b.year) return b.year - a.year;
-      return b.month - a.month;
-    });
-  }, [siteId, statusFilter]);
+  // fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
+  const reports = useMemo<CleanerFishReport[]>(() => [], [siteId, statusFilter]);
 
   // Stats
   const stats = useMemo(() => {
-    const totalFish = mockCleanerFishReports.reduce((sum, r) => sum + r.totalCount, 0);
-    const totalDeployments = mockCleanerFishReports.reduce((sum, r) => sum + r.deployments.length, 0);
-    const pending = mockCleanerFishReports.filter((r) => r.status === 'pending' || r.status === 'overdue').length;
-    return { totalFish, totalDeployments, pending, total: mockCleanerFishReports.length };
-  }, []);
+    const totalFish = reports.reduce((sum, r) => sum + r.totalCount, 0);
+    const totalDeployments = reports.reduce((sum, r) => sum + r.deployments.length, 0);
+    const pending = reports.filter((r) => r.status === 'pending' || r.status === 'overdue').length;
+    return { totalFish, totalDeployments, pending, total: reports.length };
+  }, [reports]);
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<CleanerFishFormData>) => {

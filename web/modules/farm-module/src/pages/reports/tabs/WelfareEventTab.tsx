@@ -5,7 +5,6 @@
 import React, { useState, useMemo } from 'react';
 import { useRegulatorySettings, useSubmitWelfareEvent } from '../../../hooks/useRegulatory';
 import { buildVarslingIdentity } from '../utils/varslingIdentity';
-import { getMockReports } from '../mock/helpers';
 import { WelfareEventReport, WelfareEventStatus } from '../types/reports.types';
 import { REGULATORY_CONTACTS, MORTALITY_THRESHOLDS } from '../utils/thresholds';
 import { ReportStatusBadge, ReportCard, DeadlineIndicator } from '../components/common';
@@ -348,10 +347,8 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
       .map((t) => t.name);
   }, [tanks]);
 
-  // Get welfare events
-  const allEvents = useMemo(() => {
-    return getMockReports<WelfareEventReport>('welfare', siteId ? { siteId } : undefined);
-  }, [siteId]);
+  // fe-reports-mock: fabricated history removed; real read API not built yet (tracked). Submit path is real.
+  const allEvents = useMemo<WelfareEventReport[]>(() => [], [siteId]);
 
   // Filter events
   const filteredEvents = useMemo(() => {

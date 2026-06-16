@@ -14,7 +14,6 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { getReportSummary, getOverdueReports } from './mock/helpers';
 import { ReportSettingsModal } from './components/ReportSettingsModal';
 
 // Urgent Report Tabs
@@ -194,56 +193,6 @@ const Badge: React.FC<BadgeProps> = ({ count, variant }) => {
 };
 
 // ============================================================================
-// Warning Banner Component
-// ============================================================================
-
-interface WarningBannerProps {
-  overdueCount: number;
-  urgentCount: number;
-}
-
-const WarningBanner: React.FC<WarningBannerProps> = ({ overdueCount, urgentCount }) => {
-  if (overdueCount === 0 && urgentCount === 0) return null;
-
-  return (
-    <div className="bg-red-50 border-l-4 border-red-400 p-4">
-      <div className="flex">
-        <div className="flex-shrink-0">
-          <svg
-            className="h-5 w-5 text-red-400"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path
-              fillRule="evenodd"
-              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </div>
-        <div className="ml-3">
-          <p className="text-sm text-red-700">
-            {overdueCount > 0 && (
-              <span className="font-medium">
-                {overdueCount} overdue {overdueCount === 1 ? 'report' : 'reports'}
-              </span>
-            )}
-            {overdueCount > 0 && urgentCount > 0 && ' and '}
-            {urgentCount > 0 && (
-              <span className="font-medium">
-                {urgentCount} {urgentCount === 1 ? 'report' : 'reports'} due soon
-              </span>
-            )}
-            {'. '}
-            Please submit pending reports to avoid regulatory penalties.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -252,30 +201,9 @@ export const ReportsPage: React.FC = () => {
   const location = useLocation();
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
-  // Get report summary for badges
-  const summary = useMemo(() => getReportSummary(), []);
-  const overdueReports = useMemo(() => getOverdueReports(), []);
-
-  // Calculate tab badges
-  const reportTabs: ReportTab[] = useMemo(() => {
-    // For now, show total pending/overdue on urgent tabs
-    return baseReportTabs.map((tab) => {
-      const tabWithBadge: ReportTab = { ...tab };
-
-      // Urgent tabs show any active incidents
-      if (['welfare', 'disease', 'escape'].includes(tab.id)) {
-        const urgentOverdue = overdueReports.filter(
-          (r) => r.reportType === tab.id
-        ).length;
-        if (urgentOverdue > 0) {
-          tabWithBadge.badge = urgentOverdue;
-          tabWithBadge.badgeVariant = 'error';
-        }
-      }
-
-      return tabWithBadge;
-    });
-  }, [overdueReports]);
+  // fe-reports-mock: fabricated badge counts removed; no real overdue/incident
+  // read API exists yet. Tabs render with no fabricated badges.
+  const reportTabs: ReportTab[] = useMemo(() => baseReportTabs, []);
 
   // Determine active tab from URL
   const currentPath = location.pathname.split('/').pop() || 'sea-lice';
@@ -287,12 +215,6 @@ export const ReportsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Warning Banner */}
-      <WarningBanner
-        overdueCount={summary.totalOverdue}
-        urgentCount={summary.urgentCount}
-      />
-
       {/* Page Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="px-4 sm:px-6 py-6">
@@ -304,22 +226,6 @@ export const ReportsPage: React.FC = () => {
               </p>
             </div>
             <div className="flex items-center space-x-3">
-              {/* Summary Stats */}
-              <div className="hidden sm:flex items-center space-x-4 mr-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-gray-900">{summary.totalPending}</div>
-                  <div className="text-xs text-gray-500">Pending</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">{summary.totalOverdue}</div>
-                  <div className="text-xs text-gray-500">Overdue</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">{summary.recentlySubmitted}</div>
-                  <div className="text-xs text-gray-500">Submitted</div>
-                </div>
-              </div>
-
               {/* Report Settings Button */}
               <button
                 type="button"

@@ -176,6 +176,25 @@ describe('FE-CRITICAL-050-SW: useFirebaseMessaging resolves the dual-SW collisio
     expect(options?.scope).not.toBe('/mobile/');
   });
 
+  it('FE-HIGH-057: the FCM scope is STRICTLY UNDER /mobile/ (deeper, never equal) — proves no eviction', async () => {
+    render(<HookHost />);
+
+    await waitFor(() => expect(registerCalls.length).toBeGreaterThan(0));
+
+    const [, options] = registerCalls[0];
+    const scope = options?.scope;
+    expect(typeof scope).toBe('string');
+    // A ServiceWorker registration is keyed by SCOPE. The FCM worker must be a
+    // STRICT sub-path of the workbox `/mobile/` scope: prefixed by it AND strictly
+    // longer than it. Equal scope would EVICT the workbox SW (break precache);
+    // a non-/mobile scope would 404 behind the reverse proxy (break push). Both
+    // failure modes are excluded here in one disjointness assertion.
+    const WORKBOX_SCOPE = '/mobile/';
+    expect(scope?.startsWith(WORKBOX_SCOPE)).toBe(true);
+    expect((scope ?? '').length).toBeGreaterThan(WORKBOX_SCOPE.length);
+    expect(scope).not.toBe(WORKBOX_SCOPE);
+  });
+
   it('passes the Firebase config to the static SW as URL query params', async () => {
     render(<HookHost />);
 

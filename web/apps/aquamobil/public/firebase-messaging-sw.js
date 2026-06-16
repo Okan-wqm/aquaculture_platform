@@ -2,11 +2,26 @@
 /**
  * Firebase Cloud Messaging Service Worker
  *
- * FE-HIGH-008: importScripts() in service workers does not support SRI
- * attributes. Mitigation layers:
- *   1. Pin exact Firebase SDK version (no range, no "latest")
- *   2. CSP in the HTML shell restricts script-src to 'self' + gstatic.com
- *   3. Service worker fetch scope limits requests to same-origin
+ * FE-HIGH-008 / SEC-MEDIUM-052: importScripts() in service workers does not
+ * support SRI attributes, so the gstatic-hosted Firebase SDK is loaded without a
+ * per-file integrity hash. The in-repo defense-in-depth that ACTUALLY exists
+ * today is:
+ *   1. Pin the exact Firebase SDK version below (no range, no "latest"), so the
+ *      fetched script URL is deterministic and cannot silently float forward.
+ *   2. Same-origin sub-scope registration — this worker only controls
+ *      `/mobile/firebase-cloud-messaging-push-scope` (see useFirebaseMessaging),
+ *      it does not control navigations.
+ *
+ * NOT YET IN PLACE — a real Content-Security-Policy. A prior version of this
+ * comment claimed "CSP in the HTML shell restricts script-src to 'self' +
+ * gstatic.com". That CSP DOES NOT EXIST: there is no meta-tag CSP in this repo,
+ * and a meta-tag CSP could not enforce `worker-src` / `script-src` on this SW's
+ * importScripts anyway. The enforcing CSP must be served as an HTTP RESPONSE
+ * HEADER by the gateway/nginx vhost fronting `location /mobile/` — which is
+ * OUTSIDE this repo. That gap is tracked as SEC-MEDIUM-052 (BLOCKED-ON-INFRA);
+ * the exact required header + server-block location + owner/deadline are recorded
+ * in docs/reviews/aquamobil-e2e-audit/2026-06-13-findings.md#SEC-MEDIUM-052. Do
+ * NOT add a meta-tag CSP here — it would be a placebo that gives false assurance.
  *
  * IMPORTANT: When upgrading Firebase SDK, update the version below AND
  * re-verify the SHA-256 hash of the hosted files at:
@@ -17,6 +32,7 @@
  *   firebase-messaging-compat.js: sha256-<generate-at-build-time>
  *
  * @see FE-HIGH-008
+ * @see SEC-MEDIUM-052
  */
 
 // SECURITY: Pin exact version — never use ranges or "latest"

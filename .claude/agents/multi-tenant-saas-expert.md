@@ -136,7 +136,7 @@ This agent is **called by** other agents when they encounter tenant concerns and
 - Schema-state health, index coverage, type discipline, RLS table ownership, partition-key correctness → `database-reviewer`
 - Cross-cutting security quality gate (blocks deployment on CRITICAL) → `security-reviewer`
 - Admin UI / impersonation UX, admin-panel, tenant-admin, debug tools, DB-management safety → `admin-expert`
-- Billing-service internals, Stripe webhook handlers, subscription state, notification, observability internals → `platform-services`
+- Billing-service internals, Stripe webhook handlers, subscription state → `billing-expert`; notification dispatch → `alert-engine-expert`; observability internals → `observability-expert`
 - Frontend tenant UX (plan selector, impersonation UI, quota displays) → `frontend-expert`
 - Edge tenant-identity propagation → `edge-expert`
 - Domain-specific tenant data handling inside batches / sensors / HR → `farm-expert` / `sensor-expert` / `hr-expert` / `messaging-expert`

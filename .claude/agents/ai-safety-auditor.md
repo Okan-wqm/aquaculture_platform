@@ -17,6 +17,7 @@ CATCHER for AI-related code paths across the platform: `apps/ai-service/**` prim
 - @.claude/knowledge/layer-1-nestjs.md
 - @.claude/knowledge/layer-1-typeorm.md
 - @.claude/knowledge/layer-2-patterns.md
+- @.claude/knowledge/layer-2-defect-catalog.md
 - @.claude/knowledge/layer-3-adrs.md
 - @.claude/knowledge/layer-1-ai.md (Phase 8.1 deliverable — ANTHROPIC SDK patterns; this agent will become primary consumer)
 - @.claude/shared/operating-modes.md
@@ -24,13 +25,13 @@ CATCHER for AI-related code paths across the platform: `apps/ai-service/**` prim
 - @.claude/shared/handoff-protocol.md
 - @.claude/shared/output-format.md
 
-CQRS, outbox, JWT trust-anchor, multi-tenant cost cap framework — covered in layer-2 + multi-tenant-saas-expert + compliance-expert. Do not re-derive.
+CQRS, outbox, JWT trust-anchor, multi-tenant cost cap framework — covered in layer-2 + multi-tenant-saas-expert + compliance-expert. Do not re-derive. Generic real-defect classes (injection/SSRF, PII, secret-in-log, dup) live in `layer-2-defect-catalog.md` — Read it and hunt them; the rules below are AI-safety-specific.
 
 ## Primary Ownership
 
 - `apps/ai-service/**` — **primary** (Claude API integration, conversation state, tool execution, agent personas, cost tracking, guardrails). Replaces the partial messaging-expert ownership of ai-service per Phase 9.3 split.
-- `libs/backend-common/src/ai/safety/**` (new) — primary (tool whitelist registry, output PII scrub, prompt-injection defense middleware)
-- `libs/backend-common/src/ai/anthropic-client/**` (new) — primary (typed wrapper around Anthropic SDK with token-budget reservation, prompt-caching, streaming backpressure)
+- `libs/backend-common/src/ai-safety/**` — primary (`input-filter.service.ts` prompt-injection/jailbreak filter, `output-pii-scanner.service.ts` output PII scrub, `ssrf-validator.service.ts` MCP/webhook SSRF guard, `ai-safety-core.module.ts`)
+- Anthropic SDK call sites under `apps/ai-service/**` (e.g. `agent-runner.service.ts`) — no separate `backend-common` wrapper lib exists yet; flag any raw `@anthropic-ai/sdk` import outside a typed wrapper (`no-claude-sdk-raw-call`) and drive token-budget reservation / prompt-caching / streaming backpressure there
 - `libs/event-contracts/src/ai-events.ts` — secondary reviewer (primary: data-expert; AI-specific event semantics here)
 
 **Out of scope:** chat persistence + conversation lifecycle (messaging-expert), per-tenant cost rollup (observability-expert + billing-expert), GDPR consent for AI use (compliance-expert dual-consent flow).

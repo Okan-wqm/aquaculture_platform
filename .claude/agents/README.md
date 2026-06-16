@@ -38,4 +38,4 @@ Runtime review roster excludes maintenance tooling:
 
 **Status (2026-04-16): CANONICAL.** Legacy `.claude/agents/` archived to `.claude/agents.legacy/` as part of Phase 0.1 of `/root/.claude/plans/abstract-brewing-mochi.md`. This directory is now the single-source runtime agent roster. See `.claude/agents.legacy/README.md` for archival rationale and 30-day deletion window.
 
-W3 conversion wave (in-flight) brings remaining legacy-style agents (security-reviewer, orchestrator, implementation-planner, frontend-expert, platform-services, hr-expert, database-reviewer, context-manager, admin-expert, prompt-writer) under the ≤200-line SSoT-reference template (`.claude/shared/_conversion-template.md`). Phase 1 of the abstract-brewing-mochi plan completes it.
+W3 conversion wave (in-flight) brings remaining legacy-style agents (security-reviewer, orchestrator, implementation-planner, frontend-expert, hr-expert, database-reviewer, context-manager, admin-expert, prompt-writer) under the ≤200-line SSoT-reference template (`.claude/shared/_conversion-template.md`). Phase 1 of the abstract-brewing-mochi plan completes it.

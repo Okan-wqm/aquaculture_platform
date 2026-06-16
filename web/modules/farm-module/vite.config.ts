@@ -78,6 +78,11 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/test-setup.ts'],
       include: ['src/**/*.{test,spec}.{ts,tsx}'],
+      // WHY: React 19 + @testing-library/react 16 + recharts render the heavy
+      // water-chemistry Deffeyes charts (multiple toxic-zone layers) in jsdom at
+      // ~5.5s — over vitest's 5s default, flaking several chart tests on the
+      // boundary. Assertions are correct; the render is just heavy. 20s headroom.
+      testTimeout: 20000,
     },
   };
 });

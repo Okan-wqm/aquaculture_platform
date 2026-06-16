@@ -122,7 +122,7 @@ export function useTrendData(
   );
 
   // Ref to the latest fetch so the interval always calls the newest version.
-  const fetchRef = useRef<() => Promise<void>>();
+  const fetchRef = useRef<(() => Promise<void>) | undefined>(undefined);
   const mountedRef = useRef(true);
 
   useEffect(() => {

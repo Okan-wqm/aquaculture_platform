@@ -38,8 +38,8 @@ export interface SharedDepConfig {
 
 /** Canonical version pins for all shared dependencies */
 export const SHARED_VERSIONS = {
-  react: '18.3.1',
-  'react-dom': '18.3.1',
+  react: '19.2.7',
+  'react-dom': '19.2.7',
   'react-router-dom': '6.30.3',
   '@tanstack/react-query': '5.90.10',
   '@aquaculture/shared-ui': '1.0.0',

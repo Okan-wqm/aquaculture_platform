@@ -24,12 +24,9 @@
 ## Commands
 
 ```bash
-# Dev
 npm run infra:up                 # Postgres + Redis + NATS + MinIO + Mosquitto
 npm run dev:backend              # Backend services (Nx run-many)
 npm run dev:web                  # Shell + microfrontends
-
-# Build & Test
 nx affected --target=build       # Affected build
 nx affected --target=test        # Affected tests
 nx affected --target=lint        # Lint
@@ -87,7 +84,10 @@ The test for every bug: *"If the upstream were correct, would this code need to 
 3. **Make it detectable** — the wrong behaviour is caught at build/test time.
 4. **Document it** — last resort, only when 1–3 are genuinely impossible.
 
-**Phrases BANNED as gating excuses:** "for now" / "interim" / "temporary" / "pragmatic" / "simpler approach" / "middle ground" / "for momentum" / "just this commit" / "good enough" / "sufficient for now". "follow-up commit will handle it" — follow-up must be in the SAME PR or a tracked plan phase. "deferred" / "out of scope" — FORBIDDEN without an explicit owner + deadline + tracked finding ID.
+**Phrases BANNED as gating excuses:**
+
+- "for now" / "interim solution" / "interim" / "temporary" / "pragmatic" / "simpler approach" / "middle ground" / "for momentum" / "just this commit" / "good enough" / "sufficient for now"
+- "follow-up commit will handle it" (SAME PR or a tracked plan phase); "deferred" / "out of scope" — FORBIDDEN without an explicit owner + deadline + tracked finding ID
 
 **If the architectural fix genuinely cannot land this session:** open a CRITICAL/HIGH tracked finding (owner + deadline + ID), state in the commit message exactly what was NOT done and WHY, and list the debt in the PR. Never ship a partial fix as if complete. The cost of a quick fix is paid forever; the right fix is paid once.
 

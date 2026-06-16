@@ -4485,3 +4485,17 @@ Severity: MEDIUM. Discovered 2026-06-16 during the CLAUDE.md steering-file clean
 Status: OPEN (2026-06-16; owner: infra-expert / context-manager; BLOCKED-BY ORPHAN-MEDIUM-117). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-MEDIUM-122 — #490 CLAUDE.md rewrite broke ARIA invariant I-V4-08 (canonical "Phrases BANNED" section) — RESOLVED this commit
+
+Severity: MEDIUM. Discovered 2026-06-16 (operator-reported) after PR #490 merged (`aa7b39241`). Self-inflicted regression; lead-verified firsthand.
+
+**Problem:** PR #490 compressed CLAUDE.md's "Phrases BANNED as gating excuses:" block from a standalone heading + bulleted list into an inline paragraph, AND dropped the phrase "interim solution". This broke `aria-kernel/tests/invariants/v4/test_phase_v4_b_narrative_shape.py::PhaseV4BNarrativeShape::test_i_v4_08_banned_phrase_canonical_drift` ("CLAUDE.md missing 'Phrases BANNED' canonical section"). I-V4-08 regex-extracts the bulleted quoted phrases and asserts set-equality with `tools/gates/banned-phrase.ts`'s canonical 13-phrase docstring. It is an ARIA-kernel **pytest** invariant, NOT one of the Node/cargo PR jobs — so #490's CI was green.
+
+**Verification gap (root cause of the miss):** my #490 validation ran the **jest** invariant suite (1176 green) but never the **aria-kernel pytest** suite. Sweep confirms I-V4-08 was the ONLY #490 regression — the full aria-kernel invariant suite is otherwise green.
+
+**Fix (this commit):** restored the standalone heading + bulleted list carrying the exact 13 canonical phrases (+ allowlisted "follow-up commit will handle it"); reclaimed 3 lines from the Commands block to keep CLAUDE.md ≤200 (the `claude-md-accuracy` guard). Verified GREEN: I-V4-08 + full aria-kernel invariant suite (705 passed) + `claude-md-accuracy` + `invariants:fast` (1176 passed). Process follow-up (tracked): extend `claude-md-accuracy.spec.ts` to assert the I-V4-08 contract (heading-on-own-line + bulleted phrase set == `banned-phrase.ts`) so a CLAUDE.md edit can't silently break the ARIA parser from the Node side again.
+
+Status: RESOLVED (2026-06-16; owner: lead; closed by this commit). Registry: orphan-findings.md only.
+
+---

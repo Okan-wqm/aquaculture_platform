@@ -178,6 +178,9 @@ describe('ScadaWidgetNode — Rules of Hooks fix', () => {
     positionAbsoluteX: 0,
     positionAbsoluteY: 0,
     dragging: false,
+    draggable: true,
+    selectable: true,
+    deletable: true,
   };
 
   // Test 1: ScadaRuntime provider olmadan (edit modu) — crash olmamali

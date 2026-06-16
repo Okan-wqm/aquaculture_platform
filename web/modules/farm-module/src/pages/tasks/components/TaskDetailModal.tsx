@@ -9,7 +9,7 @@ import {
 interface TaskDetailModalProps {
   task: Task;
   onClose: () => void;
-  onToggleChecklist: (taskId: string, checklistId: string) => void;
+  onToggleChecklist: (taskId: string, checklistId: string, isCompleted: boolean) => void;
   onAddNote: (taskId: string, note: string) => void;
   onComplete: (taskId: string) => void;
 }
@@ -163,7 +163,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                       <input
                         type="checkbox"
                         checked={item.isCompleted}
-                        onChange={() => onToggleChecklist(task.id, item.id)}
+                        onChange={() => onToggleChecklist(task.id, item.id, !item.isCompleted)}
                         className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                         disabled={task.status === 'COMPLETED' || task.status === 'CANCELLED'}
                       />

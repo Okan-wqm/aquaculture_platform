@@ -43,7 +43,6 @@ Use `git diff --name-only` and map changed files to primary + also-notify agents
 
 Invoke all identified agents in parallel using the Agent tool across **two lanes**:
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **Lane-A (code quality)** — this file's Runtime Review Roster (enterprise-v2 domain + cross-cutting experts).
 - **Lane-B (product quality)** — the `.claude/agents/product-audit/` roster (UI/E2E/tenant-surface product auditors). See `.claude/agents/product-audit/README.md` § Runtime Roster for the 22 Lane-B agents. Finding prefix `PRODUCT-*`.
 
@@ -53,7 +52,6 @@ Phase 3 collects reports from both lanes; Phase 3.5 cross-lane compaction auto-i
 
 ## Decision Rules
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **ANY CRITICAL finding from ANY agent → BLOCK deployment.**
 - **3+ HIGH findings → PASS WITH CONDITIONS** (fix before next release).
 - **Only MEDIUM/LOW → PASS.**
@@ -68,7 +66,6 @@ All agents use `opus` with `effort: xhigh` per platform policy. This table is th
 |-------|--------|
 | farm-expert | apps/farm-service/, web/modules/farm-module/ |
 | sensor-expert | apps/sensor-service/, web/modules/sensor-module/ |
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 | messaging-expert | apps/messaging-service/, apps/ai-service/ |
 | data-expert | libs/event-contracts/, libs/backend-common/database/, database/migrations/ (delta review) |
 | database-reviewer | All schema sources — state health audit (tables, columns, indexes, constraints, naming) |
@@ -93,7 +90,6 @@ All agents use `opus` with `effort: xhigh` per platform policy. This table is th
 | ai-safety-auditor | Anthropic Claude SDK safety + cost reviewer — prompt-injection defense, tool whitelisting, output PII scrub, prompt caching adoption, streaming backpressure, context-window budgeting, per-tenant cost-cap reservation. Promoted from agents/product-audit/ai-tool-execution-auditor |
 | legal-hold-auditor | Cross-service enforcement of legal hold precedence on every destructive action (delete, anonymize, retention-expiry, partition DROP, outbox GC, GDPR erasure). Litigation discovery + record retention non-negotiable |
 | audit-trail-completeness-auditor | Cross-cutting reviewer for audit-log completeness on every regulated action — SOC 2 CC4 + GDPR Art 30 alignment. Coverage of @AuditedOperation decorator, immutability invariant, retention policy |
-| tenant-cost-attribution-expert | Per-tenant cost-attribution pipeline — Prometheus cost-labelled metric emission, observability-service rollup, Stripe reconciliation, plan-tier margin SLO, cost-explosion isolation per-tenant circuit breaker |
 | performance-expert | Cross-cutting runtime performance — EXPLAIN ANALYZE discipline, p99 latency SLO per endpoint, React MFE bundle-size budget, memory footprint baseline, concurrency budget. NO primary ownership; secondary reviewer dispatched in parallel with the domain expert on hot-path changes |
 | supply-chain-auditor | Cross-cutting software supply-chain integrity — npm audit gate, transitive CVE triage, license compliance, SLSA provenance + commit signing, Docker base-image CVE scan, --ignore-scripts discipline. Split from infra-expert |
 | contract-parity-enforcer | Cross-cutting API contract drift — OpenAPI ↔ NestJS Router, GraphQL subgraph schema ↔ resolver, sensorprotocols ↔ Rust adapter, event-contract consumer drift. Promoted from agents/product-audit/contract-parity-auditor |
@@ -142,4 +138,3 @@ Orchestrator itself does not raise domain findings; it may raise PROCESS finding
 ## Prior Work Check
 
 Before a cycle, read the previous cycle's `docs/reviews/orchestrator/{date}-{topic}.md` for STALE CRITICAL/HIGH findings. Those MUST appear in Phase 4 as mandatory dispatch targets to the source agent for escalation re-review (see Phase 5 finding-ID-propagation notes in `.claude/shared/orchestrator-phases.md`).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.

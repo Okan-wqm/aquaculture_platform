@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { TransferStockCommand } from '../commands/transfer-stock.command';
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
@@ -29,6 +30,8 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
     @InjectRepository(Consumable)
     private readonly consumableRepository: Repository<Consumable>,
     private readonly dataSource: DataSource,
+    // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
+    private readonly siteAuth: SiteAuthorizationService,
   ) {}
 
   async execute(command: TransferStockCommand): Promise<StockMovement> {
@@ -66,6 +69,19 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
     if (!toLocation) {
       throw new NotFoundException(`Target location "${input.toLocationId}" not found`);
     }
+
+    // SEC-HIGH-051: object-level site authorization for BOTH legs. A transfer
+    // moves stock OUT of the source site INTO the destination site; asserting
+    // only one leaves a cross-site escape. StorageLocation.siteId is a direct
+    // column. MODULE_MANAGER+ bypasses (managers own cross-site moves); a
+    // MODULE_USER not assigned to BOTH sites is DENIED.
+    const siteCaller = {
+      sub: userId,
+      roles: command.userRoles,
+      assignedSiteIds: command.callerAssignedSiteIds,
+    };
+    this.siteAuth.assertSiteAssignment({ caller: siteCaller, siteId: fromLocation.siteId });
+    this.siteAuth.assertSiteAssignment({ caller: siteCaller, siteId: toLocation.siteId });
 
     // Get item name (read-only lookup, safe to run before the transaction)
     const itemName = await this.getItemName(input.itemType as StorageItemType, input.itemId, tenantId);

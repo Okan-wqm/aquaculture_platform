@@ -68,8 +68,21 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     };
 
     // Inventory mutation + audit row in a single transaction owned here.
+    // SEC-HIGH-051: pass the caller's site-authorization context so the sink
+    // (StockMovementService) asserts assignment to each touched location's site
+    // BEFORE any write. This is a DIRECT operator movement, so the check applies
+    // (feeding callers omit it — they authorize on the feeding site at their sink).
     const result = await this.dataSource.transaction((manager) =>
-      this.stockMovementService.recordMovement(manager, movementInput, { tenantId, userId, userName }),
+      this.stockMovementService.recordMovement(manager, movementInput, {
+        tenantId,
+        userId,
+        userName,
+        siteAuthorization: {
+          sub: userId,
+          roles: command.userRoles,
+          assignedSiteIds: command.callerAssignedSiteIds,
+        },
+      }),
     );
 
     const { saved, currentTotal, idempotentHit, warnings } = result;

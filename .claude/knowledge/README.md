@@ -4,7 +4,7 @@ Single source of truth for the three-layer knowledge model that every enterprise
 
 ## Why separate
 
-<!-- cardinality:total-active -->67<!-- /cardinality --> agents (Lane-A runtime + Lane-B combined; excludes <!-- cardinality:lane-a-maintenance -->5<!-- /cardinality --> agents under `.claude/agents/_maintenance/`) need to know NestJS 11 patterns, TypeORM 0.3 DataSource usage, ADR constraints, etc. If every agent inlines these facts, a NestJS 11→12 upgrade becomes a ~67-file fanout — the tier-4 "documentation duplicated everywhere" anti-pattern the agent+skill+gate initiative exists to prevent.
+<!-- cardinality:total-active -->66<!-- /cardinality --> agents (Lane-A runtime + Lane-B combined; excludes <!-- cardinality:lane-a-maintenance -->5<!-- /cardinality --> agents under `.claude/agents/_maintenance/`) need to know NestJS 11 patterns, TypeORM 0.3 DataSource usage, ADR constraints, etc. If every agent inlines these facts, a NestJS 11→12 upgrade becomes a ~66-file fanout — the tier-4 "documentation duplicated everywhere" anti-pattern the agent+skill+gate initiative exists to prevent.
 
 Agents reference this SSoT via include convention:
 
@@ -32,9 +32,10 @@ Split across per-domain shards so `edge-expert` does not load NestJS, `frontend-
 | `layer-1-rust.md` | edge-expert — Tokio 1.43, axum 0.8, rustls, thiserror |
 | `layer-1-ai.md` | ai-expert, ai-safety-expert, cost-attribution reviewers — Claude Agent SDK 0.2.37 prompt caching + tool use + streaming |
 
-### Layer 2 — Architectural patterns
+### Layer 2 — Architectural patterns + defect classes
 
-`layer-2-patterns.md` — CQRS discipline, Outbox, DDD aggregate root, tenant isolation modes, event flat pattern, saga compensation. Applies across every agent.
+- `layer-2-patterns.md` — CQRS discipline, Outbox, DDD aggregate root, tenant isolation modes, event flat pattern, saga compensation. Applies across every agent.
+- `layer-2-defect-catalog.md` — generic real-defect classes (security / bugs / typos / duplication / hygiene) every code-review agent must hunt, each tied to its enforcing eslint rule / gate / invariant (no brittle counts). Domain-specific defects stay in each agent's own invariants section.
 
 ### Layer 3 — Repo conventions (ADR-bound)
 

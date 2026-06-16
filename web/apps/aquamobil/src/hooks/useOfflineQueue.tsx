@@ -27,7 +27,7 @@ interface OfflineContextValue {
   isOnline: boolean;
   isSyncing: boolean;
   syncError: string | null;
-  addToQueue: (type: OperationType, payload: OperationPayload) => Promise<AddToQueueResult>;
+  addToQueue: (type: OperationType, payload: OperationPayload, clientCommandId?: string) => Promise<AddToQueueResult>;
   syncNow: () => Promise<SyncResult>;
   removeFromQueue: (id: string) => Promise<void>;
   getSyncStatus: (id: string) => SyncStatus;
@@ -117,9 +117,13 @@ const MUTATIONS: Record<OperationType | 'submitLeaveRequest', string> = {
       }
     }
   `,
+  // FARM-HIGH-057: task lifecycle mutations take a single TaskLifecycleInput that
+  // carries the task id PLUS the at-most-once command envelope. The server rejects
+  // an envelope-less call, so the queued payload (envelope already stamped on
+  // enqueue) is sent verbatim under `input`.
   completeTask: `
-    mutation CompleteTask($id: ID!) {
-      completeTask(id: $id) {
+    mutation CompleteTask($input: TaskLifecycleInput!) {
+      completeTask(input: $input) {
         id
         status
         completedAt
@@ -128,10 +132,21 @@ const MUTATIONS: Record<OperationType | 'submitLeaveRequest', string> = {
     }
   `,
   startTask: `
-    mutation StartTask($id: ID!) {
-      startTask(id: $id) {
+    mutation StartTask($input: TaskLifecycleInput!) {
+      startTask(input: $input) {
         id
         status
+      }
+    }
+  `,
+  // FARM-HIGH-057: idempotent checklist SET — the queued payload carries the
+  // ABSOLUTE target isCompleted (taskId/itemId/isCompleted) plus the envelope, so
+  // a replay after reconnect converges instead of reverting the item.
+  setChecklistItem: `
+    mutation SetChecklistItem($input: SetChecklistItemInput!) {
+      setChecklistItem(input: $input) {
+        id
+        checklistItems
       }
     }
   `,
@@ -267,7 +282,12 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
   }, [refreshQueue]);
 
   const addToQueue = useCallback(
-    async (type: OperationType, payload: OperationPayload): Promise<AddToQueueResult> => {
+    // FARM-HIGH-057: `clientCommandId` is the stable at-most-once id a hook
+    // generates ONCE per action and threads through both its online attempt and
+    // this offline fallback, so the server dedups an online-fail-then-queue
+    // retry. Omitted by pure-offline-first callers, which mint a fresh id inside
+    // queueOperation as before.
+    async (type: OperationType, payload: OperationPayload, clientCommandId?: string): Promise<AddToQueueResult> => {
       // SECURITY (C11): tenantId is required -- reject if not authenticated
       if (!tenantId) {
         throw new Error('Cannot queue operations without an active tenant');
@@ -275,7 +295,7 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       // SEC-09: pass auth presence so background sync is only registered when
       // credentials are confirmed valid, preventing auth-failure retryCount inflation.
       const hasValidAuth = Boolean(accessToken && tenantId && user);
-      const result = await queueOperation(tenantId, type, payload, hasValidAuth);
+      const result = await queueOperation(tenantId, type, payload, hasValidAuth, clientCommandId);
       await refreshQueue();
       return result;
     },
@@ -288,8 +308,12 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         throw new Error('Not authenticated');
       }
 
-      // Task mutations (completeTask, startTask) and deleteMessage use { id } variable
-      const isIdMutation = type === 'completeTask' || type === 'startTask' || type === 'deleteMessage';
+      // deleteMessage uses a flat { id } variable (no envelope: messaging deletes
+      // are not at-most-once-enveloped here). FARM-HIGH-057: completeTask/startTask
+      // are NO LONGER flat-id mutations — they take a single TaskLifecycleInput, so
+      // the whole enveloped payload rides under `input` like every other input
+      // mutation (the default branch below). setChecklistItem is the same shape.
+      const isIdMutation = type === 'deleteMessage';
       // editMessage uses { id, input: { content } } — split payload into id + nested input
       const isEditMessage = type === 'editMessage';
 

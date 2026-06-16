@@ -6,6 +6,7 @@
  *
  * @module Harvest/Commands
  */
+import { Role } from '@aquaculture/backend-common/decorators';
 import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 
 import { QualityGrade } from '../entities/harvest-record.entity';
@@ -36,6 +37,9 @@ export class CreateHarvestRecordCommand {
     public readonly tenantId: string,
     public readonly input: CreateHarvestRecordInput,
     public readonly recordedBy: string,
+    // SEC-HIGH-051: caller authz context for the object-level site check.
+    public readonly userRoles: Role[] = [],
+    public readonly callerAssignedSiteIds: string[] = [],
     public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

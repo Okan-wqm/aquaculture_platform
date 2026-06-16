@@ -1,6 +1,8 @@
 /**
  * Storage Module - Storage locations, inventory, stock movements, and purchase orders
  */
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -106,6 +108,9 @@ const QueryHandlers = [
     // Exported so FeedingModule can deduct feed stock INSIDE the feeding
     // transaction (fail-closed, atomic) — see StockMovementService header.
     StockMovementService,
+    // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
+    SiteAuthorizationService,
+    MobileFeatureGuard,
     ...CommandHandlers,
     ...QueryHandlers,
   ],

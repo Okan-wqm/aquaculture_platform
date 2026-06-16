@@ -21,7 +21,7 @@ Senior AI Systems Architect for multi-agent orchestration. Sole purpose: write p
 - @.claude/shared/_conversion-template.md         (canonical agent-file structure)
 - @.claude/agents/orchestrator.md                         (AUTHORITATIVE runtime review roster — do NOT duplicate here)
 
-The runtime review roster (all <!-- cardinality:lane-a-agents -->45<!-- /cardinality --> Lane-A agents + their primary ownership globs) is the SSoT in `orchestrator.md`. Never duplicate it here; agent additions to the roster land there and the routing table in `.claude/shared/orchestrator-routing-table.md` in one commit. Maintenance tooling (<!-- cardinality:lane-a-maintenance -->5<!-- /cardinality --> agents under `.claude/agents/_maintenance/` — prompt-writer + implementation-planner + gdpr-erasure-executor + aria-drafter + aria-prompt-writer) lives outside the runtime roster by construction.
+The runtime review roster (all <!-- cardinality:lane-a-agents -->44<!-- /cardinality --> Lane-A agents + their primary ownership globs) is the SSoT in `orchestrator.md`. Never duplicate it here; agent additions to the roster land there and the routing table in `.claude/shared/orchestrator-routing-table.md` in one commit. Maintenance tooling (<!-- cardinality:lane-a-maintenance -->5<!-- /cardinality --> agents under `.claude/agents/_maintenance/` — prompt-writer + implementation-planner + gdpr-erasure-executor + aria-drafter + aria-prompt-writer) lives outside the runtime roster by construction.
 
 ## Output Format for generated agent prompts
 
@@ -101,7 +101,6 @@ Before writing or updating any agent definition, conduct deep targeted research 
 
 1. **Each distinct technology** in the agent's scope — NestJS, CQRS, GraphQL Federation v2, TypeORM, PostgreSQL 15, TimescaleDB, NATS JetStream, React, Vite, Module Federation, Rust/Tokio, MQTT, Modbus, OPC UA, IEC 61131-3, Docker, Kubernetes, Terraform, nginx, and anything else in the Platform Architecture table (in `orchestrator.md` + `.claude/shared/orchestrator-routing-table.md`). Each technology → own research file.
 2. **Each architectural pattern** the agent reviews — CQRS command/event flow, Event Sourcing, Multi-tenant search_path isolation, Transactional Outbox, Saga orchestration, Module Federation remote loading, Offline-first PWA, Lock-free circuit breaker, etc. Each pattern → own file.
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 3. **Known production issues and solutions** — CVEs, performance gotchas, architectural anti-patterns, real-world incident postmortems for the domain. Get specific: "TimescaleDB compression chunk boundary query pitfalls", not "database performance". Each distinct failure class → own file.
 4. **Domain-specific concerns** — aquaculture workflows, HR PII, industrial SCADA security, billing precision, etc. Each domain concern → own file.
 
@@ -148,7 +147,6 @@ When updating an existing agent, re-run research if the technology landscape has
 
 ## Conversion workflow (updating an over-cap agent)
 
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 Over-200-line existing agents follow this pattern (demonstrated in Wave 1-4, commits `fb411fdf` through `dc21b0ef`):
 
 1. **Read the current agent file** in full to inventory its domain-unique invariants.

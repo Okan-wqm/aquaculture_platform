@@ -7,8 +7,23 @@
  */
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { ID, Float, Field, InputType, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
-import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { GraphQLJSON } from 'graphql-type-json';
+
+/**
+ * FARM-HIGH-052: stock-mutating mobile mutations MUST carry an idempotency key,
+ * so the four inputs below re-declare clientCommandId + payloadHash as
+ * NON-NULLABLE, overriding the nullable fields on the abstract
+ * MobileCommandEnvelopeInput parent. A non-nullable @Field on the subclass wins
+ * at GraphQL schema build, making it structurally impossible to submit a stock
+ * mutation without the key — the handler's legacy-mode reject then becomes
+ * unreachable from the GraphQL front. Mobile already generates these (Phase 1-3).
+ *
+ * NOTE: a TS class field declared without a default keeps the inherited optional
+ * member's nullability for type-checking; the runtime GraphQL/validation
+ * non-nullability is what enforces the key. The `!` definite-assignment marker
+ * documents that intent.
+ */
 
 import { AllocationType } from '../commands/allocate-to-tank.command';
 import { CullReason } from '../commands/record-cull.command';
@@ -53,6 +68,8 @@ export class UpdateBatchInput implements UpdateBatchPayload {
 
 @InputType()
 export class RecordMortalityInput extends MobileCommandEnvelopeInput {
+  @Field(() => ID) @IsNotEmpty() @IsUUID() clientCommandId!: string;
+  @Field() @IsNotEmpty() @IsString() @MaxLength(128) payloadHash!: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity: number;
@@ -66,6 +83,8 @@ export class RecordMortalityInput extends MobileCommandEnvelopeInput {
 
 @InputType()
 export class RecordCullInput extends MobileCommandEnvelopeInput {
+  @Field(() => ID) @IsNotEmpty() @IsUUID() clientCommandId!: string;
+  @Field() @IsNotEmpty() @IsString() @MaxLength(128) payloadHash!: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity: number;
@@ -78,6 +97,8 @@ export class RecordCullInput extends MobileCommandEnvelopeInput {
 
 @InputType()
 export class AllocateToTankInput extends MobileCommandEnvelopeInput {
+  @Field(() => ID) @IsNotEmpty() @IsUUID() clientCommandId!: string;
+  @Field() @IsNotEmpty() @IsString() @MaxLength(128) payloadHash!: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() tankId: string;
   @Field(() => Int) @IsNotEmpty() @IsInt() @Min(1) quantity: number;
@@ -89,6 +110,8 @@ export class AllocateToTankInput extends MobileCommandEnvelopeInput {
 
 @InputType()
 export class TransferBatchInput extends MobileCommandEnvelopeInput {
+  @Field(() => ID) @IsNotEmpty() @IsUUID() clientCommandId!: string;
+  @Field() @IsNotEmpty() @IsString() @MaxLength(128) payloadHash!: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() batchId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() sourceTankId: string;
   @Field(() => ID) @IsNotEmpty() @IsUUID() destinationTankId: string;

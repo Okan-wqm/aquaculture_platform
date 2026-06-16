@@ -4424,7 +4424,98 @@ Status: OPEN (2026-06-14; owner: frontend-expert; tracked follow-up). Registry: 
 
 ---
 
-## ORPHAN-MEDIUM-118 — Tailwind v4 default palette shifts sRGB-hex → oklch (C3 migration accepts it; only custom tokens pinned)
+## ORPHAN-MEDIUM-109 — `leave.integration.spec.ts` is stale RED (handlers refactored to transactional outbox; spec never updated)
+
+Severity: MEDIUM. Discovered 2026-06-15 during AquaMobil Phase 5 (SEC-MEDIUM-051) cross-review, running `nx test hr-service` on the leave domain.
+
+**Problem:** `apps/hr-service/src/leave/__tests__/leave.integration.spec.ts` is RED on a clean checkout (27/27 tests fail at the `Test.createTestingModule(...).compile()` call, line ~125) — independent of the Phase 5 branch (the file is untouched by it; confirmed by `git stash` + run on HEAD). The spec's module registers only `getRepositoryToken(LeaveRequest)`, `getRepositoryToken(LeaveBalance)` and `EventBus`, but the four handlers under test were refactored (CRITICAL-002 transactional-outbox work) to inject `OutboxPublisher` and `DataSource` and to read/write through `queryRunner.manager.findOne/save` inside a transaction. DI resolution fails for the missing `OutboxPublisher`/`DataSource` providers, and even past that the test bodies assert against `leaveRequestRepository.findOne` mocks that the handlers no longer call (they go through `queryRunner.manager`).
+
+**Effect:** the entire leave-lifecycle integration suite provides no signal — `nx affected --target=test` for hr-service is red on a path unrelated to any current change, masking real regressions in submit/approve/reject/cancel. Phase 5's SEC-MEDIUM-051 invariants are independently covered by the new `leave-ownership.spec.ts` (submit + cancel ownership reject + reflectable @Roles metadata, wired with the correct transactional providers), so the ownership guarantees ARE tested — but the broader lifecycle suite is not.
+
+**Why not fixed inline (Phase 5):** out of Phase 5 scope (authorization, not a test-infra rewrite), and a correct fix is a substantial rewrite of all 27 cases against the transactional `queryRunner.manager` surface (each `leaveRequestRepository.findOne` expectation must move to a mocked manager chain — the `createMockDataSource()` factory from `@platform/testing` is the right tool). Rewriting 27 stale mocks blind on a security branch risks masking a real handler bug behind a green-but-wrong test; it belongs in a dedicated hr-service test-infra slice.
+
+**Fix direction:** rebuild the spec's module with `createMockDataSource()` (provides the `DataSource → QueryRunner → EntityManager` chain) + an `OutboxPublisher` double + the `EventBus` double, register the missing providers, and re-point every `findOne/save` expectation onto `mockManager` instead of the injected repositories. Then assert the outbox `enqueue(event, manager)` atomicity the handlers now guarantee.
+
+Status: OPEN (2026-06-15; owner: hr-service maintainer; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-118 — farm tenant-routing architecture spec allowlists only `farm-outbox`, but its regex also matches two other legitimately cross-tenant farm tables
+
+Severity: MEDIUM. Discovered 2026-06-16 during the CLAUDE.md steering-file back-test (multi-tenant-saas-expert lead; lead-verified firsthand).
+
+**Problem:** `apps/farm-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts` allowlists only `outbox/farm-outbox.entity.ts` (lines 14-18) as permitted to declare `@Entity(... schema: 'farm' ...)`, but its discovery regex (`/@Entity\([^)]*schema:\s*'farm'/`, ~line 49) ALSO matches the comma-form decorator on two legitimately cross-tenant farm tables that DO declare `schema: 'farm'`:
+- `farm_audit_logs` — `apps/farm-service/src/database/entities/audit-log.entity.ts:45` → `@Entity('farm_audit_logs', { schema: 'farm' })`
+- `tenant_erasure_audit` — `apps/farm-service/src/compliance/entities/tenant-erasure-audit.entity.ts:61` → `@Entity('tenant_erasure_audit', { schema: 'farm' })`
+
+Both are correct cross-tenant tables (present in `MODULE_SCHEMAS` farm `infrastructureTables`, `libs/backend-common/src/database/schema-manager.service.ts`). Either the spec is currently red on them or its discovery is not reaching the comma-form — either way the spec's allowlist does NOT actually guard the cross-tenant carve-out it claims to.
+
+**Effect:** the cross-tenant direction of farm's `@Entity()` discipline is under-enforced. The inverse direction (cross-tenant tables MUST carry `schema:`) is covered by `schema-invariants.spec.ts` B.1/B.2, so there is no live data-placement bug today — but the farm architecture spec gives a false sense of bidirectional coverage. The CLAUDE.md back-test deliberately does NOT claim the farm spec guards the cross-tenant carve-out (it cites `schema-invariants.spec.ts` for that direction).
+
+**Fix direction:** extend the farm spec allowlist to include `farm_audit_logs` + `tenant_erasure_audit` (or, better, drive the allowlist from `MODULE_SCHEMAS` farm `infrastructureTables` so the two never drift), and add an explicit assertion that every farm `infrastructureTables` entry's entity DOES declare `schema: 'farm'`.
+
+Status: OPEN (2026-06-16; owner: farm-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-119 — AquaMobil tenant-query-keys.ts comment calls a Vite PWA a "React Native bundle"
+
+Severity: LOW. Discovered 2026-06-16 during the CLAUDE.md steering-file back-test (frontend-expert lead; lead-verified firsthand).
+
+**Problem:** `web/apps/aquamobil/src/utils/tenant-query-keys.ts:4` documents the file as belonging to "a standalone **React Native** bundle". AquaMobil is a standalone **Vite PWA** (Konsta UI + `vite-plugin-pwa` injectManifest service worker; `web/apps/aquamobil/vite.config.ts` has no React Native / Metro toolchain). The stale label could mislead an agent into reaching for React-Native idioms when editing this app.
+
+**Effect:** documentation-only; no runtime impact. The duplication rationale the comment carries (aquamobil does not import `@aquaculture/shared-ui`, so `createTenantQueryKey` is duplicated verbatim and must be kept in sync) is correct and load-bearing — only the "React Native" descriptor is wrong.
+
+**Fix direction:** change "standalone React Native bundle" → "standalone Vite PWA (independent toolchain + device bundle size)". The keep-in-sync invariant with the shared-ui copy is also captured in `web/apps/aquamobil/CLAUDE.md` (authored in this cycle).
+
+Status: OPEN (2026-06-16; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-120 — `.claude/settings.json` deny `Read(./.env.*)` does not match a bare `*.env` filename
+
+Severity: LOW. Discovered 2026-06-16 during the CLAUDE.md steering-file back-test (security-reviewer lead; lead-verified firsthand).
+
+**Problem:** the project-scope permission deny rules block `Read(./.env)` and `Read(./.env.*)`. A file named with the bare `*.env` suffix (e.g. `prod.env`, `secrets.env`) does NOT match `./.env.*` (which requires the `.env.` prefix). So such a file is readable by the agent despite being a secret-bearing env file.
+
+**Effect:** low — `.gitignore:72 *.env` still prevents COMMITTING such a file, so it cannot leak into the repo; the gap is only that an agent could `Read` a local `prod.env`. Defense-in-depth, not an active leak. The CLAUDE.md rewrite does not touch `.claude/settings.json`, so this gap is neither widened nor closed by this cycle.
+
+**Fix direction:** add a `Read(./*.env)` deny entry (and consider `Read(**/*.env)`) to `.claude/settings.json` so the deny set matches the `.gitignore` `*.env` pattern.
+
+Status: OPEN (2026-06-16; owner: security-reviewer; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-121 — `.claude/agents-enterprise-v2/` dead-dir removal is blocked on the stale generated `format-scope.json` (ORPHAN-MEDIUM-117)
+
+Severity: MEDIUM. Discovered 2026-06-16 during the CLAUDE.md steering-file cleanup (Phase E). Lead-verified firsthand.
+
+**Problem:** `.claude/agents-enterprise-v2/` is dead (3 markdown files: `README.md`, `orchestrator.md`, `prompt-writer.md`; superseded by the 2026-04-18 flatten, not loaded by any agent runner). Two `package.json` scripts (`audit:gdpr`, `audit:perf`, lines 102-103) invoke `.claude/agents-enterprise-v2/runners/{gdpr,perf}-audit.ts` — runner files that **do not exist** (the `runners/` subdir was never present), so the scripts are already broken. `.github/CODEOWNERS:13` still protects the dir. These three (dir + scripts + CODEOWNERS line) are cleanly removable.
+
+**Why deferred (the blocker):** `tools/quality/format-scope.json` — a **generated** manifest — lists the 3 dir files. Removing the dir without updating that manifest leaves it referencing deleted files; updating it correctly means regenerating it (`node tools/quality/quality.mjs format-scope generate`). But that manifest is **already stale and red on main** — a dry regenerate rewrites ~2000 lines (tracked as **ORPHAN-MEDIUM-117**). Hand-editing the 3 entries out of a generated file is a forbidden patch; regenerating it here would pull ~2000 lines of unrelated drift into a steering-file PR. So clean removal is atomic with ORPHAN-117's regeneration.
+
+**Not broken meanwhile:** the dir is currently in a CONSISTENT "managed dead" state — every other reference is a guard (`tests/invariants/_constants.ts` DEAD_TERMINOLOGY_TOKENS + DEAD_EVIDENCE_PATH_PREFIXES; `active-path-hygiene.spec.ts`; `orchestrator-routing-coverage.spec.ts`; `finding-registry-integrity.spec.ts`), a historical citation (`.claude/README.md:60`, docs/plans, docs/reviews), or the append-only registry + `path-corrections.yaml` mapping. None of these break; no jest invariant reads `format-scope.json`.
+
+**Fix direction (atomic, after/with ORPHAN-117):** in one change — delete `.claude/agents-enterprise-v2/`, remove `package.json` `audit:gdpr`/`audit:perf`, remove `.github/CODEOWNERS:13`, and regenerate `tools/quality/format-scope.json` so it drops the 3 entries as part of the full manifest refresh. Keep the guard specs, `_constants.ts` tokens, and `path-corrections.yaml` mapping (historical evidence must still resolve).
+
+Status: OPEN (2026-06-16; owner: infra-expert / context-manager; BLOCKED-BY ORPHAN-MEDIUM-117). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-122 — #490 CLAUDE.md rewrite broke ARIA invariant I-V4-08 (canonical "Phrases BANNED" section) — RESOLVED this commit
+
+Severity: MEDIUM. Discovered 2026-06-16 (operator-reported) after PR #490 merged (`aa7b39241`). Self-inflicted regression; lead-verified firsthand.
+
+**Problem:** PR #490 compressed CLAUDE.md's "Phrases BANNED as gating excuses:" block from a standalone heading + bulleted list into an inline paragraph, AND dropped the phrase "interim solution". This broke `aria-kernel/tests/invariants/v4/test_phase_v4_b_narrative_shape.py::PhaseV4BNarrativeShape::test_i_v4_08_banned_phrase_canonical_drift` ("CLAUDE.md missing 'Phrases BANNED' canonical section"). I-V4-08 regex-extracts the bulleted quoted phrases and asserts set-equality with `tools/gates/banned-phrase.ts`'s canonical 13-phrase docstring. It is an ARIA-kernel **pytest** invariant, NOT one of the Node/cargo PR jobs — so #490's CI was green.
+
+**Verification gap (root cause of the miss):** my #490 validation ran the **jest** invariant suite (1176 green) but never the **aria-kernel pytest** suite. Sweep confirms I-V4-08 was the ONLY #490 regression — the full aria-kernel invariant suite is otherwise green.
+
+**Fix (this commit):** restored the standalone heading + bulleted list carrying the exact 13 canonical phrases (+ allowlisted "follow-up commit will handle it"); reclaimed 3 lines from the Commands block to keep CLAUDE.md ≤200 (the `claude-md-accuracy` guard). Verified GREEN: I-V4-08 + full aria-kernel invariant suite (705 passed) + `claude-md-accuracy` + `invariants:fast` (1176 passed). Process follow-up (tracked): extend `claude-md-accuracy.spec.ts` to assert the I-V4-08 contract (heading-on-own-line + bulleted phrase set == `banned-phrase.ts`) so a CLAUDE.md edit can't silently break the ARIA parser from the Node side again.
+
+Status: RESOLVED (2026-06-16; owner: lead; closed by this commit). Registry: orphan-findings.md only.
+
+---
+## ORPHAN-MEDIUM-123 — Tailwind v4 default palette shifts sRGB-hex → oklch (C3 migration accepts it; only custom tokens pinned)
 
 Severity: MEDIUM. Discovered 2026-06-16 by the C3 post-migration adversarial audit (frontend-expert lens).
 
@@ -4440,7 +4531,7 @@ Status: OPEN (2026-06-16; owner: frontend-expert; gated on plan-S7 visual diff b
 
 ---
 
-## ORPHAN-LOW-119 — hydroponics-module is unstyled standalone + carries unused Tailwind devDeps
+## ORPHAN-LOW-124 — hydroponics-module is unstyled standalone + carries unused Tailwind devDeps
 
 Severity: LOW. Discovered 2026-06-16 by the C3 post-migration audit (frontend-expert + supply-chain lenses).
 
@@ -4456,7 +4547,7 @@ Status: OPEN (2026-06-16; owner: frontend-expert; tracked follow-up). Registry: 
 
 ---
 
-## ORPHAN-LOW-120 — libs/ render Tailwind classes but are in no content/@source glob (works only by class-overlap coincidence)
+## ORPHAN-LOW-125 — libs/ render Tailwind classes but are in no content/@source glob (works only by class-overlap coincidence)
 
 Severity: LOW. Discovered 2026-06-16 by the C3 post-migration audit (frontend-expert lens).
 

@@ -1,9 +1,14 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { del } from 'idb-keyval';
-import type { AuthState } from '@/types';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+
+import { clearBiometricData } from '@/hooks/useWebAuthn';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
 import { markAuthReady, syncAuthStore } from '@/services/authenticated-fetch';
-import { clearBiometricData } from '@/hooks/useWebAuthn';
+import { runPushTeardown } from '@/services/push-lifecycle';
+import type { AccessType, AuthState } from '@/types';
+import { normalizeRole } from '@/utils/normalize-role';
+import { TENANT_QUERY_KEY_ROOT } from '@/utils/tenant-query-keys';
 
 interface AuthContextValue extends AuthState {
   isLoading: boolean;
@@ -21,7 +26,7 @@ interface AuthContextValue extends AuthState {
     role: string;
     tenantId: string | null;
   }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
 }
 
@@ -72,6 +77,61 @@ const MOBILE_SETTINGS_QUERY = `
   }
 `;
 
+// ---------------------------------------------------------------------------
+// Typed GraphQL response shapes — FE-MEDIUM-051
+// ---------------------------------------------------------------------------
+// WHY: the auth mutations above are issued as INLINE fetch strings (invisible
+// to codegen), so `await response.json()` returns `any` and every field access
+// on the result was unsafe (`no-unsafe-member-access`). Typing the parsed body
+// at the trust boundary is the root-cause fix: the LOGIN/REFRESH `user` shape is
+// known, so `user.role` is a typed `string` that `normalizeRole` then narrows to
+// the canonical `Role`. The role itself stays an UNVALIDATED string here — the
+// server's value is only trusted after normalizeRole fail-closes it. The shapes
+// mirror the selection sets of LOGIN_MUTATION / REFRESH_MUTATION exactly.
+
+/** The `user { ... }` selection shared by LOGIN_MUTATION and REFRESH_MUTATION. */
+interface AuthUserPayload {
+  id: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  /** Raw server role string — normalized to the canonical `Role` before use. */
+  role: string;
+  tenantId: string | null;
+  accessType?: AccessType;
+}
+
+interface GraphQLError {
+  message: string;
+}
+
+interface LoginResponse {
+  errors?: GraphQLError[];
+  data?: { login?: { accessToken: string; user: AuthUserPayload } | null };
+}
+
+interface RefreshResponse {
+  errors?: GraphQLError[];
+  data?: {
+    refreshToken?: { accessToken: string; user?: AuthUserPayload | null } | null;
+  };
+}
+
+interface MobileSettingsResponse {
+  data?: { getMyMobileSettings?: { isMobileEnabled?: boolean | null } | null };
+}
+
+/**
+ * Parse a fetch Response body as a typed GraphQL envelope. Centralizes the ONE
+ * `any`-producing boundary (`response.json()`) behind an explicit cast so every
+ * callsite reads a typed shape instead of `any`. The shape is asserted, not
+ * validated — the only field whose value is trusted (role) is fail-closed by
+ * `normalizeRole` downstream.
+ */
+async function parseGraphQL<T>(response: Response): Promise<T> {
+  return (await response.json()) as T;
+}
+
 // SEC-06: All fetch calls include X-Requested-With for CSRF defense-in-depth
 const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
 const SILENT_REFRESH_TIMEOUT_MS = 8000;
@@ -88,7 +148,7 @@ async function checkMobileEnabled(token: string): Promise<boolean> {
       credentials: 'include',
       body: JSON.stringify({ query: MOBILE_SETTINGS_QUERY }),
     });
-    const result = await response.json();
+    const result = await parseGraphQL<MobileSettingsResponse>(response);
     return result.data?.getMyMobileSettings?.isMobileEnabled ?? true;
   } catch {
     // SECURITY: Fail-closed — if we can't verify mobile access, deny it.
@@ -125,6 +185,11 @@ async function clearAllUserData(userId?: string, tenantId?: string | null): Prom
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // MT-CRITICAL-050: AuthProvider is mounted inside <QueryClientProvider> (main.tsx),
+  // so it can reach the shared QueryClient. Logout AWAITS a full removal of the
+  // in-memory React Query cache here — otherwise tenant-A's cached query data
+  // survives for the 24h gcTime and is served to the next login on a shared device.
+  const queryClient = useQueryClient();
   const [state, setState] = useState<AuthState>({
     user: null,
     accessToken: null,
@@ -156,13 +221,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }),
         });
 
-        const result = await response.json();
+        const result = await parseGraphQL<RefreshResponse>(response);
         if (result.errors || !result.data?.refreshToken?.accessToken) {
           setIsLoading(false);
           return;
         }
 
         const { accessToken, user } = result.data.refreshToken;
+        if (!user) {
+          setIsLoading(false);
+          return;
+        }
         const displayName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
 
         // SECURITY: Fail-closed — reject PANEL_ONLY users and verify mobile access
@@ -180,7 +249,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         setState({
-          user: { ...user, name: displayName },
+          // FE-MEDIUM-051: normalize the server role string to the canonical
+          // backend `Role` at the auth boundary (fail-closed) instead of casting.
+          user: { ...user, name: displayName, role: normalizeRole(user.role) },
           accessToken,
           refreshToken: null,
           tenantId: user.tenantId,
@@ -218,7 +289,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }),
       });
 
-      const result = await response.json();
+      const result = await parseGraphQL<LoginResponse>(response);
 
       if (result.errors) {
         throw new Error(result.errors[0]?.message || 'Login failed');
@@ -253,6 +324,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: {
           ...user,
           name: displayName,
+          // FE-MEDIUM-051: normalize the server role to the canonical `Role`.
+          role: normalizeRole(user.role),
         },
         accessToken,
         refreshToken: null,
@@ -285,7 +358,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           id: user.id,
           email: user.email,
           name: displayName,
-          role: user.role as 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MANAGER' | 'OPERATOR' | 'VIEWER',
+          // FE-MEDIUM-051: validate the inbound role against the canonical
+          // backend `Role` (fail-closed) — no cast to a drifted union.
+          role: normalizeRole(user.role),
           tenantId: user.tenantId,
         },
         accessToken,
@@ -298,11 +373,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const logout = useCallback(() => {
+  // MT-CRITICAL-050 / MT-MEDIUM-050: logout is ASYNC and AWAITS a full local
+  // data wipe BEFORE the auth state is reset, so no window exists in which the
+  // identity has flipped to "logged out" while tenant-A data is still resident.
+  // The wipe (React Query in-memory cache + IndexedDB queue/cache + AES key +
+  // biometric PII + SW Cache Storage) is awaited as a unit; a wipe FAILURE
+  // REJECTS rather than presenting as a clean logout (MT-MEDIUM-050) — the auth
+  // state is NOT reset and the caller surfaces the error so the user is not told
+  // "logged out" while plaintext-recoverable data remains behind.
+  const logout = useCallback(async (): Promise<void> => {
     const currentUserId = state.user?.id;
     const currentTenantId = state.tenantId;
 
-    // Call logout mutation to clear httpOnly cookie server-side
+    // MT-HIGH-050: tear down the FCM device token FIRST, while the JWT/cookie are
+    // still valid, so the server-side unregisterDeviceToken call is authenticated
+    // and the local FCM subscription (deleteToken) is dropped. Tolerated on
+    // failure: the local deleteToken in the teardown's `finally` plus the SW
+    // userId backstop already prevent prior-tenant push from surfacing, so a
+    // network hiccup deregistering the token must not strand the user logged in.
+    await runPushTeardown().catch(() => {});
+
+    // Call logout mutation to clear httpOnly cookie server-side. This is the only
+    // step that may legitimately fail without compromising local-data safety
+    // (the server cookie expiry is independent of on-device residue), so it stays
+    // fire-and-forget and does not gate the local wipe.
     fetch('/graphql', {
       method: 'POST',
       headers: {
@@ -316,18 +410,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }),
     }).catch(() => {});
 
-    // BUG-03 / SEC-02 / SEC-04: Clear all user data stores before resetting state.
-    // Fire-and-forget — UI resets immediately, cleanup runs async.
-    clearAllUserData(currentUserId, currentTenantId).catch(() => {});
+    // MT-CRITICAL-050: abort in-flight fetches BEFORE clearing. React Query
+    // clear() does NOT cancel running requests, so a query dispatched before
+    // logout could resolve during the awaited wipe below and repopulate the
+    // cache we just cleared — a cross-user residue path on a shared device (the
+    // repopulated entry then survives the 24h gcTime into user-B's session).
+    // cancelQueries() rejects those in-flight promises so none writes back.
+    await queryClient.cancelQueries();
 
-    // C-FE-01: Notify service worker to clear messaging caches (messaging-graphql-v1,
-    // messaging-media-v1). Without this, authenticated GraphQL responses remain in
-    // Cache Storage and are visible to the next user on shared devices.
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.ready
-        .then((reg) => reg.active?.postMessage({ type: 'LOGOUT' }))
-        .catch(() => {});
+    // MT-CRITICAL-050 / MT-MEDIUM-050: AWAIT the persistent-store wipe. Any
+    // failure here propagates out of logout() (no .catch swallow), so a failed
+    // IndexedDB/AES-key wipe can never masquerade as a successful logout.
+    await clearAllUserData(currentUserId, currentTenantId);
+
+    // C-FE-01: tell the page-controlling workbox SW to purge messaging Cache
+    // Storage (messaging-graphql-v1, messaging-media-v1) — otherwise authenticated
+    // GraphQL responses stay visible to the next user on a shared device. We post
+    // to `controller` (the active worker that OWNS those caches), NOT
+    // `serviceWorker.ready`: per spec `.ready` never rejects and stays pending
+    // FOREVER until a worker is active (first-load race, plain-HTTP / iOS-PWA
+    // contexts where the SW never activates), which would deadlock logout and
+    // strand the user logged in. No controller ⇒ no SW cache exists to purge, so
+    // skipping is correct.
+    navigator.serviceWorker?.controller?.postMessage({ type: 'LOGOUT' });
+
+    // MT-CRITICAL-050: wipe the in-memory React Query cache LAST — after the
+    // awaited persistent wipe — so anything a still-mounted observer refetched
+    // during the wipe window is dropped before the device is handed over.
+    // removeQueries drops the tenant key space; clear() drops any residual
+    // (untenanted) entry.
+    if (currentTenantId) {
+      queryClient.removeQueries({ queryKey: [TENANT_QUERY_KEY_ROOT, currentTenantId] });
     }
+    queryClient.clear();
 
     setState({
       user: null,
@@ -337,7 +452,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: false,
     });
     setIsMobileDisabled(false);
-  }, [state.accessToken, state.user?.id, state.tenantId]);
+  }, [queryClient, state.accessToken, state.user?.id, state.tenantId]);
 
   // BUG-18: refreshAuth must update tenantId from the fresh server response.
   // Previously only accessToken was extracted, leaving tenantId stale in React
@@ -359,10 +474,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }),
       });
 
-      const result = await response.json();
+      const result = await parseGraphQL<RefreshResponse>(response);
 
       if (result.errors || !result.data?.refreshToken?.accessToken) {
-        logout();
+        await logout();
         return;
       }
 
@@ -381,13 +496,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ...prev,
             accessToken,
             tenantId: refreshedUser.tenantId ?? prev.tenantId,
-            user: prev.user ? { ...prev.user, ...refreshedUser, name: displayName } : prev.user,
+            // FE-MEDIUM-051: normalize the refreshed role to the canonical
+            // `Role` (fail-closed); fall back to the prior role if the refresh
+            // response omitted it so a partial response never strips privilege.
+            user: prev.user
+              ? { ...prev.user, ...refreshedUser, name: displayName, role: normalizeRole(refreshedUser.role ?? prev.user.role) }
+              : prev.user,
           };
         }
         return { ...prev, accessToken };
       });
     } catch {
-      logout();
+      await logout();
     }
   }, [logout]);
 
@@ -418,7 +538,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }),
       });
 
-      const result = await response.json();
+      const result = await parseGraphQL<RefreshResponse>(response);
 
       if (result.errors || !result.data?.refreshToken?.accessToken) {
         return false;
@@ -438,7 +558,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ...prev,
             accessToken: newToken,
             tenantId: refreshedUser.tenantId ?? prev.tenantId,
-            user: prev.user ? { ...prev.user, ...refreshedUser, name: displayName } : prev.user,
+            // FE-MEDIUM-051: normalize the refreshed role to the canonical
+            // `Role` (fail-closed); preserve the prior role on a partial response.
+            user: prev.user
+              ? { ...prev.user, ...refreshedUser, name: displayName, role: normalizeRole(refreshedUser.role ?? prev.user.role) }
+              : prev.user,
           };
         }
         return { ...prev, accessToken: newToken };
@@ -452,7 +576,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       return false;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [state.tenantId]);
 
   useEffect(() => {

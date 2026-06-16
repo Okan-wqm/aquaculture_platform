@@ -1,4 +1,5 @@
-import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
+import { Roles, Role, ModuleUserOrHigher, AuditLog, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
@@ -309,7 +310,18 @@ export class LeaveResolver {
     );
   }
 
+  // SEC-MEDIUM-051: explicit, reflectable minimum-role contract on the
+  // self-service submit path (matches createLeaveRequest). The OWNERSHIP check
+  // (caller is creator OR owner of the request) is enforced transactionally in
+  // SubmitLeaveRequestHandler — NOT duplicated here. This @Roles gate is the
+  // defense-in-depth coarse layer beneath that ownership assertion.
   @Mutation(() => LeaveRequest)
+  // SEC-HIGH-052: MobileFeatureGuard enforces the 'leave' mobile entitlement
+  // server-side (hr-service rebuilds req.user from the same assertion chain, so
+  // mobileFeatures is present). It NEVER relaxes the @ModuleUserOrHigher role floor.
+  @UseGuards(RolesGuard, MobileFeatureGuard)
+  @ModuleUserOrHigher()
+  @RequiresMobileFeature('leave')
   @AuditLog({ action: 'SUBMIT_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Submit a leave request for approval' })
   async submitLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
@@ -357,7 +369,14 @@ export class LeaveResolver {
     );
   }
 
+  // SEC-MEDIUM-051: explicit, reflectable minimum-role contract on the
+  // self-service cancel path. Ownership (creator OR owner) is enforced in
+  // CancelLeaveRequestHandler — this @Roles gate is the coarse layer beneath it.
   @Mutation(() => LeaveRequest)
+  // SEC-HIGH-052: 'leave' mobile entitlement enforced beneath the role floor.
+  @UseGuards(RolesGuard, MobileFeatureGuard)
+  @ModuleUserOrHigher()
+  @RequiresMobileFeature('leave')
   @AuditLog({ action: 'CANCEL_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Cancel a leave request' })
   async cancelLeaveRequest(
     @Args('id', { type: () => ID }) id: string,

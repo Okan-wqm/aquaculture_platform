@@ -13,7 +13,7 @@
  * - Proper state persistence via EdgeStoreContext
  */
 
-import { useState, useEffect, useCallback, useRef, MouseEvent as ReactMouseEvent } from 'react';
+import { type JSX, useState, useEffect, useCallback, useRef, MouseEvent as ReactMouseEvent } from 'react';
 import { EdgeProps, type Edge } from '@xyflow/react';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';

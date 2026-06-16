@@ -39,7 +39,7 @@ export function useScadaPackages(filter?: ScadaPackageFilter) {
   const [packages, setPackages] = useState<ScadaPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
 
   // Stabilize filter by individual fields instead of object reference
   const filterStatus = filter?.status;

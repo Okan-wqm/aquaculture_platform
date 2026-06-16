@@ -1,6 +1,10 @@
+import type { Messaging } from 'firebase/messaging';
 import { useEffect, useRef, useCallback } from 'react';
+
 import { useAuth } from './useAuth';
+
 import { authenticatedFetch } from '@/services/authenticated-fetch';
+import { registerPushTeardown } from '@/services/push-lifecycle';
 
 // Firebase config from env vars
 const FIREBASE_CONFIG = {
@@ -15,6 +19,25 @@ const REGISTER_DEVICE_TOKEN_MUTATION = `
     registerDeviceToken(token: $token, platform: $platform)
   }
 `;
+
+// MT-HIGH-050: deregister the device token on logout so push for the prior
+// tenant/user never reaches the next user on this shared device.
+const UNREGISTER_DEVICE_TOKEN_MUTATION = `
+  mutation UnregisterDeviceToken($token: String!) {
+    unregisterDeviceToken(token: $token)
+  }
+`;
+
+/**
+ * Foreground push payload shape we read. Structurally typed (not `any`) so the
+ * read sites are type-checked without importing firebase's MessagePayload into
+ * the eager bundle. Mirrors the subset of firebase/messaging's MessagePayload
+ * this hook consumes.
+ */
+interface ForegroundPushPayload {
+  notification?: { title?: string; body?: string };
+  data?: Record<string, string>;
+}
 
 function isFirebaseConfigured(): boolean {
   return !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId && FIREBASE_CONFIG.messagingSenderId && FIREBASE_CONFIG.appId);
@@ -33,14 +56,17 @@ export interface PushNotificationDetail {
 /**
  * Activates Firebase Cloud Messaging for the current authenticated user.
  */
-export function useFirebaseMessaging() {
-  const { accessToken, isAuthenticated } = useAuth();
+export function useFirebaseMessaging(): void {
+  const { accessToken, isAuthenticated, user } = useAuth();
   const registeredRef = useRef(false);
   const previousTokenRef = useRef<string | null>(null);
+  // MT-HIGH-050: hold the live messaging instance so the logout teardown can
+  // call FCM deleteToken() on the same instance that minted the token.
+  const messagingRef = useRef<Messaging | null>(null);
 
-  const handleForegroundMessage = useCallback((payload: any) => {
-    const notification = payload?.notification ?? {};
-    const data = payload?.data ?? {};
+  const handleForegroundMessage = useCallback((payload: ForegroundPushPayload) => {
+    const notification = payload.notification ?? {};
+    const data = payload.data ?? {};
 
     const detail: PushNotificationDetail = {
       title: notification.title ?? data.title ?? 'Notification',
@@ -54,28 +80,40 @@ export function useFirebaseMessaging() {
     );
   }, []);
 
-  // Reset registration when user changes (logout or different user login)
+  // Reset registration when user changes (logout or different user login).
+  // MT-HIGH-050: also drop the teardown registration — by the time auth has
+  // flipped to unauthenticated the teardown has already run inside logout(),
+  // so clearing it here just prevents a stale teardown bound to a deleted token
+  // from lingering until the next sign-in.
   useEffect(() => {
     if (!isAuthenticated || !accessToken) {
       registeredRef.current = false;
       previousTokenRef.current = null;
+      messagingRef.current = null;
+      registerPushTeardown(null);
     }
   }, [isAuthenticated, accessToken]);
 
   useEffect(() => {
-    if (!isAuthenticated || !accessToken || registeredRef.current) return;
+    if (!isAuthenticated || !accessToken || !user?.id || registeredRef.current) return;
     if (!isFirebaseConfigured()) return;
     if (typeof Notification === 'undefined') return;
 
+    const activeUserId = user.id;
     let unsubscribe: (() => void) | null = null;
 
-    (async () => {
+    void (async () => {
       try {
         const { initializeApp, getApps } = await import('firebase/app');
-        const { getMessaging, getToken, onMessage } = await import('firebase/messaging');
+        const { getMessaging, getToken, onMessage, deleteToken } = await import('firebase/messaging');
 
-        const app = getApps().length === 0 ? initializeApp(FIREBASE_CONFIG) : getApps()[0]!;
+        // Reuse the already-initialized Firebase app if present (a second
+        // initializeApp with the same name throws). Destructure rather than
+        // index-with-`!` so the "no app yet" branch is expressed by `?? init`.
+        const [existingApp] = getApps();
+        const app = existingApp ?? initializeApp(FIREBASE_CONFIG);
         const messaging = getMessaging(app);
+        messagingRef.current = messaging;
 
         // FE-CRITICAL-050-SW / FE-HIGH-057: Register the FCM service worker
         // EXPLICITLY and hand that registration to getToken(), so Firebase uses
@@ -123,6 +161,13 @@ export function useFirebaseMessaging() {
           );
         })();
 
+        // MT-HIGH-050 (tier-1 backstop): tell the FCM SW which user is active so
+        // it can drop a background push minted for a different user on this shared
+        // device. Posted to the FCM registration's worker (active ?? installing),
+        // not the page's controlling workbox SW.
+        const fcmWorker = fcmRegistration?.active ?? fcmRegistration?.installing;
+        fcmWorker?.postMessage({ type: 'SET_ACTIVE_USER', userId: activeUserId });
+
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') return;
 
@@ -134,33 +179,66 @@ export function useFirebaseMessaging() {
         if (token) {
           // Only register if token is new or changed
           if (token !== previousTokenRef.current) {
-            const response = await authenticatedFetch('/graphql', {
+            // A failed registration is non-fatal — push simply won't arrive and
+            // the app stays fully functional. There is no logger sink in this
+            // PWA (and the surrounding hooks likewise swallow non-fatal
+            // background failures), so the HTTP result is not inspected/logged.
+            // Record the token as last-attempted regardless, so it is not
+            // re-POSTed on every render.
+            await authenticatedFetch('/graphql', {
               method: 'POST',
               body: JSON.stringify({
                 query: REGISTER_DEVICE_TOKEN_MUTATION,
                 variables: { token, platform: 'web' },
               }),
             });
-
-            if (!response.ok) {
-              console.warn('Failed to register device token:', response.status);
-            }
-
             previousTokenRef.current = token;
           }
 
           registeredRef.current = true;
+
+          // MT-HIGH-050: register the logout teardown for THIS token. logout()
+          // awaits runPushTeardown() while the session is still valid, so both
+          // the server-side mapping (unregisterDeviceToken) and the local FCM
+          // subscription (deleteToken) are removed before the next user can log
+          // in. deleteToken() invalidates the subscription so the device stops
+          // receiving push for the prior tenant immediately, even if the network
+          // unregister call were to fail.
+          registerPushTeardown(async () => {
+            const activeMessaging = messagingRef.current;
+            try {
+              await authenticatedFetch('/graphql', {
+                method: 'POST',
+                body: JSON.stringify({
+                  query: UNREGISTER_DEVICE_TOKEN_MUTATION,
+                  variables: { token },
+                }),
+              });
+            } finally {
+              // Always drop the local FCM subscription even if the server call
+              // failed — a phone that keeps a live subscription to tenant-A's
+              // token is the leak this finding closes.
+              if (activeMessaging) {
+                await deleteToken(activeMessaging);
+              }
+              previousTokenRef.current = null;
+              registeredRef.current = false;
+              messagingRef.current = null;
+            }
+          });
         }
 
         // Listen for foreground messages
         unsubscribe = onMessage(messaging, handleForegroundMessage);
-      } catch (err) {
-        console.warn('Firebase messaging setup failed:', err);
+      } catch {
+        // FCM setup is best-effort: a failure degrades to no-push (the app
+        // stays fully functional), never an app error. No logger sink exists in
+        // this PWA, matching the silent non-fatal handling above.
       }
     })();
 
     return () => {
       unsubscribe?.();
     };
-  }, [isAuthenticated, accessToken, handleForegroundMessage]);
+  }, [isAuthenticated, accessToken, user?.id, handleForegroundMessage]);
 }

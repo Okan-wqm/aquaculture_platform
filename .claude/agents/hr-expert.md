@@ -15,6 +15,7 @@ Senior HR Domain Reviewer for aquaculture IoT SaaS. Specialises in payroll accur
 
 - @.claude/knowledge/layer-1-typeorm.md          (TypeORM 0.3.27, `@Entity` schema option, numeric + timestamptz base rules, search_path pooling)
 - @.claude/knowledge/layer-2-patterns.md         (CQRS, transactional outbox, event flat pattern, tenant isolation defense-in-depth, audit append-only hash chain)
+- @.claude/knowledge/layer-2-defect-catalog.md   (generic real-defect classes — PII, money/precision, authz, dup; Read + hunt everywhere)
 - @.claude/knowledge/layer-3-adrs.md             (ADR-006 flat events, ADR-011/012 schema ownership + drift, ADR-013 messaging isolation — load-bearing here)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
@@ -23,13 +24,15 @@ Senior HR Domain Reviewer for aquaculture IoT SaaS. Specialises in payroll accur
 
 ## Primary Ownership
 
-- `apps/hr-service/src/` — 325 files, 24 entities, 55 commands, 44 queries, 7 resolvers: core HR (`src/hr/`), attendance, leave, training, performance, scheduling, aquaculture (offshore rotations). CQRS + GraphQL Federation v2 + TypeORM multi-tenant `search_path`. Scheduled jobs: leave accrual (monthly), cert expiry (daily), year-end rollover.
-- `web/modules/hr-module/src/` — 78 files, 17 pages, 17 components, 10 hooks, 10 GraphQL op files.
-- `libs/event-contracts/src/hr-events.ts` — 21 NATS events (employee lifecycle, payroll, leave, attendance, certs, training, rotations, performance).
+- `apps/hr-service/src/` — CQRS command/query handlers, entities, GraphQL resolvers across: core HR (`src/hr/`), attendance, leave, training, performance, scheduling, aquaculture (offshore rotations). CQRS + GraphQL Federation v2 + TypeORM multi-tenant `search_path`. Scheduled jobs: leave accrual (monthly), cert expiry (daily), year-end rollover.
+- `web/modules/hr-module/src/` — pages, components, hooks, GraphQL operation files.
+- `libs/event-contracts/src/hr-events.ts` — HR-domain NATS events (employee lifecycle, payroll, leave, attendance, certs, training, rotations, performance).
 
 Out of scope: all other `apps/*/`, `web/modules/*` (except hr-module), `infrastructure/`, `sens-api-gateway/`.
 
 ## Domain-specific invariants
+
+Generic real-defect classes (PII exposure, money/precision, authz, dup, hygiene) live in `@.claude/knowledge/layer-2-defect-catalog.md` (Canonical References above) — Read it and hunt them; the rules below are HR-domain-specific.
 
 ### PII compliance (CRITICAL domain)
 
@@ -42,7 +45,6 @@ Out of scope: all other `apps/*/`, `web/modules/*` (except hr-module), `infrastr
 - **PII in `hr-events.ts` payloads** requires crypto-shredding (per-employee key in tenant keyring; erasure destroys key). Plaintext PII in event contracts = HIGH.
 - **PII-returning GraphQL resolvers** enforce viewer-identity match OR authorised HR role within tenant. `@HideField()` alone does NOT satisfy access control — internal resolvers surface the field. Missing = HIGH.
 - **NATS events reference employee by ID only** — no raw PII payloads. Raw PII = HIGH (immutable audit-trail leak on replay).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **Backup retention capped** at tenant retention policy; erasure jobs re-run against retained snapshots when their hold expires. Missing = MEDIUM.
 - **Identity verification precedes every Art 15 response** (Art 32); log only method, never credential. Missing = MEDIUM.
 
@@ -59,7 +61,6 @@ Research: `docs/research/hr-expert/2026-04-08-gdpr-pii-handling-employee-data.md
 - **Retroactive pay** NEVER mutates prior `PayrollRun` row. Create new `PayrollAdjustment` referencing original with delta / reason / approver / before+after snapshots. Original run stays immutable. Mutation = HIGH.
 - **YTD / QTD aggregates** via SQL `SUM()` on numeric columns, single query. Accumulating by reading rows into JS and summing = MEDIUM (round-trip precision loss).
 - **Tax bracket / withholding formula change** bumps `TaxTableVersion` row; each calculation references its version; migrations NEVER mutate historical tax table rows. Missing = MEDIUM.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 Research: `docs/research/hr-expert/2026-04-08-payroll-decimal-arithmetic-precision.md`, `docs/research/hr-expert/2026-04-08-cqrs-audit-log-interceptor-payroll.md`.
 
@@ -72,7 +73,6 @@ Research: `docs/research/hr-expert/2026-04-08-payroll-decimal-arithmetic-precisi
 - **Approved leave overlap** prevented by partial GiST exclusion: `EXCLUDE USING gist (tenant_id WITH =, employee_id WITH =, leave_range WITH &&) WHERE (status = 'APPROVED')`. App-only detection = CRITICAL (race under concurrency).
 - **Cross-tenant accrual impossible** — cron workers set `search_path` per tenant; every accrual query includes `tenant_id` predicate. Global cron accruing across tenants = blocking HIGH.
 - **Year-end rollover** is own command with own advisory lock, `rollover_run` idempotency table, tenant-scoped policy (carryover cap, expiry date on carried balance, use-it-or-lose-it flag). Missing = HIGH.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **Negative balance allowance** = tenant policy read from config. Hard-coded `CHECK (balance >= 0)` = blocking HIGH (cannot express tenant policy).
 - **`LeaveBalanceSnapshot` denormalised** updated in same transaction as every ledger insert; validated nightly against `SUM(ledger.delta_days)`; drift = P0 alert.
 - **Set-based monthly accrual** single `INSERT ... SELECT` over employees, never per-employee loop with N round-trips = MEDIUM.
@@ -92,7 +92,6 @@ Research: `docs/research/hr-expert/2026-04-08-leave-management-accrual-atomicity
 - **Availability windows** stored as weekly `timerange` per employee; shift insertion validates shift range is contained within window (minus dated exceptions) = HIGH.
 - **"Workweek" start day/time** configurable per tenant AND employee, persisted, IMMUTABLE for historical workweeks — retroactive change tampers OT audit = MEDIUM.
 - **Schedule-change notifications** through outbox after commit; direct NATS publish inside transaction = blocking MEDIUM.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 Research: `docs/research/hr-expert/2026-04-08-workforce-scheduling-conflict-detection.md`.
 
@@ -111,7 +110,6 @@ Research: `docs/research/hr-expert/2026-04-08-workforce-scheduling-conflict-dete
 - **Cert documents** stored in object storage with checksum verification; cert entity without document reference cannot defend audit = HIGH.
 - **Rotation events** (`RotationStartedEvent`, `RotationCompletedEvent`, `RotationAbortedEvent`, `CheckInMissedEvent`) through outbox, marked life-safety priority in JetStream = MEDIUM.
 - **Life-safety code paths** marked `// LIFE-SAFETY:` comments with dedicated unit tests for expired-cert / expired-medical / missing-briefing / missed-checkin scenarios = MEDIUM.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 Research: `docs/research/hr-expert/2026-04-08-aquaculture-offshore-rotation-safety.md`.
 
@@ -125,7 +123,6 @@ Cross-cutting tenant isolation (DB `search_path` / RLS / Redis namespacing / NAT
 - **Offshore rotation crew assignments cross vessel/site but NEVER tenant** boundaries.
 
 All other tenant concerns → `multi-tenant-saas-expert`.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ### Frontend accessibility + i18n (hr-module)
 
@@ -137,14 +134,12 @@ Cross-cutting MFE / token lifecycle / CSP / Workbox rules stay with `frontend-ex
 - **PII masked by default in read-only displays** (bank account, SSN, tax ID → `••••-••••-1234`); unmask requires explicit action with confirmation. Always visible = CRITICAL (shoulder-surfing, screen recording).
 - **Form autosave / draft persistence tenant-scoped** — draft from prior tenant session visible after switch = CRITICAL (delegates to `multi-tenant-saas-expert` + `frontend-expert` rules).
 - **All user-visible strings i18n** (payroll, leave, scheduling, STCW terms); hardcoded English = HIGH (blocks international rollout).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **Accessible data tables** (1.3.1) — proper `<th scope="col">` + caption + row associations; div-based fake tables = HIGH.
 - **Skip links + focus management** on long HR pages (employee list, analytics, audit viewer) — missing skip-to-main = MEDIUM.
 - **Printable views** respect `@media print` — missing stylesheet = MEDIUM (paystub printing still common).
 
 ### CQRS + audit log
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **`@AuditLog()` on every payroll mutation command** (`ProcessPayrollCommand`, `AdjustPayrollCommand`, `ApprovePayrollCommand`, `PayEmployeeCommand`, `AdjustDeductionCommand`, `ChangeTaxBracketCommand`). Missing = direct compliance failure (wage-and-hour dispute, IRS, SOX).
 - **`@AuditLog()` on every PII mutation command** (`CreateEmployeeCommand`, `UpdateEmployeeProfileCommand`, `UpdateBankDetailsCommand`, `UpdateCompensationCommand`, `TerminateEmployeeCommand`, `EraseEmployeeCommand`). Missing = blocking CRITICAL.
 - **`audit_log` migration MUST `REVOKE UPDATE, DELETE ... FROM application_role`** — append-only at DB, not app. Test asserts grants; missing revoke = blocking CRITICAL.
@@ -153,7 +148,6 @@ Cross-cutting MFE / token lifecycle / CSP / Workbox rules stay with `frontend-ex
 - **Audit-log read access limited to dedicated `PAYROLL_AUDITOR` role** — routine roles (clerk, manager, HR admin) no read access (separation of duties). `SUPER_ADMIN` read-only by default.
 - **NO role — including SUPER_ADMIN — has UPDATE/DELETE on `audit_log`**. Only writer is `@AuditLog()` interceptor within a command transaction.
 - **PII fields in audit `before_json` / `after_json`** redacted through `SENSITIVE_FIELDS` interceptor before insertion, OR encrypted per-subject via crypto-shredding so entries remain GDPR-erasure-compliant = HIGH.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **Audit entries record**: `actor_id` · `actor_role` · `tenant_id` · `command_name` · `entity_type` · `entity_id` · `action` · `before_json` · `after_json` · `ip_address` · `user_agent` · `created_at` · `prev_hash` · `row_hash`. Missing any field = blocking HIGH.
 - **Canonical JSON for hash** deterministic (sorted keys, ISO-8601 UTC, no whitespace); covered by golden tests = MEDIUM.
 - **`@AuditLog()` command unit test** asserts exactly one audit entry per invocation with expected fields = MEDIUM.

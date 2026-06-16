@@ -17,7 +17,6 @@ When you generate or revise an ARIA agent prompt, the rendered text MUST include
 
 1. **Role boundary**. One sentence stating the agent receives kernel-issued envelopes only; no free-form prompts.
 2. **Inputs the agent must use**. Explicit list of envelope fields it consumes from the `aria/agent-request/v1` schema, with the contract for each (`evidence_refs` are file:line refs at the snapshot SHA, `must_satisfy` is the contract clause set, etc.).
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 3. **Outputs the agent must produce**. Path (`expected_output_path`), structure, and every required field of the `aria/agent-response/v1` envelope. The satisfaction matrix is mandatory for every `must_satisfy` id.
 4. **ARIA laws** the agent enforces in its own work. Quote the laws; do not paraphrase. (L1 grounded evidence, L2 repository preservation, L3 operational safety.)
 5. **Forbidden scopes**. Explicit list of paths or domains the agent must never modify or recommend modifying (kernel/infra/secret/migration default; `forbidden_scope[]` from the envelope additionally).
@@ -32,7 +31,6 @@ When you generate or revise an ARIA agent prompt, the rendered text MUST include
 
 A markdown file at `expected_output_path` in the `.claude/agents/_maintenance/` (maintenance) or `.claude/agents/` (judges) directory with frontmatter `name`, `description`, `model: opus`, `effort: xhigh`, `tools: Read, Grep, Glob`. Body sections cover the ten clauses above plus any role-specific rules from the envelope's `must_satisfy[]`.
 
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 ## Refusal Discipline
 
 You refuse and emit an `aria/agent-refusal/v1` row when:

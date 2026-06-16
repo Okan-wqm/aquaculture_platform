@@ -2,6 +2,8 @@
  * Batch hooks for farm-module
  * Handles CRUD operations for batches via GraphQL API
  */
+import { useRef } from 'react';
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
@@ -741,12 +743,58 @@ const CREATE_HARVEST_RECORD_MUTATION = `
   }
 `;
 
+// FARM-HIGH-052: the farm-service now REQUIRES an at-most-once envelope
+// (clientCommandId + payloadHash) on every stock-mutating mutation, matching the
+// AquaMobil offline-queue contract. The desktop web attaches it here so a
+// double-click / retried submit is deduped server-side instead of
+// double-decrementing inventory.
+async function hashPayload(payload: object): Promise<string> {
+  // Deterministic SHA-256 over a sorted-key JSON of the flat domain input: the
+  // SAME payload always hashes the same, so the server's payloadHash guard can
+  // detect a clientCommandId reuse that carries a DIFFERENT payload.
+  const sorted = Object.fromEntries(
+    Object.entries(payload).sort(([a], [b]) => a.localeCompare(b)),
+  );
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(JSON.stringify(sorted)),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Per-submit-intent idempotency envelope. The clientCommandId is held STABLE in a
+ * ref until a submit succeeds, so a double-click or a network-retried submit reuses
+ * the same id (the server's at-most-once ledger dedups it); reset() after success
+ * lets the next genuine submit mint a fresh id. Online-only — there is no offline
+ * queue on the desktop web.
+ */
+function useStockCommandEnvelope(): {
+  attach: <T extends object>(input: T) => Promise<T & { clientCommandId: string; payloadHash: string }>;
+  reset: () => void;
+} {
+  const commandIdRef = useRef<string | null>(null);
+  async function attach<T extends object>(
+    input: T,
+  ): Promise<T & { clientCommandId: string; payloadHash: string }> {
+    commandIdRef.current ??= crypto.randomUUID();
+    return { ...input, clientCommandId: commandIdRef.current, payloadHash: await hashPayload(input) };
+  }
+  function reset(): void {
+    commandIdRef.current = null;
+  }
+  return { attach, reset };
+}
+
 /**
  * Hook to record mortality in a tank
  */
 export function useRecordMortality() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
+  const envelope = useStockCommandEnvelope();
 
   return useMutation({
     mutationFn: async (input: RecordMortalityInput) => {
@@ -758,11 +806,14 @@ export function useRecordMortality() {
       }
       const data = await graphqlClient.request<{ recordMortality: Batch }>(
         RECORD_MORTALITY_MUTATION,
-        { input }
+        { input: await envelope.attach(input) }
       );
       return data.recordMortality;
     },
     onSuccess: () => {
+      // FARM-HIGH-052: release the per-submit clientCommandId so the next genuine
+      // submit mints a fresh one (a double-click before this point reused it).
+      envelope.reset();
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
@@ -777,6 +828,7 @@ export function useRecordMortality() {
 export function useRecordCull() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
+  const envelope = useStockCommandEnvelope();
 
   return useMutation({
     mutationFn: async (input: RecordCullInput) => {
@@ -788,11 +840,13 @@ export function useRecordCull() {
       }
       const data = await graphqlClient.request<{ recordCull: Batch }>(
         RECORD_CULL_MUTATION,
-        { input }
+        { input: await envelope.attach(input) }
       );
       return data.recordCull;
     },
     onSuccess: () => {
+      // FARM-HIGH-052: release the per-submit clientCommandId (see useRecordMortality).
+      envelope.reset();
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
@@ -806,6 +860,7 @@ export function useRecordCull() {
 export function useTransferBatch() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
+  const envelope = useStockCommandEnvelope();
 
   return useMutation({
     mutationFn: async (input: TransferBatchInput) => {
@@ -817,11 +872,13 @@ export function useTransferBatch() {
       }
       const data = await graphqlClient.request<{ transferBatch: Batch }>(
         TRANSFER_BATCH_MUTATION,
-        { input }
+        { input: await envelope.attach(input) }
       );
       return data.transferBatch;
     },
     onSuccess: () => {
+      // FARM-HIGH-052: release the per-submit clientCommandId (see useRecordMortality).
+      envelope.reset();
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
@@ -1067,6 +1124,7 @@ export function useCloseBatch() {
 export function useAllocateBatchToTank() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
+  const envelope = useStockCommandEnvelope();
 
   return useMutation({
     mutationFn: async (input: AllocateBatchToTankInput) => {
@@ -1078,11 +1136,13 @@ export function useAllocateBatchToTank() {
       }
       const data = await graphqlClient.request<{ allocateBatchToTank: Batch }>(
         ALLOCATE_BATCH_TO_TANK_MUTATION,
-        { input },
+        { input: await envelope.attach(input) },
       );
       return data.allocateBatchToTank;
     },
     onSuccess: () => {
+      // FARM-HIGH-052: release the per-submit clientCommandId (see useRecordMortality).
+      envelope.reset();
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });

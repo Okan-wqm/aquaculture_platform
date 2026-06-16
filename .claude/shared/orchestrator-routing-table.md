@@ -20,7 +20,7 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `web/modules/admin-panel/**` | admin-expert | |
 | `web/modules/tenant-admin/**` | admin-expert | |
 | `apps/messaging-service/**` | messaging-expert | |
-| `apps/ai-service/**` | ai-safety-auditor | messaging-expert (chat persistence), tenant-cost-attribution-expert (cost emission) |
+| `apps/ai-service/**` | ai-safety-auditor | messaging-expert (chat persistence) |
 | `apps/auth-service/**` | auth-security-expert | security-reviewer |
 | `apps/gateway-api/**` | auth-security-expert | security-reviewer |
 | `libs/backend-common/src/auth/**` | auth-security-expert | security-reviewer |
@@ -99,7 +99,6 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | destructive action paths (cross-cutting) | legal-hold-auditor | *primary destructive handler owner* |
 | every CQRS COMMAND handler audit capture | audit-trail-completeness-auditor | *respective domain expert* |
 | `libs/backend-common/src/ai/safety/**`, `libs/backend-common/src/ai/anthropic-client/**` | ai-safety-auditor | messaging-expert, security-reviewer |
-| `apps/observability-service/src/cost-attribution/**`, `infrastructure/monitoring/prometheus/cost-metrics.yml` | tenant-cost-attribution-expert | observability-expert, billing-expert |
 | `infra/openapi/**` | contract-parity-enforcer | *respective domain expert* |
 | `libs/backend-common/src/circuit-breaker/**` | circuit-breaker-auditor | platform-kernel-expert |
 | Performance / N+1 / EXPLAIN evidence reviews (cross-cutting) | performance-expert | *primary domain expert* |

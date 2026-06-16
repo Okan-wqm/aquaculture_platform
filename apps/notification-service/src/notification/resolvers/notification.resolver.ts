@@ -216,4 +216,41 @@ export class NotificationResolver {
       return false;
     }
   }
+
+  /**
+   * Deregister a device token on logout (MT-HIGH-050).
+   *
+   * SECURITY: AquaMobil runs on SHARED field devices. Without deregistration the
+   * FCM token stays mapped to tenant-A/user-A after logout, so push for tenant-A
+   * keeps reaching a phone that is now logged into tenant-B — a cross-tenant push
+   * leak. The delete is scoped to the CURRENT (token, userId, tenantId) tuple
+   * resolved from the verified JWT, so a caller can only remove the mapping it
+   * owns; it can never deregister another user's or tenant's token. Idempotent:
+   * removing an already-absent mapping still returns true (logout must not fail
+   * because the token was never registered or was already cleared).
+   */
+  @Mutation(() => Boolean, { name: 'unregisterDeviceToken' })
+  async unregisterDeviceToken(
+    @Args('token', { type: () => String }) token: string,
+    @CurrentUser() user: UserContext,
+    @Tenant() tenantId: string,
+  ): Promise<boolean> {
+    try {
+      await this.deviceTokenRepository.delete({
+        token,
+        userId: user.sub,
+        tenantId,
+      });
+
+      this.logger.debug(
+        `Device token deregistered for user ${user.sub.substring(0, 8)}... (logout)`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Failed to deregister device token: ${(error as Error).message}`,
+      );
+      return false;
+    }
+  }
 }

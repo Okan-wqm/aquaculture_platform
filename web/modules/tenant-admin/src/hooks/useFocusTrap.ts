@@ -33,7 +33,7 @@ const FOCUSABLE_SELECTOR = [
  * Only the trap at the top of the stack (last entry) should intercept
  * focus events.  Lower traps remain registered but dormant.
  */
-const trapStack: Array<React.RefObject<HTMLDivElement>> = [];
+const trapStack: Array<React.RefObject<HTMLDivElement | null>> = [];
 
 interface UseFocusTrapOptions {
   /** Whether the modal is currently open */
@@ -50,7 +50,7 @@ interface UseFocusTrapOptions {
 
 interface UseFocusTrapReturn {
   /** Ref to attach to the modal container */
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   /** Handler for keydown events (attach to container) */
   handleKeyDown: (e: React.KeyboardEvent) => void;
 }

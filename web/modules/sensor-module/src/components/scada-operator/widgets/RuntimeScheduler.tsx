@@ -233,7 +233,7 @@ const EventBlock = memo<EventBlockProps>(
       return (
         <div className="relative">
           <button
-            ref={anchorRef as React.RefObject<HTMLButtonElement>}
+            ref={anchorRef as React.RefObject<HTMLButtonElement | null>}
             type="button"
             onClick={handleClick}
             aria-label={`Event: ${event.name} ${event.startTime}–${event.endTime}`}
@@ -265,7 +265,7 @@ const EventBlock = memo<EventBlockProps>(
         }}
       >
         <button
-          ref={anchorRef as React.RefObject<HTMLButtonElement>}
+          ref={anchorRef as React.RefObject<HTMLButtonElement | null>}
           type="button"
           onClick={handleClick}
           aria-label={`Event: ${event.name} ${event.startTime}–${event.endTime}`}

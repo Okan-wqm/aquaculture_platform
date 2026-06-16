@@ -2,6 +2,15 @@
 // AquaMobil Type Definitions
 // ============================================================================
 
+// FE-MEDIUM-051: the role vocabulary is the backend's canonical GraphQL `Role`
+// enum (SUPER_ADMIN / TENANT_ADMIN / MODULE_MANAGER / MODULE_USER), emitted into
+// the codegen SSoT by the CurrentUser document (src/graphql/auth-identity.ts).
+// Re-exported here so existing imports from '@/types' keep working while the
+// vocabulary stays single-sourced — the old hand-maintained
+// MANAGER/OPERATOR/VIEWER union was phantom (the server never emits it).
+export type { Role } from '../generated/graphql';
+import type { Role } from '../generated/graphql';
+
 // WHY: AccessType determines platform access — PANEL_ONLY users are blocked from
 // the mobile app at login time, before any feature check occurs.
 export type AccessType = 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
@@ -11,7 +20,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MANAGER' | 'OPERATOR' | 'VIEWER';
+  role: Role;
   tenantId: string | null;
   accessType?: AccessType;
   // BUG-11: employeeId is the HR employee identifier, distinct from the auth user id.
@@ -232,7 +241,21 @@ export interface CreateLeaveRequestInput {
 }
 
 // Offline queue types
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead';
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead';
+
+/**
+ * FARM-HIGH-057 — offline payload for an idempotent checklist SET.
+ *
+ * Carries the ABSOLUTE target `isCompleted` (not a flip), so replaying a queued
+ * checklist toggle after reconnect converges to the same state instead of
+ * reverting it. `taskId`/`itemId` identify the row; the command envelope fields
+ * are stamped by the offline queue on enqueue.
+ */
+export interface ChecklistItemSetInput {
+  taskId: string;
+  itemId: string;
+  isCompleted: boolean;
+}
 
 export interface MobileCommandEnvelope {
   clientCommandId?: string;
@@ -252,7 +275,7 @@ export type MessagingOfflinePayload =
   | { channelId: string; messageId: string };
 
 export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload
+  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload
 ) & MobileCommandEnvelope;
 
 export interface QueuedOperation {
@@ -487,7 +510,11 @@ export interface DailyOpsStats {
 export interface StockEventsSummary {
   activeBatchCount: number;
   thisWeekEventsCount: number;
-  pendingTransferCount: number;
+  // FARM-HIGH-055: replaces the always-zero backend pendingTransferCount.
+  // Transfers commit atomically (no pending half-state), so the meaningful KPI
+  // is the count of transfer events in the recent window, derived client-side
+  // from recentEvents (type === 'TRANSFER').
+  recentTransferCount: number;
   recentEvents: StockEvent[];
 }
 

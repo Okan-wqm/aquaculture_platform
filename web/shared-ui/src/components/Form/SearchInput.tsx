@@ -33,7 +33,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
   className = '',
 }) => {
   const [internalValue, setInternalValue] = useState(controlledValue || '');
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
   // BUG-010: Store onSearch in a ref so pending debounce timeouts always call the
   // latest version of the callback, even if the prop changes between schedule and fire.

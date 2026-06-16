@@ -141,6 +141,7 @@ export default {
         '<rootDir>/farm-graphql-fe-be-parity.spec.ts',
         '<rootDir>/dead-contract-fe-operations.spec.ts',
         '<rootDir>/farm-batch-policy-transaction-ssot.spec.ts',
+        '<rootDir>/stock-mutating-handlers-reject-legacy.spec.ts',
         '<rootDir>/farm-site-system-eventing-transaction-ssot.spec.ts',
         '<rootDir>/sites-setup-remediation-plan-contract.spec.ts',
         '<rootDir>/strip-internal-headers-mounted.spec.ts',
@@ -151,6 +152,7 @@ export default {
         '<rootDir>/aria-doc-runtime-ssot.spec.ts',
         '<rootDir>/invariant-reachability.spec.ts',
         '<rootDir>/migration-spec-quarantine.spec.ts',
+        '<rootDir>/claude-md-accuracy.spec.ts',
       ],
     },
     {

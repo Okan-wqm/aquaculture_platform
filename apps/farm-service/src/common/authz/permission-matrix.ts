@@ -176,7 +176,9 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   transferCleanerFish: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   transferStock: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   toggleAutoRuleActive: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
-  toggleChecklistItem: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // FARM-HIGH-057: toggleChecklistItem (blind flip) -> setChecklistItem
+  // (idempotent absolute SET + idempotency envelope). Same role contract.
+  setChecklistItem: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   toggleRecurringTemplateActive: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   transitionTankFeed: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateAutoRule: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],

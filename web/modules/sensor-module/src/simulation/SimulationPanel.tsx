@@ -346,7 +346,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
   } = useSimulation();
 
   // ── Debounced auto-load on code change ──────────────────────────────────
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
 
   useEffect(() => {
     if (!code || code.trim().length === 0) return;

@@ -42,6 +42,14 @@ export interface JwtPayload {
   tenantId: string;
   roles: string[];
   permissions?: string[];
+  /**
+   * SEC-HIGH-051: farm-service Site ids the user is assigned to. On the
+   * direct-JWT (non-prod) path req.user = payload, so the claim must be typed
+   * and preserved here too — not only on the gateway-assertion path.
+   */
+  assignedSiteIds?: string[];
+  /** SEC-HIGH-052: enabled mobile feature keys the user is entitled to. */
+  mobileFeatures?: string[];
   iat: number;
   exp: number;
 }

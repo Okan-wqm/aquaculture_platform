@@ -6,21 +6,16 @@
  *
  * @module Batch/Commands
  */
+import { Role } from '@aquaculture/backend-common/decorators';
 import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 import { ITenantCommand } from '@platform/cqrs';
 
-export enum MortalityReason {
-  DISEASE = 'disease',           // Hastalık
-  WATER_QUALITY = 'water_quality', // Su kalitesi
-  STRESS = 'stress',             // Stres
-  HANDLING = 'handling',         // Taşıma/işleme
-  TEMPERATURE = 'temperature',   // Sıcaklık şoku
-  OXYGEN = 'oxygen',             // Oksijen yetersizliği
-  PREDATION = 'predation',       // Predatör
-  CANNIBALISM = 'cannibalism',   // Yamyamlık
-  UNKNOWN = 'unknown',           // Bilinmiyor
-  OTHER = 'other',               // Diğer
-}
+// SSoT: MortalityReason is owned by tank-operation.enums.ts. Re-export so every
+// existing `import { MortalityReason } from '../commands/record-mortality.command'`
+// keeps compiling against ONE enum identity (the DB column now carries
+// PREDATION + CANNIBALISM — no more silent UNKNOWN coercion).
+export { MortalityReason } from '../entities/tank-operation.enums';
+import { MortalityReason } from '../entities/tank-operation.enums';
 
 export interface RecordMortalityPayload {
   tankId: string;                // Tank ID (hangi tank'ta)
@@ -39,6 +34,12 @@ export class RecordMortalityCommand implements ITenantCommand {
     public readonly batchId: string,
     public readonly payload: RecordMortalityPayload,
     public readonly recordedBy: string,
+    // SEC-HIGH-051: caller authz context for the object-level site check.
+    // userRoles drives the canonical MODULE_MANAGER+ bypass; callerAssignedSiteIds
+    // is the caller's JWT `assignedSiteIds` claim (the sites they may mutate).
+    // Default [] is fail-closed: a non-manager with no sites is DENIED.
+    public readonly userRoles: Role[] = [],
+    public readonly callerAssignedSiteIds: string[] = [],
     public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

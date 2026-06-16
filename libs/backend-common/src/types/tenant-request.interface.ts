@@ -14,6 +14,18 @@ export interface FarmVerifiedIdentity {
   mfaVerified: boolean;
   issuedAt: string;
   assertionId?: string;
+  /**
+   * SEC-HIGH-051: farm-service Site ids the user is assigned to. Threaded from
+   * the JWT `assignedSiteIds` claim through the HMAC-bound assertion so the
+   * production gateway path exposes object-level site authorization data.
+   */
+  assignedSiteIds?: string[];
+  /**
+   * SEC-HIGH-052: enabled mobile feature keys
+   * (`auth.mobile_user_settings.allowedFeatures`). Threaded from the JWT
+   * `mobileFeatures` claim so MobileFeatureGuard can enforce entitlements.
+   */
+  mobileFeatures?: string[];
 }
 
 export interface VerifiedServiceIdentity {
@@ -41,6 +53,16 @@ export interface JwtUser {
   mfaVerified?: boolean;
   /** User email address, decoded from JWT if present */
   email?: string;
+  /**
+   * SEC-HIGH-051: farm-service Site ids the user is assigned to (object-level
+   * site authorization). Populated from the verified assertion / direct JWT.
+   */
+  assignedSiteIds?: string[];
+  /**
+   * SEC-HIGH-052: enabled mobile feature keys the user is entitled to. Read by
+   * MobileFeatureGuard to enforce mobile entitlements server-side.
+   */
+  mobileFeatures?: string[];
 }
 
 /**

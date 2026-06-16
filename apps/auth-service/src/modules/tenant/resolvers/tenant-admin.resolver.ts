@@ -4,7 +4,9 @@ import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { User } from '../../authentication/entities/user.entity';
 import {
   AssignUserToModuleInput,
+  AssignUserToSiteInput,
   AssignmentResult,
+  SiteAssignmentResult,
   UserModuleInfo,
   TenantTableInfo,
   TableDataResult,
@@ -107,6 +109,39 @@ export class TenantAdminResolver {
       userId,
       targetUserId,
       moduleId,
+    );
+  }
+
+  /**
+   * Assign a user to a farm-service Site (SEC-HIGH-051).
+   *
+   * The management write-path for auth.user_site_assignments — the object-level
+   * site-authz SSoT. Gated with the SAME @TenantAdminOrHigher() as the module
+   * assignment precedent (TENANT_ADMIN + SUPER_ADMIN). Idempotent upsert.
+   */
+  @Mutation(() => SiteAssignmentResult)
+  @TenantAdminOrHigher()
+  async assignUserToSite(
+    @CurrentUser('sub') userId: string,
+    @Args('input') input: AssignUserToSiteInput,
+  ): Promise<SiteAssignmentResult> {
+    return this.tenantAdminService.assignUserToSite(userId, input);
+  }
+
+  /**
+   * Unassign (deactivate) a user's site assignment (SEC-HIGH-051).
+   */
+  @Mutation(() => SiteAssignmentResult)
+  @TenantAdminOrHigher()
+  async unassignUserFromSite(
+    @CurrentUser('sub') userId: string,
+    @Args('userId', { type: () => ID }) targetUserId: string,
+    @Args('siteId', { type: () => ID }) siteId: string,
+  ): Promise<SiteAssignmentResult> {
+    return this.tenantAdminService.unassignUserFromSite(
+      userId,
+      targetUserId,
+      siteId,
     );
   }
 

@@ -20,6 +20,7 @@ import {
   Field,
   ID,
   Int,
+  GraphQLISODateTime,
   registerEnumType,
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
@@ -27,23 +28,24 @@ import GraphQLJSON from 'graphql-type-json';
 /**
  * Runtime shape of a single item in `Task.checklistItems` (JSONB).
  *
- * `isCompleted` is the field the `TaskChecklistItemInput` DTO writes
- * on creation (UI-facing name). `completed` + `completedAt` are the
- * fields the `TaskService.toggleChecklistItem` path mutates — the
- * two names DIVERGE today; a follow-up will unify them. Keeping the
- * interface permissive (both optional) documents the reality
- * accurately rather than papering over it with a single name that
- * doesn't match what's stored.
+ * `isCompleted` is the CANONICAL UI-facing field the
+ * `TaskChecklistItemInput` DTO writes on creation AND the field the
+ * idempotent `TaskService.setChecklistItem` path now SETs to an absolute
+ * value (FARM-HIGH-057). The legacy `completed` field is retained ONLY so
+ * the normaliser can read+migrate rows written by the former
+ * `toggleChecklistItem` flip (which predated `isCompleted`); new writes
+ * never emit it. Keeping the interface permissive (both optional)
+ * documents the stored reality rather than papering over the legacy field.
  */
 export interface TaskChecklistItem {
-  /** UUID, assigned by the service on first toggle / on creation. */
+  /** UUID, assigned by the service on first set / on creation. */
   id?: string;
   text: string;
-  /** UI input field — set on creation via `TaskChecklistItemInput`. */
+  /** Canonical completion field — set on creation and by `setChecklistItem`. */
   isCompleted?: boolean;
-  /** Runtime toggle field — flipped by `toggleChecklistItem`. */
+  /** Legacy field from the old `toggleChecklistItem` flip; read by the normaliser, never re-emitted. */
   completed?: boolean;
-  /** ISO-8601 string written by `toggleChecklistItem`. */
+  /** ISO-8601 completion timestamp; derived from the target state by `setChecklistItem`. */
   completedAt?: string | null;
   completedBy?: string;
 }
@@ -251,13 +253,20 @@ export class Task {
   // TAMAMLAMA
   // -------------------------------------------------------------------------
 
-  @Field({ nullable: true })
+  // WHY explicit type thunks: the property type is now the union `Date | null`
+  // (FARM-HIGH-056 — `clearCompletion()` SETs null so TypeORM emits SET … = NULL
+  // instead of skipping an `undefined` field). reflect-metadata reflects a union
+  // as `Object`, so a bare `@Field({ nullable: true })` can no longer infer the
+  // GraphQL scalar and the SDL emitter aborts with "Undefined type error". The
+  // explicit thunk (GraphQLISODateTime for the timestamp, ID for the UUID) pins
+  // the GraphQL type independently of the widened TS union.
+  @Field(() => GraphQLISODateTime, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
-  completedAt?: Date;
+  completedAt?: Date | null;
 
-  @Field({ nullable: true })
+  @Field(() => ID, { nullable: true })
   @Column('uuid', { nullable: true })
-  completedBy?: string;
+  completedBy?: string | null;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS
@@ -274,4 +283,25 @@ export class Task {
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
+
+  /**
+   * FARM-HIGH-056 — business invariant: a non-completed task has NULL
+   * completion fields.
+   *
+   * WHY: the FSM allows COMPLETED -> PENDING (a "reopen"). Without clearing
+   * these, a reopened PENDING task keeps a stale `completedAt`/`completedBy`,
+   * lying about being done and corrupting the completionRate /
+   * avgCompletionMinutes statistics SQL (both key off `completedAt`).
+   *
+   * WHAT: nulls both completion fields. Called at the single write site when a
+   * status transition leaves COMPLETED, so the reset is defined once (SSoT) and
+   * cannot drift from the reopen logic.
+   */
+  clearCompletion(): void {
+    // null (NOT undefined): TypeORM SKIPS undefined fields on save (treats them as
+    // "no change"), so undefined would leave the stale DB values in place. Explicit
+    // null emits `SET completedAt = NULL` / `completedBy = NULL`.
+    this.completedAt = null;
+    this.completedBy = null;
+  }
 }

@@ -27,6 +27,18 @@ export enum AuditAction {
    * which operator decided to overstock when, why, and by how much.
    */
   CAPACITY_BLOCKED = 'CAPACITY_BLOCKED',
+  /**
+   * FARM-MEDIUM-054: a mortality removal was recorded against a batch in a tank.
+   * Mortality is a high-stakes inventory decrement; allocate/close already leave
+   * a durable farm_audit_logs trail, mortality/cull did not. Written transactionally
+   * (AuditLogService.logWithManager) inside the RecordMortalityHandler txn.
+   */
+  MORTALITY_RECORDED = 'MORTALITY_RECORDED',
+  /**
+   * FARM-MEDIUM-054: a cull removal was recorded against a batch in a tank.
+   * Written transactionally inside the RecordCullHandler txn.
+   */
+  CULL_RECORDED = 'CULL_RECORDED',
 }
 
 export interface AuditChanges {

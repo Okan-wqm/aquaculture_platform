@@ -1,9 +1,12 @@
-import { useNavigate } from 'react-router-dom';
-import { Skull, Scissors, Package, ArrowLeftRight } from 'lucide-react';
-import type { Tank } from '@/types';
 import { clsx } from 'clsx';
-// BUG-09: Import permissions hook to conditionally render action buttons
-import { useMobilePermissions } from '@/hooks/useMobilePermissions';
+import { Skull, Scissors, Package, ArrowLeftRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+import type { Tank } from '@/types';
+// BUG-09: feature permissions gate the action buttons so a button that would
+// redirect back to / via FeatureRoute is not rendered at all.
+// SEC-MEDIUM-050: canReach also enforces feature role floors (harvest => MODULE_MANAGER).
+import { useFeatureAccess } from '@/utils/feature-access';
 
 interface TankCardProps {
   tank: Tank;
@@ -24,7 +27,8 @@ export function TankCard({ tank }: TankCardProps) {
   const navigate = useNavigate();
   // BUG-09: Check feature permissions so buttons that would redirect back to /
   // via FeatureRoute are not shown at all, avoiding the navigation flash.
-  const { canAccess } = useMobilePermissions();
+  // SEC-MEDIUM-050: canReach folds in the harvest MODULE_MANAGER role floor.
+  const { canReach } = useFeatureAccess();
   const metrics = tank.batchMetrics;
   const hasBatch = !!metrics?.batchId;
   const status = STATUS_CONFIG[tank.status] || STATUS_CONFIG.INACTIVE;
@@ -169,9 +173,9 @@ export function TankCard({ tank }: TankCardProps) {
 
       {/* WHY: Action buttons only render for tanks with batches AND for features the user has permission for.
           This prevents dead-end navigation where FeatureRoute would redirect back to home. */}
-      {hasBatch && (canAccess('mortality') || canAccess('cull') || canAccess('harvest') || canAccess('transfer')) && (
+      {hasBatch && (canReach('mortality') || canReach('cull') || canReach('harvest') || canReach('transfer')) && (
         <div className="flex border-t border-gray-100 dark:border-gray-800">
-          {canAccess('mortality') && (
+          {canReach('mortality') && (
             <button
               onClick={() => navigate(`/mortality/record/${tank.id}`)}
               className="flex-1 flex items-center justify-center gap-1.5 py-3 text-mortality hover:bg-mortality-light dark:hover:bg-red-900/20 touch-feedback transition-colors border-r border-gray-100 dark:border-gray-800 last:border-r-0"
@@ -180,7 +184,7 @@ export function TankCard({ tank }: TankCardProps) {
               <span className="text-xs font-bold">Mortality</span>
             </button>
           )}
-          {canAccess('cull') && (
+          {canReach('cull') && (
             <button
               onClick={() => navigate(`/cull/record/${tank.id}`)}
               className="flex-1 flex items-center justify-center gap-1.5 py-3 text-cull hover:bg-cull-light dark:hover:bg-orange-900/20 touch-feedback transition-colors border-r border-gray-100 dark:border-gray-800 last:border-r-0"
@@ -189,7 +193,7 @@ export function TankCard({ tank }: TankCardProps) {
               <span className="text-xs font-bold">Cull</span>
             </button>
           )}
-          {canAccess('harvest') && (
+          {canReach('harvest') && (
             <button
               onClick={() => navigate(`/harvest/record/${tank.id}`)}
               className="flex-1 flex items-center justify-center gap-1.5 py-3 text-harvest hover:bg-harvest-light dark:hover:bg-purple-900/20 touch-feedback transition-colors border-r border-gray-100 dark:border-gray-800 last:border-r-0"
@@ -198,7 +202,7 @@ export function TankCard({ tank }: TankCardProps) {
               <span className="text-xs font-bold">Harvest</span>
             </button>
           )}
-          {canAccess('transfer') && (
+          {canReach('transfer') && (
             <button
               onClick={() => navigate(`/transfer/record/${tank.id}`)}
               className="flex-1 flex items-center justify-center gap-1.5 py-3 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 touch-feedback transition-colors border-r border-gray-100 dark:border-gray-800 last:border-r-0"

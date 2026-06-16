@@ -18,11 +18,14 @@ import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
+import { UserSiteAssignment } from '../../authentication/entities/user-site-assignment.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { Module } from '../../system-module/entities/module.entity';
 import {
   AssignUserToModuleInput,
+  AssignUserToSiteInput,
   AssignmentResult,
+  SiteAssignmentResult,
   UserModuleInfo,
   MyTenantInfo,
   TenantTableInfo,
@@ -70,6 +73,11 @@ export class TenantAdminService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(UserModuleAssignment)
     private readonly userModuleAssignmentRepository: Repository<UserModuleAssignment>,
+    // SEC-HIGH-051: the write-path for auth.user_site_assignments (object-level
+    // site membership SSoT). Without a management surface every MODULE_USER was
+    // assignedSiteIds:[] forever and denied on every site-scoped op.
+    @InjectRepository(UserSiteAssignment)
+    private readonly userSiteAssignmentRepository: Repository<UserSiteAssignment>,
     @InjectRepository(Module)
     private readonly moduleRepository: Repository<Module>,
     @InjectRepository(RefreshToken)
@@ -393,6 +401,183 @@ export class TenantAdminService {
 
     this.logger.log(`Removed user ${userId} from module ${moduleId}`);
     return true;
+  }
+
+  // =========================================================
+  // Site assignment management (SEC-HIGH-051)
+  // =========================================================
+
+  /**
+   * Assign a tenant user to a farm-service Site (idempotent upsert).
+   *
+   * SEC-HIGH-051: this is the write-path the object-level site-authz SSoT was
+   * missing. Mirrors {@link assignUserToModule}: TENANT_ADMIN-gated at the
+   * resolver, scoped to the caller's tenant, records `assignedBy`, idempotent
+   * (re-assigning an active row is a no-op success; a soft-deactivated row is
+   * reactivated). The fail-closed deny posture is NOT softened — an assignment
+   * here is what GRANTS a MODULE_USER access to a site on the next token mint.
+   *
+   * `siteId` is a farm-service Site id (cross-service). auth-service must not
+   * import farm tables (layering violation) and a cross-schema FK is forbidden,
+   * so there is no cheap in-service ownership check — an unknown siteId simply
+   * never matches a real site and grants nothing (fail-closed by construction).
+   * The target user IS validated to belong to the caller's tenant.
+   */
+  async assignUserToSite(
+    tenantAdminId: string,
+    input: AssignUserToSiteInput,
+  ): Promise<SiteAssignmentResult> {
+    const admin = await this.userRepository.findOne({
+      where: { id: tenantAdminId },
+    });
+
+    if (!admin || !admin.tenantId) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    // The target user MUST exist in the caller's tenant — a cross-tenant userId
+    // resolves to null here and is rejected (no cross-tenant assignment).
+    const targetUser = await this.userRepository.findOne({
+      where: { id: input.userId, tenantId: admin.tenantId },
+    });
+
+    if (!targetUser) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Idempotent upsert scoped to the admin's tenant. The UQ_user_site
+    // (userId, siteId) constraint makes the existing-row lookup authoritative.
+    const existing = await this.userSiteAssignmentRepository.findOne({
+      where: { userId: input.userId, siteId: input.siteId },
+    });
+
+    if (existing) {
+      if (!existing.isActive) {
+        existing.isActive = true;
+        existing.assignedBy = tenantAdminId;
+        existing.expiresAt = null;
+        await this.userSiteAssignmentRepository.save(existing);
+
+        await this.auditSiteAssignment(admin, 'USER_SITE_ASSIGNED', input, 'reactivated');
+
+        return {
+          success: true,
+          message: 'Site assignment reactivated',
+          userId: input.userId,
+          siteId: input.siteId,
+        };
+      }
+
+      return {
+        success: true,
+        message: 'User already assigned to site',
+        userId: input.userId,
+        siteId: input.siteId,
+      };
+    }
+
+    const assignment = this.userSiteAssignmentRepository.create({
+      userId: input.userId,
+      siteId: input.siteId,
+      tenantId: admin.tenantId,
+      isActive: true,
+      assignedBy: tenantAdminId,
+    });
+
+    await this.userSiteAssignmentRepository.save(assignment);
+
+    await this.auditSiteAssignment(admin, 'USER_SITE_ASSIGNED', input, 'created');
+
+    this.logger.log(`Assigned user ${input.userId} to site ${input.siteId}`);
+
+    return {
+      success: true,
+      message: 'User assigned to site',
+      userId: input.userId,
+      siteId: input.siteId,
+    };
+  }
+
+  /**
+   * Unassign (deactivate) a user's site assignment (SEC-HIGH-051).
+   *
+   * Mirrors {@link removeUserFromModule}: TENANT_ADMIN-gated, scoped to the
+   * caller's tenant, soft-deactivates the row (preserving the audit trail). The
+   * revoked site stops being minted into assignedSiteIds on the next token
+   * refresh; the user is then fail-closed denied on that site.
+   */
+  async unassignUserFromSite(
+    tenantAdminId: string,
+    userId: string,
+    siteId: string,
+  ): Promise<SiteAssignmentResult> {
+    const admin = await this.userRepository.findOne({
+      where: { id: tenantAdminId },
+    });
+
+    if (!admin || !admin.tenantId) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    // Scope the lookup to the admin's tenant so a cross-tenant assignment row
+    // cannot be deactivated from another tenant.
+    const assignment = await this.userSiteAssignmentRepository.findOne({
+      where: { userId, siteId, tenantId: admin.tenantId },
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('Site assignment not found');
+    }
+
+    assignment.isActive = false;
+    await this.userSiteAssignmentRepository.save(assignment);
+
+    await this.auditSiteAssignment(
+      admin,
+      'USER_SITE_UNASSIGNED',
+      { userId, siteId },
+      'deactivated',
+    );
+
+    this.logger.log(`Unassigned user ${userId} from site ${siteId}`);
+
+    return {
+      success: true,
+      message: 'User unassigned from site',
+      userId,
+      siteId,
+    };
+  }
+
+  /**
+   * Audit a site assignment / unassignment. Best-effort (mirrors the
+   * deactivate/activate audit calls above) — a failed audit must not roll back
+   * the membership change, which has its own log line.
+   */
+  private async auditSiteAssignment(
+    admin: User,
+    action: 'USER_SITE_ASSIGNED' | 'USER_SITE_UNASSIGNED',
+    target: { userId: string; siteId: string },
+    outcome: 'created' | 'reactivated' | 'deactivated',
+  ): Promise<void> {
+    try {
+      await this.auditLogService.log({
+        tenantId: admin.tenantId!,
+        performedBy: admin.id,
+        performedByEmail: admin.email,
+        action,
+        entityType: 'UserSiteAssignment',
+        entityId: target.userId,
+        details: {
+          siteId: target.siteId,
+          outcome,
+          timestamp: new Date().toISOString(),
+        },
+        severity: AuditLogSeverity.INFO,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to log audit event ${action}: ${(error as Error).message}`);
+    }
   }
 
   /**

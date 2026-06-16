@@ -14,7 +14,9 @@
  *
  * @module Harvest
  */
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -62,6 +64,9 @@ import { HarvestPolicyService } from './services/harvest-policy.service';
     HarvestPlanService,
     HarvestPolicyService,
     MobileCommandReceiptService,
+    // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
+    SiteAuthorizationService,
+    MobileFeatureGuard,
     // Command Handlers
     CreateHarvestRecordHandler,
     UpdateHarvestRecordHandler,

@@ -93,7 +93,7 @@ export function useFilters<T extends Record<string, unknown>>(
   const [filters, setFiltersState] = useState<T>(getInitialFilters);
   const [debouncedFilters, setDebouncedFilters] = useState<T>(filters);
 
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceTimerRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
 
   // Update URL when filters change (H2: functional update to avoid stale closure)
   const updateUrl = useCallback(

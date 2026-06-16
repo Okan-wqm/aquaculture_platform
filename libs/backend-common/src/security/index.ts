@@ -50,3 +50,9 @@ export * from './encryption';
 
 // Security Event Service (Audit logging for security events)
 export * from './security-event.service';
+
+// SEC-HIGH-050: canonical direct-namespace self-scope authorization SSoT
+export * from './assert-self-scope';
+
+// SEC-HIGH-051: canonical object-level site authorization SSoT
+export * from './site-authorization.service';

@@ -101,9 +101,9 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0] as unknown as Error;
+    const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error.message).toContain('Verified user assertion is required');
+    expect(error).toHaveProperty('message', expect.stringContaining('Verified user assertion is required'));
   });
 
   it('does not require user assertions on probe paths', () => {
@@ -160,9 +160,9 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0] as unknown as Error;
+    const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error.message).toContain('tenant does not match');
+    expect(error).toHaveProperty('message', expect.stringContaining('tenant does not match'));
   });
 
   it('rejects stale assertions', () => {
@@ -176,9 +176,9 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0] as unknown as Error;
+    const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error.message).toContain('expired');
+    expect(error).toHaveProperty('message', expect.stringContaining('expired'));
   });
 
   it('rejects assertions that were not attached to a verified service request', () => {
@@ -189,8 +189,74 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0] as unknown as Error;
+    const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error.message).toContain('requires service identity');
+    expect(error).toHaveProperty('message', expect.stringContaining('requires service identity'));
+  });
+
+  // SEC-HIGH-051 / SEC-HIGH-052: the object-level authorization claims must
+  // round-trip through build → parse → req.user, and a malformed claim must be
+  // rejected fail-closed.
+  it('round-trips assignedSiteIds + mobileFeatures onto req.user', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeAssertion({
+          assignedSiteIds: ['site-a', 'site-b'],
+          mobileFeatures: ['mortality', 'harvest'],
+        }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.user).toEqual(
+      expect.objectContaining({
+        assignedSiteIds: ['site-a', 'site-b'],
+        mobileFeatures: ['mortality', 'harvest'],
+      }),
+    );
+    expect(req.verifiedUserAssertion?.assignedSiteIds).toEqual(['site-a', 'site-b']);
+    expect(req.verifiedUserAssertion?.mobileFeatures).toEqual(['mortality', 'harvest']);
+  });
+
+  it('omits the claims on req.user when the assertion does not carry them', () => {
+    const req = createRequest({
+      headers: { 'x-verified-user-assertion': encodeAssertion() },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.user?.assignedSiteIds).toBeUndefined();
+    expect(req.user?.mobileFeatures).toBeUndefined();
+  });
+
+  it('rejects a malformed assignedSiteIds claim (non-string member, fail-closed)', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeAssertion({ assignedSiteIds: ['site-a', 42] }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    const error = next.mock.calls[0]?.[0];
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(error).toHaveProperty('message', expect.stringContaining('invalid assignedSiteIds'));
+  });
+
+  it('rejects a malformed mobileFeatures claim (non-array, fail-closed)', () => {
+    const req = createRequest({
+      headers: {
+        'x-verified-user-assertion': encodeAssertion({ mobileFeatures: 'mortality' }),
+      },
+    });
+
+    middleware.use(req, {} as Response, next);
+
+    const error = next.mock.calls[0]?.[0];
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(error).toHaveProperty('message', expect.stringContaining('invalid mobileFeatures'));
   });
 });

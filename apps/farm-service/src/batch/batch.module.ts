@@ -13,7 +13,9 @@
  *
  * @module Batch
  */
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -115,6 +117,10 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BatchLocationDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.locations
     BatchFeedAssignmentDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.feedAssignments
     MobileCommandReceiptService,
+    // SEC-HIGH-051 / SEC-HIGH-052: object-level site authz SSoT (injected by the
+    // stock handlers) + the mobile-feature guard (composed on the resolver).
+    SiteAuthorizationService,
+    MobileFeatureGuard,
     ...BatchCommandHandlers,
     ...BatchQueryHandlers,
     ...BatchResolvers,

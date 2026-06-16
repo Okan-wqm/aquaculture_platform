@@ -48,6 +48,9 @@ vi.mock('../useAuth', () => ({
   useAuth: () => ({
     accessToken: 'access-token',
     isAuthenticated: true,
+    // MT-HIGH-050: the hook now requires a user.id to register (it stamps the
+    // active user on the FCM SW and registers the per-user logout teardown).
+    user: { id: 'user-aaaa', tenantId: 'tenant-xyz' },
   }),
 }));
 
@@ -78,6 +81,10 @@ vi.mock('firebase/messaging', () => ({
   getMessaging: vi.fn(() => ({})),
   getToken: (...args: unknown[]): Promise<string> => getTokenSpy(...args),
   onMessage: (...args: unknown[]): (() => void) => onMessageSpy(...args),
+  // MT-HIGH-050: the hook imports deleteToken for the logout teardown. Vitest
+  // module mocks are strict — an unlisted export throws on destructure even if
+  // unused in this spec — so it must be present here too.
+  deleteToken: vi.fn(() => Promise.resolve(true)),
 }));
 
 // The hook reads FIREBASE_CONFIG at module load, so import it AFTER the env

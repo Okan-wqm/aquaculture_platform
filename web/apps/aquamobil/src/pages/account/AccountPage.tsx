@@ -1,5 +1,3 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Moon,
   Sun,
@@ -15,13 +13,17 @@ import {
   X,
   Monitor,
 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+
 import { useAuth } from '@/hooks/useAuth';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { useNotifications } from '@/hooks/useNotifications';
-import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import type { DarkModePreference } from '@/hooks/useDarkMode';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 import { clearCache, clearAllOperations } from '@/pwa/offline-queue';
+import type { Role } from '@/types';
 
 // ============================================================================
 // Constants
@@ -33,14 +35,19 @@ const LAST_SYNC_KEY = 'aquamobil_last_sync_at';
 /** App version sourced from build-time env variable */
 const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? '1.0.0';
 
-// Role badge configuration — maps each auth role to a color scheme so operators
+// Role badge configuration — maps each auth role to a color scheme so workers
 // and admins can quickly identify their privilege level at a glance.
-const ROLE_BADGE_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
+//
+// FE-MEDIUM-051: keyed by the codegen'd backend `Role` enum, so the config keys
+// are EXACTLY the four canonical roles. A `Record<Role, ...>` makes adding or
+// renaming a backend role a compile-time exhaustiveness error here (tier-3
+// detectable) — the old MANAGER/OPERATOR/VIEWER entries were phantom values the
+// server never emits and have been removed.
+const ROLE_BADGE_CONFIG: Record<Role, { bg: string; text: string; label: string }> = {
   SUPER_ADMIN: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Super Admin' },
   TENANT_ADMIN: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-300', label: 'Tenant Admin' },
-  MANAGER: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300', label: 'Manager' },
-  OPERATOR: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-700 dark:text-emerald-300', label: 'Operator' },
-  VIEWER: { bg: 'bg-gray-100 dark:bg-gray-900/30', text: 'text-gray-700 dark:text-gray-300', label: 'Viewer' },
+  MODULE_MANAGER: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300', label: 'Manager' },
+  MODULE_USER: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-700 dark:text-emerald-300', label: 'Operator' },
 };
 
 // ============================================================================
@@ -101,8 +108,12 @@ interface ConfirmDialogProps {
   message: string;
   confirmLabel: string;
   confirmColor?: string;
-  onConfirm: () => void;
+  // MT-MEDIUM-050: onConfirm may be async (the logout path awaits a device wipe);
+  // a rejection is surfaced to the caller, which sets `errorMessage` below.
+  onConfirm: () => void | Promise<void>;
   onCancel: () => void;
+  /** Error surfaced inside the dialog when a confirm action fails. */
+  errorMessage?: string | null;
 }
 
 function ConfirmDialog({
@@ -112,6 +123,7 @@ function ConfirmDialog({
   confirmColor = 'bg-red-600',
   onConfirm,
   onCancel,
+  errorMessage,
 }: ConfirmDialogProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
@@ -121,6 +133,13 @@ function ConfirmDialog({
       <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-xl max-w-sm w-full p-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{title}</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{message}</p>
+        {/* MT-MEDIUM-050: a failed device wipe is shown here so the user is never
+            told the logout succeeded while plaintext-recoverable data remains. */}
+        {errorMessage && (
+          <p className="text-sm text-red-600 dark:text-red-400 mb-4" role="alert">
+            {errorMessage}
+          </p>
+        )}
         <div className="flex gap-3">
           <button
             onClick={onCancel}
@@ -129,7 +148,12 @@ function ConfirmDialog({
             Cancel
           </button>
           <button
-            onClick={onConfirm}
+            // WHY void-wrap: onConfirm may be async (logout awaits a device
+            // wipe). The DOM onClick handler must return void, not a Promise —
+            // the caller owns the rejection (MT-MEDIUM-050 surfaces it).
+            onClick={() => {
+              void onConfirm();
+            }}
             className={`flex-1 py-2.5 rounded-xl ${confirmColor} text-white font-medium text-sm transition-colors`}
           >
             {confirmLabel}
@@ -450,18 +474,35 @@ export function AccountPage() {
     // The OfflineProvider will refresh the pending count on next tick
   }, [authTenantId]);
 
-  const handleLogout = useCallback(() => {
-    setShowLogoutDialog(false);
-    logout();
+  // MT-MEDIUM-050: logout() AWAITS the full on-device wipe and REJECTS if it
+  // fails. A failed wipe must NOT present as a clean logout, so on rejection we
+  // keep the confirmation dialog open and surface the error instead of
+  // navigating away as if the device were clean. The session is only torn down
+  // once the wipe has provably completed.
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const handleLogout = useCallback(async () => {
+    setLogoutError(null);
+    try {
+      await logout();
+      setShowLogoutDialog(false);
+    } catch (err) {
+      setLogoutError(
+        err instanceof Error
+          ? `Logout could not complete: ${err.message}. Your data was not fully cleared — please retry.`
+          : 'Logout could not complete — your data was not fully cleared. Please retry.',
+      );
+    }
   }, [logout]);
 
   // Derive user display values
   const userName = user?.name ?? 'User';
   const userEmail = user?.email ?? '';
-  const userRole = user?.role ?? 'VIEWER';
+  // FE-MEDIUM-051: fall back to the least-privileged canonical role (MODULE_USER)
+  // when no user is loaded — the old 'VIEWER' default was a phantom value.
+  const userRole: Role = user?.role ?? 'MODULE_USER';
   const userTenantId = user?.tenantId;
   const initials = getInitials(userName);
-  const roleBadge = ROLE_BADGE_CONFIG[userRole] ?? ROLE_BADGE_CONFIG['VIEWER']!;
+  const roleBadge = ROLE_BADGE_CONFIG[userRole];
 
   // Three-way theme options for the segmented control
   const themeOptions: Array<{ value: DarkModePreference; icon: typeof Sun; label: string }> = [
@@ -697,7 +738,11 @@ export function AccountPage() {
           confirmLabel="Log Out"
           confirmColor="bg-red-600"
           onConfirm={handleLogout}
-          onCancel={() => setShowLogoutDialog(false)}
+          onCancel={() => {
+            setLogoutError(null);
+            setShowLogoutDialog(false);
+          }}
+          errorMessage={logoutError}
         />
       )}
 

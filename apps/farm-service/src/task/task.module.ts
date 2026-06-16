@@ -15,10 +15,13 @@
  *
  * @module Task
  */
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
+import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile-command-receipt.entity';
 import { Task } from './entities/task.entity';
 import { RecurringTemplate } from './entities/recurring-template.entity';
 import { AutoRule } from './entities/auto-rule.entity';
@@ -36,7 +39,9 @@ import { AutoRuleResolver } from './resolvers/auto-rule.resolver';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Task, RecurringTemplate, AutoRule]),
+    // FarmMobileCommandReceipt registered so the at-most-once receipt table
+    // (FARM-HIGH-057) is part of this module's schema metadata.
+    TypeOrmModule.forFeature([Task, RecurringTemplate, AutoRule, FarmMobileCommandReceipt]),
   ],
   providers: [
     // Services
@@ -44,6 +49,9 @@ import { AutoRuleResolver } from './resolvers/auto-rule.resolver';
     RecurringTaskService,
     AutoRuleService,
     AutoRuleTriggerService,
+    MobileCommandReceiptService,
+    // SEC-HIGH-052: mobile-feature guard ('tasks' entitlement).
+    MobileFeatureGuard,
 
     // Resolvers
     TaskResolver,

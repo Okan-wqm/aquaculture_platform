@@ -25,6 +25,10 @@ const SYNC_INVALIDATION_SEGMENTS = {
   createLeaveRequest: [['leaveRequests'], ['leaveBalances']],
   completeTask: [['myTasks'], ['taskStats'], ['dailyOpsCounts']],
   startTask: [['myTasks'], ['taskStats'], ['dailyOpsCounts']],
+  // FARM-HIGH-057: a checklist SET changes the task's checklist state shown in
+  // the task detail/list read models — invalidate them so a synced offline
+  // toggle becomes visible without waiting for staleTime.
+  setChecklistItem: [['myTasks'], ['task']],
   sendMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
   editMessage: [['messaging', 'channels'], ['messaging', 'messages']],
   deleteMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],

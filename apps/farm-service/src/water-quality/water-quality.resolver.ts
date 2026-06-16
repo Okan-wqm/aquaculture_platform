@@ -7,8 +7,8 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int, Float } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
-import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { CurrentTenant, CurrentUser, Roles, Role, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import { TenantGuard, MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { WaterQualityMeasurement, WaterQualityStatus } from './entities/water-quality-measurement.entity';
 import { Throttle } from '@aquaculture/backend-common/security';
@@ -60,7 +60,9 @@ export class WaterQualityStatistics {
 // ============================================================================
 
 @Resolver(() => WaterQualityMeasurement)
-@UseGuards(TenantGuard)
+// SEC-HIGH-052: MobileFeatureGuard enforces the 'waterQuality' entitlement on
+// the create mutations below (no-op on the queries / un-annotated routes).
+@UseGuards(TenantGuard, MobileFeatureGuard)
 export class WaterQualityResolver {
   private readonly logger = new Logger(WaterQualityResolver.name);
 
@@ -188,33 +190,44 @@ export class WaterQualityResolver {
    * Yeni ölçüm oluşturur
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @RequiresMobileFeature('waterQuality')
   @Throttle({ limit: 30, ttl: 60 })
   @Mutation(() => WaterQualityMeasurement)
   async createWaterQualityMeasurement(
     @Args('input') input: CreateWaterQualityInput,
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { sub: string },
+    @CurrentUser() user: { sub: string; roles: Role[]; assignedSiteIds?: string[] },
   ): Promise<WaterQualityMeasurement> {
     this.logger.log(`Creating water quality measurement for tenant ${tenantId}`);
-    return this.waterQualityService.create(tenantId, {
-      ...input,
-      measuredBy: input.measuredBy || user.sub,
-    });
+    return this.waterQualityService.create(
+      tenantId,
+      {
+        ...input,
+        measuredBy: input.measuredBy || user.sub,
+      },
+      // SEC-HIGH-051: thread the caller's JWT claims for the object-level site check.
+      { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
+    );
   }
 
   /**
    * Batch creation of water quality measurements for multiple equipment
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @RequiresMobileFeature('waterQuality')
   @Throttle({ limit: 10, ttl: 60 })
   @Mutation(() => [WaterQualityMeasurement])
   async createBatchWaterQualityMeasurements(
     @Args('input') input: CreateBatchWaterQualityInput,
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { sub: string },
+    @CurrentUser() user: { sub: string; roles: Role[]; assignedSiteIds?: string[] },
   ): Promise<WaterQualityMeasurement[]> {
     this.logger.log(`Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`);
-    return this.waterQualityService.createBatch(tenantId, input, user.sub);
+    return this.waterQualityService.createBatch(tenantId, input, {
+      sub: user.sub,
+      roles: user.roles,
+      assignedSiteIds: user.assignedSiteIds,
+    });
   }
 
   /**

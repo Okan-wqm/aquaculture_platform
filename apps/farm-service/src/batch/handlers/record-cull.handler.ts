@@ -17,7 +17,8 @@
  * @module Batch/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import type { CullRecordedEvent } from '@platform/event-contracts';
@@ -30,15 +31,17 @@ import {
   defaultMobileCommandReceiptsForDirectHandlerConstruction,
 } from '../../common/services/direct-handler-dependency-defaults';
 import { toCullReasonCode } from '../../common/utils/reason-codecs';
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { Tank } from '../../tank/entities/tank.entity';
 import { RecordCullCommand } from '../commands/record-cull.command';
 import { Batch } from '../entities/batch.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
-import { TankOperation, OperationType, CullReason } from '../entities/tank-operation.entity';
+import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
-import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
+import { findTankOrEquipmentWithManager, resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
 
 @Injectable()
 @CommandHandler(RecordCullCommand)
@@ -54,6 +57,9 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly auditLogService: AuditLogService,
+    // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
+    private readonly siteAuth: SiteAuthorizationService,
     private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
@@ -97,6 +103,17 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         return replayed;
       }
 
+      // FARM-HIGH-052: cull is stock-mutating, so it must carry an idempotency
+      // envelope (clientCommandId + payloadHash). 'legacy' mode is the no-key
+      // path where a retry would double-decrement stock; we REJECT it. The
+      // GraphQL input + REST controller now make the envelope mandatory, so this
+      // throw is structurally unreachable from either front — last-line backstop.
+      if (receipt.mode === 'legacy') {
+        throw new BadRequestException(
+          'recordCull requires an idempotency envelope (clientCommandId + payloadHash)',
+        );
+      }
+
       // Batch bul — pessimistic write lock prevents concurrent races
       const foundBatch = await queryRunner.manager.findOne(Batch, {
         where: { id: batchId, tenantId, isActive: true },
@@ -123,20 +140,58 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
       }
       const tank = tankLookup.equipment;
 
+      // SEC-HIGH-051: object-level site authorization. The tank is already
+      // loaded+locked above, so resolve its owning site from the known
+      // departmentId (one Department lookup) and assert the caller is assigned to
+      // it BEFORE any stock write. MODULE_MANAGER+ bypasses; an unassigned or
+      // unresolved site for a MODULE_USER is DENIED.
+      const tankSiteId = await resolveSiteIdFromDepartment(
+        queryRunner.manager,
+        tank.departmentId,
+        tenantId,
+      );
+      this.siteAuth.assertSiteAssignment({
+        caller: {
+          sub: recordedBy,
+          roles: command.userRoles,
+          assignedSiteIds: command.callerAssignedSiteIds,
+        },
+        siteId: tankSiteId,
+      });
+
+      // FARM-CRITICAL-050: reject cull on a terminal/closed batch. isOperational()
+      // (status-derived) is the authoritative gate — isActive is an overloaded
+      // soft-delete flag that can stay true after a terminal status transition.
+      this.mortalityCullPolicy.assertStockMutable(batch);
+
       this.mortalityCullPolicy.assertQuantityWithinCurrent({
         operation: 'Cull',
         quantity: payload.quantity,
         currentQuantity: batch.currentQuantity,
       });
 
+      // FARM-LOW-050: cumulative removals (mortality + cull + harvest + this one)
+      // must never exceed the initial stocked quantity.
+      this.mortalityCullPolicy.assertAggregateWithinInitial({
+        batch,
+        addedRemoval: payload.quantity,
+      });
+
       // Biomass hesapla
       const avgWeightG = payload.avgWeightG || batch.getCurrentAvgWeight();
       const biomassKg = (payload.quantity * avgWeightG) / 1000;
 
-      // TankBatch bul (inside TX for consistency)
+      // TankBatch bul (inside TX for consistency).
+      // FARM-MEDIUM-055: pessimistic_write lock — parity with mortality. Without
+      // it, two concurrent culls (or a cull racing a mortality) read totalQuantity
+      // before either writes → TOCTOU under-decrement / lost update on the tank row.
+      // FARM-HIGH-053: assert this batch is actually held in this tank before any
+      // decrement, so a wrong/empty tankId cannot diverge batch-vs-tank inventory.
       const tankBatch = await queryRunner.manager.findOne(TankBatch, {
         where: { tenantId, tankId: payload.tankId },
+        lock: { mode: 'pessimistic_write' },
       });
+      this.mortalityCullPolicy.assertBatchInTank({ batchId, tankBatch });
 
       const preOperationState = tankBatch ? {
         quantity: tankBatch.totalQuantity,
@@ -155,7 +210,10 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         quantity: payload.quantity,
         avgWeightG,
         biomassKg,
-        cullReason: payload.reason as CullReason,
+        // payload.reason is already the SSoT CullReason (same identity as the
+        // @Column enum now). The previous `as CullReason` cast masked the
+        // entity/command enum mismatch (FARM-HIGH-054) — deleted.
+        cullReason: payload.reason,
         cullDetail: payload.detail,
         preOperationState,
         performedBy: recordedBy,
@@ -236,6 +294,32 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         newCurrentQuantity: batch.currentQuantity,
       };
       await this.outboxPublisher.enqueue(cullEvent, queryRunner.manager);
+
+      // FARM-MEDIUM-054: durable audit trail for the cull removal, written
+      // through the txn manager so it commits or rolls back atomically with the
+      // decrement + outbox row. Mirrors allocate-to-tank's CAPACITY_BLOCKED row.
+      await this.auditLogService.logWithManager(queryRunner.manager, {
+        tenantId,
+        entityType: 'Batch',
+        entityId: batchId,
+        action: AuditAction.CULL_RECORDED,
+        userId: recordedBy,
+        changes: {
+          after: {
+            tankId: payload.tankId,
+            quantity: payload.quantity,
+            reason: payload.reason,
+            biomassKg,
+            newCurrentQuantity: batch.currentQuantity,
+            newCullCount: batch.cullCount,
+          },
+        },
+        metadata: { source: 'RecordCullHandler' },
+        summary:
+          `Cull ${payload.quantity} from batch ${batch.batchNumber} ` +
+          `tank ${payload.tankId} (${payload.reason})`,
+      });
+
       await this.mobileCommandReceipts.complete(queryRunner.manager, {
         tableName: 'farm_mobile_command_receipts',
         receipt,

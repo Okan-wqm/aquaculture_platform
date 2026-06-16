@@ -3,7 +3,7 @@
  * Appears on the SCADA canvas for controlling edge creation and editing.
  */
 
-import React, { useState } from 'react';
+import React, { type JSX, useState } from 'react';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
 import type { ScadaEdgeType } from '../../types/scada-edge.types';
 

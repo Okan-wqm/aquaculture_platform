@@ -11,6 +11,10 @@ export interface GatewayVerifiedUserAssertionInput {
   readonly mfaVerified?: boolean;
   readonly assertionId?: string;
   readonly issuedAt?: Date;
+  /** SEC-HIGH-051: farm-service Site ids the user is assigned to. */
+  readonly assignedSiteIds?: readonly string[];
+  /** SEC-HIGH-052: enabled mobile feature keys the user is entitled to. */
+  readonly mobileFeatures?: readonly string[];
 }
 
 /**
@@ -34,6 +38,17 @@ export function buildGatewayVerifiedUserAssertion(
     mfaVerified: input.mfaVerified === true,
     issuedAt: (input.issuedAt ?? new Date()).toISOString(),
     assertionId: input.assertionId ?? randomUUID(),
+    // SEC-HIGH-051 / SEC-HIGH-052: carry the object-level authorization claims
+    // into the HMAC-protected blob ONLY when present (mirrors the JWT's
+    // length>0 ? : undefined shape). The assertionHash already covers the full
+    // base64 body, so these added fields are integrity-protected with no
+    // signing change. Managers carry no assignedSiteIds (they bypass).
+    ...(input.assignedSiteIds && input.assignedSiteIds.length > 0
+      ? { assignedSiteIds: [...input.assignedSiteIds] }
+      : {}),
+    ...(input.mobileFeatures && input.mobileFeatures.length > 0
+      ? { mobileFeatures: [...input.mobileFeatures] }
+      : {}),
   };
 
   return Buffer.from(JSON.stringify(assertion), 'utf8').toString('base64url');

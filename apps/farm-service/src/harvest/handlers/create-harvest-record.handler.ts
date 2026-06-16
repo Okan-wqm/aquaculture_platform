@@ -20,6 +20,7 @@
  * @module Harvest/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, Logger, NotFoundException, BadRequestException, Optional, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandBus, CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -39,6 +40,7 @@ import {
   defaultFarmStockProjectionForDirectHandlerConstruction,
   defaultMobileCommandReceiptsForDirectHandlerConstruction,
 } from '../../common/services/direct-handler-dependency-defaults';
+import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 import { Tank } from '../../tank/entities/tank.entity';
@@ -70,6 +72,10 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
+    // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
+    // Required param placed before the default-valued ones below.
+    private readonly siteAuth: SiteAuthorizationService =
+      new SiteAuthorizationService(),
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
     private readonly mobileCommandReceipts: MobileCommandReceiptService =
@@ -203,6 +209,21 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       if (!tank) {
         throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);
       }
+
+      // SEC-HIGH-051: object-level site authorization. Resolve the tank's owning
+      // site inside this transaction and assert the caller is assigned to it
+      // BEFORE any harvest write. MODULE_MANAGER+ bypasses (and the @Roles floor
+      // already restricts harvest to MODULE_MANAGER+, see SEC-MEDIUM-050); a
+      // site-less/unresolved tank is DENIED.
+      const tankSiteId = await resolveTankSiteId(queryRunner.manager, input.tankId, tenantId);
+      this.siteAuth.assertSiteAssignment({
+        caller: {
+          sub: recordedBy,
+          roles: command.userRoles,
+          assignedSiteIds: command.callerAssignedSiteIds,
+        },
+        siteId: tankSiteId,
+      });
 
       if (input.quantityHarvested > batch.currentQuantity) {
         throw new BadRequestException(

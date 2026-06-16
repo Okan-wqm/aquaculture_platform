@@ -1,14 +1,16 @@
-import { useNavigate } from 'react-router-dom';
+import { clsx } from 'clsx';
 import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks, Activity, AlertTriangle, CalendarOff, Droplets, Warehouse, ShieldAlert } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+import { AiInsightsCard } from '@/components/ai';
+import { TankCard } from '@/components/cards/TankCard';
+import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth } from '@/hooks/useAuth';
-import { useTanks } from '@/hooks/useTanks';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useMyTasks } from '@/hooks/useMyTasks';
-import { TankCard } from '@/components/cards/TankCard';
-import { AiInsightsCard } from '@/components/ai';
-import { NotificationBell } from '@/components/NotificationBell';
-import { clsx } from 'clsx';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTanks } from '@/hooks/useTanks';
+import { useFeatureAccess } from '@/utils/feature-access';
 
 interface QuickAction {
   feature: MobileFeature;
@@ -102,12 +104,16 @@ export function HomePage() {
   const { data: tanks, isLoading, refetch, isRefetching } = useTanks();
   const { pendingCount, isOnline } = useOfflineQueue();
   const { canAccess, permissionsDegraded, permissionSource, refreshPermissions } = useMobilePermissions();
+  // SEC-MEDIUM-050: canReach folds the entitlement flag with any feature role
+  // floor (harvest => MODULE_MANAGER), so the harvest CTA disappears for a
+  // MODULE_USER exactly as the route guard and backend @Roles require.
+  const { canReach } = useFeatureAccess();
   const { tasks: todayTasks } = useMyTasks('today');
 
   const allTanks = tanks || [];
   const activeTanks = allTanks.filter((t) => t.batchMetrics);
 
-  const visibleActions = allQuickActions.filter((a) => canAccess(a.feature));
+  const visibleActions = allQuickActions.filter((a) => canReach(a.feature));
 
   const pendingTaskCount = todayTasks.length;
 
@@ -140,7 +146,7 @@ export function HomePage() {
             </div>
             <div className="flex items-center gap-2">
               <NotificationBell />
-              <button onClick={logout} className="p-2.5 bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors">
+              <button onClick={() => void logout()} className="p-2.5 bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors">
                 <LogOut size={18} />
               </button>
             </div>

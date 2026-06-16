@@ -1,7 +1,9 @@
-import { useNavigate } from 'react-router-dom';
-import { Utensils, Skull, Scissors, Package, ArrowLeftRight, ClipboardList, Droplets, Warehouse } from 'lucide-react';
-import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { clsx } from 'clsx';
+import { Utensils, Skull, Scissors, Package, ArrowLeftRight, ClipboardList, Droplets, Warehouse } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+import { type MobileFeature } from '@/hooks/useMobilePermissions';
+import { useFeatureAccess } from '@/utils/feature-access';
 
 interface RecordAction {
   feature: MobileFeature;
@@ -23,9 +25,10 @@ const allActions: RecordAction[] = [
 
 export function RecordHubPage() {
   const navigate = useNavigate();
-  const { canAccess } = useMobilePermissions();
+  // SEC-MEDIUM-050: canReach enforces the harvest MODULE_MANAGER role floor too.
+  const { canReach } = useFeatureAccess();
 
-  const visibleActions = allActions.filter((a) => canAccess(a.feature));
+  const visibleActions = allActions.filter((a) => canReach(a.feature));
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">

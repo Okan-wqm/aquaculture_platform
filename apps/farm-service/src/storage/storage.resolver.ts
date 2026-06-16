@@ -4,8 +4,8 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
-import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { CurrentTenant, CurrentUser, Roles, Role, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import { TenantGuard, MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated, CursorPaginationInput } from '@aquaculture/backend-common/pagination';
 import { StorageLocationResponse, PaginatedStorageLocationsResponse } from './dto/storage-location.response';
 import { StorageInventoryResponse } from './dto/storage-inventory.response';
@@ -89,7 +89,9 @@ export class PurchaseOrderFilterInput {
 }
 
 @Resolver()
-@UseGuards(TenantGuard)
+// SEC-HIGH-052: MobileFeatureGuard enforces the 'storage' entitlement on the
+// stock-movement mutations below (no-op on the other routes).
+@UseGuards(TenantGuard, MobileFeatureGuard)
 export class StorageResolver {
   private readonly logger = new Logger(StorageResolver.name);
 
@@ -231,28 +233,46 @@ export class StorageResolver {
   // === Stock Movements ===
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @RequiresMobileFeature('storage')
   @Mutation(() => StockMovementResponse)
   async recordStockMovement(
     @Args('input') input: RecordStockMovementInput,
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { sub: string; firstName?: string; lastName?: string },
+    @CurrentUser()
+    user: { sub: string; firstName?: string; lastName?: string; roles: Role[]; assignedSiteIds?: string[] },
   ): Promise<StockMovementResponse> {
     // Construct display name from JWT payload for audit trail denormalization.
     // Shows WHO performed the movement in both web panel and mobile app history.
     const userName = [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined;
-    const command = new RecordStockMovementCommand(input, tenantId, user.sub, userName);
+    const command = new RecordStockMovementCommand(
+      input,
+      tenantId,
+      user.sub,
+      userName,
+      user.roles,
+      user.assignedSiteIds ?? [],
+    );
     return this.commandBus.execute(command);
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @RequiresMobileFeature('storage')
   @Mutation(() => StockMovementResponse)
   async transferStock(
     @Args('input') input: TransferStockInput,
     @CurrentTenant() tenantId: string,
-    @CurrentUser() user: { sub: string; firstName?: string; lastName?: string },
+    @CurrentUser()
+    user: { sub: string; firstName?: string; lastName?: string; roles: Role[]; assignedSiteIds?: string[] },
   ): Promise<StockMovementResponse> {
     const userName = [user.firstName, user.lastName].filter(Boolean).join(' ') || undefined;
-    const command = new TransferStockCommand(input, tenantId, user.sub, userName);
+    const command = new TransferStockCommand(
+      input,
+      tenantId,
+      user.sub,
+      userName,
+      user.roles,
+      user.assignedSiteIds ?? [],
+    );
     return this.commandBus.execute(command);
   }
 

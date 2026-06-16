@@ -82,3 +82,34 @@ describe('FE-CRITICAL-050-SW: firebase-messaging-sw.js config wiring', () => {
     expect(source).not.toMatch(/firebasejs\/latest/);
   });
 });
+
+describe('MT-HIGH-050: firebase-messaging-sw.js active-user push gate', () => {
+  it('learns the active session user from SET_ACTIVE_USER and clears it on LOGOUT', () => {
+    // The SW must track the active session user via a SET_ACTIVE_USER message...
+    expect(source).toMatch(/data\.type === 'SET_ACTIVE_USER'[\s\S]*?activeUserId = data\.userId/);
+    // ...and clear it on LOGOUT so a logged-out device cannot show a user push.
+    expect(source).toMatch(/data\.type === 'LOGOUT'[\s\S]*?activeUserId = null/);
+  });
+
+  it('encodes the gate decision: allow no-userId/matching, drop mismatched', () => {
+    // The pure decision function must: allow an untargeted push (no userId),
+    // and otherwise allow ONLY when the payload userId equals the active user.
+    // Pinning the exact predicate body is a tier-3 guard — weakening it to e.g.
+    // `return true` or dropping the equality check turns this RED.
+    const gateBody = source.slice(
+      source.indexOf('function isPushForActiveUser'),
+      source.indexOf('messaging.onBackgroundMessage'),
+    );
+    expect(gateBody).toMatch(/if \(!payloadUserId\) return true;/);
+    expect(gateBody).toMatch(/return payloadUserId === activeUserId;/);
+  });
+
+  it('applies the gate inside onBackgroundMessage and suppresses a dropped push', () => {
+    // The gate must run at the push entry point and short-circuit (no
+    // showNotification) when the recipient is not the active user.
+    const obm = source.slice(source.indexOf('messaging.onBackgroundMessage'));
+    expect(obm).toMatch(/if \(!isPushForActiveUser\(notificationData\.userId\)\)/);
+    // A dropped push returns a resolved promise rather than showing a banner.
+    expect(obm).toMatch(/if \(!isPushForActiveUser[\s\S]*?return Promise\.resolve\(\);/);
+  });
+});

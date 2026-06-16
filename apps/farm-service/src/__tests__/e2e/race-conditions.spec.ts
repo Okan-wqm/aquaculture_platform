@@ -9,6 +9,9 @@
  *
  * @module Farm-Service/Tests/E2E
  */
+import { Role } from '@aquaculture/backend-common/decorators';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { DataSource, Repository, EntityManager } from 'typeorm';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { OutboxPublisher } from '@platform/outbox';
@@ -17,6 +20,10 @@ import { NatsEventBus } from '@platform/event-bus';
 // Handlers
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
 import { ConsumeFeedInventoryHandler } from '../../feeding/handlers/consume-feed-inventory.handler';
+import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
+
+// Idempotency envelope reused across the mortality race-condition commands.
+const RACE_ENVELOPE = { clientCommandId: 'cmd-race', payloadHash: 'hash-race' };
 
 // Commands
 import { RecordMortalityCommand, MortalityReason } from '../../batch/commands/record-mortality.command';
@@ -40,6 +47,7 @@ interface MockManagerType {
   findOne: jest.Mock;
   create: jest.Mock;
   save: jest.Mock;
+  query: jest.Mock;
   createQueryBuilder: jest.Mock;
 }
 
@@ -85,6 +93,8 @@ function createDefaultMockManager(): MockManagerType {
     findOne: jest.fn(),
     create: jest.fn().mockImplementation((_entity: any, data: any) => data),
     save: jest.fn().mockImplementation((_entity: any, data: any) => Promise.resolve(data || _entity)),
+    // MobileCommandReceiptService.begin INSERT returns a started receipt id.
+    query: jest.fn().mockResolvedValue([{ id: 'receipt-race' }]),
     createQueryBuilder: jest.fn().mockReturnValue({
       update: jest.fn().mockReturnThis(),
       set: jest.fn().mockReturnThis(),
@@ -112,15 +122,19 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
     return {
       id: batchId,
       tenantId,
+      batchNumber: 'B-RACE',
       isActive: true,
+      initialQuantity: 100000,
       currentQuantity: 10000,
       totalMortality: 0,
+      cullCount: 0,
       mortalitySummary: {
         totalMortality: 0,
         mortalityRate: 0,
         lastMortalityAt: undefined as unknown as Date,
         mainCause: undefined as unknown as string,
       },
+      isOperational: jest.fn().mockReturnValue(true),
       getMortalityRate: jest.fn().mockReturnValue(0.5),
       getRetentionRate: jest.fn().mockReturnValue(99.5),
       getCurrentAvgWeight: jest.fn().mockReturnValue(200),
@@ -153,6 +167,8 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
     const mockTankBatch: Partial<TankBatch> = {
       tenantId,
       tankId,
+      // assertBatchInTank requires the batch to be held in this tank
+      primaryBatchId: batchId,
       totalQuantity: 10000,
       totalBiomassKg: 500,
       densityKgM3: 0.5,
@@ -177,6 +193,14 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       {} as Repository<EquipmentType>,
       createMockOutboxPublisher(),
       { validate: jest.fn() } as never,
+      { logWithManager: jest.fn().mockResolvedValue({}) } as never,
+      // SEC-HIGH-051: object-level site authorization SSoT (real instance — the
+      // commands below default to MODULE_MANAGER, so the hierarchy bypass keeps
+      // these lock/TOCTOU race tests focused on concurrency, not site authz).
+      new SiteAuthorizationService(),
+      new MortalityCullPolicyService(),
+      { refreshContainers: jest.fn().mockResolvedValue(undefined) } as never,
+      new MobileCommandReceiptService(),
     );
   });
 
@@ -186,7 +210,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       quantity: 50,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001');
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await handler.execute(command);
 
@@ -209,7 +233,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       quantity: 50,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001');
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await handler.execute(command);
 
@@ -227,7 +251,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       if (entity === Batch) return Promise.resolve(lowBatch);
       if (entity === Equipment) return Promise.resolve(createMockEquipment());
       if (entity === TankBatch) return Promise.resolve({
-        tenantId, tankId, totalQuantity: 30, totalBiomassKg: 6, densityKgM3: 0.006,
+        tenantId, tankId, primaryBatchId: batchId, totalQuantity: 30, totalBiomassKg: 6, densityKgM3: 0.006,
       });
       if (entity === Tank) return Promise.resolve(null);
       return Promise.resolve(null);
@@ -238,7 +262,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       quantity: 30,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001');
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await handler.execute(command);
 
@@ -263,7 +287,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       quantity: 50,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001');
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await expect(handler.execute(command)).rejects.toThrow(NotFoundException);
 
@@ -276,6 +300,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
     const mockTankBatch = {
       tenantId,
       tankId,
+      primaryBatchId: batchId,
       totalQuantity: 20,
       totalBiomassKg: 2,
       densityKgM3: 0.002,
@@ -297,7 +322,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       avgWeightG: 200,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001');
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await handler.execute(command);
 
@@ -354,6 +379,7 @@ describe('Race Condition Protection: ConsumeFeedInventoryHandler', () => {
       findOne: jest.fn(),
       create: jest.fn(),
       save: jest.fn().mockImplementation((_entity: any, data: any) => Promise.resolve(data)),
+      query: jest.fn().mockResolvedValue([]),
       createQueryBuilder: jest.fn(),
     };
 
@@ -513,15 +539,19 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
     const exactBatch: Partial<Batch> = {
       id: 'batch-exact',
       tenantId: 'tenant-exact',
+      batchNumber: 'B-EXACT',
       isActive: true,
+      initialQuantity: 100,
       currentQuantity: 100,
       totalMortality: 0,
+      cullCount: 0,
       mortalitySummary: {
         totalMortality: 0,
         mortalityRate: 0,
         lastMortalityAt: undefined as unknown as Date,
         mainCause: undefined as unknown as string,
       },
+      isOperational: jest.fn().mockReturnValue(true),
       getMortalityRate: jest.fn().mockReturnValue(10),
       getRetentionRate: jest.fn().mockReturnValue(90),
       getCurrentAvgWeight: jest.fn().mockReturnValue(200),
@@ -540,6 +570,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
     const exactTankBatch = {
       tenantId: 'tenant-exact',
       tankId: 'tank-exact',
+      primaryBatchId: 'batch-exact',
       totalQuantity: 100,
       totalBiomassKg: 20,
       densityKgM3: 0.02,
@@ -566,6 +597,14 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       {} as Repository<EquipmentType>,
       createMockOutboxPublisher(),
       { validate: jest.fn() } as never,
+      { logWithManager: jest.fn().mockResolvedValue({}) } as never,
+      // SEC-HIGH-051: object-level site authorization SSoT (real instance — the
+      // commands below default to MODULE_MANAGER, so the hierarchy bypass keeps
+      // these lock/TOCTOU race tests focused on concurrency, not site authz).
+      new SiteAuthorizationService(),
+      new MortalityCullPolicyService(),
+      { refreshContainers: jest.fn().mockResolvedValue(undefined) } as never,
+      new MobileCommandReceiptService(),
     );
 
     const command = new RecordMortalityCommand('tenant-exact', 'batch-exact', {
@@ -574,7 +613,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       avgWeightG: 200,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001');
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await handler.execute(command);
 

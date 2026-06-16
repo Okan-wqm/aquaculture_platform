@@ -3,13 +3,13 @@
  * Industrial water heater with heating elements visualization
  */
 
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface HeaterNodeData {
+interface HeaterNodeData extends Record<string, unknown> {
   label?: string;
   leftType?: HandleType;
   rightType?: HandleType;
@@ -19,7 +19,7 @@ interface HeaterNodeData {
 const WIDTH = 160;
 const HEIGHT = 120;
 
-const HeaterNode: React.FC<NodeProps<HeaterNodeData>> = ({ id, data, selected }) => {
+const HeaterNode: React.FC<NodeProps<Node<HeaterNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

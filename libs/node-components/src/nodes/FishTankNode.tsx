@@ -3,13 +3,13 @@
  * RAS tank with water level visualization, fish illustration, and toggleable handles
  */
 
+import { Handle, Position, type Node, type NodeProps, useUpdateNodeInternals, useReactFlow } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface FishTankNodeData {
+interface FishTankNodeData extends Record<string, unknown> {
   label?: string;
   width?: number;
   height?: number;
@@ -27,7 +27,7 @@ interface FishTankNodeData {
 const DEFAULT_WIDTH = 180;
 const DEFAULT_HEIGHT = 120;
 
-const FishTankNode: React.FC<NodeProps<FishTankNodeData>> = ({ id, data, selected }) => {
+const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ id, data, selected }) => {
   const label = data?.label || 'Fish Tank (RAS)';
   const width = data?.width || DEFAULT_WIDTH;
   const height = data?.height || width / 3;

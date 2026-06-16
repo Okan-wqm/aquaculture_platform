@@ -3,13 +3,13 @@
  * Water discharge/effluent outlet
  */
 
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface WaterDischargeNodeData {
+interface WaterDischargeNodeData extends Record<string, unknown> {
   label?: string;
   inputType?: HandleType;
   isScadaMode?: boolean;
@@ -18,7 +18,7 @@ interface WaterDischargeNodeData {
 const WIDTH = 100;
 const HEIGHT = 80;
 
-const WaterDischargeNode: React.FC<NodeProps<WaterDischargeNodeData>> = ({ id, data, selected }) => {
+const WaterDischargeNode: React.FC<NodeProps<Node<WaterDischargeNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

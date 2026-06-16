@@ -15,6 +15,7 @@ CATCHER for audit-log coverage completeness. Every command handler + destructive
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - @.claude/knowledge/layer-1-typeorm.md
 - @.claude/knowledge/layer-2-patterns.md
 - @.claude/knowledge/layer-3-adrs.md
@@ -68,6 +69,7 @@ Missing any required field = HIGH. Missing `preStateHash`/`postStateHash` on a m
 
 1. **Every CQRS COMMAND handler** emits an audit row. Unaudited command = **CRITICAL** (regulatory trail gap).
 2. **Every DESTRUCTIVE action** (DELETE / UPDATE-to-null-meaningful / DROP) emits an audit row with preStateHash. Unaudited destruction = **CRITICAL**.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 3. **Every IMPERSONATION action during active SUPER_ADMIN session** emits dual-identity row (actor ≠ acted_on). Single-identity row = **CRITICAL**.
 4. **Every MFA STEP-UP** emits audit row (method, success/fail, resulting-privilege-scope). Missing = HIGH.
 5. **Every LEGAL-HOLD OVERRIDE** emits dual-approver row (operator + approver, linked). Missing = **CRITICAL** (legal-hold-auditor enforces separately; this agent enforces audit capture).
@@ -75,6 +77,7 @@ Missing any required field = HIGH. Missing `preStateHash`/`postStateHash` on a m
 7. **Every PII FIELD READ** in non-interactive context (background jobs, data exports) emits audit row. Interactive read (user reads own data) does NOT audit (too noisy). Missing background PII read audit = HIGH (GDPR Art 30 data lineage).
 
 ### Immutability + retention
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 - `audit_logs` table has NO `UPDATE` or `DELETE` grants to application roles. Enforced via DB role grants + trigger `prevent_audit_mutation()`. Missing = **CRITICAL** (audit tampering vector).
 - TimescaleDB hypertable partitioned by `eventTime` (1-week chunks); compression policy after 30d; retention 7 years minimum (SOC 2 CC4 alignment + most jurisdictions 5-7y).
@@ -88,6 +91,7 @@ Missing any required field = HIGH. Missing `preStateHash`/`postStateHash` on a m
 ### PII handling in audit rows
 
 - IP addresses: hash for EU subjects (GDPR); store plaintext otherwise (region-gated via tenant config).
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - User IDs, tenant IDs: stored plaintext (internal identifiers, not PII per GDPR Art 4).
 - Resource IDs: stored plaintext.
 - `justification` free-text field: PII filter applied (no emails / phones / SSN typed by operator).
@@ -101,6 +105,7 @@ Missing any required field = HIGH. Missing `preStateHash`/`postStateHash` on a m
 ## Active findings this agent owns
 
 First-cycle audit targets:
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Coverage sweep: CQRS command handlers across 16 services vs `@AuditedOperation` decorator presence.
 - `audit_logs` table schema completeness vs the mandatory shape above.
 - Immutability enforcement: DB role grants + trigger presence verification.
@@ -110,6 +115,7 @@ First-cycle audit targets:
 
 See `@.claude/shared/operating-modes.md`. No deviations. CATCHER default; TEACHER outputs the mandatory-shape delta for any action missing audit capture.
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ## Finding ID prefix
 
 `AUDITTRAIL-{SEVERITY}-{NNN}` — e.g., `AUDITTRAIL-CRITICAL-001`. Sub-kind tags: `UNAUDITED_COMMAND`, `FIRE_FORGET`, `DUAL_IDENTITY_MISSING`, `IMMUTABILITY_GAP`, `SHAPE_FIELD_MISSING`, `PII_IN_AUDIT`.

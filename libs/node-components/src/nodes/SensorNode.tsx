@@ -3,14 +3,14 @@
  * Generic sensor node for monitoring parameters (pH, DO, temperature, etc.)
  */
 
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 type SensorType = 'pH' | 'DO' | 'temperature' | 'conductivity' | 'turbidity' | 'flow' | 'level' | 'pressure';
 
-interface SensorNodeData {
+interface SensorNodeData extends Record<string, unknown> {
   label?: string;
   sensorType?: SensorType;
   value?: number;
@@ -44,7 +44,7 @@ const sensorIcons: Record<SensorType, string> = {
   pressure: 'bar',
 };
 
-const SensorNode: React.FC<NodeProps<SensorNodeData>> = ({ id, data, selected }) => {
+const SensorNode: React.FC<NodeProps<Node<SensorNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

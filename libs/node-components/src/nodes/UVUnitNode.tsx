@@ -3,12 +3,12 @@
  * UV Disinfection unit using BaseNode architecture for rotation support
  */
 
+import type { NodeProps, Node } from '@xyflow/react';
 import React from 'react';
-import type { NodeProps } from 'reactflow';
 import BaseNode from './BaseNode';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
-interface UVUnitNodeData {
+interface UVUnitNodeData extends Record<string, unknown> {
   rotation?: number;
   handles?: Array<{
     id: string;
@@ -22,7 +22,7 @@ interface UVUnitNodeData {
 const WIDTH = 160;
 const HEIGHT = 120;
 
-const UVUnitNode: React.FC<NodeProps<UVUnitNodeData>> = ({ id, selected, data }) => {
+const UVUnitNode: React.FC<NodeProps<Node<UVUnitNodeData>>> = ({ id, selected, data }) => {
   const rotation = data?.rotation || 0;
   const isScadaMode = data?.isScadaMode || false;
   const handles = data?.handles || [

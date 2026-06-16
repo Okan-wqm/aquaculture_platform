@@ -1,5 +1,4 @@
-import { ComponentType } from 'react';
-import { NodeProps } from 'reactflow';
+import type { NodeTypes } from '@xyflow/react';
 import {
   NodeTypeConfig,
   NodeCategory,
@@ -100,10 +99,10 @@ export const NodeRegistry = {
 
   /**
    * Get nodeTypes object for ReactFlow
-   * Returns Record<string, ComponentType<NodeProps>>
+   * Returns the ReactFlow nodeTypes map (xyflow v12 NodeTypes).
    */
-  getNodeTypes(): Record<string, ComponentType<NodeProps>> {
-    const types: Record<string, ComponentType<NodeProps>> = {};
+  getNodeTypes(): NodeTypes {
+    const types: NodeTypes = {};
     registry.forEach((config, id) => {
       types[id] = config.component;
     });

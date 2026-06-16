@@ -47,18 +47,21 @@ NestJS Router metadata extraction, Apollo Federation subgraph composition, event
   - OpenAPI declares route, code missing = **CRITICAL** (404 in production for documented endpoint).
   - Parameter schema mismatch (required vs optional, type drift) = HIGH.
   - Response schema mismatch (status code, body shape) = HIGH.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - `@nestjs/swagger` decorators (`@ApiOperation`, `@ApiResponse`, `@ApiBody`, `@ApiQuery`) on every controller method. Missing = HIGH (inferred OpenAPI is incomplete).
 - Versioning: route prefix `/v1`, `/v2` mapped to OpenAPI version. Missing version prefix on a versioned route = HIGH.
 
 ### GraphQL subgraph parity
 
 - Every `@Resolver` class member resolves a schema field declared in subgraph SDL. Missing schema = HIGH (runtime UNRESOLVED_FIELD error).
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Every schema field defined has a resolver. Schema-only field = HIGH (returns null silently OR errors in strict mode).
 - Federation directives (`@key`, `@external`, `@requires`, `@provides`) MUST match between gateway composition + subgraph SDL. Mismatch = **CRITICAL** (federation fails composition; gateway down).
 - Custom scalars (`DateTime`, `JSON`, `UUID`) defined consistently across subgraphs (same parse/serialize behaviour). Drift = HIGH (cross-subgraph data corruption).
 - Codegen output (`web/shared-ui/src/generated/graphql-types.ts`) regenerated on every schema change; CI gate validates output exists + no drift. Currently orphaned (FE-CRITICAL — Phase 8.4 mass migration target).
 
 ### sensorprotocols/*.md ↔ Rust adapter parity
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 - `sensorprotocols/Modbus-TCP.md` documents register map + frame structure → MUST match `sens-api-gateway/src/protocols/modbus_tcp.rs` adapter constants. Drift = **CRITICAL** (adapter reads wrong register → wrong sensor value → potential life-safety alert miss).
 - `sensorprotocols/mqtt-protocol.md` topic structure → MUST match adapter publish/subscribe topics. Drift = HIGH (silent message routing failure).
@@ -66,6 +69,7 @@ NestJS Router metadata extraction, Apollo Federation subgraph composition, event
 - Adapter test fixture MUST cite the doc section being implemented (`// per sensorprotocols/X.md section Y`).
 
 ### Event contract consumer drift (data-expert sibling)
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 - When `libs/event-contracts/src/*-events.ts` shape changes, consumer services MUST have:
   (a) upcaster (for breaking change), OR
@@ -73,6 +77,7 @@ NestJS Router metadata extraction, Apollo Federation subgraph composition, event
   (c) explicit OPT-IN documented in event-contract doc.
   Producer-only bump = **CRITICAL** (consumer crashes on next replay).
 - Consumer enumeration via ripple-tracer (`infrastructure/nats/services.yaml` parse — data-expert primary on tooling).
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Pact / Schemathesis adoption (post-V1 per AUDIT-PACT-001 deferred): when reactivated, this agent integrates contract test runs into CI.
 
 ### CI invariant integration
@@ -88,6 +93,7 @@ NestJS Router metadata extraction, Apollo Federation subgraph composition, event
 
 Promoted from `.claude/agents/product-audit/contract-parity-auditor.md` (frozen reference). First-cycle audit:
 - OpenAPI spec inventory: which services have specs, which don't.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - NestJS controller method coverage: count vs OpenAPI operations.
 - GraphQL Federation subgraph composition health (currently 1 `@key` use observed in farm.entity.ts:34).
 - sensorprotocols ↔ adapter parity baseline (Modbus-TCP, MQTT).

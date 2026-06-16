@@ -11,8 +11,8 @@
  * - Double-click on segment to add bend
  */
 
+import { EdgeProps, Position, useReactFlow, type Edge } from '@xyflow/react';
 import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo } from 'react';
-import { EdgeProps, Position, useReactFlow } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
 /**
@@ -30,14 +30,14 @@ export type EdgeDataUpdater<TData> = (id: string, data: Partial<TData>) => void;
 type Point = { x: number; y: number };
 type BendPoint = Point & { locked?: boolean };
 
-export interface OrthogonalEdgeData {
+export interface OrthogonalEdgeData extends Record<string, unknown> {
   bendPoints?: BendPoint[];
   label?: string;
   connectionType?: ConnectionType;
   routingMode?: 'horizontal-first' | 'vertical-first' | 'auto';
 }
 
-export interface OrthogonalEdgeProps extends EdgeProps<OrthogonalEdgeData> {
+export interface OrthogonalEdgeProps extends EdgeProps<Edge<OrthogonalEdgeData>> {
   /**
    * Optional persistence callback — see {@link EdgeDataUpdater}.
    * When omitted, the component persists bend-point changes via

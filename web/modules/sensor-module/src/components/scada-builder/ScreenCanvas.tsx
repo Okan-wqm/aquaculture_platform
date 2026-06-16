@@ -14,7 +14,7 @@
 import React, { useCallback, useRef, useMemo, useEffect, useState } from 'react';
 import { ScadaRuntime } from '../../engine/ScadaRuntime';
 import { OverlayStack } from '../../engine/views/OverlayStack';
-import ReactFlow, {
+import { ReactFlow,
   Background,
   BackgroundVariant,
   Controls,
@@ -28,8 +28,8 @@ import ReactFlow, {
   type NodeChange,
   type EdgeChange,
   type Connection,
-} from 'reactflow';
-import 'reactflow/dist/style.css';
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useScadaPackageStore } from '../../store/scadaPackageStore';
@@ -378,7 +378,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
 
   // Handle node changes (position drag, selection)
   const onNodesChange = useCallback(
-    (changes: NodeChange[]) => {
+    (changes: NodeChange<Node<ScadaWidgetNodeData>>[]) => {
       // Filter out position changes for locked widgets so they cannot be dragged
       const state = useScadaPackageStore.getState();
       const currentScreenId = state.activeScreenId;
@@ -405,7 +405,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
        * the dragged node. We intercept these changes and generate additional
        * position updates for sibling group members using the delta.
        */
-      const groupDragChanges: NodeChange[] = [];
+      const groupDragChanges: NodeChange<Node<ScadaWidgetNodeData>>[] = [];
 
       for (const change of filteredChanges) {
         if (change.type === 'position' && change.dragging === true && change.position) {
@@ -437,7 +437,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
                         x: sibNode.position.x + dx,
                         y: sibNode.position.y + dy,
                       },
-                    } as NodeChange);
+                    } as NodeChange<Node<ScadaWidgetNodeData>>);
                   }
                 }
               }
@@ -451,7 +451,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
         ? [...filteredChanges, ...groupDragChanges]
         : filteredChanges;
 
-      setNodes((nds) => applyNodeChanges(allChanges, nds));
+      setNodes((nds) => applyNodeChanges<Node<ScadaWidgetNodeData>>(allChanges, nds));
 
       for (const change of filteredChanges) {
         if (change.type === 'position' && change.dragging === true) {
@@ -573,7 +573,8 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
 
   // Connection validation
   const isValidConnection = useCallback(
-    (connection: Connection) => {
+    // xyflow v12: isValidConnection prop is IsValidConnection<Edge> = (edge: Edge | Connection) => boolean
+    (connection: Edge | Connection) => {
       // No self-connections
       if (connection.source === connection.target) return false;
 
@@ -700,7 +701,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false, deviceCode
   );
 
   // Right-click context menu
-  const onPaneContextMenu = useCallback((e: React.MouseEvent) => {
+  const onPaneContextMenu = useCallback((e: MouseEvent | React.MouseEvent) => {
     e.preventDefault();
     setContextMenu({
       position: { x: e.clientX, y: e.clientY },

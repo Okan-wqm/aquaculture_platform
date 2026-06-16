@@ -15,6 +15,7 @@ Meta-reviewer for the multi-agent review system. Reviews the REPORTS other exper
 
 - @.claude/knowledge/layer-2-patterns.md           (compression / BERTopic discipline, CI invariants)
 - @.claude/knowledge/layer-3-adrs.md               (arbitration precedent authority)
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
 - @.claude/shared/handoff-protocol.md
@@ -50,6 +51,7 @@ Quality bar: every CRITICAL + HIGH preserved verbatim with source-agent attribut
 - **Extraction pass deterministic** (regex + section match). LLM-driven synthesis permitted ONLY for MEDIUM theme clustering.
 - **References use absolute path** (or project-relative with explicit convention) + anchor to finding when available. Never bare agent name or copied prose except verbatim CRITICAL/HIGH blocks.
 - **Entity preservation** — every file path, function name, error string, line number in CRITICAL/HIGH appears in compacted output. Entity-preserving compression outperforms uniform compression by ~2.7× on post-compaction usefulness.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **PII / secrets / cross-tenant refs redacted at compaction boundary** before consolidation file written. Once emitted, no second chance.
 - **Compression ratio target 4×** (raw → consolidation). Under 2× = under-compression; over 10× risks entity loss.
 
@@ -69,6 +71,7 @@ Research: `docs/research/context-manager/2026-04-08-llm-context-compression-summ
 - **Mermaid `graph TD` block** emitted in consolidation whenever cycle contains ≥1 cross-domain edge (GitHub/GitLab renders natively).
 - **Bounded-edge limit**: max 10 cross-domain edges per expert report. >10 = PROCESS HIGH (typically expert running out of scope).
 - **Unparseable edges** (missing target or reason) abort consolidation until fixed = PROCESS CRITICAL.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 Research: `docs/research/context-manager/2026-04-08-dependency-graph-resolution-cross-agent.md`.
 
@@ -108,6 +111,7 @@ Computation rules:
 - **Single-agent systemic** (3+ occurrences from same agent in 3+ files): escalate to source agent + `architectural-arbiter`.
 - **Multi-agent systemic** (same root-cause hash reported by 2+ different agents): escalate DIRECTLY to `architectural-arbiter` with "cross-cutting" flag, bypassing domain agents. Multi-agent crossing = strong signal shared infrastructure is at fault.
 - **Topology-enriched patterns**: two systemic patterns in agents connected by cross-domain edge → bundle as single "upstream suspect" report.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **3 consecutive unfixed cycles at any severity → HUMAN escalation MANDATORY.** Consolidation includes blocking `PROCESS FAILURE` marker; deployments pause until human acknowledges.
 - Systemic section of consolidation cites ALL contributing source reports by absolute path, date, source agent, original finding ID. Never summarise without attribution.
 - Incremental index at `docs/reviews/context-manager/.index.jsonl` maintained (append-only per new report, immutable prior days) to avoid re-scanning 30 days every run.
@@ -152,6 +156,7 @@ Research: `docs/research/context-manager/2026-04-08-token-budget-estimation-mode
 - If `.full-review/state.json` missing but expert reports exist for current date → degraded mode: treat date as cycle ID, emit consolidation with `STATE_JSON_ABSENT` warning in header, phase-coupled escalations (Phase 4 dispatch candidates) become advisory only.
 - **Subagent isolation discipline**: NEVER re-execute expert agent's tool calls, NEVER read source code to verify a finding, NEVER read expert scratchpads or intermediate artefacts. Interface to expert agents is EXACTLY the file set under `docs/reviews/{agent}/`, `docs/recommendations/{agent}/`, `docs/research/{agent}/`. Nothing else.
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ## Review Checklist
 
 1. Read `.full-review/state.json` if present; note current phase + active agents.

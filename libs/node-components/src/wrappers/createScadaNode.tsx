@@ -1,5 +1,5 @@
+import { NodeProps } from '@xyflow/react';
 import React, { ComponentType, createContext, useContext } from 'react';
-import { NodeProps } from 'reactflow';
 
 /**
  * Sensor reading interface

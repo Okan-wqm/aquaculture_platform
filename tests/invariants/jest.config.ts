@@ -152,6 +152,7 @@ export default {
         '<rootDir>/aria-doc-runtime-ssot.spec.ts',
         '<rootDir>/invariant-reachability.spec.ts',
         '<rootDir>/migration-spec-quarantine.spec.ts',
+        '<rootDir>/claude-md-accuracy.spec.ts',
       ],
     },
     {

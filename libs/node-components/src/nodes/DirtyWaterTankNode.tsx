@@ -3,13 +3,13 @@
  * Dirty/waste water tank with murky water visualization
  */
 
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface DirtyWaterTankNodeData {
+interface DirtyWaterTankNodeData extends Record<string, unknown> {
   label?: string;
   leftType?: HandleType;
   rightType?: HandleType;
@@ -20,7 +20,7 @@ interface DirtyWaterTankNodeData {
 const WIDTH = 180;
 const HEIGHT = 140;
 
-const DirtyWaterTankNode: React.FC<NodeProps<DirtyWaterTankNodeData>> = ({ id, data, selected }) => {
+const DirtyWaterTankNode: React.FC<NodeProps<Node<DirtyWaterTankNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

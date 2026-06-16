@@ -101,6 +101,7 @@ Before writing or updating any agent definition, conduct deep targeted research 
 
 1. **Each distinct technology** in the agent's scope — NestJS, CQRS, GraphQL Federation v2, TypeORM, PostgreSQL 15, TimescaleDB, NATS JetStream, React, Vite, Module Federation, Rust/Tokio, MQTT, Modbus, OPC UA, IEC 61131-3, Docker, Kubernetes, Terraform, nginx, and anything else in the Platform Architecture table (in `orchestrator.md` + `.claude/shared/orchestrator-routing-table.md`). Each technology → own research file.
 2. **Each architectural pattern** the agent reviews — CQRS command/event flow, Event Sourcing, Multi-tenant search_path isolation, Transactional Outbox, Saga orchestration, Module Federation remote loading, Offline-first PWA, Lock-free circuit breaker, etc. Each pattern → own file.
+  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 3. **Known production issues and solutions** — CVEs, performance gotchas, architectural anti-patterns, real-world incident postmortems for the domain. Get specific: "TimescaleDB compression chunk boundary query pitfalls", not "database performance". Each distinct failure class → own file.
 4. **Domain-specific concerns** — aquaculture workflows, HR PII, industrial SCADA security, billing precision, etc. Each domain concern → own file.
 
@@ -147,6 +148,7 @@ When updating an existing agent, re-run research if the technology landscape has
 
 ## Conversion workflow (updating an over-cap agent)
 
+  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 Over-200-line existing agents follow this pattern (demonstrated in Wave 1-4, commits `fb411fdf` through `dc21b0ef`):
 
 1. **Read the current agent file** in full to inventory its domain-unique invariants.

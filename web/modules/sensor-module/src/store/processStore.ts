@@ -12,7 +12,7 @@ import {
   applyEdgeChanges,
   NodeChange,
   EdgeChange,
-} from 'reactflow';
+} from '@xyflow/react';
 import {
   ConnectionPointPosition,
   ConnectionPointType,
@@ -50,7 +50,7 @@ export interface SensorMapping {
 export type SensorDisplayType = 'gauge' | 'numeric' | 'badge' | 'sparkline';
 
 // Sensor node data structure (for linking real sensors to canvas nodes)
-export interface SensorNodeData {
+export interface SensorNodeData extends Record<string, unknown> {
   // Sensor identification
   sensorId?: string;
   sensorName?: string;
@@ -110,7 +110,7 @@ export interface IoBinding {
 }
 
 // Equipment node data structure
-export interface EquipmentNodeData {
+export interface EquipmentNodeData extends Record<string, unknown> {
   // equipmentId is only set when node is linked to real equipment
   // Undefined/null means node is a template (not linked)
   equipmentId?: string;
@@ -155,7 +155,7 @@ export interface HandleConfig {
 }
 
 // Blower node data
-export interface BlowerNodeData {
+export interface BlowerNodeData extends Record<string, unknown> {
   inlet?: HandleType;
   outlet?: HandleType;
   rotation?: number;
@@ -163,7 +163,7 @@ export interface BlowerNodeData {
 }
 
 // Drum Filter node data
-export interface DrumFilterNodeData {
+export interface DrumFilterNodeData extends Record<string, unknown> {
   inletType1?: HandleType;
   inletType2?: HandleType;
   inletType3?: HandleType;
@@ -173,14 +173,14 @@ export interface DrumFilterNodeData {
 }
 
 // UV Unit node data
-export interface UVUnitNodeData {
+export interface UVUnitNodeData extends Record<string, unknown> {
   rotation?: number;
   handles?: HandleConfig[];
   label?: string;
 }
 
 // Tank Inlet node data
-export interface TankInletNodeData {
+export interface TankInletNodeData extends Record<string, unknown> {
   top?: HandleType;
   bottom?: HandleType;
   rotation?: number;
@@ -188,7 +188,7 @@ export interface TankInletNodeData {
 }
 
 // Radial Settler node data
-export interface RadialSettlerNodeData {
+export interface RadialSettlerNodeData extends Record<string, unknown> {
   label?: string;
   leftType?: HandleType;
   rightType?: HandleType;
@@ -196,7 +196,7 @@ export interface RadialSettlerNodeData {
 }
 
 // Fish Tank node data
-export interface FishTankNodeData {
+export interface FishTankNodeData extends Record<string, unknown> {
   label?: string;
   width?: number;
   height?: number;
@@ -207,7 +207,7 @@ export interface FishTankNodeData {
 }
 
 // Connection Point node data
-export interface ConnectionPointNodeData {
+export interface ConnectionPointNodeData extends Record<string, unknown> {
   topType?: HandleType;
   bottomType?: HandleType;
   leftType?: HandleType;
@@ -218,7 +218,7 @@ export interface ConnectionPointNodeData {
 }
 
 // Sensor Widget node data
-export interface SensorWidgetNodeData {
+export interface SensorWidgetNodeData extends Record<string, unknown> {
   label?: string;
   widgetName?: string;
   subtitle?: string;
@@ -261,7 +261,7 @@ export type ProcessNodeData =
   | FlowSourceData;
 
 // Edge data structure (ConnectionType imported from config/connectionTypes.ts)
-export interface ProcessEdgeData {
+export interface ProcessEdgeData extends Record<string, unknown> {
   connectionType: ConnectionType;
   label?: string;
   flowRate?: number;

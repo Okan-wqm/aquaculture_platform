@@ -4,10 +4,10 @@
  */
 
 import React from 'react';
-import { NodeProps } from 'reactflow';
+import { NodeProps, type Node } from '@xyflow/react';
 import BaseNode, { HandleConfig } from './BaseNode';
 
-interface UVUnitNodeData {
+interface UVUnitNodeData extends Record<string, unknown> {
   rotation?: number;
   handles?: HandleConfig[];
   label?: string;
@@ -18,7 +18,7 @@ const DEFAULT_HANDLES: HandleConfig[] = [
   { id: 'uv-right', type: 'source', position: { x: 120, y: 50 } },
 ];
 
-const UVUnitNode: React.FC<NodeProps<UVUnitNodeData>> = ({ id, selected, data }) => {
+const UVUnitNode: React.FC<NodeProps<Node<UVUnitNodeData>>> = ({ id, selected, data }) => {
   const rotation = data?.rotation || 0;
   const handles = data?.handles || DEFAULT_HANDLES;
 

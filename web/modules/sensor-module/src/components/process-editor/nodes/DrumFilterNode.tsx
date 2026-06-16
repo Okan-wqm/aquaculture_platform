@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, NodeProps, Position } from 'reactflow';
+import { Handle, useUpdateNodeInternals, NodeProps, Position, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
 
 type HandleType = 'source' | 'target';
@@ -14,7 +14,7 @@ type HandleType = 'source' | 'target';
  */
 type HandleFieldName = 'inletType1' | 'inletType2' | 'inletType3' | 'drainType' | 'outlet';
 
-interface DrumFilterNodeData {
+interface DrumFilterNodeData extends Record<string, unknown> {
   inletType1?: HandleType;
   inletType2?: HandleType;
   inletType3?: HandleType;
@@ -29,7 +29,7 @@ const BASE_TOP_OFFSET = 105;
 const WIDTH = Math.round(812 * SCALE_FACTOR);
 const HEIGHT = Math.round(315 * SCALE_FACTOR);
 
-const DrumFilterNode: React.FC<NodeProps<DrumFilterNodeData>> = ({ id, data, selected }) => {
+const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const updateNodeData = useProcessStore((state) => state.updateNodeData);
 

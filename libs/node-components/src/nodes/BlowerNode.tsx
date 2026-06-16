@@ -3,14 +3,14 @@
  * Lobe Blower with rotation support and toggleable inlet/outlet handles
  */
 
+import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, Position, type Node } from '@xyflow/react';
 import React, { useEffect, useState } from 'react';
-import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, Position } from 'reactflow';
 import { rotatePoint } from '../utils/rotatePoint';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface BlowerNodeData {
+interface BlowerNodeData extends Record<string, unknown> {
   inlet?: HandleType;
   outlet?: HandleType;
   rotation?: number;
@@ -21,7 +21,7 @@ interface BlowerNodeData {
 const WIDTH = 160;
 const HEIGHT = 120;
 
-const BlowerNode: React.FC<NodeProps<BlowerNodeData>> = ({ id, data, selected }) => {
+const BlowerNode: React.FC<NodeProps<Node<BlowerNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
 

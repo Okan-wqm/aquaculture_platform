@@ -3,13 +3,13 @@
  * Small connection point with 4 toggleable handles (top, bottom, left, right)
  */
 
+import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface ConnectionPointNodeData {
+interface ConnectionPointNodeData extends Record<string, unknown> {
   topType?: HandleType;
   bottomType?: HandleType;
   leftType?: HandleType;
@@ -23,7 +23,7 @@ interface ConnectionPointNodeData {
 const WIDTH = 30;
 const HEIGHT = 30;
 
-const ConnectionPointNode: React.FC<NodeProps<ConnectionPointNodeData>> = ({ id, data, selected }) => {
+const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

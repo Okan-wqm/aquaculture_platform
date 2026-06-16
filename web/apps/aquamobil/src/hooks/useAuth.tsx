@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, Re
 
 import { clearBiometricData } from '@/hooks/useWebAuthn';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
-import { markAuthReady, syncAuthStore } from '@/services/authenticated-fetch';
+import { markAuthReady, resetAuthReady, syncAuthStore } from '@/services/authenticated-fetch';
 import { runPushTeardown } from '@/services/push-lifecycle';
 import type { AccessType, AuthState } from '@/types';
 import { normalizeRole } from '@/utils/normalize-role';
@@ -443,6 +443,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryClient.removeQueries({ queryKey: [TENANT_QUERY_KEY_ROOT, currentTenantId] });
     }
     queryClient.clear();
+
+    // FE-HIGH-055: re-arm the auth-ready barrier for the NEXT session BEFORE the
+    // logged-out state is committed. Session 2's first authenticatedFetch then
+    // blocks on a FRESH barrier that only re-resolves when session 2's own
+    // restoreSession finally / login → syncAuthStore(token) → markAuthReady fires,
+    // so a post-logout request can never fire on session-1's stale token. This is
+    // also the single re-arm for the FE-HIGH-054 single-flight fail-closed path:
+    // that path calls this logout exactly once, which re-arms the barrier exactly
+    // once.
+    resetAuthReady();
 
     setState({
       user: null,

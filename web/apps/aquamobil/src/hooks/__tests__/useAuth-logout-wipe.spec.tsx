@@ -41,10 +41,17 @@ vi.mock('@/hooks/useWebAuthn', () => ({
 }));
 
 const markAuthReady = vi.fn();
+const resetAuthReady = vi.fn();
 const syncAuthStore = vi.fn();
 vi.mock('@/services/authenticated-fetch', () => ({
   markAuthReady: (): void => {
     markAuthReady();
+  },
+  // FE-HIGH-055: logout now re-arms the auth-ready barrier; the mock must expose
+  // resetAuthReady so the logout flow under test does not throw on an undefined
+  // import.
+  resetAuthReady: (): void => {
+    resetAuthReady();
   },
   syncAuthStore: (...args: unknown[]): void => {
     syncAuthStore(...args);

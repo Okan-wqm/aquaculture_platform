@@ -48,21 +48,57 @@ const authStore: AuthStore = {
 // the same semantics.
 // ---------------------------------------------------------------------------
 
+// FE-HIGH-055: the barrier is RE-ARMABLE, not a module-const. A single const
+// promise resolved once in session 1 stays resolved forever, so session 2's first
+// authenticatedFetch (immediately after a logout on a shared device) would race
+// ahead on session-1 stale state. Holding the promise + its resolver in mutable
+// module variables — re-created by armAuthReady() — gives each session its OWN
+// barrier identity, so a stale session-1 resolution is structurally unreachable
+// in session 2 (tier-1 make-it-impossible).
 let authReadyResolve: (() => void) | null = null;
-const authReadyPromise = new Promise<void>((resolve) => {
-  authReadyResolve = resolve;
-});
+let authReadyPromise: Promise<void>;
+
+/**
+ * (Re)create the readiness barrier: a fresh unresolved promise plus its resolver.
+ * Called once at module load and again by resetAuthReady() on every session end.
+ */
+function armAuthReady(): void {
+  authReadyResolve = null;
+  authReadyPromise = new Promise<void>((resolve) => {
+    authReadyResolve = resolve;
+  });
+}
+
+// Arm the initial (session-1) barrier at module load.
+armAuthReady();
 
 /**
  * Mark auth as ready — called by useAuth.tsx after restoreSession completes
- * (whether successful or not). This unblocks pending authenticatedFetch() calls.
- * Idempotent: safe to call multiple times.
+ * (whether successful or not) and by syncAuthStore when a token arrives. Resolves
+ * the CURRENT session's barrier, unblocking pending authenticatedFetch() calls.
+ * Idempotent: safe to call multiple times within a session.
  */
 export function markAuthReady(): void {
   if (authReadyResolve) {
     authReadyResolve();
     authReadyResolve = null;
   }
+}
+
+/**
+ * FE-HIGH-055: re-arm the barrier for a NEW session. Called by useAuth.tsx logout
+ * (and, transitively, by the single-flight fail-closed logout in FE-HIGH-054)
+ * AFTER the prior session's data is cleared and BEFORE the logged-out state is
+ * committed. The next authenticatedFetch then blocks on this FRESH barrier until
+ * session 2's own restoreSession / login resolves it via markAuthReady — never
+ * firing on session-1's stale token.
+ *
+ * Awaiters already holding the OLD promise object keep their reference and resolve
+ * normally (we only swap the module pointer for FUTURE awaiters), so an in-flight
+ * session-1 request is not stranded.
+ */
+export function resetAuthReady(): void {
+  armAuthReady();
 }
 
 /**
@@ -85,6 +121,59 @@ export function syncAuthStore(
   if (accessToken) {
     markAuthReady();
   }
+}
+
+// ---------------------------------------------------------------------------
+// FE-HIGH-054: single-flight token refresh
+//
+// WHY: when N requests get a 401 at once (e.g. a token expires while a screen
+// fans out several queries), each one independently calling authStore.refreshAuth()
+// fires N parallel refresh POSTs → N rotations of the same refresh token. The
+// server's refresh-token reuse-detection then sees the older rotations replayed
+// and force-logs-the-user-out at random. Coalescing all concurrent 401s onto ONE
+// refresh promise means exactly ONE refresh POST and ONE rotation per expiry
+// window, eliminating the false-positive reuse logout.
+//
+// The result boolean is NOT cached beyond the in-flight window: the promise is
+// cleared in `.finally` on resolve OR reject, so the very next 401 after settle
+// starts a fresh refresh attempt.
+// ---------------------------------------------------------------------------
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+/**
+ * Run a token refresh under single-flight: the first caller starts the refresh
+ * and every concurrent caller awaits the SAME promise. The in-flight promise is
+ * cleared once it settles so subsequent 401s can refresh again.
+ *
+ * Returns `false` when no refresh function is registered (no session to refresh).
+ */
+function runSingleFlightRefresh(): Promise<boolean> {
+  if (refreshInFlight) {
+    return refreshInFlight;
+  }
+  const refreshAuth = authStore.refreshAuth;
+  if (!refreshAuth) {
+    return Promise.resolve(false);
+  }
+  // Coalesce the refresh AND its fail-closed consequence onto ONE in-flight promise:
+  // (1) a refresh that REJECTS is treated identically to a `false` result (fail-closed),
+  //     so a thrown refresh never propagates a rejection to the N coalesced awaiters; and
+  // (2) the logout-on-failure fires EXACTLY ONCE here — not once per coalesced 401 caller
+  //     — so a single rotation failure produces a single logout() (and therefore a single
+  //     resetAuthReady() re-arm of the auth barrier, FE-HIGH-055), not an N-fanout.
+  refreshInFlight = refreshAuth()
+    .catch(() => false)
+    .then(async (refreshed): Promise<boolean> => {
+      if (!refreshed && authStore.logout) {
+        await authStore.logout();
+      }
+      return refreshed;
+    })
+    .finally(() => {
+      refreshInFlight = null;
+    });
+  return refreshInFlight;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +229,11 @@ export async function authenticatedFetch(
   // re-login. Without this, the user is stuck in a deadlock with a broken token
   // (e.g., old HS256 token after RS256 migration) and no way to recover.
   if (response.status === 401 && authStore.refreshAuth) {
-    const refreshed = await authStore.refreshAuth();
+    // FE-HIGH-054: coalesce all concurrent 401s onto ONE refresh (single-flight)
+    // so N requests do not trigger N refresh-token rotations and a reuse-detection
+    // false-positive logout. Each caller re-reads accessToken/tenantId AFTER the
+    // shared refresh settles, so every retry uses the freshly-rotated token.
+    const refreshed = await runSingleFlightRefresh();
     if (refreshed && authStore.accessToken) {
       headers['Authorization'] = `Bearer ${authStore.accessToken}`;
       if (authStore.tenantId) {
@@ -151,10 +244,10 @@ export async function authenticatedFetch(
         headers,
         credentials: options?.credentials ?? 'include',
       });
-    } else if (authStore.logout) {
-      // Refresh failed — session is irrecoverable, force clean logout
-      await authStore.logout();
     }
+    // else: runSingleFlightRefresh() already performed the fail-closed logout
+    // (exactly once across all coalesced 401s) and re-armed the auth barrier;
+    // return the original 401 so the caller surfaces the auth error.
   }
 
   return response;

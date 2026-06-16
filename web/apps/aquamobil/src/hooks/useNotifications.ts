@@ -1,122 +1,209 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+// ============================================================================
+// useNotifications — in-app notification bell: count + list with unified cadence
+// ============================================================================
+//
+// FE-MEDIUM-053: this hook used to run a bespoke 300s setInterval over local
+// useState, while the message-badge (useUnreadCount) used a 60s react-query
+// poll. The two unread surfaces could therefore disagree for up to ~5 minutes
+// after a read/new-message with no disclosure. The fix converges BOTH surfaces
+// onto ONE cache (the shared QueryClient), ONE cadence (~60s), and ONE
+// invalidation contract:
+//   - both queries live under the tenant query-key root (createTenantQueryKey)
+//     in the SAME QueryClient as the message badge,
+//   - both poll at the SAME 60s refetchInterval with refetchIntervalInBackground
+//     false (a backgrounded PWA does not poll),
+//   - the FCM PUSH handler invalidates the notification keys AND the messaging
+//     unreadCount key together, and useMessageSocket's unreadCount invalidations
+//     also nudge the notification keys — so the bell and the badge tick together.
+// markAsRead / markAllAsRead stay optimistic (react-query mutations with onMutate
+// + rollback) so the UX is unchanged, now invalidated consistently.
+
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+
 import { useAuth } from './useAuth';
-import type { InAppNotification } from '@/types';
-import { graphqlRequest } from '@/services/authenticated-fetch';
 import { PUSH_NOTIFICATION_EVENT } from './useFirebaseMessaging';
+
 import {
   GET_MY_NOTIFICATIONS,
   GET_UNREAD_COUNT,
   MARK_NOTIFICATION_READ,
   MARK_ALL_READ,
 } from '@/graphql/operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { InAppNotification } from '@/types';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// D07 PERF-01: Polling reduced from 60s to 300s (5 minutes).
-// FCM push messages trigger an immediate refetch via the PUSH_NOTIFICATION_EVENT
-// custom event, so the long polling interval is only a fallback for environments
-// where FCM is not configured or permission was denied.
-const POLL_INTERVAL_MS = 300_000; // 5 minutes
+// FE-MEDIUM-053: single 60s cadence shared with the message badge (useUnreadCount).
+// FCM push triggers an immediate invalidation, so the poll is only a fallback for
+// environments where FCM is not configured or permission was denied.
+const POLL_INTERVAL_MS = 60_000;
 
-export function useNotifications() {
-  const { isAuthenticated } = useAuth();
-  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  // BUG-09: Track error state so the UI can show an error message
-  const [error, setError] = useState<string | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+interface UseNotificationsResult {
+  notifications: InAppNotification[];
+  unreadCount: number;
+  loading: boolean;
+  error: string | null;
+  markAsRead: (id: string) => Promise<void>;
+  markAllAsRead: () => Promise<void>;
+  refetch: () => Promise<void>;
+}
 
-  const fetchNotifications = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+export function useNotifications(): UseNotificationsResult {
+  const { isAuthenticated, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  // The tenant-scoped keys for the two notification surfaces. Held as variables
+  // for the positional setQueryData/getQueryData calls (which read/write the same
+  // cache entries); the `queryKey:` property sites inline createTenantQueryKey(...)
+  // directly so the no-bare-tenant-query-key rule can statically prove the factory
+  // is used (FE-CRITICAL-001 discipline).
+  const listKey = createTenantQueryKey(tenantId, 'notifications', 'list');
+  const countKey = createTenantQueryKey(tenantId, 'notifications', 'unreadCount');
+
+  const listQuery = useQuery({
+    queryKey: createTenantQueryKey(tenantId, 'notifications', 'list'),
+    queryFn: async (): Promise<InAppNotification[]> => {
       const result = await graphqlRequest<{ myNotifications: InAppNotification[] }>(
         GET_MY_NOTIFICATIONS,
         { limit: 50 },
       );
-      if (result?.myNotifications) {
-        setNotifications(result.myNotifications);
-      }
-    } catch (err) {
-      // BUG-09: Capture error state so UI can render an error message
-      const message = err instanceof Error ? err.message : 'Failed to load notifications';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return result.myNotifications ?? [];
+    },
+    enabled: isAuthenticated && !!tenantId,
+    staleTime: 30_000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
 
-  const fetchUnreadCount = useCallback(async () => {
-    try {
+  const countQuery = useQuery({
+    queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount'),
+    queryFn: async (): Promise<number> => {
       const result = await graphqlRequest<{ unreadNotificationCount: number }>(GET_UNREAD_COUNT);
-      if (result != null && typeof result.unreadNotificationCount === 'number') {
-        setUnreadCount(result.unreadNotificationCount);
+      return typeof result.unreadNotificationCount === 'number'
+        ? result.unreadNotificationCount
+        : 0;
+    },
+    enabled: isAuthenticated && !!tenantId,
+    staleTime: 30_000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
+
+  // markAsRead — optimistic: flip the one notification to read and decrement the
+  // count in cache BEFORE the network settles; roll BOTH back on error.
+  const markAsReadMutation = useMutation({
+    mutationFn: async (id: string): Promise<void> => {
+      await graphqlRequest(MARK_NOTIFICATION_READ, { id });
+    },
+    onMutate: async (id: string) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'list') }),
+        queryClient.cancelQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount') }),
+      ]);
+      const previousList = queryClient.getQueryData<InAppNotification[]>(listKey);
+      const previousCount = queryClient.getQueryData<number>(countKey);
+      queryClient.setQueryData<InAppNotification[]>(listKey, (old) =>
+        (old ?? []).map((n) =>
+          n.id === id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n,
+        ),
+      );
+      queryClient.setQueryData<number>(countKey, (old) => Math.max(0, (old ?? 0) - 1));
+      return { previousList, previousCount };
+    },
+    onError: (_err, _id, context) => {
+      // Roll back the optimistic write so a failed mark does not leave a stale
+      // "read" state in the cache.
+      if (context?.previousList !== undefined) {
+        queryClient.setQueryData(listKey, context.previousList);
       }
-    } catch {
-      // silently fail
-    }
-  }, []);
-
-  const refetch = useCallback(async () => {
-    await Promise.all([fetchNotifications(), fetchUnreadCount()]);
-  }, [fetchNotifications, fetchUnreadCount]);
-
-  const markAsRead = useCallback(
-    async (id: string) => {
-      try {
-        await graphqlRequest(MARK_NOTIFICATION_READ, { id });
-        setNotifications((prev) =>
-          prev.map((n) => (n.id === id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n)),
-        );
-        setUnreadCount((prev) => Math.max(0, prev - 1));
-      } catch {
-        // silently fail — don't apply optimistic update on error
+      if (context?.previousCount !== undefined) {
+        queryClient.setQueryData(countKey, context.previousCount);
       }
     },
-    [],
-  );
+  });
 
-  const markAllAsRead = useCallback(async () => {
-    try {
+  // markAllAsRead — optimistic: flip every notification to read, zero the count.
+  const markAllAsReadMutation = useMutation({
+    mutationFn: async (): Promise<void> => {
       await graphqlRequest(MARK_ALL_READ);
-      setNotifications((prev) =>
-        prev.map((n) => ({ ...n, isRead: true, readAt: new Date().toISOString() })),
+    },
+    onMutate: async () => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'list') }),
+        queryClient.cancelQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount') }),
+      ]);
+      const previousList = queryClient.getQueryData<InAppNotification[]>(listKey);
+      const previousCount = queryClient.getQueryData<number>(countKey);
+      queryClient.setQueryData<InAppNotification[]>(listKey, (old) =>
+        (old ?? []).map((n) => ({ ...n, isRead: true, readAt: new Date().toISOString() })),
       );
-      setUnreadCount(0);
-    } catch {
-      // silently fail — don't apply optimistic update on error
-    }
-  }, []);
+      queryClient.setQueryData<number>(countKey, 0);
+      return { previousList, previousCount };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousList !== undefined) {
+        queryClient.setQueryData(listKey, context.previousList);
+      }
+      if (context?.previousCount !== undefined) {
+        queryClient.setQueryData(countKey, context.previousCount);
+      }
+    },
+  });
 
-  // Initial fetch + polling every 5 minutes (fallback)
+  // FE-MEDIUM-053: a single FCM foreground push refreshes BOTH unread surfaces in
+  // one tick — the notification bell AND the message badge — collapsing the prior
+  // up-to-5-minute divergence. Invalidating (not refetching directly) lets the
+  // shared QueryClient drive a single coherent refresh of every consumer.
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !tenantId) return;
 
-    refetch();
-
-    intervalRef.current = setInterval(() => {
-      fetchUnreadCount();
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [isAuthenticated, refetch, fetchUnreadCount]);
-
-  // D07 PERF-01: Listen for FCM foreground push events and refetch immediately.
-  // This replaces the aggressive 60s polling with event-driven updates.
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    const handlePushNotification = () => {
-      refetch();
+    const handlePushNotification = (): void => {
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'notifications', 'list'),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount'),
+      });
+      // Converge the message badge in the same tick so the two surfaces agree.
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount'),
+      });
     };
 
     window.addEventListener(PUSH_NOTIFICATION_EVENT, handlePushNotification);
-
     return () => {
       window.removeEventListener(PUSH_NOTIFICATION_EVENT, handlePushNotification);
     };
-  }, [isAuthenticated, refetch]);
+    // listKey/countKey are derived from tenantId; depending on tenantId keeps the
+    // handler bound to the current tenant's keys without re-subscribing per render.
+  }, [isAuthenticated, tenantId, queryClient, listKey, countKey]);
 
-  return { notifications, unreadCount, loading, error, markAsRead, markAllAsRead, refetch };
+  const markAsRead = async (id: string): Promise<void> => {
+    await markAsReadMutation.mutateAsync(id);
+  };
+
+  const markAllAsRead = async (): Promise<void> => {
+    await markAllAsReadMutation.mutateAsync();
+  };
+
+  const refetch = async (): Promise<void> => {
+    await Promise.all([listQuery.refetch(), countQuery.refetch()]);
+  };
+
+  return {
+    notifications: listQuery.data ?? [],
+    unreadCount: countQuery.data ?? 0,
+    loading: listQuery.isLoading,
+    // BUG-09 preserved: surface the list query error so the UI can render an
+    // error state + Retry. react-query's error is an Error | null.
+    error: listQuery.error instanceof Error ? listQuery.error.message : null,
+    markAsRead,
+    markAllAsRead,
+    refetch,
+  };
 }

@@ -6,10 +6,26 @@ import { BrowserRouter } from 'react-router-dom';
 import { registerSW } from 'virtual:pwa-register';
 
 import { App } from './App';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { IdentityBoundary } from './components/IdentityBoundary';
 import { AuthProvider } from './hooks/useAuth';
 import { OfflineProvider } from './hooks/useOfflineQueue';
 import './styles/main.css';
+import { logger } from './utils/logger';
+
+/**
+ * FE-HIGH-056: typed guard for the react-query retry predicate. The thrown error
+ * is `unknown`; an HTTP/GraphQL failure may carry a numeric `status`. Narrow it
+ * structurally (no unsafe cast) so a 401/403 short-circuits retry while any other
+ * error shape falls through to the count-based policy.
+ */
+function getErrorStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null && 'status' in error) {
+    const { status } = error;
+    return typeof status === 'number' ? status : undefined;
+  }
+  return undefined;
+}
 
 // Create query client with offline-friendly defaults
 const queryClient = new QueryClient({
@@ -19,7 +35,8 @@ const queryClient = new QueryClient({
       gcTime: 1000 * 60 * 60 * 24, // 24 hours (formerly cacheTime)
       retry: (failureCount, error) => {
         // Don't retry on auth errors
-        if ((error as any)?.status === 401 || (error as any)?.status === 403) {
+        const status = getErrorStatus(error);
+        if (status === 401 || status === 403) {
           return false;
         }
         return failureCount < 3;
@@ -32,21 +49,27 @@ const queryClient = new QueryClient({
   },
 });
 
-// Register service worker
+// Register service worker.
+// `const updateSW = registerSW(...)` returns an update trigger the onNeedRefresh
+// callback re-invokes; the registerSW() call itself does not return a promise, so
+// it is a plain assignment (no floating-promise concern).
 const updateSW = registerSW({
   onNeedRefresh() {
     if (confirm('New version available. Reload to update?')) {
-      updateSW(true);
+      // FE-HIGH-056: updateSW(true) returns a Promise; `void` marks it
+      // intentionally un-awaited (we trigger the reload-on-activate and let the
+      // SW take over) instead of leaving a floating promise.
+      void updateSW(true);
     }
   },
   onOfflineReady() {
-    console.log('App ready to work offline');
+    logger.info('App ready to work offline');
   },
   onRegistered(r) {
-    console.log('Service worker registered:', r);
+    logger.info('Service worker registered:', r);
   },
   onRegisterError(error) {
-    console.error('Service worker registration error:', error);
+    logger.error('Service worker registration error:', error);
   },
 });
 
@@ -58,20 +81,37 @@ const isIOS =
   (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent)));
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+// FE-HIGH-056: explicit null check for the mount node instead of a forbidden
+// non-null assertion. A missing #root is a deploy-shell error, not a runtime
+// condition to hide — throw a clear message so it surfaces immediately.
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error('AquaMobil mount failed: #root element not found in document.');
+}
+
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter basename="/mobile">
-        <AuthProvider>
-          <IdentityBoundary>
-            <OfflineProvider>
-              <KonstaApp theme={isIOS ? 'ios' : 'material'} safeAreas>
-                <App />
-              </KonstaApp>
-            </OfflineProvider>
-          </IdentityBoundary>
-        </AuthProvider>
-      </BrowserRouter>
+      {/* FE-HIGH-053: ROOT ErrorBoundary — the outermost recoverable boundary.
+          Placed INSIDE QueryClientProvider (so a Try-Again reload still has a
+          client) but OUTSIDE BrowserRouter / AuthProvider so a crash in any
+          provider, the router, or a layout falls back to the recoverable card
+          instead of white-screening the entire PWA. The route-level boundary in
+          App.tsx and the 4 hub-page boundaries compose UNDER this one for finer
+          granularity. */}
+      <ErrorBoundary>
+        <BrowserRouter basename="/mobile">
+          <AuthProvider>
+            <IdentityBoundary>
+              <OfflineProvider>
+                <KonstaApp theme={isIOS ? 'ios' : 'material'} safeAreas>
+                  <App />
+                </KonstaApp>
+              </OfflineProvider>
+            </IdentityBoundary>
+          </AuthProvider>
+        </BrowserRouter>
+      </ErrorBoundary>
     </QueryClientProvider>
   </React.StrictMode>
 );

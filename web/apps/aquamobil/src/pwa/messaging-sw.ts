@@ -31,7 +31,7 @@
 
 import { clientsClaim } from 'workbox-core';
 import { ExpirationPlugin } from 'workbox-expiration';
-import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
+import { precacheAndRoute, cleanupOutdatedCaches, PrecacheFallbackPlugin } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
 import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 
@@ -69,11 +69,29 @@ cleanupOutdatedCaches();
 // and silently discards offline-queue mutations. GraphQL passes straight to the
 // network via handleFetchEvent below; no runtime route is registered for it.
 
-// FIX(SW-003): SPA navigation fallback via NetworkFirst. For navigation
-// requests (HTML), always try the network first so deployments are picked up
-// immediately, falling back to cache when offline. This replaces the broken
-// precache-bound NavigationRoute that required index.html in the precache
-// manifest.
+// FIX(SW-003) + FE-HIGH-058: SPA navigation handling with a precache-bound
+// offline fallback.
+//
+// NetworkFirst keeps the online behaviour correct: a navigation tries the network
+// first (5s timeout) so a fresh deployment is picked up immediately, then falls
+// back to the 1-day runtime navigation-cache when the network is slow/down.
+//
+// FE-HIGH-058: the previous config had NO fallback for a FIRST-EVER cold offline
+// launch — on a device that has never loaded the app online, both the network AND
+// the empty runtime nav-cache miss, so the navigation resolved to nothing and the
+// PWA opened blank. vite.config.ts now precaches `index.html` (globPatterns
+// includes `html`; the sw-build-artifact invariant asserts the manifest entry),
+// so the app shell IS available offline. The PrecacheFallbackPlugin hooks
+// NetworkFirst's `handlerDidError` and serves the precached `index.html` when —
+// and only when — both network and runtime cache fail. The SPA then boots from
+// IndexedDB. Content-hashed shell JS/CSS + cleanupOutdatedCaches guarantee a
+// stale shell cannot mask a deploy: once online, the fresh manifest reloads the
+// app and drops the old precache.
+//
+// Scope: this route matches navigations only (`request.mode === 'navigate'`).
+// GraphQL POST and /messaging//media GETs are claimed earlier by
+// handleFetchEvent via event.respondWith(), so the precached HTML shell can never
+// be served for an API or asset request.
 registerRoute(
   ({ request }) => request.mode === 'navigate',
   new NetworkFirst({
@@ -84,6 +102,11 @@ registerRoute(
         maxEntries: 1,
         maxAgeSeconds: 60 * 60 * 24, // 1 day
       }),
+      // FE-HIGH-058: precache-bound cold-offline fallback. `index.html` is the
+      // manifest key VitePWA injects (base '/mobile/'); the plugin resolves it
+      // through the default PrecacheController, so a cold offline navigation
+      // serves the precached shell instead of a blank page.
+      new PrecacheFallbackPlugin({ fallbackURL: 'index.html' }),
     ],
   }),
 );

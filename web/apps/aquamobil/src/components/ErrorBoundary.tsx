@@ -1,6 +1,8 @@
+import { AlertTriangle } from 'lucide-react';
 import { Component } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
-import { AlertTriangle } from 'lucide-react';
+
+import { logger } from '@/utils/logger';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,10 +46,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    // WHY: Log to console so field support can capture the stack trace from
-    // remote debugging sessions without needing a dedicated error reporting
-    // service (which may not be reachable on farm networks).
-    console.error('[ErrorBoundary] Uncaught render error:', error, errorInfo);
+    // WHY: Log through the structured logger (FE-HIGH-056) so field support can
+    // capture the stack trace from remote debugging sessions without needing a
+    // dedicated error reporting service (which may not be reachable on farm
+    // networks). Routing through the logger keeps this off the banned `console.*`
+    // path while staying observable — the crash is recorded, never silently
+    // swallowed.
+    logger.error('[ErrorBoundary] Uncaught render error:', error, errorInfo);
   }
 
   private handleRetry = (): void => {

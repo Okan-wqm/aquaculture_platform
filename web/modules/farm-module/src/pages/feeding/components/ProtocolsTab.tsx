@@ -91,7 +91,7 @@ const DeleteConfirmDialog: React.FC<{
 }> = ({ protocol, onConfirm, onCancel, isDeleting }) => (
   <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="delete-dialog-title" role="dialog" aria-modal="true">
     <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-      <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={onCancel} />
+      <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={onCancel} />
       <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
       <div className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
         <div className="sm:flex sm:items-start">
@@ -117,14 +117,14 @@ const DeleteConfirmDialog: React.FC<{
             type="button"
             disabled={isDeleting}
             onClick={onConfirm}
-            className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:w-auto sm:text-sm disabled:opacity-50"
+            className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:w-auto sm:text-sm disabled:opacity-50"
           >
             {isDeleting ? 'Deleting...' : 'Delete'}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:w-auto sm:text-sm"
+            className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:w-auto sm:text-sm"
           >
             Cancel
           </button>
@@ -146,7 +146,7 @@ const ProtocolDetailDrawer: React.FC<{
 }> = ({ protocol, onClose, onEdit, onSetDefault, isSettingDefault }) => (
   <div className="fixed inset-0 z-40 overflow-hidden" aria-labelledby="detail-title" role="dialog" aria-modal="true">
     <div className="absolute inset-0 overflow-hidden">
-      <div className="absolute inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={onClose} />
+      <div className="absolute inset-0 bg-gray-500/75 transition-opacity" onClick={onClose} />
       <div className="fixed inset-y-0 right-0 pl-10 max-w-full flex">
         <div className="w-screen max-w-lg">
           <div className="h-full flex flex-col bg-white shadow-xl overflow-y-scroll">
@@ -338,14 +338,14 @@ const ProtocolDetailDrawer: React.FC<{
                 <button
                   onClick={onSetDefault}
                   disabled={isSettingDefault}
-                  className="inline-flex items-center px-3 py-2 border border-yellow-300 shadow-sm text-sm font-medium rounded-md text-yellow-700 bg-yellow-50 hover:bg-yellow-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50"
+                  className="inline-flex items-center px-3 py-2 border border-yellow-300 shadow-sm text-sm font-medium rounded-md text-yellow-700 bg-yellow-50 hover:bg-yellow-100 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50"
                 >
                   {isSettingDefault ? 'Setting...' : 'Set as Default'}
                 </button>
               )}
               <button
                 onClick={onEdit}
-                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 Edit Protocol
               </button>
@@ -526,7 +526,7 @@ const ProtocolFormModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="form-dialog-title" role="dialog" aria-modal="true">
       <div className="flex items-start justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={onClose} />
+        <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={onClose} />
         <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
         <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
           <form onSubmit={handleSubmit}>
@@ -876,14 +876,14 @@ const ProtocolFormModal: React.FC<{
               <button
                 type="submit"
                 disabled={isSaving || !form.name || !form.species}
-                className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSaving ? 'Saving...' : isEdit ? 'Update Protocol' : 'Create Protocol'}
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:w-auto sm:text-sm"
+                className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:w-auto sm:text-sm"
               >
                 Cancel
               </button>
@@ -1039,7 +1039,7 @@ export const ProtocolsTab: React.FC<ProtocolsTabProps> = () => {
 
         <button
           onClick={handleCreate}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors text-sm"
+          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors text-sm"
         >
           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />

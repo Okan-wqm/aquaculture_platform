@@ -92,7 +92,7 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
                 placeholder="Proses ara..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 autoFocus
               />
             </div>

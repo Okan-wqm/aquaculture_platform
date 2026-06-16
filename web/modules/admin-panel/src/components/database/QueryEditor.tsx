@@ -761,7 +761,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
 
 Example:
 SELECT * FROM users LIMIT 10;"
-            className="absolute left-10 top-0 right-0 bottom-0 w-[calc(100%-40px)] h-full p-3 bg-gray-900 text-gray-100 font-mono text-sm resize-none focus:outline-none focus:ring-0 border-0"
+            className="absolute left-10 top-0 right-0 bottom-0 w-[calc(100%-40px)] h-full p-3 bg-gray-900 text-gray-100 font-mono text-sm resize-none focus:outline-hidden focus:ring-0 border-0"
             style={{
               lineHeight: '1.5',
               tabSize: 2,

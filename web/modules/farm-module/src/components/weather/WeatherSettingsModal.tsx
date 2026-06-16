@@ -111,7 +111,7 @@ export const WeatherSettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
               <select
                 value={syncInterval}
                 onChange={(e) => setSyncInterval(Number(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500"
                 disabled={!enabled}
               >
                 {INTERVAL_OPTIONS.map((opt) => (
@@ -128,7 +128,7 @@ export const WeatherSettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
               <select
                 value={forecastDays}
                 onChange={(e) => setForecastDays(Number(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500"
               >
                 {FORECAST_DAY_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>

@@ -405,7 +405,7 @@ export const UnifiedLeftPanel: React.FC<UnifiedLeftPanelProps> = ({
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
                 <input ref={searchRef} type="text" value={query} onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search widgets..." className="w-full h-8 text-sm pl-7 pr-7 bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500" />
+                  placeholder="Search widgets..." className="w-full h-8 text-sm pl-7 pr-7 bg-gray-50 border border-gray-200 rounded-md focus:outline-hidden focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500" />
                 {query && (
                   <button onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-gray-200 text-gray-400">
                     <X className="w-3.5 h-3.5" />

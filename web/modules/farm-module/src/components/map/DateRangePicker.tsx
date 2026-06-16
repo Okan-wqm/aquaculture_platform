@@ -163,7 +163,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   }
                 }}
                 max={format(new Date(), 'yyyy-MM-dd')}
-                className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full px-2 py-1 text-sm border rounded focus:outline-hidden focus:ring-2 focus:ring-primary-500"
               />
             </div>
 

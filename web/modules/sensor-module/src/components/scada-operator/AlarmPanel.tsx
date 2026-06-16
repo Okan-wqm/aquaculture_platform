@@ -424,7 +424,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
             onChange={(e) => setTextSearch(e.target.value)}
             className="w-full pl-7 pr-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600
                        bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100
-                       focus:outline-none focus:ring-1 focus:ring-blue-500"
+                       focus:outline-hidden focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
@@ -488,7 +488,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
             onChange={(e) => setGroupFilter(e.target.value)}
             className="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600
                        bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300
-                       focus:outline-none focus:ring-1 focus:ring-blue-500"
+                       focus:outline-hidden focus:ring-1 focus:ring-blue-500"
           >
             <option value="">All groups</option>
             {availableGroups.map((g) => (

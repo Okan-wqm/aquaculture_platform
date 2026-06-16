@@ -225,7 +225,7 @@ const OverlayTitleBar = memo<OverlayTitleBarProps>(
         className="
           flex items-center justify-center w-5 h-5 rounded shrink-0
           text-gray-400 hover:text-gray-100 hover:bg-gray-700 transition-colors
-          focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400
+          focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400
         "
         aria-label="Close overlay"
       >
@@ -380,7 +380,7 @@ const CardOverlay = memo<OverlayItemProps>(
             absolute right-8 top-1.5
             flex items-center justify-center w-5 h-5 rounded
             text-gray-400 hover:text-gray-100 hover:bg-gray-700 transition-colors
-            focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400
+            focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400
           "
           aria-label={maximised ? 'Restore card' : 'Maximise card'}
         >

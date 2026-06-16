@@ -40,30 +40,43 @@ export interface AlertProps {
 // Stil Tanımlamaları
 // ============================================================================
 
-const typeStyles: Record<NotificationType, { bg: string; border: string; icon: string; text: string }> = {
+// `focusRing` carries the dismiss-button focus styles as COMPLETE static class
+// strings. Two reasons: (1) Tailwind only generates utilities it sees verbatim in
+// source — the previous interpolated `ring-offset-${type}-50` was never emitted, so
+// the offset color silently did nothing; (2) Tailwind v4's default `ring` color is
+// `currentColor` (v3 was blue-500/50), so a bare `ring-2` is no longer deterministic
+// — each variant now pins its own ring color.
+const typeStyles: Record<
+  NotificationType,
+  { bg: string; border: string; icon: string; text: string; focusRing: string }
+> = {
   success: {
     bg: 'bg-green-50',
     border: 'border-green-400',
     icon: 'text-green-400',
     text: 'text-green-800',
+    focusRing: 'focus:ring-green-500 focus:ring-offset-green-50',
   },
   error: {
     bg: 'bg-red-50',
     border: 'border-red-400',
     icon: 'text-red-400',
     text: 'text-red-800',
+    focusRing: 'focus:ring-red-500 focus:ring-offset-red-50',
   },
   warning: {
     bg: 'bg-yellow-50',
     border: 'border-yellow-400',
     icon: 'text-yellow-400',
     text: 'text-yellow-800',
+    focusRing: 'focus:ring-yellow-500 focus:ring-offset-yellow-50',
   },
   info: {
     bg: 'bg-blue-50',
     border: 'border-blue-400',
     icon: 'text-blue-400',
     text: 'text-blue-800',
+    focusRing: 'focus:ring-blue-500 focus:ring-offset-blue-50',
   },
 };
 
@@ -176,7 +189,7 @@ export const Alert: React.FC<AlertProps> = ({
             <button
               type="button"
               onClick={onDismiss}
-              className={`inline-flex rounded-md p-1.5 ${styles.text} hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-${type === 'success' ? 'green' : type === 'error' ? 'red' : type === 'warning' ? 'yellow' : 'blue'}-50`}
+              className={`inline-flex rounded-md p-1.5 ${styles.text} hover:opacity-80 focus:outline-hidden focus:ring-2 focus:ring-offset-2 ${styles.focusRing}`}
             >
               <span className="sr-only">{dismissLabel}</span>
               <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

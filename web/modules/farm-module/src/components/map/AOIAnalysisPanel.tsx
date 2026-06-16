@@ -448,7 +448,7 @@ export const AOIAnalysisPanel: React.FC<AOIAnalysisPanelProps> = ({
             value={format(date, 'yyyy-MM-dd')}
             onChange={(e) => onDateChange(new Date(e.target.value))}
             max={format(new Date(), 'yyyy-MM-dd')}
-            className="w-full px-2 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500"
+            className="w-full px-2 py-1.5 text-sm border rounded-md focus:outline-hidden focus:ring-1 focus:ring-primary-500"
           />
         </div>
 

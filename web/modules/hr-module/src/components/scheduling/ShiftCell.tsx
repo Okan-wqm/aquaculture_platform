@@ -159,7 +159,7 @@ export function ShiftCell({
           'h-full min-h-[48px] border border-dashed border-gray-200 rounded-md',
           'flex items-center justify-center',
           isEditable && 'cursor-pointer hover:bg-gray-50',
-          isEditable && 'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
+          isEditable && 'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
           isSelected && 'ring-2 ring-indigo-500',
           hasKeyboardSelection && 'border-indigo-300 bg-indigo-50/30',
           isDragOver && 'ring-2 ring-indigo-400'
@@ -186,7 +186,7 @@ export function ShiftCell({
           'h-full min-h-[48px] rounded-md p-1.5',
           config.bgClass,
           isEditable && 'cursor-pointer hover:opacity-80',
-          isEditable && 'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
+          isEditable && 'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
           isSelected && 'ring-2 ring-indigo-500',
           hasKeyboardSelection && 'ring-1 ring-indigo-300',
           isDragOver && 'ring-2 ring-indigo-400'
@@ -213,7 +213,7 @@ export function ShiftCell({
           'h-full min-h-[48px] rounded-md p-1.5',
           entryTypeConfig.leave.bgClass,
           isEditable && 'cursor-pointer hover:opacity-80',
-          isEditable && 'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
+          isEditable && 'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
           isSelected && 'ring-2 ring-indigo-500',
           hasKeyboardSelection && 'ring-1 ring-indigo-300',
           isDragOver && 'ring-2 ring-indigo-400'
@@ -242,7 +242,7 @@ export function ShiftCell({
       className={cn(
         'h-full min-h-[48px] rounded-md p-1.5 transition-all',
         isEditable && 'cursor-pointer hover:opacity-80',
-        isEditable && 'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
+        isEditable && 'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
         isSelected && 'ring-2 ring-indigo-500',
         hasKeyboardSelection && 'ring-1 ring-indigo-300',
         isDragOver && 'ring-2 ring-indigo-400'

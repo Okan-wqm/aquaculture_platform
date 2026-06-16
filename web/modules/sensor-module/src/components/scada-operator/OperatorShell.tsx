@@ -126,7 +126,7 @@ const AlarmPanel = React.memo(() => {
         <button
           type="button"
           onClick={toggleAlarmPanel}
-          className="text-gray-400 hover:text-gray-100 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+          className="text-gray-400 hover:text-gray-100 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400"
           aria-label="Close alarm panel"
         >
           Close

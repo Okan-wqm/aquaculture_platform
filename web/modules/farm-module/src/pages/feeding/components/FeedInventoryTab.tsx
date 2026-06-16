@@ -222,7 +222,7 @@ export const FeedInventoryTab: React.FC<FeedInventoryTabProps> = ({
         </div>
         <button
           onClick={handleAdd}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
         >
           <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -428,7 +428,7 @@ const AddInventoryModal: React.FC<AddInventoryModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
+        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl max-w-lg w-full p-6 z-10">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900">Add Feed Inventory</h3>
@@ -572,7 +572,7 @@ const ConsumeInventoryModal: React.FC<ConsumeInventoryModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
+        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-10">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900">Consume Inventory</h3>
@@ -672,7 +672,7 @@ const AdjustInventoryModal: React.FC<AdjustInventoryModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
+        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-10">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900">Adjust Inventory</h3>

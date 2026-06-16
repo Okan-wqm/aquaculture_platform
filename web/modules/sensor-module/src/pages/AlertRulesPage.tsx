@@ -204,7 +204,7 @@ const ConditionEditor: React.FC<{
               <select
                 value={condition.parameter}
                 onChange={(e) => updateCondition(index, 'parameter', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               >
                 {PARAMETER_OPTIONS.map((p) => (
                   <option key={p.value} value={p.value}>
@@ -220,7 +220,7 @@ const ConditionEditor: React.FC<{
               <select
                 value={condition.operator}
                 onChange={(e) => updateCondition(index, 'operator', e.target.value as AlertOperator)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               >
                 {OPERATOR_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -238,7 +238,7 @@ const ConditionEditor: React.FC<{
                 step="any"
                 value={condition.threshold}
                 onChange={(e) => updateCondition(index, 'threshold', parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
 
@@ -248,7 +248,7 @@ const ConditionEditor: React.FC<{
               <select
                 value={condition.severity}
                 onChange={(e) => updateCondition(index, 'severity', e.target.value as AlertSeverity)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               >
                 {SEVERITY_OPTIONS.map((s) => (
                   <option key={s.value} value={s.value}>
@@ -322,7 +322,7 @@ const RuleForm: React.FC<{
               placeholder="Örneğin: Yüksek Sıcaklık Alarmı"
               maxLength={100}
               required
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
@@ -333,7 +333,7 @@ const RuleForm: React.FC<{
               onChange={(e) => updateField('description', e.target.value)}
               placeholder="Kuralın kisa aciklamasi"
               maxLength={500}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
         </div>
@@ -347,7 +347,7 @@ const RuleForm: React.FC<{
               value={form.farmId}
               onChange={(e) => updateField('farmId', e.target.value)}
               placeholder="Opsiyonel"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
@@ -357,7 +357,7 @@ const RuleForm: React.FC<{
               value={form.pondId}
               onChange={(e) => updateField('pondId', e.target.value)}
               placeholder="Opsiyonel"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
@@ -367,7 +367,7 @@ const RuleForm: React.FC<{
               value={form.sensorId}
               onChange={(e) => updateField('sensorId', e.target.value)}
               placeholder="Opsiyonel"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
         </div>
@@ -412,7 +412,7 @@ const RuleForm: React.FC<{
             value={form.recipients}
             onChange={(e) => updateField('recipients', e.target.value)}
             placeholder="Virgul ile ayrilmis e-posta adresleri veya kullanici ID'leri"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
           />
           <p className="text-xs text-gray-400 mt-1">Birden fazla alici icin virgul kullanin</p>
         </div>
@@ -427,7 +427,7 @@ const RuleForm: React.FC<{
             min={1}
             value={form.cooldownMinutes}
             onChange={(e) => updateField('cooldownMinutes', parseInt(e.target.value, 10) || 5)}
-            className="w-32 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+            className="w-32 px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
           />
           <p className="text-xs text-gray-400 mt-1">
             Aynı kural için tekrar alarm göndermeden önceki minimum bekleme süresi
@@ -879,7 +879,7 @@ const AlertRulesPage: React.FC = () => {
               value={filterFarmId}
               onChange={(e) => setFilterFarmId(e.target.value)}
               placeholder="Farm ID ile filtrele..."
-              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 w-64"
+              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500 w-64"
             />
             {filterFarmId && (
               <button

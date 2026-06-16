@@ -337,7 +337,7 @@ const TenantAuditLogPage: React.FC = () => {
                 type="date"
                 value={filters.startDate || ''}
                 onChange={(e) => updateFilters({ startDate: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               />
             </div>
             <div>
@@ -346,7 +346,7 @@ const TenantAuditLogPage: React.FC = () => {
                 type="date"
                 value={filters.endDate || ''}
                 onChange={(e) => updateFilters({ endDate: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               />
             </div>
             <div>
@@ -356,7 +356,7 @@ const TenantAuditLogPage: React.FC = () => {
                 placeholder="e.g. USER_CREATE"
                 value={filters.action || ''}
                 onChange={(e) => updateFilters({ action: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               />
             </div>
             <div>
@@ -364,7 +364,7 @@ const TenantAuditLogPage: React.FC = () => {
               <select
                 value={filters.severity || ''}
                 onChange={(e) => updateFilters({ severity: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               >
                 <option value="">All</option>
                 <option value="info">Info</option>
@@ -380,7 +380,7 @@ const TenantAuditLogPage: React.FC = () => {
                 placeholder="Email or ID"
                 value={filters.performedBy || ''}
                 onChange={(e) => updateFilters({ performedBy: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               />
             </div>
           </div>
@@ -396,7 +396,7 @@ const TenantAuditLogPage: React.FC = () => {
             placeholder="Search audit logs by action, user, or entity..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
           />
         </div>
       </div>

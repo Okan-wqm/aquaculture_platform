@@ -178,7 +178,7 @@ const EdgeFilterDropdown: React.FC<{
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="appearance-none px-4 py-2 pr-8 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+      className="appearance-none px-4 py-2 pr-8 bg-white border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
     >
       <option value="">{label}</option>
       {options.map((opt) => (
@@ -781,7 +781,7 @@ const DevicesPage: React.FC = () => {
                     setEdgeSearchTerm(e.target.value);
                     setEdgePage(1);
                   }}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                 />
               </div>
 
@@ -1060,7 +1060,7 @@ const DevicesPage: React.FC = () => {
                   placeholder="Cihaz adı veya seri numarası..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                 />
               </div>
 
@@ -1070,7 +1070,7 @@ const DevicesPage: React.FC = () => {
                 <select
                   value={selectedStatus}
                   onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                 >
                   <option value="all">Tüm Durumlar</option>
                   <option value="online">Çevrimiçi</option>
@@ -1198,7 +1198,7 @@ const DevicesPage: React.FC = () => {
               <select
                 value={bulkFirmwareVersion}
                 onChange={(e) => setBulkFirmwareVersion(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden"
               >
                 <option value="">Surum secin...</option>
                 {firmwareVersions.map((v) => (

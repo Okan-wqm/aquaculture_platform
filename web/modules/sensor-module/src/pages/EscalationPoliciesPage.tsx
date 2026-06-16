@@ -226,7 +226,7 @@ const LevelEditor: React.FC<{
                 value={level.name}
                 onChange={(e) => updateLevel(index, 'name', e.target.value)}
                 placeholder="Ornegin: Ilk Bildirim"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
 
@@ -238,7 +238,7 @@ const LevelEditor: React.FC<{
                 min={0}
                 value={level.timeoutMinutes}
                 onChange={(e) => updateLevel(index, 'timeoutMinutes', parseInt(e.target.value, 10) || 0)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
 
@@ -248,7 +248,7 @@ const LevelEditor: React.FC<{
               <select
                 value={level.action}
                 onChange={(e) => updateLevel(index, 'action', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               >
                 {ACTION_OPTIONS.map((a) => (
                   <option key={a.value} value={a.value}>{a.label}</option>
@@ -265,7 +265,7 @@ const LevelEditor: React.FC<{
               value={level.notifyUserIds.join(', ')}
               onChange={(e) => updateLevel(index, 'notifyUserIds', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
               placeholder="Kullanici ID'leri"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
             />
           </div>
 
@@ -353,7 +353,7 @@ const PolicyForm: React.FC<{
               placeholder="Ornegin: Kritik Alarm Eskalasyonu"
               maxLength={200}
               required
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
@@ -364,7 +364,7 @@ const PolicyForm: React.FC<{
               onChange={(e) => updateField('description', e.target.value)}
               placeholder="Politikanin kisa aciklamasi"
               maxLength={1000}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
         </div>
@@ -410,7 +410,7 @@ const PolicyForm: React.FC<{
               min={1}
               value={form.repeatIntervalMinutes}
               onChange={(e) => updateField('repeatIntervalMinutes', parseInt(e.target.value, 10) || 5)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
@@ -422,7 +422,7 @@ const PolicyForm: React.FC<{
               min={0}
               value={form.maxRepeats}
               onChange={(e) => updateField('maxRepeats', parseInt(e.target.value, 10) || 0)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
@@ -434,7 +434,7 @@ const PolicyForm: React.FC<{
               min={0}
               value={form.priority}
               onChange={(e) => updateField('priority', parseInt(e.target.value, 10) || 0)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
@@ -446,7 +446,7 @@ const PolicyForm: React.FC<{
               value={form.timezone}
               onChange={(e) => updateField('timezone', e.target.value)}
               placeholder="Europe/Istanbul"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
         </div>
@@ -460,7 +460,7 @@ const PolicyForm: React.FC<{
               onChange={(e) => updateField('isDefault', e.target.checked)}
               className="sr-only peer"
             />
-            <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-cyan-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
+            <div className="w-9 h-5 bg-gray-200 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
           </label>
           <span className="text-sm text-gray-700">Varsayilan politika olarak ayarla</span>
         </div>
@@ -550,7 +550,7 @@ const SuppressionWindowManager: React.FC<{
                 onChange={(e) => setWindowForm((f) => ({ ...f, name: e.target.value }))}
                 placeholder="Ornegin: Planli Bakim"
                 required
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
             <div>
@@ -560,7 +560,7 @@ const SuppressionWindowManager: React.FC<{
                 value={windowForm.reason}
                 onChange={(e) => setWindowForm((f) => ({ ...f, reason: e.target.value }))}
                 placeholder="Opsiyonel"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
           </div>
@@ -572,7 +572,7 @@ const SuppressionWindowManager: React.FC<{
                 value={windowForm.startTime}
                 onChange={(e) => setWindowForm((f) => ({ ...f, startTime: e.target.value ? new Date(e.target.value).toISOString() : '' }))}
                 required
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
             <div>
@@ -582,7 +582,7 @@ const SuppressionWindowManager: React.FC<{
                 value={windowForm.endTime}
                 onChange={(e) => setWindowForm((f) => ({ ...f, endTime: e.target.value ? new Date(e.target.value).toISOString() : '' }))}
                 required
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
           </div>
@@ -594,7 +594,7 @@ const SuppressionWindowManager: React.FC<{
                 onChange={(e) => setWindowForm((f) => ({ ...f, isRecurring: e.target.checked }))}
                 className="sr-only peer"
               />
-              <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-cyan-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
+              <div className="w-9 h-5 bg-gray-200 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
             </label>
             <span className="text-sm text-gray-700">Tekrarlayan</span>
           </div>
@@ -606,7 +606,7 @@ const SuppressionWindowManager: React.FC<{
                 value={windowForm.recurringPattern}
                 onChange={(e) => setWindowForm((f) => ({ ...f, recurringPattern: e.target.value }))}
                 placeholder="0 2 * * 0 (her pazar 02:00)"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
           )}
@@ -792,7 +792,7 @@ const CloneDialog: React.FC<{
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
           />
         </div>
         <div className="flex items-center justify-end gap-3">

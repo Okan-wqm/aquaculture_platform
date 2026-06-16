@@ -1200,7 +1200,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
       <button
         type="button"
         onClick={() => onChange(!enabled)}
-        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
           enabled ? 'bg-blue-600' : 'bg-gray-300'
         }`}
       >
@@ -1349,7 +1349,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                       type="time"
                       value={notifPrefs.quietHoursStart}
                       onChange={(e) => updatePref('quietHoursStart', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -1359,7 +1359,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                       type="time"
                       value={notifPrefs.quietHoursEnd}
                       onChange={(e) => updatePref('quietHoursEnd', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -1368,7 +1368,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                       id="quiet-hours-timezone"
                       value={notifPrefs.quietHoursTimezone}
                       onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       <option value="Europe/Istanbul">Istanbul (UTC+3)</option>
                       <option value="UTC">UTC</option>

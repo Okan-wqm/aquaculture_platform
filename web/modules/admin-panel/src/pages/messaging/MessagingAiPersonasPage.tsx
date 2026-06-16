@@ -258,7 +258,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
                 placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
                 value={tenantId}
                 onChange={(e) => setTenantId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white dark:bg-gray-800"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden bg-white dark:bg-gray-800"
               />
             </div>
             <Button

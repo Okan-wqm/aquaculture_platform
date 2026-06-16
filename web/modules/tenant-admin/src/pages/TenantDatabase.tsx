@@ -550,12 +550,12 @@ const TenantDatabase: React.FC = () => {
                 placeholder="Search tables..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
               />
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as 'name' | 'rows' | 'size')}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               >
                 <option value="name">Sort by Name</option>
                 <option value="rows">Sort by Rows</option>

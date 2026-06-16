@@ -94,7 +94,7 @@ function DraggableShift({
           'bg-gray-100 border border-gray-200',
           'hover:bg-gray-200 active:cursor-grabbing',
           'transition-colors select-none',
-          'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
+          'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
           isSelected && 'ring-2 ring-indigo-500 bg-gray-200'
         )}
       >
@@ -125,7 +125,7 @@ function DraggableShift({
         'flex items-center gap-2 px-3 py-2 rounded-lg cursor-grab',
         'border hover:opacity-80 active:cursor-grabbing',
         'transition-colors select-none',
-        'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
+        'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
         isSelected && 'ring-2 ring-indigo-500'
       )}
       style={{

@@ -101,7 +101,7 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Operations"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               required
             />
           </div>
@@ -116,7 +116,7 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
               onChange={(e) => setCode(e.target.value.toUpperCase())}
               placeholder="e.g. OPS"
               maxLength={20}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               required
             />
           </div>
@@ -130,7 +130,7 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
               onChange={(e) => setDescription(e.target.value)}
               rows={3}
               placeholder="Brief description of the department"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             />
           </div>
 
@@ -144,7 +144,7 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
                 value={budgetCode}
                 onChange={(e) => setBudgetCode(e.target.value)}
                 placeholder="e.g. BC-001"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               />
             </div>
             <div>
@@ -156,7 +156,7 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
                 value={costCenter}
                 onChange={(e) => setCostCenter(e.target.value)}
                 placeholder="e.g. CC-001"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               />
             </div>
           </div>

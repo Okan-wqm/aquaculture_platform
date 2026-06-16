@@ -91,7 +91,7 @@ const CardHeader = memo<CardHeaderProps>(
             e.stopPropagation();
             onToggleMaximize();
           }}
-          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400"
+          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
           aria-label={isMaximized ? 'Restore card' : 'Maximize card'}
         >
           {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
@@ -102,7 +102,7 @@ const CardHeader = memo<CardHeaderProps>(
             e.stopPropagation();
             onClose();
           }}
-          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-red-400 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400"
+          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-red-400 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
           aria-label="Close card"
         >
           <X size={12} />

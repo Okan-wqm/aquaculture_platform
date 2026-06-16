@@ -256,7 +256,7 @@ const PlanManagementPage: React.FC = () => {
 
       {/* Plan Details Modal */}
       {showDetails && selectedPlan && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto">
           <Card className="w-full max-w-3xl m-4 p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-start mb-6">
               <div>

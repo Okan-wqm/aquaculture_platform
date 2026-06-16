@@ -250,7 +250,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
       {selectedDayTasks && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={() => setSelectedDayTasks(null)} />
+            <div className="fixed inset-0 bg-gray-500/75" onClick={() => setSelectedDayTasks(null)} />
             <div className="relative bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto">
               <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">

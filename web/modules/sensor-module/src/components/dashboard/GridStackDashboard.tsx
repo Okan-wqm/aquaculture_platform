@@ -132,7 +132,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="fixed inset-0 bg-black bg-opacity-50" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
       <div className="relative min-h-screen flex items-center justify-center p-4">
         <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -149,7 +149,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Enter dashboard name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
 
@@ -162,7 +162,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Layout description"
                 rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
 

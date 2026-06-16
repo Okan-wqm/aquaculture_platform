@@ -592,7 +592,7 @@ export function DataTable<T>({
                 placeholder={searchPlaceholder}
                 value={internalSearch}
                 onChange={(e) => setInternalSearch(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           )}
@@ -751,7 +751,7 @@ export function DataTable<T>({
                             [String(col.key)]: e.target.value || undefined,
                           } as FilterConfig)
                         }
-                        className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                       >
                         <option value="">All</option>
                         {col.filterOptions?.map((opt) => (
@@ -771,7 +771,7 @@ export function DataTable<T>({
                           } as FilterConfig)
                         }
                         placeholder={`Filter ${col.header.toLowerCase()}...`}
-                        className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                       />
                     )}
                   </div>
@@ -877,7 +877,7 @@ export function DataTable<T>({
               <select
                 value={pagination.limit}
                 onChange={(e) => onPageSizeChange?.(Number(e.target.value))}
-                className="px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               >
                 {pageSizeOptions.map((size) => (
                   <option key={size} value={size}>

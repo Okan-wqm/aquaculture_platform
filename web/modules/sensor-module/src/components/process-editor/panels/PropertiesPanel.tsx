@@ -1141,14 +1141,14 @@ export const PropertiesPanel: React.FC = () => {
                       flowRate: e.target.value ? Number(e.target.value) : undefined,
                     })
                   }
-                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 />
                 <select
                   value={selectedEdge.data?.flowUnit || 'L/min'}
                   onChange={(e) =>
                     updateEdgeData(selectedEdge.id, { flowUnit: e.target.value })
                   }
-                  className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="L/min">L/min</option>
                   <option value="m3/h">m³/h</option>

@@ -823,7 +823,7 @@ export const DebugToolsPage: React.FC = () => {
 
       {/* Clear Cache Confirmation Modal */}
       {showClearConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="max-w-md w-full">
             <div className="p-6">
               <div className="flex items-center gap-3 mb-4">
@@ -838,8 +838,8 @@ export const DebugToolsPage: React.FC = () => {
                 </div>
               </div>
               <p className="text-sm text-gray-600 mb-6">
-                Are you sure you want to clear all cache entries? This may cause temporary performance
-                degradation as the cache is rebuilt.
+                Are you sure you want to clear all cache entries? This may briefly degrade performance
+                while the cache is rebuilt.
               </p>
               <div className="flex justify-end gap-3">
                 <Button variant="secondary" onClick={() => setShowClearConfirm(false)}>

@@ -74,7 +74,7 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search widget..."
-            className="flex-1 text-xs bg-transparent outline-none"
+            className="flex-1 text-xs bg-transparent outline-hidden"
             autoFocus
           />
         </div>

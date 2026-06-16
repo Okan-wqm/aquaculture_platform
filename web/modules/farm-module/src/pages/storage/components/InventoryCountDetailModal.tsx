@@ -275,7 +275,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title-inventory-count-detail">
       <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
+        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
 
           {/* Header */}

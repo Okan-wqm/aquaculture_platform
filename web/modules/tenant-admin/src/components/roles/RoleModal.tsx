@@ -239,7 +239,7 @@ export const RoleModal: React.FC<RoleModalProps> = ({
                   placeholder="e.g., Supervisor, Technician"
                   required
                   disabled={role?.isSystem}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100"
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100"
                 />
               </div>
 
@@ -262,7 +262,7 @@ export const RoleModal: React.FC<RoleModalProps> = ({
                       level: parseInt(e.target.value) || 50,
                     }))
                   }
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Higher = more authority (1-100)
@@ -288,7 +288,7 @@ export const RoleModal: React.FC<RoleModalProps> = ({
                 }
                 placeholder="Describe what this role is for..."
                 rows={2}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-tenant-500 resize-none"
+                className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 resize-none"
               />
             </div>
 

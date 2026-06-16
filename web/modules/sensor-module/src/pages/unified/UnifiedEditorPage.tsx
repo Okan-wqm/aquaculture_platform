@@ -98,7 +98,7 @@ const LiveTagsPanel: React.FC = () => {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Tag ara..."
-          className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-cyan-500"
+          className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
         />
       </div>
 
@@ -542,7 +542,7 @@ const UnifiedEditorPage: React.FC = () => {
             value={processName}
             onChange={(e) => setProcessName(e.target.value)}
             placeholder="Project Name"
-            className="text-base font-medium text-gray-900 border-none bg-transparent focus:outline-none focus:ring-0 w-48"
+            className="text-base font-medium text-gray-900 border-none bg-transparent focus:outline-hidden focus:ring-0 w-48"
           />
 
           {isDirty && (
@@ -743,7 +743,7 @@ const UnifiedEditorPage: React.FC = () => {
             onDrop={handleWidgetDrop}
           >
             {!isCanvasReady && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-80 z-10">
+              <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
                 <div className="flex flex-col items-center gap-3">
                   <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
                   <p className="text-gray-600 text-sm">Loading Canvas...</p>

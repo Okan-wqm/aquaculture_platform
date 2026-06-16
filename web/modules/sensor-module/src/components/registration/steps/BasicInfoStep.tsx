@@ -137,7 +137,7 @@ export function BasicInfoStep({ values, onChange, errors = {} }: BasicInfoStepPr
     cat.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
   const inputClassName = (hasError: boolean) =>
-    `w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+    `w-full px-3 py-2 border rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 ${
       hasError ? 'border-red-500' : 'border-gray-300'
     }`;
 

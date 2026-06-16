@@ -427,7 +427,7 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search widgets by name, tag, or category..."
-              className="w-full h-9 pl-9 pr-4 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-full h-9 pl-9 pr-4 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               data-testid="fuxa-search-input"
             />
             {searchQuery && (

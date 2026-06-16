@@ -207,7 +207,7 @@ export const StorageLocationsTab: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={() => setIsModalOpen(false)} />
+            <div className="fixed inset-0 bg-gray-500/75" onClick={() => setIsModalOpen(false)} />
             <div className="relative bg-white rounded-lg shadow-xl sm:max-w-md sm:w-full max-h-[90vh] overflow-y-auto">
               <form onSubmit={handleSubmit}>
                 <div className="px-6 pt-5 pb-4 space-y-4">

@@ -341,7 +341,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
     <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title-record-stock-movement">
       <div className="flex items-center justify-center min-h-screen px-4">
         {/* Backdrop — clicking outside the modal closes it without submitting */}
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
+        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <form onSubmit={handleSubmit}>
             <div className="px-6 pt-5 pb-4 space-y-4">

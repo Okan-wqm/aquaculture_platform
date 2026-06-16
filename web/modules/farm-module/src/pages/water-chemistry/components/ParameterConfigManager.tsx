@@ -44,7 +44,7 @@ const DeleteConfirmDialog: React.FC<{
 }> = ({ config, onConfirm, onCancel, isDeleting }) => (
   <div className="fixed inset-0 z-50 overflow-y-auto">
     <div className="flex items-center justify-center min-h-screen px-4">
-      <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onCancel} />
+      <div className="fixed inset-0 bg-gray-500/75" onClick={onCancel} />
       <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 z-10">
         <div className="flex items-start">
           <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
@@ -253,14 +253,14 @@ export const ParameterConfigManager: React.FC = () => {
         </div>
         <div className="flex items-center space-x-3">
           <button onClick={() => setShowTemplatePicker(true)}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
             </svg>
             Apply Template
           </button>
           <button onClick={() => { setEditingConfig(null); setModalMode('create'); }}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
@@ -326,7 +326,7 @@ export const ParameterConfigManager: React.FC = () => {
                   <td className="px-4 py-3 whitespace-nowrap text-center">
                     <button
                       onClick={() => setEquipmentMappingTarget(config)}
-                      className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                      className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
                       title="Map Equipment"
                     >
                       <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -345,7 +345,7 @@ export const ParameterConfigManager: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-center">
                     <button onClick={() => handleToggleActive(config)}
-                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
                         config.isActive ? 'bg-blue-600' : 'bg-gray-200'
                       }`}
                       role="switch" aria-checked={config.isActive}>

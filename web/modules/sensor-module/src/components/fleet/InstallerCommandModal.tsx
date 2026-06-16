@@ -106,7 +106,7 @@ export function InstallerCommandModal({
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+        className="fixed inset-0 bg-black/50 transition-opacity"
         onClick={onClose}
       />
 
@@ -130,7 +130,7 @@ export function InstallerCommandModal({
             </div>
             <button
               onClick={onClose}
-              className="text-white/80 hover:text-white focus:outline-none p-1 rounded-lg hover:bg-white/10 transition-colors"
+              className="text-white/80 hover:text-white focus:outline-hidden p-1 rounded-lg hover:bg-white/10 transition-colors"
             >
               <X className="w-6 h-6" />
             </button>
@@ -252,7 +252,7 @@ export function InstallerCommandModal({
                 regenerateToken(provisioningData.deviceId);
               }}
               disabled={isRegenerating}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-gray-500 disabled:opacity-50 transition-colors"
             >
               {isRegenerating ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -263,7 +263,7 @@ export function InstallerCommandModal({
             </button>
             <button
               onClick={onClose}
-              className="px-5 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 transition-colors"
+              className="px-5 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 transition-colors"
             >
               Tamam
             </button>

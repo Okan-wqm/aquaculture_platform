@@ -4423,3 +4423,51 @@ Severity: MEDIUM. Discovered 2026-06-14 during S1-CODEGEN, validating that the c
 Status: OPEN (2026-06-14; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-MEDIUM-118 — Tailwind v4 default palette shifts sRGB-hex → oklch (C3 migration accepts it; only custom tokens pinned)
+
+Severity: MEDIUM. Discovered 2026-06-16 by the C3 post-migration adversarial audit (frontend-expert lens).
+
+**Problem:** the C3 Tailwind-4 migration pins every *custom* design-system token (primary/secondary/accent/neutral/status palettes, fonts, type scale, radius, shadows, animations) to its exact v3 value, plus the WCAG-AA `--color-gray-400: #6b7280` override. But the *default* Tailwind palette — `gray-50…900`, `red/green/blue/yellow/orange-*` used pervasively in `@apply bg-green-100 text-green-800` status badges and inline classes — is NOT pinned, so v4 emits it in **oklch** (e.g. `--color-gray-200: oklch(92.8% .006 264.531)`, `--color-red-100: oklch(93.6% .032 17.717)`) where v3 emitted sRGB hex. The two are perceptually close but not pixel-identical, and oklch can render more saturated on wide-gamut (P3) displays.
+
+**Effect:** subtle, repo-wide color drift on default-palette shades. Invisible to `vite build` (the CSS compiles either way). This is the single largest appearance-fidelity gap in the migration and is exactly what the still-pending **plan-S7 Playwright screenshot diff** must adjudicate.
+
+**Why accepted (not pinned):** pinning the entire default palette to v3 hex would (a) defeat v4's deliberate oklch color-space improvement, (b) require maintaining ~80 hardcoded shade overrides in `theme.css` forever, and (c) re-introduce the maintenance burden CSS-first config was meant to remove. The architecturally correct posture is to accept oklch as v4's default and gate the residual delta with the visual-regression screenshot diff — NOT to merge C3 on build-green alone.
+
+**Fix direction:** run the plan-S7 Playwright screenshot gate against C3; if any flow exceeds the visual-diff threshold on a default-palette color, pin ONLY those specific shades in `theme.css @theme`. Otherwise document the oklch shift as accepted and close.
+
+Status: OPEN (2026-06-16; owner: frontend-expert; gated on plan-S7 visual diff before C3 #491 merge). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-119 — hydroponics-module is unstyled standalone + carries unused Tailwind devDeps
+
+Severity: LOW. Discovered 2026-06-16 by the C3 post-migration audit (frontend-expert + supply-chain lenses).
+
+**Problem:** `web/modules/hydroponics-module` renders ~89 Tailwind classNames across its source but has no CSS entry, no `postcss.config.js`, and its `main.tsx` imports no stylesheet — so `npm run dev` / `vite preview` standalone (port 3008) is completely unstyled. It renders correctly only as a federation remote (the shell's `@source '../../../modules'` generates its classes and the shell ships the CSS). The C3 dep-bump added `tailwindcss@4.3.1` + `@tailwindcss/postcss` to its devDeps, which nothing consumes — implying a standalone build path that does not exist.
+
+**Effect:** standalone dev/preview of hydroponics shows unstyled markup (pre-existing — the v3 setup had no config/CSS either). The unused devDeps are dead weight, not a runtime fault.
+
+**Why not fixed in C3:** C3's scope is the federation styling pipeline (shell + remotes-via-shell). Whether hydroponics standalone dev is a supported workflow is a product decision, not a migration step.
+
+**Fix direction:** if standalone hydroponics dev is supported, add a CSS entry mirroring the other remotes (`@import 'tailwindcss'` + shared-ui theme import + `@source` + border compat layer) + a `postcss.config.js` and import it in `main.tsx`. If hydroponics is only ever a shell remote, drop `tailwindcss` + `@tailwindcss/postcss` from its devDependencies.
+
+Status: OPEN (2026-06-16; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-LOW-120 — libs/ render Tailwind classes but are in no content/@source glob (works only by class-overlap coincidence)
+
+Severity: LOW. Discovered 2026-06-16 by the C3 post-migration audit (frontend-expert lens).
+
+**Problem:** `libs/farm-shared/src/components/DynamicMeasurementForm.tsx` and `libs/node-components/**` render Tailwind utility classes, but `libs/` was never listed in any v3 `tailwind.config.js` `content` glob and is not in the C3 v4 `@source` set either (the migration faithfully reproduced the v3 globs: shell + modules + shared-ui). Their classes generate only because they coincidentally overlap classes already emitted from scanned source (`bg-gray-*`, `text-gray-*`, etc.).
+
+**Effect:** none today (the overlapping common classes are always present). The latent risk: a lib that introduces a class used *nowhere else* (e.g. an unusual `bg-fuchsia-300`) would silently fail to render. Pre-existing — identical behavior under v3.
+
+**Why not fixed in C3:** C3 is an appearance-preserving migration; adding `libs/` to `@source` would change which classes are emitted vs v3 (scope creep + bundle-size delta), so it is deliberately out of the faithful-migration scope.
+
+**Fix direction:** add `@source` lines for `libs/farm-shared/src` + `libs/node-components` to the consuming remotes' CSS entries (sensor-module + farm-module) and the shell, OR move the shared components into `shared-ui` (already scanned). Pairs naturally with a future shared-component consolidation.
+
+Status: OPEN (2026-06-16; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---

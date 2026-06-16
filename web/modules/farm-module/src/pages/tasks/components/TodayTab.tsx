@@ -55,10 +55,11 @@ export const TodayTab: React.FC<TodayTabProps> = ({
     : [...new Set(todayTasks.map(t => JSON.stringify({ id: t.assignedTo, name: t.assignedToName })))].map(s => JSON.parse(s));
 
   const statCards = [
-    { label: 'Bugün Toplam', value: stats.totalToday, color: 'bg-blue-500', icon: '📋' },
-    { label: 'Tamamlanan', value: stats.completedToday, color: 'bg-green-500', icon: '✅' },
-    { label: 'Gecikmiş', value: stats.overdueCount, color: 'bg-red-500', icon: '⚠️' },
-    { label: 'Yaklaşan', value: stats.upcomingCount, color: 'bg-yellow-500', icon: '⏰' },
+    // Tailwind v4 removed `bg-opacity-*`; bake the 10% alpha into the color token via slash syntax.
+    { label: 'Bugün Toplam', value: stats.totalToday, color: 'bg-blue-500/10', icon: '📋' },
+    { label: 'Tamamlanan', value: stats.completedToday, color: 'bg-green-500/10', icon: '✅' },
+    { label: 'Gecikmiş', value: stats.overdueCount, color: 'bg-red-500/10', icon: '⚠️' },
+    { label: 'Yaklaşan', value: stats.upcomingCount, color: 'bg-yellow-500/10', icon: '⏰' },
   ];
 
   return (
@@ -72,7 +73,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
                 <p className="text-sm text-gray-500">{card.label}</p>
                 <p className="text-2xl font-bold text-gray-900 mt-1">{card.value}</p>
               </div>
-              <div className={`w-12 h-12 ${card.color} bg-opacity-10 rounded-lg flex items-center justify-center text-xl`}>
+              <div className={`w-12 h-12 ${card.color} rounded-lg flex items-center justify-center text-xl`}>
                 {card.icon}
               </div>
             </div>

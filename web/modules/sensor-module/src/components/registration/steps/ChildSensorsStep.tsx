@@ -167,7 +167,7 @@ export function ChildSensorsStep({
                           )}
                           <button
                             onClick={() => onEditSensor(sensor)}
-                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                           >
                             {sensor.isConfigured ? 'Edit' : 'Configure'}
                             <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -81,7 +81,7 @@ const MappingRow: React.FC<{
       <button
         onClick={() => onToggleActive(mapping)}
         disabled={isUpdating}
-        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
           mapping.isActive ? 'bg-blue-600' : 'bg-gray-200'
         }`}
         role="switch"
@@ -214,7 +214,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
+        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl max-w-3xl w-full z-10">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
@@ -228,7 +228,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
             </div>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-500 focus:outline-none"
+              className="text-gray-400 hover:text-gray-500 focus:outline-hidden"
             >
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
@@ -455,7 +455,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
               {!showAddForm && (
                 <button
                   onClick={() => setShowAddForm(true)}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                 >
                   <svg
                     className="w-4 h-4 mr-2"

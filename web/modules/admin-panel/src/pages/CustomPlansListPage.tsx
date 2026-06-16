@@ -343,7 +343,7 @@ const CustomPlansListPage: React.FC = () => {
           </div>
           <div>
             <select
-              className="w-full sm:w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full sm:w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               value={statusFilter}
               onChange={(e) =>
                 setStatusFilter(e.target.value as CustomPlanStatus | 'all')
@@ -595,7 +595,7 @@ const CustomPlansListPage: React.FC = () => {
 
       {/* Reject Modal */}
       {rejectModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <Card className="w-full max-w-md p-6">
             <h3 className="text-lg font-semibold mb-2">Reject Plan</h3>
             <p className="text-sm text-gray-500 mb-4">
@@ -608,7 +608,7 @@ const CustomPlansListPage: React.FC = () => {
                   Rejection Reason <span className="text-red-500">*</span>
                 </label>
                 <textarea
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none"
                   rows={3}
                   placeholder="Explain why this plan is being rejected..."
                   value={rejectReason}
@@ -641,7 +641,7 @@ const CustomPlansListPage: React.FC = () => {
 
       {/* Clone Modal */}
       {cloneModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <Card className="w-full max-w-md p-6">
             <h3 className="text-lg font-semibold mb-2">Clone Plan</h3>
             <p className="text-sm text-gray-500 mb-4">

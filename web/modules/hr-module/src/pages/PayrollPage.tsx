@@ -227,7 +227,7 @@ function CreatePayrollModal({
                     id="payroll-payPeriodType"
                     value={payPeriodType}
                     onChange={(e) => setPayPeriodType(e.target.value as PayPeriodType)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   >
                     {Object.entries(PAY_PERIOD_TYPE_LABELS).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -245,7 +245,7 @@ function CreatePayrollModal({
                     id="payroll-currency"
                     value={currency}
                     onChange={(e) => setCurrency(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   >
                     <option value="USD">USD</option>
                     <option value="EUR">EUR</option>
@@ -265,7 +265,7 @@ function CreatePayrollModal({
                     value={payPeriodStart}
                     onChange={(e) => setPayPeriodStart(e.target.value)}
                     required
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   />
                 </div>
 
@@ -279,7 +279,7 @@ function CreatePayrollModal({
                     value={payPeriodEnd}
                     onChange={(e) => setPayPeriodEnd(e.target.value)}
                     required
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                   />
                 </div>
               </div>
@@ -312,7 +312,7 @@ function CreatePayrollModal({
                         step="0.5"
                         value={value}
                         onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                       />
                     </div>
                   );
@@ -346,7 +346,7 @@ function CreatePayrollModal({
                         step="0.01"
                         value={value}
                         onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                       />
                     </div>
                   );
@@ -383,7 +383,7 @@ function CreatePayrollModal({
                         step="0.01"
                         value={value}
                         onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                       />
                     </div>
                   );
@@ -418,7 +418,7 @@ function CreatePayrollModal({
                 rows={2}
                 maxLength={1000}
                 placeholder="Optional notes..."
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               />
             </div>
           </div>
@@ -813,7 +813,7 @@ const PayrollPage: React.FC = () => {
             placeholder="Search payrolls..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
           />
         </div>
 

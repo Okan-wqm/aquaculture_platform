@@ -1160,7 +1160,7 @@ const HarvestPlanFormModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black bg-opacity-30" onClick={onClose} />
+        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
 
         <div className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
           {/* Header */}
@@ -2072,7 +2072,7 @@ const CompleteHarvestModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black bg-opacity-30" onClick={onClose} />
+        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
 
         <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
@@ -2189,7 +2189,7 @@ const ScheduleModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black bg-opacity-30" onClick={onClose} />
+        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
 
         <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
@@ -2263,7 +2263,7 @@ const PostponeModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black bg-opacity-30" onClick={onClose} />
+        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
 
         <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
@@ -2331,7 +2331,7 @@ const ConfirmDeleteModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black bg-opacity-30" onClick={onClose} />
+        <div className="fixed inset-0 bg-black/30" onClick={onClose} />
 
         <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6">
           <div className="flex items-center gap-4 mb-4">
@@ -2657,7 +2657,7 @@ export const HarvestPlansPage: React.FC = () => {
               </button>
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 New Plan

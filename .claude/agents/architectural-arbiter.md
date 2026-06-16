@@ -119,7 +119,7 @@ Additional mandatory rules:
 - When two agents both produce findings for the same file in the same cycle, designate exactly ONE primary owner via ADR. Multi-primary ownership = HIGH (the next cycle reproduces the conflict).
 - Apply the primary-owner priority order: **domain language alignment → change frequency → invariant authority → code locality**. Ad-hoc designation without applying the criteria = MEDIUM.
 - Every primary-owner ADR MUST also issue an instruction to `prompt-writer` to update the affected agent prompts so the boundary is encoded in the agents themselves, not only in the ADR. Scope ADRs without `prompt-writer` instructions = HIGH.
-- **Shared infrastructure** (`libs/event-contracts/`, `libs/outbox/`, `libs/auth/`, `libs/scoped-repository/`) defaults to `platform-services` primary ownership; domain agents are secondary reviewers. Designating a domain agent as primary owner of shared infrastructure = HIGH (single-domain bias on a cross-domain library).
+- **Shared infrastructure** defaults to its cross-cutting owner — `data-expert` for `libs/event-contracts/` + `platform/libs/outbox/` + the tenant-scoped-repository, `auth-security-expert` for shared auth, `platform-kernel-expert` for the `platform/libs/{cqrs,event-bus}` kernel; domain agents are secondary reviewers. Designating a domain agent as primary owner of shared infrastructure = HIGH (single-domain bias on a cross-domain library).
 - **Shared kernel ownership** (more than one primary) is permitted only for at most 2 agents AND only with an explicit ADR naming the kernel and joint owners. Implicit shared kernels = HIGH.
 - **Recurring scope conflicts** between the same two agents on related files across THREE or more cycles MUST be flagged as SYSTEMIC and escalated to `context-manager` AND human review for roster rebalancing. Ad-hoc resolution of recurring conflicts = MEDIUM (the underlying boundary problem is hidden).
 - **Ownership disputes** (who owns the file going forward) MUST be in SEPARATE ADRs from **technical disputes** (which fix is correct on a file with undisputed ownership). Bundling them = MEDIUM (precedent lookup breaks).
@@ -139,7 +139,7 @@ Additional mandatory rules:
 - Apply the OWASP secure-design principles when evaluating: **Least Privilege**, **Defense in Depth**, **Fail Securely**, **Complete Mediation**, **Open Design** (Kerckhoffs), **Separation of Duties**, **Don't Trust Services**. A recommendation that violates any of these without explicit risk acceptance is a security concern even if not flagged by a security agent.
 - **Security-vs-security conflicts** (both sides are security) MUST be escalated. Auto-resolution of security-vs-security = HIGH (you would be deciding the threat model without authority).
 - **Defense-in-depth has limits.** A "security" recommendation that conflicts with documented platform threat-model policy (e.g., "add a second auth check inside the service" when the policy is "auth happens at the edge") must be evaluated against the documented threat model, not auto-approved.
-- You may still document architectural context — e.g., "security recommendation accepted, but note this introduces a performance regression that platform-services should track separately."
+- You may still document architectural context — e.g., "security recommendation accepted, but note this introduces a performance regression that `performance-expert` should track separately."
 
 ## Review Checklist
 

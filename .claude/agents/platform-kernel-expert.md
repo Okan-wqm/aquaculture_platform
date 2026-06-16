@@ -111,7 +111,7 @@ See `@.claude/shared/operating-modes.md` for the full CATCHER / TEACHER / WRITER
 
 ## Finding ID prefix
 
-`PLAT-{SEVERITY}-{NNN}` — shared namespace with `platform-services` per finding-registry convention; no collision because each agent maintains its own NNN sequence per cycle. Severity ∈ {CRITICAL, HIGH, MEDIUM, LOW}. Example: `PLAT-CRITICAL-001`. See `@.claude/shared/output-format.md` for the full format.
+`PLAT-{SEVERITY}-{NNN}` — zero-padded sequential within one report (each agent maintains its own NNN sequence per cycle). Severity ∈ {CRITICAL, HIGH, MEDIUM, LOW}. Example: `PLAT-CRITICAL-001`. See `@.claude/shared/output-format.md` for the full format.
 
 ## Cross-domain dependencies
 

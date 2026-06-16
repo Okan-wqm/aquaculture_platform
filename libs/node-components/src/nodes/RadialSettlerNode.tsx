@@ -3,8 +3,8 @@
  * Conical settling tank with 3 toggleable handles
  */
 
-import React, { useEffect, useState } from 'react';
 import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, Position, type Node } from '@xyflow/react';
+import React, { useEffect, useState } from 'react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';

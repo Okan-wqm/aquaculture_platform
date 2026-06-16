@@ -4,8 +4,8 @@
  * and 4 toggleable connection points (right-click to toggle input/output)
  */
 
-import React, { memo, useState, useCallback, useEffect } from 'react';
 import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals, type Node } from '@xyflow/react';
+import React, { memo, useState, useCallback, useEffect } from 'react';
 import { getEquipmentSize, ConnectionPointPosition, ConnectionPointType } from '../config/equipmentTypes';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
@@ -162,10 +162,10 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
 
   // Local state for connection points
   const [connectionPoints, setConnectionPoints] = useState({
-    top: data.connectionPoints?.top || 'input' as ConnectionPointType,
-    right: data.connectionPoints?.right || 'output' as ConnectionPointType,
-    bottom: data.connectionPoints?.bottom || 'output' as ConnectionPointType,
-    left: data.connectionPoints?.left || 'input' as ConnectionPointType,
+    top: data.connectionPoints?.top || 'input',
+    right: data.connectionPoints?.right || 'output',
+    bottom: data.connectionPoints?.bottom || 'output',
+    left: data.connectionPoints?.left || 'input',
   });
 
   // Sync with data changes

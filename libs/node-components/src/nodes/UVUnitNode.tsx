@@ -3,8 +3,8 @@
  * UV Disinfection unit using BaseNode architecture for rotation support
  */
 
-import React from 'react';
 import type { NodeProps, Node } from '@xyflow/react';
+import React from 'react';
 import BaseNode from './BaseNode';
 import { NodeRegistry } from '../registry/NodeRegistry';
 

@@ -3,8 +3,8 @@
  * Faivre 200 Drum Filter with 5 toggleable handles
  */
 
-import React, { useState, useEffect } from 'react';
 import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, Position, type Node } from '@xyflow/react';
+import React, { useState, useEffect } from 'react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';

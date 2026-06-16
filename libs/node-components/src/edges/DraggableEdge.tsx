@@ -10,8 +10,8 @@
  * - Smooth curve transitions
  */
 
-import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent } from 'react';
 import { EdgeProps, Position, useReactFlow, type Edge } from '@xyflow/react';
+import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent } from 'react';
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
 /* -------------------------------------------------- */

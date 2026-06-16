@@ -3,8 +3,8 @@
  * High-Efficiency Particulate Air filter for air handling
  */
 
-import React, { useState, useEffect } from 'react';
 import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
+import React, { useState, useEffect } from 'react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';

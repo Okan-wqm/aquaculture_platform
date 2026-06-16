@@ -3,8 +3,8 @@
  * Water inlet pipe with distribution holes, rotation support and toggleable handles
  */
 
-import React, { useState, useEffect } from 'react';
 import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, type Node } from '@xyflow/react';
+import React, { useState, useEffect } from 'react';
 import { rotatePoint } from '../utils/rotatePoint';
 import { NodeRegistry } from '../registry/NodeRegistry';
 

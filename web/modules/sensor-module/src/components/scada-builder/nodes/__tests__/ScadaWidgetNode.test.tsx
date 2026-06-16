@@ -18,6 +18,8 @@ import type { ScadaRuntimeContextValue } from '../../../../engine/ScadaRuntime';
 import { TagValueBus } from '../../../../engine/tags/TagValueBus';
 import { WidgetEventBus } from '../../../../engine/events/WidgetEventBus';
 import { DEFAULT_ANIMATION_STATE } from '../../../../engine/animation/types';
+import type { NodeProps, Node } from '@xyflow/react';
+import type { ScadaWidgetNodeData } from '../../../../types/scada-widget.types';
 
 // React act() uyarisini sustur — test ortaminda act destegi etkinlestir
 // Silence React act() warning — enable act support in test environment
@@ -139,23 +141,13 @@ function createRuntimeValue(): ScadaRuntimeContextValue {
 /*  Dynamic import because mocks must be registered first              */
 /* ------------------------------------------------------------------ */
 
-let ScadaWidgetNodeDefault: React.FC<{
-  id: string;
-  data: ReturnType<typeof createMinimalNodeData>;
-  selected: boolean;
-  type: string;
-  zIndex: number;
-  isConnectable: boolean;
-  xPos: number;
-  yPos: number;
-  dragging: boolean;
-}>;
+let ScadaWidgetNodeDefault: React.NamedExoticComponent<NodeProps<Node<ScadaWidgetNodeData>>>;
 
 beforeEach(async () => {
   // Dinamik import — mock'lar etkinlestikten sonra yukle
   // Dynamic import — load after mocks are active
   const mod = await import('../ScadaWidgetNode');
-  ScadaWidgetNodeDefault = mod.default as typeof ScadaWidgetNodeDefault;
+  ScadaWidgetNodeDefault = mod.default;
 });
 
 /* ------------------------------------------------------------------ */
@@ -183,8 +175,8 @@ describe('ScadaWidgetNode — Rules of Hooks fix', () => {
     selected: false,
     zIndex: 1,
     isConnectable: true,
-    xPos: 0,
-    yPos: 0,
+    positionAbsoluteX: 0,
+    positionAbsoluteY: 0,
     dragging: false,
   };
 

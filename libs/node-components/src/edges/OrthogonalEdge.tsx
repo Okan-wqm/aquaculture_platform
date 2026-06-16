@@ -11,8 +11,8 @@
  * - Double-click on segment to add bend
  */
 
-import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo } from 'react';
 import { EdgeProps, Position, useReactFlow, type Edge } from '@xyflow/react';
+import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo } from 'react';
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
 /**

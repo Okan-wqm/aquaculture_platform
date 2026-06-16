@@ -3,8 +3,8 @@
  * Small connection point with 4 toggleable handles (top, bottom, left, right)
  */
 
-import React, { useState, useEffect } from 'react';
 import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, type Node } from '@xyflow/react';
+import React, { useState, useEffect } from 'react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';

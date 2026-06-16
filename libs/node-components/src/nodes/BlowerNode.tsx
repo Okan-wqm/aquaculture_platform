@@ -3,8 +3,8 @@
  * Lobe Blower with rotation support and toggleable inlet/outlet handles
  */
 
-import React, { useEffect, useState } from 'react';
 import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, Position, type Node } from '@xyflow/react';
+import React, { useEffect, useState } from 'react';
 import { rotatePoint } from '../utils/rotatePoint';
 import { NodeRegistry } from '../registry/NodeRegistry';
 

@@ -5,6 +5,8 @@
  */
 import { NotFoundException } from '@nestjs/common';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { TransferBatchHandler } from '../../handlers/transfer-batch.handler';
 import { TransferBatchCommand } from '../../commands/transfer-batch.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
@@ -60,6 +62,9 @@ describe('TransferBatchHandler', () => {
       createMockRepository() as any,
       mockOutboxPublisher as any,
       mockTankCapacityService as any,
+      // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
+      // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
+      new SiteAuthorizationService(),
       ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
       new MobileCommandReceiptService(),
     );
@@ -82,6 +87,8 @@ describe('TransferBatchHandler', () => {
             quantity: 100,
           },
           USER,
+          [Role.MODULE_MANAGER],
+          [],
           TRANSFER_ENVELOPE,
         ),
       ),
@@ -167,6 +174,8 @@ describe('TransferBatchHandler', () => {
           quantity: 100,
         },
         USER,
+        [Role.MODULE_MANAGER],
+        [],
         TRANSFER_ENVELOPE,
       ),
     );
@@ -200,6 +209,8 @@ describe('TransferBatchHandler', () => {
             quantity: 100,
           },
           USER,
+          [Role.MODULE_MANAGER],
+          [],
           TRANSFER_ENVELOPE,
         ),
       ),

@@ -6,6 +6,7 @@
  *
  * @module Batch/Commands
  */
+import { Role } from '@aquaculture/backend-common/decorators';
 import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 import { ITenantCommand } from '@platform/cqrs';
 
@@ -32,6 +33,9 @@ export class RecordCullCommand implements ITenantCommand {
     public readonly batchId: string,
     public readonly payload: RecordCullPayload,
     public readonly recordedBy: string,
+    // SEC-HIGH-051: caller authz context for the object-level site check.
+    public readonly userRoles: Role[] = [],
+    public readonly callerAssignedSiteIds: string[] = [],
     public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

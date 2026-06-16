@@ -18,6 +18,7 @@
  * @module Batch/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -40,7 +41,7 @@ import { Batch } from '../entities/batch.entity';
 import { TankAllocation, AllocationType } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
-import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
+import { findTankOrEquipmentWithManager, resolveTankSiteId } from '../utils/tank-lookup.util';
 
 // Note: TransferResult interface kept for internal tracking but handler returns Batch for GraphQL compatibility
 export interface TransferResult {
@@ -73,6 +74,8 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankCapacityService: TankCapacityService,
+    // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
+    private readonly siteAuth: SiteAuthorizationService,
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
     private readonly mobileCommandReceipts: MobileCommandReceiptService =
@@ -156,6 +159,22 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       }
 
       const destinationTank = destLookup.equipment;
+
+      // SEC-HIGH-051: object-level site authorization for BOTH legs. A transfer
+      // touches the source AND destination site; asserting only one leaves a
+      // cross-site escape (move stock OUT of an unassigned site into an assigned
+      // one). Resolve each tank's site inside this transaction and assert each.
+      // A legitimate cross-site transfer is therefore restricted to
+      // MODULE_MANAGER+ (the canonical bypass) — managers own cross-site moves.
+      const siteCaller = {
+        sub: transferredBy,
+        roles: command.userRoles,
+        assignedSiteIds: command.callerAssignedSiteIds,
+      };
+      const sourceSiteId = await resolveTankSiteId(queryRunner.manager, payload.sourceTankId, tenantId);
+      this.siteAuth.assertSiteAssignment({ caller: siteCaller, siteId: sourceSiteId });
+      const destSiteId = await resolveTankSiteId(queryRunner.manager, payload.destinationTankId, tenantId);
+      this.siteAuth.assertSiteAssignment({ caller: siteCaller, siteId: destSiteId });
 
       // Source TankBatch with pessimistic lock
       const sourceTankBatch = await queryRunner.manager.findOne(TankBatch, {

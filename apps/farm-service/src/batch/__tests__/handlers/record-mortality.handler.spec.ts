@@ -10,8 +10,10 @@
  *
  * @module Batch/Tests
  */
-import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { DataSource, Repository, EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
@@ -26,6 +28,7 @@ import { TankBatch } from '../../entities/tank-batch.entity';
 import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { EquipmentType } from '../../../equipment/entities/equipment-type.entity';
+import { Department } from '../../../department/entities/department.entity';
 
 const ENVELOPE = { clientCommandId: 'cmd-1', payloadHash: 'hash-1' };
 
@@ -135,14 +138,27 @@ describe('RecordMortalityHandler', () => {
     observedAt: Date;
     avgWeightG: number;
     envelope: { clientCommandId: string; payloadHash: string } | undefined;
+    // SEC-HIGH-051: domain-logic tests default to a MODULE_MANAGER so site authz
+    // bypasses via the canonical hierarchy; the dedicated site-authz suite below
+    // exercises the MODULE_USER deny/allow paths explicitly.
+    userRoles: Role[];
+    callerAssignedSiteIds: string[];
   }> = {}) {
-    return new RecordMortalityCommand(tenantId, batchId, {
-      tankId,
-      quantity,
-      reason: overrides.reason ?? MortalityReason.DISEASE,
-      observedAt: overrides.observedAt ?? new Date(),
-      avgWeightG: overrides.avgWeightG,
-    }, 'user-001', 'envelope' in overrides ? overrides.envelope : ENVELOPE);
+    return new RecordMortalityCommand(
+      tenantId,
+      batchId,
+      {
+        tankId,
+        quantity,
+        reason: overrides.reason ?? MortalityReason.DISEASE,
+        observedAt: overrides.observedAt ?? new Date(),
+        avgWeightG: overrides.avgWeightG,
+      },
+      'user-001',
+      overrides.userRoles ?? [Role.MODULE_MANAGER],
+      overrides.callerAssignedSiteIds ?? [],
+      'envelope' in overrides ? overrides.envelope : ENVELOPE,
+    );
   }
 
   function buildHandler(
@@ -182,6 +198,8 @@ describe('RecordMortalityHandler', () => {
       outboxPublisher,
       backdatePolicy as any,
       auditLogService,
+      // SEC-HIGH-051: the real SSoT — fail-closed object-level site authz.
+      new SiteAuthorizationService(),
       new MortalityCullPolicyService(),
       farmStockProjection,
       mobileCommandReceipts,
@@ -439,6 +457,69 @@ describe('RecordMortalityHandler', () => {
         manager,
         expect.objectContaining({ action: 'MORTALITY_RECORDED', entityId: batchId, tenantId }),
       );
+    });
+  });
+
+  describe('SEC-HIGH-051 object-level site authorization', () => {
+    const SITE_A = 'site-a';
+    const SITE_B = 'site-b';
+    const DEPT = 'dept-1';
+
+    // Wires the manager so resolveTankSiteId resolves the tank → DEPT → SITE_A.
+    function wireSiteResolution(manager: MockManager, departmentSiteId: string | null): void {
+      manager.findOne.mockImplementation((entity: unknown) => {
+        if (entity === Batch) return Promise.resolve(makeBatch());
+        if (entity === Equipment) return Promise.resolve(makeEquipment({ departmentId: DEPT }));
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch());
+        if (entity === Department) return Promise.resolve(departmentSiteId ? { id: DEPT, siteId: departmentSiteId } : null);
+        return Promise.resolve(null);
+      });
+    }
+
+    it('rejects a MODULE_USER whose assigned sites do NOT include the tank site (cross-site, no write)', async () => {
+      const { handler, manager, outboxPublisher } = buildHandler();
+      wireSiteResolution(manager, SITE_A);
+
+      await expect(
+        handler.execute(
+          makeCommand(50, { userRoles: [Role.MODULE_USER], callerAssignedSiteIds: [SITE_B] }),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      // No stock write / event must occur on an authz denial.
+      expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('allows a MODULE_USER assigned to the tank site (same-site)', async () => {
+      const { handler, manager, outboxPublisher } = buildHandler();
+      wireSiteResolution(manager, SITE_A);
+
+      await handler.execute(
+        makeCommand(50, { userRoles: [Role.MODULE_USER], callerAssignedSiteIds: [SITE_A] }),
+      );
+      expect(outboxPublisher.enqueue).toHaveBeenCalled();
+    });
+
+    it('allows a MODULE_MANAGER with no assigned sites (canonical hierarchy bypass)', async () => {
+      const { handler, manager, outboxPublisher } = buildHandler();
+      wireSiteResolution(manager, SITE_A);
+
+      await handler.execute(
+        makeCommand(50, { userRoles: [Role.MODULE_MANAGER], callerAssignedSiteIds: [] }),
+      );
+      expect(outboxPublisher.enqueue).toHaveBeenCalled();
+    });
+
+    it('fail-closed: denies a MODULE_USER when the tank site is unresolved (null)', async () => {
+      const { handler, manager, outboxPublisher } = buildHandler();
+      // Department has no siteId → resolveTankSiteId returns null → deny.
+      wireSiteResolution(manager, null);
+
+      await expect(
+        handler.execute(
+          makeCommand(50, { userRoles: [Role.MODULE_USER], callerAssignedSiteIds: [SITE_A] }),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
     });
   });
 });

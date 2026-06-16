@@ -30,6 +30,46 @@ export class AssignUserToModuleInput {
 }
 
 /**
+ * Input for assigning a user to a farm-service Site (SEC-HIGH-051).
+ *
+ * WHY: auth.user_site_assignments is the SSoT for object-level site membership
+ * but had NO write-path — every MODULE_USER was minted with assignedSiteIds:[]
+ * forever and denied on every site-scoped op. This is the TENANT_ADMIN-gated
+ * management surface, mirroring AssignUserToModuleInput.
+ *
+ * `userId` is an existing tenant user (unlike module-assign which can also
+ * create a user). `siteId` is a farm-service Site id (cross-service id, no FK).
+ */
+@InputType()
+export class AssignUserToSiteInput {
+  @Field(() => ID)
+  @IsUUID()
+  userId!: string;
+
+  @Field(() => ID)
+  @IsUUID()
+  siteId!: string;
+}
+
+/**
+ * Result of a site assignment / unassignment (mirrors AssignmentResult).
+ */
+@ObjectType()
+export class SiteAssignmentResult {
+  @Field()
+  success!: boolean;
+
+  @Field()
+  message!: string;
+
+  @Field(() => ID)
+  userId!: string;
+
+  @Field(() => ID)
+  siteId!: string;
+}
+
+/**
  * User Module info for tenant admin
  */
 @ObjectType()

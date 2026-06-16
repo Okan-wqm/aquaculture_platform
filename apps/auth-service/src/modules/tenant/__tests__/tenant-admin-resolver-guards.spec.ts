@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { ROLES_KEY, Role } from '@platform/backend-common';
+import { ROLES_KEY, Role } from '@aquaculture/backend-common/decorators';
 
 import { TenantAdminResolver } from '../resolvers/tenant-admin.resolver';
 
@@ -27,6 +27,25 @@ describe('TenantAdminResolver — Guard Decorators', () => {
 
   it('moduleUsers should require TenantAdminOrHigher', () => {
     const roles = getMethodRoles(TenantAdminResolver.prototype, 'moduleUsers');
+    expect(roles).toBeDefined();
+    expect(roles).toContain(Role.SUPER_ADMIN);
+    expect(roles).toContain(Role.TENANT_ADMIN);
+    expect(roles).not.toContain(Role.MODULE_USER);
+  });
+
+  // SEC-HIGH-051: the new site-assignment write-path must carry the SAME
+  // TenantAdminOrHigher gate as the module-assignment management precedent.
+  it('assignUserToSite should require TenantAdminOrHigher', () => {
+    const roles = getMethodRoles(TenantAdminResolver.prototype, 'assignUserToSite');
+    expect(roles).toBeDefined();
+    expect(roles).toContain(Role.SUPER_ADMIN);
+    expect(roles).toContain(Role.TENANT_ADMIN);
+    expect(roles).not.toContain(Role.MODULE_MANAGER);
+    expect(roles).not.toContain(Role.MODULE_USER);
+  });
+
+  it('unassignUserFromSite should require TenantAdminOrHigher', () => {
+    const roles = getMethodRoles(TenantAdminResolver.prototype, 'unassignUserFromSite');
     expect(roles).toBeDefined();
     expect(roles).toContain(Role.SUPER_ADMIN);
     expect(roles).toContain(Role.TENANT_ADMIN);

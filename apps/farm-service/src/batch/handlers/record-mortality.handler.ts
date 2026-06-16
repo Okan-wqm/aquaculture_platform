@@ -18,6 +18,7 @@
  * @module Batch/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -45,7 +46,7 @@ import { isMortalityReason } from '../entities/tank-operation.enums';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType, MortalityReason } from '../entities/tank-operation.entity';
 import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
-import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
+import { findTankOrEquipmentWithManager, resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
 
 @Injectable()
 @CommandHandler(RecordMortalityCommand)
@@ -71,6 +72,8 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     private readonly outboxPublisher: OutboxPublisher,
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly auditLogService: AuditLogService,
+    // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
+    private readonly siteAuth: SiteAuthorizationService,
     private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
@@ -161,6 +164,26 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       }
 
       const tank = tankLookup.equipment;
+
+      // SEC-HIGH-051: object-level site authorization. The tank is already
+      // loaded+locked above, so resolve its owning site from the known
+      // departmentId (one Department lookup, serialized with the pessimistic
+      // locks) and assert the caller is assigned to it BEFORE any stock write.
+      // MODULE_MANAGER+ bypasses via the canonical hierarchy; a MODULE_USER not
+      // assigned to the site — or an unresolved/site-less department — is DENIED.
+      const tankSiteId = await resolveSiteIdFromDepartment(
+        queryRunner.manager,
+        tank.departmentId,
+        tenantId,
+      );
+      this.siteAuth.assertSiteAssignment({
+        caller: {
+          sub: recordedBy,
+          roles: command.userRoles,
+          assignedSiteIds: command.callerAssignedSiteIds,
+        },
+        siteId: tankSiteId,
+      });
 
       // FARM-CRITICAL-050: reject mortality on a terminal/closed batch. The batch
       // row is pessimistically locked above, so a concurrent status flip is

@@ -6,7 +6,8 @@
  *
  * @module Batch/Resolvers
  */
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { Tenant, CurrentUser, Roles, Role, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { UseGuards, Logger } from '@nestjs/common';
@@ -77,6 +78,10 @@ interface UserContext {
   email: string;
   tenantId: string;
   roles: Role[];
+  // SEC-HIGH-051: the caller's assigned farm Site ids (object-level site authz).
+  assignedSiteIds?: string[];
+  // SEC-HIGH-052: the caller's enabled mobile feature keys (read by the guard).
+  mobileFeatures?: string[];
 }
 
 // Register enums (only those not already registered in their entity/types files)
@@ -99,7 +104,10 @@ type CreateBatchInput = CreateBatchInputDTO;
 // RESOLVER
 // ============================================================================
 
-@UseGuards(GqlAuthGuard)
+// SEC-HIGH-052: MobileFeatureGuard runs alongside the JWT guard; it is a no-op
+// on routes without @RequiresMobileFeature and enforces the mobile entitlement
+// (auth.mobile_user_settings.allowedFeatures) on the annotated mutations below.
+@UseGuards(GqlAuthGuard, MobileFeatureGuard)
 @Resolver(() => Batch)
 export class BatchResolver {
   private readonly logger = new Logger(BatchResolver.name);
@@ -288,6 +296,7 @@ export class BatchResolver {
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @RequiresMobileFeature('mortality')
   @Mutation(() => Batch)
   async recordMortality(
     @Args('input') input: RecordMortalityInput,
@@ -306,11 +315,20 @@ export class BatchResolver {
       ...payload
     } = input;
     return this.commandBus.execute(
-      new RecordMortalityCommand(tenantId, batchId, payload, user.sub, mobileCommandEnvelopeFromInput(input)),
+      new RecordMortalityCommand(
+        tenantId,
+        batchId,
+        payload,
+        user.sub,
+        user.roles,
+        user.assignedSiteIds ?? [],
+        mobileCommandEnvelopeFromInput(input),
+      ),
     );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @RequiresMobileFeature('cull')
   @Mutation(() => Batch)
   async recordCull(
     @Args('input') input: RecordCullInput,
@@ -329,11 +347,23 @@ export class BatchResolver {
       ...payload
     } = input;
     return this.commandBus.execute(
-      new RecordCullCommand(tenantId, batchId, payload, user.sub, mobileCommandEnvelopeFromInput(input)),
+      new RecordCullCommand(
+        tenantId,
+        batchId,
+        payload,
+        user.sub,
+        user.roles,
+        user.assignedSiteIds ?? [],
+        mobileCommandEnvelopeFromInput(input),
+      ),
     );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  // SEC-HIGH-052: placing fish into a tank is a transfer-class field operation,
+  // gated by the same 'transfer' mobile entitlement as transferBatch (its
+  // sibling). Site authz is already enforced at the AllocateToTankHandler sink.
+  @RequiresMobileFeature('transfer')
   @Mutation(() => Batch)
   async allocateBatchToTank(
     @Args('input') input: AllocateToTankInput,
@@ -353,11 +383,20 @@ export class BatchResolver {
     } = input;
     const payload = { ...rest, allocatedAt: rest.allocatedAt || new Date() };
     return this.commandBus.execute(
-      new AllocateToTankCommand(tenantId, batchId, payload, user.sub, user.roles, mobileCommandEnvelopeFromInput(input)),
+      new AllocateToTankCommand(
+        tenantId,
+        batchId,
+        payload,
+        user.sub,
+        user.roles,
+        user.assignedSiteIds ?? [],
+        mobileCommandEnvelopeFromInput(input),
+      ),
     );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @RequiresMobileFeature('transfer')
   @Mutation(() => Batch)
   async transferBatch(
     @Args('input') input: TransferBatchInput,
@@ -377,7 +416,15 @@ export class BatchResolver {
     } = input;
     const payload = { ...rest, transferredAt: rest.transferredAt || new Date() };
     return this.commandBus.execute(
-      new TransferBatchCommand(tenantId, batchId, payload, user.sub, mobileCommandEnvelopeFromInput(input)),
+      new TransferBatchCommand(
+        tenantId,
+        batchId,
+        payload,
+        user.sub,
+        user.roles,
+        user.assignedSiteIds ?? [],
+        mobileCommandEnvelopeFromInput(input),
+      ),
     );
   }
 

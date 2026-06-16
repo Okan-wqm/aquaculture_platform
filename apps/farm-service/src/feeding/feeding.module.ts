@@ -13,7 +13,9 @@
  *
  * @module Feeding
  */
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -97,6 +99,9 @@ import { InventoryModule } from '../storage/storage.module';
     FeedingProgramService,
     DailyFeedingExecutionService,
     MobileCommandReceiptService,
+    // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
+    SiteAuthorizationService,
+    MobileFeatureGuard,
     ...FeedingCommandHandlers,
     ...FeedingQueryHandlers,
     ...FeedingResolvers,

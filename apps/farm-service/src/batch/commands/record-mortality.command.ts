@@ -6,6 +6,7 @@
  *
  * @module Batch/Commands
  */
+import { Role } from '@aquaculture/backend-common/decorators';
 import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 import { ITenantCommand } from '@platform/cqrs';
 
@@ -33,6 +34,12 @@ export class RecordMortalityCommand implements ITenantCommand {
     public readonly batchId: string,
     public readonly payload: RecordMortalityPayload,
     public readonly recordedBy: string,
+    // SEC-HIGH-051: caller authz context for the object-level site check.
+    // userRoles drives the canonical MODULE_MANAGER+ bypass; callerAssignedSiteIds
+    // is the caller's JWT `assignedSiteIds` claim (the sites they may mutate).
+    // Default [] is fail-closed: a non-manager with no sites is DENIED.
+    public readonly userRoles: Role[] = [],
+    public readonly callerAssignedSiteIds: string[] = [],
     public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

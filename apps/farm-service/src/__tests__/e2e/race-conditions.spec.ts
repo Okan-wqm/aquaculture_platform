@@ -9,7 +9,9 @@
  *
  * @module Farm-Service/Tests/E2E
  */
+import { Role } from '@aquaculture/backend-common/decorators';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { DataSource, Repository, EntityManager } from 'typeorm';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { OutboxPublisher } from '@platform/outbox';
@@ -192,6 +194,10 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       createMockOutboxPublisher(),
       { validate: jest.fn() } as never,
       { logWithManager: jest.fn().mockResolvedValue({}) } as never,
+      // SEC-HIGH-051: object-level site authorization SSoT (real instance — the
+      // commands below default to MODULE_MANAGER, so the hierarchy bypass keeps
+      // these lock/TOCTOU race tests focused on concurrency, not site authz).
+      new SiteAuthorizationService(),
       new MortalityCullPolicyService(),
       { refreshContainers: jest.fn().mockResolvedValue(undefined) } as never,
       new MobileCommandReceiptService(),
@@ -204,7 +210,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       quantity: 50,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001', RACE_ENVELOPE);
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await handler.execute(command);
 
@@ -227,7 +233,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       quantity: 50,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001', RACE_ENVELOPE);
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await handler.execute(command);
 
@@ -256,7 +262,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       quantity: 30,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001', RACE_ENVELOPE);
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await handler.execute(command);
 
@@ -281,7 +287,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       quantity: 50,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001', RACE_ENVELOPE);
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await expect(handler.execute(command)).rejects.toThrow(NotFoundException);
 
@@ -316,7 +322,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       avgWeightG: 200,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001', RACE_ENVELOPE);
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await handler.execute(command);
 
@@ -592,6 +598,10 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       createMockOutboxPublisher(),
       { validate: jest.fn() } as never,
       { logWithManager: jest.fn().mockResolvedValue({}) } as never,
+      // SEC-HIGH-051: object-level site authorization SSoT (real instance — the
+      // commands below default to MODULE_MANAGER, so the hierarchy bypass keeps
+      // these lock/TOCTOU race tests focused on concurrency, not site authz).
+      new SiteAuthorizationService(),
       new MortalityCullPolicyService(),
       { refreshContainers: jest.fn().mockResolvedValue(undefined) } as never,
       new MobileCommandReceiptService(),
@@ -603,7 +613,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       avgWeightG: 200,
       reason: MortalityReason.DISEASE,
       observedAt: new Date(),
-    }, 'user-001', RACE_ENVELOPE);
+    }, 'user-001', [Role.MODULE_MANAGER], [], RACE_ENVELOPE);
 
     await handler.execute(command);
 

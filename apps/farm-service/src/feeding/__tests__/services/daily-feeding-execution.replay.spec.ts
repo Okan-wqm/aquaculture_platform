@@ -9,7 +9,9 @@
  */
 import { Repository, DataSource, EntityManager } from 'typeorm';
 
+import { Role } from '@aquaculture/backend-common/decorators';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
@@ -22,6 +24,10 @@ import { FeedingProgramTank } from '../../entities/feeding-program-tank.entity';
 import { DailyFeedingExecutionService, FeedingRecordResult } from '../../services/daily-feeding-execution.service';
 
 const ENVELOPE = { clientCommandId: 'cmd-9', payloadHash: 'hash-9' };
+// SEC-HIGH-051: the site-scope caller threaded into recordActualFeeding. A
+// TENANT_ADMIN bypasses the site check via the role hierarchy, so the replay
+// path (which returns before site resolution) is unaffected either way.
+const CALLER = { sub: 'user-1', roles: [Role.TENANT_ADMIN], assignedSiteIds: [] };
 
 function repoStub(): Repository<object> {
   return {} as Repository<object>;
@@ -87,11 +93,12 @@ describe('DailyFeedingExecutionService — feeding idempotency (FARM-MEDIUM-051)
       {} as BilinearInterpolationService,
       dataSource,
       receipts,
+      new SiteAuthorizationService(),
     );
   });
 
   it('replays the committed result without re-running feeding side effects', async () => {
-    const result = await service.recordActualFeeding('exec-1', 10, USER, TENANT, undefined, ENVELOPE);
+    const result = await service.recordActualFeeding('exec-1', 10, USER, TENANT, CALLER, undefined, ENVELOPE);
 
     expect(result).toEqual(committedResult);
     // No execution was loaded or saved — the side effects did not re-run.

@@ -20,6 +20,8 @@ import {
 import { Reflector } from '@nestjs/core';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { extractTenantIdSafe } from '@aquaculture/backend-common/decorators';
+import { TenantRequest } from '@aquaculture/backend-common/types';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 
@@ -109,19 +111,16 @@ export class CacheEvictInterceptor implements NestInterceptor {
   }
 
   private extractTenantId(context: ExecutionContext): string | undefined {
-    if (context.getType<GqlContextType>() === 'graphql') {
-      const gqlCtx = GqlExecutionContext.create(context);
-      const ctx = gqlCtx.getContext<{
-        req?: { headers?: Record<string, string | string[] | undefined> };
-      }>();
-      const header = ctx?.req?.headers?.['x-tenant-id'];
-      if (typeof header === 'string' && header.length > 0) return header;
-      return undefined;
-    }
-    const req = context.switchToHttp().getRequest<
-      { headers?: Record<string, string | string[] | undefined> } | undefined
-    >();
-    const header = req?.headers?.['x-tenant-id'];
-    return typeof header === 'string' && header.length > 0 ? header : undefined;
+    // SSoT: scope eviction to the trusted, server-set tenant (req.user.tenantId
+    // / req.tenantId) via the shared extractTenantIdSafe — never the raw
+    // x-tenant-id header. Keying eviction off a forged/absent header could wipe
+    // (or fail to wipe) the wrong tenant's cache segment; deriving from the same
+    // trusted source the write path used guarantees evict and write agree.
+    const req =
+      context.getType<GqlContextType>() === 'graphql'
+        ? GqlExecutionContext.create(context).getContext<{ req?: TenantRequest }>()
+            .req
+        : context.switchToHttp().getRequest<TenantRequest | undefined>();
+    return req ? extractTenantIdSafe(req) : undefined;
   }
 }

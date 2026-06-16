@@ -15,15 +15,23 @@
  *
  * The service exposes ONE public method:
  *
- *   patch({ schema, table, column, pk, path, value, where? })
+ *   patch({ table, column, pk, path, value, where? })
  *
- * It issues a single SQL `UPDATE <schema>.<table> SET <column> =
+ * It issues a single SQL `UPDATE <table> SET <column> =
  * jsonb_set(<column>, $path, $value, true) WHERE …` statement,
  * returning the updated row's id and the affected row count.
  * Concurrent patches to different paths commit without touching
  * each other because Postgres row-level locks are per-column-
  * update semantics (not per-column-read), and both updates
  * jsonb_set a different key.
+ *
+ * The table reference is deliberately UNQUALIFIED (no schema
+ * prefix). `batches_v2` is a per-tenant table cloned into every
+ * `tenant_<uuid>` schema, so the active request search_path routes
+ * the UPDATE into the caller's tenant schema. Qualifying it with
+ * the source schema (`"farm"."batches_v2"`) would target the empty
+ * source-schema table and the write would silently no-op
+ * (`affectedRows: 0`) — the worst failure mode (no error, no data).
  *
  * # Safety invariants
  *
@@ -58,9 +66,14 @@ import {
 import { DataSource } from 'typeorm';
 
 export interface JsonbPatchTarget {
-  /** PostgreSQL schema — e.g. `farm`. */
-  schema: string;
-  /** Table name — e.g. `batches_v2`. */
+  /**
+   * Table name — e.g. `batches_v2`. A PER-TENANT table: the UPDATE issues an
+   * UNQUALIFIED reference so the runtime search_path routes it into the active
+   * `tenant_<uuid>` schema. There is intentionally NO `schema` field — a schema
+   * qualifier would let a caller pin `"farm"."batches_v2"` (the empty source
+   * table) and the write would silently no-op. Dropping the field makes that
+   * mistake structurally impossible (Tier-1).
+   */
   table: string;
   /** JSONB column — e.g. `feedingSummary`. */
   column: string;
@@ -99,17 +112,17 @@ export interface JsonbPatchResult {
 export const JSONB_PATCH_WHITELIST: ReadonlySet<string> = Object.freeze(
   new Set([
     // batches_v2.feedingSummary — per-day feed aggregates
-    'farm:batches_v2:feedingSummary:dailyAverages',
-    'farm:batches_v2:feedingSummary:lastFedAt',
-    'farm:batches_v2:feedingSummary:totalFed',
+    'batches_v2:feedingSummary:dailyAverages',
+    'batches_v2:feedingSummary:lastFedAt',
+    'batches_v2:feedingSummary:totalFed',
     // batches_v2.growthMetrics — growth sample rollups
-    'farm:batches_v2:growthMetrics:lastSampledAt',
-    'farm:batches_v2:growthMetrics:latestSGR',
-    'farm:batches_v2:growthMetrics:cumulativeWeightGain',
+    'batches_v2:growthMetrics:lastSampledAt',
+    'batches_v2:growthMetrics:latestSGR',
+    'batches_v2:growthMetrics:cumulativeWeightGain',
     // batches_v2.mortalitySummary — mortality rollups
-    'farm:batches_v2:mortalitySummary:lastEventAt',
-    'farm:batches_v2:mortalitySummary:cumulativeCount',
-    'farm:batches_v2:mortalitySummary:cumulativeBiomassKg',
+    'batches_v2:mortalitySummary:lastEventAt',
+    'batches_v2:mortalitySummary:cumulativeCount',
+    'batches_v2:mortalitySummary:cumulativeBiomassKg',
   ]),
 );
 
@@ -124,7 +137,7 @@ export class JsonbPatchService {
    * can assert the same formula the runtime uses.
    */
   static whitelistKey(target: JsonbPatchTarget): string {
-    return `${target.schema}:${target.table}:${target.column}:${target.firstPathSegment}`;
+    return `${target.table}:${target.column}:${target.firstPathSegment}`;
   }
 
   async patch(request: JsonbPatchRequest): Promise<JsonbPatchResult> {
@@ -134,8 +147,12 @@ export class JsonbPatchService {
     // Identifiers come from the whitelisted target registry, not
     // from caller input, so they can be interpolated safely here.
     // Path + values + tenant/id remain parameterised.
+    // UNQUALIFIED table reference: `batches_v2` is per-tenant, so the active
+    // request search_path routes this UPDATE into the caller's tenant_<uuid>
+    // schema. Do NOT add a schema prefix — `"farm"."batches_v2"` would target
+    // the empty source table and the write would silently no-op.
     const sql =
-      `UPDATE "${target.schema}"."${target.table}" ` +
+      `UPDATE "${target.table}" ` +
       `SET "${target.column}" = jsonb_set(` +
       `  COALESCE("${target.column}", '{}'::jsonb), ` +
       `  $1::text[], ` +
@@ -157,7 +174,7 @@ export class JsonbPatchService {
     const affectedRows = this.extractAffectedRows(result);
 
     this.logger.debug(
-      `Patched ${target.schema}.${target.table}.${target.column}${this.formatPath(path)} ` +
+      `Patched ${target.table}.${target.column}${this.formatPath(path)} ` +
         `for tenant=${where.tenantId.slice(0, 8)}... id=${where.id.slice(0, 8)}... ` +
         `(affected=${affectedRows})`,
     );
@@ -197,13 +214,9 @@ export class JsonbPatchService {
     // but a caller constructing their own target object might slip
     // a quote in. A regex on [A-Za-z0-9_] closes that door.
     const ident = /^[A-Za-z0-9_]+$/;
-    if (
-      !ident.test(target.schema) ||
-      !ident.test(target.table) ||
-      !ident.test(target.column)
-    ) {
+    if (!ident.test(target.table) || !ident.test(target.column)) {
       throw new BadRequestException(
-        'JSONB patch rejected: schema/table/column identifiers must match ' +
+        'JSONB patch rejected: table/column identifiers must match ' +
           '[A-Za-z0-9_]+ — no quotes, spaces, or special characters. Target ' +
           'tuples come from the whitelist registry; a caller-provided target ' +
           'that deviates is treated as a potential injection attempt.',

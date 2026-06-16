@@ -217,5 +217,8 @@ Each plan cluster is tracked as a registry finding (`docs/reviews/_registry/find
 | `FARM-HIGH-064` | 3 | `ondelete-drift` — 6 batch-child FKs entity `onDelete: 'RESTRICT'` ↔ DB parity (regen-stable, data-safe) |
 | `FARM-MEDIUM-057` | 3 | `decimal-transformer` — Farm/Pond NUMERIC columns attach `DecimalTransformer` (entity-only, no migration) |
 | `FARM-MEDIUM-058` | 3 | `mv-lost` — remove the orphaned-MV refresh cron (silent nightly no-op refreshing non-existent MVs); read paths already raw-aggregate correct numbers; perf acceleration folded into Phase 4 `wq-not-hypertable` |
+| `FARM-HIGH-065` | 4 | `jsonb-source-schema` — `JsonbPatchService` stops schema-qualifying the per-tenant `batches_v2` (dropped the `schema` field so search_path routes the UPDATE into `tenant_<uuid>`; was a latent silent no-op against the empty source table) |
+| `FARM-HIGH-066` | 4 | `feed-reminder-tenant` — `tenantId` added to `FeedingReminderEventPayload` + consumed in the `notification.send` fan-out (was hardcoded `undefined`). Sibling dead-bus tracked as `ORPHAN-HIGH-122` |
+| `FARM-MEDIUM-059` | 4 | `cache-tenant` — both cache interceptors key off the exported trusted `extractTenantIdSafe` SSoT, never the raw `x-tenant-id` header; arch invariant extended to `common/cache/**` |
 
 Deferred / superseded references: `FARM-HIGH-007` + `FARM-MEDIUM-003` are closed by `FARM-HIGH-014`; `FARM-MEDIUM-002` is superseded (see `ORPHAN-MEDIUM-112`); feed-dual Phase B convergence is tracked as `ORPHAN-HIGH-114`.

@@ -84,8 +84,19 @@ export const OptionalTenant = createParamDecorator(
 /**
  * Safe tenant ID extraction from trusted sources only.
  * Returns undefined when no tenant context is available.
+ *
+ * SSoT: this is the ONE non-throwing trusted-source tenant extractor. Any
+ * surface that needs a tenant id but cannot throw (cache-key derivation,
+ * eviction scoping, optional-tenant resolvers) MUST delegate here rather than
+ * re-reading `req.headers['x-tenant-id']` — the header is attacker-influenceable
+ * and keying off it lets a forged/absent header diverge the cache key from the
+ * tenant the handler actually runs under. Exported (not private) precisely so
+ * the farm-service cache interceptors share this exact extractor instead of
+ * hand-rolling their own header read. Distinct from `resolveTenantIdFromRequest`
+ * (the outbound-signing helper), which intentionally accepts the header as a
+ * fallback and is therefore the WRONG primitive for trust-sensitive keying.
  */
-function extractTenantIdSafe(request: TenantRequest): string | undefined {
+export function extractTenantIdSafe(request: TenantRequest): string | undefined {
   return request.user?.tenantId || request.tenantId || undefined;
 }
 

@@ -182,10 +182,20 @@ export interface FeedingCompletedEventPayload {
  * Event emitted for feeding reminders
  */
 export interface FeedingReminderEventPayload {
+  // tenantId is REQUIRED — it must reach the notification fan-out so the
+  // reminder is routed to the right tenant. The scheduler emit site already
+  // supplies it; every sibling feeding payload below carries it too. Without
+  // this field the consumer was forced to send `tenantId: undefined`.
+  tenantId: string;
   batchId: string;
   batchNumber: string;
-  tankId: string;
-  tankCode: string;
+  // tankId/tankCode are OPTIONAL: a feeding reminder is per feeding-table
+  // (per batch), and a batch can span multiple tanks (mixed-batch), so the
+  // scheduler producer has no single tank to attribute. Marked optional rather
+  // than declared-but-always-undefined — the consumer renders the tank only
+  // when present. (Resolving a per-tank reminder is a tracked follow-up.)
+  tankId?: string;
+  tankCode?: string;
   feedId: string;
   feedName: string;
   scheduledTime: Date;

@@ -39,12 +39,24 @@ interface ReflectorDouble {
 
 function makeExecutionContext(opts: {
   tenantId?: string;
+  /**
+   * Untrusted x-tenant-id header value. Set independently of `tenantId` to
+   * prove the interceptor keys off the trusted req.user.tenantId, NOT the
+   * header. When omitted, no x-tenant-id header is present.
+   */
+  headerTenantId?: string;
   contextType?: 'graphql' | 'http';
   gqlArgs?: Record<string, unknown>;
 }): ExecutionContext {
   const headers: Record<string, string> = {};
-  if (opts.tenantId) headers['x-tenant-id'] = opts.tenantId;
-  const req = { headers };
+  if (opts.headerTenantId) headers['x-tenant-id'] = opts.headerTenantId;
+  // `tenantId` now lands on the TRUSTED source (req.user.tenantId), set by
+  // JwtAuthGuard from the verified JWT — the only source the fix consults.
+  const req: {
+    headers: Record<string, string>;
+    user?: { tenantId: string };
+  } = { headers };
+  if (opts.tenantId) req.user = { tenantId: opts.tenantId };
   const handler = jest.fn();
   const contextType = opts.contextType ?? 'graphql';
 
@@ -162,6 +174,43 @@ describe('CacheableInterceptor', () => {
       redisGet: ['shouldNotBeReturned'],
     });
     const ctx = makeExecutionContext({});
+    const { handler, handle } = makeCallHandler(['fresh']);
+
+    const result = await lastValueFrom(interceptor.intercept(ctx, handler));
+    expect(result).toEqual(['fresh']);
+    expect(redis.getJson).not.toHaveBeenCalled();
+    expect(redis.setJson).not.toHaveBeenCalled();
+    expect(handle).toHaveBeenCalledTimes(1);
+  });
+
+  it('keys off the trusted req.user.tenantId and IGNORES a divergent x-tenant-id header', async () => {
+    // The discriminating test: trusted tenant A, forged header B. The cache
+    // key MUST be scoped to A (the tenant the handler runs under), never B.
+    // Pre-fix (header-derived) this keyed under B — a write-under-wrong-key.
+    const { interceptor, redis } = makeInterceptor({
+      metadata: { prefix: 'species:list', ttlSeconds: 60 },
+      redisGet: null,
+    });
+    const ctx = makeExecutionContext({
+      tenantId: 'trusted-A',
+      headerTenantId: 'forged-B',
+    });
+    const { handler } = makeCallHandler(['fresh']);
+
+    await lastValueFrom(interceptor.intercept(ctx, handler));
+    const [key] = redis.setJson.mock.calls[0];
+    expect(key).toContain('t:trusted-A:');
+    expect(key).not.toContain('forged-B');
+  });
+
+  it('an x-tenant-id header WITHOUT a trusted req.user.tenantId does not enable caching', async () => {
+    // Header alone is not a trusted tenant source — the method must run
+    // un-cached rather than key off an attacker-influenceable header.
+    const { interceptor, redis } = makeInterceptor({
+      metadata: { prefix: 'species:list', ttlSeconds: 60 },
+      redisGet: ['shouldNotBeReturned'],
+    });
+    const ctx = makeExecutionContext({ headerTenantId: 'header-only' });
     const { handler, handle } = makeCallHandler(['fresh']);
 
     const result = await lastValueFrom(interceptor.intercept(ctx, handler));

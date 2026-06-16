@@ -36,7 +36,6 @@ function makeService(
 }
 
 const FEEDING_TARGET = {
-  schema: 'farm',
   table: 'batches_v2',
   column: 'feedingSummary',
   firstPathSegment: 'lastFedAt',
@@ -102,7 +101,6 @@ describe('JsonbPatchService', () => {
       await expect(
         service.patch({
           target: {
-            schema: 'farm',
             table: 'batches_v2',
             column: 'feedingSummary',
             firstPathSegment: 'notOnTheList',
@@ -137,7 +135,7 @@ describe('JsonbPatchService', () => {
   describe('whitelistKey', () => {
     it('produces the documented format', () => {
       const key = JsonbPatchService.whitelistKey(FEEDING_TARGET);
-      expect(key).toBe('farm:batches_v2:feedingSummary:lastFedAt');
+      expect(key).toBe('batches_v2:feedingSummary:lastFedAt');
       expect(JSONB_PATCH_WHITELIST.has(key)).toBe(true);
     });
 
@@ -145,15 +143,15 @@ describe('JsonbPatchService', () => {
       // Smoke — catches someone accidentally removing a whitelist
       // entry without adding a replacement.
       for (const segment of [
-        'farm:batches_v2:feedingSummary:dailyAverages',
-        'farm:batches_v2:feedingSummary:lastFedAt',
-        'farm:batches_v2:feedingSummary:totalFed',
-        'farm:batches_v2:growthMetrics:lastSampledAt',
-        'farm:batches_v2:growthMetrics:latestSGR',
-        'farm:batches_v2:growthMetrics:cumulativeWeightGain',
-        'farm:batches_v2:mortalitySummary:lastEventAt',
-        'farm:batches_v2:mortalitySummary:cumulativeCount',
-        'farm:batches_v2:mortalitySummary:cumulativeBiomassKg',
+        'batches_v2:feedingSummary:dailyAverages',
+        'batches_v2:feedingSummary:lastFedAt',
+        'batches_v2:feedingSummary:totalFed',
+        'batches_v2:growthMetrics:lastSampledAt',
+        'batches_v2:growthMetrics:latestSGR',
+        'batches_v2:growthMetrics:cumulativeWeightGain',
+        'batches_v2:mortalitySummary:lastEventAt',
+        'batches_v2:mortalitySummary:cumulativeCount',
+        'batches_v2:mortalitySummary:cumulativeBiomassKg',
       ]) {
         expect(JSONB_PATCH_WHITELIST.has(segment)).toBe(true);
       }
@@ -172,7 +170,11 @@ describe('JsonbPatchService', () => {
       expect(result.affectedRows).toBe(1);
       expect(ds.query).toHaveBeenCalledTimes(1);
       const [sql, params] = ds.query.mock.calls[0];
-      expect(sql).toContain('UPDATE "farm"."batches_v2"');
+      // UNQUALIFIED table reference — the per-tenant search_path routes this
+      // into tenant_<uuid>.batches_v2. A `"farm".`-qualified reference would
+      // hit the empty source table and silently no-op; assert it never appears.
+      expect(sql).toContain('UPDATE "batches_v2"');
+      expect(sql).not.toMatch(/"farm"\./);
       expect(sql).toContain('"feedingSummary" = jsonb_set');
       expect(sql).toContain('"tenantId" = $3');
       expect(sql).toContain('"id" = $4');
@@ -189,7 +191,6 @@ describe('JsonbPatchService', () => {
       // builder is reached.
       await service.patch({
         target: {
-          schema: 'farm',
           table: 'batches_v2',
           column: 'feedingSummary',
           firstPathSegment: 'dailyAverages',

@@ -20,6 +20,8 @@ import {
 import { Reflector } from '@nestjs/core';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { extractTenantIdSafe } from '@aquaculture/backend-common/decorators';
+import { TenantRequest } from '@aquaculture/backend-common/types';
 import { createHash } from 'crypto';
 import { Observable, from, of } from 'rxjs';
 import { switchMap, tap } from 'rxjs/operators';
@@ -114,20 +116,20 @@ export class CacheableInterceptor implements NestInterceptor {
   }
 
   private extractTenantId(context: ExecutionContext): string | undefined {
-    if (context.getType<GqlContextType>() === 'graphql') {
-      const gqlCtx = GqlExecutionContext.create(context);
-      const ctx = gqlCtx.getContext<{
-        req?: { headers?: Record<string, string | string[] | undefined> };
-      }>();
-      const header = ctx?.req?.headers?.['x-tenant-id'];
-      if (typeof header === 'string' && header.length > 0) return header;
-      return undefined;
-    }
-    const req = context.switchToHttp().getRequest<
-      { headers?: Record<string, string | string[] | undefined> } | undefined
-    >();
-    const header = req?.headers?.['x-tenant-id'];
-    return typeof header === 'string' && header.length > 0 ? header : undefined;
+    // SSoT: derive the cache-key tenant ONLY from the trusted, server-set
+    // request context (req.user.tenantId from the verified JWT, or the
+    // TenantGuard-validated req.tenantId) via the shared extractTenantIdSafe —
+    // the SAME extractor @Tenant()/@OptionalTenant use. The raw x-tenant-id
+    // header is deliberately NOT consulted: it is attacker-influenceable, and
+    // keying the cache off it lets an absent/forged header diverge the cache key
+    // from the tenant the handler actually executes under. When tenant context
+    // is absent the key build returns null and the method runs un-cached.
+    const req =
+      context.getType<GqlContextType>() === 'graphql'
+        ? GqlExecutionContext.create(context).getContext<{ req?: TenantRequest }>()
+            .req
+        : context.switchToHttp().getRequest<TenantRequest | undefined>();
+    return req ? extractTenantIdSafe(req) : undefined;
   }
 
   /**

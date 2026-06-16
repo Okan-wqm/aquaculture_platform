@@ -47,18 +47,22 @@ export class FeedingCompletedListener {
   async handleFeedingReminder(
     payload: FeedingReminderEventPayload,
   ): Promise<void> {
+    // tankCode is optional (a batch can span tanks) — render it only when set
+    // so the message never reads "in tank undefined".
+    const tankSuffix = payload.tankCode ? ` in tank ${payload.tankCode}` : '';
     this.logger.log(
-      `[FeedingReminder] Batch ${payload.batchNumber} in tank ${payload.tankCode}: ` +
+      `[FeedingReminder] Batch ${payload.batchNumber}${tankSuffix}: ` +
       `${payload.quantity}${payload.unit} of ${payload.feedName} scheduled at ${payload.scheduledTime}`,
     );
 
-    // Send notification
+    // Send notification — tenantId now flows from the reminder payload so the
+    // fan-out routes to the correct tenant (was hardcoded undefined).
     this.eventEmitter.emit('notification.send', {
-      tenantId: undefined, // Would need to be included in payload
+      tenantId: payload.tenantId,
       type: 'feeding_reminder',
       priority: 'normal',
       title: `Feeding Reminder: ${payload.batchNumber}`,
-      message: `Feed ${payload.quantity}${payload.unit} of ${payload.feedName} to batch ${payload.batchNumber} in tank ${payload.tankCode}.`,
+      message: `Feed ${payload.quantity}${payload.unit} of ${payload.feedName} to batch ${payload.batchNumber}${tankSuffix}.`,
       data: {
         batchId: payload.batchId,
         tankId: payload.tankId,

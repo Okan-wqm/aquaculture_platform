@@ -36,6 +36,7 @@ import { FeedingTable, FeedingTableStatus } from '../feeding/entities/feeding-ta
 import { Batch, BatchStatus } from '../batch/entities/batch.entity';
 import { Feed, FeedStatus } from '../feed/entities/feed.entity';
 import { FeedInventory, InventoryStatus } from '../feeding/entities/feed-inventory.entity';
+import { FeedingReminderEventPayload } from '../events/event-types';
 
 // ============================================================================
 // INTERFACES
@@ -95,6 +96,9 @@ export interface UpcomingFeeding {
   batchNumber: string;
   feedId: string;
   feedName: string;
+  /** Feed measurement unit (e.g. 'kg') — carried so the reminder payload can
+   *  render the quantity with a real unit instead of `undefined`. */
+  unit: string;
   scheduledDate: Date;
   feedAmount: number;
   feedingFrequency: number;
@@ -388,6 +392,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
               batchNumber: table.batch?.batchNumber || 'Unknown',
               feedId: table.feedId,
               feedName: table.feed?.name || 'Unknown Feed',
+              unit: table.feed?.unit || 'kg',
               scheduledDate: entryDate,
               feedAmount: entry.feedAmount,
               feedingFrequency: entry.feedingFrequency,
@@ -830,11 +835,24 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
             const upcomingFeedings = await this.getUpcomingFeedingsWithQR(tenantId, 1, queryRunner);
 
             for (const feeding of upcomingFeedings) {
-              this.eventEmitter.emit('feeding.reminder', {
+              // Typed so the compiler maps the UpcomingFeeding field names onto
+              // the payload contract. The previous `...feeding` spread left
+              // scheduledTime/quantity/unit undefined (name divergence:
+              // scheduledDate→scheduledTime, perFeedingAmount→quantity) — the
+              // notification rendered "Feed undefinedundefined …". This makes
+              // that class impossible (FU-4 of FARM-HIGH-066).
+              const reminder: FeedingReminderEventPayload = {
                 tenantId,
-                ...feeding,
+                batchId: feeding.batchId,
+                batchNumber: feeding.batchNumber,
+                feedId: feeding.feedId,
+                feedName: feeding.feedName,
+                scheduledTime: feeding.scheduledDate,
+                quantity: feeding.perFeedingAmount,
+                unit: feeding.unit,
                 reminderTime: now,
-              });
+              };
+              this.eventEmitter.emit('feeding.reminder', reminder);
             }
 
             if (upcomingFeedings.length > 0) {
@@ -1187,6 +1205,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
             batchNumber: table.batch?.batchNumber || 'Unknown',
             feedId: table.feedId,
             feedName: table.feed?.name || 'Unknown Feed',
+            unit: table.feed?.unit || 'kg',
             scheduledDate: entryDate,
             feedAmount: entry.feedAmount,
             feedingFrequency: entry.feedingFrequency,

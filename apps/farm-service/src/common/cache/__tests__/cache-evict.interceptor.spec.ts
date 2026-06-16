@@ -29,11 +29,18 @@ interface RedisDouble {
 
 function makeCtx(opts: {
   tenantId?: string;
+  /** Untrusted x-tenant-id header — set independently to prove it is ignored. */
+  headerTenantId?: string;
   type?: 'graphql' | 'http';
 }): ExecutionContext {
   const headers: Record<string, string> = {};
-  if (opts.tenantId) headers['x-tenant-id'] = opts.tenantId;
-  const req = { headers };
+  if (opts.headerTenantId) headers['x-tenant-id'] = opts.headerTenantId;
+  // `tenantId` lands on the TRUSTED source (req.user.tenantId), the only
+  // source the eviction scoping consults.
+  const req: { headers: Record<string, string>; user?: { tenantId: string } } = {
+    headers,
+  };
+  if (opts.tenantId) req.user = { tenantId: opts.tenantId };
   const type = opts.type ?? 'graphql';
   const classRef = class FakeResolver {};
   const args = [null, {}, { req }, {}];
@@ -109,6 +116,24 @@ describe('CacheEvictInterceptor', () => {
     );
     expect(redis.deletePattern).toHaveBeenCalledWith(
       'farm:cache:species:byId:t:tenant-abc:*',
+    );
+  });
+
+  it('scopes eviction to the trusted req.user.tenantId and IGNORES a divergent x-tenant-id header', async () => {
+    // Trusted tenant A, forged header B → eviction MUST target A's segment,
+    // never B's. Pre-fix (header-derived) this wiped the wrong tenant's cache.
+    const { interceptor, redis } = makeInterceptor({
+      metadata: { prefixes: ['species:list'] },
+    });
+    const ctx = makeCtx({ tenantId: 'trusted-A', headerTenantId: 'forged-B' });
+    const handler: CallHandler = { handle: () => of({ ok: true }) };
+
+    await firstValueFrom(interceptor.intercept(ctx, handler));
+    await flushMicrotasks();
+
+    expect(redis.deletePattern).toHaveBeenCalledTimes(1);
+    expect(redis.deletePattern).toHaveBeenCalledWith(
+      'farm:cache:species:list:t:trusted-A:*',
     );
   });
 

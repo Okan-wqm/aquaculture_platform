@@ -77,7 +77,7 @@ function ctx(): AuthCtx {
 }
 
 function renderAuth(client: QueryClient): void {
-  function Tree({ children }: { children: ReactNode }) {
+  function Tree({ children }: { children: ReactNode }): JSX.Element {
     return (
       <QueryClientProvider client={client}>
         <AuthProvider>{children}</AuthProvider>

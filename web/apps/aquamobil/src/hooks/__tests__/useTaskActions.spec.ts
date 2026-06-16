@@ -61,7 +61,7 @@ vi.mock('@tanstack/react-query', async () => {
 });
 
 // Mock authenticated-fetch
-const mockGraphqlRequest = vi.fn();
+const mockGraphqlRequest = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 
 vi.mock('@/services/authenticated-fetch', () => ({
   graphqlRequest: (...args: unknown[]) => mockGraphqlRequest(...args),
@@ -81,7 +81,7 @@ vi.mock('@/graphql/operations', () => ({
 // The hook reuses the REAL `computePayloadHash` so the online envelope and the
 // offline replay agree; here a stub keeps the assertion deterministic without
 // depending on a real SubtleCrypto digest in jsdom.
-const mockComputePayloadHash = vi.fn();
+const mockComputePayloadHash = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 vi.mock('@/pwa/offline-queue', () => ({
   computePayloadHash: (...args: unknown[]) => mockComputePayloadHash(...args),
 }));

@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import type { Response } from 'express';
+import type { NextFunction, Response } from 'express';
 
 import type { TenantRequest } from '../../types/tenant-request.interface';
 import { VerifiedUserAssertionMiddleware } from '../verified-user-assertion.middleware';
@@ -44,12 +44,7 @@ function createRequest(overrides: Partial<TenantRequest> = {}): TenantRequest {
 
 describe('VerifiedUserAssertionMiddleware', () => {
   let middleware: VerifiedUserAssertionMiddleware;
-  // Plain jest.Mock (not MockedFunction<NextFunction>): express's NextFunction is
-  // an OVERLOADED interface, so Parameters<> resolves to the `'route'` literal and
-  // `next.mock.calls[0][0] as Error` becomes a TS2352. A plain mock types the call
-  // args as `any`, so the Error casts below are valid (and it still satisfies the
-  // NextFunction param of middleware.use at the callsite).
-  let next: jest.Mock;
+  let next: jest.MockedFunction<NextFunction>;
   const originalNodeEnv = process.env['NODE_ENV'];
 
   beforeEach(() => {
@@ -106,9 +101,9 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0] as Error;
+    const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error.message).toContain('Verified user assertion is required');
+    expect(error).toHaveProperty('message', expect.stringContaining('Verified user assertion is required'));
   });
 
   it('does not require user assertions on probe paths', () => {
@@ -165,9 +160,9 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0] as Error;
+    const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error.message).toContain('tenant does not match');
+    expect(error).toHaveProperty('message', expect.stringContaining('tenant does not match'));
   });
 
   it('rejects stale assertions', () => {
@@ -181,9 +176,9 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0] as Error;
+    const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error.message).toContain('expired');
+    expect(error).toHaveProperty('message', expect.stringContaining('expired'));
   });
 
   it('rejects assertions that were not attached to a verified service request', () => {
@@ -194,9 +189,9 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0] as Error;
+    const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error.message).toContain('requires service identity');
+    expect(error).toHaveProperty('message', expect.stringContaining('requires service identity'));
   });
 
   // SEC-HIGH-051 / SEC-HIGH-052: the object-level authorization claims must
@@ -246,9 +241,9 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0] as Error;
+    const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error.message).toContain('invalid assignedSiteIds');
+    expect(error).toHaveProperty('message', expect.stringContaining('invalid assignedSiteIds'));
   });
 
   it('rejects a malformed mobileFeatures claim (non-array, fail-closed)', () => {
@@ -260,8 +255,8 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     middleware.use(req, {} as Response, next);
 
-    const error = next.mock.calls[0]?.[0] as Error;
+    const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error.message).toContain('invalid mobileFeatures');
+    expect(error).toHaveProperty('message', expect.stringContaining('invalid mobileFeatures'));
   });
 });

@@ -414,11 +414,6 @@
       "pedagogy_tier": 2,
       "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
     },
-    "tenant-cost-attribution-expert": {
-      "consequence_leak_protections": [],
-      "pedagogy_tier": 2,
-      "rationale": "Architectural-rule agent; hybrid imperative+narrative; consequence-chain teaches the why."
-    },
     "tenant-isolation-auditor": {
       "consequence_leak_protections": [],
       "pedagogy_tier": 2,

@@ -23,6 +23,7 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 import { clearCache, clearAllOperations } from '@/pwa/offline-queue';
+import type { Role } from '@/types';
 
 // ============================================================================
 // Constants
@@ -34,14 +35,19 @@ const LAST_SYNC_KEY = 'aquamobil_last_sync_at';
 /** App version sourced from build-time env variable */
 const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? '1.0.0';
 
-// Role badge configuration — maps each auth role to a color scheme so operators
+// Role badge configuration — maps each auth role to a color scheme so workers
 // and admins can quickly identify their privilege level at a glance.
-const ROLE_BADGE_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
+//
+// FE-MEDIUM-051: keyed by the codegen'd backend `Role` enum, so the config keys
+// are EXACTLY the four canonical roles. A `Record<Role, ...>` makes adding or
+// renaming a backend role a compile-time exhaustiveness error here (tier-3
+// detectable) — the old MANAGER/OPERATOR/VIEWER entries were phantom values the
+// server never emits and have been removed.
+const ROLE_BADGE_CONFIG: Record<Role, { bg: string; text: string; label: string }> = {
   SUPER_ADMIN: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Super Admin' },
   TENANT_ADMIN: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-300', label: 'Tenant Admin' },
-  MANAGER: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300', label: 'Manager' },
-  OPERATOR: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-700 dark:text-emerald-300', label: 'Operator' },
-  VIEWER: { bg: 'bg-gray-100 dark:bg-gray-900/30', text: 'text-gray-700 dark:text-gray-300', label: 'Viewer' },
+  MODULE_MANAGER: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300', label: 'Manager' },
+  MODULE_USER: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-700 dark:text-emerald-300', label: 'Operator' },
 };
 
 // ============================================================================
@@ -491,10 +497,12 @@ export function AccountPage() {
   // Derive user display values
   const userName = user?.name ?? 'User';
   const userEmail = user?.email ?? '';
-  const userRole = user?.role ?? 'VIEWER';
+  // FE-MEDIUM-051: fall back to the least-privileged canonical role (MODULE_USER)
+  // when no user is loaded — the old 'VIEWER' default was a phantom value.
+  const userRole: Role = user?.role ?? 'MODULE_USER';
   const userTenantId = user?.tenantId;
   const initials = getInitials(userName);
-  const roleBadge = ROLE_BADGE_CONFIG[userRole] ?? ROLE_BADGE_CONFIG['VIEWER'];
+  const roleBadge = ROLE_BADGE_CONFIG[userRole];
 
   // Three-way theme options for the segmented control
   const themeOptions: Array<{ value: DarkModePreference; icon: typeof Sun; label: string }> = [

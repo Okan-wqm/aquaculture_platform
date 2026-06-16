@@ -43,7 +43,7 @@ const mockAuth: Record<string, unknown> = {
   accessToken: 'test-token',
   isAuthenticated: true,
   isLoading: false,
-  user: { id: 'user-1', email: 'test@test.com', name: 'Test User', role: 'OPERATOR' as const, tenantId: 'tenant-1' },
+  user: { id: 'user-1', email: 'test@test.com', name: 'Test User', role: 'MODULE_USER' as const, tenantId: 'tenant-1' },
   // WHY: useMobilePermissions destructures tenantId from useAuth() at the top level
   // (not from user.tenantId). Without this, getCacheKey() generates a non-tenant-scoped
   // key (mobile_permissions_user-1 instead of mobile_permissions_tenant-1_user-1).
@@ -99,7 +99,7 @@ describe('useMobilePermissions', () => {
       id: 'user-1',
       email: 'test@test.com',
       name: 'Test User',
-      role: 'OPERATOR' as const,
+      role: 'MODULE_USER' as const,
       tenantId: 'tenant-1',
     };
     // D07 API-01: Sync the module-level auth store so authenticatedFetch
@@ -636,7 +636,7 @@ describe('useMobilePermissions', () => {
         id: 'user-1',
         email: 'test@test.com',
         name: 'Test User',
-        role: 'OPERATOR' as const,
+        role: 'MODULE_USER' as const,
         tenantId: 'tenant-2',
       };
       (mockAuth as Record<string, unknown>).tenantId = 'tenant-2';

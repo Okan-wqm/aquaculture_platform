@@ -6,7 +6,8 @@ import { clearBiometricData } from '@/hooks/useWebAuthn';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
 import { markAuthReady, syncAuthStore } from '@/services/authenticated-fetch';
 import { runPushTeardown } from '@/services/push-lifecycle';
-import type { AuthState } from '@/types';
+import type { AccessType, AuthState } from '@/types';
+import { normalizeRole } from '@/utils/normalize-role';
 import { TENANT_QUERY_KEY_ROOT } from '@/utils/tenant-query-keys';
 
 interface AuthContextValue extends AuthState {
@@ -76,6 +77,61 @@ const MOBILE_SETTINGS_QUERY = `
   }
 `;
 
+// ---------------------------------------------------------------------------
+// Typed GraphQL response shapes — FE-MEDIUM-051
+// ---------------------------------------------------------------------------
+// WHY: the auth mutations above are issued as INLINE fetch strings (invisible
+// to codegen), so `await response.json()` returns `any` and every field access
+// on the result was unsafe (`no-unsafe-member-access`). Typing the parsed body
+// at the trust boundary is the root-cause fix: the LOGIN/REFRESH `user` shape is
+// known, so `user.role` is a typed `string` that `normalizeRole` then narrows to
+// the canonical `Role`. The role itself stays an UNVALIDATED string here — the
+// server's value is only trusted after normalizeRole fail-closes it. The shapes
+// mirror the selection sets of LOGIN_MUTATION / REFRESH_MUTATION exactly.
+
+/** The `user { ... }` selection shared by LOGIN_MUTATION and REFRESH_MUTATION. */
+interface AuthUserPayload {
+  id: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  /** Raw server role string — normalized to the canonical `Role` before use. */
+  role: string;
+  tenantId: string | null;
+  accessType?: AccessType;
+}
+
+interface GraphQLError {
+  message: string;
+}
+
+interface LoginResponse {
+  errors?: GraphQLError[];
+  data?: { login?: { accessToken: string; user: AuthUserPayload } | null };
+}
+
+interface RefreshResponse {
+  errors?: GraphQLError[];
+  data?: {
+    refreshToken?: { accessToken: string; user?: AuthUserPayload | null } | null;
+  };
+}
+
+interface MobileSettingsResponse {
+  data?: { getMyMobileSettings?: { isMobileEnabled?: boolean | null } | null };
+}
+
+/**
+ * Parse a fetch Response body as a typed GraphQL envelope. Centralizes the ONE
+ * `any`-producing boundary (`response.json()`) behind an explicit cast so every
+ * callsite reads a typed shape instead of `any`. The shape is asserted, not
+ * validated — the only field whose value is trusted (role) is fail-closed by
+ * `normalizeRole` downstream.
+ */
+async function parseGraphQL<T>(response: Response): Promise<T> {
+  return (await response.json()) as T;
+}
+
 // SEC-06: All fetch calls include X-Requested-With for CSRF defense-in-depth
 const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
 const SILENT_REFRESH_TIMEOUT_MS = 8000;
@@ -92,7 +148,7 @@ async function checkMobileEnabled(token: string): Promise<boolean> {
       credentials: 'include',
       body: JSON.stringify({ query: MOBILE_SETTINGS_QUERY }),
     });
-    const result = await response.json();
+    const result = await parseGraphQL<MobileSettingsResponse>(response);
     return result.data?.getMyMobileSettings?.isMobileEnabled ?? true;
   } catch {
     // SECURITY: Fail-closed — if we can't verify mobile access, deny it.
@@ -165,13 +221,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }),
         });
 
-        const result = await response.json();
+        const result = await parseGraphQL<RefreshResponse>(response);
         if (result.errors || !result.data?.refreshToken?.accessToken) {
           setIsLoading(false);
           return;
         }
 
         const { accessToken, user } = result.data.refreshToken;
+        if (!user) {
+          setIsLoading(false);
+          return;
+        }
         const displayName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
 
         // SECURITY: Fail-closed — reject PANEL_ONLY users and verify mobile access
@@ -189,7 +249,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         setState({
-          user: { ...user, name: displayName },
+          // FE-MEDIUM-051: normalize the server role string to the canonical
+          // backend `Role` at the auth boundary (fail-closed) instead of casting.
+          user: { ...user, name: displayName, role: normalizeRole(user.role) },
           accessToken,
           refreshToken: null,
           tenantId: user.tenantId,
@@ -227,7 +289,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }),
       });
 
-      const result = await response.json();
+      const result = await parseGraphQL<LoginResponse>(response);
 
       if (result.errors) {
         throw new Error(result.errors[0]?.message || 'Login failed');
@@ -262,6 +324,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: {
           ...user,
           name: displayName,
+          // FE-MEDIUM-051: normalize the server role to the canonical `Role`.
+          role: normalizeRole(user.role),
         },
         accessToken,
         refreshToken: null,
@@ -294,7 +358,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           id: user.id,
           email: user.email,
           name: displayName,
-          role: user.role as 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MANAGER' | 'OPERATOR' | 'VIEWER',
+          // FE-MEDIUM-051: validate the inbound role against the canonical
+          // backend `Role` (fail-closed) — no cast to a drifted union.
+          role: normalizeRole(user.role),
           tenantId: user.tenantId,
         },
         accessToken,
@@ -408,7 +474,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }),
       });
 
-      const result = await response.json();
+      const result = await parseGraphQL<RefreshResponse>(response);
 
       if (result.errors || !result.data?.refreshToken?.accessToken) {
         await logout();
@@ -430,7 +496,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ...prev,
             accessToken,
             tenantId: refreshedUser.tenantId ?? prev.tenantId,
-            user: prev.user ? { ...prev.user, ...refreshedUser, name: displayName } : prev.user,
+            // FE-MEDIUM-051: normalize the refreshed role to the canonical
+            // `Role` (fail-closed); fall back to the prior role if the refresh
+            // response omitted it so a partial response never strips privilege.
+            user: prev.user
+              ? { ...prev.user, ...refreshedUser, name: displayName, role: normalizeRole(refreshedUser.role ?? prev.user.role) }
+              : prev.user,
           };
         }
         return { ...prev, accessToken };
@@ -467,7 +538,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }),
       });
 
-      const result = await response.json();
+      const result = await parseGraphQL<RefreshResponse>(response);
 
       if (result.errors || !result.data?.refreshToken?.accessToken) {
         return false;
@@ -487,7 +558,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ...prev,
             accessToken: newToken,
             tenantId: refreshedUser.tenantId ?? prev.tenantId,
-            user: prev.user ? { ...prev.user, ...refreshedUser, name: displayName } : prev.user,
+            // FE-MEDIUM-051: normalize the refreshed role to the canonical
+            // `Role` (fail-closed); preserve the prior role on a partial response.
+            user: prev.user
+              ? { ...prev.user, ...refreshedUser, name: displayName, role: normalizeRole(refreshedUser.role ?? prev.user.role) }
+              : prev.user,
           };
         }
         return { ...prev, accessToken: newToken };

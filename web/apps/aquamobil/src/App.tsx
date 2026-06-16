@@ -1,13 +1,15 @@
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
-import { useAuth } from './hooks/useAuth';
-import { useSwNavigation } from './hooks/useSwNavigation';
-import { MobilePermissionsProvider, useMobilePermissions, type MobileFeature } from './hooks/useMobilePermissions';
-import { MobileLayout } from './layouts/MobileLayout';
-import { LoginPage } from './pages/LoginPage';
-import { HomePage } from './pages/HomePage';
+
 import { InstallPrompt } from './components/InstallPrompt';
 import { MultiFeatureRoute } from './components/MultiFeatureRoute';
+import { useAuth } from './hooks/useAuth';
+import { MobilePermissionsProvider, useMobilePermissions, type MobileFeature } from './hooks/useMobilePermissions';
+import { useSwNavigation } from './hooks/useSwNavigation';
+import { MobileLayout } from './layouts/MobileLayout';
+import { HomePage } from './pages/HomePage';
+import { LoginPage } from './pages/LoginPage';
+import { isFeatureAccessible } from './utils/feature-access';
 
 /**
  * BUG-16: Redirect component that captures :tankId param and forwards it to /cull/record/:tankId.
@@ -158,12 +160,17 @@ function FeatureRoute({ feature, children }: { feature: MobileFeature; children:
   // PERF-03: Reads from context — no independent fetch per FeatureRoute instance.
   // BUG-05: isLoaded is only true after auth has resolved (authLoading guard in provider).
   const { canAccess, isLoaded } = useMobilePermissions();
+  const { user } = useAuth();
 
   if (!isLoaded) {
     return <PageLoader />;
   }
 
-  if (!canAccess(feature)) {
+  // SEC-MEDIUM-050: a single gate that enforces the entitlement flag AND any
+  // feature role floor (e.g. harvest => MODULE_MANAGER) from the feature-access
+  // SSoT. FAIL-CLOSED: no user or a sub-floor role is redirected away, so a
+  // MODULE_USER never reaches a form the backend will 403 after submit.
+  if (!isFeatureAccessible(canAccess, feature, user?.role)) {
     return <Navigate to="/" replace />;
   }
 
@@ -307,6 +314,11 @@ export function App() {
                           </FeatureRoute>
                         }
                       />
+                      {/* SEC-MEDIUM-050: FeatureRoute auto-enforces the harvest
+                          MODULE_MANAGER role floor (feature-access SSoT), matching
+                          the backend @Roles(TENANT_ADMIN, MODULE_MANAGER) on
+                          createHarvestRecord — a MODULE_USER cannot enter the form
+                          and hit the after-success 403. */}
                       <Route
                         path="/harvest/record"
                         element={

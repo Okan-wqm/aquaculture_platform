@@ -96,7 +96,9 @@ const TEST_USER = {
   email: 'a@b.com',
   firstName: 'A',
   lastName: 'B',
-  role: 'OPERATOR',
+  // FE-MEDIUM-051: the backend emits canonical Role values; this fixture mirrors
+  // a real login/refresh response so the normalizeRole boundary is exercised.
+  role: 'MODULE_USER',
   tenantId: 'tenant-xyz',
 };
 

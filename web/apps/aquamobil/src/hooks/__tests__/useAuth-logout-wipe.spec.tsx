@@ -15,7 +15,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, waitFor } from '@testing-library/react';
-import { ReactNode } from 'react';
+import { ReactNode, ReactElement } from 'react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // --------------------------------------------------------------------------
@@ -84,7 +84,7 @@ function ctx(): AuthCtx {
 }
 
 function renderAuth(client: QueryClient): void {
-  function Tree({ children }: { children: ReactNode }): JSX.Element {
+  function Tree({ children }: { children: ReactNode }): ReactElement {
     return (
       <QueryClientProvider client={client}>
         <AuthProvider>{children}</AuthProvider>

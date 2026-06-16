@@ -15,7 +15,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, waitFor } from '@testing-library/react';
-import { ReactNode } from 'react';
+import { ReactNode, type JSX } from 'react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // --------------------------------------------------------------------------

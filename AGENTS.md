@@ -1,52 +1,46 @@
-a# AGENTS.md
+# AGENTS.md
 
-This file provides guidance to WARP (warp.dev) when working with code in this repository.
+Bootstrap guidance for coding agents (WARP, Codex, and other AGENTS.md-aware tools) working in
+this repository. **Claude Code reads `CLAUDE.md`, not this file — `CLAUDE.md` is the single
+source of truth for all engineering rules, architecture, and conventions.** This file is the
+tool-agnostic setup/run reference; read `CLAUDE.md` before making any change.
 
 ## Quick context
-- Nx monorepo (Node 20+) spanning NestJS microservices in `apps/`, React microfrontends in `web/`, shared platform libs in `platform/libs/` plus common utilities in `libs/`.
-- Infra-as-code lives in `infra/helm`, `infra/terraform` and Docker assets in `docker/`. Root `docker-compose.yml` and `docker/docker-compose.yml` support local stacks.
+- Nx monorepo (Node ≥20.11, npm ≥10): NestJS microservices in `apps/`, React microfrontends in
+  `web/`, platform libs in `platform/libs/`, shared libs in `libs/`, a Rust edge gateway in
+  `sens-api-gateway/`.
+- Infrastructure-as-code + local stacks live under `infrastructure/` (its `docker`, `helm`,
+  `kubernetes`, `terraform`, `nats`, `monitoring`, `nginx` subdirs). Eventing is NATS (mTLS,
+  cert-is-identity — no Kafka); datastores are PostgreSQL/TimescaleDB, Redis, MinIO. Production
+  deploys to a DigitalOcean droplet (`docs/DEPLOY.md`), not a cloud-managed cluster.
 
 ## Setup
-- Install dependencies: `npm install`
-- Verify workspace graph: `nx list`
+- `npm install` — install dependencies.
+- `npm run graph` — inspect the Nx project graph (`npm run affected:graph` for affected only).
 
 ## Run & develop
-- All services dev mode: `npm run dev`
-- Backend-only dev set: `npm run dev:backend`
-- Web-only dev set: `npm run dev:web`
-- Serve a specific project (example): `nx serve gateway-api` or `nx serve shell`
+- `npm run dev` (all) · `npm run dev:backend` (backend set) · `npm run dev:web` (shell + microfrontends).
+- Single project: `nx serve gateway-api` / `nx serve shell`.
+- Local infra only: `npm run infra:up`.
 
-## Build
-- Affected projects: `npm run build`
-- Entire workspace: `npm run build:all`
-- Web bundle set: `npm run build:web`
+## Build / test / lint
+- Build: `npm run build` (affected) · `npm run build:all` · `npm run build:web`.
+- Test: `npm run test` (affected) · `npm run test:all` · `nx test <project> [--coverage|--watch]`.
+- Lint & format: `npm run lint` (affected) · `npm run lint:all`; `npm run format` / `npm run format:check`; `npm run type-check`.
 
-## Test
-- Affected: `npm run test`
-- All: `npm run test:all`
-- Single project (example): `nx test sensor-service`
-- Watch mode per project: `nx test sensor-service --watch`
-- Coverage per project: `nx test sensor-service --coverage`
-
-## Lint & format
-- Affected lint: `npm run lint`
-- All lint: `npm run lint:all`
-- Format check / write: `npm run format:check` / `npm run format`
-- Type check: `npm run type-check`
-
-## Repo map (high level)
-- `apps/`: independent NestJS services (gateway, auth, farm, sensor ingestion, alerting, billing, HR, notifications, config, observability, event-store, admin API). Each app has its own README for service-specific run/config.
-- `web/`: React microfrontends with module federation; `shell` hosts modules like `dashboard`, `admin-panel`, `farm-module`, `hr-module`, etc.; `shared-ui` holds design system components.
-- `platform/libs/`: platform-level building blocks (CQRS, domain primitives, event bus abstraction, shared DTOs, validation, security, telemetry/observability, Temporal workflows).
-- `libs/`: cross-cutting utilities (backend common, event contracts, SDKs, testing helpers, node-components).
-- `infra/helm`, `infra/terraform`: deployment and cloud infra modules (EKS, VPC, RDS/Timescale, MSK Kafka, Redis, OpenSearch).
-- `docker/` and root `docker-compose.yml`: compose files for local infra and app stacks.
-
-## Useful tooling
-- Dependency graph: `npm run graph` (full) or `npm run affected:graph`.
-- Nx caching is enabled (see `nx.json`); `build/test/lint/e2e` are cacheable.
+## Repo map
+- `apps/`: 17 entries — 15 NestJS runtime services + the Rust `sensor-ingestion` sidecar + the
+  `db-migrate` CLI. See the service/schema table in `CLAUDE.md` for responsibilities.
+- `web/`: Module-Federation microfrontends — `web/shell` (host), `web/shared-ui` (design system),
+  `web/modules/*` (federated remotes), `web/apps/aquamobil` (standalone offline-first PWA).
+- `platform/libs/`: `@platform/cqrs`, `@platform/event-bus` (NATS), `@platform/outbox`.
+  `libs/`: `backend-common`, `event-contracts`, testing helpers.
+- `infrastructure/`: Docker/Helm/Kubernetes/Terraform assets, NATS config, monitoring, nginx.
 
 ## Notes for agents
-- Target Node 20.11+ / npm 10+ per root `package.json`.
-- When running commands on Windows PowerShell, prefer `npm run ...` wrappers over bare Nx for consistent env.
-- Check per-service README in `apps/<service>/README.md` and per-web module README for environment variables and ports when troubleshooting.
+- Read `CLAUDE.md` FIRST — it carries the non-negotiable rules (entity `schema:` discipline,
+  NATS cert-only identity, root-cause-only fixes, commit format + finding traceability). Some
+  directories also carry a nested `CLAUDE.md` with domain-specific rules, loaded when you edit there.
+- Never commit `.env`/secrets. `git push` after each commit on the active branch; no force push,
+  no `--no-verify`/`--no-gpg-sign`.
+- Check per-service `apps/<service>/README.md` for service-specific env vars and ports.

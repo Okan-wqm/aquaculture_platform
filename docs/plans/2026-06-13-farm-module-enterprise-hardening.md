@@ -69,7 +69,7 @@ Finding IDs are used in commit `Closes:` lines (`Closes: docs/plans/2026-06-13-f
 | `pii-plaintext-log` | HIGH | (audit) | T1/T2 | Worker PII logged via string interpolation in `create-worker.handler`. |
 | `fe-role-gating` | MED | (audit) | T3 | `useCanMutate` applied inconsistently; many destructive mutation surfaces ungated client-side. |
 | `fe-eager-imports` | MED | (audit) | T1 | farm-module 100% eager imports; recharts/lucide bundled per-remote; no bundle budget. |
-| `fe-upload-bypass` | HIGH | (audit) | T2 | `useFileUpload` raw `fetch` bypasses central client (no CSRF, no refresh-on-401, stale-token capture). |
+| `fe-upload-bypass` | HIGH | ✅ `FARM-HIGH-071` | T2 | Added `RestClient.upload` multipart + rerouted all 5 upload hooks through the central client; fixed CSRF cookie-name drift (`XSRF-TOKEN`→`csrf-token`, the real bug — getCsrfToken always returned null); invariant RULE 3. |
 | `cron-fairness` | MED | (audit) | T2 | All farm crons iterate tenants strictly serially; no concurrency cap / per-tenant timeout / rotation. |
 
 ---
@@ -226,5 +226,6 @@ Each plan cluster is tracked as a registry finding (`docs/reviews/_registry/find
 | `FARM-HIGH-068` | 5 | `harvest-harvestedby` — deleted the dead required `harvestedBy` input (server derives the actor from `user.sub`); every harvest mutation had failed GraphQL non-null validation |
 | `FARM-HIGH-069` | 5 | `harvest-planid` — added `harvestPlanId` to the harvest input DTO + FE type (the handler read it for the mandatory-plan gate; DTO/FE omitted it) |
 | `FARM-HIGH-070` | 5 | `close-batch-enum` — expanded the backend enum by the 4 legitimate reasons the FE picker offered (TOTAL_MORTALITY/DISEASE_OUTBREAK/COMMERCIAL_DECISION/MERGED) + exhaustive Record entries; FE/BE drift resolved, no event-contract change (closeReason is free-text). FE-binding-to-generated-types = `ORPHAN-HIGH-131` |
+| `FARM-HIGH-071` | 5 | `fe-upload-bypass` — added `RestClient.upload` multipart to the central client + rerouted all 5 upload/delete/presigned hooks through it (fresh token + CSRF + refresh-on-401); fixed the CSRF cookie-name SSoT drift (`XSRF-TOKEN`→`csrf-token`); invariant RULE 3 bans raw `/upload` fetch. Sibling sentinel raw-fetch = `ORPHAN-MEDIUM-132` |
 
 Deferred / superseded references: `FARM-HIGH-007` + `FARM-MEDIUM-003` are closed by `FARM-HIGH-014`; `FARM-MEDIUM-002` is superseded (see `ORPHAN-MEDIUM-112`); feed-dual Phase B convergence is tracked as `ORPHAN-HIGH-114`.

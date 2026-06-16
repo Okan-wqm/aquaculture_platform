@@ -3,7 +3,7 @@
  * Handles CRUD operations for chemicals via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, restClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum ChemicalType {
@@ -548,42 +548,32 @@ export interface UploadChemicalDocumentResult {
  * 2. Add document reference to chemical via GraphQL
  */
 export function useUploadChemicalDocument() {
-  const { token, tenantId } = useAuth();
+  // fe-upload-bypass (FARM-HIGH-071): auth/CSRF/refresh now handled by the
+  // central restClient; tenantId retained only for query-key invalidation.
+  const { tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (params: UploadChemicalDocumentParams): Promise<UploadChemicalDocumentResult> => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
-
       const { file, chemicalId, documentName, documentType } = params;
 
-      // Step 1: Upload file to MinIO via REST endpoint
+      // Step 1: Upload file to MinIO via the central authenticated REST client
+      // (fresh token + tenant + CSRF + refresh-on-401; restClient prepends /api).
       const formData = new FormData();
       formData.append('file', file);
       formData.append('chemicalId', chemicalId);
       formData.append('documentName', documentName);
       formData.append('documentType', documentType);
 
-      const uploadResponse = await fetch('/api/upload/chemical-document', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'x-tenant-id': tenantId,
-        },
-        body: formData,
-      });
-
-      if (!uploadResponse.ok) {
-        const error = await uploadResponse.json().catch(() => ({ message: 'Upload failed' }));
-        throw new Error(error.message || 'Failed to upload document');
-      }
-
-      const uploadResult = await uploadResponse.json();
+      const uploadResult = await restClient.upload<{
+        documentId: string;
+        documentName: string;
+        documentType: ChemicalDocumentType;
+        url: string;
+        path: string;
+        uploadedAt: string;
+        uploadedBy: string;
+      }>('POST', '/upload/chemical-document', formData);
 
       // Step 2: Add document reference to chemical via GraphQL
       const graphqlResult = await graphqlClient.request<{ addChemicalDocument: Chemical }>(
@@ -665,36 +655,20 @@ export interface RemoveChemicalDocumentParams {
  * This removes both the file from MinIO and the reference from the chemical
  */
 export function useRemoveChemicalDocument() {
-  const { token, tenantId } = useAuth();
+  // fe-upload-bypass (FARM-HIGH-071): central restClient owns auth/CSRF/refresh;
+  // tenantId retained only for query-key invalidation.
+  const { tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (params: RemoveChemicalDocumentParams): Promise<boolean> => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
-
       const { chemicalId, documentId, filename } = params;
 
-      // Step 1: Delete file from MinIO via REST endpoint
-      const deleteResponse = await fetch(
-        `/api/upload/chemical-document/${chemicalId}/${documentId}/${encodeURIComponent(filename)}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'x-tenant-id': tenantId,
-          },
-        }
+      // Step 1: Delete the file from MinIO via the central authenticated REST
+      // client (auth/CSRF/refresh owned by restClient; /api prefix added).
+      await restClient.delete(
+        `/upload/chemical-document/${chemicalId}/${documentId}/${encodeURIComponent(filename)}`,
       );
-
-      if (!deleteResponse.ok) {
-        const error = await deleteResponse.json().catch(() => ({ message: 'Delete failed' }));
-        throw new Error(error.message || 'Failed to delete document file');
-      }
 
       // Step 2: Remove document reference from chemical via GraphQL
       const data = await graphqlClient.request<{ removeChemicalDocument: boolean }>(
@@ -715,33 +689,15 @@ export function useRemoveChemicalDocument() {
  * Hook to get a presigned URL for downloading a document
  */
 export function useGetDocumentUrl() {
-  const { token, tenantId } = useAuth();
-
+  // fe-upload-bypass (FARM-HIGH-071): the presigned-URL POST is CSRF-enforced at
+  // the gateway and needs refresh-on-401 — route it through the central client
+  // (auth/CSRF/tenant/refresh owned by restClient; /api prefix added).
   return useMutation({
     mutationFn: async (path: string): Promise<{ url: string; expiresAt: string }> => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
-
-      const response = await fetch('/api/upload/presigned-url', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'x-tenant-id': tenantId,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ path, expirySeconds: 3600 }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Failed to get URL' }));
-        throw new Error(error.message || 'Failed to get document URL');
-      }
-
-      return response.json();
+      return restClient.post<{ url: string; expiresAt: string }>(
+        '/upload/presigned-url',
+        { path, expirySeconds: 3600 },
+      );
     },
   });
 }

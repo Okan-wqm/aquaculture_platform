@@ -48,6 +48,10 @@ function farmFiles(extensions: readonly string[]): string[] {
 
 const MOCK_IMPORT = /\bfrom\s+['"][^'"]*\/mock(?:\/[^'"]*)?['"]/;
 const FABRICATED_RANDOM = /Math\.random\(\)\s*[*/+]/;
+// fe-upload-bypass (FARM-HIGH-071): a raw fetch() to an /upload endpoint
+// bypasses the central authenticated REST client (no CSRF / refresh-on-401 /
+// fresh-token / tenant). Uploads MUST go through restClient.upload/delete.
+const RAW_UPLOAD_FETCH = /fetch\(\s*[`'"][^`'"\n]*\/upload/;
 
 describe('farm-module no-fabricated-data invariant', () => {
   it('RULE 1: no production file imports from a mock-data module', () => {
@@ -79,6 +83,23 @@ describe('farm-module no-fabricated-data invariant', () => {
         `farm-module .tsx render surfaces must not fabricate values with Math.random() ` +
           `arithmetic (fe-sensor-fake class). Use real backend data. ID generation via ` +
           `Math.random().toString(36) is allowed. Offenders:\n${offenders.join('\n')}`,
+      );
+    }
+  });
+
+  it('RULE 3: no raw fetch() to an /upload endpoint (must use the central restClient)', () => {
+    const offenders: string[] = [];
+    for (const file of farmFiles(['.ts', '.tsx'])) {
+      const content = readFileSync(join(REPO_ROOT, file), 'utf8');
+      content.split('\n').forEach((line, i) => {
+        if (RAW_UPLOAD_FETCH.test(line)) offenders.push(`${file}:${i + 1}  ${line.trim()}`);
+      });
+    }
+    if (offenders.length > 0) {
+      throw new Error(
+        `farm-module file uploads must go through the central authenticated ` +
+          `restClient.upload/delete (fresh token + CSRF + refresh-on-401), not a raw ` +
+          `fetch() to /upload (fe-upload-bypass class). Offenders:\n${offenders.join('\n')}`,
       );
     }
   });

@@ -3,7 +3,11 @@
  * Handles file uploads for batch documents via REST API
  */
 import { useMutation } from '@tanstack/react-query';
-import { useAuth } from '@aquaculture/shared-ui';
+// fe-upload-bypass (FARM-HIGH-071): uploads/deletes go through the central
+// authenticated REST client (fresh per-request token + tenant, CSRF header,
+// refresh-on-401, lifecycle barrier, credentials) instead of a hand-rolled
+// fetch with a stale memoized token and no CSRF/refresh.
+import { restClient } from '@aquaculture/shared-ui';
 
 // Types
 export type BatchDocumentCategory = 'health_certificate' | 'import_document' | 'other';
@@ -32,23 +36,12 @@ export interface DeleteDocumentInput {
   filename: string;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
-
 /**
  * Hook to upload batch document
  */
 export function useUploadBatchDocument() {
-  const { token, tenantId } = useAuth();
-
   return useMutation({
     mutationFn: async (input: UploadBatchDocumentInput): Promise<UploadedDocument> => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
-
       const formData = new FormData();
       formData.append('file', input.file);
       formData.append('documentName', input.documentName);
@@ -60,21 +53,12 @@ export function useUploadBatchDocument() {
         formData.append('entityId', input.entityId);
       }
 
-      const response = await fetch(`${API_BASE_URL}/upload/batch-document`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'x-tenant-id': tenantId,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Upload failed' }));
-        throw new Error(error.message || `Upload failed with status ${response.status}`);
-      }
-
-      return response.json();
+      // restClient prepends restBaseUrl (/api) and owns auth/CSRF/refresh/tenant.
+      return restClient.upload<UploadedDocument>(
+        'POST',
+        '/upload/batch-document',
+        formData,
+      );
     },
   });
 }
@@ -83,34 +67,11 @@ export function useUploadBatchDocument() {
  * Hook to delete batch document
  */
 export function useDeleteBatchDocument() {
-  const { token, tenantId } = useAuth();
-
   return useMutation({
     mutationFn: async (input: DeleteDocumentInput): Promise<{ success: boolean }> => {
-      if (!token) {
-        throw new Error('Authentication required. Please login first.');
-      }
-      if (!tenantId) {
-        throw new Error('Tenant context required. Please re-login.');
-      }
-
-      const response = await fetch(
-        `${API_BASE_URL}/upload/batch-document/${encodeURIComponent(input.entityId)}/${encodeURIComponent(input.documentId)}/${encodeURIComponent(input.filename)}`,
-        {
-          method: 'DELETE',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'x-tenant-id': tenantId,
-          },
-        }
+      return restClient.delete<{ success: boolean }>(
+        `/upload/batch-document/${encodeURIComponent(input.entityId)}/${encodeURIComponent(input.documentId)}/${encodeURIComponent(input.filename)}`,
       );
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Delete failed' }));
-        throw new Error(error.message || `Delete failed with status ${response.status}`);
-      }
-
-      return response.json();
     },
   });
 }

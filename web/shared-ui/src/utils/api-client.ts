@@ -31,8 +31,15 @@ function getCsrfToken(): string | null {
     return metaTag.content;
   }
 
-  // Strategy 2: cookie named XSRF-TOKEN (non-httpOnly, set by server)
-  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
+  // Strategy 2: the non-httpOnly double-submit cookie the gateway CSRF
+  // middleware sets — its name is `csrf-token` (CSRF_COOKIE_NAME in
+  // apps/gateway-api/src/middleware/csrf.middleware.ts). This MUST match the
+  // gateway's cookie name: the client echoes the value back in the
+  // X-CSRF-Token header and the gateway timing-safe-compares them. (Previously
+  // read `XSRF-TOKEN`, which nothing sets — so getCsrfToken always returned
+  // null and every CSRF-enforced REST request, e.g. /upload, failed; /graphql
+  // is CSRF-exempt, which masked the bug. fe-upload-bypass / FARM-HIGH-071.)
+  const match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
   if (match?.[1]) {
     return decodeURIComponent(match[1]);
   }
@@ -747,9 +754,13 @@ class RestClient {
       url += `?${searchParams.toString()}`;
     }
 
-    // Headers
+    // Headers. For a multipart (FormData) body the browser MUST set
+    // Content-Type itself (it appends the multipart boundary), so we omit it;
+    // JSON bodies set it explicitly here.
+    const isMultipart =
+      typeof FormData !== 'undefined' && body instanceof FormData;
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      ...(isMultipart ? {} : { 'Content-Type': 'application/json' }),
       ...customHeaders,
     };
 
@@ -777,11 +788,18 @@ class RestClient {
     );
 
     try {
+      // Multipart bodies pass through as-is; everything else is JSON-encoded.
+      const fetchBody: BodyInit | undefined =
+        body instanceof FormData
+          ? body
+          : body !== undefined && body !== null
+            ? JSON.stringify(body)
+            : undefined;
       const response = await fetch(url, {
         method,
         headers,
         credentials: 'include',
-        body: body ? JSON.stringify(body) : undefined,
+        body: fetchBody,
         signal: controller.signal,
       });
 
@@ -874,6 +892,23 @@ class RestClient {
 
   delete<T>(path: string) {
     return this.request<T>('DELETE', path);
+  }
+
+  /**
+   * Multipart file upload — routes uploads through the SAME authenticated path
+   * as every other REST call (fresh per-request access token + tenant id, CSRF
+   * header, single-flight refresh-on-401, lifecycle barrier, credentials:
+   * 'include'), instead of a hand-rolled fetch that re-implemented auth badly
+   * (stale memoized token, no refresh, no CSRF). The request() machinery omits
+   * Content-Type for FormData so the browser sets the multipart boundary.
+   * fe-upload-bypass / FARM-HIGH-071.
+   */
+  upload<T>(
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    formData: FormData,
+  ) {
+    return this.request<T>(method, path, { body: formData });
   }
 }
 

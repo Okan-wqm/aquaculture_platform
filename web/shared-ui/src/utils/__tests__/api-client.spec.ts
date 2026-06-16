@@ -572,6 +572,43 @@ describe('api-client', () => {
       });
     });
 
+    // fe-upload-bypass (FARM-HIGH-071): multipart upload + CSRF cookie.
+    describe('multipart upload + CSRF', () => {
+      it('upload sends FormData as the body, omits Content-Type, and attaches auth + tenant', async () => {
+        apiClient.setTokens('upload-token');
+        apiClient.setTenantId('tenant-xyz');
+        mockFetch.mockResolvedValueOnce(mockResponse(200, { documentId: 'd1' }));
+
+        const fd = new FormData();
+        fd.append('file', new Blob(['x']), 'f.txt');
+        await apiClient.restClient.upload('POST', '/upload/batch-document', fd);
+
+        const [url, init] = mockFetch.mock.calls[0];
+        expect(url).toContain('/upload/batch-document');
+        expect(init.body).toBeInstanceOf(FormData);
+        // The browser MUST set Content-Type (multipart boundary), so we omit it.
+        expect(init.headers['Content-Type']).toBeUndefined();
+        expect(init.headers['Authorization']).toBe('Bearer upload-token');
+        expect(init.headers['X-Tenant-Id']).toBe('tenant-xyz');
+        expect(init.credentials).toBe('include');
+      });
+
+      it('attaches X-CSRF-Token read from the gateway csrf-token cookie', async () => {
+        apiClient.setTokens('token');
+        document.cookie = 'csrf-token=csrf-abc';
+        mockFetch.mockResolvedValueOnce(mockResponse(200, { documentId: 'd1' }));
+
+        const fd = new FormData();
+        fd.append('file', new Blob(['x']), 'f.txt');
+        await apiClient.restClient.upload('POST', '/upload/batch-document', fd);
+
+        const [, init] = mockFetch.mock.calls[0];
+        expect(init.headers['X-CSRF-Token']).toBe('csrf-abc');
+        // Clean up so the cookie does not leak into sibling tests.
+        document.cookie = 'csrf-token=; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      });
+    });
+
     describe('Convenience methods', () => {
       it('should support PUT method', async () => {
         apiClient.setTokens('token');

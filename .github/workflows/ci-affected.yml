@@ -5,7 +5,7 @@ name: CI - Affected
 # ARCH-CI-006: Removed github.sha from NX cache key
 # ARCH-CI-007: Split lint/type-check/test into parallel jobs so build always runs
 # ARCH-CI-008: Increased timeouts (cold cache), reduced parallel (memory), save Nx cache after build
-# ARCH-CI-009: Push-to-main deploy waits for affected lint/type-check/test/build.
+# ARCH-CI-009: Push-to-main runs affected lint/type-check/test/build as code-health.
 
 on:
   push:
@@ -116,48 +116,6 @@ jobs:
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
 
-  release-decision:
-    needs: detect-changes
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    outputs:
-      deploy_required: ${{ steps.decide.outputs.deploy_required }}
-      obsolete: ${{ steps.decide.outputs.obsolete }}
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        with:
-          fetch-depth: 0
-
-      - id: decide
-        run: |
-          set -euo pipefail
-          git fetch --force --prune origin main '+refs/tags/deployed/production:refs/tags/deployed/production' || true
-          remote_main="$(git rev-parse origin/main)"
-          if [ "${GITHUB_SHA}" != "${remote_main}" ]; then
-            echo "::notice::This run is obsolete; origin/main is ${remote_main}."
-            echo "deploy_required=false" >> "$GITHUB_OUTPUT"
-            echo "obsolete=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          baseline="$(git rev-parse deployed/production 2>/dev/null || true)"
-          if [ -z "${baseline}" ]; then
-            echo "::notice::No deployed/production tag found; deploy required."
-            echo "deploy_required=true" >> "$GITHUB_OUTPUT"
-            echo "obsolete=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if git diff --quiet "${baseline}" "${GITHUB_SHA}"; then
-            echo "::notice::No diff since deployed/production; deploy not required."
-            echo "deploy_required=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::Diff exists since deployed/production; deploy required."
-            echo "deploy_required=true" >> "$GITHUB_OUTPUT"
-          fi
-          echo "obsolete=false" >> "$GITHUB_OUTPUT"
-
   # ---------------------------------------------------------------------------
   # Shared setup: install + cache (reusable via needs + cache restore)
   # ---------------------------------------------------------------------------
@@ -196,7 +154,7 @@ jobs:
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
   # ---------------------------------------------------------------------------
-  # Lint, type-check, test: PR + push-to-main deploy gate
+  # Lint, type-check, test: PR + push-to-main code-health gate
   # ---------------------------------------------------------------------------
   lint:
     needs: [install, detect-changes]
@@ -568,9 +526,9 @@ jobs:
             e2e/test-results/**
 
   # ---------------------------------------------------------------------------
-  # Build: PR + push-to-main deploy gate.
-  # On PR this validates the code compiles before merge; on main it prevents
-  # deploy from starting until the affected workspace graph is buildable.
+  # Build: PR + push-to-main code-health gate.
+  # On PR this validates the code compiles before merge; on main it keeps
+  # buildability visible without coupling CI-Affected to a droplet deploy.
   # ---------------------------------------------------------------------------
   build:
     needs: [install, detect-changes]
@@ -1115,150 +1073,6 @@ jobs:
               exit 1
             fi
           done
-
-  # ---------------------------------------------------------------------------
-  deploy-staging:
-    permissions:
-      contents: write
-      packages: write
-    needs:
-      - detect-changes
-      - release-decision
-      - install
-      - lint
-      - type-check
-      - test
-      - build
-      - pre-flight
-    if: |
-      always() &&
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      needs.release-decision.outputs.deploy_required == 'true' &&
-      needs.release-decision.outputs.obsolete != 'true' &&
-      needs.detect-changes.result == 'success' &&
-      (
-        needs.detect-changes.outputs.has_changes != 'true' ||
-        (
-          needs.install.result == 'success' &&
-          needs.lint.result == 'success' &&
-          needs.type-check.result == 'success' &&
-          needs.test.result == 'success' &&
-          needs.build.result == 'success' &&
-          needs.pre-flight.result == 'success'
-        )
-      )
-    uses: ./.github/workflows/deploy-staging.yml
-    secrets: inherit
-
-  # ---------------------------------------------------------------------------
-  # Deploy to DigitalOcean — production droplet (push-to-main only).
-  #
-  # ARCH-CI-009 + ADR-016: PRs run affected lint/type-check/test/build before
-  # merge, and push-to-main runs the same affected job surface before invoking
-  # deploy-digitalocean.yml. Production deploy must never start from a run where
-  # affected gates were skipped solely because the event was `push`.
-  #
-  # Restoration history:
-  #   - deploy-digitalocean.yml was authored as a workflow_call subworkflow
-  #     ("invoked from .github/workflows/ci-affected.yml as the final job
-  #     after lint/type-check/test/build all pass on push to main"). That
-  #     invocation never landed in ci-affected.yml; the deploy workflow
-  #     could only fire via manual workflow_dispatch and was therefore
-  #     decoupled from main, breaking the staging-gate audit trail.
-  #   - This job closes that gap: every push to main triggers the deploy
-  #     subworkflow with `services: 'auto'` and no staging-gate bypass after
-  #     the affected main gates above have succeeded.
-  #     Operator-initiated workflow_dispatch is unchanged.
-  #
-  # secrets: inherit forwards DROPLET_HOST, DROPLET_SSH_KEY, DROPLET_USER,
-  # STAGING_DROPLET_HOST + GITHUB_TOKEN (packages:write) to the called
-  # workflow. The called workflow declares its own permissions at the
-  # workflow level (contents: write, packages: write, id-token: write),
-  # which override this caller's contents:read constraint.
-  # ---------------------------------------------------------------------------
-  deploy:
-    # ARCH-CI-016 — reusable-workflow caller permission elevation.
-    #
-    # The called workflow `deploy-digitalocean.yml` declares
-    #   contents: write   (push deployed/production tag)
-    #   packages: write   (push GHCR images)
-    #   id-token: write   (OIDC auth)
-    # GitHub Actions inherits permissions FROM the caller into the called
-    # workflow; a called workflow can LOWER but never RAISE the caller's
-    # permission scope. This workflow's top-level `permissions: contents: read`
-    # is therefore too narrow — every push-to-main run since PR #293's
-    # deploy-chain restoration aborts BEFORE the deploy job starts with
-    # `startup_failure` and no surfaced log (the validation phase rejects
-    # the call before any job container boots).
-    #
-    # The job-level permissions block below is the architecturally correct
-    # fix: scope the elevation to JUST this one job (deploy), keep the
-    # top-level read-only posture for every other job, and make the
-    # caller→called permission relationship a static, reviewable contract.
-    #
-    # SSoT pair invariant: adding/removing a permission to
-    # deploy-digitalocean.yml's top-level permissions block MUST be
-    # mirrored here in the same PR — otherwise the next push-to-main
-    # reintroduces startup_failure on the new permission delta.
-    permissions:
-      contents: write
-      packages: write
-      id-token: write
-    needs:
-      - detect-changes
-      - release-decision
-      - deploy-staging
-      - install
-      - lint
-      - type-check
-      - test
-      - build
-      - pre-flight
-    if: |
-      always() &&
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      needs.release-decision.outputs.deploy_required == 'true' &&
-      needs.release-decision.outputs.obsolete != 'true' &&
-      needs.deploy-staging.result == 'success' &&
-      needs.detect-changes.result == 'success' &&
-      (
-        needs.detect-changes.outputs.has_changes != 'true' ||
-        (
-          needs.install.result == 'success' &&
-          needs.lint.result == 'success' &&
-          needs.type-check.result == 'success' &&
-          needs.test.result == 'success' &&
-          needs.build.result == 'success' &&
-          needs.pre-flight.result == 'success'
-        )
-      )
-    uses: ./.github/workflows/deploy-digitalocean.yml
-    secrets: inherit
-    # bypass_staging_gate + bypass_reason are intentionally NOT passed —
-    # the called workflow defaults them to 'false' / '' which is the
-    # correct posture for an automated push-to-main deploy. Passing
-    # them explicitly here would force a string value past actionlint's
-    # bool/string parser ambiguity for the literal 'false', and emergency
-    # bypass remains operator-initiated via workflow_dispatch.
-    with:
-      services: 'auto'
-
-  production-post-deploy-verify:
-    needs:
-      - deploy
-    # `needs.deploy.result == 'success'` alone is NOT "a deployment
-    # happened" — the deploy workflow legitimately no-ops on
-    # docs/registry-only pushes and still concludes success
-    # (INFRA-MEDIUM-005: every close-ceremony commit went red here while
-    # production was untouched and healthy). The `deployed` output is the
-    # explicit production-mutation contract.
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success' && needs.deploy.outputs.deployed == 'true'
-    uses: ./.github/workflows/production-post-deploy-verify.yml
-    secrets: inherit
-    with:
-      target_sha: ${{ github.sha }}
 
   merge-gate:
     needs:

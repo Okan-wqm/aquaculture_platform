@@ -19,10 +19,13 @@ describe('production operations proof contract', () => {
     expect(workflow).toContain('workflow_call:');
     expect(workflow).not.toContain('workflow_run:');
     expect(workflow).toContain('environment: production');
-    expect(ciAffected).toContain('production-post-deploy-verify:');
-    expect(ciAffected).toContain("needs.deploy.result == 'success'");
-    expect(ciAffected).toContain('uses: ./.github/workflows/production-post-deploy-verify.yml');
-    expect(ciAffected).toContain('target_sha: ${{ github.sha }}');
+    // The verifier remains manually/reusably callable, but CI-Affected is a
+    // code-health workflow now. It must not drive production verification from
+    // the demo droplet deploy chain.
+    expect(ciAffected).not.toContain('production-post-deploy-verify:');
+    expect(ciAffected).not.toContain("needs.deploy.result == 'success'");
+    expect(ciAffected).not.toContain('uses: ./.github/workflows/production-post-deploy-verify.yml');
+    expect(ciAffected).not.toContain('target_sha: ${{ github.sha }}');
     expect(workflow).toContain('deployed/production');
     expect(workflow).toContain('scripts/deploy/post-deploy-verify.sh');
     expect(workflow).toContain('production-post-deploy-evidence.json');
@@ -36,7 +39,7 @@ describe('production operations proof contract', () => {
     expect(workflow).not.toMatch(/appleboy\/ssh-action/);
 
     expect(script).toContain('platform.release_ledger');
-    expect(script).toContain("release_status");
+    expect(script).toContain('release_status');
     expect(script).toContain('imageDigestManifestSha256');
     expect(script).toContain('sha256sum "${digest_manifest}"');
     expect(script).toContain('node scripts/deploy/check-service-health.ts');

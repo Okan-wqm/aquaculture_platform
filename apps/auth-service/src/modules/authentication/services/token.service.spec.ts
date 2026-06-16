@@ -95,7 +95,12 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
           provide: getRepositoryToken(UserSiteAssignment),
           useValue: { find: jest.fn().mockResolvedValue([]) },
         },
-        { provide: MobileSettingsService, useValue: { getByUserId: jest.fn().mockResolvedValue(null) } },
+        {
+          provide: MobileSettingsService,
+          // getByUserId NEVER returns null (it creates a default row); a DISABLED
+          // settings object yields empty mobileFeatures, keeping this suite's claims absent.
+          useValue: { getByUserId: jest.fn().mockResolvedValue({ isMobileEnabled: false, allowedFeatures: {} }) },
+        },
         {
           provide: getRepositoryToken(RefreshToken),
           useValue: { create: jest.fn((x: unknown) => x), save: jest.fn() },
@@ -251,7 +256,12 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           provide: getRepositoryToken(UserSiteAssignment),
           useValue: { find: jest.fn().mockResolvedValue([]) },
         },
-        { provide: MobileSettingsService, useValue: { getByUserId: jest.fn().mockResolvedValue(null) } },
+        {
+          provide: MobileSettingsService,
+          // getByUserId NEVER returns null (it creates a default row); a DISABLED
+          // settings object yields empty mobileFeatures, keeping this suite's claims absent.
+          useValue: { getByUserId: jest.fn().mockResolvedValue({ isMobileEnabled: false, allowedFeatures: {} }) },
+        },
         {
           provide: getRepositoryToken(RefreshToken),
           useValue: { create: jest.fn((x: unknown) => x), save: refreshSave },

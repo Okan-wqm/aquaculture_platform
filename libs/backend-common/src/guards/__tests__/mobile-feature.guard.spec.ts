@@ -101,6 +101,8 @@ describe('MobileFeatureGuard', () => {
       getType: () => 'http',
       switchToHttp: () => ({
         getRequest: () => ({ user: { roles: [Role.MODULE_USER], mobileFeatures: ['feeding'] } }),
+        getResponse: jest.fn(),
+        getNext: jest.fn(),
       }),
     } as Partial<ExecutionContext> as ExecutionContext;
     expect(guard.canActivate(ctx)).toBe(true);

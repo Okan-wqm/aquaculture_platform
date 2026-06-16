@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import type { NextFunction, Response } from 'express';
+import type { Response } from 'express';
 
 import type { TenantRequest } from '../../types/tenant-request.interface';
 import { VerifiedUserAssertionMiddleware } from '../verified-user-assertion.middleware';
@@ -44,7 +44,12 @@ function createRequest(overrides: Partial<TenantRequest> = {}): TenantRequest {
 
 describe('VerifiedUserAssertionMiddleware', () => {
   let middleware: VerifiedUserAssertionMiddleware;
-  let next: jest.MockedFunction<NextFunction>;
+  // Plain jest.Mock (not MockedFunction<NextFunction>): express's NextFunction is
+  // an OVERLOADED interface, so Parameters<> resolves to the `'route'` literal and
+  // `next.mock.calls[0][0] as Error` becomes a TS2352. A plain mock types the call
+  // args as `any`, so the Error casts below are valid (and it still satisfies the
+  // NextFunction param of middleware.use at the callsite).
+  let next: jest.Mock;
   const originalNodeEnv = process.env['NODE_ENV'];
 
   beforeEach(() => {

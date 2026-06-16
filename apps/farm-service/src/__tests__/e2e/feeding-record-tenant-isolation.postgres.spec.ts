@@ -15,6 +15,7 @@ import {
   getTenantSchemaName,
   withTenantContext,
 } from '@aquaculture/backend-common';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import {
   bootPostgresContainer,
   HarnessContext,
@@ -84,7 +85,7 @@ interface TenantFixture {
 
 class FeedInventoryOnlyStockMovementService extends StockMovementService {
   constructor() {
-    super(new LotMixService());
+    super(new LotMixService(), new SiteAuthorizationService());
   }
 
   override async feedHasStoragePresence(

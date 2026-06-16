@@ -28,6 +28,12 @@
 import { BadRequestException } from '@nestjs/common';
 import { DataSource, EntityManager, ObjectLiteral, QueryRunner, Repository } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import {
+  SiteAuthorizationService,
+  type SiteScopeCaller,
+} from '@aquaculture/backend-common/security';
 
 import { DailyFeedingExecutionService } from '../daily-feeding-execution.service';
 import {
@@ -52,6 +58,16 @@ const BATCH = '22222222-2222-4222-8222-222222222222';
 const FEED = '33333333-3333-4333-8333-333333333333';
 const USER = '44444444-4444-4444-8444-444444444444';
 const LOCATION = '55555555-5555-4555-8555-555555555555';
+
+// SEC-HIGH-051: the site-scope caller threaded into recordActualFeeding. A
+// MODULE_MANAGER bypasses the object-level site check via the canonical role
+// hierarchy, so these stock-focused tests keep their original behaviour — they
+// assert the dual-SSoT write path, not the site gate (covered by its own spec).
+const MANAGER_CALLER: SiteScopeCaller = {
+  sub: USER,
+  roles: [Role.MODULE_MANAGER],
+  assignedSiteIds: [],
+};
 
 /**
  * Build a fully-typed partial double for an interface T. Every accessed member
@@ -230,6 +246,15 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
 
   const repo = <T extends ObjectLiteral>(): Repository<T> => mock<Repository<T>>({});
 
+  // No mobile-command envelope is passed by these dual-SSoT write-path tests, so
+  // begin() runs in legacy mode (one-shot, no idempotency replay) and complete()
+  // is a no-op. Both are stubbed so the recording proceeds straight to the
+  // storage write path under test.
+  const mobileCommandReceipts = mock<MobileCommandReceiptService>({
+    begin: jest.fn().mockResolvedValue({ mode: 'legacy' }),
+    complete: jest.fn().mockResolvedValue(undefined),
+  });
+
   const service = new DailyFeedingExecutionService(
     repo<DailyFeedingExecution>(),
     repo(),
@@ -243,6 +268,8 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     batchDomainService,
     stockMovementService,
     outboxPublisher,
+    mobileCommandReceipts,
+    new SiteAuthorizationService(),
   );
 
   return {
@@ -266,7 +293,7 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     });
 
     await expect(
-      service.recordActualFeeding(EXECUTION, 50, USER, TENANT),
+      service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
     ).rejects.toThrow('Insufficient stock');
 
     expect(feedHasStoragePresence).toHaveBeenCalledTimes(1);
@@ -280,7 +307,7 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     const { service, feedHasStoragePresence, resolveFeedDeductionLocation, recordMovement, commit, rollback } =
       makeHarness({ hasStoragePresence: false });
 
-    const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT);
+    const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
     expect(feedHasStoragePresence).toHaveBeenCalledTimes(1);
     // Not storage-tracked → no resolve, no movement, NO throw.
@@ -298,7 +325,7 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     });
 
     await expect(
-      service.recordActualFeeding(EXECUTION, 50, USER, TENANT),
+      service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     // Rejected at the feedability guard — never reached the storage path.
@@ -314,7 +341,7 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     });
 
     await expect(
-      service.recordActualFeeding(EXECUTION, 50, USER, TENANT),
+      service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(recordMovement).not.toHaveBeenCalled();
@@ -329,7 +356,7 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     });
 
     await expect(
-      service.recordActualFeeding(EXECUTION, 50, USER, TENANT),
+      service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(feedHasStoragePresence).toHaveBeenCalledTimes(1);
@@ -344,7 +371,7 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
       hasStoragePresence: true,
     });
 
-    const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT);
+    const result = await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
     expect(resolveFeedDeductionLocation).toHaveBeenCalledTimes(1);
     expect(recordMovement).toHaveBeenCalledTimes(1);

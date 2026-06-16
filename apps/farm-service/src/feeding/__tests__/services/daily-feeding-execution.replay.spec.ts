@@ -8,6 +8,7 @@
  * canRecordFeeding() is false once the execution is COMPLETED.
  */
 import { Repository, DataSource, EntityManager } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 
 import { Role } from '@aquaculture/backend-common/decorators';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
@@ -17,6 +18,8 @@ import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
+import { BatchDomainService } from '../../../batch/services/batch-domain.service';
+import { StockMovementService } from '../../../storage/services/stock-movement.service';
 import { BilinearInterpolationService } from '../../services/bilinear-interpolation.service';
 import { DailyFeedingExecution } from '../../entities/daily-feeding-execution.entity';
 import { FeedingProgram } from '../../entities/feeding-program.entity';
@@ -92,6 +95,9 @@ describe('DailyFeedingExecutionService — feeding idempotency (FARM-MEDIUM-051)
       repoStub() as Repository<Feed>,
       {} as BilinearInterpolationService,
       dataSource,
+      {} as BatchDomainService,
+      {} as StockMovementService,
+      {} as OutboxPublisher,
       receipts,
       new SiteAuthorizationService(),
     );

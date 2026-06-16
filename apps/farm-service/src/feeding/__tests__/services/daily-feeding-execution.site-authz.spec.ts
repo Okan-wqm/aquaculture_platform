@@ -14,6 +14,7 @@
  */
 import { ForbiddenException } from '@nestjs/common';
 import { Repository, DataSource, EntityManager } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 
 import { Role } from '@aquaculture/backend-common/decorators';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
@@ -25,6 +26,8 @@ import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
+import { BatchDomainService } from '../../../batch/services/batch-domain.service';
+import { StockMovementService } from '../../../storage/services/stock-movement.service';
 import { BilinearInterpolationService } from '../../services/bilinear-interpolation.service';
 import { DailyFeedingExecution } from '../../entities/daily-feeding-execution.entity';
 import { FeedingProgram } from '../../entities/feeding-program.entity';
@@ -127,6 +130,9 @@ function makeService(siteIdOnManager: string | null): {
     repoStub() as Repository<Feed>,
     {} as BilinearInterpolationService,
     dataSource,
+    {} as BatchDomainService,
+    {} as StockMovementService,
+    {} as OutboxPublisher,
     receipts,
     new SiteAuthorizationService(),
   );

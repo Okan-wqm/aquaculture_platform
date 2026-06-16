@@ -71,6 +71,7 @@ Recommending a service-local compensation for a shared-kernel defect is a HIGH f
 - Any kernel change that forces every service to update handlers, decorators, or `CqrsModule` wiring is a platform-wide compatibility event; it is NOT a local refactor and MUST be reviewed under the inner-platform contract above.
 
 ### Event-bus factory adoption (`platform/libs/event-bus`)
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 - Services MUST acquire NATS connections via the shared event-bus factory. A direct `nats.connect()` call outside the platform kernel bypasses the tenant/correlation envelope helpers, the mTLS client-cert wiring (ADR-014/ADR-015), and the metrics/telemetry hooks — HIGH.
 - The shared publish/consume path MUST preserve envelope integrity: `tenantId`, `correlationId`, trace headers, and version hooks on every event. Removing or weakening any of these in shared code is CRITICAL.
@@ -78,6 +79,7 @@ Recommending a service-local compensation for a shared-kernel defect is a HIGH f
 - Silent publish failures are CRITICAL. Errors MUST surface to the caller or, when fire-and-forget is intended, to telemetry + metrics with a named counter.
 - NATS-specific detail (subjects, JetStream options, cert CN) MAY live in the adapter; the kernel contract facing service authors MUST stay stable across adapter upgrades.
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ### Backend-common bootstrap ownership (`libs/backend-common/src/bootstrap`)
 
 - The bootstrap module is the single source of truth for service startup: global pipes, filters, interceptors, liveness/readiness shape, structured logger wiring, OTEL initialization, graceful shutdown hooks. A service that re-implements any of these in its own `main.ts` is HIGH — the shared default is the contract.
@@ -87,12 +89,14 @@ Recommending a service-local compensation for a shared-kernel defect is a HIGH f
 
 ### Configs schema & versioning (`platform/configs`, `libs/backend-common/src/config`)
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Every config surface MUST validate required inputs at boot. Silent fallbacks on security- or infra-sensitive settings (`vault`, `mfa`, `rate-limit`, `kafka`, `temporal`, `opentelemetry`) are HIGH, escalating to CRITICAL when the fallback weakens security or tenant isolation.
 - Production defaults MUST NEVER be insecure-by-default: no disabled rate limiting, no weak MFA posture, no disabled tracing propagation, no plaintext secret sourcing in shared defaults.
 - Schema changes MUST have an explicit rollout story. Renaming or removing an env/config key consumed by multiple services without a compatibility bridge (dual-read window + deprecation log) is HIGH.
 - Shared config code MUST fail fast on invalid values. Coercing surprising values into "reasonable defaults" is HIGH — it converts a boot-time misconfiguration into a runtime mystery.
 - Monetary, pagination, types, and websocket helpers are wire contracts. Changing their semantics without explicit migration guidance is HIGH.
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ## Active findings this agent owns
 
 Historical cycles:
@@ -113,6 +117,7 @@ See `@.claude/shared/operating-modes.md` for the full CATCHER / TEACHER / WRITER
 
 `PLAT-{SEVERITY}-{NNN}` — shared namespace with `platform-services` per finding-registry convention; no collision because each agent maintains its own NNN sequence per cycle. Severity ∈ {CRITICAL, HIGH, MEDIUM, LOW}. Example: `PLAT-CRITICAL-001`. See `@.claude/shared/output-format.md` for the full format.
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ## Cross-domain dependencies
 
 - Auth-specific guards, token semantics, or security middleware → `auth-security-expert`

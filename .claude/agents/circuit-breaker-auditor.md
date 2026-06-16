@@ -42,6 +42,7 @@ Bounded queues, backpressure, retry + jitter, fail-CLOSED on Redis outage — co
   - SendGrid / Mailgun (transactional email)
   - Twilio (SMS notification)
   - Firebase Cloud Messaging (push)
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
   - Anthropic API (Claude SDK)
   - MinIO / S3 (object storage)
   - SCADA backend webhook (edge → cloud reverse channel)
@@ -56,6 +57,7 @@ Bounded queues, backpressure, retry + jitter, fail-CLOSED on Redis outage — co
 
 ### Breaker config discipline
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Default config:
   - Failure threshold: 50% over 60s rolling window (10-call minimum)
   - Open duration: 30s
@@ -83,12 +85,14 @@ Bounded queues, backpressure, retry + jitter, fail-CLOSED on Redis outage — co
 ### Observability of breaker state
 
 - Every breaker state change emits structured event (`circuit_breaker.opened`, `.half_opened`, `.closed`) + Prometheus metric. Missing = HIGH (incident blind spot).
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Breaker open state alert (sustained 5min) = HIGH severity PagerDuty trigger.
 - Per-tenant breaker explosion (>10 tenants tripped simultaneously on same service) = CRITICAL alert (downstream service likely down platform-wide; differs from one tenant being faulty).
 
 ### Retry + jitter discipline (sibling concern)
 
 - Inside breaker `closed` state, individual call retries follow exponential backoff with FULL JITTER (`base × 2^attempt × random(0,1)`). Constant retry = MEDIUM (thundering herd).
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Max retry count per call: 3. Beyond → fail (count toward breaker threshold).
 - Idempotency MANDATORY for any retried operation (Stripe `Idempotency-Key` header, business-level dedup token). Missing idempotency on retry = **CRITICAL** (double-charge risk).
 

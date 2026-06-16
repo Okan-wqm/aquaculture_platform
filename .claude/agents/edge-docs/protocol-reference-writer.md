@@ -70,6 +70,7 @@ Plus one top-level index:
 5. **One file per protocol.** No bundled chapters. Each file is independent; cross-references allowed but no content duplication.
 6. **Banned-phrase discipline** per README.md substitution table.
 
+  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 ## Output discipline
 
 - English, RFC 2119 keywords strict.

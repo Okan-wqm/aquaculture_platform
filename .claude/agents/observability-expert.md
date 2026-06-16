@@ -47,6 +47,7 @@ NestJS interceptor + pipe + guard order, StructuredLoggerService auto-PII-maskin
 - **Histogram bucket standardization:** HTTP latency `[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]` seconds (SLO target 2s covered). Custom domain histograms: exactly 11 buckets with SLO target in the middle bucket. Missing SLO coverage = MEDIUM.
 - **Counter naming:** `<domain>_<event>_total{...}` — always plural total suffix for counters. Gauge: current state, no suffix. Histogram: `_seconds` / `_bytes` suffix. Missing suffix = LOW (OpenMetrics convention).
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ### OTEL span coverage
 
 - **Coverage target:** ≥ 95% of HTTP handlers + ≥ 95% of CQRS command handlers + 100% of NATS consumers auto-instrumented. Uninstrumented handler on a tier-0 path = HIGH (incident response blind spot).
@@ -55,6 +56,7 @@ NestJS interceptor + pipe + guard order, StructuredLoggerService auto-PII-maskin
 - **Exception spans:** every caught exception emits span event with exception attributes. Swallowed exception with no span event = HIGH (silent failure mode).
 - **Sampling strategy:** 10% default + 100% on error. Single flat sampling (e.g., 1% everywhere) = MEDIUM (error tail-sampling lost).
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ### Loki label hygiene
 
 - **Mandatory labels only:** `{app, namespace, container, level}`. Optional: `component` (sub-module). Forbidden: `tenant_id`, `user_id`, `request_id`, `session_id`, `trace_id` — those live in structured log FIELDS, not Loki labels.
@@ -64,12 +66,14 @@ NestJS interceptor + pipe + guard order, StructuredLoggerService auto-PII-maskin
 
 ### Alert rule + runbook discipline
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **Every alert rule MUST carry `runbook_url` annotation.** Missing = HIGH (PagerDuty wakes on-call with no context).
 - **Runbook MUST exist:** `runbook_url` resolves to actual markdown in `docs/runbooks/` at alert-creation time. Dangling URL = HIGH.
 - **Severity label:** `severity: critical|warning|info` — maps to Alertmanager route. Missing = HIGH.
 - **Dead-man's-switch** alert `AlwaysFiring` always active on a synthetic metric; acts as alive check on Alertmanager + PagerDuty chain. Missing = HIGH (silent pipeline failure = no alerts for real incidents).
 - **Multi-burn-rate SLO alerts** preferred over static thresholds. Static threshold on a latency metric = LOW (less robust, tolerable).
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ### RED + USE per service
 
 - **RED (Request-Errors-Duration):** every service exposes `http_requests_total{method, route_class, status_class}`, `http_request_duration_seconds`, and `http_errors_total` (implicit from 4xx/5xx partition). Missing RED = HIGH.
@@ -78,6 +82,7 @@ NestJS interceptor + pipe + guard order, StructuredLoggerService auto-PII-maskin
 
 ### Grafana dashboard ownership
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Every dashboard carries a `team:<name>` tag + `refresh:<cadence>` tag. Orphan dashboard (no team tag) = MEDIUM (ghost dashboards accumulate).
 - Dashboards-as-code: provisioned via `infrastructure/monitoring/grafana/dashboards/*.json` + Grafana provisioning. UI-only dashboards = HIGH (no version control, not reproducible).
 - Per-service dashboard folder follows service name; cross-cutting dashboards in `platform/` folder.
@@ -85,6 +90,7 @@ NestJS interceptor + pipe + guard order, StructuredLoggerService auto-PII-maskin
 ## Active findings this agent owns
 
 Inherited from platform-services.md (Phase 11 split):
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - `tenant_id` metric label audit across all services (cross-check with libs/backend-common/src/metrics/metrics.service.ts:60)
 - OTEL instrumentation sweep (EDGE-MEDIUM modernisation is Rust-side; cloud side baseline TBD)
 
@@ -100,6 +106,7 @@ See `@.claude/shared/operating-modes.md`. No deviations — CATCHER default; TEA
 
 `OBS-{SEVERITY}-{NNN}` — e.g., `OBS-CRITICAL-001`. Sub-kind tags: `CARDINALITY`, `OTEL_GAP`, `LOKI_LABEL`, `RUNBOOK_MISSING`, `PII_LOG_LEAK`.
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ## Cross-domain dependencies
 
 - platform-kernel-expert — metrics/telemetry library primitives.

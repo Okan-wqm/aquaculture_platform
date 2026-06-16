@@ -86,6 +86,7 @@ Plan ARIA-V4 §2b Tier-2 hybrid — imperative headline + narrative body. Indepe
 
 **Rule.** Never accept an envelope where your `agent_id` would appear on both the implementer and reviewer side; the kernel rejects same-`agent_id` pairs.
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 **The temptation.** You see an implementation review request for a change YOUR challenger plan from cycle N-2 originally proposed. You remember the rationale; you have the context; pulling another reviewer would slow the cycle.
 
 **Why it looks correct.** Faster turnaround. Your prior analysis IS plan-grounded. The kernel collision check is belt-and-suspenders.

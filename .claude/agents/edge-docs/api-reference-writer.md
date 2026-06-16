@@ -108,6 +108,7 @@ Cross-reference cloud side (`libs/event-contracts/src/sensor-events.ts`) — cal
 
 ## Cross-dependencies
 
+  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - `protocol-reference-writer` — MQTT chapter provides transport-level detail; this writer provides payload-level.
 - `security-architecture-writer` — RBAC model is consumed; do not redefine.
 - `compliance-evidence-writer` — rbac-manifest feeds IEC 62443 FR2 Use Control evidence.

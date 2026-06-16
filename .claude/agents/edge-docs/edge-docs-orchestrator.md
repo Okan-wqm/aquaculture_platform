@@ -75,6 +75,7 @@ If mode = FULL-RFP or DELTA-RELEASE, run a "doc-drift" sweep:
 
 1. **Never write chapter content yourself.** Only README, index, and consolidation-report. All chapters are producer output.
 2. **Never dispatch a producer twice in the same cycle.** Each producer writes its scope exactly once per pass.
+  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 3. **Never ship a chapter with unverified claims.** If a producer returns a chapter with a hallucinated feature (e.g. "TPM NV counter anti-rollback active" when code shows `tpm` feature default-off), this orchestrator rejects the chapter and re-dispatches with the contradiction attached.
 4. **Treat `sensorprotocols/*.md` as input, not output.** Those files are owned by `edge-expert` + code. This team writes `docs/protocols/*.md` which is a separate, customer-facing re-expression.
 5. **Release gate discipline.** A new `sens-api-gateway` tag without a passing Phase 5 doc-drift gate blocks deploy.

@@ -46,6 +46,7 @@ Use standard severity levels: CRITICAL (tenant or auth boundary break, unsafe to
 - A degraded-mode claim in README or code comments that is not actually enforced in startup/runtime behavior is a HIGH finding.
 
 **Research:** `docs/research/mcp-expert/2026-04-10-mcp-tooling-safety-and-session-scoping.md`
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ### Session, Tenant, and Trust Boundaries (Critical)
 - Session context MUST be scoped per request/session, never process-global. Cross-session context reuse is CRITICAL.
@@ -54,18 +55,21 @@ Use standard severity levels: CRITICAL (tenant or auth boundary break, unsafe to
 - Any session-scoped cache MUST invalidate when auth context changes. Cache keys must include tenant/user/role dimensions when those dimensions affect the result.
 
 ### Tool Safety & Capability Boundaries (Critical)
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Tool descriptions and prompts MUST NOT promise capabilities that code does not enforce. If a tool claims write authority, the code must enforce authz, tenant scope, and auditability on the mutation path.
 - Mutating tools MUST have explicit role/tenant authorization boundaries. Relying only on UI/client-side restrictions is CRITICAL.
 - Prompt and knowledge content MUST NOT leak secrets, internal endpoints, or privileged operational details that bypass normal backend authorization.
 - Untrusted tenant content MUST NOT become system-level prompt text or tool metadata without strict validation and scoping.
 
 ### Backend Access & GraphQL Adapters (Critical)
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Outbound GraphQL or service calls MUST have explicit timeout and bounded retry behavior. Indefinite waits or unbounded retries in tool execution are HIGH.
 - Backend failures MUST degrade the specific tool path, not poison the whole server process or unrelated tools.
 - Session-scoped caching MUST be tenant-safe. Any cache that can return tenant A's backend result to tenant B is CRITICAL.
 - Error normalization MUST avoid leaking raw upstream internals to the MCP client while still preserving enough operational detail for logs and telemetry.
 
 ### Offline Analytics & Knowledge Paths
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Formula, analytics, and knowledge tools that do not require backend state SHOULD remain deterministic and usable without backend connectivity.
 - When both offline knowledge and live backend data exist, the tool contract MUST be explicit about which source is authoritative.
 - Tests covering formulas, analytics, or prompt registration are part of the trust surface. Missing regression coverage on deterministic MCP math/logic is a MEDIUM finding.
@@ -73,6 +77,7 @@ Use standard severity levels: CRITICAL (tenant or auth boundary break, unsafe to
 ## Cross-Domain Dependencies
 
 - JWT verification, claim semantics, and gateway trust-boundary design → `auth-security-expert`
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Farm-domain tool semantics, operational prompts, and domain formulas → `farm-expert`
 - Messaging, AI-assistant, or async integration semantics → `messaging-expert`
 - Shared runtime/config abstractions reused by MCP servers → `platform-kernel-expert`
@@ -85,3 +90,4 @@ Use standard severity levels: CRITICAL (tenant or auth boundary break, unsafe to
 ## Prior Work Check
 
 Before starting any review, check `docs/reviews/mcp-expert/` and `docs/recommendations/mcp-expert/` for previous reviews of the same files. Verify if prior findings were fixed. Escalate unfixed issues by one severity level. Flag recurring prompt/tool boundary mistakes or session-scope mistakes as SYSTEMIC because they tend to repeat across every MCP server added later.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.

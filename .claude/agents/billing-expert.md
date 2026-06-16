@@ -45,18 +45,21 @@ CQRS layering, outbox-only publish, NUMERIC + DecimalTransformer discipline, sch
   - Layer-1 (transient): Redis `SETNX EX 72h` cache; race-safe.
   - Layer-2 (persistent): `billing.stripe_webhook_events(event_id UUID PK, received_at, processed_at, status, result JSONB)` table. After 72h Redis TTL, DB-side dedup catches replay. Missing layer-2 = HIGH (rare-event double-processing).
 - Webhook handler MUST return 200 to Stripe in ≤ 5s; any business processing dispatched via outbox / NATS to async worker. Synchronous heavy work in handler = **CRITICAL** (Stripe retries flood within 1h on timeout).
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Errors during processing logged + persisted to `stripe_webhook_events.status='FAILED'`; manual replay via admin UI. Missing visibility = HIGH.
 - `Webhook signature failed` event MUST emit security alert (potential attack vector). Silent log-only = HIGH.
 
 ### Metered billing — atomic + reservation pattern
 
 - Stripe Meter + MeterEvent API (NOT legacy `usage_records`). Legacy API on a new product = HIGH (deprecation drift; will fail Q4 2025+).
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Metered counter increment MUST be atomic via Redis Lua `INCRBY` + `EXPIRE` pair (no GET → INCR → SET). Non-atomic = **CRITICAL** (under-billing race window).
 - Periodic reconciliation (hourly job): `usage_aggregation` table SUM vs Stripe Meter `summary` API. Drift > 0.1% = HIGH (revenue-leak alert).
 - Per-tenant `TenantUsageMetrics` rollup keyed `(tenantId, metric_name, period_start)`. Missing PK uniqueness = **CRITICAL** (double-rollup → over-billing).
 
 ### Subscription saga + state machine
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - States: `PENDING → TRIAL → ACTIVE → PAST_DUE → CANCELLED → ENDED`. Terminals: `CANCELLED_BY_TENANT`, `CANCELLED_BY_PLATFORM`, `EXPIRED`. Out-of-order transition = **CRITICAL** (lifecycle integrity).
 - Saga orchestrator is the ONLY writer of `subscription.status`. Direct controller/handler/service writes = **CRITICAL** (bypasses compensation).
 - **PIVOT step = Stripe subscription creation/cancellation** — pre-pivot failures compensate backward (refund + revert internal state); post-pivot failures retry-forward (Stripe is source of truth post-pivot).
@@ -66,12 +69,14 @@ CQRS layering, outbox-only publish, NUMERIC + DecimalTransformer discipline, sch
 
 ### Invoice precision + reconciliation
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Every monetary column MUST be `@Column({ type: 'numeric', precision: 14, scale: 4, transformer: DecimalTransformer })`. Implicit number/string = **CRITICAL** (silent precision corruption — `42.50 + 1` = `'42.501'` if string).
 - Currency MUST be ISO 4217 3-letter code stored as `@Column({ type: 'char', length: 3 })`. Free-text = HIGH (parse drift).
 - Total = SUM(line_item.unit_price × quantity) — computed in DB via `GENERATED ALWAYS AS` column OR application layer with check constraint. Drift between displayed and computed = **CRITICAL**.
 - Tax calculation deferred to Stripe Tax API (no in-house tax engine). In-house tax computation = HIGH (regulatory burden + audit risk).
 - Refund flow: full refund within 30d → cancel subscription; partial refund → adjust next-period invoice. Missing partial refund logic = MEDIUM.
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ### Plan-tier enforcement (delegated from multi-tenant-saas-expert)
 
 - `PLAN_LIMITS` in `apps/gateway-api/src/middleware/tenant-context.middleware.ts:187-233` MUST enforce all 6 limits: `maxUsers`, `maxFarms`, `maxPonds`, `maxSensors`, `maxStorageGb`, `maxApiRequests`. Currently only `maxUsers` enforced — **MT-HIGH-002 escalated** (revenue-leak: customers exceed plan, no upcharge).
@@ -80,12 +85,14 @@ CQRS layering, outbox-only publish, NUMERIC + DecimalTransformer discipline, sch
 
 ### Webhook security (additional)
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Stripe webhook secret MUST be loaded from secret manager (Vault / AWS SM / External Secrets Operator), not env-baked into Docker image. ENV-baked = **CRITICAL** (image-leak exposes secret to all replicas).
 - Webhook URL on Stripe dashboard MUST be the gateway-api endpoint (HMAC-protected), not direct billing-service. Direct exposure = HIGH (bypasses gateway rate-limit + observability).
 - IP allowlisting on webhook route: Stripe publishes IP ranges; nginx-level allow + secondary middleware check. Missing = MEDIUM (defense-in-depth).
 
 ## Active findings this agent owns
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 Inherited from platform-services.md (Phase 11 split):
 - Stripe webhook dedup persistence layer (Phase 8.4 partial) — `billing.stripe_webhook_events` table migration pending.
 - `MT-HIGH-002` (PLAN_LIMITS partial enforcement) — escalated to billing-expert as primary; multi-tenant retains contract review.
@@ -104,6 +111,7 @@ See `@.claude/shared/operating-modes.md`. Agent-specific overrides:
 ## Finding ID prefix
 
 `BILLING-{SEVERITY}-{NNN}` — e.g., `BILLING-CRITICAL-001`, `BILLING-HIGH-007`. Sub-kind tags: `WEBHOOK_DEDUP`, `METER_RACE`, `SAGA_PIVOT`, `INVOICE_PRECISION`, `PLAN_LIMIT_GAP`.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ## Cross-domain dependencies
 

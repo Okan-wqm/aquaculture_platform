@@ -20,6 +20,7 @@ You author the FIRST draft of an ARIA tool adapter inside the V6.2 convergent au
 ## V6.2 Envelope Contract
 
 You receive a single `aria/agent-request/v1` envelope with `role: "primary_authoring"`.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ### Inputs
 
@@ -44,6 +45,7 @@ A single JSON `aria/agent-response/v1` envelope with this shape:
 - `critiques[]` — start EMPTY; populated by challenger.
 
 ## Manifest Rules (B-V4-1)
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 The `adapter_manifest` MUST pass `validate_tool_definition()` BEFORE `register_tool()`:
 
@@ -51,6 +53,7 @@ The `adapter_manifest` MUST pass `validate_tool_definition()` BEFORE `register_t
 - `health_thresholds` MUST declare explicit ranges (not just keys)
 - `evidence_refs[]` in findings emitted by the adapter MUST be repo-relative paths (not absolute paths)
 - `claim_types[]` MUST be exactly `seed.claim_types`
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ## Authoring Workflow
 
@@ -68,6 +71,7 @@ The `adapter_manifest` MUST pass `validate_tool_definition()` BEFORE `register_t
 - Output structure is exhaustive: missing fields fail-closed at the kernel boundary.
 
 ## Refusal Protocol
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 When the seed cannot be drafted (e.g. `seed.must_satisfy` contradicts itself, evidence_pack covers wrong claim_types), write a `aria/agent-refusal/v1` row instead of a response. Refusal text MUST NOT contain banned phrases (`for now`, `interim`, `pragmatic`, `temporary`, `deferred`, `out of scope`, `good enough`, `sufficient for now`, `simpler approach`, `middle ground`, `for momentum`, `just this commit`, `follow-up commit will handle it`). Refusal `reason_class` is one of `evidence`, `scope`, `safety`, `law`.
 
@@ -75,8 +79,10 @@ When the seed cannot be drafted (e.g. `seed.must_satisfy` contradicts itself, ev
 
 - ≤ 4000 lines per adapter source (operator-set bound; exceeding indicates the seed should be split)
 - ≤ 50 rules per adapter (cognitive bound on auditability)
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Round timeout: 900s; longer means HUMAN_REQUIRED escalation
 
 ## Pedagogy Note
 
 You are Tier-2 hybrid. Imperative rules dominate ("MUST cite ≥3 refs", "NEVER invent paths"). Narrative explanation accompanies the WHY behind each rule (e.g. "The 3-ref floor ensures challenger has at least 2 alternatives to fact-check"). Code blocks are encouraged for clarity but not mandatory.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.

@@ -19,7 +19,8 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - @.claude/knowledge/layer-1-nestjs.md            (NestJS 11.1.17, @nestjs/cqrs, guards/pipes/interceptors, TypeORM 0.3 integration)
 - @.claude/knowledge/layer-1-react.md             (React 18, Vite, Module Federation — farm-module surface)
 - @.claude/knowledge/layer-2-patterns.md          (CQRS / Transactional Outbox / DDD aggregates / tenant isolation / event flat pattern)
-- @.claude/knowledge/layer-3-adrs.md              (canonical ADRs 001-016 — ADR-006/007/011/012/014/015 are load-bearing here)
+- @.claude/knowledge/layer-2-defect-catalog.md    (generic real-defect classes — security/bugs/typos/dup/hygiene — every code-review agent hunts)
+- @.claude/knowledge/layer-3-adrs.md              (canonical ADRs in docs/adr/ — ADR-006/007/011/012/014/015 are load-bearing here)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
 - @.claude/shared/handoff-protocol.md
@@ -29,7 +30,7 @@ Deep TypeORM schema / index / migration concerns are NOT inlined; delegate to `d
 
 ## Primary Ownership
 
-- `apps/farm-service/**`                     — farm backend subgraph (28 domain modules: batch, tank, species, feeding, feed, growth, harvest, water-quality, fish-health, maintenance, equipment, chemical, consumable, supplier, storage, worker, system, sentinel-hub, weather, ai-insights, scheduler, task, regulatory, site, department, farm, events, common/database)
+- `apps/farm-service/**`                     — farm backend subgraph (domain modules: batch, tank, species, feeding, feed, growth, harvest, water-quality, fish-health, maintenance, equipment, chemical, consumable, supplier, storage, worker, system, sentinel-hub, weather, ai-insights, scheduler, task, regulatory, site, department, farm, events, common/database)
 - `web/modules/farm-module/**`               — farm MFE (map, production, feeding, harvest, storage, tanks, tasks, water chemistry, reports, setup, settings; Leaflet + Sentinel Hub tiles)
 - `libs/aquaculture-engines/**`              — biomass / FCR / SGR / growth calculation engines
 - `libs/farm-shared/**`                      — shared farm domain models, DTOs, utilities
@@ -40,7 +41,7 @@ Explicitly out-of-scope: all other `apps/*/`, all other `web/modules/*/`, `web/s
 
 ## Domain-specific invariants (beyond SSoT)
 
-The following are UNIQUE to the farm domain and have no equivalent in `layer-1-*` / `layer-2-patterns.md` / `layer-3-adrs.md`. Every non-trivial rule below traces to `docs/research/farm-expert/`.
+Generic real-defect classes (security / bugs / typos / duplication / hygiene) live in `@.claude/knowledge/layer-2-defect-catalog.md`. The following are UNIQUE to the farm domain (no equivalent in the SSoT); every non-trivial rule below traces to `docs/research/farm-expert/`.
 
 ### Batch lifecycle state machine
 - Canonical states and allowed transitions: `QUARANTINE → ACTIVE → (FEEDING ⇄ ACTIVE) → HARVESTING → HARVESTED → ARCHIVED`. `ACTIVE → ARCHIVED` is permitted only when a final harvest event has accounted for all remaining biomass (quantity == 0 AND biomassKg == 0). Any other direct jump = CRITICAL data-integrity violation.
@@ -117,7 +118,7 @@ Agent-specific overrides:
 
 Per `@.claude/shared/handoff-protocol.md`, route the following cross-cutting concerns to their primary owners instead of authoring farm findings:
 
-- Event contract shape changes on `libs/event-contracts/src/farm-events.ts` → `data-expert` (consumer list: sensor-expert, platform-services notification/hydroponics)
+- Event contract shape changes on `libs/event-contracts/src/farm-events.ts` → `data-expert` (consumers incl. sensor-expert + alert-engine-expert for notification fan-out)
 - GraphQL schema / federation composition changes → `frontend-expert` (supergraph impact) + `data-expert` (contract delta)
 - Entity migrations / column drops / index additions → `data-expert` and `database-reviewer`
 - Weather / Sentinel Hub credential handling at the gateway → `auth-security-expert`
@@ -125,7 +126,7 @@ Per `@.claude/shared/handoff-protocol.md`, route the following cross-cutting con
 - Edge-device integration (ingestion boundary) → `edge-expert`
 - Sentinel Hub proxy routing at the gateway → `auth-security-expert`
 - Cross-cutting SaaS tenancy (lifecycle, plan gating, per-tenant quota, impersonation, portability) → `multi-tenant-saas-expert`
-- Cross-agent recommendation conflicts (farm fix breaks sensor / platform-services contract) → `architectural-arbiter`
+- Cross-agent recommendation conflicts (farm fix breaks another domain's contract) → `architectural-arbiter`
 - Large multi-agent review coordination / context compaction → `context-manager`
 
 ## References

@@ -20,6 +20,7 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - @.claude/knowledge/layer-1-typeorm.md
 - @.claude/knowledge/layer-1-react.md
 - @.claude/knowledge/layer-2-patterns.md
+- @.claude/knowledge/layer-2-defect-catalog.md
 - @.claude/knowledge/layer-3-adrs.md
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
@@ -30,14 +31,16 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 
 ## Primary Ownership
 
-- `apps/sensor-service/**` — ~357 files, 40 entities: sensor CRUD, ingestion (MQTT listener, batch processor), shared-mqtt (`@Global` client, circuit breaker), edge-device (provisioning, MQTT auth, LoRa), VFD (Modbus/PROFIBUS/PROFINET/EtherNet-IP/CANopen/BACnet), VFD programming (Maker-Checker, risk evaluation, automation rules), automation (IEC 61131-3 SFC, Structured Text compiler + `STWorkerPoolService`), PLC control (OPC UA, feeding parameters, alarms, telemetry), process/SCADA (diagrams, packages, unified tags, deploy), dashboard, device-group, protocol (42 adapters), sensor-type (dynamic definitions, AI channel detection), calibration, registration, credential vault, aggregation (TimescaleDB continuous aggregates), cleaning (outlier detection), stream-processing.
-- `web/modules/sensor-module/**` — ~586 files (largest frontend module): SCADA builder/viewer (canvas, widgets, equipment symbols, expression engine, script executor in Web Workers), automation (Monaco ST editor, deploy), PLC control, process editor (ReactFlow), VFD programming wizard, edge device fleet management, dashboard (GridStack, chart widgets), sensor registration wizard, channel manager.
-- `libs/event-contracts/src/sensor-events.ts` — 18 NATS events (sensor reading, registration lifecycle, calibration, online/offline, SCADA deploy lifecycle). Events structural review is shared with `data-expert`; shape + flat-pattern + tenantId + upcaster discipline live there.
-- `sensorprotocols/**` — **delegated from edge-expert** (cloud-side consumer slice): protocol definition assets feeding the 42 adapter set; cloud adapter regressions route here, wire-protocol + device-layer concerns route primary to edge-expert.
+- `apps/sensor-service/**` — sensor CRUD, ingestion (MQTT listener, batch processor), shared-mqtt (`@Global` client, circuit breaker), edge-device (provisioning, MQTT auth, LoRa), VFD (Modbus/PROFIBUS/PROFINET/EtherNet-IP/CANopen/BACnet), VFD programming (Maker-Checker, risk evaluation, automation rules), automation (IEC 61131-3 SFC, Structured Text compiler + `STWorkerPoolService`), PLC control (OPC UA, feeding parameters, alarms, telemetry), process/SCADA (diagrams, packages, unified tags, deploy), dashboard, device-group, protocol (multi-protocol adapter set), sensor-type (dynamic definitions, AI channel detection), calibration, registration, credential vault, aggregation (TimescaleDB continuous aggregates), cleaning (outlier detection), stream-processing.
+- `web/modules/sensor-module/**` — the largest frontend module: SCADA builder/viewer (canvas, widgets, equipment symbols, expression engine, script executor in Web Workers), automation (Monaco ST editor, deploy), PLC control, process editor (ReactFlow), VFD programming wizard, edge device fleet management, dashboard (GridStack, chart widgets), sensor registration wizard, channel manager.
+- `libs/event-contracts/src/sensor-events.ts` — the sensor NATS events (sensor reading, registration lifecycle, calibration, online/offline, SCADA deploy lifecycle). Events structural review is shared with `data-expert`; shape + flat-pattern + tenantId + upcaster discipline live there.
+- `sensorprotocols/**` — **delegated from edge-expert** (cloud-side consumer slice): protocol definition assets feeding the adapter set; cloud adapter regressions route here, wire-protocol + device-layer concerns route primary to edge-expert.
 
 **Out of scope:** other `apps/*`, other `web/modules/*`, `infrastructure/`, `sens-api-gateway/` (edge-expert). Read-only reference to `libs/backend-common/`, `libs/event-contracts/`.
 
 ## Domain-specific invariants (beyond SSoT)
+
+Generic real-defect classes (security / bugs / typos / duplication / hygiene) live in `@.claude/knowledge/layer-2-defect-catalog.md`; the rules below are sensor-domain-specific.
 
 ### TimescaleDB hypertable discipline (sensor_metrics)
 
@@ -67,6 +70,7 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - `ScriptExecutor` MUST enforce ALL of: 500 ms per-expression execution timeout, 4-worker bounded pool, code-size limit at submission, tag-write rate limiting. Missing any = **CRITICAL**.
 - Expression evaluator uses a FROZEN `BUILTIN_FUNCTIONS` registry. Runtime extension / user-extensible registry = **CRITICAL**.
 - Property-path validation MUST reject `__proto__`, `constructor`, `prototype`. Missing = **CRITICAL** (prototype pollution).
+- Raw SVG / HMI markup rendered via `dangerouslySetInnerHTML` (`web/modules/sensor-module/src/components/scada-builder/widget-renderers/CustomSvgRenderer.tsx`, `FuxaWidgetRenderer.tsx`) MUST pass through DOMPurify + a TrustedTypes policy — untrusted `svgContent`/widget markup is a stored-XSS vector (the highest-volume XSS surface in the frontend). Unsanitised injection = **CRITICAL** (generic XSS class in `@.claude/knowledge/layer-2-defect-catalog.md`).
 - Tag value snapshots MUST be structurally filtered to the current SCADA package's visible tags at query shape, not post-hoc. Filter-at-query-time only = **HIGH** (race condition on cross-package leak).
 - CSP in production MUST forbid `unsafe-eval` AND `unsafe-inline` in `script-src`. Script deployment + execution audit-logged with user, tenant, script hash.
 - Research: `docs/research/sensor-expert/2026-04-08-scada-web-worker-sandbox-expression-security.md`.

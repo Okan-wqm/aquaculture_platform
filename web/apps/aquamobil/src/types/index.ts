@@ -2,6 +2,15 @@
 // AquaMobil Type Definitions
 // ============================================================================
 
+// FE-MEDIUM-051: the role vocabulary is the backend's canonical GraphQL `Role`
+// enum (SUPER_ADMIN / TENANT_ADMIN / MODULE_MANAGER / MODULE_USER), emitted into
+// the codegen SSoT by the CurrentUser document (src/graphql/auth-identity.ts).
+// Re-exported here so existing imports from '@/types' keep working while the
+// vocabulary stays single-sourced — the old hand-maintained
+// MANAGER/OPERATOR/VIEWER union was phantom (the server never emits it).
+export type { Role } from '../generated/graphql';
+import type { Role } from '../generated/graphql';
+
 // WHY: AccessType determines platform access — PANEL_ONLY users are blocked from
 // the mobile app at login time, before any feature check occurs.
 export type AccessType = 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
@@ -11,7 +20,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'MANAGER' | 'OPERATOR' | 'VIEWER';
+  role: Role;
   tenantId: string | null;
   accessType?: AccessType;
   // BUG-11: employeeId is the HR employee identifier, distinct from the auth user id.

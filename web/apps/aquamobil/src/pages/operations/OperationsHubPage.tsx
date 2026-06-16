@@ -13,14 +13,16 @@
  * Warehouse card, not empty stubs for Daily Ops or Staff.
  */
 
-import { useNavigate } from 'react-router-dom';
-import { ClipboardList, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
-import { useMobilePermissions } from '@/hooks/useMobilePermissions';
+import { ClipboardList, ChevronRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
 import { useDailyOpsStats } from '@/hooks/useDailyOpsStats';
+import { useMobilePermissions } from '@/hooks/useMobilePermissions';
+import { useStaffSummary } from '@/hooks/useStaffSummary';
 import { useStockEventsSummary } from '@/hooks/useStockEventsSummary';
 import { useWarehouseSummary } from '@/hooks/useWarehouseSummary';
-import { useStaffSummary } from '@/hooks/useStaffSummary';
+import { useFeatureAccess } from '@/utils/feature-access';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -113,12 +115,16 @@ function SummaryCard({ title, ariaLabel, gradient, onClick, children }: SummaryC
 export function OperationsHubPage() {
   const navigate = useNavigate();
   const { canAccess } = useMobilePermissions();
+  // SEC-MEDIUM-050: canReach enforces the harvest MODULE_MANAGER role floor, so a
+  // MODULE_USER does not see the Stock Events hub on the strength of harvest
+  // alone — only via cull/transfer, which carry no floor.
+  const { canReach } = useFeatureAccess();
 
   // WHY permission checks per hub: each hub aggregates multiple features.
   // Show the card if the user can access ANY feature within that hub.
   const hasDailyOps =
     canAccess('attendance') || canAccess('mortality') || canAccess('waterQuality') || canAccess('feeding');
-  const hasStockEvents = canAccess('cull') || canAccess('harvest') || canAccess('transfer');
+  const hasStockEvents = canReach('cull') || canReach('harvest') || canReach('transfer');
   const hasWarehouse = canAccess('storage');
   const hasStaff = canAccess('attendance') || canAccess('leave') || canAccess('schedule');
   const noCardsVisible = !hasDailyOps && !hasStockEvents && !hasWarehouse && !hasStaff;

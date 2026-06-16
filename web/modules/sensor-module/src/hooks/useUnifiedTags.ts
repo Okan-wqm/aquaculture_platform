@@ -162,7 +162,7 @@ export function useUnifiedTags(
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
 
   const filterSearchTerm = filter?.searchTerm;
   const filterIoType = filter?.ioType;
@@ -225,7 +225,7 @@ export function useSearchTags(query: string, limit?: number) {
   const [tags, setTags] = useState<UnifiedTag[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
 
   const fetchTags = useCallback(async () => {
     if (!query.trim()) {

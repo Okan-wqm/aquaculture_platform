@@ -1,4 +1,4 @@
-import { type ChangeEvent, useCallback, useEffect, useState } from 'react';
+import { type JSX, type ChangeEvent, useCallback, useEffect, useState } from 'react';
 import { ChevronRight, Package } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { BlockTitle, List, ListInput } from 'konsta/react';

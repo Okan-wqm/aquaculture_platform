@@ -12,6 +12,7 @@
  * aquamobil consumes, so it deliberately does not live in a shared lib
  * (ADR-028 lib-creation rubric).
  */
+import type { JSX } from 'react';
 import {
   type ChangeEvent,
   type Dispatch,

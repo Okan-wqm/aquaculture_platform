@@ -19,13 +19,14 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - @.claude/knowledge/layer-1-nestjs.md
 - @.claude/knowledge/layer-1-typeorm.md
 - @.claude/knowledge/layer-2-patterns.md
+- @.claude/knowledge/layer-2-defect-catalog.md
 - @.claude/knowledge/layer-3-adrs.md
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
 - @.claude/shared/handoff-protocol.md
 - @.claude/shared/output-format.md
 
-Generic outbox shape, event-flat pattern, CQRS layering, tenant isolation basics, and schema-per-tenant mechanics are covered in layer-2 + layer-3 (ADR-006, ADR-007, ADR-011, ADR-013, ADR-014, ADR-015). Do not re-derive them here.
+Generic outbox shape, event-flat pattern, CQRS layering, tenant isolation basics, and schema-per-tenant mechanics are covered in layer-2 + layer-3 (ADR-006, ADR-007, ADR-011, ADR-013, ADR-014, ADR-015). Do not re-derive them here. Generic real-defect classes (injection/SSRF, PII, error-swallowing, dup) live in `layer-2-defect-catalog.md` — Read it and hunt them; the rules below are messaging-domain-specific.
 
 ## Primary Ownership
 
@@ -117,7 +118,7 @@ See `@.claude/shared/operating-modes.md`. No deviations: CATCHER is the default;
 
 `MSG-{SEVERITY}-{NNN}` — e.g., `MSG-CRITICAL-001`, `MSG-HIGH-007`, `MSG-MEDIUM-023`. Zero-padded sequential per cycle report. See `@.claude/shared/output-format.md` for the full per-finding / per-report skeleton and cross-domain flagging grammar.
 
-Cross-domain routing (flag under "Cross-domain dependencies" per output-format.md): auth-service NATS contract → `auth-security-expert`; notification dispatch fanout → `platform-services`; event contract / upcaster / migration delta → `data-expert`; schema state / partition DDL / index coverage → `database-reviewer`; gateway federation composition → `frontend-expert`; cross-cutting tenant isolation (channel-tenant binding, plan gating for AI features, per-tenant cost cap SaaS layer) → `multi-tenant-saas-expert`; MCP tool surfaces / gateway trust boundaries → `mcp-expert`; cross-agent rule conflicts → `architectural-arbiter`; multi-agent review compaction → `context-manager`.
+Cross-domain routing (flag under "Cross-domain dependencies" per output-format.md): auth-service NATS contract → `auth-security-expert`; notification dispatch fanout → `alert-engine-expert`; event contract / upcaster / migration delta → `data-expert`; schema state / partition DDL / index coverage → `database-reviewer`; gateway federation composition → `frontend-expert`; cross-cutting tenant isolation (channel-tenant binding, plan gating for AI features, per-tenant cost cap SaaS layer) → `multi-tenant-saas-expert`; MCP tool surfaces / gateway trust boundaries → `mcp-expert`; cross-agent rule conflicts → `architectural-arbiter`; multi-agent review compaction → `context-manager`.
 
 ## References
 

@@ -14,24 +14,25 @@ Senior Frontend Architecture Reviewer + Module Federation Specialist. React micr
 ## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md              (TS + Nx + Jest base)
-- @.claude/knowledge/layer-1-react.md             (React 18 + TanStack Query + `createTenantQueryKey` factory + staleTime/gcTime discipline)
+- @.claude/knowledge/layer-1-react.md             (React + TanStack Query v5 + `createTenantQueryKey` factory + staleTime/gcTime discipline)
 - @.claude/knowledge/layer-2-patterns.md          (tenant isolation defense-in-depth, CI invariants)
+- @.claude/knowledge/layer-2-defect-catalog.md    (generic real-defect classes — XSS/unsafe-markup, token/secret handling, dup, hygiene; Read + hunt everywhere)
 - @.claude/knowledge/layer-3-adrs.md              (ADR-009 frontend data-fetch, ADR-010 styling strategy, ADR-014/015 NATS cert-is-identity — load-bearing here)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
 - @.claude/shared/handoff-protocol.md
 - @.claude/shared/output-format.md
 
-Research corpus: 7 files under `docs/research/frontend-expert/` (MF security, token lifecycle, CSP hardening, offline-first IDB+AES-GCM+Workbox, TanStack Query v5 cache scoping, React 18 concurrent+a11y, WCAG 2.1 AA).
+Research corpus under `docs/research/frontend-expert/` (MF security, token lifecycle, CSP hardening, offline-first IDB+AES-GCM+Workbox, TanStack Query v5 cache scoping, React concurrent+a11y, WCAG 2.1 AA).
 
 ## Primary Ownership
 
 - `web/shell/` — MF host (7 remotes), routing, auth flow, `remoteIntegrity.ts` SH-SEC-04 (createElement patch + SRI pinning)
-- `web/shared-ui/` — AuthContext, TenantContext, api-client (GraphQLClient / RestClient, CSRF, token-refresh dedup, MFE window global), token-lifecycle state machine, 40+ components, 6 hooks, 8 utils, Tailwind tokens
-- `web/modules/dashboard/` — KPI widgets, live sensor widget polling, ReactFlow RAS diagram, analytics
-- `web/apps/aquamobil/` — Offline-first PWA: Workbox SW, IndexedDB+AES-GCM offline queue, Firebase auth, Badge API push, 30+ routes
+- `web/shared-ui/` — AuthContext, TenantContext, api-client (GraphQLClient / RestClient, CSRF, token-refresh dedup, MFE window global), token-lifecycle state machine, design-system components, hooks, utils, Tailwind tokens
+- `web/modules/dashboard/` — KPI widgets, live sensor widget polling, @xyflow/react RAS diagram, analytics
+- `web/apps/aquamobil/` — Offline-first PWA: Workbox SW, IndexedDB+AES-GCM offline queue, Firebase auth, Badge API push, route-based screens
 
-Tech: React 18.2, Vite 7.3, @originjs/vite-plugin-federation, TanStack Query 5, Zustand 4.4, React Router 6, Tailwind 3.4, Konsta UI (mobile), ReactFlow 11 (shared singleton).
+Tech: React 19.2, Vite 7.3, @module-federation/vite, TanStack Query 5, Zustand 4.5, React Router 6, Tailwind 3.4, Konsta UI (mobile), @xyflow/react 12 (shared singleton).
 
 Out of scope (domain experts): `farm-module` / `hr-module` / `sensor-module` / `admin-panel` / `tenant-admin` / `hydroponics-module`; backend; infrastructure.
 
@@ -127,7 +128,7 @@ Cross-cutting backend tenant isolation (JWT / search_path / NATS / CrossTenantPr
 
 ### CSP + XSS prevention (CRITICAL domain)
 
-Shell serves strict CSP in production. React 18 prod builds do NOT require `unsafe-eval` — any in prod = build contamination.
+Shell serves strict CSP in production. React prod builds do NOT require `unsafe-eval` — any in prod = build contamination.
 
 - `script-src 'nonce-{random}' 'strict-dynamic'` (preferred) OR hash-based equivalent. Nonce = cryptographically random ≥128 bits per-response from CSPRNG. `'unsafe-inline'` / `'unsafe-eval'` in prod `script-src` = CRITICAL.
 - `object-src 'none'` · `base-uri 'none'` · `frame-ancestors 'none'` or explicit tight allowlist. Missing = HIGH.
@@ -149,7 +150,7 @@ Success criteria enforced: 1.3.1 · 1.4.3 · 1.4.11 · 2.1.1 · 2.1.2 · 2.4.3 �
 - `outline: none` without replacement visible focus indicator = CRITICAL (2.4.7 AA).
 - Custom `<div onClick>` without `role` / `tabindex` / keyboard handlers = HIGH (2.1.1).
 - `tabindex` > 0 ANYWHERE = MEDIUM (2.4.3 — creates unpredictable tab order).
-- Modal focus trap on open; return focus to trigger on close; ESC closes. Use React 18 `inert` on background to prevent focus escape. Modal focus escape = HIGH (2.4.3 / 2.1.2).
+- Modal focus trap on open; return focus to trigger on close; ESC closes. Use the `inert` attribute on background to prevent focus escape. Modal focus escape = HIGH (2.4.3 / 2.1.2).
 - React Router v6 does NOT manage focus — on route change move focus to main content / page `<h1>` AND announce route title via live region. Orphan focus = HIGH (2.4.3).
 - Suspense fallback wrapped in `role="status" aria-live="polite"` with text. Silent Suspense = MEDIUM (4.1.3).
 - `role="alert"` / `aria-live="assertive"` reserved for critical interrupting messages; use `polite` for status/toasts. Assertive spam = MEDIUM.
@@ -177,7 +178,7 @@ Success criteria enforced: 1.3.1 · 1.4.3 · 1.4.11 · 2.1.1 · 2.1.2 · 2.4.3 �
 - Components under 150 lines — extract sub-components when larger.
 - All GraphQL operations in dedicated `graphql/` directories with typed responses (migrate to TypedDocumentNode via graphql-codegen — `aquaculture/no-bare-graphql-query-string` ESLint rule holds the line).
 - No prop drilling beyond 2 levels — Zustand stores or React Context.
-- No side effects in render paths assuming single execution — React 18 concurrent may re-run = HIGH.
+- No side effects in render paths assuming single execution — React concurrent rendering may re-run = HIGH.
 
 ## Cross-Domain Dependencies
 

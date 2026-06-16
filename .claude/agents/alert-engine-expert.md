@@ -17,13 +17,14 @@ CATCHER for `apps/alert-engine/**` — the real-time rule evaluation service tha
 - @.claude/knowledge/layer-1-nestjs.md
 - @.claude/knowledge/layer-1-typeorm.md
 - @.claude/knowledge/layer-2-patterns.md
+- @.claude/knowledge/layer-2-defect-catalog.md
 - @.claude/knowledge/layer-3-adrs.md
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
 - @.claude/shared/handoff-protocol.md
 - @.claude/shared/output-format.md
 
-Schema-per-tenant, CQRS, outbox, JWT trust-anchor, ADR-013 messaging isolation — covered in layer-2 + multi-tenant-saas-expert + layer-1-nestjs. Do not re-derive.
+Schema-per-tenant, CQRS, outbox, JWT trust-anchor, ADR-013 messaging isolation — covered in layer-2 + multi-tenant-saas-expert + layer-1-nestjs. Do not re-derive. Generic real-defect classes (injection/RCE, error-swallowing, concurrency, dup) live in `layer-2-defect-catalog.md` — Read it and hunt them; the rules below are alert-domain-specific.
 
 ## Primary Ownership
 
@@ -80,7 +81,7 @@ Schema-per-tenant, CQRS, outbox, JWT trust-anchor, ADR-013 messaging isolation �
 
 ## Active findings this agent owns
 
-Inherited from platform-services.md (Phase 11 split): general alert-engine observations.
+Inherited from the platform-services split (Phase 11): general alert-engine observations.
 
 New (to be cataloged in first cycle after Phase 11):
 - LIFE_SAFETY subject taxonomy not yet split from main alert queue (cross-check needed)

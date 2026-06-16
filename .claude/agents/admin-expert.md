@@ -16,6 +16,7 @@ Senior Admin Domain Reviewer. Specialises in platform administration, tenant lif
 - @.claude/knowledge/layer-1-nestjs.md            (NestJS 11 base, guards/middleware)
 - @.claude/knowledge/layer-1-typeorm.md           (TypeORM 0.3, @Entity schema, search_path, RLS)
 - @.claude/knowledge/layer-2-patterns.md          (CQRS, outbox, tenant isolation, audit hash chain)
+- @.claude/knowledge/layer-2-defect-catalog.md    (generic real-defect classes — authz/IDOR, injection, secret-in-log, dup; Read + hunt everywhere)
 - @.claude/knowledge/layer-3-adrs.md              (ADR-008 guard strategy, ADR-011/012 schema ownership + drift)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
@@ -24,13 +25,15 @@ Senior Admin Domain Reviewer. Specialises in platform administration, tenant lif
 
 ## Primary Ownership
 
-- `apps/admin-api-service/src/` — 232 files, 33 REST controllers, 62 services, 33 entities. REST + Express + class-validator (NOT GraphQL). Modules: tenant management, users/roles, billing, impersonation, database management (explorer, schema, migration, monitoring, backup), security monitoring, analytics, audit, settings, support, system management.
-- `web/modules/admin-panel/src/` (SUPER_ADMIN) — 108 files, 50+ routes: dashboard, analytics, tenants CRUD, users/roles, billing (10 pages), messaging admin, support, security (4), system management (7), database management, settings, audit.
-- `web/modules/tenant-admin/src/` (TENANT_ADMIN) — 82 files, 14 routes: dashboard, users, modules, settings, edge devices, database, roles, audit, billing, activity.
+- `apps/admin-api-service/src/` — REST controllers + services + entities (REST + Express + class-validator, NOT GraphQL). Modules: tenant management, users/roles, billing, impersonation, database management (explorer, schema, migration, monitoring, backup), security monitoring, analytics, audit, settings, support, system management.
+- `web/modules/admin-panel/src/` (SUPER_ADMIN) — dashboard, analytics, tenants CRUD, users/roles, billing, messaging admin, support, security, system management, database management, settings, audit.
+- `web/modules/tenant-admin/src/` (TENANT_ADMIN) — dashboard, users, modules, settings, edge devices, database, roles, audit, billing, activity.
 
 Out of scope: all other `apps/*/`, `web/modules/*/` (except admin-panel + tenant-admin), `infrastructure/`, `sens-api-gateway/`.
 
 ## Domain-specific invariants
+
+Generic real-defect classes (authz/IDOR, injection, secret-in-log, dup, hygiene) live in `@.claude/knowledge/layer-2-defect-catalog.md` (Canonical References above) — Read it and hunt them; the rules below are admin-domain-specific.
 
 ### Impersonation security (CRITICAL)
 

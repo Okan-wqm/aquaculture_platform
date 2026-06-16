@@ -273,9 +273,10 @@ export class RedisService implements OnModuleDestroy {
    * The lock is a best-effort herd reducer (Redis SET NX EX), NOT a correctness
    * mutex: the worst failure mode is a redundant compute (exactly the
    * pre-existing behaviour), never corruption — so a Redis hiccup or a compute
-   * that overruns the lock simply degrades to a direct compute. Because
-   * `lockTtlSeconds` defaults to >= the cache TTL (and far exceeds any real
-   * compute), a plain DEL release is safe; no compare-and-delete is needed.
+   * that overruns the lock simply degrades to a direct compute. The lock is
+   * released with a token compare-and-delete (Lua), so a compute that overran
+   * its TTL can NEVER delete a successor's freshly-acquired lock — the release
+   * is structurally safe regardless of the lockTtl/compute-time ratio.
    *
    * Behaviour:
    *  - hit → return the cached value, no compute.
@@ -340,12 +341,10 @@ export class RedisService implements OnModuleDestroy {
         }
         return result;
       } finally {
-        // Best-effort release (lockTtl >> compute time, so plain DEL is safe).
-        try {
-          await this.del(lockKey);
-        } catch {
-          // Lock will expire via its TTL.
-        }
+        // Compare-and-delete: only release the lock if we still own it (the
+        // token still matches), so a compute that overran its TTL can't delete
+        // a successor's lock. Best-effort — on any failure the lock expires.
+        await this.releaseLock(lockKey, token);
       }
     }
 
@@ -367,6 +366,29 @@ export class RedisService implements OnModuleDestroy {
 
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Token compare-and-delete for the single-flight lock — atomically deletes the
+   * lock key ONLY if its value still equals our token, so we never delete a
+   * successor's lock. Best-effort: any failure is swallowed (the lock TTL is the
+   * backstop). The key is prefixed here because eval bypasses the get/set
+   * wrappers that normally apply the prefix.
+   */
+  private static readonly RELEASE_LOCK_LUA =
+    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+
+  private async releaseLock(lockKey: string, token: string): Promise<void> {
+    try {
+      await this.client.eval(
+        RedisService.RELEASE_LOCK_LUA,
+        1,
+        this.prefixKey(lockKey),
+        token,
+      );
+    } catch {
+      // Lock will expire via its TTL if the compare-and-delete fails.
+    }
   }
 
   /**

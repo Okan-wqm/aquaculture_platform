@@ -50,6 +50,15 @@ function makeHarness(): Harness {
     const had = locks.delete(key) || store.delete(key);
     return had ? 1 : 0;
   });
+  // The single-flight lock is released via a token compare-and-delete Lua
+  // (client.eval). Spy it onto the in-memory store so the release runs against
+  // the fake (not the dead-port client, which would hang the awaited release).
+  jest
+    .spyOn(svc.getClient(), 'eval')
+    .mockImplementation(async (): Promise<number> => {
+      for (const k of [...locks]) if (k.endsWith(':sf-lock')) locks.delete(k);
+      return 1;
+    });
 
   return {
     svc,
@@ -142,6 +151,15 @@ describe('RedisService.getOrCompute (single-flight read-through)', () => {
 
     expect(result).toEqual({ v: 'fallback' });
     expect(compute).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the single-flight lock after the winner computes (no dangling lock)', async () => {
+    const compute = jest.fn().mockResolvedValue({ v: 1 });
+
+    await h.svc.getOrCompute('k', 60, compute);
+
+    // Released via the token compare-and-delete (eval) — not left to expire.
+    expect(h.locks.has('k:sf-lock')).toBe(false);
   });
 
   it('does NOT cache a null/undefined compute result', async () => {

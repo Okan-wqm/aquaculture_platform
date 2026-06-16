@@ -59,10 +59,10 @@ Finding IDs are used in commit `Closes:` lines (`Closes: docs/plans/2026-06-13-f
 | `cache-tenant` | MED | ⚠️ FP downgraded | T2 | Cache interceptors re-derive tenant from raw `x-tenant-id` instead of the trusted extractor; silent bypass when absent (no live bleed). |
 | `jsonb-source-schema` | HIGH | (audit) | T1 | `JsonbPatchService` schema-qualifies per-tenant `batches_v2` to source `farm` schema → writes silently target empty source table. |
 | `feed-reminder-tenant` | HIGH | (audit) | T1 | `FeedingReminderEventPayload` omits `tenantId` → `notification.send` fan-out with `tenantId: undefined`. |
-| `wq-not-hypertable` | HIGH | (audit) | T1 | `water_quality_measurements` is plain OLTP, not a TimescaleDB hypertable; no continuous aggregate / `drop_chunks` retention. |
-| `workorder-jsonb-idx` | HIGH | (audit) | T1 | `work_orders.relatedAsset->>'batchId'` JSONB filter unindexed → seq scan on hot `batchPerformance` path. |
-| `equip-list-js` | HIGH | (audit) | T1 | `ListEquipmentHandler` loads `page*limit` rows from two tables, merges/sorts/dedups in JS, wrong total. |
-| `no-stampede` | HIGH | (audit) | T2 | No Redis single-flight; AI-insight/cost recompute thunders on TTL expiry (`setNx` exists, unused). |
+| `wq-not-hypertable` | HIGH | ⏸ deferred Tier-B (`ORPHAN-HIGH-128`) | T1 | `water_quality_measurements` is plain OLTP, no hypertable/CAGG. PERF-DEBT (reads raw-aggregate correctly). Tier-B per-tenant hypertable+CAGG deferred — no per-tenant-hypertable precedent platform-wide; operator-sanctioned. |
+| `workorder-jsonb-idx` | HIGH | ⏸ deferred feature (`ORPHAN-HIGH-127`) | T1 | Firsthand: `relatedAsset.batchId` is NEVER written (absent from `RelatedAsset` + DTO + FE + write paths) → predicate matches ZERO rows → batch labour cost silently always zero. Root cause = a missing batch-linked-work-order FEATURE (cross-stack), not an index; index is moot until the column exists. |
+| `equip-list-js` | MED | ⚠️ FP downgraded (`ORPHAN-MEDIUM-126`) | T1 | Firsthand: correctness FALSE POSITIVE — `equipment`/`tanks` ids are DISJOINT (no dual-write) so the total isn't double-counted and the dedupe is dead; the `page*limit` cap provably covers each page (within-source rank ≤ global rank) so no deep-page loss. Residual = bounded deep-page over-fetch perf only. |
+| `no-stampede` | HIGH | ✅ `FARM-HIGH-067` | T2 | `RedisService.getOrCompute` single-flight SSoT (setNx lock + CAD release); CacheableInterceptor + all 5 AiInsightsService MCP cache-asides route through it. |
 | `global-auth-guard` | MED | (audit) | T2 | No global JWT auth guard at subgraph; protection depends on production-only middleware ordering. |
 | `no-plan-quota` | HIGH | (audit) | T1 | Zero plan-tier/quota enforcement in farm; gateway `maxFarms/maxPonds` advertised but dead + reference deprecated hierarchy. |
 | `gdpr-subject-erasure` | HIGH | (audit) | T2 | No per-data-subject Art.17 erasure for worker PII (only tenant-wide). |

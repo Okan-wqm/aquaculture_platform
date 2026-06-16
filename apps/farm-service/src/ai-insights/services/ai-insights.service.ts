@@ -15,8 +15,13 @@
  *    - Feeding advice:   5 min (depends on daily plan changes)
  *    - Dashboard:        5 min (composite, refreshes with risk)
  *
- * FALLBACK: When MCP call fails, the service returns stale cache if available,
- * then null — ensuring the farm dashboard degrades gracefully.
+ * CACHE READ-THROUGH: every method goes through `cachedCompute` →
+ * RedisService.getOrCompute (single-flight), so a TTL expiry on a hot key lets
+ * exactly ONE caller run the expensive MCP round-trip while concurrent callers
+ * wait — no stampede. An MCP FAILURE returns null/[] and is NOT cached (a
+ * transient failure can't poison the key); the next request retries. The
+ * dashboard still degrades gracefully (partial-data result), it simply does not
+ * serve a stale good value after a failed recompute.
  */
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common/redis';
@@ -408,6 +413,11 @@ export class AiInsightsService {
     compute: () => Promise<T>,
   ): Promise<T> {
     if (!this.redisService) return compute();
-    return this.redisService.getOrCompute(cacheKey, ttlSeconds, compute);
+    // maxWaitMs is aligned above the MCP request timeout (McpClientService
+    // REQUEST_TIMEOUT_MS = 30s) so a lock-loser waits for a slow-but-healthy
+    // winner instead of timing out early and re-stampeding the MCP process.
+    return this.redisService.getOrCompute(cacheKey, ttlSeconds, compute, {
+      maxWaitMs: 35_000,
+    });
   }
 }

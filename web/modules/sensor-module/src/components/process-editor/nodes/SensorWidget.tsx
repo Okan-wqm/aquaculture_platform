@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import type { NodeProps } from 'reactflow';
+import type { NodeProps, Node } from '@xyflow/react';
 
 /* -------------------------------------------------- */
 /*  Types                                             */
@@ -27,7 +27,7 @@ interface MqttClient {
   subscribe: (topic: string) => void;
   end: () => void;
 }
-export interface SensorWidgetData {
+export interface SensorWidgetData extends Record<string, unknown> {
   label?: string;
   widgetName?: string;
   subtitle?: string;
@@ -56,7 +56,7 @@ const BAR_HEIGHT = 12;
 /* -------------------------------------------------- */
 /*  Component                                         */
 /* -------------------------------------------------- */
-const SensorWidget: React.FC<NodeProps<SensorWidgetData>> = ({ data, selected }) => {
+const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selected }) => {
   const [value, setValue] = useState<number>(Number(data.value) || 0);
   const etagRef = useRef<string>('');
   // BUG-014: unique gradient ID per widget instance to prevent shared-ID color bleed

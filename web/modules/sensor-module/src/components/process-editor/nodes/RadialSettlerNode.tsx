@@ -4,12 +4,12 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Handle, useUpdateNodeInternals, NodeProps } from 'reactflow';
+import { Handle, useUpdateNodeInternals, NodeProps, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
 
 type HandleType = 'source' | 'target';
 
-interface RadialSettlerNodeData {
+interface RadialSettlerNodeData extends Record<string, unknown> {
   label?: string;
   leftType?: HandleType;
   rightType?: HandleType;
@@ -19,7 +19,7 @@ interface RadialSettlerNodeData {
 const WIDTH = 120;
 const HEIGHT = 160;
 
-const RadialSettlerNode: React.FC<NodeProps<RadialSettlerNodeData>> = ({ id, data, selected }) => {
+const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const updateNodeData = useProcessStore((state) => state.updateNodeData);
 

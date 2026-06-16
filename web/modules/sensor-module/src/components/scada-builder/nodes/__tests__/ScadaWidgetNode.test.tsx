@@ -28,9 +28,9 @@ import { DEFAULT_ANIMATION_STATE } from '../../../../engine/animation/types';
 /*  isolation.                                                         */
 /* ------------------------------------------------------------------ */
 
-// Mock reactflow — bilesenin Handle/Position bağımlılığını karşıla
-// Mock reactflow — satisfy component's Handle/Position dependency
-vi.mock('reactflow', () => ({
+// Mock @xyflow/react — bilesenin Handle/Position bağımlılığını karşıla
+// Mock @xyflow/react — satisfy component's Handle/Position dependency
+vi.mock('@xyflow/react', () => ({
   Handle: ({ children }: { children?: React.ReactNode }) =>
     React.createElement('div', { 'data-testid': 'handle' }, children),
   Position: { Top: 'top', Right: 'right', Bottom: 'bottom', Left: 'left' },

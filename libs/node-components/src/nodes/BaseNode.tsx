@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect } from 'react';
-import { Handle, Position, useReactFlow, useUpdateNodeInternals } from 'reactflow';
+import { Handle, Position, useReactFlow, useUpdateNodeInternals } from '@xyflow/react';
 import { rotatePoint } from '../utils/rotatePoint';
 
 /**

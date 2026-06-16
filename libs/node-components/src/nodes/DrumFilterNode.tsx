@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, Position } from 'reactflow';
+import { Handle, useUpdateNodeInternals, useReactFlow, NodeProps, Position, type Node } from '@xyflow/react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface DrumFilterNodeData {
+interface DrumFilterNodeData extends Record<string, unknown> {
   inletType1?: HandleType;
   inletType2?: HandleType;
   inletType3?: HandleType;
@@ -22,7 +22,7 @@ interface DrumFilterNodeData {
 const WIDTH = 160;
 const HEIGHT = 120;
 
-const DrumFilterNode: React.FC<NodeProps<DrumFilterNodeData>> = ({ id, data, selected }) => {
+const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, data, selected }) => {
   const [inletType1, setInletType1] = useState<HandleType>(data?.inletType1 || 'target');
   const [inletType2, setInletType2] = useState<HandleType>(data?.inletType2 || 'target');
   const [inletType3, setInletType3] = useState<HandleType>(data?.inletType3 || 'target');

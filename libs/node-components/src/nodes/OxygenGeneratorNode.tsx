@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface OxygenGeneratorNodeData {
+interface OxygenGeneratorNodeData extends Record<string, unknown> {
   label?: string;
   outputType?: HandleType;
   isScadaMode?: boolean;
@@ -18,7 +18,7 @@ interface OxygenGeneratorNodeData {
 const WIDTH = 120;
 const HEIGHT = 160;
 
-const OxygenGeneratorNode: React.FC<NodeProps<OxygenGeneratorNodeData>> = ({ id, data, selected }) => {
+const OxygenGeneratorNode: React.FC<NodeProps<Node<OxygenGeneratorNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

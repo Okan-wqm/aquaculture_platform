@@ -4,9 +4,9 @@
  */
 
 import React from 'react';
-import { Handle, Position, NodeProps } from 'reactflow';
+import { Handle, Position, NodeProps, type Node } from '@xyflow/react';
 
-interface FishTankNodeData {
+interface FishTankNodeData extends Record<string, unknown> {
   label?: string;
   width?: number;
   height?: number;
@@ -16,7 +16,7 @@ interface FishTankNodeData {
   pipeColor?: string;
 }
 
-const FishTankNode: React.FC<NodeProps<FishTankNodeData>> = ({ data, selected }) => {
+const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selected }) => {
   const label = data?.label || 'Fish Tank (RAS)';
   const width = data?.width || 300;
   const height = data?.height || width / 3;

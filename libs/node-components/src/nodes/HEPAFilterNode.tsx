@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface HEPAFilterNodeData {
+interface HEPAFilterNodeData extends Record<string, unknown> {
   label?: string;
   leftType?: HandleType;
   rightType?: HandleType;
@@ -19,7 +19,7 @@ interface HEPAFilterNodeData {
 const WIDTH = 160;
 const HEIGHT = 120;
 
-const HEPAFilterNode: React.FC<NodeProps<HEPAFilterNodeData>> = ({ id, data, selected }) => {
+const HEPAFilterNode: React.FC<NodeProps<Node<HEPAFilterNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

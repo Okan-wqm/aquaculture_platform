@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface PlateHeatExchangerNodeData {
+interface PlateHeatExchangerNodeData extends Record<string, unknown> {
   label?: string;
   hotInType?: HandleType;
   hotOutType?: HandleType;
@@ -21,7 +21,7 @@ interface PlateHeatExchangerNodeData {
 const WIDTH = 120;
 const HEIGHT = 160;
 
-const PlateHeatExchangerNode: React.FC<NodeProps<PlateHeatExchangerNodeData>> = ({ id, data, selected }) => {
+const PlateHeatExchangerNode: React.FC<NodeProps<Node<PlateHeatExchangerNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMemo, useRef } from 'react';
-import { EdgeProps } from 'reactflow';
+import { EdgeProps, type Edge } from '@xyflow/react';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
 import { useEdgeFlowState } from './useEdgeFlowState';
@@ -25,7 +25,7 @@ import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
 type Point = { x: number; y: number };
 type BendPoint = Point & { locked?: boolean };
 
-export interface OrthogonalEdgeData {
+export interface OrthogonalEdgeData extends Record<string, unknown> {
   bendPoints?: BendPoint[];
   label?: string;
   connectionType?: ConnectionType;
@@ -221,7 +221,7 @@ const renderFlowArrow = (source: Point, target: Point, bends: BendPoint[], color
 /* -------------------------------------------------- */
 /*  Component                                         */
 /* -------------------------------------------------- */
-const OrthogonalEdge: React.FC<EdgeProps<OrthogonalEdgeData>> = (props) => {
+const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) => {
   const {
     id,
     sourceX,

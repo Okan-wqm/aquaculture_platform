@@ -38,8 +38,8 @@ For HTML canvases that load React/ReactFlow from CDN, use the UMD bundle:
   <!-- React & ReactFlow from CDN -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
-  <link href="https://unpkg.com/reactflow@11.11.4/dist/style.css" rel="stylesheet" />
+  <script src="https://unpkg.com/@xyflow/react@12.11.0/dist/umd/index.js"></script>
+  <link href="https://unpkg.com/@xyflow/react@12.11.0/dist/style.css" rel="stylesheet" />
 
   <!-- Node Components UMD Bundle -->
   <script src="/libs/node-components/dist/aquaculture-nodes.umd.js"></script>

@@ -14,8 +14,8 @@
  */
 
 import React, { memo, useState, useCallback, useRef, useEffect, useMemo, useContext } from 'react';
-import type { NodeProps } from 'reactflow';
-import { Handle, Position } from 'reactflow';
+import type { NodeProps } from '@xyflow/react';
+import { Handle, Position, type Node } from '@xyflow/react';
 import { Lock } from 'lucide-react';
 import { WidgetRenderer } from '../WidgetRenderer';
 import { WidgetTooltip } from '../WidgetTooltip';
@@ -141,7 +141,7 @@ const CONTENT_STYLE: React.CSSProperties = {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-const ScadaWidgetNode: React.FC<NodeProps<ScadaWidgetNodeData>> = ({ id, data, selected }) => {
+const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, data, selected }) => {
   const constraints = WIDGET_SIZE_CONSTRAINTS[data.widgetType] || DEFAULT_CONSTRAINTS;
 
   /* ---------- Locked state from store -------------------------------- */

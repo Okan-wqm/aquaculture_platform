@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface DemandFeederNodeData {
+interface DemandFeederNodeData extends Record<string, unknown> {
   label?: string;
   bottomType?: HandleType;
   isScadaMode?: boolean;
@@ -18,7 +18,7 @@ interface DemandFeederNodeData {
 const WIDTH = 120;
 const HEIGHT = 160;
 
-const DemandFeederNode: React.FC<NodeProps<DemandFeederNodeData>> = ({ id, data, selected }) => {
+const DemandFeederNode: React.FC<NodeProps<Node<DemandFeederNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

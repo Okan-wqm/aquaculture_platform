@@ -47,7 +47,6 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - Per-reading single-row INSERT on the hot path = **HIGH** (multi-row INSERT or `COPY`).
 - `sensor_metrics` managed by migrations; `synchronize: true` on hypertable schema = **CRITICAL**.
 - Compression policy MUST NOT touch actively-written chunks (7+ day boundary is convention). Queries spanning compressed/uncompressed boundary MUST handle both. Retention policy MUST be configured (unbounded = **HIGH**).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Continuous aggregate refresh lag monitored; stale > 10× expected interval = **HIGH**. `timescaledb.invalidate_using = 'wal'` (v2.22+) SHOULD be enabled.
 - Research: `docs/research/sensor-expert/2026-04-08-timescaledb-hypertable-continuous-aggregates.md`.
 
@@ -61,7 +60,6 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - Certificate expiry monitored (30d warning / 7d critical). TLS session resumption SHOULD be enabled on constrained edge devices.
 - QoS 1 for telemetry (at-least-once); QoS 1 on high-frequency non-critical data = **MEDIUM** (ack overhead).
 - Research: `docs/research/sensor-expert/2026-04-08-mqtt-tls-mosquitto-pbkdf2.md`.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ### SCADA Web Worker sandbox
 
@@ -72,7 +70,6 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - Tag value snapshots MUST be structurally filtered to the current SCADA package's visible tags at query shape, not post-hoc. Filter-at-query-time only = **HIGH** (race condition on cross-package leak).
 - CSP in production MUST forbid `unsafe-eval` AND `unsafe-inline` in `script-src`. Script deployment + execution audit-logged with user, tenant, script hash.
 - Research: `docs/research/sensor-expert/2026-04-08-scada-web-worker-sandbox-expression-security.md`.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ### IEC 61131-3 ST compiler + program lifecycle
 
@@ -83,7 +80,6 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - MQTT-delivered edge deploys MUST support atomic rollback to the previous known-good version. Partial deploy without rollback = **HIGH**.
 - RETAIN variables MUST persist across PLC restart via non-volatile storage (SQLite with IEC 61131-3 RETAIN semantics). Volatile RETAIN = **HIGH**.
 - PID, timer (TON/TOF/TP), counter (CTU/CTD/CTUD), edge-detector (R_TRIG/F_TRIG), flip-flop (SR/RS) function blocks MUST follow IEC 61131-3 standard semantics exactly. Behavioral drift = **HIGH** (safety defect).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Research: `docs/research/sensor-expert/2026-04-08-iec-61131-3-structured-text-safety.md`.
 
 ### VFD Maker-Checker + Modbus-TCP register-mapping discipline
@@ -94,21 +90,18 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - Multi-brand register tables (Danfoss / ABB / Siemens / Schneider / Yaskawa / Delta / Mitsubishi / Rockwell) MUST include a `brand` discriminator column. Interleaving register mappings across brands in one table = **CRITICAL** (wrong-register write, potential hardware damage).
 - Modbus-TCP in production MUST be tunneled through TLS or equivalent encryption. Plaintext Modbus-TCP on a routed network = **CRITICAL**. Modbus link MUST have a circuit breaker (missing = **MEDIUM** availability).
 - Parameter-write failures (timeout, invalid value, safety interlock rejection) trigger atomic rollback + audit log entry. Automation rules MUST validate the resulting tier against a LOW/MEDIUM-only whitelist; automation writing HIGH/CRITICAL without explicit safety override = **CRITICAL** bypass.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Audit trail includes: requester, approver, risk tier, old value, new value, scheduled time, actual write time, ack status. IEC 62443-3-3 FR5 network segmentation (OT ↔ IT) MUST be enforced at infrastructure level.
 - Research: `docs/research/sensor-expert/2026-04-08-vfd-modbus-iec-62443-maker-checker.md`.
 
 ### OPC UA security (PLC control)
 
 - Cloud-to-edge pattern: cloud sends PARAMETERS, PLC makes autonomous real-time decisions, PLC sends TELEMETRY. Cloud writing control outputs directly = **CRITICAL** (bypasses real-time constraints and life-safety interlocks).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - `SecurityMode` MUST be `SignAndEncrypt` in production (per IEC 62541 / OPC Foundation Part 2). `None` or `Sign`-only = **CRITICAL**.
 - Certificate validation MUST be enforced — no `accept_invalid_certs` or equivalent bypass. CRL MUST be checked on SecureChannel establishment and cached with configurable refresh. Missing CRL = **HIGH**.
 - Trust list uses a company-specific CA in production. Self-signed accepted only for bootstrap with documented organizational approval. `UserIdentityToken` on tenant data MUST be real (username/password or X.509), never anonymous. Anonymous on tenant data = **CRITICAL**.
 - Private keys stored in OS-level keystore, HSM, or filesystem mode 0600. World-readable / repo-committed = **CRITICAL**. Expiry monitored 30d/7d.
 - SecureChannel lifecycle events (open, close, auth success/failure, cert validation) audit-logged per IEC 62443-3-3 SR 2.8. Role-based access on OPC UA nodes via OPC UA 1.05 Role model.
 - Feeding parameters versioned — track which version is active on each PLC. Alarm acknowledgment includes user identity + timestamp in audit trail.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Research: `docs/research/sensor-expert/2026-04-08-opc-ua-security-sign-encrypt.md`.
 
 ### Edge provisioning contract + calibration curve integrity
@@ -119,7 +112,6 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - Calibration curves: coefficient tables + applied-at-read order MUST be immutable per calibration version. Retroactively editing an applied calibration = **HIGH** (invalidates downstream historical readings without audit trail). New calibration creates a new version; old readings remain tied to the calibration active at ingestion time.
 - Cross-boundary contract with edge (`sens-api-gateway`): event shape, topic format, MQTT auth, provisioning handshake — any change requires joint review with `edge-expert` per ADR-003.
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ### Sensor-domain tenant notes
 
 Generic tenant isolation (DB `search_path`, RLS, Redis namespacing, NATS subject scoping, `X-Act-As-Tenant`, `CrossTenantProbe`, schema validation) is owned by `multi-tenant-saas-expert`. Sensor-specific only:
@@ -131,7 +123,6 @@ Generic tenant isolation (DB `search_path`, RLS, Redis namespacing, NATS subject
 All other tenant-isolation concerns → `multi-tenant-saas-expert`.
 
 ## Active findings this agent owns
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 Historical reviews under `docs/reviews/sensor-expert/` — audits from 2026-04-04 (full codebase), 2026-04-05 (S2 HIGH, targeted security), 2026-04-10 (full repo). Prior-work check: escalate unfixed findings by one severity; 3+ recurring = SYSTEMIC, flag for architectural-arbiter.
 

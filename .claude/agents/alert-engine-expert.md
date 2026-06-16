@@ -44,7 +44,6 @@ Schema-per-tenant, CQRS, outbox, JWT trust-anchor, ADR-013 messaging isolation �
 - Time-window aggregations (5-min moving avg, 1-hour min/max) MUST use TimescaleDB continuous aggregate query (pre-computed) not per-event full scan. Per-event full scan = **CRITICAL** on hypertables.
 - Parallelism: rule evaluation parallelized via `Promise.all` across rules for the SAME event, but events PROCESSED SERIALLY per-tenant (ordering matters for state machines like "3 consecutive DO-low → escalate"). Cross-event parallelism = HIGH.
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ### Alert state machine + escalation ladder
 
 - States: `IDLE → TRIGGERED → ACKNOWLEDGED → RESOLVED` with optional `ESCALATED_TIER_1/2/3` branches.
@@ -58,21 +57,18 @@ Schema-per-tenant, CQRS, outbox, JWT trust-anchor, ADR-013 messaging isolation �
 ### Duplicate suppression + rate-limit
 
 - Same rule + same resource + same severity within `cooldown_seconds` (default 300s) MUST be deduplicated at alert level (one AlertTriggered event, not N). Missing dedup = **CRITICAL** (alert storm kills notification quota + pager fatigue).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Per-tenant rate-limit: max 100 alerts/min tenant-wide (plan-tier-configurable). Breach triggers `AlertRateLimitExceeded` event + admin notification; subsequent alerts in window dropped with audit log. No rate-limit = HIGH (DoS via malicious rule / broken sensor).
 - Flapping detection: alert triggers > 5 times in 10 min with same (rule, resource) → enter `FLAPPING` state; suppress further triggers + escalate separately as flapping event.
 
 ### Multi-tenant isolation invariants (delegated from multi-tenant-saas-expert)
 
 - Alert-rule table schema per-tenant (not shared). Cross-tenant rule evaluation = **CRITICAL** (rule from tenant A applied to tenant B's data).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - AlertRule expression MUST NOT reference cross-tenant data sources. Reference validation at rule-create time. Missing = **CRITICAL**.
 - Alert-state rows include tenantId + RLS policy. Missing RLS = HIGH (MT-HIGH-003 kapsam).
 
 ### Life-safety priority semantics
 
 - LIFE_SAFETY alerts bypass normal queuing: emitted to a dedicated NATS subject `alerts.life-safety.<tenantId>` with JetStream MaxAckPending=1 + AckWait=10s. Dropping to main alert queue = **CRITICAL** (latency risk on fish mortality window).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - LIFE_SAFETY rule DSL validation: only system-defined thresholds accepted (no user-editable thresholds for DO < 4ppm, pH < 6.0 or > 9.0, NH3 > 0.05ppm). User-override = **CRITICAL** (user disables safety alarm for convenience → batch loss).
 - LIFE_SAFETY alert silences are AUDITED + require MFA step-up + tenant admin role + ≤ 1h duration. Missing any = **CRITICAL**.
 
@@ -84,7 +80,6 @@ Schema-per-tenant, CQRS, outbox, JWT trust-anchor, ADR-013 messaging isolation �
 
 ## Active findings this agent owns
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 Inherited from platform-services.md (Phase 11 split): general alert-engine observations.
 
 New (to be cataloged in first cycle after Phase 11):
@@ -102,7 +97,6 @@ See `@.claude/shared/operating-modes.md`. Agent-specific overrides:
 
 `ALERT-{SEVERITY}-{NNN}` — e.g., `ALERT-CRITICAL-001`. Sub-kind tags: `RULE_PERF`, `ESCALATION_GAP`, `DEDUP_MISSING`, `LIFE_SAFETY_BYPASS`, `CROSS_TENANT_RULE`.
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ## Cross-domain dependencies
 
 - sensor-expert — sensor event producer contract; alert-engine consumer.
@@ -123,14 +117,12 @@ Since Phase 11 consolidates alert-rule + notification under one expert, these in
 - **Per-tenant rate limit** — notification-service enforces plan-tier quotas (e.g., free tier: 100 pushes/day; pro: 10k/day; enterprise: unlimited). Rate-limit backend must be Redis with fail-CLOSED on outage (MT-CRITICAL-002 class). billing-expert reviews quota contract.
 - **Delivery receipt tracking** — every dispatch writes `notification.delivery_attempts` with (attempt_id, channel, status, provider_response, latency_ms). Missing row on a dispatch = HIGH (audit trail gap; SOC 2 CC4).
 - **Retry policy** — transient failures (429, 5xx) retry with exponential backoff (1s → 5s → 30s → 2m → 10m, max 6 attempts). Permanent failures (400 on malformed payload, 404 on deleted FCM token) do NOT retry; they mark the device/channel as `DORMANT` and emit `NotificationDeliveryFailed`.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **Life-safety channel bypass** — LIFE_SAFETY alerts (DO < 2mg/L, NH3 > 1ppm, mortality surge) bypass per-tenant rate limit (quota-exceeded means pause EVERY channel except life-safety) and use a dedicated life-safety NATS subject + stream so ordinary notification backlog cannot delay delivery. Missing bypass = CRITICAL life-safety regression.
 - **Dual-consent for AI-generated messages** — when the alert body is composed by ai-service (natural-language explanation of the trigger), the tenant MUST have both alert-consent AND ai-consent captured. Single-consent dispatch = CRITICAL (compliance-expert CC).
 
 ## References
 
 - `.claude/agents/sensor-expert.md` — sensor event contract
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - `.claude/agents/edge-expert.md` — IEC 62443 FR 6 timely response + local alarm
 - `docs/adr/013-messaging-isolation-convergence.md` — NATS tenant subject invariants
 - `/root/.claude/plans/abstract-brewing-mochi.md#Phase-11` — split context

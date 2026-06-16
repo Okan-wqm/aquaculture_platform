@@ -123,7 +123,6 @@ Prometheus cardinality budget, TimescaleDB hypertable, Stripe metered billing Me
 
 - Monthly reconciliation job: compare `observability.tenant_cost_rollup` monthly SUM vs Stripe `invoice.total` per tenant.
 - Drift > 1% = MEDIUM (revenue leak); > 5% = HIGH (billing discrepancy — feeds billing-expert).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Reconciliation report emitted to `docs/reports/cost-reconciliation/<YYYY-MM>.md` monthly.
 
 ### FinOps tagging (K8s future)

@@ -47,14 +47,12 @@ NestJS scope/lifecycle (request vs default), React 18 concurrent rendering + Wea
 
 ### Event listener leak class
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Pattern: `emitter.on('event', handler)` without matching `.off('event', handler)` on cleanup = HIGH.
 - Common offenders: WebSocket / SSE handlers in NestJS gateways, NestJS lifecycle (`OnApplicationBootstrap` adding without `OnApplicationShutdown` removing), DOM event listeners in React components without `useEffect` cleanup.
 - React component pattern enforcement (frontend-expert sibling):
   ```tsx
   useEffect(() => {
     const handler = (e) => { ... };
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
     window.addEventListener('focus', handler);
     return () => window.removeEventListener('focus', handler);  // MANDATORY
   }, []);
@@ -65,7 +63,6 @@ NestJS scope/lifecycle (request vs default), React 18 concurrent rendering + Wea
 ### Cache + registry discipline
 
 - Unbounded `Map<K, V>` as cache = HIGH unless WeakRef-based or explicit eviction.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - `WeakMap` is GC-friendly only when keys are reference-collected; primitive keys (string/number) prevent GC. Use `LRU<K,V>` from `lru-cache` package for size-bounded caches.
 - Cache TTL discipline: every cache MUST have either (a) max-size cap, OR (b) per-entry TTL, OR (c) explicit invalidation on event. None = HIGH.
 - React Query `cacheTime`: default 5min OK; `Infinity` for tenant-scoped data = HIGH (cross-tenant cache bleed risk + memory bloat).
@@ -73,14 +70,12 @@ NestJS scope/lifecycle (request vs default), React 18 concurrent rendering + Wea
 
 ### WebSocket / SSE connection leaks
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - WebSocket server tracks active connections in a Set. On disconnect, MUST `.delete()` from set. Missing = HIGH (connection ref retained after socket closed; eventual OOM).
 - Per-connection state (subscription list, presence, queued events) MUST be released on disconnect. Common miss: socket-id key in Redis with no expiry.
 - SSE-specific: server-sent-events `Response.write()` keeps stream open. Missing client-disconnect handler ('close' event) = HIGH (zombie streams).
 - Reverse-proxy idle timeout: nginx `proxy_read_timeout 60s` but app-layer not reacting to idle disconnect = HIGH (orphan ws-handler keeps state).
 
 ### Rust spawn + cancellation discipline (edge-expert sibling)
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 - Every `tokio::spawn(...)` MUST EITHER:
   - (a) Hold a `CancellationToken::child()` subscriber + check `.is_cancelled()` periodically, OR
@@ -88,21 +83,18 @@ NestJS scope/lifecycle (request vs default), React 18 concurrent rendering + Wea
   - (c) Be explicitly documented as "fire-and-forget short-lived" (≤ 100ms) with rationale.
 - Dangling spawn (none of the above) = HIGH (graceful shutdown timeout 30s; tasks leak across reload cycles).
 - `Box::leak`, `Box::into_raw` in non-FFI code = HIGH (intentional leak; FFI exception allowed).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - `Arc<Mutex<HashMap>>` growing without bound (e.g., per-device state) = HIGH unless eviction policy defined.
 
 ### Frontend memory specifics
 
 - React component re-render with stale closure capturing large data structure = MEDIUM (cleared on next render, but high-frequency re-render keeps it warm).
 - Zustand store containing large blob references (e.g., file contents) without explicit clearing = HIGH (persists across page navigation).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - IndexedDB (PWA aquamobil): each store grows unboundedly without retention policy = HIGH.
 - React Suspense fallback components rendering on every promise re-creation = MEDIUM.
 
 ## Active findings this agent owns
 
 First-cycle audit:
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Heap growth Prometheus metric adoption survey (which services emit `process_heap_bytes`).
 - Event listener inventory across NestJS gateways + React hooks (target: zero unmatched).
 - Unbounded cache pattern grep (`new Map()` without size cap).

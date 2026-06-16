@@ -43,7 +43,6 @@ Use `git diff --name-only` and map changed files to primary + also-notify agents
 
 Invoke all identified agents in parallel using the Agent tool across **two lanes**:
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **Lane-A (code quality)** — this file's Runtime Review Roster (enterprise-v2 domain + cross-cutting experts).
 - **Lane-B (product quality)** — the `.claude/agents/product-audit/` roster (UI/E2E/tenant-surface product auditors). See `.claude/agents/product-audit/README.md` § Runtime Roster for the 22 Lane-B agents. Finding prefix `PRODUCT-*`.
 
@@ -53,7 +52,6 @@ Phase 3 collects reports from both lanes; Phase 3.5 cross-lane compaction auto-i
 
 ## Decision Rules
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **ANY CRITICAL finding from ANY agent → BLOCK deployment.**
 - **3+ HIGH findings → PASS WITH CONDITIONS** (fix before next release).
 - **Only MEDIUM/LOW → PASS.**
@@ -68,7 +66,6 @@ All agents use `opus` with `effort: xhigh` per platform policy. This table is th
 |-------|--------|
 | farm-expert | apps/farm-service/, web/modules/farm-module/ |
 | sensor-expert | apps/sensor-service/, web/modules/sensor-module/ |
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 | messaging-expert | apps/messaging-service/, apps/ai-service/ |
 | data-expert | libs/event-contracts/, libs/backend-common/database/, database/migrations/ (delta review) |
 | database-reviewer | All schema sources — state health audit (tables, columns, indexes, constraints, naming) |
@@ -142,4 +139,3 @@ Orchestrator itself does not raise domain findings; it may raise PROCESS finding
 ## Prior Work Check
 
 Before a cycle, read the previous cycle's `docs/reviews/orchestrator/{date}-{topic}.md` for STALE CRITICAL/HIGH findings. Those MUST appear in Phase 4 as mandatory dispatch targets to the source agent for escalation re-review (see Phase 5 finding-ID-propagation notes in `.claude/shared/orchestrator-phases.md`).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.

@@ -20,6 +20,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   ManyToOne,
   JoinColumn,
   BeforeInsert,
@@ -215,6 +216,16 @@ export interface MeasurementConditions {
 @Index(['tenantId', 'measurementDate'])
 @Index(['batchId', 'measurementDate'])
 @Index(['batchId', 'measurementType'])
+// WHY CHECK: sample/population sizes, average weight, and estimated biomass are
+// physical quantities that cannot be negative; previousBiomass is nullable so
+// uses IS NULL OR >= 0. NOTE: `biomassGain` is a signed delta (negative on
+// biomass loss) and is deliberately NOT constrained. DB-level make-impossible
+// mirrors migration 1801500000000.
+@Check('CHK_growth_measurements_sample_size_nonneg', '"sampleSize" >= 0')
+@Check('CHK_growth_measurements_population_nonneg', '"populationSize" >= 0')
+@Check('CHK_growth_measurements_avg_weight_nonneg', '"averageWeight" >= 0')
+@Check('CHK_growth_measurements_est_biomass_nonneg', '"estimatedBiomass" >= 0')
+@Check('CHK_growth_measurements_prev_biomass_nonneg', '"previousBiomass" IS NULL OR "previousBiomass" >= 0')
 export class GrowthMeasurement {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

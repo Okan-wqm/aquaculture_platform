@@ -29,6 +29,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   Unique,
 } from 'typeorm';
 import { Field, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
@@ -147,6 +148,12 @@ export interface BiomassReportPayload {
 ])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'siteId', 'reportYear'])
+// WHY CHECK: calendar bounds (1-based month) + non-negative denormalised total.
+// DB-level make-impossible mirrors migration 1801500000000; named constraints
+// match the migration for entity↔DB parity.
+@Check('CHK_biomass_reports_report_month', '"reportMonth" BETWEEN 1 AND 12')
+@Check('CHK_biomass_reports_report_year', '"reportYear" BETWEEN 2000 AND 2100')
+@Check('CHK_biomass_reports_total_biomass_nonneg', '"totalBiomassKg" >= 0')
 export class BiomassReport {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

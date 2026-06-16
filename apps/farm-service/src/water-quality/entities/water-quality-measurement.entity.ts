@@ -184,6 +184,17 @@ export interface SensorInfo {
 @Index(['overallStatus', 'tenantId'])
 @Index(['tenantId', 'equipmentId', 'measuredAt'])
 @Index(['tenantId', 'idempotencyKey'], { unique: true, where: '"idempotencyKey" IS NOT NULL' })
+// WHY partial UNIQUE: the WQ measurement ←→ sensor reading correlation is N:1
+// (a given upstream sensor reading produces AT MOST ONE WQ measurement).
+// Without this, a redelivered NATS event or buggy upcaster inserts duplicate
+// WQ rows for the same source reading, corrupting trend/alarm data. Expressed
+// as a class-level partial-unique @Index (mirroring idempotencyKey above) so a
+// future baseline regen reproduces the UNIQUE qualifier — the entity-side half
+// of migration 1801400000000-RestoreWaterQualityRelatedSensorReadingUnique.
+@Index(['tenantId', 'relatedSensorReadingId'], {
+  unique: true,
+  where: '"relatedSensorReadingId" IS NOT NULL',
+})
 export class WaterQualityMeasurement {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -339,9 +350,13 @@ export class WaterQualityMeasurement {
    * 1788200000001-AddWaterQualitySensorReadingCorrelation.ts for
    * the architectural rationale.
    */
+  // NOTE: the index for this column is declared at class level as a partial
+  // UNIQUE (see the @Index above the class) — that index also serves the
+  // lookup path, so a separate property-level @Index() would be a redundant
+  // duplicate. Migration 1801400000000 restores the same index on already-
+  // deployed schemas.
   @Field(() => ID, { nullable: true })
   @Column('uuid', { nullable: true })
-  @Index()
   relatedSensorReadingId?: string;
 
   // -------------------------------------------------------------------------

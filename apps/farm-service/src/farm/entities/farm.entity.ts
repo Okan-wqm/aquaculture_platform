@@ -98,12 +98,18 @@ export class Farm {
   @Column({ default: true })
   isActive: boolean;
 
+  // WHY type:'timestamptz': the bare @CreateDateColumn()/@UpdateDateColumn()
+  // default to the postgres driver's `timestamp` (without tz), which drops the
+  // offset and re-interprets stored instants against the session TimeZone GUC
+  // (±1h DST drift on the audit trail). Pinning timestamptz keeps a future
+  // baseline regen on the correct type — the entity-side half of migration
+  // 1801300000000-ConvertFarmAuditColumnsToTimestamptz.
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   @Field()
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @VersionColumn()

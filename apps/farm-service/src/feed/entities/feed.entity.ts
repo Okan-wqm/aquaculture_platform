@@ -9,6 +9,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   ManyToOne,
   JoinColumn,
   VersionColumn,
@@ -154,6 +155,11 @@ export interface FeedingMatrix2D {
 @Index(['tenantId', 'type'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'targetSpecies'])
+// WHY CHECK: stock quantity and minimum-stock threshold are physical amounts
+// that cannot be negative. DB-level make-impossible mirrors migration
+// 1801500000000.
+@Check('CHK_feeds_quantity_nonneg', '"quantity" >= 0')
+@Check('CHK_feeds_min_stock_nonneg', '"minStock" >= 0')
 export class Feed {
   @PrimaryGeneratedColumn('uuid')
   id: string;

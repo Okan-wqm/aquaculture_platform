@@ -16,6 +16,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -124,6 +125,10 @@ export interface MortalityDocument {
  * @see DATA-MEDIUM-023
  */
 @Index('IDX_mortality_batch_created_desc', ['batchId', 'createdAt'])
+// WHY CHECK: a mortality event records at least one dead fish (DTO is @Min(1)).
+// DB-level make-impossible mirrors migration 1801500000000; the named
+// constraint matches the migration so entity↔DB parity holds.
+@Check('CHK_mortality_records_count_positive', '"count" > 0')
 export class MortalityRecord {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

@@ -18,6 +18,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -78,6 +79,17 @@ export interface CleanerFishDetail {
 @Entity('tank_batches')
 @Index(['tenantId', 'tankId'], { unique: true })
 @Index(['tenantId', 'primaryBatchId'])
+// WHY CHECK: stock counts/biomass/density are physical quantities that cannot
+// be negative. Nullable columns use IS NULL OR >= 0. DB-level make-impossible
+// mirrors migration 1801500000000 with matching constraint names.
+@Check('CHK_tank_batches_total_quantity_nonneg', '"totalQuantity" >= 0')
+@Check('CHK_tank_batches_avg_weight_nonneg', '"avgWeightG" >= 0')
+@Check('CHK_tank_batches_total_biomass_nonneg', '"totalBiomassKg" >= 0')
+@Check('CHK_tank_batches_density_nonneg', '"densityKgM3" >= 0')
+@Check('CHK_tank_batches_cleaner_qty_nonneg', '"cleanerFishQuantity" >= 0')
+@Check('CHK_tank_batches_cleaner_biomass_nonneg', '"cleanerFishBiomassKg" >= 0')
+@Check('CHK_tank_batches_current_quantity_nonneg', '"currentQuantity" IS NULL OR "currentQuantity" >= 0')
+@Check('CHK_tank_batches_current_biomass_nonneg', '"currentBiomassKg" IS NULL OR "currentBiomassKg" >= 0')
 export class TankBatch {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

@@ -20,6 +20,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -111,6 +112,13 @@ export interface FishBehavior {
 @Index(['tenantId', 'tankId', 'feedingDate'])
 @Index(['tenantId', 'feedingDate'])
 @Index(['batchId', 'feedingDate', 'feedingSequence'])
+// WHY CHECK: planned/actual feed amounts cannot be negative; wasteAmount is
+// nullable so uses IS NULL OR >= 0. NOTE: `variance` (actual - planned) is a
+// signed delta and is deliberately NOT constrained. DB-level make-impossible
+// mirrors migration 1801500000000.
+@Check('CHK_feeding_records_planned_amount_nonneg', '"plannedAmount" >= 0')
+@Check('CHK_feeding_records_actual_amount_nonneg', '"actualAmount" >= 0')
+@Check('CHK_feeding_records_waste_amount_nonneg', '"wasteAmount" IS NULL OR "wasteAmount" >= 0')
 export class FeedingRecord {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

@@ -113,12 +113,17 @@ export class Pond {
   @Column({ default: true })
   isActive: boolean;
 
+  // WHY type:'timestamptz': the bare @CreateDateColumn()/@UpdateDateColumn()
+  // default to the postgres driver's `timestamp` (without tz), dropping the
+  // offset and causing ±1h DST drift on the audit trail. Pinning timestamptz
+  // keeps a future baseline regen correct — entity-side half of migration
+  // 1801300000000-ConvertFarmAuditColumnsToTimestamptz.
   @Field()
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   @Field()
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @Field({ nullable: true })

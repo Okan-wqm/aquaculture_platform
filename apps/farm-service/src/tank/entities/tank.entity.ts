@@ -19,6 +19,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   VersionColumn,
   ManyToOne,
   OneToMany,
@@ -212,6 +213,14 @@ export interface AerationInfo {
 @Index(['tenantId', 'systemId'])
 @Index(['tenantId', 'containerKind'])
 @Index(['tenantId', 'equipmentTypeId'])
+// WHY CHECK: biomass/density capacities are physical quantities that cannot be
+// negative. NOTE: there is deliberately NO currentBiomass<=maxBiomass check —
+// tank over-capacity is a legitimate admin-overridable state. DB-level
+// make-impossible mirrors migration 1801500000000 with matching names.
+@Check('CHK_tanks_max_biomass_nonneg', '"maxBiomass" >= 0')
+@Check('CHK_tanks_current_biomass_nonneg', '"currentBiomass" >= 0')
+@Check('CHK_tanks_max_density_nonneg', '"maxDensity" >= 0')
+@Check('CHK_tanks_current_count_nonneg', '"currentCount" IS NULL OR "currentCount" >= 0')
 export class Tank {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

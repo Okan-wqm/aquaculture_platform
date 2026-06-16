@@ -20,6 +20,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -238,6 +239,17 @@ export interface YieldCalculation {
 @Index(['tenantId', 'harvestDate'])
 @Index(['tenantId', 'status'])
 @Index(['batchId', 'harvestDate'])
+// WHY CHECK: harvested quantity/biomass/weights are physical quantities that
+// cannot be negative; min/max weight, rejected qty, and mortality are nullable
+// so use IS NULL OR >= 0. DB-level make-impossible mirrors migration
+// 1801500000000 with matching constraint names.
+@Check('CHK_harvest_records_quantity_nonneg', '"quantityHarvested" >= 0')
+@Check('CHK_harvest_records_total_biomass_nonneg', '"totalBiomass" >= 0')
+@Check('CHK_harvest_records_avg_weight_nonneg', '"averageWeight" >= 0')
+@Check('CHK_harvest_records_min_weight_nonneg', '"minWeight" IS NULL OR "minWeight" >= 0')
+@Check('CHK_harvest_records_max_weight_nonneg', '"maxWeight" IS NULL OR "maxWeight" >= 0')
+@Check('CHK_harvest_records_rejected_qty_nonneg', '"rejectedQuantity" IS NULL OR "rejectedQuantity" >= 0')
+@Check('CHK_harvest_records_mortality_nonneg', '"mortalityDuringHarvest" IS NULL OR "mortalityDuringHarvest" >= 0')
 export class HarvestRecord {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

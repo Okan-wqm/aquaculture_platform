@@ -143,10 +143,15 @@ export class Worker {
   @Column({ default: false })
   isFarmWorker: boolean;
 
-  @CreateDateColumn()
+  // WHY type:'timestamptz': the bare @CreateDateColumn()/@UpdateDateColumn()
+  // default to the postgres driver's `timestamp` (without tz), dropping the
+  // offset and causing ±1h DST drift on the audit trail. Pinning timestamptz
+  // keeps a future baseline regen correct — entity-side half of migration
+  // 1801300000000-ConvertFarmAuditColumnsToTimestamptz.
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 
   @Column({ nullable: true })

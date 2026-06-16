@@ -16,6 +16,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -63,6 +64,13 @@ registerEnumType(AllocationType, {
 @Index(['tenantId', 'batchId', 'allocationDate'])
 @Index(['tenantId', 'tankId', 'allocationDate'])
 @Index(['batchId', 'tankId'])
+// WHY CHECK: allocated quantity/weight/biomass are physical quantities that
+// cannot be negative; densityKgM3 is nullable so uses IS NULL OR >= 0.
+// DB-level make-impossible mirrors migration 1801500000000.
+@Check('CHK_tank_allocations_quantity_nonneg', '"quantity" >= 0')
+@Check('CHK_tank_allocations_avg_weight_nonneg', '"avgWeightG" >= 0')
+@Check('CHK_tank_allocations_biomass_nonneg', '"biomassKg" >= 0')
+@Check('CHK_tank_allocations_density_nonneg', '"densityKgM3" IS NULL OR "densityKgM3" >= 0')
 export class TankAllocation {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

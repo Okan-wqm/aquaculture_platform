@@ -9,6 +9,7 @@ import {
   Column,
   CreateDateColumn,
   Index,
+  Check,
 } from 'typeorm';
 
 export enum MovementType {
@@ -33,6 +34,10 @@ registerEnumType(MovementType, {
 // without full table scan, required by EU 178/2002 Article 18 audits.
 @Index(['tenantId', 'lotNumber'])
 @Index('idx_stock_movements_tenant_idempotency', ['tenantId', 'idempotencyKey'], { unique: true, where: '"idempotency_key" IS NOT NULL' })
+// WHY CHECK: a stock movement quantity is a physical amount that cannot be
+// negative (direction is carried by movementType, not by a signed quantity).
+// DB-level make-impossible mirrors migration 1801500000000.
+@Check('CHK_stock_movements_quantity_nonneg', '"quantity" >= 0')
 export class StockMovement {
   @PrimaryGeneratedColumn('uuid')
   id: string;

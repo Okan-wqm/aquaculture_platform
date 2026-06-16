@@ -13,6 +13,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   ManyToOne,
   JoinColumn,
   VersionColumn,
@@ -127,6 +128,11 @@ export interface ChemicalDocument {
 @Index(['tenantId', 'type'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'isActive'])
+// WHY CHECK: stock quantity and minimum-stock threshold are physical amounts
+// that cannot be negative. DB-level make-impossible mirrors migration
+// 1801500000000.
+@Check('CHK_chemicals_quantity_nonneg', '"quantity" >= 0')
+@Check('CHK_chemicals_min_stock_nonneg', '"minStock" >= 0')
 export class Chemical {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

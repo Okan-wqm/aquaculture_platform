@@ -19,6 +19,7 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - @.claude/knowledge/layer-1-nestjs.md            (NestJS 11, guards/pipes/interceptors, CQRS — primary)
 - @.claude/knowledge/layer-1-typeorm.md           (TypeORM 0.3 DataSource, scoped repository)
 - @.claude/knowledge/layer-2-patterns.md          (CQRS/Outbox/DDD/tenant patterns)
+- @.claude/knowledge/layer-2-defect-catalog.md    (generic real-defect classes — security/bugs/typos/dup/hygiene)
 - @.claude/knowledge/layer-3-adrs.md              (ADR-008 guard defense-in-depth; ADR-014 NATS mTLS-only; ADR-015 NATS cert-is-identity SSoT; ADR-016 deploy resilience + RS256 rollout)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
@@ -57,6 +58,8 @@ Any reorder, any missing middleware on a public entry point, or any guard skippe
 
 ## Domain-specific invariants (beyond SSoT)
 
+Generic real-defect classes (security / bugs / typos / duplication / hygiene) live in `@.claude/knowledge/layer-2-defect-catalog.md`; the rules below are auth/security-domain-specific.
+
 ### JWT lifecycle & algorithm discipline (ADR-016 Phase B rollout)
 - Every JWT carries `type: 'access' | 'refresh' | 'mfa'`. Bearer auth rejects anything other than `type === 'access'`. Refresh-as-bearer and MFA-as-bearer are CRITICAL privilege escalations.
 - Every `verifyAsync()` / `verify()` passes `algorithms: ['RS256']` (or `['HS256']` explicitly during legacy cutover). Omission or wildcard enables `alg:none` and RS256↔HS256 confusion (RFC 8725 §2.1) — CRITICAL.
@@ -83,11 +86,12 @@ Any reorder, any missing middleware on a public entry point, or any guard skippe
 
 ### Service-to-service HMAC canonical input (SEC-HIGH-002/003 hardening)
 - `INTERNAL_SERVICE_SECRET` ≥ 32 bytes, loaded from KMS/Vault at boot, NEVER hardcoded in source/env/repo.
-- Canonical signing input is **exactly**: `${serviceIdentity}|${timestamp}|${method}|${path}|${bodyHash}|${tenantId}`. Omitting any field is CRITICAL — missing `method+path` allows cross-endpoint replay; missing `bodyHash` allows body tampering with valid signature; missing `timestamp` allows infinite replay; missing `tenantId` lets a compromised intermediary swap tenant in flight (CLAUDE.md Security §Tenant-ID sourcing).
-- Headers: `X-Service-Identity`, `X-Service-Timestamp` (Unix seconds), `X-Service-Signature` (hex HMAC-SHA256).
+- Canonical signing input is the **v2** form (`generateServiceIdentityHeadersV2` in `libs/backend-common/src/utils/service-identity.util.ts`): a `v2`-prefixed, `\n`-delimited string binding `serviceIdentity`, `timestamp`, `method`, `path`, `bodyHash`, `tenantId` **plus the v2 additions** (`effectiveTenantId`, `keyId`, `audience`, `nonce`, assertion hash). Omitting any field is CRITICAL — missing `method+path` allows cross-endpoint replay; `bodyHash` body tampering; `timestamp` infinite replay; `tenantId`/`effectiveTenantId` lets a compromised intermediary swap tenant in flight (CLAUDE.md Security §Tenant-ID sourcing). New code MUST emit v2; a caller still sending the legacy v1 3-header form — or a verifier that still ACCEPTS v1 after the cutover window closes — is a forgeable-ingress regression = **CRITICAL**.
+- v2 emits 7 headers (vs v1's 3), incl. `X-Service-Sig-Version: 'v2'` (verifier dispatch), `X-Service-Identity`, `X-Service-Timestamp` (ISO-8601 UTC in v2), `X-Service-Signature` (hex HMAC-SHA256).
 - Timestamp replay window ≤ 300 s. NTP sync mandatory (< 1 s drift). In-window replay caught by Redis signature cache (5-min TTL) on high-sensitivity routes.
 - Signature comparison uses `crypto.timingSafeEqual(Buffer, Buffer)`. String `===` comparison of HMAC is CRITICAL. Length-mismatch branch runs a dummy constant-time compare to eliminate throw-timing signal.
 - `/internal/*` requires `ServiceIdentityGuard` AND binds to the internal network; not exposed through the public gateway.
+- Verifier caller/key resolution MUST fail-CLOSED: a nullish fallback that defaults the allowed-callers set to *all* callers (e.g. `entry.callers ?? allServiceCallers()`) is a fail-OPEN regression = **CRITICAL** (any internal service can then impersonate any other).
 - Secret rotation: dual-accept window (old + new) orchestrated via KMS config push + SIGHUP/config-watch reload.
 
 ### OPA policy fan-out (SEC-HIGH-004 — dead stack pending W4)
@@ -142,7 +146,7 @@ Any reorder, any missing middleware on a public entry point, or any guard skippe
 ## Active findings this agent owns
 
 Review cycle history lives under `docs/reviews/auth-security-expert/`. Currently-OPEN findings that inform priority:
-- `SEC-HIGH-002` / `SEC-HIGH-003` — HMAC canonical-input hardening (method + path + body-hash + timestamp + tenantId). In-flight W5.
+- `SEC-HIGH-002` / `SEC-HIGH-003` — HMAC canonical-input hardening: addressed by the **v2** canonical (`service-identity.util.ts`). Residual watch: confirm the v1-acceptance cutover window has closed and the verifier caller-allowlist is fail-closed.
 - `SEC-HIGH-004` — OPA decision fan-out is a dead stack across resolvers. Awaiting W4 decision (remove vs. adopt platform-wide).
 - ADR-016 Phase B — RS256 JWT rollout gating (`algorithms:['RS256']` migration from HS256). Tier 3 for Phase A shipped; Phases C-F remain Tier 4 doc.
 
@@ -163,7 +167,7 @@ See `@.claude/shared/operating-modes.md` for the full CATCHER / TEACHER / WRITER
 - Tenant provisioning + schema creation → `admin-expert`, `data-expert`, `database-reviewer`.
 - SaaS tenant lifecycle / plan gating / quota outside auth pipeline → `multi-tenant-saas-expert`.
 - MCP session claims + delegated user/tenant context in `mcp/**` → `mcp-expert`.
-- Security-event fan-out, observability signals → `platform-services`, `security-reviewer`.
+- Security-event fan-out, observability signals → `observability-expert`, `security-reviewer`.
 - Rate-limit coordination with nginx edge → `infra-expert`.
 - Cross-agent recommendation conflict → `architectural-arbiter`.
 - Multi-agent cycle compaction / systemic pattern detection → `context-manager`.

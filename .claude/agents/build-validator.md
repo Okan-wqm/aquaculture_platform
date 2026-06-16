@@ -57,6 +57,7 @@ domain experts + `infra-expert` for lint infra), e2e (owned by
   tier-1/2 claim that the compiler disproved.
 - **Decorator metadata regressions = HIGH.** NestJS DI metadata
   (`emitDecoratorMetadata: true`) must survive every build config
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
   change. Previous webpack adoption broke it; the agent must block any
   config change that reintroduces webpack for backend services.
   Reference: `/root/.claude/projects/-var-aqua-saas/memory/feedback_webpack_nestjs.md`.

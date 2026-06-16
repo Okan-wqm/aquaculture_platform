@@ -58,6 +58,7 @@ Write to `--output-path` a markdown document that:
 The body MUST NOT contain:
 
 - Any "Thinking..." preamble or scratch
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Code fences with executable code that the kernel did not request
 - Test stubs without real behavior
 - Apologies, hedges, or disclaimers

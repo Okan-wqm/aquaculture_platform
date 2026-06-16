@@ -49,6 +49,7 @@ TimescaleDB hypertable + continuous aggregate, NestJS interceptor + DataLoader, 
   (c) integration test asserting < 50ms on fixture dataset.
   Missing all three = HIGH (silent perf regression vector).
 - N+1 query detection: any `loop.forEach → repository.findOne` pattern = HIGH (use `In()` clause or DataLoader). Common offender: GraphQL resolvers with naive nested-resolver pattern.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - TimescaleDB hypertable queries:
   - Seq scan on `> 1M rows` partition = HIGH (use continuous aggregate per layer-1-timescaledb selection rule).
   - Missing time-range constraint on hypertable query = **CRITICAL** (full hypertable scan, kills DB).
@@ -56,6 +57,7 @@ TimescaleDB hypertable + continuous aggregate, NestJS interceptor + DataLoader, 
 - ORM-generated query inspection: `synchronize: false` enforced (data-expert primary), but generated query shape audited here for unexpected JOIN explosion or missing index hints.
 - Pagination: every list query MUST be paginated (cursor or offset+limit ≤ 100). Unbounded `.find({})` = **CRITICAL** (memory + DB IO blow).
 - Connection pool: per-service pool size ≥ 10 + ≤ 50; over-pooled = HIGH (DB connection exhaustion).
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ### p99 latency budget per endpoint tier
 
@@ -70,6 +72,7 @@ TimescaleDB hypertable + continuous aggregate, NestJS interceptor + DataLoader, 
 
 ### React MFE bundle size budget
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Per-MFE budgets:
   - shell: ≤ 500KB gzipped (host + shared singletons + auth bootstrap)
   - dashboard, farm-module, sensor-module, hr-module, admin-panel, tenant-admin, hydroponics-module: ≤ 300KB gzipped each
@@ -80,6 +83,7 @@ TimescaleDB hypertable + continuous aggregate, NestJS interceptor + DataLoader, 
 - Shared dependencies (react, react-dom, @tanstack/react-query, react-router-dom, zustand) MUST be Module Federation singletons. Per-MFE local copy = HIGH (bundle bloat + version drift).
 
 ### Memory footprint baseline
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 - Node service post-warmup heap ≤ 512MB (90th percentile across replicas). Sustained > 80% of pod memory-limit = HIGH (OOMKill risk).
 - Heap growth > 20%/day post-warmup = HIGH (memory leak — handoff to memory-leak-auditor sibling).
@@ -87,6 +91,7 @@ TimescaleDB hypertable + continuous aggregate, NestJS interceptor + DataLoader, 
 - React app (long-lived browser session) MUST avoid retaining unbounded React Query cache; `cacheTime` configured + `removeQueries` on tenant switch (FE-CRITICAL-001 sibling).
 
 ### Concurrency + backpressure budget
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 - Per-pod concurrent in-flight HTTP request budget: 100 (Node single-thread model). Exceed → 503 with `Retry-After`. Missing limit = HIGH (event-loop saturation cascade).
 - NATS consumer: `MaxAckPending` set per consumer based on processing capacity (default 100; high-throughput streams 1000). Missing = HIGH.
@@ -94,6 +99,7 @@ TimescaleDB hypertable + continuous aggregate, NestJS interceptor + DataLoader, 
 - Background job throughput: per-job p95 processing time tracked; processing > job-rate → backlog accumulates (alert at backlog > 30min worth).
 
 ### Hot-path discipline
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 - No `console.log` / no synchronous I/O in handler hot path. Synchronous file read = **CRITICAL** (event-loop block).
 - JSON parsing of large payloads (> 100KB): use streaming parser; `JSON.parse(body)` on > 1MB body = HIGH (event-loop block proportional to size).
@@ -102,6 +108,7 @@ TimescaleDB hypertable + continuous aggregate, NestJS interceptor + DataLoader, 
 
 ## Active findings this agent owns
 
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 First-cycle audit:
 - N+1 hotspot survey across `apps/**/src/**/resolvers/**` and `apps/**/src/**/handlers/**`.
 - Missing index coverage check on entities lacking `@Index` decorators on filter/sort columns.
@@ -120,6 +127,7 @@ See `@.claude/shared/operating-modes.md`. Agent-specific overrides:
 ## Finding ID prefix
 
 `PERF-{SEVERITY}-{NNN}` — e.g., `PERF-CRITICAL-001`. Sub-kind tags: `EXPLAIN_MISSING`, `N_PLUS_1`, `HYPERTABLE_SCAN`, `BUNDLE_SIZE`, `MEMORY_GROWTH`, `EVENT_LOOP_BLOCK`, `SLO_GAP`.
+  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ## Cross-domain dependencies
 

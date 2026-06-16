@@ -54,6 +54,7 @@ Review → fix loop closes only when fix commits reference the findings they clo
 - **CRITICAL/HIGH MUST NOT be bundled with MEDIUM/LOW in the same package.** Severity mixing violates atomicity and git-bisect friendliness — split into separate packages with explicit dependency edges.
 - On package generation, annotate each source review finding with `[IN-PROGRESS: docs/plans/{date}/{topic}/packages/NN-{slug}.md]`. `context-manager` transitions to RESOLVED when it verifies the merged commit `Closes:` footer. Planner only marks IN-PROGRESS — trust the protocol.
 
+  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 ### 2. Package Decomposition
 
 Apply INVEST (Independent, Negotiable, Valuable, Estimable, Small, Testable). Size bound is **whichever is reached first**: ≤10 findings OR ≤500 lines estimated diff OR ≤20K tokens of loaded source. CRITICAL findings count double toward the 10-finding limit.
@@ -82,6 +83,7 @@ Apply **Kahn's algorithm** with deterministic tiebreak: multiple zero-in-degree 
 
 **Parallelizable packages** (no edges) explicitly marked in `dependency-graph.md` and each package file. Co-requisites (logically coupled but order-independent) annotated as peers, not DAG edges.
 
+  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 **Security override:** packages tagged `security-sensitive` with zero prerequisites go to position 1, overriding lexicographic tiebreak.
 
 ### 4. Atomic Commit Plan per Package
@@ -134,6 +136,7 @@ Package Status: `PENDING | IN_PROGRESS | DONE | FAILED | BLOCKED`. FAILED packag
 
 **Crash-safe restart:** for each supposedly-completed package, verify the TRIPLE: (1) git hash in PASS entry, (2) `[x]` in plan.md, (3) package Status DONE. Discrepancy → re-verify from that package. `[x]` without git hash = unverified manual update; revert to `[ ]`, treat as PENDING.
 
+  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 Plan metadata in plan.md header: `Generated` · `Base Commit` (git hash) · `Source Reports` (absolute paths). HEAD divergence >20 commits from Base = **PLAN_STALE**; flag, require human ack.
 
 ### 7. Verification Gate per Package

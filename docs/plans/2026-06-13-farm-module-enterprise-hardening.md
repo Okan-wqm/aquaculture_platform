@@ -39,16 +39,16 @@ Finding IDs are used in commit `Closes:` lines (`Closes: docs/plans/2026-06-13-f
 | `fe-mru-leak` | HIGH | ✅ | T2 | `wq-mru-equipment` localStorage key not tenant-scoped → equipment UUIDs leak across tenants on shared browser; survives logout. AquaMobil twin `aquamobil-wq-mru`. |
 | `fe-draft-pii-persist` | HIGH | ✅ | T2 | `regulatory_report_draft_*` (with contact PII) not tenant-scoped, survives logout/tenant-switch. |
 | `dead-listeners` | HIGH | ✅ | T1 | `events/listeners/**` subscribe via in-process `@OnEvent`; handlers emit only via outbox→NATS → mortality alerts + harvest follow-ups never fire. |
-| `close-batch-enum` | HIGH | ✅ | T2 | FE offers 7 `BatchCloseReason` values; backend enum exposes 5 → 4 selections fail GraphQL validation; FE/BE enum drift, no codegen binding. |
+| `close-batch-enum` | HIGH | ✅ `FARM-HIGH-070` | T2 | EXPANDED backend enum by the 4 legitimate reasons the FE offered (+ exhaustive Record); no FE change, no event-contract change. Re-drift prevention (FE bind to generated types) = `ORPHAN-HIGH-131`. |
 | `po-approval` | HIGH | ✅ | T1 | PurchaseOrder has no SUBMITTED/APPROVED state or maker-checker; `approvedBy` column vestigial; one MODULE_MANAGER does create→order→receive. InventoryCount (same module) is the correct SOC2 reference. |
 | `biomass-ssot` | HIGH | ✅ | T1 | `weight.actual.totalBiomass` never decremented on mortality/cull/harvest → diverges from `TankBatch.totalBiomassKg`; corrupts density/FCR/finalBiomass. |
 | `growth-nolock` | HIGH | ✅ | T1 | `record-growth-sample` reads batch outside the lock → concurrent samples re-inflate biomass. |
 | `feed-empty` | HIGH | ✅ | T1 | Feeding gates only on `isActive`, not operational state → feeding an empty batch corrupts FCR. |
 | `feed-dual-ssot` | HIGH | ✅ | T1/T2 | `FeedInventory` and `StorageInventory`/`StockMovement` both own feed stock; storage-deduction failure swallowed. |
 | `wq-legacy-bypass` | HIGH | ✅ | T1 | Legacy fixed-column WQ params bypass tenant-config validation + equipment-mapping check (dual parameter SSoT). |
-| `gql-codegen` | HIGH | ✅ | T2 | FE GraphQL ops are inline template strings; no codegen binding → enum/required-arg/field drift invisible. Root of close-batch-enum, harvest-harvestedby, harvest-planid. |
-| `harvest-harvestedby` | HIGH | ✅ | T2 | `createHarvestRecord` requires non-null `harvestedBy` the FE never sends → harvest mutation fails; server should derive from `user.sub`. |
-| `harvest-planid` | HIGH | ✅ | T2 | Handler reads `input.harvestPlanId` but DTO+FE omit it → harvest-plan gate can never receive a plan. |
+| `gql-codegen` | HIGH | ⏸ deferred (`ORPHAN-HIGH-131`) | T2 | Codegen is configured-but-UNCONSUMED (`graphql-types.ts` already emitted). The 3 drift symptoms (close-batch-enum, harvest-harvestedby, harvest-planid) were fixed directly; binding FE to generated types + SDL/snapshot regen + the full TypedDocumentNode migration (207 untagged ops) deferred. |
+| `harvest-harvestedby` | HIGH | ✅ `FARM-HIGH-068` | T2 | DELETED the dead required `harvestedBy` input; server derives the actor from `user.sub` (handler already used `recordedBy`). |
+| `harvest-planid` | HIGH | ✅ `FARM-HIGH-069` | T2 | ADDED `harvestPlanId` to the input DTO + FE type (handler read it; DTO/FE omitted it). FE form selector to populate it = follow-up. |
 | `arch-spec-conflict` | HIGH | ✅ | T3 | `tenant-schema-routing.architecture.spec` allowlist omits `farm_audit_logs` + `tenant_erasure_audit` (both correctly schema-pinned) → spec silently red/skipped. |
 | `ondelete-drift` | HIGH | ✅ | T3 | Entities declare `onDelete: CASCADE` while DB enforces RESTRICT on every batch-child FK (lost in baseline reset). |
 | `no-check-constraints` | HIGH | ✅ | T3 | Only 1 CHECK across 67 tables; non-negative quantity/biomass + bounded-month invariants are app-only. |
@@ -223,5 +223,8 @@ Each plan cluster is tracked as a registry finding (`docs/reviews/_registry/find
 | `FARM-HIGH-067` | 4 | `no-stampede` — `RedisService.getOrCompute` single-flight SSoT (via `setNx`); `CacheableInterceptor` + all 5 `AiInsightsService` MCP cache-asides route through it (one recompute per TTL-expiry miss, not a thundering herd) |
 | `FARM-CRITICAL-051` | 5 | `fe-sensor-fake` — RETIRED the farm `/sites/sensors` mock dashboard (rendered `Math.random()` telemetry as live water quality); deleted the component, redirected routes to sensor-module `/sensor`, removed the federation expose + shell decl, repointed the dead QuickAction |
 | `FARM-CRITICAL-052` | 5 | `fe-reports-mock` — removed fabricated regulatory status: deleted the `mock/` dir (10 files), dropped the fake penalty banner + summary + tab badges, all 8 tab histories + `useDeadlines` honestly empty; real submit path untouched; new `no-fabricated-data` invariant (covers 051+052). Real read-back = `ORPHAN-HIGH-129`; biomass-wire = `ORPHAN-MEDIUM-130` |
+| `FARM-HIGH-068` | 5 | `harvest-harvestedby` — deleted the dead required `harvestedBy` input (server derives the actor from `user.sub`); every harvest mutation had failed GraphQL non-null validation |
+| `FARM-HIGH-069` | 5 | `harvest-planid` — added `harvestPlanId` to the harvest input DTO + FE type (the handler read it for the mandatory-plan gate; DTO/FE omitted it) |
+| `FARM-HIGH-070` | 5 | `close-batch-enum` — expanded the backend enum by the 4 legitimate reasons the FE picker offered (TOTAL_MORTALITY/DISEASE_OUTBREAK/COMMERCIAL_DECISION/MERGED) + exhaustive Record entries; FE/BE drift resolved, no event-contract change (closeReason is free-text). FE-binding-to-generated-types = `ORPHAN-HIGH-131` |
 
 Deferred / superseded references: `FARM-HIGH-007` + `FARM-MEDIUM-003` are closed by `FARM-HIGH-014`; `FARM-MEDIUM-002` is superseded (see `ORPHAN-MEDIUM-112`); feed-dual Phase B convergence is tracked as `ORPHAN-HIGH-114`.

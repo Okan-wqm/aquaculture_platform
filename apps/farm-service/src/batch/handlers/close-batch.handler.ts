@@ -144,8 +144,9 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
         if (!isAdmin) {
           throw new ForbiddenException(
             `BatchCloseReason.OTHER is restricted to admin users. ` +
-            `Regular users must close batches through the correct lifecycle ` +
-            `(HARVEST_COMPLETED, TRANSFERRED, FAILED, CANCELLED).`,
+            `Regular users must close batches with a specific reason ` +
+            `(HARVEST_COMPLETED, TRANSFERRED, FAILED, CANCELLED, TOTAL_MORTALITY, ` +
+            `DISEASE_OUTBREAK, COMMERCIAL_DECISION, MERGED).`,
           );
         }
         this.logger.warn(

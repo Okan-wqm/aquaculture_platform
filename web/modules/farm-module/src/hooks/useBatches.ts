@@ -148,6 +148,10 @@ export interface CreateHarvestRecordInput {
   harvestDate?: string;
   pricePerKg?: number;
   buyerName?: string;
+  // harvest-planid (FARM-HIGH): the backend gates large harvests on a harvest
+  // plan; this field lets the FE supply one. `harvestedBy` is intentionally
+  // absent — the server derives the actor from the authenticated user.
+  harvestPlanId?: string;
   notes?: string;
 }
 

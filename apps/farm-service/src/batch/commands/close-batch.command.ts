@@ -17,6 +17,16 @@ export enum BatchCloseReason {
   TRANSFERRED = 'transferred',               // Transfer edildi
   FAILED = 'failed',                         // Basarisiz oldu
   CANCELLED = 'cancelled',                   // Iptal edildi
+  // close-batch-enum (FARM-HIGH): the FE close-batch picker has long offered
+  // these four legitimate aquaculture close reasons, but the backend enum
+  // lacked them so every such selection failed GraphQL enum validation (the
+  // mutation never reached the handler). Added here — the server enum is the
+  // SSoT and the FE picker already matches it. closeReason persists as a string
+  // (BatchClosedEvent.closeReason is FREE_TEXT), so no event-contract change.
+  TOTAL_MORTALITY = 'total_mortality',       // Tüm stok telef oldu
+  DISEASE_OUTBREAK = 'disease_outbreak',     // Hastalık kaynaklı itlaf
+  COMMERCIAL_DECISION = 'commercial_decision', // Ticari karar (erken kapanış)
+  MERGED = 'merged',                         // Başka partiyle birleştirildi
   OTHER = 'other',                           // Diger (admin-only)
 }
 

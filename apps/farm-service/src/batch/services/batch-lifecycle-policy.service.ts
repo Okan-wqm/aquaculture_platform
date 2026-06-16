@@ -22,6 +22,38 @@ export class BatchLifecyclePolicyService {
     [BatchCloseReason.TRANSFERRED]: [BatchStatus.TRANSFERRED],
     [BatchCloseReason.FAILED]: [BatchStatus.FAILED, BatchStatus.QUARANTINE, BatchStatus.ACTIVE, BatchStatus.GROWING],
     [BatchCloseReason.CANCELLED]: [BatchStatus.QUARANTINE, BatchStatus.ACTIVE],
+    // close-batch-enum (FARM-HIGH): valid prior statuses for the four newly
+    // exposed close reasons. The TS Record is exhaustive over BatchCloseReason,
+    // so adding the enum members above without these entries is a compile error
+    // (Tier-1 guard) — every reason MUST declare from which lifecycle states it
+    // is a legitimate closure.
+    // Whole stock died — possible across the full active-rearing lifecycle.
+    [BatchCloseReason.TOTAL_MORTALITY]: [
+      BatchStatus.QUARANTINE,
+      BatchStatus.ACTIVE,
+      BatchStatus.GROWING,
+      BatchStatus.PRE_HARVEST,
+      BatchStatus.HARVESTING,
+    ],
+    // Regulatory/biosecurity cull — quarantine is the natural precursor.
+    [BatchCloseReason.DISEASE_OUTBREAK]: [
+      BatchStatus.QUARANTINE,
+      BatchStatus.ACTIVE,
+      BatchStatus.GROWING,
+      BatchStatus.PRE_HARVEST,
+    ],
+    // Early commercial close before harvest.
+    [BatchCloseReason.COMMERCIAL_DECISION]: [
+      BatchStatus.ACTIVE,
+      BatchStatus.GROWING,
+      BatchStatus.PRE_HARVEST,
+    ],
+    // Consolidated into another batch (a merge during rearing or post-transfer).
+    [BatchCloseReason.MERGED]: [
+      BatchStatus.ACTIVE,
+      BatchStatus.GROWING,
+      BatchStatus.TRANSFERRED,
+    ],
     [BatchCloseReason.OTHER]: [BatchStatus.HARVESTED, BatchStatus.TRANSFERRED, BatchStatus.FAILED],
   };
 

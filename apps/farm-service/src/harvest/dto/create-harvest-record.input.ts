@@ -137,10 +137,24 @@ export class CreateHarvestRecordInput extends MobileCommandEnvelopeInput {
   @MaxLength(500)
   rejectionReason?: string;
 
-  @Field(() => ID, { description: 'User ID who performed the harvest' })
-  @IsNotEmpty()
+  // harvest-harvestedby (FARM-HIGH): `harvestedBy` was a REQUIRED input the FE
+  // never sent (every createHarvestRecord failed GraphQL non-null validation)
+  // AND was dead server-side — the handler derives the actor from the
+  // authenticated user (`recordedBy = user.sub`, injected by the resolver via
+  // @CurrentUser). A client-supplied actor on an audit field is also a spoofing
+  // surface. Removed entirely (Tier-1: server-derive, make spoofing impossible).
+
+  // harvest-planid (FARM-HIGH): the handler reads `input.harvestPlanId` to feed
+  // the mandatory-harvest-plan policy gate (large harvests), and the command
+  // already carries it, but it was absent from this input DTO — so the gate
+  // could never receive a plan. Exposed here (optional; small harvests omit it).
+  @Field(() => ID, {
+    nullable: true,
+    description: 'Harvest plan ID (required for large harvests by policy)',
+  })
+  @IsOptional()
   @IsUUID()
-  harvestedBy: string;
+  harvestPlanId?: string;
 
   @Field({ nullable: true, description: 'Additional notes' })
   @IsOptional()

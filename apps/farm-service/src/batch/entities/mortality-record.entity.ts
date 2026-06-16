@@ -148,7 +148,16 @@ export class MortalityRecord {
   @Index()
   batchId: string;
 
-  @ManyToOne(() => Batch, { onDelete: 'CASCADE' })
+  // WHY: mortality_records is regulatory mortality data (Mattilsynet reporting)
+  // and MUST be retained — never cascade-wiped when a batch goes away. Batches
+  // are never hard-deleted (DeleteBatchHandler / BatchService.deleteBatch perform
+  // a soft lifecycle close: isActive=false, status=CLOSED), so cascade was never
+  // load-bearing.
+  // WHAT: onDelete RESTRICT aligns the entity with the DB FK
+  // (FK_d916fa21d316a9cf6587c252be6, already ON DELETE RESTRICT in the baseline)
+  // — closing the entity↔DB drift with no migration, and RESTRICT is the regen
+  // default so a future baseline regen reproduces it unchanged.
+  @ManyToOne(() => Batch, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'batchId' })
   batch: Batch;
 

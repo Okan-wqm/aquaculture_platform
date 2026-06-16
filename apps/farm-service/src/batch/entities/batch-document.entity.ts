@@ -75,7 +75,16 @@ export class BatchDocument {
   @Index()
   batchId: string;
 
-  @ManyToOne(() => Batch, { onDelete: 'CASCADE' })
+  // WHY: batch_documents holds health/veterinary/customs CERTIFICATES that are
+  // retention-bound regulatory records — they MUST NOT be wiped when a batch row
+  // goes away. Batches are never hard-deleted (DeleteBatchHandler / BatchService
+  // .deleteBatch perform a soft lifecycle close: isActive=false, status=CLOSED),
+  // so cascade was never load-bearing.
+  // WHAT: onDelete RESTRICT aligns the entity with the DB FK
+  // (FK_98c06b6d9fa5c7a03fc8b6700d0, already ON DELETE RESTRICT in the baseline)
+  // — closing the entity↔DB drift with no migration, and RESTRICT is the regen
+  // default so a future baseline regen reproduces it unchanged.
+  @ManyToOne(() => Batch, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'batchId' })
   batch: Batch;
 

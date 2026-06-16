@@ -101,7 +101,15 @@ export class BatchLocation {
   @Index()
   batchId: string;
 
-  @ManyToOne(() => Batch, { onDelete: 'CASCADE' })
+  // WHY: batches are never hard-deleted (DeleteBatchHandler / BatchService
+  // .deleteBatch perform a soft lifecycle close: isActive=false, status=CLOSED),
+  // so a cascade from batch→batch_locations was never load-bearing. batch_locations
+  // is the batch movement/transfer history and must survive.
+  // WHAT: onDelete RESTRICT aligns the entity with the DB FK
+  // (FK_35550bcdb1f76f58b4f69893195, already ON DELETE RESTRICT in the baseline)
+  // — closing the entity↔DB drift with no migration, and RESTRICT is the regen
+  // default so a future baseline regen reproduces it unchanged.
+  @ManyToOne(() => Batch, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'batchId' })
   batch: Batch;
 

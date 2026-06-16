@@ -142,7 +142,18 @@ export class TankBatch {
   @Column('uuid', { nullable: true })
   primaryBatchId?: string;
 
-  @ManyToOne('Batch', { nullable: true, onDelete: 'SET NULL' })
+  // WHY: batches are never hard-deleted (DeleteBatchHandler / BatchService
+  // .deleteBatch perform a soft lifecycle close: isActive=false, status=CLOSED),
+  // so the SET NULL intent (null out primaryBatchId on batch delete) never fired.
+  // The DB FK has always been ON DELETE RESTRICT, so the entity's SET NULL was
+  // pure drift that a baseline regen would have flipped the DB to.
+  // WHAT: onDelete RESTRICT aligns the entity with the DB FK
+  // (FK_f3bfe40ab36d0b7d35eefb24689, already ON DELETE RESTRICT in the baseline),
+  // dropping the unreachable SET NULL intent. No migration; RESTRICT is the regen
+  // default so a future baseline regen reproduces it unchanged. (primaryBatchId
+  // stays nullable for the not-yet-assigned tank case — that is independent of
+  // the FK delete action.)
+  @ManyToOne('Batch', { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'primaryBatchId' })
   primaryBatch?: Batch;
 

@@ -13,14 +13,22 @@
  *   - 1801500000000: the operational-quantity @Check constraints exist on their
  *     owning entities with the SAME constraint names the migration adds (so the
  *     introspector / SchemaDriftValidator sees matching entity↔DB shape).
+ *   - ondelete-drift: the 6 batch-child @ManyToOne→Batch relations declare
+ *     onDelete RESTRICT (matching the baseline DB FKs, which are already
+ *     ON DELETE RESTRICT) so a baseline regen reproduces the same delete action,
+ *     and batch_feed_assignments keeps its NO-ACTION (no onDelete) relation.
  *
  * They FAIL against the pre-fix entities (no timestamptz, no partial-unique, no
- * @Check), proving the fix and guarding the regression.
+ * @Check, CASCADE/SET NULL onDelete), proving the fix and guarding the regression.
  */
 import { getMetadataArgsStorage } from 'typeorm';
 
+import { BatchDocument } from '../batch/entities/batch-document.entity';
+import { BatchFeedAssignment } from '../batch/entities/batch-feed-assignment.entity';
+import { BatchLocation } from '../batch/entities/batch-location.entity';
 import { TankAllocation } from '../batch/entities/tank-allocation.entity';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
+import { TankOperation } from '../batch/entities/tank-operation.entity';
 import { MortalityRecord } from '../batch/entities/mortality-record.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
 import { Farm } from '../farm/entities/farm.entity';
@@ -169,5 +177,54 @@ describe('Phase-3 entity parity — 1801500000000 operational-quantity @Check co
         c.expression.includes('biomassGain'),
     );
     expect(biomassGain).toBeUndefined();
+  });
+});
+
+describe('Phase-3 entity parity — ondelete-drift batch-child FK action alignment', () => {
+  const relations = getMetadataArgsStorage().relations;
+
+  /**
+   * The baseline (1800000000000) emits all 6 batch-child FKs to batches_v2 as
+   * ON DELETE RESTRICT, but the entity @ManyToOne decorators had drifted to
+   * CASCADE (5) / SET NULL (1). Batches are NEVER hard-deleted — DeleteBatchHandler
+   * and BatchService.deleteBatch both perform a soft lifecycle close (isActive=false,
+   * status=CLOSED) — so cascade/set-null was never load-bearing and is unsafe for the
+   * retention-bound children (batch_documents = certificates, mortality_records =
+   * Mattilsynet data). Aligning the entity to RESTRICT (the DB truth AND the regen
+   * default) closes the drift class with no migration. Each row below asserts the
+   * chosen action so a regression back to CASCADE/SET NULL fails the build.
+   */
+  const EXPECTED_BATCH_FK_ON_DELETE: ReadonlyArray<{
+    entity: Function;
+    property: string;
+  }> = [
+    { entity: BatchDocument, property: 'batch' },
+    { entity: MortalityRecord, property: 'batch' },
+    { entity: TankOperation, property: 'batch' },
+    { entity: TankAllocation, property: 'batch' },
+    { entity: BatchLocation, property: 'batch' },
+    { entity: TankBatch, property: 'primaryBatch' },
+  ];
+
+  it.each(EXPECTED_BATCH_FK_ON_DELETE)(
+    '$entity.name.$property @ManyToOne→Batch declares onDelete RESTRICT (matches baseline DB FK, regen-stable)',
+    ({ entity, property }) => {
+      const rel = relations.find(
+        (r) => r.target === entity && r.propertyName === property,
+      );
+      expect(rel).toBeDefined();
+      expect(rel?.options.onDelete).toBe('RESTRICT');
+    },
+  );
+
+  it('batch_feed_assignments.batch keeps NO ACTION (no onDelete) — untouched, already correct', () => {
+    // The baseline emits FK_9edd460ca918f2959169674cbbd as ON DELETE NO ACTION,
+    // and the entity has no onDelete option (= NO ACTION). This is the one
+    // batch-child FK that did NOT drift; it must stay untouched.
+    const rel = relations.find(
+      (r) => r.target === BatchFeedAssignment && r.propertyName === 'batch',
+    );
+    expect(rel).toBeDefined();
+    expect(rel?.options.onDelete).toBeUndefined();
   });
 });

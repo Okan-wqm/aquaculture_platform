@@ -153,4 +153,41 @@ describe('useNotifications — FE-MEDIUM-053 unified cadence', () => {
       await Promise.resolve();
     });
   });
+
+  // FE-LOW-051: the unread COUNT fetch can fail independently of the list. The
+  // bell must not render a confident "0" — it surfaces isCountError instead.
+  describe('unread-count error surface (FE-LOW-051)', () => {
+    it('sets isCountError + unreadCountError when the count fetch fails', async () => {
+      mockGraphqlRequest.mockImplementation((doc: unknown) => {
+        if (doc === GET_UNREAD_COUNT) {
+          return Promise.reject(new Error('count endpoint 500'));
+        }
+        if (doc === GET_MY_NOTIFICATIONS) {
+          return Promise.resolve({ myNotifications: [] });
+        }
+        return Promise.resolve({});
+      });
+
+      const { result } = renderHook(() => useNotifications(), { wrapper: makeWrapper(client) });
+
+      await waitFor(() => expect(result.current.isCountError).toBe(true));
+      expect(result.current.unreadCountError).toMatch(/count endpoint 500/);
+      // The list still loaded — only the count surface is in error.
+      expect(result.current.error).toBeNull();
+    });
+
+    it('does NOT flag isCountError for a genuine 0 unread (real success)', async () => {
+      mockGraphqlRequest.mockImplementation((doc: unknown) => {
+        if (doc === GET_UNREAD_COUNT) return Promise.resolve({ unreadNotificationCount: 0 });
+        if (doc === GET_MY_NOTIFICATIONS) return Promise.resolve({ myNotifications: [] });
+        return Promise.resolve({});
+      });
+
+      const { result } = renderHook(() => useNotifications(), { wrapper: makeWrapper(client) });
+
+      await waitFor(() => expect(result.current.unreadCount).toBe(0));
+      expect(result.current.isCountError).toBe(false);
+      expect(result.current.unreadCountError).toBeNull();
+    });
+  });
 });

@@ -16,6 +16,10 @@ import { MessageSendIdempotency } from '../entities/message-send-idempotency.ent
 import { sanitizeContent, validateUrlSchemes } from '../../shared/sanitize';
 import { MentionService } from '../services/mention.service';
 import { MediaService } from '../services/media.service';
+import {
+  MediaFinalizationService,
+  AttachmentFinalization,
+} from '../services/media-finalization.service';
 import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
 import type { MentionableMember } from '../dto/mention.types';
 
@@ -48,6 +52,7 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     private readonly redis: Redis,
     private readonly mentionService: MentionService,
     private readonly mediaService: MediaService,
+    private readonly mediaFinalizationService: MediaFinalizationService,
     private readonly metricsService: MessagingMetricsService,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
@@ -112,16 +117,35 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       throw new BadRequestException('Text messages must have non-empty content.');
     }
 
-    // ── 3. Attachment validation ───────────────────────────────────────
+    // ── 3. Attachment validation + finalization (pre-transaction) ──────
     // Validate each key: tenant prefix isolation + HeadObject existence check.
     // Returns actual ContentLength and ContentType from MinIO metadata to replace
     // the 'application/octet-stream' / fileSize:0 placeholders.
+    //
+    // MSG-HIGH-056 / MSG-MEDIUM-056: immediately after validation, finalize each
+    // attachment — strip EXIF/GPS at the server trust boundary, probe image
+    // dimensions, and generate the thumbnail (reusing ThumbnailService). This
+    // runs OUTSIDE and BEFORE runInTenantTransaction (same ordering as the
+    // HeadObject above) so the transaction only does INSERTs; a Sharp/S3 error on
+    // a raster image fails closed (the un-stripped original is never referenced).
+    // The voice/video duration (from client metadata) is attached to the row here
+    // (MSG-HIGH-055) instead of being stuffed into message metadata.
     const attachmentMeta: Map<string, { contentLength: number; contentType: string }> = new Map();
+    const attachmentFinalization: Map<string, AttachmentFinalization> = new Map();
     if (attachmentKeys.length > 0) {
       await Promise.all(
         attachmentKeys.map(async (key) => {
           const meta = await this.mediaService.validateAttachmentKey(tenantId, key);
           attachmentMeta.set(key, meta);
+          // Voice/video duration applies only to audio attachments. For a VOICE
+          // message the single audio attachment carries the recorded duration.
+          const isAudio = this.mediaService.isAudioMimeType(meta.contentType);
+          const finalized = await this.mediaFinalizationService.finalizeAttachment(
+            key,
+            meta.contentType,
+            isAudio ? voiceDurationSeconds : null,
+          );
+          attachmentFinalization.set(key, finalized);
         }),
       );
     }
@@ -218,13 +242,15 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       }
 
       // 4a. INSERT message
-      // Build enriched metadata with mentions and voice duration
+      // Build enriched metadata with mentions.
+      // MSG-HIGH-055: voice-note duration is NO LONGER stuffed into message
+      // metadata under a server-only `voiceDurationSeconds` key the UI never
+      // reads. It is persisted onto the audio attachment's typed
+      // `durationSeconds` column (the column the GraphQL fragment + UI actually
+      // consume), wired through the finalization result below.
       const enrichedMetadata: Record<string, unknown> = { ...(metadata ?? {}) };
       if (mentionedUserIds.length > 0) {
         enrichedMetadata['mentions'] = mentionedUserIds;
-      }
-      if (voiceDurationSeconds !== null) {
-        enrichedMetadata['voiceDurationSeconds'] = voiceDurationSeconds;
       }
 
       // SECURITY: tenantId MUST be set on every message row for RLS and event routing.
@@ -246,9 +272,14 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       const savedMessage = await manager.save(Message, message);
 
       // 4b. INSERT attachment records (if any)
+      // MSG-HIGH-056: persist the finalized media columns (width/height/
+      // durationSeconds/thumbnailKey) computed in the pre-transaction
+      // finalization pass. These columns + resolver + GraphQL fragment already
+      // existed and were dead only because nothing populated them.
       if (attachmentKeys.length > 0) {
         const attachments = attachmentKeys.map((storageKey) => {
           const meta = attachmentMeta.get(storageKey);
+          const finalized = attachmentFinalization.get(storageKey);
           return manager.create(MessageAttachment, {
             tenantId,
             messageId: savedMessage.id,
@@ -257,6 +288,10 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
             originalFilename: storageKey.split('/').pop() ?? 'unknown',
             mimeType: meta?.contentType ?? 'application/octet-stream',
             fileSize: meta?.contentLength ?? 0,
+            width: finalized?.width ?? null,
+            height: finalized?.height ?? null,
+            durationSeconds: finalized?.durationSeconds ?? null,
+            thumbnailKey: finalized?.thumbnailKey ?? null,
           });
         });
         await manager.save(MessageAttachment, attachments);

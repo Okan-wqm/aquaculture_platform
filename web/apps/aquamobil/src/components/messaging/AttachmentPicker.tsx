@@ -1,6 +1,13 @@
-import { useRef, useCallback, useEffect, useState, type RefObject } from 'react';
-import { Camera, Image as ImageIcon, FileText, X } from 'lucide-react';
+import { MESSAGING_MEDIA_MIME_ALLOWLIST } from '@aquaculture/shared-contracts';
 import { clsx } from 'clsx';
+import { Camera, Image as ImageIcon, FileText, X } from 'lucide-react';
+import { useRef, useCallback, useEffect, useState, type RefObject } from 'react';
+
+// MSG-LOW-051: the picker validates against the SAME shared MIME allowlist SSoT
+// the upload hook and the server enforce — no third hand-maintained list, so
+// drift is structurally impossible. The check is advisory UX (fail fast with a
+// clear message); the server remains the enforcing boundary.
+const ALLOWED_MIME_TYPES = new Set<string>(MESSAGING_MEDIA_MIME_ALLOWLIST);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,20 +101,34 @@ export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPi
     ref?.current?.click();
   }, []);
 
-  const [sizeError, setSizeError] = useState<string | null>(null);
+  const [pickerError, setPickerError] = useState<string | null>(null);
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
-        // Client-side file size validation before passing to onFileSelect
-        const maxBytes = FILE_SIZE_LIMIT_MB * 1024 * 1024;
-        if (file.size > maxBytes) {
-          setSizeError(`File exceeds ${FILE_SIZE_LIMIT_MB}MB limit (${Math.round(file.size / 1024 / 1024)}MB)`);
+        // MSG-LOW-051: pre-flight MIME validation against the shared allowlist
+        // SSoT BEFORE onFileSelect, so an unsupported type (e.g. svg) is rejected
+        // at pick time with a specific message instead of failing late and
+        // generically deep inside uploadMedia. onFileSelect is NOT called for a
+        // disallowed type, so no orphan upload is even attempted.
+        if (!ALLOWED_MIME_TYPES.has(file.type)) {
+          setPickerError(
+            file.type
+              ? `File type "${file.type}" is not supported`
+              : 'This file type is not supported',
+          );
           e.target.value = '';
           return;
         }
-        setSizeError(null);
+        // Client-side file size validation before passing to onFileSelect
+        const maxBytes = FILE_SIZE_LIMIT_MB * 1024 * 1024;
+        if (file.size > maxBytes) {
+          setPickerError(`File exceeds ${FILE_SIZE_LIMIT_MB}MB limit (${Math.round(file.size / 1024 / 1024)}MB)`);
+          e.target.value = '';
+          return;
+        }
+        setPickerError(null);
         onFileSelect(file);
         onClose();
       }
@@ -180,10 +201,11 @@ export function AttachmentPicker({ isOpen, onClose, onFileSelect }: AttachmentPi
           })}
         </div>
 
-        {/* File size error */}
-        {sizeError && (
+        {/* MSG-LOW-051: unsupported-type / oversize error surfaced in the same
+            slot, at pick time. */}
+        {pickerError && (
           <p className="text-center text-[11px] text-red-500 dark:text-red-400 font-medium pb-2 px-4">
-            {sizeError}
+            {pickerError}
           </p>
         )}
 

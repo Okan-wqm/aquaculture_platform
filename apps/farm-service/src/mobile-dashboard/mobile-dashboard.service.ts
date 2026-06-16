@@ -27,15 +27,28 @@ export class MobileDashboardService {
     private readonly tankOperationRepo: Repository<TankOperation>,
   ) {}
 
-  async getTodaysDailyOpsCounts(tenantId: string): Promise<TodaysDailyOpsCounts> {
-    // FARM-MEDIUM-053: the day boundary is now EXPLICIT and named rather than a
+  async getTodaysDailyOpsCounts(
+    tenantId: string,
+    clientDate?: string,
+  ): Promise<TodaysDailyOpsCounts> {
+    // FARM-MEDIUM-053: the day boundary is EXPLICIT and named rather than a
     // silent bare-UTC slice. FARM_DASHBOARD_TIME_ZONE (IANA name, default 'UTC')
     // is the configured farm-local calendar zone so "today" matches what an
-    // operator sees on the floor. Tenant-level timezone is not yet plumbed into
-    // this service — until it is, the platform default is applied uniformly and
-    // the decision is visible (not buried in toISOString()).
+    // operator sees on the floor.
+    //
+    // FARM-MEDIUM-056: the client may additionally pass its OWN device-local
+    // calendar day (strict YYYY-MM-DD) so the dashboard counts and the device's
+    // notion of "today" agree on ONE named day — eliminating the split where the
+    // server computed a different calendar day than the phone showed. The day is
+    // resolved ONCE here (today/todayStart/tomorrow all derive from it) so
+    // mortality.recordDate, feeding.executionDate, and the WQ measuredAt window
+    // consume the identical boundary. A malformed clientDate is rejected and the
+    // server falls back to its own FARM_DASHBOARD_TIME_ZONE computation. The query
+    // stays strictly tenant-scoped (tenantId filter unchanged), so an
+    // attacker-influenceable clientDate only selects which UTC slice of the
+    // caller's OWN tenant is counted — a read-only aggregate, no cross-tenant reach.
     const timeZone = process.env.FARM_DASHBOARD_TIME_ZONE ?? 'UTC';
-    const today = this.localDateString(new Date(), timeZone);
+    const today = this.resolveCalendarDay(clientDate, timeZone);
     const tomorrow = new Date(`${today}T00:00:00.000Z`);
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     const todayStart = new Date(`${today}T00:00:00.000Z`);
@@ -168,5 +181,40 @@ export class MobileDashboardService {
       month: '2-digit',
       day: '2-digit',
     }).format(date);
+  }
+
+  /**
+   * Resolve the single authoritative calendar day (YYYY-MM-DD) for the counts.
+   *
+   * FARM-MEDIUM-056: when the client supplies its device-local day it becomes
+   * the agreed boundary — but ONLY if it is a strict, well-formed YYYY-MM-DD
+   * (regex + real-date round-trip). A malformed or nonsensical value (e.g.
+   * '2026-13-40', SQL fragments, empty string) is rejected and the server falls
+   * back to its own timeZone computation. This keeps the boundary
+   * attacker-tolerant: the value can only ever name a real calendar day, and it
+   * is consumed purely as a date filter on the already-tenant-scoped queries.
+   */
+  private resolveCalendarDay(clientDate: string | undefined, timeZone: string): string {
+    if (clientDate && this.isStrictIsoDate(clientDate)) {
+      return clientDate;
+    }
+    return this.localDateString(new Date(), timeZone);
+  }
+
+  /**
+   * True only for a strict `YYYY-MM-DD` that names a REAL calendar day. The
+   * round-trip guard rejects values that match the shape but are not valid dates
+   * (e.g. '2026-02-30'): such an input would be normalized by Date and no longer
+   * equal the source string.
+   */
+  private isStrictIsoDate(value: string): boolean {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return false;
+    }
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime())) {
+      return false;
+    }
+    return parsed.toISOString().slice(0, 10) === value;
   }
 }

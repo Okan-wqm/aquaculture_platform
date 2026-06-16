@@ -8,7 +8,7 @@
 
 import { webcrypto } from 'node:crypto';
 
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterAll } from 'vitest';
 
 // --------------------------------------------------------------------------
 // Mocks — idb-keyval
@@ -20,30 +20,34 @@ const cacheIdbStore = new Map<string, unknown>();
 // in production ('aquamobil-keys'). Kept distinct here so device-id/key writes
 // never pollute the queue store the enqueue tests assert against.
 const keyIdbStore = new Map<string, unknown>();
+// MSG-MEDIUM-055: dedicated binary blob store ('aquamobil-blobs').
+const blobIdbStore = new Map<string, unknown>();
+
+function storeFor(store?: unknown): Map<string, unknown> {
+  if (store === 'cache-store') return cacheIdbStore;
+  if (store === 'key-store') return keyIdbStore;
+  if (store === 'blob-store') return blobIdbStore;
+  return idbStore;
+}
 
 vi.mock('idb-keyval', () => {
   return {
     get: vi.fn((key: string, store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
-      return Promise.resolve(target.get(key));
+      return Promise.resolve(storeFor(store).get(key));
     }),
     set: vi.fn((key: string, value: unknown, store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
-      target.set(key, value);
+      storeFor(store).set(key, value);
       return Promise.resolve();
     }),
     del: vi.fn((key: string, store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
-      target.delete(key);
+      storeFor(store).delete(key);
       return Promise.resolve();
     }),
     keys: vi.fn((store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
-      return Promise.resolve(Array.from(target.keys()));
+      return Promise.resolve(Array.from(storeFor(store).keys()));
     }),
     entries: vi.fn((store?: unknown) => {
-      const target = store === 'cache-store' ? cacheIdbStore : (store === 'key-store' ? keyIdbStore : idbStore);
-      return Promise.resolve(Array.from(target.entries()));
+      return Promise.resolve(Array.from(storeFor(store).entries()));
     }),
     createStore: vi.fn((dbName: string, _storeName: string) => {
       // Return a sentinel so the mock can distinguish stores. The durable KEY
@@ -52,6 +56,7 @@ vi.mock('idb-keyval', () => {
       // land in the queue store and break the enqueue assertions.
       if (dbName.includes('cache')) return 'cache-store';
       if (dbName.includes('keys')) return 'key-store';
+      if (dbName.includes('blobs')) return 'blob-store';
       return 'queue-store';
     }),
   };
@@ -118,6 +123,56 @@ Object.defineProperty(globalThis, 'navigator', {
   writable: true,
 });
 
+// MSG-MEDIUM-055: jsdom's Blob does not implement arrayBuffer()/text() in this
+// environment, which putPendingBlob/getPendingBlob (and the round-trip
+// assertions) need. We wrap the global Blob constructor to record each blob's
+// bytes in a WeakMap at construction time, then back arrayBuffer()/text() with
+// that map. This exercises the real Blob shape without reaching into jsdom
+// internals or a type cast.
+const blobBytes = new WeakMap<Blob, Uint8Array>();
+const NativeBlob = globalThis.Blob;
+function partsToBytes(parts: BlobPart[]): Uint8Array {
+  const chunks = parts.map((p) => {
+    if (typeof p === 'string') return new TextEncoder().encode(p);
+    if (p instanceof Uint8Array) return p;
+    if (p instanceof ArrayBuffer) return new Uint8Array(p);
+    return new Uint8Array(0);
+  });
+  const total = chunks.reduce((n, c) => n + c.byteLength, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return out;
+}
+class TrackedBlob extends NativeBlob {
+  constructor(parts: BlobPart[] = [], options?: BlobPropertyBag) {
+    super(parts, options);
+    blobBytes.set(this, partsToBytes(parts));
+  }
+  arrayBuffer(): Promise<ArrayBuffer> {
+    const bytes = blobBytes.get(this) ?? new Uint8Array(0);
+    // Copy into a fresh, non-shared ArrayBuffer so the return type is exactly
+    // ArrayBuffer (bytes.buffer may be typed ArrayBuffer | SharedArrayBuffer).
+    const out = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(out).set(bytes);
+    return Promise.resolve(out);
+  }
+  text(): Promise<string> {
+    return Promise.resolve(new TextDecoder().decode(blobBytes.get(this) ?? new Uint8Array(0)));
+  }
+}
+globalThis.Blob = TrackedBlob;
+
+// Restore the native Blob after this file so the patched constructor does not leak
+// into other spec files when the full vitest suite runs in one worker (the leak
+// caused intermittent cross-file failures).
+afterAll(() => {
+  globalThis.Blob = NativeBlob;
+});
+
 // --------------------------------------------------------------------------
 // Import after mocks
 // --------------------------------------------------------------------------
@@ -138,6 +193,11 @@ import {
   clearCache,
   syncOperation,
   syncAllOperations,
+  putPendingBlob,
+  getPendingBlob,
+  removePendingBlob,
+  clearPendingBlobs,
+  MAX_PENDING_BLOB_BYTES,
 } from '../offline-queue';
 
 /** SECURITY (C11): All queue operations are tenant-scoped. Tests use a fixed tenant UUID. */
@@ -174,6 +234,8 @@ describe('Offline Queue', () => {
     // The session key is module-cached (_sessionKey), so wiping the persisted
     // copy here does not break decryption in the rest of the suite.
     keyIdbStore.clear();
+    // MSG-MEDIUM-055: reset the binary blob store between tests.
+    blobIdbStore.clear();
   });
 
   // NOTE: vi.restoreAllMocks() was removed because it resets factory mock
@@ -925,6 +987,58 @@ describe('Offline Queue', () => {
 
       expect(await getCachedData(TEST_TENANT, 'tanks')).toBeNull();
       expect(await getCachedData(TEST_TENANT, 'batches')).toBeNull();
+    });
+  });
+
+  // ========================================================================
+  // MSG-MEDIUM-055: binary blob lane (offline media)
+  // ========================================================================
+  describe('pending media blobs (MSG-MEDIUM-055)', () => {
+    const TENANT_A = 'tenant-blob-A';
+    const TENANT_B = 'tenant-blob-B';
+
+    function makeBlob(text: string, type = 'image/png'): Blob {
+      return new Blob([text], { type });
+    }
+
+    it('round-trips a stored blob (bytes + mime preserved)', async () => {
+      const blobId = await putPendingBlob(TENANT_A, makeBlob('hello-bytes', 'image/png'));
+      const restored = await getPendingBlob(TENANT_A, blobId);
+      if (!restored) throw new Error('expected restored blob');
+      expect(restored.type).toBe('image/png');
+      expect(await restored.text()).toBe('hello-bytes');
+    });
+
+    it('is tenant-isolated — tenant B cannot read tenant A blob', async () => {
+      const blobId = await putPendingBlob(TENANT_A, makeBlob('secret'));
+      expect(await getPendingBlob(TENANT_B, blobId)).toBeNull();
+    });
+
+    it('removePendingBlob deletes the blob', async () => {
+      const blobId = await putPendingBlob(TENANT_A, makeBlob('x'));
+      await removePendingBlob(TENANT_A, blobId);
+      expect(await getPendingBlob(TENANT_A, blobId)).toBeNull();
+    });
+
+    it('rejects a blob over the 25 MB cap', async () => {
+      const oversize = { size: MAX_PENDING_BLOB_BYTES + 1, type: 'image/png' } as Blob;
+      await expect(putPendingBlob(TENANT_A, oversize)).rejects.toThrow(/25 MB/);
+    });
+
+    it('logout wipe (clearAllOperations with no tenant) clears blobs too', async () => {
+      const idA = await putPendingBlob(TENANT_A, makeBlob('a'));
+      const idB = await putPendingBlob(TENANT_B, makeBlob('b'));
+      await clearAllOperations();
+      expect(await getPendingBlob(TENANT_A, idA)).toBeNull();
+      expect(await getPendingBlob(TENANT_B, idB)).toBeNull();
+    });
+
+    it('scoped clear drops only that tenant blobs', async () => {
+      const idA = await putPendingBlob(TENANT_A, makeBlob('a'));
+      const idB = await putPendingBlob(TENANT_B, makeBlob('b'));
+      await clearPendingBlobs(TENANT_A);
+      expect(await getPendingBlob(TENANT_A, idA)).toBeNull();
+      expect(await getPendingBlob(TENANT_B, idB)).not.toBeNull();
     });
   });
 });

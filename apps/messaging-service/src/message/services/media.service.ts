@@ -7,10 +7,23 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID as uuidv4 } from 'crypto';
+import { MESSAGING_MEDIA_MIME_ALLOWLIST } from '@aquaculture/shared-contracts';
 import {
   STORAGE_OBJECT_VERIFIER,
   StorageObjectVerifier,
 } from './storage-object-verifier.port';
+
+/**
+ * Voice-note duration metadata key — single source of truth (MSG-HIGH-055).
+ *
+ * The client (ChatRoomPage) sends `metadata: { durationSeconds }` and the typed
+ * `MessageAttachment.durationSeconds` column persists it. The server previously
+ * read a DIFFERENT key (`voiceDurationSeconds`) the client never sent, so the
+ * duration was always dropped. This const is the one literal both the read
+ * (extractVoiceDuration) and the handler write align on, so a future rename is a
+ * single compile-time site.
+ */
+export const VOICE_DURATION_METADATA_KEY = 'durationSeconds';
 
 /** Result of generating a presigned upload URL */
 export interface MediaUploadResult {
@@ -20,42 +33,15 @@ export interface MediaUploadResult {
 }
 
 /**
- * Allowed MIME types for media uploads.
- * Extensible — add more as requirements grow.
+ * Allowed MIME types for media uploads — the server-side TRUST BOUNDARY check.
+ *
+ * MSG-MEDIUM-057: this Set is built from the single shared allowlist SSoT
+ * (`MESSAGING_MEDIA_MIME_ALLOWLIST` in @aquaculture/shared-contracts), the SAME
+ * list the client (useMediaUpload.ts / AttachmentPicker.tsx) uses for pre-flight
+ * UX validation. There is no longer a second hand-maintained list to drift from.
+ * `image/svg+xml` remains excluded (stored-XSS vector) at the SSoT level.
  */
-const ALLOWED_MIME_TYPES = new Set<string>([
-  // Images
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  // 'image/svg+xml' is intentionally excluded: SVG files contain executable XML
-  // (<script> tags, event handlers) and browsers render them as active HTML when
-  // served with Content-Type: image/svg+xml — stored XSS vector for all channel viewers.
-  // Documents
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  // Archives
-  'application/zip',
-  'application/x-7z-compressed',
-  // Audio (voice notes + general audio)
-  'audio/mpeg',
-  'audio/ogg',
-  'audio/wav',
-  'audio/webm',
-  'audio/mp4',
-  'audio/aac',
-  'audio/x-m4a',
-  // Video
-  'video/mp4',
-  'video/webm',
-  // Text
-  'text/plain',
-  'text/csv',
-]);
+const ALLOWED_MIME_TYPES = new Set<string>(MESSAGING_MEDIA_MIME_ALLOWLIST);
 
 /** Presigned URL expiry in seconds (15 minutes) */
 const PRESIGNED_UPLOAD_EXPIRY = 900;
@@ -232,15 +218,20 @@ export class MediaService {
 
   /**
    * Extract voice note duration from the metadata field of a SendMessage command.
-   * The client records the duration in seconds and passes it in metadata.voiceDurationSeconds.
-   * Returns null if the metadata does not contain a valid duration.
+   *
+   * MSG-HIGH-055: the client records the duration in seconds and sends it under
+   * the SSoT key `metadata.durationSeconds` (see VOICE_DURATION_METADATA_KEY).
+   * The previous read used `voiceDurationSeconds` — a key the client never sent,
+   * so the duration was silently dropped on every voice note. Reading via the
+   * shared const aligns server + client + the typed
+   * MessageAttachment.durationSeconds column on one name.
    *
    * @param metadata - Arbitrary metadata from the message command
    * @returns Duration in seconds, or null if not present/invalid
    */
   extractVoiceDuration(metadata: Record<string, unknown> | null): number | null {
     if (!metadata) return null;
-    const duration = metadata['voiceDurationSeconds'];
+    const duration = metadata[VOICE_DURATION_METADATA_KEY];
     if (typeof duration === 'number' && isFinite(duration) && duration >= 0) {
       return Math.round(duration * 100) / 100; // 2 decimal places
     }

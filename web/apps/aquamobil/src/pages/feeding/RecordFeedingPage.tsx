@@ -1,15 +1,23 @@
-import { useState, useEffect, useCallback, ChangeEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeft, Package, CheckCircle, AlertCircle, Hand, Settings, Radio } from 'lucide-react';
-import { useTanks } from '@/hooks/useTanks';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { useAuth } from '@/hooks/useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+import { useState, useEffect, useCallback, ChangeEvent } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+
+
+
 import { GET_TODAYS_FEEDING_PLAN } from '@/graphql/operations';
-import { clsx } from 'clsx';
+import { useAuth } from '@/hooks/useAuth';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTanks } from '@/hooks/useTanks';
+import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+// FE-MEDIUM-054: cacheData/getCachedData are the tenant-scoped, AES-GCM-encrypted
+// offline cache helpers (same last-known-good pattern used elsewhere in the app).
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+
+
 
 // ============================================================================
 // TYPES
@@ -57,17 +65,48 @@ interface FormErrors {
 //   - staleTime prevents re-fetching on every isOnline toggle (network flicker).
 //   - refetchOnWindowFocus brings the plan current when the worker returns to the app.
 //   - Consistent caching strategy with useTanks and the rest of the app.
-function useTodaysFeedingPlan() {
+// FE-MEDIUM-054: cache key prefix for the last-synced feeding plan. Tenant
+// isolation + AES-GCM-at-rest are handled by cacheData/getCachedData (the key is
+// stored under the mandatory `cache_${tenantId}:` namespace, wiped on logout).
+const FEEDING_PLAN_CACHE_PREFIX = 'feedingPlan_';
+// Short TTL so an obviously-stale plan expires rather than misleading a worker
+// into feeding against an outdated schedule (the offline cache is a convenience,
+// not an authority — the recordFeeding write is still server-validated).
+const FEEDING_PLAN_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h
+
+function useTodaysFeedingPlan(): {
+  executions: FeedingExecution[];
+  isLoading: boolean;
+  isOfflineCached: boolean;
+} {
   // CRIT-1 / BUG-01 / SEC-05: Read auth from useAuth hook, not from localStorage.
   // The keys 'accessToken' and 'tenantId' do not exist in localStorage — auth state
   // is managed in memory by AuthProvider (with refresh via httpOnly cookie).
   const { accessToken, tenantId, isAuthenticated } = useAuth();
-  const { isOnline } = useOfflineQueue();
 
   const today = new Date();
   const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const cacheKey = `${FEEDING_PLAN_CACHE_PREFIX}${dateStr}`;
 
-  const { data, isLoading, refetch } = useQuery<FeedingExecution[]>({
+  // FE-MEDIUM-054: getCachedData is async but React Query placeholderData must be
+  // synchronous, so the last-synced plan is loaded once on mount into state and
+  // then handed to the query as placeholderData. This renders the last-known plan
+  // immediately offline instead of an empty list.
+  const [cachedSeed, setCachedSeed] = useState<FeedingExecution[] | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    if (!tenantId) return;
+    void getCachedData<FeedingExecution[]>(tenantId, cacheKey).then((cached) => {
+      if (!cancelled && cached) {
+        setCachedSeed(cached);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId, cacheKey]);
+
+  const { data, isLoading, isSuccess } = useQuery<FeedingExecution[]>({
     queryKey: createTenantQueryKey(tenantId, 'feedingPlan', tenantId, dateStr),
     queryFn: async () => {
       if (!accessToken || !tenantId) {
@@ -79,9 +118,17 @@ function useTodaysFeedingPlan() {
         { date: dateStr },
       );
 
-      return result.dailyFeedingExecutions ?? [];
+      const executions = result.dailyFeedingExecutions ?? [];
+      // FE-MEDIUM-054: write-through the last-synced plan on every successful
+      // online fetch (encrypted, tenant-scoped, short TTL) so it is available
+      // the next time the device is offline.
+      await cacheData(tenantId, cacheKey, executions, FEEDING_PLAN_CACHE_TTL_MS);
+      return executions;
     },
-    enabled: isAuthenticated && !!accessToken && !!tenantId && isOnline,
+    // FE-MEDIUM-054: isOnline REMOVED from the gate so the query mounts offline
+    // too. refetchOnReconnect (React Query default) brings it current the moment
+    // connectivity returns.
+    enabled: isAuthenticated && !!accessToken && !!tenantId,
     // 5-minute stale time: prevents re-fetching on brief network flickers while
     // still showing fresh data for a typical field worker's feeding session.
     staleTime: 1000 * 60 * 5,
@@ -90,7 +137,19 @@ function useTodaysFeedingPlan() {
     refetchOnWindowFocus: true,
   });
 
-  return { executions: data ?? [], isLoading, refetch };
+  // FE-MEDIUM-054: a successful server fetch wins; otherwise fall back to the
+  // cached seed. The seed loads asynchronously on mount (getCachedData is async),
+  // so we resolve the displayed plan at the CONSUMER rather than via React
+  // Query's placeholderData (which only binds on first render, before the seed
+  // has resolved). This makes offline render deterministic regardless of timing.
+  const executions = isSuccess ? (data ?? []) : (cachedSeed ?? []);
+
+  // We are showing the cached seed (not a resolved server result) when no
+  // successful fetch has landed AND a seed exists — surface the honest
+  // "offline — last-synced plan" banner. It clears the moment isSuccess flips.
+  const isOfflineCached = !isSuccess && (cachedSeed?.length ?? 0) > 0;
+
+  return { executions, isLoading, isOfflineCached };
 }
 
 // ============================================================================
@@ -102,7 +161,7 @@ export function RecordFeedingPage() {
   const { tankId } = useParams<{ tankId?: string }>();
   const { data: tanks } = useTanks();
   const { addToQueue, isOnline } = useOfflineQueue();
-  const { executions, isLoading: planLoading } = useTodaysFeedingPlan();
+  const { executions, isLoading: planLoading, isOfflineCached } = useTodaysFeedingPlan();
 
   const [selectedTankId, setSelectedTankId] = useState(tankId || '');
   const [actualKg, setActualKg] = useState<string>('');
@@ -213,6 +272,19 @@ export function RecordFeedingPage() {
           </div>
         </div>
       </div>
+
+      {/* FE-MEDIUM-054: honest provenance banner — when the displayed plan comes
+          from the encrypted offline cache (not a fresh server fetch), tell the
+          worker so they know it is the last-synced schedule and will refresh on
+          reconnect. */}
+      {isOfflineCached && (
+        <div className="mx-4 mt-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 flex items-center gap-2 border border-amber-200 dark:border-amber-800">
+          <AlertCircle size={18} className="text-amber-500 flex-shrink-0" />
+          <span className="text-amber-700 dark:text-amber-300 text-sm">
+            Offline — showing last-synced plan. It will refresh when you reconnect.
+          </span>
+        </div>
+      )}
 
       {/* Error Banner */}
       {errors.general && (

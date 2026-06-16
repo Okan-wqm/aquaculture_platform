@@ -59,6 +59,32 @@ export class ThumbnailService {
   }
 
   /**
+   * Probe an image buffer for its intrinsic pixel dimensions (MSG-HIGH-056).
+   *
+   * Extends this existing Sharp service rather than introducing a second Sharp
+   * decode path: the finalization pass calls probeImage on the SAME bytes it
+   * strips + thumbnails, so dimensions, EXIF-strip, and thumbnail share one
+   * decode. Returns null on any decode failure (best-effort, nullable columns);
+   * dimensions never gate the send.
+   *
+   * @param buffer - Raw image bytes
+   * @returns `{ width, height }` in pixels, or null if Sharp cannot read them
+   */
+  async probeImage(buffer: Buffer): Promise<{ width: number; height: number } | null> {
+    try {
+      const metadata = await sharp(buffer).metadata();
+      if (typeof metadata.width === 'number' && typeof metadata.height === 'number') {
+        return { width: metadata.width, height: metadata.height };
+      }
+      return null;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Image probe failed: ${message}`);
+      return null;
+    }
+  }
+
+  /**
    * Generate a 256x256 thumbnail for an uploaded image.
    *
    * @param storageKey - S3/MinIO key of the original image

@@ -83,6 +83,14 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@aquaculture/farm-shared': resolve(__dirname, '../../../libs/farm-shared/src'),
+      // MSG-MEDIUM-057: path-aliased (NOT npm-installed) so the messaging media
+      // MIME allowlist SSoT survives the standalone aquamobil Docker build
+      // context — mirrors the farm-shared precedent above. The shared-contracts
+      // entry is ZERO-dependency (a frozen string array + derived union, no
+      // JSX/React/event-contracts import), so it cannot trigger the
+      // bare-specifier resolution hazard the farm-shared dedupe comment below
+      // documents.
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
     },
     // Dedupe React across the aliased farm-shared boundary.
     //

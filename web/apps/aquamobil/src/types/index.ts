@@ -241,7 +241,12 @@ export interface CreateLeaveRequestInput {
 }
 
 // Offline queue types
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead';
+// MSG-MEDIUM-055: 'uploadAndSendMessage' is the binary offline lane. Unlike
+// 'sendMessage' (which carries an already-uploaded storageKey), this op carries
+// a reference to a recorded/selected Blob persisted in the dedicated binary
+// store. Its in-app sync replay runs the 3-step online flow that cannot happen
+// offline: requestMediaUpload (presign) → PUT blob → sendMessage(storageKey).
+export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
 
 /**
  * FARM-HIGH-057 — offline payload for an idempotent checklist SET.
@@ -274,8 +279,32 @@ export type MessagingOfflinePayload =
   | { id: string }
   | { channelId: string; messageId: string };
 
+/**
+ * MSG-MEDIUM-055 — binary offline lane payload (`uploadAndSendMessage`).
+ *
+ * The encrypted queue can only carry JSON, so the actual Blob bytes are stored
+ * separately in the binary store (`putPendingBlob`); this payload references the
+ * blob by `blobId`. On replay the sync flow presigns, PUTs the blob bytes, then
+ * sends the message with the resulting storage key, deleting the blob on success.
+ * `idempotencyKey` makes the final sendMessage at-most-once (SendMessageHandler's
+ * Redis + Postgres ledger), so a half-replayed (uploaded-but-unsent) op cannot
+ * duplicate the message when retried.
+ */
+export interface UploadAndSendMessageOfflinePayload {
+  blobId: string;
+  channelId: string;
+  contentType: string;
+  filename: string;
+  mimeType: string;
+  /** Voice/video duration in seconds, when applicable. */
+  durationSeconds?: number;
+  /** Stable at-most-once key for the eventual sendMessage. */
+  idempotencyKey: string;
+  parentId?: string;
+}
+
 export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload
+  MortalityInput | CullInput | HarvestInput | FeedingInput | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
 ) & MobileCommandEnvelope;
 
 export interface QueuedOperation {

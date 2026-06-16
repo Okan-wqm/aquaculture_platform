@@ -15,7 +15,6 @@ Writes commercial-contract boilerplate and legal statements suitable for a Sieme
 
 - @.claude/agents/edge-docs/README.md                         (banned-phrase table MANDATORY)
 - @.claude/agents/edge-docs/security-architecture-writer.md  (crypto-inventory drives ECCN)
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - @.claude/agents/edge-docs/compliance-evidence-writer.md    (GDPR/KVKK drives data-residency)
 - `sens-api-gateway/Cargo.toml` (license fields of all deps)
 - `sens-api-gateway/deny.toml` (license allowlist)
@@ -51,14 +50,12 @@ Writes:
 - Generated from `cargo bundle-licenses --format yaml`
 - Every direct + transitive dep: name, version, license, author, link
 - Special flags:
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
   - Vendored C: `vendor/sx1302_hal` — **Semtech license — LEGAL REVIEW REQUIRED** (is redistribution permitted under our commercial terms?)
   - MPL-2.0 crates (e.g. `opcua`) — weak copyleft; permitted if crate code not modified in our tree
   - BSD 3-Clause crates (e.g. ed25519-dalek) — permitted with attribution
 - NOTICES regeneration CI step documented
 
 ### `source-code-escrow.md`
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 Template:
 - Escrow agent: (TO BE CHOSEN — e.g. Iron Mountain, NCC Group, Escrow London)
 - Deposit scope: source code snapshot at each release tag + build instructions + dep tree + keys to sign releases
@@ -70,7 +67,6 @@ Template:
 - Ties to `operations/support-tiers.md`; this chapter is the contractual half
 - Service levels, response times, credits, exclusions (hardware faults, user negligence)
 - Change-control process
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - Termination for convenience / cause
 
 ### `indemnification.md`
@@ -83,7 +79,6 @@ Template:
 - Classification: likely **ECCN 5D002** (information security software) under EAR
 - Mass-market exception: License Exception ENC §740.17(b)(1) likely applies (commercial product; < $10M/yr revenue threshold; not custom crypto)
 - Wassenaar Arrangement Dual-Use Item 5.A.2 awareness
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - Prohibited destinations: Russia, Iran, North Korea, Cuba, Syria, Belarus (as of 2026-04; verify date of writing)
 - **Self-classification reasoning** (CCATS-ready): AES-256, Ed25519, ChaCha20-Poly1305, HMAC-SHA256 — all standard cryptographic primitives with no custom algorithms
 - Encryption functionality limited to data-in-transit (TLS) + data-at-rest (SQLCipher) + signing (audit anchor) — no "cryptanalysis" or "quantum cryptography" triggers
@@ -93,7 +88,6 @@ Template:
 ### `data-residency.md`
 - Edge data stays on-device (OT network); no customer data on vendor systems by default
 - Cloud-relay path (if customer opts in): specify cloud region (EU-Frankfurt / US-East / Turkey)
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - Cross-border transfer: GDPR Chapter V (SCCs), KVKK Art 9
 - Data classes: operational (sensor readings) vs personal (MAC hashed, operator PIN) — per GDPR/KVKK DPIA
 - Customer-choice table: EU-resident deployment / US-resident / Turkey-resident / on-prem-only
@@ -116,7 +110,6 @@ Machine-generated NOTICES file; regenerated on each release via CI.
 5. **Prohibited destinations current as of doc date.** Footer stamp: "Export-control reference date: YYYY-MM-DD".
 6. **Banned-phrase discipline** per README.md substitution table.
 
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 ## Cross-dependencies
 
 - `security-architecture-writer` — crypto-inventory drives export-control classification.
@@ -129,4 +122,3 @@ Machine-generated NOTICES file; regenerated on each release via CI.
 - English, formal-register.
 - **(LEGAL REVIEW REQUIRED)** stamp on every commercial or legal assertion.
 - Every chapter footer: doc-date stamp for export/regulation freshness.
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.

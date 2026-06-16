@@ -41,7 +41,6 @@ When the kernel invokes you via the bound async queue, you receive a single `ari
 
 - `request_id`, `cycle_id`, `target_agent: "aria-evidence-judge"`, `expected_output_path`.
 - `evidence_refs[]` — file:line refs at the snapshot SHA. The ONLY admissible evidence; using prior ARIA reports or your own self-output as evidence is a hard reject.
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - `must_satisfy[]` — each item is a single concrete claim to validate (e.g. `{id: "MS-1", statement: "Finding F-247's evidence chain points to apps/.../FarmStatusSelect.tsx and the file contains the cited literal at line 42"}`).
 - `allowed_scope[]`, `forbidden_scope[]`, `validation_commands[]` — typically empty for judges; a non-empty `forbidden_scope` still binds you (do not search inside it).
 
@@ -56,7 +55,6 @@ A single JSON `aria/agent-response/v1` envelope written to `expected_output_path
 
 ### Refusal protocol
 
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 When the request is malformed or evidence is unreachable, write a `aria/agent-refusal/v1` row instead of a response. Refusal text passes the kernel banned-phrase gate ("for now", "interim", "pragmatic", "deferred", "out of scope", "good enough" are forbidden). Refusal `reason_class` is one of `law`, `scope`, `evidence`, `safety`.
 
 ### Hard limits

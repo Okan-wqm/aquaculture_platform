@@ -55,21 +55,18 @@ The rules below are UNIQUE to data-expert's surface. Every rule traces to a rese
 - **Consumer-driven contract testing (Pact / Schemathesis) is DEFERRED to POST-V1** per AUDIT-PACT-001 (D10). Pre-V1, JSON Schema validation at NATS trust-boundary is the gating mechanism (DATA-MEDIUM-004: 8/9 event domains unvalidated). data-expert authors the schemas; `test-runner` enforces coverage. Recommending Pact adoption before V1 GA = scope violation — flag as **DEFERRED** with the AUDIT-PACT-001 reference.
 - PII in events: because events are immutable, raw email/phone/full-name/national-ID in payloads is in the audit trail forever. Approved mitigations: (a) store PII outside the event and reference by ID, (b) crypto-shred via per-subject key. Raw PII in an event without either = **HIGH** (GDPR/KVKK).
 - **Outbox-only publish path.** `eventBus.publish` / `natsClient.publish` outside `@platform/outbox` implementation = **CRITICAL** (W7 `no-direct-event-publish` ESLint rule — DATA-HIGH-004 + BLOCKER-20 family). Current outbox adoption 3/12 (farm, hr, messaging); the remaining 9 services are a rolling convergence, NOT a per-service justification to bypass. A new service emitting events without an `OutboxEntityBase` subclass = **CRITICAL**.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **Ripple-tracer consumer enumeration** (for any event shape change review) MUST resolve consumers via `infrastructure/nats/services.yaml` (ADR-015 SSoT + `subscribe:` wildcard expansion against `AnyPlatformEvent`), NOT grep of TS symbols. Grep misses wildcard subscriptions (`AQUACULTURE_EVENTS.Sensor.>`) and silently under-reports the ripple set. See `docs/adr/_draft/ripple-tracer-nats-ssot-parser.md` — promoted W7.5 per BLOCKER-11.
 
 ### Tenant-schema provisioning & `search_path` pool-contamination lesson (2026-04-07)
 
 - Schema names validated against `TENANT_SCHEMA_REGEX` (`/^tenant_[a-f0-9]{16}$/`) or `SCHEMA_NAME_REGEX` / `assertSafeSchemaName()` BEFORE any string-interpolated identifier. PostgreSQL identifiers cannot be `$1`-bound — raw `` query(`...${schemaName}...`) `` without validation = **CRITICAL** (SQL injection).
 - `SchemaManagerService.createTenantSchema` advisory-lock sequence: acquire on hashed tenant key → `CREATE SCHEMA IF NOT EXISTS` → `CREATE TABLE ... (LIKE <source>.<table> INCLUDING ALL)` per `MODULE_SCHEMAS[module].tables` → copy `referenceDataTables` → TimescaleDB hypertable creation → RLS policy apply → LRU cache populate → **release advisory lock in `finally`**. Session-scoped lock leaked across pool checkout = **CRITICAL** (contaminates next caller). Use `pg_advisory_xact_lock()` where the work fits in one transaction (auto-releases on COMMIT/ROLLBACK).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - `CREATE TABLE LIKE ... INCLUDING ALL` does NOT copy: (a) foreign keys — tenant schemas rebuild FKs explicitly or rely on app-layer referential integrity; (b) RLS policies — re-applied by `apply-tenant-rls.helper`; (c) triggers. Reference tables MUST NOT carry a `tenant_id` column (INSERT ... SELECT * would copy foreign tenant rows = **CRITICAL** cross-tenant leak at provisioning).
 - **`TenantConnectionBootstrap.patchConnectionPool()` three-branch contract** (the non-negotiable architectural output of the 2026-04-07 split-brain incident — `MigrationRunnerService` drew a `search_path=public`-contaminated connection and ran RLS install on orphaned `public.*` tables; cast `text = uuid` failed):
   1. Tenant-request context (schemaName in AsyncLocalStorage matches `TENANT_SCHEMA_REGEX`) → `SET search_path TO "<tenant>","<source>",public`.
   2. Non-request context (bootstrap, migration, seed, cron, NATS consumer without tenant) → `SET search_path TO "<source>",public`. **This branch is non-negotiable** — removing it reintroduces the incident class.
   3. Regex-rejection → fail the checkout before any SQL runs.
   Any bare session-scoped `SET search_path = ...` outside this factory = **CRITICAL** (pool contamination). Inside an explicit transaction, `SET LOCAL search_path` is the only acceptable form. Session-scoped `SET` in migration bodies = **CRITICAL** (DATA-HIGH-003 precedent — already raised in messaging-service migrations 1782300000000 / 1782400000000).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ### Migration-delta safety (data-expert is primary on delta review)
 
@@ -80,7 +77,6 @@ The rules below are UNIQUE to data-expert's surface. Every rule traces to a rese
   BEGIN;
   SET LOCAL lock_timeout = '2s';
   SET LOCAL statement_timeout = '30s';
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
   SET LOCAL idle_in_transaction_session_timeout = '60s';
   SET LOCAL search_path = '<schema>', public;
   -- DDL
@@ -93,7 +89,6 @@ The rules below are UNIQUE to data-expert's surface. Every rule traces to a rese
 - Idempotency (re-runnable): prefer `IF NOT EXISTS` primitives; for constraints/policies/triggers, use explicit `pg_catalog` existence checks inside `DO $$ ... END $$`. Overbroad `EXCEPTION WHEN others THEN NULL` swallows security failures = **HIGH** — prefer `WHEN duplicate_object THEN NULL`.
 - Destructive migrations (`DROP COLUMN`, `DROP TABLE`, `DROP SCHEMA ... CASCADE`, `TRUNCATE`, narrowing `ALTER COLUMN TYPE`, defaults that rewrite existing rows) REQUIRE: documented `pg_dump` backup step with artifact path, rollback migration designed pre-merge, explicit ops stage-gate (no autorun), acknowledgement that `DROP COLUMN` does NOT reclaim disk until `VACUUM FULL`/`CLUSTER`. Merging a destructive migration without all four = **CRITICAL**.
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ### Watchdog read-only invariants & RLS bypass vectors
 
 - `CrossTenantProbe`, `SourceSchemaScanner`, `SchemaDriftDetector` are **read-only**. Any `INSERT`/`UPDATE`/`DELETE` inside a scanner = **CRITICAL**. Any auto-delete / auto-repair PR = **CRITICAL** (destroys forensic evidence; may wipe legitimate data on false-positive).
@@ -104,7 +99,6 @@ The rules below are UNIQUE to data-expert's surface. Every rule traces to a rese
   1. Application role is a **superuser** → **CRITICAL**. Verify `SELECT rolsuper FROM pg_roles WHERE rolname = current_user` = `false`.
   2. Application role has **`BYPASSRLS`** attribute → **CRITICAL**. Verify `rolbypassrls = false`.
   3. Application role **owns the tenant tables** → RLS silently bypassed (owner exemption). Fix: EITHER separate app role that is not table owner, OR `ALTER TABLE ... FORCE ROW LEVEL SECURITY` on every tenant-schema table. Missing either = **CRITICAL**.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - RLS policy pattern: `USING ("tenantId" = COALESCE(current_setting('app.current_tenant', true), '')::uuid)`. The `, true` second arg makes unset → NULL (fail-closed via cast of `''`); missing it = **HIGH** (hard error, fail-open posture). `FOR ALL USING (true)` or any catch-all returning true on a tenant table = **CRITICAL**.
 - Admin RLS bypass MUST: (a) use a SEPARATE PostgreSQL role, (b) use a SEPARATE DataSource (its own pool — bypass state cannot leak into request connections), (c) require explicit app-layer admin privilege not just an API key, (d) audit-log admin user + reason + timestamp. Admin bypass sharing the main request DataSource = **CRITICAL**.
 
@@ -112,14 +106,12 @@ The rules below are UNIQUE to data-expert's surface. Every rule traces to a rese
 
 - **BLOCKER-8 cascade (W2-W3 mechanical sweep):** 180 files / 209 `@Entity('name')` declarations lack the explicit `{ schema: '<service>' }` option. Every occurrence = **HIGH** (ADR-011 violation; `SchemaDriftValidator` reflects decorator metadata, not runtime-injected factory schema — false negatives). Runtime behaviour currently compensated by `createServiceTypeOrmConfig`; the gap is deterministic-ground-truth loss. Evidence row-by-row in DATA-HIGH-001. Mechanical fix is in-flight; reviewer flags any new bare `@Entity('x')` that ships during or after the sweep.
 - UUID columns on trust-critical fields (especially `tenantId`, `userId`, FK references) MUST be `@Column({ type: 'uuid' })`. Default `string` maps to `varchar(255)`, NOT `uuid` — this IS the 2026-04-07 incident root cause (legacy `tenant_id varchar(255)` + RLS cast `::uuid` failed with `operator does not exist: text = uuid`). Implicit varchar on UUID fields = **HIGH**.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - `NUMERIC`/`DECIMAL` MUST use `DecimalTransformer` (or be explicitly typed `string`) — Postgres driver returns these as strings to preserve arbitrary precision; `amount + 1` silently becomes `'42.501'`. Missing transformer = **HIGH** (silent financial corruption). Cross-reference billing-service review — `platform-services` is primary for billing precision.
 - Cross-process timestamps (`createdAt`, `updatedAt`, `deletedAt`, audit columns, event timestamps) MUST be `@Column({ type: 'timestamptz' })`. Implicit `timestamp without time zone` = **MEDIUM** (timezone drift across services).
 - `@Column({ type: 'jsonb' })` dumping ground: ~50 such declarations across the platform (DATA-MEDIUM-006). For reviewer: structured unions MUST get typed DTO + Zod validator + `transformer` + `@Check` DB constraint; ID arrays should be `text[]`/`uuid[]` or join tables. Bare `jsonb` with `: any` typing = **HIGH** (violates the boundary-allowlist protocol in layer-2).
 - `MODULE_SCHEMAS` is the ground truth for per-tenant tables. Every entity in `apps/*/src/**/entities/*.entity.ts` MUST either appear in `MODULE_SCHEMAS[module].tables` (tenant-provisioned), `referenceDataTables` (copied at provisioning, NO `tenant_id` column), or `infrastructureTables` (excluded from per-tenant copy). Entity without a classification = **CRITICAL** (drift-detector blind spot; new tenants never get the table).
 - **Shared-table gate:** 4 canonical shared tables (`audit_logs`, `gdpr_data_requests`, `user_consents`, `user_permissions`) in the `shared` schema. Adding a 5th REQUIRES the `add-shared-table` skill (W5 — BLOCKER-15) which mandates ADR + architectural-arbiter approval. Unapproved shared-table addition = **CRITICAL**.
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ### Defense-in-depth checklist for every new tenant-schema entity (ships or it's a finding)
 
 1. `@Column({ type: 'uuid' }) tenantId: string;` + `@Index` on `tenantId`.
@@ -151,7 +143,6 @@ See `@.claude/shared/operating-modes.md`. No deviation — default CATCHER only.
 
 `DATA-{SEVERITY}-{NNN}` — e.g., `DATA-CRITICAL-001`, `DATA-HIGH-007`. Zero-padded sequential within one report. The `Closes:` commit convention (CLAUDE.md) and context-manager state machine (OPEN / IN-PROGRESS / RESOLVED / STALE / BLOCKED) depend on this format. See `@.claude/shared/output-format.md`.
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ## Cross-domain dependencies
 
 - Schema-state health across services (cross-service naming, index coverage, normalization) → `database-reviewer` (data-expert stays primary on migration-delta safety).

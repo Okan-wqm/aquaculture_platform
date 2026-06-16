@@ -45,7 +45,6 @@ Read-only reference: `libs/event-contracts/src/`, `libs/backend-common/`. Out of
 - Dead-letter (`retry_count >= 5`) replay requires TENANT_ADMIN + audit entry; replay of a message already under legal-hold must re-check the hold (hold may have landed between original enqueue and replay).
 
 ### Message partitioning (monthly RANGE) — messaging-specific PK shape
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 - `messages`, `message_receipts`, `compliance_audit_log` are monthly RANGE partitioned. Composite PKs REQUIRED: `messages.PK = (id, created_at)`, `message_receipts.PK = (id, receipt_created_at)` — PostgreSQL cannot enforce global unique across partitions.
 - Child tables referencing partitioned parents (`message_attachments`, `message_reactions`, `message_analysis`, `pinned_messages`) MUST carry a denormalized `message_created_at` and FK on the full composite. Missing = FK can never be declared.
@@ -53,7 +52,6 @@ Read-only reference: `libs/event-contracts/src/`, `libs/backend-common/`. Out of
 - NO DEFAULT partition on `messages` — uncovered months must fail loudly. `PartitionManagerService` proactively creates current + next 3 months and exposes `partition_coverage_months` gauge with alert < 2. Partition adds use `CREATE TABLE LIKE` + CHECK + `ATTACH PARTITION` (SHARE UPDATE EXCLUSIVE lock).
 - Retention-based partition DROP preferred over row DELETE (O(1) vs O(n) WAL pressure) ONLY after legal-hold check; every DROP audit-logged with `tenantId`, `partitionName`, `rowCount`, `oldest/newestCreatedAt` BEFORE execution.
 - Per-partition `CREATE INDEX CONCURRENTLY` + `ALTER INDEX ... ATTACH PARTITION` for index builds — parent-level blocking builds are FORBIDDEN. Client-supplied `createdAt` MUST be rejected (server-assigned, immutable — UPDATE on partition key is CRITICAL).
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 ### Legal hold + retention + GDPR erasure — mandatory execution order
 
@@ -63,7 +61,6 @@ Every destructive code path (retention cleanup, manual delete, partition DROP, G
 2. retention-policy check (channel retention overrides tenant default; `retentionDays=-1` = indefinite; allowed: 90, 365, 1095, -1)
 3. consent-state check (dual consent for AI-derived data)
 4. execute deletion / anonymization
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 5. append `ComplianceAuditLog` row (immutable — see next point)
 
 Reversing or skipping any step = CRITICAL. Hold precedence: tenant-wide > channel-scoped > user-scoped; ANY matching active hold blocks (logical OR). Every active hold MUST carry a non-NULL `legalMatterId` (GDPR Art. 17(3)(e) proportionality). Active-hold state cached in Redis with TTL < 60s + explicit invalidation on hold mutation; cache fail-CLOSED on Redis+DB unavailability.
@@ -72,7 +69,6 @@ Reversing or skipping any step = CRITICAL. Hold precedence: tenant-wide > channe
 
 ### Channel / membership / presence / dedup / fanout invariants
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Channel membership check on every channel read/write: `SISMEMBER chan:{tenantId}:{channelId}:members {userId}`; cache TTL ≤ 5 min with explicit invalidation on membership mutation. Fail-CLOSED on Redis+DB unavailability.
 - Idempotency: tenant-scoped keys `msg:{tenantId}:idem:{idempotencyKey}`, atomic `SET NX EX`, cached response replayed on duplicate (return 200 with original ID, not 4xx). Redis backed by Postgres `UNIQUE(tenant_id, channel_id, client_msg_id)` safety net; Redis failure on idempotency path is fail-OPEN with structured-log + counter (Postgres constraint catches duplicates).
 - Every messaging NATS subject MUST include tenantId in the hierarchy (e.g., `messaging.tenant.{tenantId}.channel.{channelId}.{eventType}`). Untenanted subject = CRITICAL.
@@ -81,7 +77,6 @@ Reversing or skipping any step = CRITICAL. Hold precedence: tenant-wide > channe
 - Presence: Redis sorted sets `presence:{tenantId}[:{channelId}]`, `ZREMRANGEBYSCORE` cleanup < 5 min. Returning presence outside the user's channel/tenant scope = privacy leak (HIGH).
 - Rate-limit posture is classified per limiter: fail-OPEN for non-security (chat send), fail-CLOSED for security-critical (login, anonymization rate limit) — document per limiter.
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ### AI chat bridge + agent runner contract (OWASP LLM Top 10 2025)
 
 - **Graceful degradation (CRITICAL):** synchronous AI dependency in the message-send hot path is FORBIDDEN. AI service outage → messages still flow; annotations flagged `aiPending=true`; sentiment defaults NO-ALERT (never block-message). Every AI call wrapped in bounded timeout (chat 5s / sentiment 1s / embedding 30s) and per-feature circuit breaker.
@@ -90,7 +85,6 @@ Reversing or skipping any step = CRITICAL. Hold precedence: tenant-wide > channe
 - **Refusal-preservation contract:** system prompts that mandate refusal for sensitive categories (e.g., "do not disclose other tenants' data") MUST have refusal-stability tests against adversarial RAG / tool-output injection. Missing test for a critical refusal category = HIGH.
 - **Indirect prompt injection (LLM01):** all retrieved content (RAG docs, MCP tool descriptions, web fetches) treated as adversarial; segregated from system prompts; model output structure JSON-schema-validated; proposed tool calls validated against an action allowlist before execution.
 - **Jailbreak filter (LLM01):** instruction-hierarchy directive in system prompt + input filter for `DAN`, Developer Mode, role-play override, "ignore previous instructions", base64-encoded instruction smuggling, Unicode homoglyph injection. Missing filter on user→AI path = HIGH.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - **Output PII scanner (LLM02):** AI responses scanned for PII (email, phone, SSN, employee ID, cross-tenant IDs) and redacted before display. The model may emit training-set / retrieval-set PII unintentionally — filter on the way out, not only on the way in.
 - **Structured output validation (LLM05):** every typed AI output (tool call, JSON response) JSON-schema-validated before use; structural drift fails fast with error, not silent pass.
 - **MCP SSRF (LLM03, CVE-2026-27826 class):** custom MCP URLs pass ALL of: HTTPS-only scheme allowlist; hostname allowlist OR post-DNS IP-range blocklist covering RFC1918 (10/8, 172.16/12, 192.168/16), 127.0.0.0/8, 169.254.0.0/16 (incl. AWS IMDS), 100.64.0.0/10 (CGNAT), IPv6 `::1`/`fc00::/7`/`fe80::/10`, `.internal`/`.local`/`.localhost` TLDs; redirects disabled; full URL decoding (percent, IDN, dotted-octal); connect-time IP re-validation (DNS-rebinding defence). Allowlist beats blocklist — `127.0.0.1.nip.io` class bypasses defeat naive blocklists. MCP tool descriptions are untrusted content.
@@ -100,7 +94,6 @@ Reversing or skipping any step = CRITICAL. Hold precedence: tenant-wide > channe
 - **Data poisoning (LLM04):** RAG corpus ingestion requires tenant-scoped provenance; cross-tenant RAG content leak = CRITICAL.
 
 ### Embeddings pipeline (LLM08 — vector & embedding weaknesses)
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 
 - Cron every 5 min, batch 100, writes `vector(384)` (sentence-transformer dim) — column CHECK or type assertion locks dimension at 384.
 - HNSW index uses `vector_cosine_ops` with `m=16`, `ef_construction=128` defaults — deviations require benchmarked justification; mismatched ops class falls back to seq scan (CRITICAL perf cliff).
@@ -110,14 +103,12 @@ Reversing or skipping any step = CRITICAL. Hold precedence: tenant-wide > channe
 - Synchronous embedding in message-send path is FORBIDDEN.
 - **Inversion-attack mitigation (CRITICAL):** a 384-dim vector is a high-fidelity representation of original text; failing to delete embeddings on anonymization is a re-identification vulnerability. Embedding rows MUST be deleted in the same transaction as message-body anonymization OR via compensating saga with explicit replay on failure.
 - **Consent-withdrawal sweep:** withdrawal of `UserAiConsent` or `TenantAiSetting.embeddingsEnabled` triggers a sweep job that deletes existing embeddings within 24 hours (GDPR Art. 17(1)(b)). Missing sweep = CRITICAL.
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 - Raw embedding vectors MUST NEVER be exposed via any client-facing API (GraphQL, REST, federation field) — model leak + side channel.
 
 ## Active findings this agent owns
 
 Historical cycles under `docs/reviews/messaging-expert/` and `docs/recommendations/messaging-expert/`. Before any review, scan for prior findings on the same files; unfixed issues escalate +1 severity, 3+ recurrences flagged SYSTEMIC.
 
-  **Consequence**: Ignoring this guard hides the review boundary and can let cross-service regressions ship.
 ## Operating Modes
 
 See `@.claude/shared/operating-modes.md`. No deviations: CATCHER is the default; TEACHER supports AI-safety / retention / partition design questions; WRITER only via `implement:` from `implementation-planner` for a scoped task, with CATCHER review routed to a different agent instance (pair-review invariant).

@@ -45,7 +45,6 @@ CQRS, outbox, JWT trust-anchor, multi-tenant cost cap framework — covered in l
 - Indirect injection (RAG-retrieved document tries to override instructions) — defense: every RAG document tagged `<retrieved_document source="...">...</retrieved_document>` so model treats as untrusted data. Missing = HIGH.
 
 ### Tool whitelisting + execution discipline
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 
 - Every tool definition lives in a typed tool registry per agent persona; cross-tenant tool execution = **CRITICAL** (tool from tenant A available to tenant B's conversation).
 - Tool registry is IMMUTABLE within a conversation; runtime tool-injection = **CRITICAL** (privilege escalation vector).
@@ -68,28 +67,24 @@ CQRS, outbox, JWT trust-anchor, multi-tenant cost cap framework — covered in l
   - `cache_read_input_tokens` — cache hit (90% cost discount)
   - `cache_creation_input_tokens` — cache write (25% cost premium)
   - `output_tokens`
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - Tenant cost = (input + cache_read × 0.1 + cache_creation × 1.25 + output × 5) × model_price_per_M_token. Missing accurate calc = HIGH (per-tenant cost attribution wrong).
 
 ### Streaming backpressure
 
 - Streaming response: consumer write rate < producer chunk rate → `pause()` upstream OR drop with explicit error. Unbounded buffer = **CRITICAL** (DoS vector — slow consumer).
 - In-flight buffer cap ≤ 64KB per conversation; exceed → 503 with retry-after.
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - Chunk handling: each chunk MUST emit progress event for client + persist incremental partial response (resume-capable). Buffering full response in memory = HIGH (timeout cascade on long generations).
 
 ### Context window budgeting
 
 - Pre-call estimation: `messages.reduce((acc, m) => acc + tokenCount(m.content), 0) + max_tokens` MUST be ≤ model context window. Exceeding context window = HIGH (truncation surprise).
 - Token counter: use SDK-provided counter (`countTokens(messages)`), NOT character-length estimate. Estimate-based = HIGH (off by 2x in worst case → silent truncation).
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - Multi-turn pruning strategy declared in code: oldest-first vs summarize-then-replace vs sliding-window with anchor. Missing strategy = HIGH (long conversations explode).
 
 ### Cost cap reservation (per-tenant)
 
 - BEFORE every API call: `tenant.tokenBudget.reserve(estimated_max_cost)` — pessimistic upper bound (`max_tokens × output_price_per_M_token`).
 - AFTER call: `tenant.tokenBudget.reconcile(actual_usage_cost)` — refunds the unused reservation.
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - On reservation failure (budget exhausted): API call BLOCKED + `TenantBudgetExceeded` event + tenant-admin notification.
 - Missing reservation = **CRITICAL** (prompt injection cost amplification: attacker forces 200K-token output that bills tenant before any limit catches).
 
@@ -105,7 +100,6 @@ CQRS, outbox, JWT trust-anchor, multi-tenant cost cap framework — covered in l
 
 Promoted from `.claude/agents/product-audit/ai-tool-execution-auditor.md` — frozen reference. Active findings move here:
 - AI tool whitelist coverage gap (TBD on first cycle)
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 - Prompt cache adoption rate baseline (TBD on first cycle)
 - Streaming backpressure implementation status (per Phase 8.2 invariant extension)
 
@@ -119,7 +113,6 @@ See `@.claude/shared/operating-modes.md`. Agent-specific overrides:
 ## Finding ID prefix
 
 `AISAFETY-{SEVERITY}-{NNN}` — e.g., `AISAFETY-CRITICAL-001`. Sub-kind tags: `INJECTION_DEFENSE`, `TOOL_WHITELIST`, `PII_LEAK`, `CACHE_GAP`, `BACKPRESSURE`, `BUDGET_BYPASS`.
-  **Example**: Ignoring this guard can approve plausible output while the executor loses reproducible evidence.
 
 ## Cross-domain dependencies
 

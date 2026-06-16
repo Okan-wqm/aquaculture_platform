@@ -1,6 +1,7 @@
 import { get, set, del, keys, entries, createStore } from 'idb-keyval';
 
 import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
+import { logger } from '@/utils/logger';
 import type { UserScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 // Separate stores for queue and cache to avoid full-store scans (PERF-08)
@@ -349,7 +350,8 @@ export async function queueOperation(
         }
       }
     } catch (error) {
-      console.warn('Background sync registration failed:', error);
+      // FE-HIGH-056: route through the structured logger (no banned console.*).
+      logger.warn('Background sync registration failed:', error);
     }
   }
 

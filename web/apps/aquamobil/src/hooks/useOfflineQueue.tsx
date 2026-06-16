@@ -1,6 +1,9 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+
+import { useAuth } from './useAuth';
+import { useNetworkStatus } from './useNetworkStatus';
+
 import {
   queueOperation,
   getPendingOperations,
@@ -10,9 +13,10 @@ import {
   removeOperation,
   MAX_RETRY_COUNT,
 } from '@/pwa/offline-queue';
-import { useAuth } from './useAuth';
-import { useNetworkStatus } from './useNetworkStatus';
 import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
+import { logger } from '@/utils/logger';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+
 
 interface SyncResult {
   success: number;
@@ -256,7 +260,8 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       setPendingOperations(operations);
       setQueueVersion(version);
     } catch (error) {
-      console.error('Failed to refresh queue:', error);
+      // FE-HIGH-056: route through the structured logger (no banned console.*).
+      logger.error('Failed to refresh queue:', error);
     }
   }, [tenantId]);
 
@@ -534,7 +539,6 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       }, 1000);
       return () => clearTimeout(timer);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline, pendingCount, queueVersion]);
 
   // BUG-17: Periodic retry for failed operations.
@@ -559,7 +563,6 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     }, 30_000);
 
     return () => clearInterval(retryInterval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline, pendingCount, pendingOperations]);
 
   return (

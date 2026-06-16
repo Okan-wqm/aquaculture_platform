@@ -95,6 +95,30 @@ describe('FE-CRITICAL-050-SW: deployed service worker artifact', () => {
     expect(swSource).toMatch(/index-[A-Za-z0-9_-]+\.js/);
   });
 
+  it('FE-HIGH-058: precaches the index.html app shell (cold-offline launch fallback)', () => {
+    // The cold-offline fallback (PrecacheFallbackPlugin → index.html) is only
+    // viable if index.html is actually IN the precache manifest. vite.config.ts
+    // includes `html` in globPatterns for exactly this reason. If anyone drops
+    // `html` from the globs, the manifest loses its index.html entry and a
+    // first-ever offline launch goes blank again — this assertion catches that at
+    // build time (Tier-3 make-it-detectable).
+    expect(swSource).toMatch(/["']url["']\s*:\s*["']index\.html["']/);
+  });
+
+  it('FE-HIGH-058: registers the precache-bound navigation fallback (no blank cold-offline page)', () => {
+    // The NetworkFirst nav route must carry a PrecacheFallbackPlugin bound to the
+    // precached index.html so a navigation that misses BOTH network and runtime
+    // cache serves the app shell. The minifier preserves the fallbackURL string
+    // literal and the navigate-mode predicate, so both survive into the artifact.
+    expect(swSource).toContain('index.html');
+    // The navigation route still gates on navigate mode (no fallback for /graphql
+    // or assets — those are claimed earlier by handleFetchEvent).
+    expect(swSource).toMatch(/["']navigate["']/);
+    // The PrecacheFallbackPlugin hooks handlerDidError; its presence in the
+    // artifact proves the fallback wiring survived the build.
+    expect(swSource).toContain('handlerDidError');
+  });
+
   it('preserves the LOGOUT cache-purge message handler (used by useAuth.tsx logout)', () => {
     // C-FE-01: on shared devices, logout must purge messaging caches via a
     // postMessage({ type: 'LOGOUT' }). The handler and the cache-key prefix it

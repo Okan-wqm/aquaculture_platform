@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { InstallPrompt } from './components/InstallPrompt';
 import { MultiFeatureRoute } from './components/MultiFeatureRoute';
 import { useAuth } from './hooks/useAuth';
@@ -200,8 +201,16 @@ export function App() {
             element={
               <ProtectedRoute>
                 <MobileLayout>
-                  <Suspense fallback={<PageLoader />}>
-                    <Routes>
+                  {/* FE-HIGH-053: ROUTE-level ErrorBoundary wrapping the lazy
+                      Routes + Suspense subtree. A chunk-load rejection or a
+                      single-page render crash resets to this recoverable shell
+                      (Try-Again) rather than propagating to the root boundary in
+                      main.tsx, which is reserved for catastrophic top-of-tree
+                      crashes. The 4 hub-page boundaries stay as inner granularity
+                      — this composes with them, it does not replace them. */}
+                  <ErrorBoundary>
+                    <Suspense fallback={<PageLoader />}>
+                      <Routes>
                       <Route path="/" element={<HomePage />} />
                       <Route path="/tank/:tankId" element={<TankDetailPage2 />} />
                       {/* New primary routes for the 4-tab navigation */}
@@ -450,8 +459,9 @@ export function App() {
                       <Route path="/sync" element={<SyncStatusPage />} />
 
                       <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
-                  </Suspense>
+                      </Routes>
+                    </Suspense>
+                  </ErrorBoundary>
                 </MobileLayout>
               </ProtectedRoute>
             }

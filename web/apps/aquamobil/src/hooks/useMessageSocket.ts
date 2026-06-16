@@ -348,6 +348,10 @@ export function useMessageSocket(): UseMessageSocketResult {
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
         // Increment unread count
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        // FE-MEDIUM-053: nudge the in-app notification bell in the SAME tick so the
+        // bell and the message badge converge on one cadence instead of drifting
+        // up to ~5 minutes apart.
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount') });
         // M3: advance the reconnect watermark to the newest message we've seen
         // so a later reconnect fetches a tight delta (ISO-8601 timestamps
         // compare chronologically as strings).
@@ -406,6 +410,8 @@ export function useMessageSocket(): UseMessageSocketResult {
         const qc = queryClientRef.current;
         // Invalidate unread count
         void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        // FE-MEDIUM-053: converge the in-app notification bell on the same tick.
+        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount') });
         // Update receipt in message cache
         qc.setQueryData(
           createTenantQueryKey(tenantId, 'messaging', 'messages', event.channelId),
@@ -469,7 +475,24 @@ export function useMessageSocket(): UseMessageSocketResult {
       socketRef.current = null;
       setIsConnected(false);
     };
-  }, [isAuthenticated, accessToken, tenantId]);
+    // FE-MEDIUM-052: accessToken is INTENTIONALLY omitted from the dependency
+    // array. A ~5-minute token rotation must NOT tear down and rebuild the socket
+    // — that full disconnect/reconnect raced the in-band `reAuth` handshake and
+    // dropped live delivery for a window every rotation. The socket lifecycle is
+    // keyed only by AUTH IDENTITY: (isAuthenticated, tenantId). The rotated token
+    // reaches the live socket via two existing paths that need no reconnect:
+    //   1. accessTokenRef (updated every render, line ~205) — read at handshake
+    //      AND inside the `reAuth` handler when the server requests a fresh token.
+    //   2. the in-band `reAuth` handler (refreshAuthRef + socket.auth update +
+    //      reAuthResponse emit) — the server-driven mid-connection re-auth.
+    // The first connect still guards on `accessToken` presence, and isAuthenticated
+    // only flips true once a token exists, so the initial connect always has a
+    // valid token. A genuine auth loss (isAuthenticated → false) still hits the
+    // early-return disconnect, and a tenant switch (tenantId change) still rebuilds
+    // (room/tenant scoping must change). exhaustive-deps is configured as 'warn'
+    // (non-blocking), so the intentional omission is documented HERE rather than
+    // silenced with a banned lint-suppression directive.
+  }, [isAuthenticated, tenantId]);
 
   // ------------------------------------------------------------------
   // Imperative channel room management

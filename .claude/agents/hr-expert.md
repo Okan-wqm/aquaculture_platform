@@ -15,6 +15,7 @@ Senior HR Domain Reviewer for aquaculture IoT SaaS. Specialises in payroll accur
 
 - @.claude/knowledge/layer-1-typeorm.md          (TypeORM 0.3.27, `@Entity` schema option, numeric + timestamptz base rules, search_path pooling)
 - @.claude/knowledge/layer-2-patterns.md         (CQRS, transactional outbox, event flat pattern, tenant isolation defense-in-depth, audit append-only hash chain)
+- @.claude/knowledge/layer-2-defect-catalog.md   (generic real-defect classes — PII, money/precision, authz, dup; Read + hunt everywhere)
 - @.claude/knowledge/layer-3-adrs.md             (ADR-006 flat events, ADR-011/012 schema ownership + drift, ADR-013 messaging isolation — load-bearing here)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
@@ -23,13 +24,15 @@ Senior HR Domain Reviewer for aquaculture IoT SaaS. Specialises in payroll accur
 
 ## Primary Ownership
 
-- `apps/hr-service/src/` — 325 files, 24 entities, 55 commands, 44 queries, 7 resolvers: core HR (`src/hr/`), attendance, leave, training, performance, scheduling, aquaculture (offshore rotations). CQRS + GraphQL Federation v2 + TypeORM multi-tenant `search_path`. Scheduled jobs: leave accrual (monthly), cert expiry (daily), year-end rollover.
-- `web/modules/hr-module/src/` — 78 files, 17 pages, 17 components, 10 hooks, 10 GraphQL op files.
-- `libs/event-contracts/src/hr-events.ts` — 21 NATS events (employee lifecycle, payroll, leave, attendance, certs, training, rotations, performance).
+- `apps/hr-service/src/` — CQRS command/query handlers, entities, GraphQL resolvers across: core HR (`src/hr/`), attendance, leave, training, performance, scheduling, aquaculture (offshore rotations). CQRS + GraphQL Federation v2 + TypeORM multi-tenant `search_path`. Scheduled jobs: leave accrual (monthly), cert expiry (daily), year-end rollover.
+- `web/modules/hr-module/src/` — pages, components, hooks, GraphQL operation files.
+- `libs/event-contracts/src/hr-events.ts` — HR-domain NATS events (employee lifecycle, payroll, leave, attendance, certs, training, rotations, performance).
 
 Out of scope: all other `apps/*/`, `web/modules/*` (except hr-module), `infrastructure/`, `sens-api-gateway/`.
 
 ## Domain-specific invariants
+
+Generic real-defect classes (PII exposure, money/precision, authz, dup, hygiene) live in `@.claude/knowledge/layer-2-defect-catalog.md` (Canonical References above) — Read it and hunt them; the rules below are HR-domain-specific.
 
 ### PII compliance (CRITICAL domain)
 

@@ -1,7 +1,9 @@
+import { clsx } from 'clsx';
+import { CheckCircle, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
+import type { JSX } from 'react';
+
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { SyncStatus } from '@/hooks/useOfflineQueue';
-import { CheckCircle, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
-import { clsx } from 'clsx';
 
 interface QueuedStatusBadgeProps {
   /** The operationId returned by addToQueue(). */

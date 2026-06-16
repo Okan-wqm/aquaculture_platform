@@ -12,6 +12,10 @@
  * aquamobil consumes, so it deliberately does not live in a shared lib
  * (ADR-028 lib-creation rubric).
  */
+import { clsx } from 'clsx';
+import { List, ListInput, BlockTitle } from 'konsta/react';
+import { ArrowLeft, AlertCircle, Minus, Plus, type LucideIcon } from 'lucide-react';
+import type { JSX } from 'react';
 import {
   type ChangeEvent,
   type Dispatch,
@@ -21,12 +25,10 @@ import {
   useState,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, AlertCircle, Minus, Plus, type LucideIcon } from 'lucide-react';
-import { clsx } from 'clsx';
-import { useTanks } from '@/hooks/useTanks';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTanks } from '@/hooks/useTanks';
 import type { OperationPayload, OperationType } from '@/types';
 
 /* ---------------------------------------------------------------- */

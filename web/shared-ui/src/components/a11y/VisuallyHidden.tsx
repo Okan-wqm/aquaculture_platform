@@ -23,7 +23,7 @@
  * </VisuallyHidden>
  */
 
-import React from 'react';
+import React, { type JSX } from 'react';
 
 // ============================================================================
 // Types

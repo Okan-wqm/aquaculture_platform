@@ -220,5 +220,6 @@ Each plan cluster is tracked as a registry finding (`docs/reviews/_registry/find
 | `FARM-HIGH-065` | 4 | `jsonb-source-schema` — `JsonbPatchService` stops schema-qualifying the per-tenant `batches_v2` (dropped the `schema` field so search_path routes the UPDATE into `tenant_<uuid>`; was a latent silent no-op against the empty source table) |
 | `FARM-HIGH-066` | 4 | `feed-reminder-tenant` — `tenantId` added to `FeedingReminderEventPayload` + consumed in the `notification.send` fan-out (was hardcoded `undefined`). Sibling dead-bus tracked as `ORPHAN-HIGH-122` |
 | `FARM-MEDIUM-059` | 4 | `cache-tenant` — both cache interceptors key off the exported trusted `extractTenantIdSafe` SSoT, never the raw `x-tenant-id` header; arch invariant extended to `common/cache/**` |
+| `FARM-HIGH-067` | 4 | `no-stampede` — `RedisService.getOrCompute` single-flight SSoT (via `setNx`); `CacheableInterceptor` + all 5 `AiInsightsService` MCP cache-asides route through it (one recompute per TTL-expiry miss, not a thundering herd) |
 
 Deferred / superseded references: `FARM-HIGH-007` + `FARM-MEDIUM-003` are closed by `FARM-HIGH-014`; `FARM-MEDIUM-002` is superseded (see `ORPHAN-MEDIUM-112`); feed-dual Phase B convergence is tracked as `ORPHAN-HIGH-114`.

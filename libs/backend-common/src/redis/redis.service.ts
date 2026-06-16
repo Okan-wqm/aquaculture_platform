@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
+import { randomUUID } from 'node:crypto';
 
 export interface RedisModuleOptions {
   url?: string;
@@ -258,6 +259,114 @@ export class RedisService implements OnModuleDestroy {
       result = await this.client.set(prefixedKey, value, 'NX');
     }
     return result === 'OK';
+  }
+
+  /**
+   * Single-flight read-through cache — the SSoT helper that makes
+   * stampede-protection the zero-effort default for every expensive recompute.
+   *
+   * On a cache miss, exactly ONE caller (across all replicas) recomputes while
+   * the others wait for its result, eliminating the thundering herd where every
+   * concurrent request recomputes the same expensive value the instant a TTL
+   * expires (the AI-insight MCP round-trips and cost rollups this was built for).
+   *
+   * The lock is a best-effort herd reducer (Redis SET NX EX), NOT a correctness
+   * mutex: the worst failure mode is a redundant compute (exactly the
+   * pre-existing behaviour), never corruption — so a Redis hiccup or a compute
+   * that overruns the lock simply degrades to a direct compute. Because
+   * `lockTtlSeconds` defaults to >= the cache TTL (and far exceeds any real
+   * compute), a plain DEL release is safe; no compare-and-delete is needed.
+   *
+   * Behaviour:
+   *  - hit → return the cached value, no compute.
+   *  - miss + lock won → compute(), cache it (unless null/undefined), release.
+   *  - miss + lock lost → poll for the winner's result up to `maxWaitMs`; on
+   *    timeout, compute() directly (bounded fallback — never an unbounded herd).
+   *  - any Redis error → fail open: compute() directly (graceful degradation).
+   *  - a null/undefined result is NOT cached (don't poison the key with empties).
+   *
+   * Callers holding an OPTIONAL RedisService must only call this when Redis is
+   * present; when absent, call compute() directly.
+   */
+  async getOrCompute<T>(
+    key: string,
+    ttlSeconds: number,
+    compute: () => Promise<T>,
+    opts: {
+      lockTtlSeconds?: number;
+      pollIntervalMs?: number;
+      maxWaitMs?: number;
+    } = {},
+  ): Promise<T> {
+    const lockTtlSeconds = opts.lockTtlSeconds ?? Math.max(ttlSeconds, 30);
+    const pollIntervalMs = opts.pollIntervalMs ?? 50;
+    const maxWaitMs = opts.maxWaitMs ?? 5000;
+
+    // 1. Fast path: cache hit.
+    try {
+      const cached = await this.getJson<T>(key);
+      if (cached !== null && cached !== undefined) return cached;
+    } catch (err) {
+      this.logger.warn(
+        `getOrCompute read failed for ${key}: ${(err as Error).message}`,
+      );
+      return compute();
+    }
+
+    // 2. Miss: try to win the single-flight lock.
+    const lockKey = `${key}:sf-lock`;
+    const token = randomUUID();
+    let lockWon = false;
+    try {
+      lockWon = await this.setNx(lockKey, token, lockTtlSeconds);
+    } catch (err) {
+      this.logger.warn(
+        `getOrCompute lock failed for ${key}: ${(err as Error).message}`,
+      );
+      return compute();
+    }
+
+    if (lockWon) {
+      try {
+        const result = await compute();
+        if (result !== null && result !== undefined) {
+          try {
+            await this.setJson(key, result, ttlSeconds);
+          } catch (err) {
+            this.logger.warn(
+              `getOrCompute write failed for ${key}: ${(err as Error).message}`,
+            );
+          }
+        }
+        return result;
+      } finally {
+        // Best-effort release (lockTtl >> compute time, so plain DEL is safe).
+        try {
+          await this.del(lockKey);
+        } catch {
+          // Lock will expire via its TTL.
+        }
+      }
+    }
+
+    // 3. Lost the lock: another caller is computing. Poll for its result.
+    const deadline = Date.now() + maxWaitMs;
+    while (Date.now() < deadline) {
+      await this.delay(pollIntervalMs);
+      try {
+        const filled = await this.getJson<T>(key);
+        if (filled !== null && filled !== undefined) return filled;
+      } catch {
+        break; // Read error → stop polling, fall through to a direct compute.
+      }
+    }
+
+    // 4. Timed out (or read error) waiting for the winner → bounded fallback.
+    return compute();
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**

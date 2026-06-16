@@ -29,8 +29,11 @@ import {
 import { CacheableInterceptor } from '../cacheable.interceptor';
 
 interface RedisDouble {
-  getJson: jest.Mock;
-  setJson: jest.Mock;
+  // The interceptor now delegates the whole read-through to the single-flight
+  // getOrCompute SSoT (hit/miss/write/fail-open live there + are unit-tested in
+  // redis.service). These specs assert the interceptor builds the right key and
+  // delegates; the single-flight semantics are NOT re-tested here.
+  getOrCompute: jest.Mock;
 }
 
 interface ReflectorDouble {
@@ -90,8 +93,6 @@ function makeCallHandler(result: unknown): {
 function makeInterceptor(opts: {
   metadata?: CacheableOptions;
   redisGet?: unknown;
-  redisGetError?: Error;
-  redisSetError?: Error;
 }): {
   interceptor: CacheableInterceptor;
   reflector: ReflectorDouble;
@@ -104,23 +105,34 @@ function makeInterceptor(opts: {
     }),
   };
   const redis: RedisDouble = {
-    getJson: jest
+    // Faithful getOrCompute double: a preset redisGet is a cache HIT (returned
+    // without computing); otherwise it's a MISS and we run the wrapped compute
+    // (the handler), exactly like the real single-flight helper's win path.
+    getOrCompute: jest
       .fn()
-      .mockImplementation(async () => {
-        if (opts.redisGetError) throw opts.redisGetError;
-        return opts.redisGet ?? null;
-      }),
-    setJson: jest
-      .fn()
-      .mockImplementation(async () => {
-        if (opts.redisSetError) throw opts.redisSetError;
-      }),
+      .mockImplementation(
+        async (
+          _key: string,
+          _ttl: number,
+          compute: () => Promise<unknown>,
+        ) => {
+          if (opts.redisGet !== null && opts.redisGet !== undefined) {
+            return opts.redisGet;
+          }
+          return compute();
+        },
+      ),
   };
   const interceptor = new CacheableInterceptor(
     reflector as unknown as Reflector,
     redis as unknown as RedisService,
   );
   return { interceptor, reflector, redis };
+}
+
+/** The cache key passed to getOrCompute on the Nth delegated call. */
+function keyArg(redis: RedisDouble, n = 0): string {
+  return redis.getOrCompute.mock.calls[n][0] as string;
 }
 
 describe('CacheableInterceptor', () => {
@@ -131,8 +143,7 @@ describe('CacheableInterceptor', () => {
 
     const result = await lastValueFrom(interceptor.intercept(ctx, handler));
     expect(result).toBe('value');
-    expect(redis.getJson).not.toHaveBeenCalled();
-    expect(redis.setJson).not.toHaveBeenCalled();
+    expect(redis.getOrCompute).not.toHaveBeenCalled();
     expect(handle).toHaveBeenCalledTimes(1);
   });
 
@@ -147,11 +158,10 @@ describe('CacheableInterceptor', () => {
     const result = await lastValueFrom(interceptor.intercept(ctx, handler));
     expect(result).toEqual(['cachedA', 'cachedB']);
     expect(handle).not.toHaveBeenCalled();
-    expect(redis.getJson).toHaveBeenCalledTimes(1);
-    expect(redis.setJson).not.toHaveBeenCalled();
+    expect(redis.getOrCompute).toHaveBeenCalledTimes(1);
   });
 
-  it('calls the handler and writes the cache on a miss', async () => {
+  it('delegates to getOrCompute with the configured ttl and runs the handler on a miss', async () => {
     const { interceptor, redis } = makeInterceptor({
       metadata: { prefix: 'species:list', ttlSeconds: 900 },
       redisGet: null,
@@ -162,13 +172,12 @@ describe('CacheableInterceptor', () => {
     const result = await lastValueFrom(interceptor.intercept(ctx, handler));
     expect(result).toEqual(['fresh']);
     expect(handle).toHaveBeenCalledTimes(1);
-    expect(redis.setJson).toHaveBeenCalledTimes(1);
-    const [, value, ttl] = redis.setJson.mock.calls[0];
-    expect(value).toEqual(['fresh']);
+    expect(redis.getOrCompute).toHaveBeenCalledTimes(1);
+    const [, ttl] = redis.getOrCompute.mock.calls[0];
     expect(ttl).toBe(900);
   });
 
-  it('bypasses cache when a tenant-scoped method is called without tenant id', async () => {
+  it('bypasses the cache (no getOrCompute) when a tenant-scoped method has no tenant id', async () => {
     const { interceptor, redis } = makeInterceptor({
       metadata: { prefix: 'species:list', ttlSeconds: 60 },
       redisGet: ['shouldNotBeReturned'],
@@ -178,8 +187,7 @@ describe('CacheableInterceptor', () => {
 
     const result = await lastValueFrom(interceptor.intercept(ctx, handler));
     expect(result).toEqual(['fresh']);
-    expect(redis.getJson).not.toHaveBeenCalled();
-    expect(redis.setJson).not.toHaveBeenCalled();
+    expect(redis.getOrCompute).not.toHaveBeenCalled();
     expect(handle).toHaveBeenCalledTimes(1);
   });
 
@@ -198,9 +206,8 @@ describe('CacheableInterceptor', () => {
     const { handler } = makeCallHandler(['fresh']);
 
     await lastValueFrom(interceptor.intercept(ctx, handler));
-    const [key] = redis.setJson.mock.calls[0];
-    expect(key).toContain('t:trusted-A:');
-    expect(key).not.toContain('forged-B');
+    expect(keyArg(redis)).toContain('t:trusted-A:');
+    expect(keyArg(redis)).not.toContain('forged-B');
   });
 
   it('an x-tenant-id header WITHOUT a trusted req.user.tenantId does not enable caching', async () => {
@@ -215,33 +222,16 @@ describe('CacheableInterceptor', () => {
 
     const result = await lastValueFrom(interceptor.intercept(ctx, handler));
     expect(result).toEqual(['fresh']);
-    expect(redis.getJson).not.toHaveBeenCalled();
-    expect(redis.setJson).not.toHaveBeenCalled();
+    expect(redis.getOrCompute).not.toHaveBeenCalled();
     expect(handle).toHaveBeenCalledTimes(1);
   });
 
-  it('falls through to the handler when Redis read fails', async () => {
-    const { interceptor, redis } = makeInterceptor({
-      metadata: { prefix: 'species:list', ttlSeconds: 60 },
-      redisGetError: new Error('connection refused'),
-    });
-    const ctx = makeExecutionContext({ tenantId: 'tenant-3' });
-    const { handler, handle } = makeCallHandler(['fresh']);
-
-    const result = await lastValueFrom(interceptor.intercept(ctx, handler));
-    expect(result).toEqual(['fresh']);
-    expect(handle).toHaveBeenCalledTimes(1);
-    expect(redis.setJson).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not swallow the underlying error when Redis write fails', async () => {
-    // Redis write is best-effort — the interceptor logs and the
-    // result still flows through. A downstream error from the
-    // method should still reach the caller.
+  it('propagates the underlying handler error through getOrCompute', async () => {
+    // getOrCompute runs the wrapped compute (the handler) on a miss; a handler
+    // error must reach the caller, not be swallowed.
     const { interceptor } = makeInterceptor({
       metadata: { prefix: 'species:list', ttlSeconds: 60 },
       redisGet: null,
-      redisSetError: new Error('write fail'),
     });
     const ctx = makeExecutionContext({ tenantId: 'tenant-4' });
     const handler: CallHandler = {
@@ -267,10 +257,9 @@ describe('CacheableInterceptor', () => {
     const result = await lastValueFrom(interceptor.intercept(ctx, handler));
     expect(result).toEqual([{ templateId: 't1' }]);
     expect(handle).toHaveBeenCalledTimes(1);
-    expect(redis.setJson).toHaveBeenCalledTimes(1);
-    const [key] = redis.setJson.mock.calls[0];
-    expect(key).toContain('farm:cache:wq:parameterTemplates:');
-    expect(key).not.toMatch(/t:[^:]+:/); // no tenant segment
+    expect(redis.getOrCompute).toHaveBeenCalledTimes(1);
+    expect(keyArg(redis)).toContain('farm:cache:wq:parameterTemplates:');
+    expect(keyArg(redis)).not.toMatch(/t:[^:]+:/); // no tenant segment
   });
 
   it('args hash is stable — two identical calls produce the same key', async () => {
@@ -291,10 +280,8 @@ describe('CacheableInterceptor', () => {
 
     await lastValueFrom(interceptor.intercept(ctx1, h1.handler));
     await lastValueFrom(interceptor.intercept(ctx2, h2.handler));
-    expect(redis.setJson).toHaveBeenCalledTimes(2);
-    expect(redis.setJson.mock.calls[0][0]).toBe(
-      redis.setJson.mock.calls[1][0],
-    );
+    expect(redis.getOrCompute).toHaveBeenCalledTimes(2);
+    expect(keyArg(redis, 0)).toBe(keyArg(redis, 1));
   });
 
   it('different args produce different keys', async () => {
@@ -315,8 +302,6 @@ describe('CacheableInterceptor', () => {
 
     await lastValueFrom(interceptor.intercept(ctx1, h1.handler));
     await lastValueFrom(interceptor.intercept(ctx2, h2.handler));
-    expect(redis.setJson.mock.calls[0][0]).not.toBe(
-      redis.setJson.mock.calls[1][0],
-    );
+    expect(keyArg(redis, 0)).not.toBe(keyArg(redis, 1));
   });
 });

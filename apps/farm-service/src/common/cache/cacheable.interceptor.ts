@@ -23,8 +23,7 @@ import { RedisService } from '@aquaculture/backend-common/redis';
 import { extractTenantIdSafe } from '@aquaculture/backend-common/decorators';
 import { TenantRequest } from '@aquaculture/backend-common/types';
 import { createHash } from 'crypto';
-import { Observable, from, of } from 'rxjs';
-import { switchMap, tap } from 'rxjs/operators';
+import { Observable, from, firstValueFrom } from 'rxjs';
 
 import {
   CACHEABLE_METADATA_KEY,
@@ -57,6 +56,7 @@ export class CacheableInterceptor implements NestInterceptor {
     if (!metadata || !this.redisService) {
       return next.handle();
     }
+    const redis = this.redisService;
     const options: ResolvedOptions = {
       scopeToTenant: true,
       ...metadata,
@@ -73,24 +73,14 @@ export class CacheableInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    // Read-through: look up, return hit, else execute + write.
-    return from(this.readCache(key)).pipe(
-      switchMap((cached) => {
-        if (cached !== null && cached !== undefined) {
-          return of(cached);
-        }
-        return next.handle().pipe(
-          tap((result) => {
-            this.writeCache(key, result, options.ttlSeconds).catch(
-              (err: unknown) => {
-                this.logger.warn(
-                  `Cache write failed for ${key}: ${(err as Error).message}`,
-                );
-              },
-            );
-          }),
-        );
-      }),
+    // Single-flight read-through (no-stampede): on a miss, exactly one request
+    // recomputes while concurrent requests for the same key wait for its
+    // result — so a TTL expiry on a hot key no longer thunders the handler.
+    // getOrCompute owns the hit/miss/write/fail-open semantics (the SSoT).
+    return from(
+      redis.getOrCompute(key, options.ttlSeconds, () =>
+        firstValueFrom(next.handle()),
+      ),
     );
   }
 
@@ -153,26 +143,6 @@ export class CacheableInterceptor implements NestInterceptor {
     return safeStringify(args);
   }
 
-  private async readCache(key: string): Promise<unknown> {
-    if (!this.redisService) return null;
-    try {
-      return await this.redisService.getJson(key);
-    } catch (err) {
-      this.logger.warn(
-        `Cache read failed for ${key}: ${(err as Error).message}`,
-      );
-      return null;
-    }
-  }
-
-  private async writeCache(
-    key: string,
-    value: unknown,
-    ttlSeconds: number,
-  ): Promise<void> {
-    if (!this.redisService) return;
-    await this.redisService.setJson(key, value, ttlSeconds);
-  }
 }
 
 function safeStringify(value: unknown): string {

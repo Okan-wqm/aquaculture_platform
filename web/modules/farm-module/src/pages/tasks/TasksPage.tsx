@@ -151,8 +151,12 @@ const TasksPage: React.FC = () => {
     }
   }, [tasks, completeTaskMutation, updateTask]);
 
-  const handleToggleChecklist = useCallback(async (taskId: string, checklistId: string) => {
-    await toggleChecklistMutation({ taskId, itemId: checklistId });
+  // `isCompleted` is the absolute target state the user is moving the checkbox TO
+  // (computed at the checkbox source in TaskDetailModal as `!item.isCompleted`).
+  // The farm subgraph's setChecklistItem mutation takes this absolute target, so the
+  // desktop click-to-flip UX is preserved without a server-side read-then-flip.
+  const handleToggleChecklist = useCallback(async (taskId: string, checklistId: string, isCompleted: boolean) => {
+    await toggleChecklistMutation({ taskId, itemId: checklistId, isCompleted });
   }, [toggleChecklistMutation]);
 
   const handleAddNote = useCallback(async (taskId: string, noteText: string) => {

@@ -14,7 +14,7 @@ import { TaskFormModal, TaskFormData } from './TaskFormModal';
 interface AllTasksTabProps {
   tasks: Task[];
   onToggleComplete: (taskId: string) => void;
-  onToggleChecklist: (taskId: string, checklistId: string) => void;
+  onToggleChecklist: (taskId: string, checklistId: string, isCompleted: boolean) => void;
   onAddNote: (taskId: string, note: string) => void;
   onCreateTask: (data: TaskFormData) => void;
   onDeleteTask: (taskId: string) => void;

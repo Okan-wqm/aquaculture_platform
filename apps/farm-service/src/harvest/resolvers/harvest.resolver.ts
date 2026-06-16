@@ -340,11 +340,14 @@ export class HarvestResolver {
   /**
    * Create a new harvest record
    */
-  // Return HarvestRecord (not Batch) so the frontend receives harvest-specific fields
-  @Mutation(() => HarvestRecord, { description: 'Create a harvest record and update batch/tank quantities' })
+  // Return HarvestRecord (not Batch) so the frontend receives harvest-specific fields.
   // SEC-MEDIUM-050: the role floor is the SSoT — createHarvestRecord stays
   // MODULE_MANAGER+ (NO MODULE_USER). The mobile 'harvest' feature gate below
   // NEVER widens it; both gates apply.
+  // Keep this comment ABOVE @Mutation: the farm-graphql-fe-be-parity extractor
+  // skips interleaved DECORATORS but not comments, so a comment between
+  // @Mutation and the method hides the field from the FE↔BE parity scan.
+  @Mutation(() => HarvestRecord, { description: 'Create a harvest record and update batch/tank quantities' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @RequiresMobileFeature('harvest')
   async createHarvestRecord(

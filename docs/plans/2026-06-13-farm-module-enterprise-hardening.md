@@ -125,7 +125,7 @@ Fix the architecture allowlist spec first; reconcile entity `onDelete` ↔ DB FK
 
 ### Phase 4 — Tenant-context discipline + cache + read-side performance `[risk: medium]`
 **Findings:** `cache-tenant`, `jsonb-source-schema`, `feed-reminder-tenant`, `no-stampede`, `wq-not-hypertable`, `workorder-jsonb-idx`, `equip-list-js`
-Export `extractTenantIdSafe`; both cache interceptors use it. `JsonbPatchService` stops source-schema qualifying. Add `tenantId` to `FeedingReminderEventPayload`. Redis single-flight via `setNx`. WQ → hypertable + continuous aggregate + retention. GIN/expression index on `work_orders` batchId; rewrite equipment list as one SQL UNION+LIMIT. Repoint stats at the Phase-3 MVs; remove the per-view error swallow.
+Export `extractTenantIdSafe`; both cache interceptors use it. `JsonbPatchService` stops source-schema qualifying. Add `tenantId` to `FeedingReminderEventPayload`. Redis single-flight via `setNx`. WQ → hypertable + continuous aggregate + retention. GIN/expression index on `work_orders` batchId; rewrite equipment list as one SQL UNION+LIMIT. **Read-side stats acceleration (revised by `mv-lost`/FARM-MEDIUM-058):** the daily-rollup MVs the original plan assumed never existed — their creators were archived in the baseline reset and the source-schema MV shape was architecturally wrong for the per-tenant model (`TenantSchemaSyncService` clones only base tables, never MVs), so Phase 3 already removed the lying refresh cron and the stats read paths correctly raw-aggregate today. Phase 4 therefore **builds** a tenant-correct acceleration (TimescaleDB continuous aggregate under `wq-not-hypertable`, propagated by the per-tenant sync) rather than repointing at non-existent MVs — and adds no new MV-refresh cron without a tenant-correct MV behind it.
 
 ### Phase 5 — Frontend truth, GraphQL codegen, broken-workflow contracts `[risk: medium]`
 **Findings:** `fe-sensor-fake`, `fe-reports-mock`, `gql-codegen`, `close-batch-enum`, `harvest-harvestedby`, `harvest-planid`, `fe-role-gating`, `fe-eager-imports`, `fe-upload-bypass`
@@ -148,7 +148,7 @@ Extend existing scaffolding (`cache-key-tenant-scope`, `farm-graphql-fe-be-parit
 5. no-raw-fetch-in-farm-module.
 6. x-tenant-id-header-read-ban outside sanctioned middleware/extractor.
 7. FE-GraphQL enum/required-arg parity (codegen-derived).
-8. refreshAnalyticsViews ↔ migration ↔ read parity.
+8. no-mv-refresh-cron-without-mv-migration: a `REFRESH MATERIALIZED VIEW` (or a cron named for one) must have a live migration that CREATEs that view AND, for per-tenant services, a `TenantSchemaSyncService` propagation path — closes the `mv-lost`/FARM-MEDIUM-058 class (a cron silently refreshing a non-existent, never-cloned MV).
 9. entity-onDelete ↔ DB FK parity.
 10. no-bespoke-crypto-in-services (ban `aes-256-cbc`/raw `createCipheriv` outside the security lib).
 11. architecture-spec-allowlist-completeness.
@@ -160,7 +160,7 @@ Extend existing scaffolding (`cache-key-tenant-scope`, `farm-graphql-fe-be-parit
 ## Hard sequencing constraints
 
 1. `arch-spec-conflict` (Phase 3, first) precedes every entity `schema:`/`onDelete` change.
-2. MV/hypertable/index migrations (Phase 3) land before Phase 4 repoints stats reads.
+2. Hypertable/index migrations (Phase 3) land before Phase 4 builds the continuous-aggregate read model. (The Phase-3 *MV* assumption was retired by `mv-lost`/FARM-MEDIUM-058 — the orphaned MVs never existed; Phase 4 builds a tenant-correct aggregate, it does not repoint at MVs.)
 3. `cache-tenant` precedes `no-stampede`.
 4. `gql-codegen` precedes/accompanies the enum/required-arg fixes.
 5. `biomass-ssot` (Phase 2) settles before Phase 4's MV read-model computes from it.
@@ -210,5 +210,12 @@ Each plan cluster is tracked as a registry finding (`docs/reviews/_registry/find
 | `FARM-HIGH-017` | 2 | `po-approval` — PurchaseOrder SUBMITTED/APPROVED maker-checker (SOC2 CC3.4) |
 | `FARM-HIGH-058` | 2 | `feed-dual-ssot` (Phase A) — in-tx fail-aware storage deduction; kill swallowed divergence |
 | `FARM-HIGH-059` | 2 | `feed-empty` — `assertFeedable` gate on the locked batch in both feeding paths |
+| `FARM-HIGH-060` | 3 | `arch-spec-conflict` — `tenant-schema-routing.architecture.spec.ts` allowlist SSoT-derived from `MODULE_SCHEMAS.infrastructureTables` (was a stale hardcoded list) |
+| `FARM-HIGH-061` | 3 | `timestamp-notz` — `farm_workers`/`farms`/`ponds` created/updated → `TIMESTAMPTZ` (entity pins + migration `1801300000000`) |
+| `FARM-HIGH-062` | 3 | `wq-unique-lost` — restore partial-unique `water_quality_measurements(tenantId, relatedSensorReadingId) WHERE NOT NULL` (migration `1801400000000`) |
+| `FARM-HIGH-063` | 3 | `no-check-constraints` — 39 operational CHECK constraints + entity `@Check` parity (migration `1801500000000`) |
+| `FARM-HIGH-064` | 3 | `ondelete-drift` — 6 batch-child FKs entity `onDelete: 'RESTRICT'` ↔ DB parity (regen-stable, data-safe) |
+| `FARM-MEDIUM-057` | 3 | `decimal-transformer` — Farm/Pond NUMERIC columns attach `DecimalTransformer` (entity-only, no migration) |
+| `FARM-MEDIUM-058` | 3 | `mv-lost` — remove the orphaned-MV refresh cron (silent nightly no-op refreshing non-existent MVs); read paths already raw-aggregate correct numbers; perf acceleration folded into Phase 4 `wq-not-hypertable` |
 
 Deferred / superseded references: `FARM-HIGH-007` + `FARM-MEDIUM-003` are closed by `FARM-HIGH-014`; `FARM-MEDIUM-002` is superseded (see `ORPHAN-MEDIUM-112`); feed-dual Phase B convergence is tracked as `ORPHAN-HIGH-114`.

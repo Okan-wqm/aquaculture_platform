@@ -833,74 +833,26 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  /**
-   * Nightly materialized-view refresh — runs 03:00 Europe/Istanbul.
-   *
-   * Phase 7.2: farm analytics dashboards read from
-   * `farm.mv_daily_batch_feeding` (migration 1787400000000) instead
-   * of scanning `feeding_records` row-by-row. The view is refreshed
-   * CONCURRENTLY so dashboard reads never block during the refresh.
-   * Per-tenant iteration uses a dedicated QueryRunner per schema
-   * so a single tenant's failure does not stall the rest.
-   *
-   * Worst-case staleness is one day — acceptable because the
-   * batch-performance dashboards drive weekly operational reviews,
-   * not real-time control loops. Ops can trigger a manual refresh
-   * via `triggerJob('refreshAnalyticsViews')` for urgent cases.
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_3AM, {
-    name: 'refreshAnalyticsViews',
-    timeZone: 'Europe/Istanbul',
-  })
-  async refreshAnalyticsViews(): Promise<void> {
-    const viewsToRefresh = [
-      'farm.mv_daily_batch_feeding',
-      'farm.mv_daily_tank_water_quality',
-    ];
-
-    this.logger.log(
-      `Refreshing ${viewsToRefresh.length} analytics materialized view(s) across tenant schemas`,
-    );
-
-    let tenantSchemas: string[];
-    try {
-      tenantSchemas = await listTenantSchemas(this.dataSource);
-    } catch (err) {
-      this.logger.error(
-        `Failed to list tenant schemas for analytics refresh: ${(err as Error).message}`,
-      );
-      return;
-    }
-
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-      try {
-        await queryRunner.query(
-          `SET search_path TO "${schema}", farm, public`,
-        );
-        for (const view of viewsToRefresh) {
-          try {
-            await queryRunner.query(
-              `REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`,
-            );
-            this.logger.log(
-              `Tenant ${schema}: refreshed ${view}`,
-            );
-          } catch (err) {
-            // View may not exist on a legacy tenant schema; log
-            // and continue so the rest of the views still refresh
-            // for the other tenants.
-            this.logger.warn(
-              `Tenant ${schema}: ${view} refresh skipped — ${(err as Error).message}`,
-            );
-          }
-        }
-      } finally {
-        await queryRunner.release();
-      }
-    }
-  }
+  // mv-lost (FARM-MEDIUM-058): the refreshAnalyticsViews cron was REMOVED here.
+  // It refreshed farm.mv_daily_batch_feeding + farm.mv_daily_tank_water_quality,
+  // but those materialized views are created by NO migration in the live chain
+  // (their creators were archived in the day-one baseline reset and never folded
+  // into the consolidated baseline). Worse, the source-schema MV shape was always
+  // architecturally wrong for the per-tenant model: TenantSchemaSyncService clones
+  // only BASE TABLEs, so the MVs were never propagated into tenant_<uuid> schemas.
+  // So every REFRESH raised "relation does not exist" and was swallowed as a warn
+  // — a nightly silent no-op masquerading as a working refresh.
+  // The read paths (GetFeedingSummaryHandler, WaterQualityService.getTank/System
+  // Statistics) already fall back to raw aggregation over the source rows, which
+  // returns CORRECT numbers — this is perf-debt, not a correctness/isolation bug.
+  // The genuine acceleration (a per-tenant rollup) is folded into Phase 4's
+  // read-side perf work (wq-not-hypertable / continuous-aggregate) where the
+  // tenant-correct mechanism lives — re-introducing the orphaned per-tenant MV
+  // here would repeat the original architectural mistake. The acceleration is
+  // tracked in Phase 4 (read-side perf, `wq-not-hypertable` cluster of
+  // docs/plans/2026-06-13-farm-module-enterprise-hardening.md) where the
+  // tenant-correct continuous-aggregate mechanism lives — do NOT re-add an
+  // MV-refresh cron without a tenant-correct MV migration behind it.
 
   /**
    * Nightly MinIO orphan cleanup (phase 6.2.3). Deletes objects
@@ -1050,9 +1002,6 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
         break;
       case 'monthlyComplianceReport':
         await this.monthlyComplianceReport();
-        break;
-      case 'refreshAnalyticsViews':
-        await this.refreshAnalyticsViews();
         break;
       case 'minioOrphanCleanup':
         await this.minioOrphanCleanup();

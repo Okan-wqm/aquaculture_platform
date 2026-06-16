@@ -17,11 +17,14 @@
  */
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
+import { Repository, DataSource, EntityManager, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
+import { Role } from '@aquaculture/backend-common/decorators';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { OutboxPublisher } from '@platform/outbox';
 import { WaterQualityMeasurementCreatedEvent, WaterQualityCriticalEvent , createBaseEvent } from '@platform/event-contracts';
 import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource, ParameterStatus } from './entities/water-quality-measurement.entity';
+import { resolveTankSiteId } from '../batch/utils/tank-lookup.util';
 import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
@@ -38,6 +41,16 @@ import { CreateBatchWaterQualityInput } from './dto/create-batch-water-quality.i
  * measurement values without first passing through
  * WaterQualityValidationService.validate().
  */
+
+/**
+ * SEC-HIGH-051: caller authz context for the object-level site check on WQ
+ * create. Threaded from the resolver (JWT claims), never widening tenant scope.
+ */
+export interface WaterQualityCaller {
+  sub: string;
+  roles: Role[];
+  assignedSiteIds?: string[];
+}
 export interface CreateWaterQualityData {
   tankId?: string;
   pondId?: string;
@@ -97,7 +110,34 @@ export class WaterQualityService {
     private readonly validationService: WaterQualityValidationService,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
+    private readonly siteAuth: SiteAuthorizationService,
   ) {}
+
+  /**
+   * SEC-HIGH-051: resolve the site a water-quality measurement belongs to.
+   *
+   * A direct `siteId` wins (the measurement is explicitly site-scoped). Else a
+   * `tankId` resolves via Department.siteId. A pond-only measurement has no Site
+   * linkage in this schema (Pond -> Farm, not Site), so it resolves to `null`
+   * and the fail-closed deny restricts pond WQ to MODULE_MANAGER+ — the correct
+   * conservative posture (NEVER an implicit allow on an unresolved site).
+   */
+  private async resolveMeasurementSiteId(
+    manager: EntityManager,
+    input: Pick<CreateWaterQualityData, 'siteId' | 'tankId'>,
+    tenantId: string,
+  ): Promise<string | null> {
+    if (input.siteId) {
+      return input.siteId;
+    }
+    if (input.tankId) {
+      // Reuse the ONE tank site-resolver (checks equipment + legacy tanks tables
+      // → Department.siteId) so equipment-table tanks resolve too.
+      return resolveTankSiteId(manager, input.tankId, tenantId);
+    }
+    return null;
+  }
 
   // -------------------------------------------------------------------------
   // CREATE
@@ -112,7 +152,11 @@ export class WaterQualityService {
    * Fire-and-forget eventBus.publish() was removed — it silently dropped
    * critical alerts when NATS was down, risking undetected fish mortality.
    */
-  async create(tenantId: string, input: CreateWaterQualityData): Promise<WaterQualityMeasurement> {
+  async create(
+    tenantId: string,
+    input: CreateWaterQualityData,
+    caller: WaterQualityCaller,
+  ): Promise<WaterQualityMeasurement> {
     this.logger.log(`Creating water quality measurement for tenant ${tenantId}`);
 
     // C3: Idempotency check — return existing if same key within recent window
@@ -156,6 +200,18 @@ export class WaterQualityService {
 
     let saved: WaterQualityMeasurement;
     try {
+      // SEC-HIGH-051: object-level site authorization. Resolve the measurement's
+      // site inside the transaction and assert the caller is assigned to it
+      // BEFORE persisting. MODULE_MANAGER+ bypasses; an unresolved site (e.g. a
+      // pond-only measurement, or a site-less department) for a MODULE_USER is
+      // DENIED — never an implicit allow.
+      const measurementSiteId = await this.resolveMeasurementSiteId(
+        queryRunner.manager,
+        { siteId: input.siteId, tankId: input.tankId },
+        tenantId,
+      );
+      this.siteAuth.assertSiteAssignment({ caller, siteId: measurementSiteId });
+
       const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
         tenantId,
         tankId: input.tankId,
@@ -263,8 +319,9 @@ export class WaterQualityService {
   async createBatch(
     tenantId: string,
     input: CreateBatchWaterQualityInput,
-    userId: string,
+    caller: WaterQualityCaller,
   ): Promise<WaterQualityMeasurement[]> {
+    const userId = caller.sub;
     this.logger.log(`Creating batch of ${input.measurements.length} WQ measurements for tenant ${tenantId}`);
 
     // 1. Validate ALL items first (fail-fast, before transaction)
@@ -299,6 +356,17 @@ export class WaterQualityService {
       for (let i = 0; i < input.measurements.length; i++) {
         const item = input.measurements[i]!;
         const summary = evaluations[i]!;
+
+        // SEC-HIGH-051: object-level site authorization PER measurement. A batch
+        // is keyed by equipmentId (a tank/equipment id) → Department.siteId.
+        // MODULE_MANAGER+ bypasses; an unresolved site for a MODULE_USER DENIES
+        // the whole batch (the transaction rolls back) — never an implicit allow.
+        const itemSiteId = await this.resolveMeasurementSiteId(
+          queryRunner.manager,
+          { tankId: item.equipmentId },
+          tenantId,
+        );
+        this.siteAuth.assertSiteAssignment({ caller, siteId: itemSiteId });
 
         const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
           tenantId,

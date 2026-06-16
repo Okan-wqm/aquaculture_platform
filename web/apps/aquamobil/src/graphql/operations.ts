@@ -60,8 +60,8 @@ import type {
   CompleteTaskMutationVariables,
   StartTaskMutation,
   StartTaskMutationVariables,
-  ToggleChecklistItemMutation,
-  ToggleChecklistItemMutationVariables,
+  SetChecklistItemMutation,
+  SetChecklistItemMutationVariables,
   AddTaskNoteMutation,
   AddTaskNoteMutationVariables,
   GetMyNotificationsQuery,
@@ -445,9 +445,14 @@ export const GET_TASK_STATS: TypedDocumentNode<GetTaskStatsQuery, GetTaskStatsQu
   }
 `;
 
+// FARM-HIGH-057 BREAKING CHANGE: completeTask/startTask now take a single
+// `TaskLifecycleInput` that carries the task `id` PLUS the at-most-once command
+// envelope (clientCommandId + payloadHash). The server REJECTS an envelope-less
+// call for these three task mutations, so the envelope is mandatory on EVERY
+// call — online and offline — not only offline-queued replays.
 export const COMPLETE_TASK: TypedDocumentNode<CompleteTaskMutation, CompleteTaskMutationVariables> = gql`
-  mutation CompleteTask($id: ID!) {
-    completeTask(id: $id) {
+  mutation CompleteTask($input: TaskLifecycleInput!) {
+    completeTask(input: $input) {
       id
       status
       completedAt
@@ -457,17 +462,22 @@ export const COMPLETE_TASK: TypedDocumentNode<CompleteTaskMutation, CompleteTask
 `;
 
 export const START_TASK: TypedDocumentNode<StartTaskMutation, StartTaskMutationVariables> = gql`
-  mutation StartTask($id: ID!) {
-    startTask(id: $id) {
+  mutation StartTask($input: TaskLifecycleInput!) {
+    startTask(input: $input) {
       id
       status
     }
   }
 `;
 
-export const TOGGLE_CHECKLIST_ITEM: TypedDocumentNode<ToggleChecklistItemMutation, ToggleChecklistItemMutationVariables> = gql`
-  mutation ToggleChecklistItem($taskId: ID!, $itemId: String!) {
-    toggleChecklistItem(taskId: $taskId, itemId: $itemId) {
+// FARM-HIGH-057 BREAKING CHANGE: `toggleChecklistItem` (a server-side FLIP that a
+// replayed offline command would REVERT) is replaced by `setChecklistItem`, which
+// carries the ABSOLUTE target `isCompleted` plus the command envelope. SET (not
+// flip) means any number of replays converge to the same state instead of
+// ping-ponging the item.
+export const SET_CHECKLIST_ITEM: TypedDocumentNode<SetChecklistItemMutation, SetChecklistItemMutationVariables> = gql`
+  mutation SetChecklistItem($input: SetChecklistItemInput!) {
+    setChecklistItem(input: $input) {
       id
       checklistItems
     }
@@ -564,7 +574,6 @@ export const GET_STOCK_EVENTS_SUMMARY: TypedDocumentNode<GetStockEventsSummaryQu
   query GetStockEventsSummary($daysBack: Int) {
     stockEventsSummary(daysBack: $daysBack) {
       thisWeekEventsCount
-      pendingTransferCount
       recentEvents {
         id
         type

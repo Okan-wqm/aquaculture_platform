@@ -28,18 +28,35 @@ export class MobileDashboardService {
   ) {}
 
   async getTodaysDailyOpsCounts(tenantId: string): Promise<TodaysDailyOpsCounts> {
-    const today = this.utcDateString(new Date());
+    // FARM-MEDIUM-053: the day boundary is now EXPLICIT and named rather than a
+    // silent bare-UTC slice. FARM_DASHBOARD_TIME_ZONE (IANA name, default 'UTC')
+    // is the configured farm-local calendar zone so "today" matches what an
+    // operator sees on the floor. Tenant-level timezone is not yet plumbed into
+    // this service — until it is, the platform default is applied uniformly and
+    // the decision is visible (not buried in toISOString()).
+    const timeZone = process.env.FARM_DASHBOARD_TIME_ZONE ?? 'UTC';
+    const today = this.localDateString(new Date(), timeZone);
     const tomorrow = new Date(`${today}T00:00:00.000Z`);
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     const todayStart = new Date(`${today}T00:00:00.000Z`);
 
-    const [mortalityRaw, wqReadingsCount, feedingRaw] = await Promise.all([
+    const [mortalityRaw, cullRaw, wqReadingsCount, feedingRaw] = await Promise.all([
       this.mortalityRepo
         .createQueryBuilder('mortality')
         .select('COALESCE(SUM(mortality.count), 0)', 'mortalityCount')
         .where('mortality.tenantId = :tenantId', { tenantId })
         .andWhere('mortality.recordDate = :today', { today })
         .getRawOne<{ mortalityCount: string }>(),
+      // FARM-MEDIUM-053: culls were previously invisible in the removal counts.
+      // Sum today's CULL operations from tank_operations as a DISTINCT metric.
+      this.tankOperationRepo
+        .createQueryBuilder('operation')
+        .select('COALESCE(SUM(operation.quantity), 0)', 'cullCount')
+        .where('operation.tenantId = :tenantId', { tenantId })
+        .andWhere('operation.operationType = :cull', { cull: OperationType.CULL })
+        .andWhere('operation.isDeleted = false')
+        .andWhere('operation.operationDate = :today', { today })
+        .getRawOne<{ cullCount: string }>(),
       this.waterQualityRepo
         .createQueryBuilder('measurement')
         .where('measurement.tenantId = :tenantId', { tenantId })
@@ -61,6 +78,7 @@ export class MobileDashboardService {
 
     return {
       mortalityCount: Number(mortalityRaw?.mortalityCount ?? 0),
+      cullCount: Number(cullRaw?.cullCount ?? 0),
       wqReadingsCount,
       feedingCompletedCount: Number(feedingRaw?.feedingCompletedCount ?? 0),
       feedingTotalCount: Number(feedingRaw?.feedingTotalCount ?? 0),
@@ -90,7 +108,6 @@ export class MobileDashboardService {
 
     return {
       thisWeekEventsCount,
-      pendingTransferCount: 0,
       recentEvents: recentOperations.map((operation) => this.toStockEvent(operation)),
     };
   }
@@ -136,7 +153,20 @@ export class MobileDashboardService {
     );
   }
 
-  private utcDateString(date: Date): string {
-    return date.toISOString().slice(0, 10);
+  /**
+   * Calendar date (YYYY-MM-DD) for `date` in the given IANA timeZone.
+   *
+   * WHY: a bare `date.toISOString().slice(0,10)` always slices the UTC day, so
+   * an operation logged at 23:30 farm-local in a +03 tenant would land on the
+   * wrong calendar day. en-CA gives the ISO YYYY-MM-DD ordering directly.
+   * 'UTC' reproduces the previous behaviour exactly when no zone is configured.
+   */
+  private localDateString(date: Date, timeZone: string): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
   }
 }

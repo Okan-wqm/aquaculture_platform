@@ -66,9 +66,17 @@ export class UpdateBatchStatusHandler implements ICommandHandler<UpdateBatchStat
           if (!batch.actualHarvestDate) {
             batch.actualHarvestDate = statusChangedAt;
           }
+          // FARM-CRITICAL-050 (defense-in-depth): a terminal status retires the
+          // batch — converge the overloaded isActive soft-delete flag with the
+          // operational reality so any read that still filters on isActive:true
+          // stops surfacing a closed cycle. isOperational() remains the PRIMARY
+          // mortality/cull gate; this is make-it-automatic belt-and-braces.
+          batch.isActive = false;
           break;
         case BatchStatus.FAILED:
         case BatchStatus.CLOSED:
+        case BatchStatus.TRANSFERRED:
+          batch.isActive = false;
           break;
         case BatchStatus.ACTIVE:
           break;

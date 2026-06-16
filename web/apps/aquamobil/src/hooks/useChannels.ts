@@ -22,11 +22,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from './useAuth';
 
 import { MY_CHANNELS } from '@/graphql/messaging-operations';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { ChannelPage } from '@/types/messaging';
 import { normalizeChannelType } from '@/utils/channel-type-wire';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 /** Number of channels per page. */
 const PAGE_SIZE = 30;
@@ -73,37 +74,45 @@ async function fetchChannels(limit: number, offset: number): Promise<ChannelPage
  *                    are skipped and polling is the only refresh mechanism.
  */
 export function useChannels(socketRef?: React.RefObject<{ on: (event: string, handler: () => void) => void; off: (event: string, handler: () => void) => void } | null>) {
-  const { isAuthenticated, tenantId } = useAuth();
+  const { isAuthenticated, tenantId, user } = useAuth();
   const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
 
   const accumulatedChannelsRef = useRef<ChannelPage['items']>([]);
 
-  // WHY 2026-04-29: every tenant-scoped React Query key must use the common
-  // factory so tenant switches and sync invalidation target the same cache tree.
-  const queryKey = createTenantQueryKey(tenantId, 'messaging', 'channels', offset);
+  // MT-CRITICAL-051: `myChannels` is membership-scoped — it returns the CURRENT
+  // USER's channels — so user.id is part of BOTH the React Query key (this line)
+  // AND the IndexedDB cache namespace (userScopedCacheKey below). Without the
+  // user dimension, user A's channel list (sender names, unread state) is served
+  // to user B on the same tenant/device after a logout→login. WHY 2026-04-29: the
+  // tenant factory keeps tenant switches and sync invalidation on one cache tree.
+  const queryKey = createTenantQueryKey(tenantId, 'messaging', 'channels', user?.id, offset);
 
   const query = useQuery({
     queryKey,
     queryFn: async () => {
+      const userId = user?.id;
       try {
         const page = await fetchChannels(PAGE_SIZE, offset);
-        // Write to IndexedDB as offline fallback (only first page)
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        if (offset === 0 && tenantId) {
-          await cacheData(tenantId, CACHE_KEY, page, CACHE_TTL_MS).catch(() => {});
+        // Write to IndexedDB as offline fallback (only first page). The cache key
+        // embeds user.id via userScopedCacheKey, so the namespace is per-user, not
+        // per-tenant (MT-CRITICAL-051) — and tenant-isolated by cacheUserData.
+        if (offset === 0 && tenantId && userId) {
+          const cacheKey = userScopedCacheKey(userId, CACHE_KEY);
+          await cacheUserData(tenantId, cacheKey, page, CACHE_TTL_MS).catch(() => undefined);
         }
         return page;
       } catch (error) {
-        // Network failed — return IndexedDB cached data if available
-        if (offset === 0 && tenantId) {
-          const cached = await getCachedData<ChannelPage>(tenantId, CACHE_KEY);
+        // Network failed — return IndexedDB cached data if available (per-user).
+        if (offset === 0 && tenantId && userId) {
+          const cacheKey = userScopedCacheKey(userId, CACHE_KEY);
+          const cached = await getCachedUserData<ChannelPage>(tenantId, cacheKey);
           if (cached) return cached;
         }
         throw error;
       }
     },
-    enabled: isAuthenticated && !!tenantId,
+    enabled: isAuthenticated && !!tenantId && !!user?.id,
     staleTime: 30_000, // 30 seconds — channels change infrequently
     gcTime: 10 * 60 * 1000, // 10 min in-memory
     refetchOnWindowFocus: true,

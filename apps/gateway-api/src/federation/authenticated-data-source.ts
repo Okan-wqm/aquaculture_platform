@@ -230,6 +230,11 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
           roles: user.roles ?? [],
           email: user.email,
           mfaVerified: (user as JwtPayload & { mfaVerified?: boolean }).mfaVerified,
+          // SEC-HIGH-051 / SEC-HIGH-052: thread the object-level authorization
+          // claims into the HMAC-bound assertion so farm/hr resolvers can
+          // enforce site + mobile-feature gates on the production gateway path.
+          assignedSiteIds: user.assignedSiteIds,
+          mobileFeatures: user.mobileFeatures,
         }),
       );
     }

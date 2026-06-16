@@ -1,7 +1,9 @@
-import { useNavigate } from 'react-router-dom';
-import type { LucideIcon } from 'lucide-react';
-import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { clsx } from 'clsx';
+import type { LucideIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+import type { MobileFeature } from '@/hooks/useMobilePermissions';
+import { useFeatureAccess } from '@/utils/feature-access';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,9 +40,11 @@ interface QuickActionGridProps {
  */
 export function QuickActionGrid({ actions }: QuickActionGridProps) {
   const navigate = useNavigate();
-  const { canAccess } = useMobilePermissions();
+  // SEC-MEDIUM-050: canReach enforces the entitlement flag AND any feature role
+  // floor (harvest => MODULE_MANAGER), so a sub-floor user never sees the action.
+  const { canReach } = useFeatureAccess();
 
-  const visibleActions = actions.filter((action) => canAccess(action.feature));
+  const visibleActions = actions.filter((action) => canReach(action.feature));
 
   // WHY: Render nothing when no actions are visible. The parent hub page is
   // responsible for showing an appropriate empty state if ALL sections are

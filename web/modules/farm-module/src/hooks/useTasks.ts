@@ -287,21 +287,34 @@ export function useTasks(filter?: TaskFilterInput) {
   });
 
   const toggleChecklistItemMutation = useMutation({
-    mutationFn: async ({ taskId, itemId }: { taskId: string; itemId: string }) => {
+    // The farm subgraph serves the absolute-target `setChecklistItem(input: SetChecklistItemInput!)`
+    // mutation (taskId/itemId/isCompleted), replacing the old blind-flip `toggleChecklistItem`.
+    // The caller supplies the desired absolute `isCompleted` target (e.g. `!item.isCompleted`)
+    // so the desktop "click to flip" UX is preserved while the backend receives an idempotent
+    // target state rather than relying on a server-side read-then-flip.
+    mutationFn: async ({
+      taskId,
+      itemId,
+      isCompleted,
+    }: {
+      taskId: string;
+      itemId: string;
+      isCompleted: boolean;
+    }) => {
       const mutation = `
-        mutation ToggleChecklistItem($taskId: String!, $itemId: String!) {
-          toggleChecklistItem(taskId: $taskId, itemId: $itemId) {
+        mutation SetChecklistItem($input: SetChecklistItemInput!) {
+          setChecklistItem(input: $input) {
             ${TASK_FIELDS}
           }
         }
       `;
 
-      const result = await graphqlClient.request<{ toggleChecklistItem: Task }>(
+      const result = await graphqlClient.request<{ setChecklistItem: Task }>(
         mutation,
-        { taskId, itemId }
+        { input: { taskId, itemId, isCompleted } }
       );
 
-      return result.toggleChecklistItem;
+      return result.setChecklistItem;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tasks') });

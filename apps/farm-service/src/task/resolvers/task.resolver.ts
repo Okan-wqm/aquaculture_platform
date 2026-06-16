@@ -18,23 +18,35 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant, CurrentUser, Role, Roles, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
+import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Task, TaskStatus } from '../entities/task.entity';
 import { TaskService } from '../services/task.service';
 import { CreateTaskInput } from '../dto/create-task.dto';
-import { UpdateTaskInput } from '../dto/update-task.dto';
+import {
+  UpdateTaskInput,
+  TaskLifecycleInput,
+  SetChecklistItemInput,
+} from '../dto/update-task.dto';
 import { TaskFilterInput } from '../dto/task-filter.dto';
 
 // ============================================================================
 // USER CONTEXT
 // ============================================================================
 
+/**
+ * WHY: roles typed as Role[] (the canonical backend enum) because the JWT guard
+ * validates enum membership before the request reaches the resolver. This is the
+ * single typed boundary where the JWT-supplied role strings become canonical
+ * Role values — fed into the SEC-HIGH-050 object-level self-scope assertion.
+ */
 interface UserContext {
   sub: string;
   email: string;
   tenantId: string;
-  roles: string[];
+  roles: Role[];
 }
 
 // ============================================================================
@@ -69,7 +81,9 @@ class TaskStatsResponse {
 // RESOLVER
 // ============================================================================
 
-@UseGuards(GqlAuthGuard)
+// SEC-HIGH-052: MobileFeatureGuard enforces the 'tasks' mobile entitlement on
+// the field-worker task mutations below (no-op on queries / un-annotated routes).
+@UseGuards(GqlAuthGuard, MobileFeatureGuard)
 @Resolver(() => Task)
 export class TaskResolver {
   private readonly logger = new Logger(TaskResolver.name);
@@ -136,6 +150,7 @@ export class TaskResolver {
   // -------------------------------------------------------------------------
 
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async createTask(
     @Args('input') input: CreateTaskInput,
@@ -147,6 +162,7 @@ export class TaskResolver {
   }
 
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async updateTask(
     @Args('input') input: UpdateTaskInput,
@@ -154,29 +170,44 @@ export class TaskResolver {
     @CurrentUser() user: UserContext,
   ): Promise<Task> {
     this.logger.log(`Updating task: ${input.id}`);
-    return this.taskService.update(tenantId, input, user.sub);
+    return this.taskService.update(tenantId, input, {
+      sub: user.sub,
+      roles: user.roles,
+    });
   }
 
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async completeTask(
-    @Args('id', { type: () => ID }) id: string,
+    @Args('input') input: TaskLifecycleInput,
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: UserContext,
   ): Promise<Task> {
-    this.logger.log(`Completing task: ${id}`);
-    return this.taskService.completeTask(tenantId, id, user.sub);
+    this.logger.log(`Completing task: ${input.id}`);
+    return this.taskService.completeTask(
+      tenantId,
+      input.id,
+      { sub: user.sub, roles: user.roles },
+      mobileCommandEnvelopeFromInput(input),
+    );
   }
 
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async startTask(
-    @Args('id', { type: () => ID }) id: string,
+    @Args('input') input: TaskLifecycleInput,
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: UserContext,
   ): Promise<Task> {
-    this.logger.log(`Starting task: ${id}`);
-    return this.taskService.startTask(tenantId, id, user.sub);
+    this.logger.log(`Starting task: ${input.id}`);
+    return this.taskService.startTask(
+      tenantId,
+      input.id,
+      { sub: user.sub, roles: user.roles },
+      mobileCommandEnvelopeFromInput(input),
+    );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
@@ -189,18 +220,33 @@ export class TaskResolver {
     return this.taskService.delete(tenantId, id);
   }
 
+  /**
+   * FARM-HIGH-057 BREAKING CHANGE: `toggleChecklistItem` (a blind flip) is
+   * replaced by `setChecklistItem`, which carries the ABSOLUTE target
+   * `isCompleted` plus the idempotency envelope so offline replays converge
+   * instead of reverting the item.
+   */
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
-  async toggleChecklistItem(
-    @Args('taskId', { type: () => ID }) taskId: string,
-    @Args('itemId') itemId: string,
+  async setChecklistItem(
+    @Args('input') input: SetChecklistItemInput,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<Task> {
-    this.logger.log(`Toggling checklist item ${itemId} on task ${taskId}`);
-    return this.taskService.toggleChecklistItem(tenantId, taskId, itemId);
+    this.logger.log(`Setting checklist item ${input.itemId} on task ${input.taskId}`);
+    return this.taskService.setChecklistItem(
+      tenantId,
+      input.taskId,
+      input.itemId,
+      input.isCompleted,
+      { sub: user.sub, roles: user.roles },
+      mobileCommandEnvelopeFromInput(input),
+    );
   }
 
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async addTaskNote(
     @Args('taskId', { type: () => ID }) taskId: string,
@@ -209,6 +255,9 @@ export class TaskResolver {
     @CurrentUser() user: UserContext,
   ): Promise<Task> {
     this.logger.log(`Adding note to task ${taskId}`);
-    return this.taskService.addNote(tenantId, taskId, text, user.sub);
+    return this.taskService.addNote(tenantId, taskId, text, {
+      sub: user.sub,
+      roles: user.roles,
+    });
   }
 }

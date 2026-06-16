@@ -8,7 +8,7 @@ import { TaskDetailModal } from './TaskDetailModal';
 
 interface CalendarTabProps {
   tasks: Task[];
-  onToggleChecklist: (taskId: string, checklistId: string) => void;
+  onToggleChecklist: (taskId: string, checklistId: string, isCompleted: boolean) => void;
   onAddNote: (taskId: string, note: string) => void;
   onToggleComplete: (taskId: string) => void;
 }

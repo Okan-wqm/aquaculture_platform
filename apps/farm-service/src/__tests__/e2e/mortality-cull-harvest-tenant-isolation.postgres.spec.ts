@@ -16,6 +16,8 @@ import {
   getTenantSchemaName,
   withTenantContext,
 } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import {
   bootPostgresContainer,
   HarnessContext,
@@ -41,6 +43,7 @@ import { TankOperation, OperationType } from '../../batch/entities/tank-operatio
 import { RecordCullHandler } from '../../batch/handlers/record-cull.handler';
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
 import { BatchService } from '../../batch/services/batch.service';
+import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
 import {
   Department,
   DepartmentStatus,
@@ -224,6 +227,22 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     const harvestPolicy = {
       evaluate: jest.fn().mockResolvedValue(undefined),
     };
+    // FARM-MEDIUM-054 / FARM-HIGH-052: mortality/cull handlers now also take an
+    // AuditLogService, the shared MortalityCullPolicyService, the farm-stock
+    // projection, and the MobileCommandReceiptService. This tenant-ISOLATION e2e
+    // syncs only the batch/tank/operation/mortality/harvest entities — the
+    // farm_audit_logs and farm_mobile_command_receipts tables are out of its
+    // schema set — so audit + receipt collaborators are stubbed (their own unit
+    // specs cover them) while the policy guards run for real against the DB rows.
+    const auditLogService = { logWithManager: jest.fn().mockResolvedValue(undefined) };
+    const mortalityCullPolicy = new MortalityCullPolicyService();
+    const farmStockProjection = { refreshContainers: jest.fn().mockResolvedValue(undefined) };
+    const mobileCommandReceipts = {
+      // A non-legacy 'started' receipt lets the stock-mutating handler proceed
+      // without touching the receipts table; complete() is a no-op stub.
+      begin: jest.fn().mockResolvedValue({ mode: 'started', receiptId: randomBytes(8).toString('hex') }),
+      complete: jest.fn().mockResolvedValue(undefined),
+    };
     recordMortality = new RecordMortalityHandler(
       dataSource,
       batchRepository,
@@ -235,6 +254,13 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       equipmentTypeRepository,
       outboxPublisher,
       backdatePolicy as never,
+      auditLogService as never,
+      // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
+      // MODULE_MANAGER so site authz bypasses for this tenant-isolation e2e.
+      new SiteAuthorizationService(),
+      mortalityCullPolicy,
+      farmStockProjection as never,
+      mobileCommandReceipts as never,
     );
     recordCull = new RecordCullHandler(
       dataSource,
@@ -243,6 +269,11 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankBatchRepository,
       equipmentRepository,
       outboxPublisher,
+      auditLogService as never,
+      new SiteAuthorizationService(),
+      mortalityCullPolicy,
+      farmStockProjection as never,
+      mobileCommandReceipts as never,
     );
     // Final-harvest auto-close (CloseBatchCommand) is dispatched via the
     // CommandBus and exercised by the unit spec; this DB-isolation e2e stubs
@@ -260,6 +291,14 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       operationRepository,
       tankBatchRepository,
       tankRepository,
+      new SiteAuthorizationService(),
+      // CreateHarvestRecordHandler also defaults farmStockProjection +
+      // mobileCommandReceipts to throwing test-only stubs; this isolation e2e
+      // must supply working no-op stubs (same rationale as the mortality/cull
+      // handlers above) or the harvest path throws before the tenant-isolation
+      // assertions run.
+      farmStockProjection as never,
+      mobileCommandReceipts as never,
     );
     deleteHarvest = new DeleteHarvestRecordHandler(
       harvestRepository,
@@ -268,6 +307,10 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankRepository,
       dataSource,
       outboxPublisher,
+      // DeleteHarvestRecordHandler also defaults farmStockProjection to a
+      // throwing test-only stub; supply the working no-op so the delete path
+      // reaches the tenant-isolation assertions.
+      farmStockProjection as never,
     );
     listHarvests = new ListHarvestsHandler(harvestRepository);
   });
@@ -297,6 +340,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
             notes: 'tenant-b control mortality',
           },
           USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );
@@ -315,6 +360,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
             notes: 'tenant-a mortality',
           },
           USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );
@@ -334,6 +381,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
             notes: 'tenant-a cull from legacy tanks table',
           },
           USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );
@@ -355,6 +404,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
             notes: 'tenant-a harvest',
           },
           USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );
@@ -430,9 +481,13 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
 
     const tenantAOutboxRows = await outboxRows(TENANT_A);
     const tenantBOutboxRows = await outboxRows(TENANT_B);
+    // HarvestRecordCancelled is emitted by the delete-harvest step (now wired
+    // with a working farmStockProjection stub) — it is correctly tenant-scoped
+    // to TENANT_A's outbox, which is exactly what this isolation e2e asserts.
     expect(tenantAOutboxRows.map((row) => row.eventType).sort()).toEqual([
       'BatchHarvested',
       'CullRecorded',
+      'HarvestRecordCancelled',
       'MortalityRecorded',
     ]);
     expect(tenantBOutboxRows.map((row) => row.eventType)).toEqual(['MortalityRecorded']);

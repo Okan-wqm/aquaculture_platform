@@ -19,10 +19,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import { WaterQualityValidationService } from '../services/water-quality-validation.service';
 import { WaterQualityEvaluationService } from '../services/water-quality-evaluation.service';
-import { WaterQualityService, CreateWaterQualityData } from '../water-quality.service';
+import { WaterQualityService, CreateWaterQualityData, WaterQualityCaller } from '../water-quality.service';
 import {
   WaterQualityMeasurement,
   WaterQualityStatus,
@@ -35,6 +37,17 @@ import { UpdateWaterQualityInput } from '../dto/update-water-quality.input';
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const EQUIPMENT = '22222222-2222-4222-8222-222222222222';
 const MEASUREMENT = '33333333-3333-4333-8333-333333333333';
+const USER = '44444444-4444-4444-8444-444444444444';
+
+// SEC-HIGH-051: the caller threaded into WaterQualityService.create. A
+// MODULE_MANAGER bypasses the object-level site check via the canonical role
+// hierarchy, so these single-ingress validation tests keep their original
+// behaviour — they assert validate()/persist invariants, not the site gate.
+const WQ_CALLER: WaterQualityCaller = {
+  sub: USER,
+  roles: [Role.MODULE_MANAGER],
+  assignedSiteIds: [],
+};
 
 interface ServiceHarness {
   service: WaterQualityService;
@@ -71,6 +84,10 @@ async function buildService(): Promise<ServiceHarness> {
       { provide: WaterQualityValidationService, useValue: { validate } },
       { provide: DataSource, useValue: mockDataSource },
       { provide: OutboxPublisher, useValue: { enqueue } },
+      // SEC-HIGH-051: pure policy with no constructor deps — provided as the
+      // real class so the object-level site check runs production logic. The
+      // MODULE_MANAGER WQ_CALLER bypasses it, preserving each test's intent.
+      SiteAuthorizationService,
     ],
   }).compile();
 
@@ -101,7 +118,7 @@ describe('WaterQualityService — single-ingress validation', () => {
         }),
       );
 
-      await service.create(TENANT, createInput());
+      await service.create(TENANT, createInput(), WQ_CALLER);
 
       expect(validate).toHaveBeenCalledTimes(1);
       expect(validate).toHaveBeenCalledWith(TENANT, { temperature: 14 }, EQUIPMENT);
@@ -121,7 +138,7 @@ describe('WaterQualityService — single-ingress validation', () => {
       });
 
       await expect(
-        service.create(TENANT, createInput({ dynamicParameters: { foo: 1 } })),
+        service.create(TENANT, createInput({ dynamicParameters: { foo: 1 } }), WQ_CALLER),
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(mockManager.save).not.toHaveBeenCalled();
@@ -136,6 +153,7 @@ describe('WaterQualityService — single-ingress validation', () => {
       const result = await service.create(
         TENANT,
         createInput({ idempotencyKey: '44444444-4444-4444-8444-444444444444' }),
+        WQ_CALLER,
       );
 
       expect(result).toBe(existing);
@@ -148,7 +166,7 @@ describe('WaterQualityService — single-ingress validation', () => {
         Promise.resolve({ id: MEASUREMENT, ...(entity as object) }),
       );
 
-      await service.create(TENANT, createInput({ dynamicParameters: { temperature: 14, ph: 7.2 } }));
+      await service.create(TENANT, createInput({ dynamicParameters: { temperature: 14, ph: 7.2 } }), WQ_CALLER);
 
       // jest infers create()'s array overload for the recorded call, so the
       // 2nd arg is typed `unknown[] | undefined` — which does not overlap with

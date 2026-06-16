@@ -14,6 +14,8 @@
  *   4. Unknown quality grade is rejected (no silent GRADE_A upgrade).
  */
 import { BadRequestException, Logger } from '@nestjs/common';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { createMockRepository } from '@aquaculture/testing';
 import { getMetadataStorage } from 'class-validator';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
@@ -140,6 +142,9 @@ function makeHarness(opts: HarnessOpts = {}) {
     createMockRepository<TankOperation>(),
     createMockRepository<TankBatch>(),
     createMockRepository<Tank>(),
+    // SEC-HIGH-051: the real fail-closed SSoT; commands below pass MODULE_MANAGER
+    // so site authz bypasses for these final-harvest-chain domain tests.
+    new SiteAuthorizationService(),
     farmStockProjection as never,
     mobileCommandReceipts as never,
   );
@@ -158,7 +163,9 @@ function makeCommand(overrides: Partial<Record<string, unknown>> = {}) {
     harvestDate: '2026-06-10T08:00:00.000Z',
     ...overrides,
   };
-  return new CreateHarvestRecordCommand('tenant-1', input, 'user-1');
+  // MODULE_MANAGER so SEC-HIGH-051 site authz bypasses (createHarvestRecord's
+  // @Roles floor is MODULE_MANAGER+ anyway — see SEC-MEDIUM-050).
+  return new CreateHarvestRecordCommand('tenant-1', input, 'user-1', [Role.MODULE_MANAGER], []);
 }
 
 describe('CreateHarvestRecordHandler — final-harvest chain', () => {
@@ -317,7 +324,9 @@ describe('CreateHarvestRecordHandler — server-derived harvest identity (FARM-H
       supervisorId: 'spoofed-supervisor',
     };
 
-    await handler.execute(new CreateHarvestRecordCommand('tenant-1', input, principal));
+    await handler.execute(
+      new CreateHarvestRecordCommand('tenant-1', input, principal, [Role.MODULE_MANAGER], []),
+    );
 
     expect(createdHarvestRecords).toHaveLength(1);
     expect(createdHarvestRecords[0]?.supervisorId).toBe(principal);

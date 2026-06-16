@@ -63,6 +63,18 @@ registerEnumType(MortalityCause, {
 });
 
 /**
+ * Type guard for MortalityCause — narrows a raw lowercase wire value to the enum
+ * without a cast. Used by RecordMortalityHandler to map a MortalityReason VALUE
+ * onto its MortalityCause counterpart (the reason VALUE set is a subset of the
+ * cause VALUE set), replacing the previous `value as MortalityCause` assertion
+ * so the SSoT guard pattern (isMortalityReason / isCullReason) is consistent
+ * across both enums.
+ */
+export function isMortalityCause(value: string | undefined | null): value is MortalityCause {
+  return value != null && (Object.values(MortalityCause) as string[]).includes(value);
+}
+
+/**
  * Ölüm ciddiyet seviyesi
  */
 export enum MortalitySeverity {

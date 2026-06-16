@@ -48,6 +48,10 @@ import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
 import { ConditionWarning } from '../dto/stock-movement.response';
 import { LotMixService } from './lot-mix.service';
+import {
+  SiteAuthorizationService,
+  type SiteScopeCaller,
+} from '@aquaculture/backend-common/security';
 
 /**
  * Normalized inputs to a single stock movement. Mirrors the load-bearing
@@ -82,6 +86,16 @@ export interface MovementContext {
   userId: string;
   /** Denormalized display name for the immutable audit row. */
   userName?: string;
+  /**
+   * SEC-HIGH-051: object-level site authorization for a DIRECT operator-issued
+   * movement. Present ONLY when a human caller (RecordStockMovementHandler)
+   * issues the movement — the sink then asserts the caller is assigned to each
+   * touched location's site. ABSENT for feeding callers, which already authorize
+   * at their OWN sink on the FEEDING site: a feed's storage warehouse may be a
+   * different site the operator is legitimately not assigned to, so gating the
+   * internal feed-deduction on the warehouse site would wrongly deny feeding.
+   */
+  siteAuthorization?: SiteScopeCaller;
 }
 
 /**
@@ -102,7 +116,10 @@ export interface RecordMovementResult {
 export class StockMovementService {
   private readonly logger = new Logger(StockMovementService.name);
 
-  constructor(private readonly lotMixService: LotMixService) {}
+  constructor(
+    private readonly lotMixService: LotMixService,
+    private readonly siteAuth: SiteAuthorizationService,
+  ) {}
 
   /**
    * Record a single stock movement inside the CALLER's transaction.
@@ -152,6 +169,21 @@ export class StockMovementService {
     }
 
     const { fromLocation, toLocation } = await this.resolveLocations(manager, input, tenantId);
+
+    // SEC-HIGH-051: object-level site authorization at the inventory-mutation
+    // SINK. For a direct operator movement (ctx.siteAuthorization present), assert
+    // the caller is assigned to EACH touched location's site BEFORE any write.
+    // MODULE_MANAGER+ bypasses via the role hierarchy; an unassigned site for a
+    // MODULE_USER DENIES (fail-closed). Feeding callers omit siteAuthorization —
+    // they authorize at their own sink on the feeding site.
+    if (ctx.siteAuthorization) {
+      if (fromLocation) {
+        this.siteAuth.assertSiteAssignment({ caller: ctx.siteAuthorization, siteId: fromLocation.siteId });
+      }
+      if (toLocation) {
+        this.siteAuth.assertSiteAssignment({ caller: ctx.siteAuthorization, siteId: toLocation.siteId });
+      }
+    }
 
     // Condition warnings for inbound stock (temperature / humidity mismatch).
     const warnings: ConditionWarning[] = [];

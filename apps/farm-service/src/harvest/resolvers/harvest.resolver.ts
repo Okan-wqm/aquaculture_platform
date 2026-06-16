@@ -6,8 +6,8 @@
  *
  * @module Harvest/Resolvers
  */
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
-import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { Tenant, CurrentUser, Roles, Role, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import { TenantGuard, MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { UseGuards, Logger } from '@nestjs/common';
@@ -49,7 +49,12 @@ interface UserContext {
   sub: string;
   email: string;
   tenantId: string;
-  roles: string[];
+  // SEC-MEDIUM-050 / FE-MEDIUM-051: roles typed as the canonical Role[] (the JWT
+  // guard validates enum membership before the resolver), so the site-authz
+  // threading below carries the SSoT vocabulary, not loose strings.
+  roles: Role[];
+  // SEC-HIGH-051: the caller's assigned farm Site ids (object-level site authz).
+  assignedSiteIds?: string[];
 }
 
 /**
@@ -186,7 +191,10 @@ export class HarvestStatisticsResponse {
 // ============================================================================
 
 @Resolver(() => HarvestRecord)
-@UseGuards(TenantGuard)
+// SEC-HIGH-052: MobileFeatureGuard enforces the 'harvest' entitlement on
+// createHarvestRecord (no-op on other routes). It NEVER relaxes the @Roles
+// floor (SEC-MEDIUM-050) — both the role gate AND the feature gate apply.
+@UseGuards(TenantGuard, MobileFeatureGuard)
 export class HarvestResolver {
   private readonly logger = new Logger(HarvestResolver.name);
 
@@ -332,9 +340,16 @@ export class HarvestResolver {
   /**
    * Create a new harvest record
    */
-  // Return HarvestRecord (not Batch) so the frontend receives harvest-specific fields
+  // Return HarvestRecord (not Batch) so the frontend receives harvest-specific fields.
+  // SEC-MEDIUM-050: the role floor is the SSoT — createHarvestRecord stays
+  // MODULE_MANAGER+ (NO MODULE_USER). The mobile 'harvest' feature gate below
+  // NEVER widens it; both gates apply.
+  // Keep this comment ABOVE @Mutation: the farm-graphql-fe-be-parity extractor
+  // skips interleaved DECORATORS but not comments, so a comment between
+  // @Mutation and the method hides the field from the FE↔BE parity scan.
   @Mutation(() => HarvestRecord, { description: 'Create a harvest record and update batch/tank quantities' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @RequiresMobileFeature('harvest')
   async createHarvestRecord(
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
@@ -343,7 +358,14 @@ export class HarvestResolver {
     this.logger.log(`Creating harvest record for tenant ${tenantId} by user ${user.sub}`);
 
     return this.commandBus.execute(
-      new CreateHarvestRecordCommand(tenantId, input, user.sub, mobileCommandEnvelopeFromInput(input))
+      new CreateHarvestRecordCommand(
+        tenantId,
+        input,
+        user.sub,
+        user.roles,
+        user.assignedSiteIds ?? [],
+        mobileCommandEnvelopeFromInput(input),
+      ),
     );
   }
 

@@ -122,6 +122,7 @@ Object.defineProperty(globalThis, 'navigator', {
 // Import after mocks
 // --------------------------------------------------------------------------
 
+import { userScopedCacheKey } from '../../utils/user-scoped-cache-key';
 import {
   queueOperation,
   getPendingOperations,
@@ -132,6 +133,8 @@ import {
   clearAllOperations,
   cacheData,
   getCachedData,
+  cacheUserData,
+  getCachedUserData,
   clearCache,
   syncOperation,
   syncAllOperations,
@@ -639,6 +642,83 @@ describe('Offline Queue', () => {
     it('should return null for non-existent cache key', async () => {
       const cached = await getCachedData(TEST_TENANT, 'nonexistent');
       expect(cached).toBeNull();
+    });
+  });
+
+  // ========================================================================
+  // MT-CRITICAL-051: per-user cache isolation on a SHARED device.
+  // The user-scoped cache key embeds user.id, so two users of the SAME tenant
+  // never share a `my*` cache namespace. These tests prove a write by user A is
+  // NOT readable by user B (same tenant, same device) and IS readable by user A.
+  // ========================================================================
+
+  describe('cacheUserData / getCachedUserData (MT-CRITICAL-051)', () => {
+    const TENANT = 'tenant-shared-001';
+    const USER_A = 'user-aaaa';
+    const USER_B = 'user-bbbb';
+
+    // Re-assert the identity decrypt impl. A sibling test
+    // ('should skip operations that fail decryption') queues a
+    // mockRejectedValueOnce that, under full-suite run order, can leak forward
+    // and reject the FIRST decrypt in this block. mockReset() drains any pending
+    // once-implementation; we then restore the base identity impl so these
+    // isolation tests are deterministic without touching production code.
+    beforeEach(() => {
+      mockDecrypt.mockReset();
+      mockDecrypt.mockImplementation(
+        (_algo: unknown, _key: unknown, data: ArrayBuffer) =>
+          Promise.resolve(new Uint8Array(data).buffer),
+      );
+    });
+
+    it('serves user A their own cached schedule', async () => {
+      const keyA = userScopedCacheKey(USER_A, 'schedule', '2026-06-15');
+      await cacheUserData(TENANT, keyA, { plannedWorkDays: 5 }, 60_000);
+
+      const read = await getCachedUserData<{ plannedWorkDays: number }>(TENANT, keyA);
+      expect(read).toEqual({ plannedWorkDays: 5 });
+    });
+
+    it('does NOT serve user A\'s schedule to user B on the same tenant/device', async () => {
+      const keyA = userScopedCacheKey(USER_A, 'schedule', '2026-06-15');
+      const keyB = userScopedCacheKey(USER_B, 'schedule', '2026-06-15');
+      await cacheUserData(TENANT, keyA, { plannedWorkDays: 5 }, 60_000);
+
+      // User B reads with THEIR key for the same tenant/week — must get nothing,
+      // because the namespace embeds the user id (the MT-CRITICAL-051 leak fix).
+      const readAsB = await getCachedUserData<{ plannedWorkDays: number }>(TENANT, keyB);
+      expect(readAsB).toBeNull();
+    });
+
+    it('partitions the same domain key by user inside the IndexedDB store', async () => {
+      const keyA = userScopedCacheKey(USER_A, 'myTasks');
+      const keyB = userScopedCacheKey(USER_B, 'myTasks');
+      await cacheUserData(TENANT, keyA, [{ id: 'task-a' }], 60_000);
+      await cacheUserData(TENANT, keyB, [{ id: 'task-b' }], 60_000);
+
+      // Two distinct physical IndexedDB keys — no collision, no overwrite.
+      expect(cacheIdbStore.has(`cache_${TENANT}:u:${USER_A}:myTasks`)).toBe(true);
+      expect(cacheIdbStore.has(`cache_${TENANT}:u:${USER_B}:myTasks`)).toBe(true);
+
+      const readA = await getCachedUserData<Array<{ id: string }>>(TENANT, keyA);
+      const readB = await getCachedUserData<Array<{ id: string }>>(TENANT, keyB);
+      expect(readA).toEqual([{ id: 'task-a' }]);
+      expect(readB).toEqual([{ id: 'task-b' }]);
+    });
+
+    it('the logout full clearCache() wipes user-scoped entries too', async () => {
+      const keyA = userScopedCacheKey(USER_A, 'leaveBalances', 2026);
+      await cacheUserData(TENANT, keyA, [{ remaining: 10 }], 60_000);
+      expect(cacheIdbStore.size).toBe(1);
+
+      // No-tenant clearCache() is the logout wipe path (useAuth.clearAllUserData).
+      await clearCache();
+      expect(cacheIdbStore.size).toBe(0);
+      expect(await getCachedUserData(TENANT, keyA)).toBeNull();
+    });
+
+    it('userScopedCacheKey rejects an empty userId (no namespace collapse)', () => {
+      expect(() => userScopedCacheKey('', 'schedule')).toThrow(/userId is required/);
     });
   });
 

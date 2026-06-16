@@ -8,6 +8,7 @@
  * @module Batch
  */
 import type { Role } from '@aquaculture/backend-common/decorators';
+import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 import type { TenantRequest } from '@aquaculture/backend-common/types';
 import {
   Controller,
@@ -44,6 +45,7 @@ import {
   UpdateBatchStatusCommand,
 } from '../commands';
 import { BatchInputType, BatchStatus } from '../entities/batch.entity';
+import { isCullReason, isMortalityReason } from '../entities/tank-operation.enums';
 import { GetBatchPerformanceQuery, GetBatchQuery, ListBatchesQuery } from '../queries';
 import { BatchService } from '../services/batch.service';
 
@@ -60,6 +62,9 @@ interface VerifiedBatchContext {
   tenantId: string;
   actorUserId: string;
   roles: Role[];
+  // SEC-HIGH-051: the caller's assigned Site ids for the object-level site check
+  // on the REST stock-mutating paths (same data as the GraphQL resolver path).
+  assignedSiteIds: string[];
 }
 
 // ============================================================================
@@ -95,7 +100,14 @@ class AllocateBatchDto {
   notes?: string;
 }
 
+// FARM-HIGH-052: the REST front for stock-mutating operations must also supply
+// the idempotency envelope, otherwise the command reaches the handler in
+// 'legacy' mode and the handler's mandatory-key reject would 500 every REST
+// mortality/cull/transfer. clientCommandId + payloadHash are required here so
+// the REST path furnishes the key in the SAME change as the handler reject.
 class RecordMortalityDto {
+  clientCommandId: string;
+  payloadHash: string;
   tankId: string;
   batchId: string;
   operationDate: string;
@@ -107,6 +119,8 @@ class RecordMortalityDto {
 }
 
 class RecordCullDto {
+  clientCommandId: string;
+  payloadHash: string;
   tankId: string;
   batchId: string;
   operationDate: string;
@@ -118,6 +132,8 @@ class RecordCullDto {
 }
 
 class RecordTransferDto {
+  clientCommandId: string;
+  payloadHash: string;
   tankId: string;
   batchId: string;
   destinationTankId: string;
@@ -158,19 +174,35 @@ function verifiedContext(req: TenantRequest): VerifiedBatchContext {
     tenantId,
     actorUserId,
     roles: (req.verifiedUserAssertion?.roles ?? req.user?.roles ?? []) as Role[],
+    // SEC-HIGH-051: prefer the HMAC-bound assertion's site claim; fall back to
+    // the direct-JWT req.user on the non-gateway path. Default [] is fail-closed.
+    assignedSiteIds:
+      req.verifiedUserAssertion?.assignedSiteIds ?? req.user?.assignedSiteIds ?? [],
   };
 }
 
 function parseMortalityReason(value: string | undefined): MortalityReason {
-  return Object.values(MortalityReason).includes(value as MortalityReason)
-    ? (value as MortalityReason)
-    : MortalityReason.OTHER;
+  return isMortalityReason(value) ? value : MortalityReason.OTHER;
 }
 
 function parseCullReason(value: string | undefined): CullReason {
-  return Object.values(CullReason).includes(value as CullReason)
-    ? (value as CullReason)
-    : CullReason.OTHER;
+  return isCullReason(value) ? value : CullReason.OTHER;
+}
+
+/**
+ * FARM-HIGH-052: build the idempotency envelope from a REST DTO so the
+ * stock-mutating command reaches the handler with a clientCommandId +
+ * payloadHash (non-legacy mode). The REST caller supplies both fields.
+ */
+function restMobileEnvelope(
+  dto: { clientCommandId: string; payloadHash: string },
+  operationType: string,
+): MobileCommandEnvelope {
+  return {
+    clientCommandId: dto.clientCommandId,
+    payloadHash: dto.payloadHash,
+    operationType,
+  };
 }
 
 // ============================================================================
@@ -344,7 +376,14 @@ export class BatchController {
     @Param('id', ParseUUIDPipe) batchId: string,
     @Body() dto: AllocateBatchDto,
   ) {
-    const { tenantId, actorUserId, roles } = verifiedContext(req);
+    // SEC-HIGH-051: thread roles AND assignedSiteIds from the authenticated REST
+    // principal. AllocateToTankCommand's positional params are
+    // (tenantId, batchId, payload, allocatedBy, userRoles, callerAssignedSiteIds).
+    // Omitting assignedSiteIds previously left it at its `[]` default, which
+    // fail-closed denies a legitimate same-site MODULE_USER at the handler's
+    // assertSiteAssignment. Pass it from the same verified context the GraphQL
+    // path uses (assertion site claim, JWT fallback).
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const allocation = await this.commandBus.execute(
       new AllocateToTankCommand(
@@ -359,6 +398,7 @@ export class BatchController {
         },
         actorUserId,
         roles,
+        assignedSiteIds,
       ),
     );
 
@@ -440,8 +480,8 @@ export class TankOperationsController {
   async recordMortality(
     @Req() req: TenantRequest,
     @Body() dto: RecordMortalityDto,
-  ) {
-    const { tenantId, actorUserId } = verifiedContext(req);
+  ): Promise<{ success: boolean; data: unknown }> {
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const operation = await this.commandBus.execute(
       new RecordMortalityCommand(
@@ -458,6 +498,9 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        roles,
+        assignedSiteIds,
+        restMobileEnvelope(dto, 'recordMortality'),
       ),
     );
 
@@ -476,7 +519,7 @@ export class TankOperationsController {
     @Req() req: TenantRequest,
     @Body() dto: RecordCullDto,
   ) {
-    const { tenantId, actorUserId } = verifiedContext(req);
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const operation = await this.commandBus.execute(
       new RecordCullCommand(
@@ -492,6 +535,9 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        roles,
+        assignedSiteIds,
+        restMobileEnvelope(dto, 'recordCull'),
       ),
     );
 
@@ -510,7 +556,7 @@ export class TankOperationsController {
     @Req() req: TenantRequest,
     @Body() dto: RecordTransferDto,
   ) {
-    const { tenantId, actorUserId } = verifiedContext(req);
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const operation = await this.commandBus.execute(
       new TransferBatchCommand(
@@ -526,6 +572,9 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        roles,
+        assignedSiteIds,
+        restMobileEnvelope(dto, 'transferBatch'),
       ),
     );
 
@@ -545,7 +594,7 @@ export class TankOperationsController {
     @Req() req: TenantRequest,
     @Body() dto: RecordHarvestDto,
   ) {
-    const { tenantId, actorUserId } = verifiedContext(req);
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
     const totalBiomass = dto.totalWeightKg ?? (dto.quantity * (dto.avgWeightG ?? 0)) / 1000;
 
     const operation = await this.commandBus.execute(
@@ -564,6 +613,8 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        roles,
+        assignedSiteIds,
       ),
     );
 

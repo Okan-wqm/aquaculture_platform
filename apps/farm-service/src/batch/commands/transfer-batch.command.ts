@@ -6,6 +6,7 @@
  *
  * @module Batch/Commands
  */
+import { Role } from '@aquaculture/backend-common/decorators';
 import type { MobileCommandEnvelope } from '@aquaculture/backend-common/mobile-command';
 import { ITenantCommand } from '@platform/cqrs';
 
@@ -26,6 +27,10 @@ export class TransferBatchCommand implements ITenantCommand {
     public readonly batchId: string,
     public readonly payload: TransferBatchPayload,
     public readonly transferredBy: string,
+    // SEC-HIGH-051: caller authz context. Transfer touches TWO sites (source +
+    // destination tank), so the handler asserts EACH leg with this context.
+    public readonly userRoles: Role[] = [],
+    public readonly callerAssignedSiteIds: string[] = [],
     public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

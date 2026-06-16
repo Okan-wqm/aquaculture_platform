@@ -6,6 +6,7 @@ import { ActionToken } from '../authentication/entities/action-token.entity';
 import { Invitation } from '../authentication/entities/invitation.entity';
 import { RefreshToken } from '../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../authentication/entities/user-module-assignment.entity';
+import { UserSiteAssignment } from '../authentication/entities/user-site-assignment.entity';
 import { User } from '../authentication/entities/user.entity';
 import { Module as SystemModule } from '../system-module/entities/module.entity';
 
@@ -36,6 +37,7 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
       User,
       ActionToken,
       UserModuleAssignment,
+      UserSiteAssignment,
       SystemModule,
       MobileUserSettings,
       RefreshToken,
@@ -71,7 +73,10 @@ import { UserLifecycleService } from './services/user-lifecycle.service';
     // auth.tenants subscription columns via the TenantSubscriptionChanged event.
     TenantSubscriptionProjectionHandler,
   ],
-  exports: [TenantService, TenantAdminService, TenantRoleService, UserLifecycleService, TypeOrmModule],
+  // SEC-HIGH-052: export MobileSettingsService so TokenService (authentication
+  // module) can inject the SINGLE mobile-feature read path. No DI cycle —
+  // no tenant provider injects an authentication provider.
+  exports: [TenantService, TenantAdminService, TenantRoleService, UserLifecycleService, MobileSettingsService, TypeOrmModule],
 })
 export class TenantModule {
   private readonly moduleClass = TenantModule.name;

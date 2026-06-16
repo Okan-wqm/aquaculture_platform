@@ -23,8 +23,11 @@
  * real tenant wrapper sits on top. Each double is built through a typed
  * mock factory so no banned casts are needed.
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { EntityManager, Repository, SelectQueryBuilder } from 'typeorm';
+
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
+import { Role } from '@aquaculture/backend-common/decorators';
 
 import { StockMovementService } from '../services/stock-movement.service';
 import { LotMixService } from '../services/lot-mix.service';
@@ -182,7 +185,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   const lotMix = mock<LotMixService>({
     detect: jest.fn().mockResolvedValue({ mixCreated: false, mix: null, effectiveLotNumber: null }),
   });
-  const service = new StockMovementService(lotMix);
+  const service = new StockMovementService(lotMix, new SiteAuthorizationService());
 
   return {
     service,
@@ -201,6 +204,46 @@ function outInput(quantity: number): Parameters<StockMovementService['recordMove
     lotNumber: 'LOT-A',
   };
 }
+
+describe('StockMovementService.recordMovement — SEC-HIGH-051 sink site-authz', () => {
+  // The sink enforces object-level site authorization ONLY for a direct operator
+  // movement (ctx.siteAuthorization present). A MODULE_USER not assigned to the
+  // touched location's site is DENIED before any inventory mutation (fail-closed).
+  it('denies a MODULE_USER not assigned to the location site (fail-closed)', async () => {
+    const { service, manager, repos } = makeHarness({ fromLot: inv({ quantity: 500 }) });
+
+    await expect(
+      service.recordMovement(manager, outInput(50), {
+        tenantId: TENANT,
+        userId: USER,
+        siteAuthorization: { sub: USER, roles: [Role.MODULE_USER], assignedSiteIds: ['site-OTHER'] },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    // Deny precedes the decrement — no write happened.
+    expect(repos.inventorySave).not.toHaveBeenCalled();
+  });
+
+  it('allows a MODULE_USER assigned to the location site', async () => {
+    const { service, manager } = makeHarness({ fromLot: inv({ quantity: 500 }) });
+
+    const result = await service.recordMovement(manager, outInput(50), {
+      tenantId: TENANT,
+      userId: USER,
+      siteAuthorization: { sub: USER, roles: [Role.MODULE_USER], assignedSiteIds: ['site-1'] },
+    });
+    expect(result.idempotentHit).toBe(false);
+  });
+
+  it('does NOT gate a feeding caller that omits siteAuthorization', async () => {
+    const { service, manager } = makeHarness({ fromLot: inv({ quantity: 500 }) });
+
+    // Feeding authorizes on the FEEDING site at its own sink, so the internal
+    // feed-deduction movement passes no siteAuthorization and is not re-gated.
+    const result = await service.recordMovement(manager, outInput(50), { tenantId: TENANT, userId: USER });
+    expect(result.idempotentHit).toBe(false);
+  });
+});
 
 describe('StockMovementService.recordMovement (OUT, fail-closed)', () => {
   it('throws when the located lot has insufficient stock (rolls back caller tx)', async () => {

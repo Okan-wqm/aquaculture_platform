@@ -35,66 +35,29 @@ import { Batch } from './batch.entity';
 import type { Tank } from '../../tank/entities/tank.entity';
 
 // ============================================================================
-// ENUMS
+// ENUMS — SSoT lives in tank-operation.enums.ts (the leaf module). The entity
+// re-exports them so `@Column({ enum })` and every existing importer
+// (`import { CullReason } from '../entities/tank-operation.entity'`) keep ONE
+// identity. The persistence enums previously duplicated here had drifted from
+// the command copies (missing QUALITY / PREDATION / CANNIBALISM) — see
+// FARM-HIGH-054 + FARM-MEDIUM-052.
 // ============================================================================
 
-/**
- * Operasyon tipi
- */
-export enum OperationType {
-  // Production fish operasyonları
-  MORTALITY = 'mortality',           // Doğal ölüm
-  CULL = 'cull',                     // Ayıklama (small, deformed, sick)
-  TRANSFER_OUT = 'transfer_out',     // Transfer çıkış
-  TRANSFER_IN = 'transfer_in',       // Transfer giriş
-  HARVEST = 'harvest',               // Hasat
-  SAMPLING = 'sampling',             // Örnekleme
-  ADJUSTMENT = 'adjustment',         // Manuel düzeltme
+import {
+  OperationType,
+  CullReason,
+  MortalityReason,
+} from './tank-operation.enums';
 
-  // Cleaner fish operasyonları
-  CLEANER_DEPLOYMENT = 'cleaner_deployment',     // Cleaner fish tanka ekleme
-  CLEANER_MORTALITY = 'cleaner_mortality',       // Cleaner fish ölümü
-  CLEANER_REMOVAL = 'cleaner_removal',           // Cleaner fish çıkarma (cull/disposal)
-  CLEANER_TRANSFER_OUT = 'cleaner_transfer_out', // Cleaner fish transfer çıkış
-  CLEANER_TRANSFER_IN = 'cleaner_transfer_in',   // Cleaner fish transfer giriş
-}
+export { OperationType, CullReason, MortalityReason } from './tank-operation.enums';
 
+// OperationType registers here (its single, pre-existing call site).
+// CullReason / MortalityReason register in batch.resolver.ts (their single
+// call sites) — registering twice would throw at GraphQL schema build.
 registerEnumType(OperationType, {
   name: 'OperationType',
   description: 'Operasyon tipi',
 });
-
-/**
- * Ayıklama nedeni
- */
-export enum CullReason {
-  SMALL_SIZE = 'small_size',         // Küçük boy
-  DEFORMED = 'deformed',             // Deformasyon
-  SICK = 'sick',                     // Hasta
-  POOR_GROWTH = 'poor_growth',       // Zayıf büyüme
-  GRADING = 'grading',               // Grading sonucu
-  OTHER = 'other',
-}
-
-// CullReason is registered in batch.resolver.ts
-
-/**
- * Ölüm nedeni
- * Note: Use MortalityReason from record-mortality.command.ts for GraphQL operations
- * This local enum is kept for TypeORM column type compatibility
- */
-export enum MortalityReason {
-  DISEASE = 'disease',
-  WATER_QUALITY = 'water_quality',
-  STRESS = 'stress',
-  HANDLING = 'handling',
-  TEMPERATURE = 'temperature',
-  OXYGEN = 'oxygen',
-  UNKNOWN = 'unknown',
-  OTHER = 'other',
-}
-
-// MortalityReason is registered in batch.resolver.ts
 
 // ============================================================================
 // INTERFACES

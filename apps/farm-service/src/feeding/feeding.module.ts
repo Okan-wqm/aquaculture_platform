@@ -13,8 +13,13 @@
  *
  * @module Feeding
  */
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { FarmMobileCommandReceipt } from '../mobile-command/entities/farm-mobile-command-receipt.entity';
 
 // Entities
 import { FeedingTable } from './entities/feeding-table.entity';
@@ -79,6 +84,7 @@ import { InventoryModule } from '../storage/storage.module';
       Tank,
       Site,
       Equipment,
+      FarmMobileCommandReceipt,
     ]),
     BackdatePolicyModule,
     RestoreModule,
@@ -92,6 +98,10 @@ import { InventoryModule } from '../storage/storage.module';
     FeedConsumptionForecastService,
     FeedingProgramService,
     DailyFeedingExecutionService,
+    MobileCommandReceiptService,
+    // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
+    SiteAuthorizationService,
+    MobileFeatureGuard,
     ...FeedingCommandHandlers,
     ...FeedingQueryHandlers,
     ...FeedingResolvers,

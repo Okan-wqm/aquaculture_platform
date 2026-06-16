@@ -29,9 +29,10 @@ import { GraphQLError } from 'graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
+import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
-import { RolesGuard } from '@aquaculture/backend-common/guards';
+import { Tenant, CurrentUser, Roles, Role, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import { RolesGuard, MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { Feed } from '../../feed/entities/feed.entity';
@@ -85,7 +86,11 @@ interface UserContext {
   sub: string;
   email: string;
   tenantId: string;
-  roles: string[];
+  // SEC-HIGH-051: roles as the canonical Role[] so the site-authz threading
+  // below carries the SSoT vocabulary (the JWT guard validates enum membership).
+  roles: Role[];
+  // SEC-HIGH-051: the caller's assigned farm Site ids (object-level site authz).
+  assignedSiteIds?: string[];
 }
 
 // ============================================================================
@@ -289,7 +294,10 @@ interface AuditLogEntry {
 // RESOLVER
 // ============================================================================
 
-@UseGuards(GqlAuthGuard, RolesGuard)
+// SEC-HIGH-052: MobileFeatureGuard enforces the 'feeding' entitlement on every
+// feeding-write mutation — recordDailyFeeding, recordBulkFeeding, skipDailyFeeding
+// (no-op on the un-annotated config/read mutations).
+@UseGuards(GqlAuthGuard, RolesGuard, MobileFeatureGuard)
 @Resolver(() => FeedingProgram)
 export class FeedingProgramResolver {
   private readonly logger = new Logger(FeedingProgramResolver.name);
@@ -1058,6 +1066,7 @@ export class FeedingProgramResolver {
    */
   @Mutation(() => DailyFeedingExecution, { description: 'Gunluk yemleme kaydet' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @RequiresMobileFeature('feeding')
   async recordDailyFeeding(
     @Args('input') input: RecordDailyFeedingInput,
     @Tenant() tenantId: string,
@@ -1085,13 +1094,23 @@ export class FeedingProgramResolver {
         });
       }
 
-      // Use service layer
+      // SEC-HIGH-051: object-level site authorization is enforced AT THE SINK
+      // (DailyFeedingExecutionService.recordActualFeeding) — the ONE SSoT shared
+      // by recordDailyFeeding, recordBulkFeeding, and any future caller. The
+      // caller (sub/roles/assignedSiteIds) is threaded into the sink, which
+      // resolves the execution's tank site on its own transactional manager and
+      // asserts fail-closed before the write. No duplicated resolver-level check.
+      // FARM-MEDIUM-051: pass the mobile command envelope so the durable receipt
+      // is keyed on the client command id — a retry of a committed feeding
+      // replays as an idempotent no-op success instead of a hard failure.
       const result = await this.dailyFeedingExecutionService.recordActualFeeding(
         input.executionId,
         input.actualKg,
         user.sub,
         tenantId,
+        { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
         input.notes,
+        mobileCommandEnvelopeFromInput(input),
       );
 
       // Save feeder info if provided
@@ -1165,6 +1184,7 @@ export class FeedingProgramResolver {
    */
   @Mutation(() => DailyFeedingExecution, { description: 'Gunluk yemlemeyi atla' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @RequiresMobileFeature('feeding')
   async skipDailyFeeding(
     @Args('input') input: SkipDailyFeedingInput,
     @Tenant() tenantId: string,
@@ -1190,12 +1210,15 @@ export class FeedingProgramResolver {
         });
       }
 
-      // Use service layer
+      // SEC-HIGH-051: site authorization is enforced AT THE SINK
+      // (DailyFeedingExecutionService.skipDailyFeeding) — the caller is asserted
+      // against the execution's tank site there, fail-closed.
       const updated = await this.dailyFeedingExecutionService.skipDailyFeeding(
         input.executionId,
         input.skipReason,
         user.sub,
         tenantId,
+        { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
       );
 
       this.auditLog({
@@ -1594,10 +1617,18 @@ export class FeedingProgramResolver {
   }
 
   /**
-   * Record bulk feeding for multiple tanks
+   * Record bulk feeding for multiple tanks.
+   *
+   * SEC-HIGH-052: gated by the 'feeding' mobile entitlement (same as the single
+   * recordDailyFeeding) — a mobile-disabled user can no longer drive it.
+   * SEC-HIGH-051: object-level site authorization is enforced PER-INPUT at the
+   * shared sink (recordActualFeeding). A site the caller is not assigned to (or
+   * an unresolved site) rejects THAT input into `failed[]` — it never silently
+   * writes — while authorized inputs in the same batch still succeed.
    */
   @Mutation(() => BulkFeedingResult, { description: 'Toplu yemleme kaydi' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @RequiresMobileFeature('feeding')
   async recordBulkFeeding(
     @Args('inputs', { type: () => [RecordDailyFeedingInput] }) inputs: RecordDailyFeedingInput[],
     @Tenant() tenantId: string,
@@ -1607,6 +1638,9 @@ export class FeedingProgramResolver {
 
     const successful: DailyFeedingExecution[] = [];
     const failed: BulkFeedingFailure[] = [];
+    // SEC-HIGH-051: the same site-scope caller is threaded into every per-input
+    // sink call so the sink asserts site assignment for each execution.
+    const caller = { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds };
 
     for (const input of inputs) {
       try {
@@ -1625,7 +1659,8 @@ export class FeedingProgramResolver {
         }
 
         await this.dailyFeedingExecutionService.recordActualFeeding(
-          input.executionId, input.actualKg, user.sub, tenantId, input.notes,
+          input.executionId, input.actualKg, user.sub, tenantId, caller,
+          input.notes, mobileCommandEnvelopeFromInput(input),
         );
 
         const updated = await this.dailyFeedingExecutionRepository.findOne({

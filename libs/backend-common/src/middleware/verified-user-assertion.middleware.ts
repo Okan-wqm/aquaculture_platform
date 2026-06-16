@@ -63,6 +63,17 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
           roles: assertion.roles,
           email: assertion.email ?? undefined,
           mfaVerified: assertion.mfaVerified,
+          // SEC-HIGH-051 / SEC-HIGH-052: expose the object-level authorization
+          // claims on the PRODUCTION gateway path (where req.user is rebuilt
+          // from the assertion, NOT the raw JWT). Without this the claims would
+          // be undefined at every prod resolver and all non-managers would
+          // fail-closed — a functional outage.
+          ...(assertion.assignedSiteIds !== undefined
+            ? { assignedSiteIds: assertion.assignedSiteIds }
+            : {}),
+          ...(assertion.mobileFeatures !== undefined
+            ? { mobileFeatures: assertion.mobileFeatures }
+            : {}),
         };
       }
 
@@ -126,6 +137,15 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
     if (candidate.assertionId !== undefined && typeof candidate.assertionId !== 'string') {
       throw new BadRequestException('Verified user assertion has invalid assertionId');
     }
+    // SEC-HIGH-051 / SEC-HIGH-052: the object-level authorization claims are
+    // optional, but when present each must be a string[] whose members are all
+    // strings — reject a malformed claim fail-closed (mirrors the roles check).
+    if (!this.isOptionalStringArray(candidate.assignedSiteIds)) {
+      throw new BadRequestException('Verified user assertion has invalid assignedSiteIds');
+    }
+    if (!this.isOptionalStringArray(candidate.mobileFeatures)) {
+      throw new BadRequestException('Verified user assertion has invalid mobileFeatures');
+    }
 
     return {
       issuer: candidate.issuer,
@@ -137,7 +157,21 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
       mfaVerified: candidate.mfaVerified ?? false,
       issuedAt: candidate.issuedAt,
       assertionId: candidate.assertionId,
+      assignedSiteIds: candidate.assignedSiteIds,
+      mobileFeatures: candidate.mobileFeatures,
     };
+  }
+
+  /**
+   * An optional claim is valid iff it is undefined OR a string[] whose members
+   * are all strings. A non-array or a non-string member is a malformed claim
+   * and is rejected fail-closed by the caller.
+   */
+  private isOptionalStringArray(value: unknown): value is string[] | undefined {
+    if (value === undefined) {
+      return true;
+    }
+    return Array.isArray(value) && value.every((member) => typeof member === 'string');
   }
 
   private requiresGatewayAssertion(req: TenantRequest): boolean {

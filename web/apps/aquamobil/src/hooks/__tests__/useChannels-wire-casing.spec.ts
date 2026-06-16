@@ -39,7 +39,10 @@ const mockGraphqlRequest = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 let capturedQueryPromise: Promise<unknown> | null = null;
 
 vi.mock('../useAuth', () => ({
-  useAuth: () => ({ isAuthenticated: true, tenantId: 'tenant-1' }),
+  // MT-CRITICAL-051: useChannels now gates on user.id (the channel list is
+  // membership-scoped, so its cache is user-partitioned), so the mock supplies a
+  // user id — without it `enabled` is false and the queryFn never runs.
+  useAuth: () => ({ isAuthenticated: true, tenantId: 'tenant-1', user: { id: 'user-1' } }),
 }));
 
 vi.mock('@tanstack/react-query', () => ({
@@ -52,8 +55,13 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 vi.mock('@/pwa/offline-queue', () => ({
+  // useChannelDetail still uses the tenant-scoped helpers; useChannels now uses
+  // the user-scoped ones (MT-CRITICAL-051) — provide both so neither hook's
+  // queryFn hits an undefined import.
   cacheData: vi.fn().mockResolvedValue(undefined),
   getCachedData: vi.fn().mockResolvedValue(null),
+  cacheUserData: vi.fn().mockResolvedValue(undefined),
+  getCachedUserData: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('@/services/authenticated-fetch', () => ({

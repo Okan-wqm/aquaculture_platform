@@ -192,7 +192,7 @@ export function StockEventsHubPage() {
 
   const activeBatchCount = summary?.activeBatchCount ?? 0;
   const thisWeekEventsCount = summary?.thisWeekEventsCount ?? 0;
-  const pendingTransferCount = summary?.pendingTransferCount ?? 0;
+  const recentTransferCount = summary?.recentTransferCount ?? 0;
   const recentEvents = (summary?.recentEvents ?? []).slice(0, MAX_EVENTS);
 
   const kpiItems: KpiItem[] = [
@@ -210,8 +210,8 @@ export function StockEventsHubPage() {
     },
     {
       label: 'Transfers',
-      value: pendingTransferCount,
-      ariaLabel: `${pendingTransferCount} pending transfers`,
+      value: recentTransferCount,
+      ariaLabel: `${recentTransferCount} recent transfers`,
       isLoading,
     },
   ];

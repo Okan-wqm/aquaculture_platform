@@ -17,14 +17,17 @@
  * @returns isFetchingNextPage — true while loading older messages
  */
 
-import { useMemo } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+
 import { useAuth } from './useAuth';
-import { graphqlRequest } from '@/services/authenticated-fetch';
-import { cacheData, getCachedData } from '@/pwa/offline-queue';
+
 import { GET_MESSAGES } from '@/graphql/messaging-operations';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Message, MessagePage } from '@/types/messaging';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
 /** Messages per page (cursor-based). */
 const PAGE_SIZE = 40;
@@ -82,36 +85,35 @@ export function useMessages(
     off: (event: string, handler: (...args: unknown[]) => void) => void;
   } | null>,
 ) {
-  const { isAuthenticated, tenantId } = useAuth();
+  const { isAuthenticated, tenantId, user } = useAuth();
 
   // WHY 2026-04-29: message pages participate in tenant-switch cleanup and
   // offline-sync invalidation, so their keys must live under the tenant prefix.
-  const queryKey = createTenantQueryKey(tenantId, 'messaging', 'messages', channelId);
+  // MT-CRITICAL-051: channel messages are membership-scoped, so user.id is part
+  // of both the React Query key and the IndexedDB cache namespace below.
+  const queryKey = createTenantQueryKey(tenantId, 'messaging', 'messages', user?.id, channelId);
 
   const query = useInfiniteQuery({
     queryKey,
     queryFn: async ({ pageParam }: { pageParam: string | null }) => {
+      const userId = user?.id;
       try {
         const page = await fetchMessages(channelId!, pageParam);
-        // Cache first page in IndexedDB for offline
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated caching
-        if (!pageParam && tenantId) {
-          await cacheData(
-            tenantId,
-            `${CACHE_KEY_PREFIX}${channelId}`,
-            page,
-            CACHE_TTL_MS,
-          ).catch(() => {});
+        // Cache first page in IndexedDB for offline. MT-CRITICAL-051: the cache
+        // namespace embeds user.id — the offline fallback below serves cached
+        // messages WITHOUT re-checking channel membership, so a tenant+channel
+        // key would let user B deep-link channel X offline and read user A's
+        // cached messages on a shared device. cacheUserData keeps tenant isolation.
+        if (!pageParam && tenantId && userId) {
+          const cacheKey = userScopedCacheKey(userId, `${CACHE_KEY_PREFIX}${channelId}`);
+          await cacheUserData(tenantId, cacheKey, page, CACHE_TTL_MS).catch(() => undefined);
         }
         return page;
       } catch (error) {
-        // On first page, try IndexedDB cache
-        // SECURITY (FE-CRITICAL-002): tenantId required for tenant-isolated cache reads
-        if (!pageParam && tenantId) {
-          const cached = await getCachedData<MessagePage>(
-            tenantId,
-            `${CACHE_KEY_PREFIX}${channelId}`,
-          );
+        // On first page, fall back to the per-user IndexedDB cache.
+        if (!pageParam && tenantId && userId) {
+          const cacheKey = userScopedCacheKey(userId, `${CACHE_KEY_PREFIX}${channelId}`);
+          const cached = await getCachedUserData<MessagePage>(tenantId, cacheKey);
           if (cached) return cached;
         }
         throw error;
@@ -120,7 +122,7 @@ export function useMessages(
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage: MessagePage) =>
       lastPage.hasMore ? lastPage.cursor : undefined,
-    enabled: isAuthenticated && !!tenantId && !!channelId,
+    enabled: isAuthenticated && !!tenantId && !!channelId && !!user?.id,
     staleTime: 15_000, // 15 seconds — messages update frequently
     gcTime: 5 * 60 * 1000, // 5 min in-memory
     refetchOnWindowFocus: false, // Socket.IO handles updates via useMessageSocket

@@ -1,6 +1,8 @@
-import { Navigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { Navigate } from 'react-router-dom';
+
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
+import { useFeatureAccess } from '@/utils/feature-access';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,7 +44,11 @@ function PageLoader() {
  * navigation context and avoids a confusing jump to the home screen.
  */
 export function MultiFeatureRoute({ features, children }: MultiFeatureRouteProps) {
-  const { canAccess, isLoaded } = useMobilePermissions();
+  const { isLoaded } = useMobilePermissions();
+  // SEC-MEDIUM-050: canReach folds in any feature role floor (harvest =>
+  // MODULE_MANAGER), so a harvest-only MODULE_USER cannot enter a hub on the
+  // strength of harvest alone — consistent with the per-action CTA filtering.
+  const { canReach } = useFeatureAccess();
 
   // WHY: Wait for permissions to resolve before evaluating access. Without
   // this guard, a slow network would cause a flash redirect to /operations
@@ -53,7 +59,7 @@ export function MultiFeatureRoute({ features, children }: MultiFeatureRouteProps
 
   // CRITICAL: `.some()` not `.every()` -- grant access if the user can
   // reach ANY of the listed features.
-  const hasAnyFeature = features.some((f) => canAccess(f));
+  const hasAnyFeature = features.some((f) => canReach(f));
 
   if (!hasAnyFeature) {
     return <Navigate to="/operations" replace />;

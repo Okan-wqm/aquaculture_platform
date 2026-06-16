@@ -32,6 +32,7 @@ import { S3StorageObjectVerifier } from './services/s3-storage-object-verifier.s
 import { STORAGE_OBJECT_VERIFIER } from './services/storage-object-verifier.port';
 import { MentionService } from './services/mention.service';
 import { ThumbnailService } from './services/thumbnail.service';
+import { MediaFinalizationService } from './services/media-finalization.service';
 import { StorageQuotaService } from './services/storage-quota.service';
 
 // Resolver
@@ -83,6 +84,7 @@ import { MessageAttachmentResolver } from './resolvers/message-attachment.resolv
     },
     MentionService,
     ThumbnailService,
+    MediaFinalizationService,
     StorageQuotaService,
 
     // GraphQL resolvers

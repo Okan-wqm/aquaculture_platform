@@ -16,6 +16,10 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@aquaculture/farm-shared': resolve(__dirname, '../../../libs/farm-shared/src'),
+      // MSG-MEDIUM-057: mirror the vite.config.ts alias so the shared MIME
+      // allowlist SSoT resolves under vitest too (this config has its own alias
+      // block, separate from vite.config.ts).
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
       'react': resolve(rootNodeModules, 'react'),
       'react-dom': resolve(rootNodeModules, 'react-dom'),
       'react/jsx-runtime': resolve(rootNodeModules, 'react/jsx-runtime'),

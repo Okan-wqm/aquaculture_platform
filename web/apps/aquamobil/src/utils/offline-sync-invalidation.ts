@@ -30,6 +30,9 @@ const SYNC_INVALIDATION_SEGMENTS = {
   // toggle becomes visible without waiting for staleTime.
   setChecklistItem: [['myTasks'], ['task']],
   sendMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
+  // MSG-MEDIUM-055: the binary offline lane produces a sent message on replay,
+  // so it invalidates the SAME messaging read models as a plain sendMessage.
+  uploadAndSendMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
   editMessage: [['messaging', 'channels'], ['messaging', 'messages']],
   deleteMessage: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],
   markMessagesRead: [['messaging', 'channels'], ['messaging', 'messages'], ['messaging', 'unreadCount']],

@@ -44,6 +44,15 @@ interface UseNotificationsResult {
   unreadCount: number;
   loading: boolean;
   error: string | null;
+  // FE-LOW-051: the unread COUNT fetch can fail independently of the list. When
+  // it does, the bell must NOT render a confident "0" (which reads as "all
+  // caught up") — it should fall back to a neutral "unread unavailable"
+  // affordance. `unreadCount` stays a number for the success path (optimistic
+  // markAsRead/markAllAsRead writes are unaffected); `isCountError` is the
+  // parallel signal the bell consumer opts into, and `unreadCountError` carries
+  // the message for diagnostics.
+  unreadCountError: string | null;
+  isCountError: boolean;
   markAsRead: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
   refetch: () => Promise<void>;
@@ -195,6 +204,15 @@ export function useNotifications(): UseNotificationsResult {
     await Promise.all([listQuery.refetch(), countQuery.refetch()]);
   };
 
+  // FE-LOW-051: distinguish a real "0 unread" from "the count fetch failed".
+  // countQuery.data is undefined while the count query is in error (no successful
+  // result yet), so `isCountError` keys on the query's error state, not on the
+  // numeric value. `unreadCount` keeps its `?? 0` success default so numeric
+  // consumers and the optimistic mark-read setQueryData writes are untouched.
+  const isCountError = countQuery.isError;
+  const unreadCountError =
+    countQuery.error instanceof Error ? countQuery.error.message : null;
+
   return {
     notifications: listQuery.data ?? [],
     unreadCount: countQuery.data ?? 0,
@@ -202,6 +220,8 @@ export function useNotifications(): UseNotificationsResult {
     // BUG-09 preserved: surface the list query error so the UI can render an
     // error state + Retry. react-query's error is an Error | null.
     error: listQuery.error instanceof Error ? listQuery.error.message : null,
+    unreadCountError,
+    isCountError,
     markAsRead,
     markAllAsRead,
     refetch,

@@ -38,6 +38,7 @@ import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useTypingIndicator } from '@/hooks/useTypingIndicator';
+import { putPendingBlob } from '@/pwa/offline-queue';
 import type { Message } from '@/types/messaging';
 import { getDateLabel, getUserDisplayName } from '@/utils/messaging-helpers';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -117,6 +118,9 @@ export function ChatRoomPage() {
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
+  // MSG-MEDIUM-055: non-blocking disclosure shown when media is queued offline,
+  // replacing the blocking alert() that simply discarded the attachment.
+  const [offlineMediaNotice, setOfflineMediaNotice] = useState<string | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isLoadingMoreRef = useRef(false);
@@ -151,6 +155,14 @@ export function ChatRoomPage() {
   useEffect(() => {
     lastMarkedRef.current = null;
   }, [channelId]);
+
+  // MSG-MEDIUM-055: auto-dismiss the non-blocking offline-media toast after a
+  // few seconds so it never lingers; the user can also dismiss it manually.
+  useEffect(() => {
+    if (!offlineMediaNotice) return;
+    const timer = window.setTimeout(() => setOfflineMediaNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [offlineMediaNotice]);
 
   // Track foreground visibility — a backgrounded tab must not mark messages read.
   useEffect(() => {
@@ -286,17 +298,65 @@ export function ChatRoomPage() {
   }, [channelId, isOnline, addToQueue, queryClient]);
 
   /**
-   * Handle file selection from the AttachmentPicker. Uploads the file via
-   * presigned URL, then sends a message with the attachment key.
-   * Attachments require network connectivity (presigned URL + MinIO PUT).
+   * MSG-MEDIUM-055: enqueue a media blob on the binary offline lane. Persists the
+   * blob in the encrypted tenant-scoped store and queues an 'uploadAndSendMessage'
+   * op whose in-app replay (on reconnect) presigns → PUTs → sends. The threaded
+   * idempotencyKey makes that send at-most-once. Returns true if queued.
+   */
+  const enqueueOfflineMedia = useCallback(
+    async (
+      blob: Blob,
+      contentType: 'IMAGE' | 'FILE' | 'VOICE',
+      filename: string,
+      mimeType: string,
+      durationSeconds?: number,
+    ): Promise<boolean> => {
+      if (!channelId || !tenantId) return false;
+      const blobId = await putPendingBlob(tenantId, blob);
+      const idempotencyKey = crypto.randomUUID();
+      await addToQueue(
+        'uploadAndSendMessage',
+        {
+          blobId,
+          channelId,
+          contentType,
+          filename,
+          mimeType,
+          ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+          idempotencyKey,
+        },
+        // FARM-HIGH-057 pattern: thread a stable at-most-once command id so the
+        // online attempt (none here) and the queued replay are one logical command.
+        idempotencyKey,
+      );
+      return true;
+    },
+    [channelId, tenantId, addToQueue],
+  );
+
+  /**
+   * Handle file selection from the AttachmentPicker. Online: upload via presigned
+   * URL then send. Offline (MSG-MEDIUM-055): persist the blob and queue an
+   * upload-and-send op for replay on reconnect — instead of the old blocking
+   * alert() that discarded the attachment.
    */
   const handleFileSelect = useCallback(async (file: File) => {
     if (!channelId) return;
+    // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum NAME.
+    const contentType = file.type.startsWith('image/') ? 'IMAGE' : 'FILE';
+    if (!isOnline) {
+      try {
+        await enqueueOfflineMedia(file, contentType, file.name, file.type);
+        setOfflineMediaNotice('Attachment queued — it will send when you are back online.');
+      } catch (err) {
+        setOfflineMediaNotice(
+          err instanceof Error ? err.message : 'Could not queue attachment for offline send.',
+        );
+      }
+      return;
+    }
     try {
       const storageKey = await uploadMedia(file);
-      // S1-CODEGEN: MessageContentType wire form is the UPPERCASE GraphQL enum
-      // NAME; the union literal flows straight into the typed SendMessageParams.
-      const contentType = file.type.startsWith('image/') ? 'IMAGE' : 'FILE';
       await sendMessage({
         content: null,
         contentType,
@@ -305,19 +365,31 @@ export function ChatRoomPage() {
     } catch {
       // uploadMedia already sets error state — the UI will show it
     }
-  }, [channelId, uploadMedia, sendMessage]);
+  }, [channelId, isOnline, enqueueOfflineMedia, uploadMedia, sendMessage]);
 
   /**
-   * Handle completed voice recording. Uploads the audio blob via presigned
-   * URL, then sends a voice message. Requires network connectivity.
+   * Handle completed voice recording. Online: upload then send. Offline
+   * (MSG-MEDIUM-055): persist the audio blob and queue an upload-and-send op.
    */
   const handleVoiceRecordingComplete = useCallback(
     async (blob: Blob, durationSeconds: number, mimeType: string) => {
       if (!channelId) return;
+      const extension = mimeType.includes('webm') ? 'webm' : mimeType.includes('ogg') ? 'ogg' : 'mp4';
+      const filename = `voice-note.${extension}`;
+      if (!isOnline) {
+        try {
+          await enqueueOfflineMedia(blob, 'VOICE', filename, mimeType, durationSeconds);
+          setOfflineMediaNotice('Voice message queued — it will send when you are back online.');
+        } catch (err) {
+          setOfflineMediaNotice(
+            err instanceof Error ? err.message : 'Could not queue voice message for offline send.',
+          );
+        }
+        return;
+      }
       try {
         // Convert Blob to File for useMediaUpload which expects a File
-        const extension = mimeType.includes('webm') ? 'webm' : mimeType.includes('ogg') ? 'ogg' : 'mp4';
-        const file = new File([blob], `voice-note.${extension}`, { type: mimeType });
+        const file = new File([blob], filename, { type: mimeType });
         const storageKey = await uploadMedia(file);
         await sendMessage({
           content: null,
@@ -329,7 +401,7 @@ export function ChatRoomPage() {
         // uploadMedia already sets error state
       }
     },
-    [channelId, uploadMedia, sendMessage],
+    [channelId, isOnline, enqueueOfflineMedia, uploadMedia, sendMessage],
   );
 
   // Compute display name and status for the header
@@ -576,19 +648,16 @@ export function ChatRoomPage() {
           });
         }}
         onAttachmentPress={() => {
-          if (!isOnline) {
-            // Attachments require network (presigned URL + MinIO upload)
-            // IMPORTANT: We do not silently fail — user gets clear feedback
-            alert('Attachments require an internet connection. Please try again when online.');
-            return;
-          }
+          // MSG-MEDIUM-055: attachments are now supported offline via the binary
+          // queue lane, so the picker opens regardless of connectivity. When
+          // offline, handleFileSelect persists the blob and queues an
+          // upload-and-send op (replayed on reconnect) instead of discarding it.
           setIsAttachmentPickerOpen(true);
         }}
         onVoiceRecordingComplete={(blob, durationSeconds, mimeType) => {
-          if (!isOnline) {
-            alert('Voice messages require an internet connection. Please try again when online.');
-            return;
-          }
+          // MSG-MEDIUM-055: offline voice notes are queued (not discarded) —
+          // handleVoiceRecordingComplete persists the audio blob and enqueues an
+          // upload-and-send op when offline.
           handleVoiceRecordingComplete(blob, durationSeconds, mimeType);
         }}
         replyTo={
@@ -634,6 +703,29 @@ export function ChatRoomPage() {
           onClose={() => setForwardingMessage(null)}
           visible={!!forwardingMessage}
         />
+      )}
+
+      {/* MSG-MEDIUM-055: non-blocking offline-media disclosure. Replaces the
+          blocking alert() that discarded the attachment — a self-dismissing
+          status toast (auto-clears via the effect above) with an explicit
+          dismiss button, telling the worker their media is queued and will send
+          on reconnect. */}
+      {offlineMediaNotice && (
+        <div
+          role="status"
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-[90%] bg-gray-900/90 text-white text-sm rounded-xl px-4 py-2.5 shadow-elevated flex items-center gap-2"
+        >
+          <AlertCircle size={16} className="flex-shrink-0 text-amber-300" />
+          <span>{offlineMediaNotice}</span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            className="ml-1 px-1.5 rounded-md hover:bg-white/10 touch-feedback text-base leading-none"
+            onClick={() => setOfflineMediaNotice(null)}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
       )}
     </div>
   );

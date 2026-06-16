@@ -559,9 +559,12 @@ export const RECORD_TRANSFER: TypedDocumentNode<RecordTransferMutation, RecordTr
 // for the hub page initial render. Graceful fallback: if the backend resolver
 // is not yet deployed, the hooks handle the error and default to zero values.
 
+// FARM-MEDIUM-056: $clientDate threads the device-local calendar day
+// (YYYY-MM-DD) to the backend so the dashboard counts and the phone agree on one
+// named "today". Optional — when omitted the server uses FARM_DASHBOARD_TIME_ZONE.
 export const GET_TODAYS_DAILY_OPS_COUNTS: TypedDocumentNode<GetTodaysDailyOpsCountsQuery, GetTodaysDailyOpsCountsQueryVariables> = gql`
-  query GetTodaysDailyOpsCounts {
-    todaysDailyOpsCounts {
+  query GetTodaysDailyOpsCounts($clientDate: String) {
+    todaysDailyOpsCounts(clientDate: $clientDate) {
       mortalityCount
       wqReadingsCount
       feedingCompletedCount

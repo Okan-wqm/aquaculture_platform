@@ -16,9 +16,11 @@
  * @returns error — upload error, if any
  */
 
+import { MESSAGING_MEDIA_MIME_ALLOWLIST } from '@aquaculture/shared-contracts';
 import { useState, useCallback, useRef } from 'react';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+
 import { REQUEST_MEDIA_UPLOAD } from '@/graphql/messaging-operations';
+import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { MediaUploadResponse } from '@/types/messaging';
 
 /** Maximum file size: 25 MB (matches backend validation). */
@@ -30,33 +32,17 @@ const COMPRESSION_THRESHOLD = 2 * 1024 * 1024; // 2 MB
 /** Target size after compression. */
 const COMPRESSION_TARGET = 1.5 * 1024 * 1024; // 1.5 MB
 
-/** Allowed MIME types for upload. */
-const ALLOWED_MIME_TYPES = new Set([
-  // Images
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'image/svg+xml',
-  // Documents
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/plain',
-  'text/csv',
-  // Audio/Video (voice notes + general)
-  'audio/mpeg',
-  'audio/ogg',
-  'audio/wav',
-  'audio/webm',
-  'audio/mp4',
-  'audio/aac',
-  'audio/x-m4a',
-  'video/mp4',
-  'video/webm',
-]);
+/**
+ * Allowed MIME types for upload — client-side UX pre-flight check.
+ *
+ * MSG-MEDIUM-057: built from the single shared allowlist SSoT
+ * (`MESSAGING_MEDIA_MIME_ALLOWLIST`), the SAME list the server's media.service
+ * enforces. The previous hand-maintained client list had silently drifted: it
+ * wrongly allowed `image/svg+xml` (a stored-XSS vector the server rejected) and
+ * was missing the archive/office MIMEs the server accepted. Adopting the SSoT
+ * removes both directions of drift; the server stays the enforcing boundary.
+ */
+const ALLOWED_MIME_TYPES = new Set<string>(MESSAGING_MEDIA_MIME_ALLOWLIST);
 
 /**
  * Compress an image file using canvas resize.

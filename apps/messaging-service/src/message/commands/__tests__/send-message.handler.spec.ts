@@ -18,6 +18,7 @@ import { ChannelMember } from '../../../channel/entities/channel-member.entity';
 import { REDIS_CLIENT } from '../../../shared/redis.provider';
 import { MentionService } from '../../services/mention.service';
 import { MediaService } from '../../services/media.service';
+import { MediaFinalizationService } from '../../services/media-finalization.service';
 import { MessagingMetricsService } from '../../../metrics/messaging-metrics.service';
 import { SendMessageHandler } from '../send-message.handler';
 import { SendMessageCommand } from '../send-message.command';
@@ -53,7 +54,12 @@ describe('SendMessageHandler', () => {
   // Service mocks — declared at the suite scope so individual tests
   // can re-stub specific methods via `mentionService.parseMentions.mockReturnValueOnce(...)`.
   let mentionService: { parseMentions: jest.Mock };
-  let mediaService: { validateAttachmentKey: jest.Mock; extractVoiceDuration: jest.Mock };
+  let mediaService: {
+    validateAttachmentKey: jest.Mock;
+    extractVoiceDuration: jest.Mock;
+    isAudioMimeType: jest.Mock;
+  };
+  let mediaFinalizationService: { finalizeAttachment: jest.Mock };
   let metricsService: { incrementMessages: jest.Mock };
   let outboxPublisher: { enqueue: jest.Mock };
   let ledgerInsertBuilder: {
@@ -116,6 +122,20 @@ describe('SendMessageHandler', () => {
         contentType: 'image/png',
       }),
       extractVoiceDuration: jest.fn().mockReturnValue(null),
+      isAudioMimeType: jest.fn((mime: string) => mime.toLowerCase().startsWith('audio/')),
+    };
+    // MSG-HIGH-056 / MSG-MEDIUM-056: finalization runs pre-transaction. Default:
+    // each attachment finalizes to dimensions 100x80, a thumb key, and whatever
+    // duration was passed (null for images, the voice duration for audio).
+    mediaFinalizationService = {
+      finalizeAttachment: jest.fn(
+        async (storageKey: string, _mimeType: string, durationSeconds: number | null) => ({
+          width: 100,
+          height: 80,
+          durationSeconds,
+          thumbnailKey: `${storageKey}_thumb`,
+        }),
+      ),
     };
     metricsService = { incrementMessages: jest.fn() };
     // Outbox enqueue is fire-and-await inside the transaction — return
@@ -132,6 +152,7 @@ describe('SendMessageHandler', () => {
         { provide: REDIS_CLIENT, useValue: redisClient },
         { provide: MentionService, useValue: mentionService },
         { provide: MediaService, useValue: mediaService },
+        { provide: MediaFinalizationService, useValue: mediaFinalizationService },
         { provide: MessagingMetricsService, useValue: metricsService },
         { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
@@ -337,6 +358,78 @@ describe('SendMessageHandler', () => {
     expect(attSave).toBeDefined();
     const attachments = attSave![1] as Partial<MessageAttachment>[];
     expect(attachments).toHaveLength(2);
+  });
+
+  // -----------------------------------------------------------------------
+  // MSG-HIGH-056: finalized media columns are persisted (no longer dead)
+  // -----------------------------------------------------------------------
+  it('persists finalized width/height/thumbnailKey onto each attachment row', async () => {
+    redisClient.get.mockResolvedValue(null);
+    const cmd = makeCmd({ attachmentKeys: ['uploads/img.png'] });
+
+    await handler.execute(cmd);
+
+    // Finalization ran for the attachment BEFORE the transaction.
+    expect(mediaFinalizationService.finalizeAttachment).toHaveBeenCalledWith(
+      'uploads/img.png',
+      'image/png',
+      null,
+    );
+
+    const attSave = queryRunner.manager.save.mock.calls.find(
+      (c) => c[0] === MessageAttachment,
+    );
+    const attachments = attSave![1] as Partial<MessageAttachment>[];
+    expect(attachments[0]).toMatchObject({
+      width: 100,
+      height: 80,
+      thumbnailKey: 'uploads/img.png_thumb',
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // MSG-HIGH-055: voice duration is written to attachment.durationSeconds,
+  // NOT stuffed into message metadata under the old server-only key.
+  // -----------------------------------------------------------------------
+  it('writes voice duration to attachment.durationSeconds (not message metadata)', async () => {
+    redisClient.get.mockResolvedValue(null);
+    // Audio attachment + extracted duration.
+    mediaService.validateAttachmentKey.mockResolvedValue({
+      contentLength: 2048,
+      contentType: 'audio/webm',
+    });
+    mediaService.extractVoiceDuration.mockReturnValue(12.34);
+
+    const cmd = makeCmd({
+      content: null,
+      contentType: MessageContentType.VOICE,
+      attachmentKeys: ['uploads/voice.webm'],
+      metadata: { durationSeconds: 12.34 },
+    });
+
+    await handler.execute(cmd);
+
+    // The audio attachment carried the duration into finalization...
+    expect(mediaFinalizationService.finalizeAttachment).toHaveBeenCalledWith(
+      'uploads/voice.webm',
+      'audio/webm',
+      12.34,
+    );
+
+    // ...and onto the persisted attachment row's typed column.
+    const attSave = queryRunner.manager.save.mock.calls.find(
+      (c) => c[0] === MessageAttachment,
+    );
+    const attachments = attSave![1] as Partial<MessageAttachment>[];
+    expect(attachments[0]?.durationSeconds).toBe(12.34);
+
+    // The message metadata must NOT carry the old server-only voiceDurationSeconds key.
+    const msgSave = queryRunner.manager.save.mock.calls.find((c) => c[0] === Message);
+    const savedMessage = msgSave![1] as Partial<Message>;
+    const metadata = savedMessage.metadata as Record<string, unknown> | null;
+    if (metadata) {
+      expect(metadata).not.toHaveProperty('voiceDurationSeconds');
+    }
   });
 
   // -----------------------------------------------------------------------

@@ -8,11 +8,20 @@ import type { UserScopedCacheKey } from '@/utils/user-scoped-cache-key';
 const queueStore = createStore('aquamobil-queue', 'queue');
 const cacheStore = createStore('aquamobil-cache', 'cache');
 const keyStore = createStore('aquamobil-keys', 'keys');
+// MSG-MEDIUM-055: dedicated store for offline media BLOBS. The encrypted JSON
+// queue cannot carry binary, so a recorded/selected Blob is persisted here and
+// referenced from the 'uploadAndSendMessage' queue op by id. Kept in its own
+// store so the queue/cache stores stay scan-clean (PERF-08).
+const blobStore = createStore('aquamobil-blobs', 'blobs');
 
 const QUEUE_PREFIX = 'pending_';
 const CACHE_PREFIX = 'cache_';
+const BLOB_PREFIX = 'pending_blob_';
 const DURABLE_QUEUE_KEY = 'queue-key-v1';
 const DEVICE_ID_KEY = 'device-id-v1';
+
+/** Maximum offline media blob size: 25 MB (matches the upload hook cap). */
+export const MAX_PENDING_BLOB_BYTES = 26_214_400;
 
 /**
  * Background Sync API surface. `sync` is NOT in the lib.dom
@@ -498,6 +507,11 @@ export async function clearAllOperations(tenantId?: string): Promise<void> {
   const allKeyStoreKeys = await keys(keyStore);
   const versionKeys = allKeyStoreKeys.filter((k) => String(k).startsWith(versionPrefix));
   await Promise.all(versionKeys.map((k) => del(k, keyStore)));
+  // MSG-MEDIUM-055: pending media blobs share the queue's tenant-isolation +
+  // logout-wipe lifecycle, so clearing the queue also clears the matching blobs
+  // (scoped clear → this tenant's blobs; logout clear → every tenant's). Done
+  // BEFORE the session key is torn down below so encrypted blobs are removable.
+  await clearPendingBlobs(tenantId);
   if (!tenantId) {
     _sessionKey = null;
     await del(DURABLE_QUEUE_KEY, keyStore);
@@ -654,6 +668,118 @@ export async function clearCache(tenantId?: string): Promise<void> {
     : CACHE_PREFIX;
   const cacheKeys = allKeys.filter((k) => String(k).startsWith(prefix));
   await Promise.all(cacheKeys.map((k) => del(k, cacheStore)));
+}
+
+// ============================================================================
+// MSG-MEDIUM-055: Binary Blob Store (offline media lane)
+// ============================================================================
+// Recorded/selected media Blobs are persisted here, AES-GCM encrypted at rest
+// with the SAME non-extractable session key the queue uses, under
+// tenant-partitioned keys (`pending_blob_${tenantId}_${blobId}`). The logout
+// wipe (clearAllOperations with no tenantId) clears every tenant's blobs, and a
+// scoped clear drops just that tenant's — mirroring the queue's isolation model.
+//
+// TRACKED LIMITATION (MSG-MEDIUM-055, not faked): the upload-and-send replay is
+// a 3-call presign → PUT → send sequence. The static injectManifest service
+// worker can only re-POST /graphql for Background Sync, so it CANNOT replay a
+// presigned multipart PUT while the app is CLOSED. Therefore a blob queued while
+// the app is closed syncs on the NEXT FOREGROUND (the in-app reconnect lane in
+// useOfflineQueue.syncNow), exactly like every other queued op when the app is
+// open. The in-app lane is the real fix that lands here; closing the
+// background-while-closed gap requires teaching the SW the multipart PUT flow and
+// is tracked as a separate finding (server-side reaper + SW upload support), not
+// implemented in this PR.
+
+interface EncryptedBlobEntry {
+  _enc: { iv: string; ciphertext: string };
+  mimeType: string;
+}
+
+/**
+ * Encode a binary buffer to a base64 string in chunks (avoids the call-stack
+ * blow-up of `String.fromCharCode(...hugeArray)` on large media).
+ */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Persist a pending media Blob for later upload-and-send. Tenant-scoped and
+ * encrypted at rest. Rejects blobs over the 25 MB cap so the queue cannot grow
+ * unbounded from a single oversize file.
+ *
+ * @param tenantId - Current tenant UUID (REQUIRED for tenant isolation)
+ * @param blob - The recorded/selected media bytes
+ * @returns The generated blob id to reference from the queue op
+ */
+export async function putPendingBlob(tenantId: string, blob: Blob): Promise<string> {
+  if (!tenantId) {
+    throw new Error('putPendingBlob: tenantId is required for tenant-isolated blob storage');
+  }
+  if (blob.size > MAX_PENDING_BLOB_BYTES) {
+    throw new Error('Attachment exceeds the 25 MB offline limit.');
+  }
+  const blobId = crypto.randomUUID();
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const _enc = await encryptString(bytesToBase64(bytes));
+  const entry: EncryptedBlobEntry = { _enc, mimeType: blob.type };
+  await set(`${BLOB_PREFIX}${tenantId}_${blobId}`, entry, blobStore);
+  return blobId;
+}
+
+/**
+ * Retrieve a persisted media Blob by id, or null if absent/undecryptable.
+ *
+ * @param tenantId - Tenant UUID that owns the blob
+ * @param blobId - Blob id returned by putPendingBlob
+ */
+export async function getPendingBlob(tenantId: string, blobId: string): Promise<Blob | null> {
+  if (!tenantId) {
+    throw new Error('getPendingBlob: tenantId is required for tenant-isolated blob storage');
+  }
+  const entry = await get<EncryptedBlobEntry>(`${BLOB_PREFIX}${tenantId}_${blobId}`, blobStore);
+  if (!entry || !entry._enc) return null;
+  try {
+    const base64 = await decryptString(entry._enc.iv, entry._enc.ciphertext);
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: entry.mimeType });
+  } catch {
+    // Decryption failed (session key rotated / corruption) — purge and report
+    // absent so the caller fails the op rather than crashing.
+    await del(`${BLOB_PREFIX}${tenantId}_${blobId}`, blobStore);
+    return null;
+  }
+}
+
+/**
+ * Delete a persisted media Blob (called after a successful upload-and-send).
+ */
+export async function removePendingBlob(tenantId: string, blobId: string): Promise<void> {
+  await del(`${BLOB_PREFIX}${tenantId}_${blobId}`, blobStore);
+}
+
+/**
+ * Clear pending blobs, optionally scoped to a tenant. The unscoped variant is
+ * the logout wipe; the scoped variant drops a single tenant's blobs.
+ */
+export async function clearPendingBlobs(tenantId?: string): Promise<void> {
+  const allKeys = await keys(blobStore);
+  const prefix = tenantId ? `${BLOB_PREFIX}${tenantId}_` : BLOB_PREFIX;
+  // Blob keys are always the `${BLOB_PREFIX}…` strings we wrote, so narrow to
+  // string (avoids the base-to-string hazard on idb-keyval's IDBValidKey union).
+  const blobKeys = allKeys.filter(
+    (k): k is string => typeof k === 'string' && k.startsWith(prefix),
+  );
+  await Promise.all(blobKeys.map((k) => del(k, blobStore)));
 }
 
 // ============================================================================

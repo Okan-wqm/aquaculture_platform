@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, Re
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
 
+import { REQUEST_MEDIA_UPLOAD, SEND_MESSAGE } from '@/graphql/messaging-operations';
 import {
   queueOperation,
   getPendingOperations,
@@ -11,9 +12,19 @@ import {
   getQueueVersion,
   syncAllOperations,
   removeOperation,
+  getPendingBlob,
+  removePendingBlob,
   MAX_RETRY_COUNT,
 } from '@/pwa/offline-queue';
-import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
+import { graphqlRequest } from '@/services/authenticated-fetch';
+import type {
+  QueuedOperation,
+  OperationType,
+  OperationPayload,
+  AddToQueueResult,
+  UploadAndSendMessageOfflinePayload,
+} from '@/types';
+import type { MediaUploadResponse } from '@/types/messaging';
 import { logger } from '@/utils/logger';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
@@ -23,7 +34,15 @@ interface SyncResult {
   failed: number;
 }
 
-export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'failed';
+// FE-LOW-050: 'unknown' makes the not-representable state representable. Before,
+// getSyncStatus returned 'synced' for ANY id absent from pendingOperations —
+// including a never-seen or typo'd id — rendering a false green "Confirmed".
+// 'unknown' is returned when an id is absent from BOTH the syncResults drain map
+// AND the pending queue, so a real success (which leaves a 'synced' entry in
+// syncResults on drain) still resolves to 'synced', while a phantom id can no
+// longer be mistaken for a confirmed write. Adding the member forces exhaustive
+// handling at every consumer — a missed branch is a compile error.
+export type SyncStatus = 'pending' | 'syncing' | 'synced' | 'failed' | 'unknown';
 
 interface OfflineContextValue {
   pendingCount: number;
@@ -42,7 +61,11 @@ interface OfflineContextValue {
 const OfflineContext = createContext<OfflineContextValue | null>(null);
 
 // GraphQL mutations for sync - tenantId/userId extracted from JWT by backend
-const MUTATIONS: Record<OperationType | 'submitLeaveRequest', string> = {
+// MSG-MEDIUM-055: 'uploadAndSendMessage' is excluded — it is NOT a single
+// GraphQL mutation string. Its 3-step presign → PUT → send replay is handled by
+// replayUploadAndSendMessage below, never looked up in this map. Excluding it
+// keeps this record exhaustive over the single-mutation op types only.
+const MUTATIONS: Record<Exclude<OperationType, 'uploadAndSendMessage'> | 'submitLeaveRequest', string> = {
   recordMortality: `
     mutation RecordMortality($input: RecordMortalityInput!) {
       recordMortality(input: $input) {
@@ -220,6 +243,76 @@ const MUTATIONS: Record<OperationType | 'submitLeaveRequest', string> = {
   `,
 };
 
+/**
+ * MSG-MEDIUM-055: in-app replay of the binary offline lane. Runs the 3-step
+ * online flow a single queued GraphQL op cannot: presign → PUT blob → send. The
+ * persisted blob is deleted ONLY after a fully successful send, so an
+ * interruption between PUT and send leaves the op retryable; the send's stable
+ * idempotencyKey makes that retry at-most-once on the server. Throws on any
+ * failure so syncOperation marks the op failed (and retries with backoff).
+ *
+ * Auth + tenant headers are injected by graphqlRequest/authenticatedFetch, so
+ * this replay is tenant-scoped exactly like every other synced op.
+ */
+async function replayUploadAndSendMessage(
+  payload: UploadAndSendMessageOfflinePayload,
+  tenantId: string,
+): Promise<unknown> {
+  const blob = await getPendingBlob(tenantId, payload.blobId);
+  if (!blob) {
+    // The blob is gone (wiped on logout, decryption failure, or already sent on a
+    // prior partial replay). There is nothing to upload; treat as a terminal,
+    // non-retryable condition so the op does not loop forever.
+    throw new Error('not found: offline media blob is no longer available');
+  }
+
+  // Step 1: presigned PUT URL.
+  const presign = await graphqlRequest<{ requestMediaUpload: MediaUploadResponse }>(
+    REQUEST_MEDIA_UPLOAD,
+    {
+      input: {
+        channelId: payload.channelId,
+        filename: payload.filename,
+        mimeType: payload.mimeType,
+        fileSize: blob.size,
+      },
+    },
+  );
+  const { uploadUrl, storageKey } = presign.requestMediaUpload;
+
+  // Step 2: PUT the blob bytes directly to MinIO (NOT via /graphql).
+  const putResponse = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': payload.mimeType },
+    body: blob,
+  });
+  if (!putResponse.ok) {
+    throw new Error(`Upload failed with status ${putResponse.status}`);
+  }
+
+  // Step 3: send the message referencing the uploaded object. The stable
+  // idempotencyKey makes this safe to retry after a lost response.
+  const sent = await graphqlRequest<{ sendMessage: { id: string } }>(SEND_MESSAGE, {
+    input: {
+      channelId: payload.channelId,
+      content: null,
+      contentType: payload.contentType,
+      idempotencyKey: payload.idempotencyKey,
+      parentId: payload.parentId ?? null,
+      attachmentKeys: [storageKey],
+      metadata:
+        payload.durationSeconds !== undefined
+          ? { durationSeconds: payload.durationSeconds }
+          : null,
+    },
+  });
+
+  // Only now is the blob safe to delete — the message durably references the
+  // uploaded object.
+  await removePendingBlob(tenantId, payload.blobId);
+  return sent;
+}
+
 export function OfflineProvider({ children }: { children: ReactNode }) {
   const { accessToken, tenantId, user, refreshAuth } = useAuth();
   const queryClient = useQueryClient();
@@ -311,6 +404,17 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
     async (type: OperationType, payload: OperationPayload): Promise<unknown> => {
       if (!accessToken || !tenantId || !user) {
         throw new Error('Not authenticated');
+      }
+
+      // MSG-MEDIUM-055: the binary offline lane. A single queue op cannot model
+      // the 3-call presign → PUT → send flow, so it is run here on replay: the
+      // persisted blob is presigned, PUT to MinIO, then sent with the resulting
+      // storage key. The blob is deleted only on a fully successful send. The
+      // send carries the op's stable idempotencyKey, so a half-replayed
+      // (uploaded-but-unsent) op retried later returns the original message
+      // (SendMessageHandler's Redis + Postgres ledger) instead of duplicating.
+      if (type === 'uploadAndSendMessage') {
+        return replayUploadAndSendMessage(payload as UploadAndSendMessageOfflinePayload, tenantId);
       }
 
       // deleteMessage uses a flat { id } variable (no envelope: messaging deletes
@@ -484,11 +588,17 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
 
   const getSyncStatus = useCallback(
     (id: string): SyncStatus => {
+      // A truthful success is keyed on the RETAINED syncResults map entry, which
+      // syncNow sets to 'synced' only when an op actually drained from the queue.
       const cached = syncResults.get(id);
       if (cached) return cached;
 
       const operation = pendingOperations.find((op) => op.id === id);
-      if (!operation) return 'synced';
+      // FE-LOW-050: absent from BOTH the drain map AND the pending queue means we
+      // have NO evidence this id ever existed (never-seen / typo'd id). Returning
+      // 'synced' here was the false-confirm bug; 'unknown' makes it honest. A
+      // genuinely-drained op is still 'synced' via the syncResults hit above.
+      if (!operation) return 'unknown';
       if (operation.status === 'failed') return 'failed';
       if (operation.status === 'syncing' || (isSyncing && isOnline)) return 'syncing';
       return 'pending';

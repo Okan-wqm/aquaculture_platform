@@ -83,6 +83,69 @@ describe('MobileDashboardService', () => {
     });
   });
 
+  describe('getTodaysDailyOpsCounts clientDate boundary (FARM-MEDIUM-056)', () => {
+    /** Collect the `:today` param value passed to a query builder's andWhere. */
+    function todayParamOf(qb: QbStub): string | undefined {
+      const call = qb.andWhere.mock.calls.find(
+        ([, params]) => params && Object.prototype.hasOwnProperty.call(params, 'today'),
+      );
+      return call ? (call[1] as { today?: string }).today : undefined;
+    }
+
+    it('resolves the day from a valid clientDate (not UTC now) for all sub-queries', async () => {
+      const mortalityQb = makeQb({ mortalityCount: '1' });
+      const cullQb = makeQb({ cullCount: '0' });
+      const wqQb = makeQb(null, 0);
+      const feedingQb = makeQb({ feedingTotalCount: '0', feedingCompletedCount: '0' });
+
+      const service = new MobileDashboardService(
+        repoWithQb<MortalityRecord>(mortalityQb),
+        repoWithQb<WaterQualityMeasurement>(wqQb),
+        repoWithQb<DailyFeedingExecution>(feedingQb),
+        repoWithQb<TankOperation>(cullQb),
+      );
+
+      // A date far from "today" so the assertion cannot pass by coincidence.
+      await service.getTodaysDailyOpsCounts(TENANT, '2024-02-29');
+
+      // mortality.recordDate, cull.operationDate and feeding.executionDate all
+      // consume the SAME resolved calendar day.
+      expect(todayParamOf(mortalityQb)).toBe('2024-02-29');
+      expect(todayParamOf(cullQb)).toBe('2024-02-29');
+      expect(todayParamOf(feedingQb)).toBe('2024-02-29');
+
+      // The WQ window is [todayStart, tomorrow) derived from the same day.
+      const todayStartCall = wqQb.andWhere.mock.calls.find(
+        ([, params]) => params && Object.prototype.hasOwnProperty.call(params, 'todayStart'),
+      );
+      const tomorrowCall = wqQb.andWhere.mock.calls.find(
+        ([, params]) => params && Object.prototype.hasOwnProperty.call(params, 'tomorrow'),
+      );
+      const todayStart = (todayStartCall![1] as { todayStart: Date }).todayStart;
+      const tomorrow = (tomorrowCall![1] as { tomorrow: Date }).tomorrow;
+      expect(todayStart.toISOString()).toBe('2024-02-29T00:00:00.000Z');
+      expect(tomorrow.toISOString()).toBe('2024-03-01T00:00:00.000Z');
+    });
+
+    it('falls back to the server day when clientDate is malformed (not trusted blindly)', async () => {
+      const mortalityQb = makeQb({ mortalityCount: '0' });
+      const service = new MobileDashboardService(
+        repoWithQb<MortalityRecord>(mortalityQb),
+        repoWithQb<WaterQualityMeasurement>(makeQb(null, 0)),
+        repoWithQb<DailyFeedingExecution>(makeQb({ feedingTotalCount: '0', feedingCompletedCount: '0' })),
+        repoWithQb<TankOperation>(makeQb({ cullCount: '0' })),
+      );
+
+      // '2026-02-30' is shape-valid but not a real day → rejected → UTC fallback.
+      await service.getTodaysDailyOpsCounts(TENANT, '2026-02-30');
+
+      const used = todayParamOf(mortalityQb);
+      expect(used).not.toBe('2026-02-30');
+      // The fallback is today's UTC calendar day (YYYY-MM-DD).
+      expect(used).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+
   describe('getStockEventsSummary (FARM-HIGH-055)', () => {
     it('does not return pendingTransferCount', async () => {
       const tankOperationRepo = createMockRepository<TankOperation>();

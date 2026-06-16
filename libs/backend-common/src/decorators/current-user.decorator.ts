@@ -50,6 +50,18 @@ export interface CurrentUserPayload {
   resourcePermissions?: string[];
 
   /**
+   * SEC-HIGH-051: farm-service Site ids the user is assigned to (object-level
+   * site authorization). The typed SSoT farm resolvers read via @CurrentUser.
+   */
+  assignedSiteIds?: string[];
+
+  /**
+   * SEC-HIGH-052: enabled mobile feature keys the user is entitled to
+   * (`auth.mobile_user_settings.allowedFeatures`). Read by MobileFeatureGuard.
+   */
+  mobileFeatures?: string[];
+
+  /**
    * First name (optional)
    */
   firstName?: string;

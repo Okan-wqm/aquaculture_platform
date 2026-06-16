@@ -5,8 +5,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
+import { UserSiteAssignment } from '../entities/user-site-assignment.entity';
 import { User } from '../entities/user.entity';
 
 import { JwtPayload, TokenService } from './token.service';
@@ -69,6 +71,20 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
           provide: getRepositoryToken(UserModuleAssignment),
           useValue: { find: jest.fn().mockResolvedValue([]) },
         },
+        {
+          provide: getRepositoryToken(UserSiteAssignment),
+          useValue: { find: jest.fn().mockResolvedValue([]) },
+        },
+        {
+          // Mobile disabled by default → no mobileFeatures claim in these
+          // planLevel-focused tests (the dedicated suite below covers it).
+          provide: MobileSettingsService,
+          useValue: {
+            getByUserId: jest
+              .fn()
+              .mockResolvedValue({ isMobileEnabled: false, allowedFeatures: {} }),
+          },
+        },
         { provide: DataSource, useValue: { query } },
         { provide: JwtService, useValue: { signAsync } },
         {
@@ -121,5 +137,144 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
     await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
 
     expect(capturedPayload().planLevel).toBe(0);
+  });
+});
+
+/**
+ * SEC-HIGH-051 / SEC-HIGH-052 — the assignedSiteIds + mobileFeatures JWT claims.
+ *
+ * generateTokens must stamp a MODULE_USER's active site assignments and enabled
+ * mobile features onto the access token, omit them when empty, and never touch
+ * the RS256/keyid signing path.
+ */
+describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051/052)', () => {
+  let service: TokenService;
+  let signAsync: jest.Mock;
+  let lastPayload: JwtPayload | undefined;
+  let siteFind: jest.Mock;
+  let getByUserId: jest.Mock;
+
+  const TENANT = '22222222-2222-2222-2222-222222222222';
+  const USER = '11111111-1111-1111-1111-111111111111';
+
+  const capturedPayload = (): JwtPayload => {
+    expect(signAsync).toHaveBeenCalledTimes(1);
+    if (!lastPayload) {
+      throw new Error('signAsync was not called with a payload');
+    }
+    return lastPayload;
+  };
+
+  const buildUser = (overrides: Partial<User>): User =>
+    Object.assign(new User(), {
+      id: USER,
+      role: Role.MODULE_USER,
+      tenantId: TENANT,
+      ...overrides,
+    });
+
+  const buildService = async (): Promise<TokenService> => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        TokenService,
+        {
+          provide: getRepositoryToken(RefreshToken),
+          useValue: { create: jest.fn((x: unknown) => x), save: jest.fn() },
+        },
+        {
+          provide: getRepositoryToken(UserModuleAssignment),
+          useValue: { find: jest.fn().mockResolvedValue([]) },
+        },
+        {
+          provide: getRepositoryToken(UserSiteAssignment),
+          useValue: { find: siteFind },
+        },
+        { provide: MobileSettingsService, useValue: { getByUserId } },
+        { provide: DataSource, useValue: { query: jest.fn().mockResolvedValue([]) } },
+        { provide: JwtService, useValue: { signAsync } },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, def?: unknown) =>
+              key === 'HASH_REFRESH_TOKENS' ? false : def,
+            ),
+          },
+        },
+      ],
+    }).compile();
+    return module.get<TokenService>(TokenService);
+  };
+
+  beforeEach(() => {
+    lastPayload = undefined;
+    signAsync = jest.fn((payload: JwtPayload) => {
+      lastPayload = payload;
+      return Promise.resolve('signed.access.token');
+    });
+    // Active non-expired site assignment by default.
+    siteFind = jest.fn().mockResolvedValue([
+      { siteId: 'site-a', isActive: true, isAccessible: () => true },
+      { siteId: 'site-b', isActive: true, isAccessible: () => true },
+    ]);
+    getByUserId = jest.fn().mockResolvedValue({
+      isMobileEnabled: true,
+      allowedFeatures: { mortality: true, harvest: true, cull: false, leave: true },
+    });
+  });
+
+  it('stamps assignedSiteIds from active, non-expired assignments for a MODULE_USER', async () => {
+    service = await buildService();
+    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+
+    expect(capturedPayload().assignedSiteIds).toEqual(['site-a', 'site-b']);
+  });
+
+  it('projects ONLY the truthy allowedFeatures keys into mobileFeatures (single read path)', async () => {
+    service = await buildService();
+    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+
+    const features = capturedPayload().mobileFeatures ?? [];
+    expect(features.sort()).toEqual(['harvest', 'leave', 'mortality']);
+    // cull=false must NOT appear.
+    expect(features).not.toContain('cull');
+    // MobileSettingsService is the SINGLE read path.
+    expect(getByUserId).toHaveBeenCalledWith(USER, TENANT);
+  });
+
+  it('omits mobileFeatures when mobile is disabled', async () => {
+    getByUserId.mockResolvedValue({ isMobileEnabled: false, allowedFeatures: { mortality: true } });
+    service = await buildService();
+    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+
+    expect('mobileFeatures' in capturedPayload()).toBe(false);
+  });
+
+  it('omits assignedSiteIds when the user has no active assignments', async () => {
+    siteFind.mockResolvedValue([]);
+    service = await buildService();
+    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+
+    expect('assignedSiteIds' in capturedPayload()).toBe(false);
+  });
+
+  it('omits assignedSiteIds for TENANT_ADMIN (they bypass via the role hierarchy)', async () => {
+    service = await buildService();
+    await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
+
+    // TENANT_ADMIN never queries the site assignment repo.
+    expect(siteFind).not.toHaveBeenCalled();
+    expect('assignedSiteIds' in capturedPayload()).toBe(false);
+  });
+
+  it('signs with the keyid header SSoT untouched (no RS256/JWKS change)', async () => {
+    service = await buildService();
+    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+
+    // The signing call must still pass keyid + audience — adding claims to the
+    // payload must not have altered the signing options path.
+    expect(signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'access' }),
+      expect.objectContaining({ keyid: expect.anything() }),
+    );
   });
 });

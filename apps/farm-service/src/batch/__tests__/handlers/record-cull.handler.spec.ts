@@ -6,8 +6,10 @@
  * batch<->tank membership, QUALITY persistence, aggregate ceiling, pessimistic
  * lock parity, and the transactional audit row.
  */
-import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { OutboxPublisher } from '@platform/outbox';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 
@@ -51,6 +53,9 @@ describe('RecordCullHandler', () => {
       createMockRepository(),
       mockOutboxPublisher,
       mockAuditLogService,
+      // SEC-HIGH-051: the real fail-closed SSoT; commands below default to
+      // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
+      new SiteAuthorizationService(),
       new MortalityCullPolicyService(),
       mockProjection(),
       new MobileCommandReceiptService(),
@@ -97,7 +102,7 @@ describe('RecordCullHandler', () => {
     await expect(
       handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
         tankId: 'tank-1', quantity: 10, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
-      }, USER, ENVELOPE)),
+      }, USER, [Role.MODULE_MANAGER], [], ENVELOPE)),
     ).rejects.toThrow(NotFoundException);
 
     expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
@@ -109,7 +114,7 @@ describe('RecordCullHandler', () => {
     await expect(
       handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
         tankId: 'tank-1', quantity: 10, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
-      }, USER /* no envelope */)),
+      }, USER, [Role.MODULE_MANAGER], [])),
     ).rejects.toThrow(BadRequestException);
     // No batch ever loaded — rejected before any read/write
     expect(mockManager.findOne).not.toHaveBeenCalled();
@@ -125,7 +130,7 @@ describe('RecordCullHandler', () => {
 
     const result = await handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
       tankId: 'tank-1', quantity: 50, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
-    }, USER, ENVELOPE));
+    }, USER, [Role.MODULE_MANAGER], [], ENVELOPE));
 
     expect(result.id).toBe('batch-1');
     // No decrement happened — only the replay batch reload
@@ -142,7 +147,7 @@ describe('RecordCullHandler', () => {
     await expect(
       handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
         tankId: 'tank-1', quantity: 10, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
-      }, USER, ENVELOPE)),
+      }, USER, [Role.MODULE_MANAGER], [], ENVELOPE)),
     ).rejects.toThrow(ConflictException);
     expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
   });
@@ -157,7 +162,7 @@ describe('RecordCullHandler', () => {
     await expect(
       handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
         tankId: 'tank-1', quantity: 50, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
-      }, USER, ENVELOPE)),
+      }, USER, [Role.MODULE_MANAGER], [], ENVELOPE)),
     ).rejects.toThrow(NotFoundException);
     expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
   });
@@ -171,7 +176,7 @@ describe('RecordCullHandler', () => {
     await expect(
       handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
         tankId: 'tank-1', quantity: 20, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
-      }, USER, ENVELOPE)),
+      }, USER, [Role.MODULE_MANAGER], [], ENVELOPE)),
     ).rejects.toThrow(BadRequestException);
   });
 
@@ -185,7 +190,7 @@ describe('RecordCullHandler', () => {
 
     const result = await handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
       tankId: 'tank-1', quantity: 50, reason: CullReason.QUALITY, culledAt: CULLED_AT,
-    }, USER, ENVELOPE));
+    }, USER, [Role.MODULE_MANAGER], [], ENVELOPE));
 
     expect(result.currentQuantity).toBe(950);
     expect(result.cullCount).toBe(50);
@@ -211,7 +216,7 @@ describe('RecordCullHandler', () => {
 
     await handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
       tankId: 'tank-1', quantity: 50, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
-    }, USER, ENVELOPE));
+    }, USER, [Role.MODULE_MANAGER], [], ENVELOPE));
 
     const tankBatchCall = (mockManager.findOne as jest.Mock).mock.calls
       .find(([entity, opts]) => entity === TankBatch && opts?.where?.tankId === 'tank-1');
@@ -227,7 +232,7 @@ describe('RecordCullHandler', () => {
 
     await handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
       tankId: 'tank-1', quantity: 50, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
-    }, USER, ENVELOPE));
+    }, USER, [Role.MODULE_MANAGER], [], ENVELOPE));
 
     expect(mockAuditLogService.logWithManager).toHaveBeenCalledWith(
       mockManager,
@@ -241,9 +246,51 @@ describe('RecordCullHandler', () => {
     await expect(
       handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
         tankId: 'tank-1', quantity: 10, reason: CullReason.SMALL_SIZE, culledAt: CULLED_AT,
-      }, USER, ENVELOPE)),
+      }, USER, [Role.MODULE_MANAGER], [], ENVELOPE)),
     ).rejects.toThrow();
 
     expect(mockQueryRunner.release).toHaveBeenCalled();
+  });
+
+  describe('SEC-HIGH-051 object-level site authorization', () => {
+    const SITE_A = 'site-a';
+    const SITE_B = 'site-b';
+    const DEPT = 'dept-1';
+
+    it('rejects a MODULE_USER not assigned to the tank site (cross-site, no write)', async () => {
+      mockManager.findOne.mockImplementation((entity: unknown) => {
+        if ((entity as { name?: string })?.name === 'Department') {
+          return Promise.resolve({ id: DEPT, siteId: SITE_A });
+        }
+        // batch / equipment / tankBatch
+        if (typeof entity === 'function' && entity.name === 'Batch') return Promise.resolve(operationalBatch());
+        if (typeof entity === 'function' && entity.name === 'TankBatch') return Promise.resolve(tankBatchHolding());
+        // Equipment carries departmentId so resolveSiteIdFromDepartment runs.
+        return Promise.resolve({ ...tankWith(), departmentId: DEPT });
+      });
+
+      await expect(
+        handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
+          tankId: 'tank-1', quantity: 10, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
+        }, USER, [Role.MODULE_USER], [SITE_B], ENVELOPE)),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('allows a MODULE_USER assigned to the tank site', async () => {
+      mockManager.findOne.mockImplementation((entity: unknown) => {
+        if (typeof entity === 'function' && entity.name === 'Batch') return Promise.resolve(operationalBatch());
+        if (typeof entity === 'function' && entity.name === 'TankBatch') return Promise.resolve(tankBatchHolding());
+        if (typeof entity === 'function' && entity.name === 'Department') return Promise.resolve({ id: DEPT, siteId: SITE_A });
+        return Promise.resolve({ ...tankWith(), departmentId: DEPT });
+      });
+      mockManager.save.mockImplementation((_cls: unknown, data: unknown) => Promise.resolve(data));
+
+      await handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
+        tankId: 'tank-1', quantity: 10, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
+      }, USER, [Role.MODULE_USER], [SITE_A], ENVELOPE));
+
+      expect(mockOutboxPublisher.enqueue).toHaveBeenCalled();
+    });
   });
 });

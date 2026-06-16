@@ -4,6 +4,10 @@
  * IP-3: CQRS handler test coverage — tank allocation with capacity check.
  */
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
+import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import { AllocateToTankHandler } from '../../handlers/allocate-to-tank.handler';
 import { AllocateToTankCommand, AllocationType } from '../../commands/allocate-to-tank.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
@@ -66,6 +70,16 @@ describe('AllocateToTankHandler', () => {
       mockOutboxPublisher as any,
       mockTankCapacityService as any,
       mockAuditLogService as any,
+      // SEC-HIGH-051: the real fail-closed SSoT; the commands below pass
+      // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
+      new SiteAuthorizationService(),
+      // Working no-op DI deps (the throwing direct-handler defaults are
+      // test-only and would abort begin()/refreshContainers() before assertions).
+      ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
+      ({
+        begin: jest.fn().mockResolvedValue({ mode: 'execute' }),
+        complete: jest.fn().mockResolvedValue(undefined),
+      }) as Partial<MobileCommandReceiptService> as MobileCommandReceiptService,
     );
   });
 
@@ -87,6 +101,8 @@ describe('AllocateToTankHandler', () => {
             allocationType: AllocationType.INITIAL_STOCKING,
           },
           USER,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     ).rejects.toThrow(NotFoundException);
@@ -136,6 +152,8 @@ describe('AllocateToTankHandler', () => {
           allocationType: AllocationType.INITIAL_STOCKING,
         },
         USER,
+        [Role.MODULE_MANAGER],
+        [],
       ),
     );
 
@@ -159,6 +177,8 @@ describe('AllocateToTankHandler', () => {
             allocationType: AllocationType.INITIAL_STOCKING,
           },
           USER,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     ).rejects.toThrow();
@@ -221,6 +241,8 @@ describe('AllocateToTankHandler', () => {
           allocationType: AllocationType.INITIAL_STOCKING,
         },
         USER,
+        [Role.MODULE_MANAGER],
+        [],
       ),
     );
 
@@ -276,6 +298,8 @@ describe('AllocateToTankHandler', () => {
           allocationType: AllocationType.INITIAL_STOCKING,
         },
         USER,
+        [Role.MODULE_MANAGER],
+        [],
       ),
     );
 

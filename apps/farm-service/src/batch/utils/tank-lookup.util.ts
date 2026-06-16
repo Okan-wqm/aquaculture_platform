@@ -7,6 +7,7 @@
  * @module Batch/Utils
  */
 import { Repository, EntityManager, FindOneOptions } from 'typeorm';
+import { Department } from '../../department/entities/department.entity';
 import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { EquipmentType, EquipmentCategory } from '../../equipment/entities/equipment-type.entity';
@@ -120,6 +121,51 @@ export async function updateTankBiomass(
 }
 
 /**
+ * SEC-HIGH-051: resolve a tank's owning Site id (the ONE tank site-resolver).
+ *
+ * WHY: object-level site authorization needs the site a batch/tank belongs to.
+ * A tank (equipment OR legacy tanks table) carries `departmentId`; the
+ * Department carries the nullable `siteId`. Resolving inside the caller's open
+ * transaction `manager` serializes the lookup with the handler's existing
+ * pessimistic locks, so a concurrent department re-home cannot race the check.
+ *
+ * WHAT: returns the Site id, or `null` when the tank, its department, or the
+ * department's site cannot be resolved. `null` drives the fail-closed deny in
+ * {@link SiteAuthorizationService} — a site-less department is NOT an implicit
+ * allow. Department.siteId is intentionally nullable, so a department without a
+ * site correctly yields `null`.
+ */
+export async function resolveTankSiteId(
+  manager: EntityManager,
+  tankId: string,
+  tenantId: string,
+): Promise<string | null> {
+  const lookup = await findTankOrEquipmentWithManager(manager, tankId, tenantId);
+  return resolveSiteIdFromDepartment(manager, lookup?.equipment.departmentId, tenantId);
+}
+
+/**
+ * SEC-HIGH-051: resolve a Site id from an already-known departmentId (the inner
+ * half of {@link resolveTankSiteId}). Call sites that already loaded+locked the
+ * tank (e.g. allocate-to-tank) use this to avoid a redundant tank re-lookup.
+ * Returns `null` when the departmentId is absent or its department has no site —
+ * the fail-closed posture (a site-less department is never an implicit allow).
+ */
+export async function resolveSiteIdFromDepartment(
+  manager: EntityManager,
+  departmentId: string | null | undefined,
+  tenantId: string,
+): Promise<string | null> {
+  if (!departmentId) {
+    return null;
+  }
+  const department = await manager.findOne(Department, {
+    where: { id: departmentId, tenantId },
+  });
+  return department?.siteId ?? null;
+}
+
+/**
  * Adapt a Tank entity to an Equipment-like object for uniform handling.
  * Exported so bulk-fetch call sites (e.g. CreateBatchHandler after the
  * P-H3 N+1 fix) can reuse the same adaptation logic without duplicating
@@ -129,6 +175,11 @@ export function adaptTankToEquipment(tank: Tank): Equipment {
   const adapted = new Equipment();
   adapted.id = tank.id;
   adapted.tenantId = tank.tenantId;
+  // SEC-HIGH-051: carry departmentId so site resolution works for the legacy
+  // tanks table too (Tank.departmentId is NOT NULL → Department.siteId). Without
+  // this the adapted equipment would have an undefined departmentId and a
+  // legitimately-sited legacy tank would resolve to null → fail-closed deny.
+  adapted.departmentId = tank.departmentId;
   adapted.name = tank.name;
   adapted.code = tank.code;
   adapted.volume = Number(tank.volume) || 0;

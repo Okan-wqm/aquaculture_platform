@@ -741,6 +741,10 @@ export class ServiceProxyService {
         roles?: string[];
         email?: string;
         mfaVerified?: boolean;
+        // SEC-HIGH-051 / SEC-HIGH-052: the object-level authorization claims the
+        // REST-proxy path must also fold into the verified assertion.
+        assignedSiteIds?: string[];
+        mobileFeatures?: string[];
       };
     }).user;
 
@@ -757,6 +761,13 @@ export class ServiceProxyService {
         roles: user.roles ?? [],
         email: user.email,
         mfaVerified: user.mfaVerified,
+        // SEC-HIGH-051 / SEC-HIGH-052: thread the site + mobile-feature claims
+        // into the HMAC-bound assertion on the REST-proxy path too, identical to
+        // the federation/authenticated-data-source build site. Without this the
+        // claims are dropped here and a legitimately-assigned user is wrongly
+        // denied on any farm/hr mutation routed through the REST proxy.
+        assignedSiteIds: user.assignedSiteIds,
+        mobileFeatures: user.mobileFeatures,
       }),
     };
   }

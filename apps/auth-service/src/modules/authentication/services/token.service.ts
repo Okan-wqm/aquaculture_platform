@@ -11,10 +11,12 @@ import { TenantPlan, PLAN_LEVEL } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, Repository } from 'typeorm';
 
+import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { AuthPayload } from '../dto/auth-response.dto';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
+import { UserSiteAssignment } from '../entities/user-site-assignment.entity';
 import { User } from '../entities/user.entity';
 
 /**
@@ -51,6 +53,21 @@ export interface JwtPayload {
   planLevel?: number;
   modules?: string[];
   resourcePermissions?: string[];
+  /**
+   * SEC-HIGH-051: farm-service Site ids the user is assigned to (object-level
+   * site authorization). Like `modules`/`resourcePermissions`/`planLevel`, this
+   * is an authz claim with the SAME staleness tolerance: a freshly assigned or
+   * revoked site only takes effect on the next access-token refresh (<=15m),
+   * which is acceptable for site gating. SUPER_ADMIN/TENANT_ADMIN omit it — they
+   * bypass site checks via the canonical role hierarchy.
+   */
+  assignedSiteIds?: string[];
+  /**
+   * SEC-HIGH-052: enabled mobile feature keys
+   * (`auth.mobile_user_settings.allowedFeatures`). Same staleness tolerance as
+   * above: a disabled feature stays effective until the next token refresh.
+   */
+  mobileFeatures?: string[];
   /**
    * Token type discriminator -- prevents refresh tokens from being used as
    * access tokens, and vice versa. The gateway's AuthGuard rejects any token
@@ -140,9 +157,14 @@ export class TokenService {
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(UserModuleAssignment)
     private readonly userModuleAssignmentRepository: Repository<UserModuleAssignment>,
+    @InjectRepository(UserSiteAssignment)
+    private readonly userSiteAssignmentRepository: Repository<UserSiteAssignment>,
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    // SEC-HIGH-052: the SINGLE mobile-feature read path. Injected (not
+    // re-queried inline) so allowedFeatures has exactly one source of truth.
+    private readonly mobileSettingsService: MobileSettingsService,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
   ) {
     this.refreshTokenExpiryDays = this.configService.get<number>(
@@ -174,14 +196,18 @@ export class TokenService {
     }
 
     // Hot-path reads run concurrently: the user's module codes, tenant-level
-    // resource permissions, and the tenant's plan-tier ordinal (the
-    // MT-MEDIUM-001 JWT claim) are independent, so a single Promise.all keeps
-    // token mint to one read latency instead of three serial round-trips.
-    const [modules, resourcePermissions, planLevel] = await Promise.all([
-      this.getUserModules(user),
-      this.getUserResourcePermissions(user),
-      this.resolveTenantPlanLevel(user.tenantId ?? null),
-    ]);
+    // resource permissions, the tenant's plan-tier ordinal (the MT-MEDIUM-001
+    // JWT claim), the user's assigned site ids (SEC-HIGH-051) and enabled mobile
+    // features (SEC-HIGH-052) are independent, so a single Promise.all keeps
+    // token mint to one read latency instead of five serial round-trips.
+    const [modules, resourcePermissions, planLevel, assignedSiteIds, mobileFeatures] =
+      await Promise.all([
+        this.getUserModules(user),
+        this.getUserResourcePermissions(user),
+        this.resolveTenantPlanLevel(user.tenantId ?? null),
+        this.getUserAssignedSiteIds(user),
+        this.getUserMobileFeatures(user),
+      ]);
     const moduleCodes = modules.map((m) => m.code);
 
     // Generate JWT ID for token blacklisting
@@ -203,6 +229,11 @@ export class TokenService {
       ...(planLevel !== undefined ? { planLevel } : {}),
       modules: moduleCodes.length > 0 ? moduleCodes : undefined,
       resourcePermissions: resourcePermissions.length > 0 ? resourcePermissions : undefined,
+      // SEC-HIGH-051 / SEC-HIGH-052: emit only when non-empty. Use the spread
+      // pattern (like planLevel) so the KEY is genuinely absent when empty —
+      // managers/admins carry no superfluous claim and `'x' in payload` is false.
+      ...(assignedSiteIds.length > 0 ? { assignedSiteIds } : {}),
+      ...(mobileFeatures.length > 0 ? { mobileFeatures } : {}),
       type: 'access',
       jti,
       // IP-2: MFA step-up claim — set after successful TOTP verification.
@@ -346,6 +377,56 @@ export class TokenService {
     }
     this.moduleCache.set(user.id, { modules, cachedAt: Date.now() });
     return modules;
+  }
+
+  /**
+   * SEC-HIGH-051: resolve the user's assigned farm-service Site ids for the
+   * `assignedSiteIds` JWT claim.
+   *
+   * SUPER_ADMIN/TENANT_ADMIN return [] — they bypass site checks via the
+   * canonical `roleHasPermission(role, MODULE_MANAGER)` hierarchy (mirroring the
+   * user_module_assignments TENANT_ADMIN-inherits precedent). MODULE_MANAGER and
+   * MODULE_USER load their active, non-expired assignments. MODULE_MANAGER also
+   * bypasses at the guard, but we still emit its sites so a future tighter
+   * policy has the data and the claim is consistent.
+   */
+  private async getUserAssignedSiteIds(user: User): Promise<string[]> {
+    if (user.role === Role.SUPER_ADMIN || user.role === Role.TENANT_ADMIN) {
+      return [];
+    }
+
+    const assignments = await this.userSiteAssignmentRepository.find({
+      where: { userId: user.id, isActive: true },
+    });
+
+    return assignments
+      .filter((a) => a.isAccessible())
+      .map((a) => a.siteId);
+  }
+
+  /**
+   * SEC-HIGH-052: project the user's enabled mobile feature keys for the
+   * `mobileFeatures` JWT claim, via the SINGLE read path
+   * (`MobileSettingsService.getByUserId`).
+   *
+   * SUPER_ADMIN have no tenant/settings and are not feature-gated — return [].
+   * For tenant-scoped users, only the truthy `allowedFeatures` keys are emitted,
+   * and ONLY when `isMobileEnabled` (a globally-disabled mobile user gets no
+   * feature claims, so MobileFeatureGuard denies every gated mutation).
+   */
+  private async getUserMobileFeatures(user: User): Promise<string[]> {
+    if (!user.tenantId) {
+      return [];
+    }
+
+    const settings = await this.mobileSettingsService.getByUserId(user.id, user.tenantId);
+    if (!settings.isMobileEnabled) {
+      return [];
+    }
+
+    return Object.entries(settings.allowedFeatures)
+      .filter(([, enabled]) => enabled === true)
+      .map(([key]) => key);
   }
 
   /**

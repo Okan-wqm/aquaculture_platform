@@ -17,6 +17,7 @@
  * @module Batch/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -40,7 +41,7 @@ import { Batch } from '../entities/batch.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { MortalityCullPolicyService } from '../services/mortality-cull-policy.service';
-import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
+import { findTankOrEquipmentWithManager, resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
 
 @Injectable()
 @CommandHandler(RecordCullCommand)
@@ -57,6 +58,8 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     private readonly equipmentRepository: Repository<Equipment>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly auditLogService: AuditLogService,
+    // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
+    private readonly siteAuth: SiteAuthorizationService,
     private readonly mortalityCullPolicy: MortalityCullPolicyService = new MortalityCullPolicyService(),
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
@@ -136,6 +139,25 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
       }
       const tank = tankLookup.equipment;
+
+      // SEC-HIGH-051: object-level site authorization. The tank is already
+      // loaded+locked above, so resolve its owning site from the known
+      // departmentId (one Department lookup) and assert the caller is assigned to
+      // it BEFORE any stock write. MODULE_MANAGER+ bypasses; an unassigned or
+      // unresolved site for a MODULE_USER is DENIED.
+      const tankSiteId = await resolveSiteIdFromDepartment(
+        queryRunner.manager,
+        tank.departmentId,
+        tenantId,
+      );
+      this.siteAuth.assertSiteAssignment({
+        caller: {
+          sub: recordedBy,
+          roles: command.userRoles,
+          assignedSiteIds: command.callerAssignedSiteIds,
+        },
+        siteId: tankSiteId,
+      });
 
       // FARM-CRITICAL-050: reject cull on a terminal/closed batch. isOperational()
       // (status-derived) is the authoritative gate — isActive is an overloaded

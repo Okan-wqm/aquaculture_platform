@@ -6,6 +6,7 @@ import { Repository, DataSource, EntityManager } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
 import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common/database';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import type { StockMovementRecordedEvent, LowStockDetectedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { RecordStockMovementCommand } from '../commands/record-stock-movement.command';
@@ -37,6 +38,8 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     private readonly consumableRepository: Repository<Consumable>,
     private readonly dataSource: DataSource,
     private readonly lotMixService: LotMixService,
+    // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
+    private readonly siteAuth: SiteAuthorizationService,
     // EVENT_BUS is provided globally by EventBusModule (@Global).
     // @Optional() ensures the handler still works in test environments
     // or when NATS is unavailable — event emission is best-effort, not mandatory.
@@ -116,6 +119,22 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
           where: { id: input.fromLocationId, tenantId },
         });
       }
+    }
+
+    // SEC-HIGH-051: object-level site authorization. A storage movement touches
+    // a from/to location whose StorageLocation.siteId is a direct column. Assert
+    // the caller is assigned to EACH present location's site BEFORE any inventory
+    // write. MODULE_MANAGER+ bypasses; an unassigned site for a MODULE_USER DENIES.
+    const siteCaller = {
+      sub: userId,
+      roles: command.userRoles,
+      assignedSiteIds: command.callerAssignedSiteIds,
+    };
+    if (fromLocation) {
+      this.siteAuth.assertSiteAssignment({ caller: siteCaller, siteId: fromLocation.siteId });
+    }
+    if (toLocation) {
+      this.siteAuth.assertSiteAssignment({ caller: siteCaller, siteId: toLocation.siteId });
     }
 
     // Check condition warnings for IN movements

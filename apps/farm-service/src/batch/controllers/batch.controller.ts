@@ -62,6 +62,9 @@ interface VerifiedBatchContext {
   tenantId: string;
   actorUserId: string;
   roles: Role[];
+  // SEC-HIGH-051: the caller's assigned Site ids for the object-level site check
+  // on the REST stock-mutating paths (same data as the GraphQL resolver path).
+  assignedSiteIds: string[];
 }
 
 // ============================================================================
@@ -171,6 +174,10 @@ function verifiedContext(req: TenantRequest): VerifiedBatchContext {
     tenantId,
     actorUserId,
     roles: (req.verifiedUserAssertion?.roles ?? req.user?.roles ?? []) as Role[],
+    // SEC-HIGH-051: prefer the HMAC-bound assertion's site claim; fall back to
+    // the direct-JWT req.user on the non-gateway path. Default [] is fail-closed.
+    assignedSiteIds:
+      req.verifiedUserAssertion?.assignedSiteIds ?? req.user?.assignedSiteIds ?? [],
   };
 }
 
@@ -369,7 +376,14 @@ export class BatchController {
     @Param('id', ParseUUIDPipe) batchId: string,
     @Body() dto: AllocateBatchDto,
   ) {
-    const { tenantId, actorUserId, roles } = verifiedContext(req);
+    // SEC-HIGH-051: thread roles AND assignedSiteIds from the authenticated REST
+    // principal. AllocateToTankCommand's positional params are
+    // (tenantId, batchId, payload, allocatedBy, userRoles, callerAssignedSiteIds).
+    // Omitting assignedSiteIds previously left it at its `[]` default, which
+    // fail-closed denies a legitimate same-site MODULE_USER at the handler's
+    // assertSiteAssignment. Pass it from the same verified context the GraphQL
+    // path uses (assertion site claim, JWT fallback).
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const allocation = await this.commandBus.execute(
       new AllocateToTankCommand(
@@ -384,6 +398,7 @@ export class BatchController {
         },
         actorUserId,
         roles,
+        assignedSiteIds,
       ),
     );
 
@@ -465,8 +480,8 @@ export class TankOperationsController {
   async recordMortality(
     @Req() req: TenantRequest,
     @Body() dto: RecordMortalityDto,
-  ) {
-    const { tenantId, actorUserId } = verifiedContext(req);
+  ): Promise<{ success: boolean; data: unknown }> {
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const operation = await this.commandBus.execute(
       new RecordMortalityCommand(
@@ -483,6 +498,8 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        roles,
+        assignedSiteIds,
         restMobileEnvelope(dto, 'recordMortality'),
       ),
     );
@@ -502,7 +519,7 @@ export class TankOperationsController {
     @Req() req: TenantRequest,
     @Body() dto: RecordCullDto,
   ) {
-    const { tenantId, actorUserId } = verifiedContext(req);
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const operation = await this.commandBus.execute(
       new RecordCullCommand(
@@ -518,6 +535,8 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        roles,
+        assignedSiteIds,
         restMobileEnvelope(dto, 'recordCull'),
       ),
     );
@@ -537,7 +556,7 @@ export class TankOperationsController {
     @Req() req: TenantRequest,
     @Body() dto: RecordTransferDto,
   ) {
-    const { tenantId, actorUserId } = verifiedContext(req);
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const operation = await this.commandBus.execute(
       new TransferBatchCommand(
@@ -553,6 +572,8 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        roles,
+        assignedSiteIds,
         restMobileEnvelope(dto, 'transferBatch'),
       ),
     );
@@ -573,7 +594,7 @@ export class TankOperationsController {
     @Req() req: TenantRequest,
     @Body() dto: RecordHarvestDto,
   ) {
-    const { tenantId, actorUserId } = verifiedContext(req);
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
     const totalBiomass = dto.totalWeightKg ?? (dto.quantity * (dto.avgWeightG ?? 0)) / 1000;
 
     const operation = await this.commandBus.execute(
@@ -592,6 +613,8 @@ export class TankOperationsController {
           notes: dto.notes,
         },
         actorUserId,
+        roles,
+        assignedSiteIds,
       ),
     );
 

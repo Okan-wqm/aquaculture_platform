@@ -16,6 +16,7 @@
  * @module Batch/Handlers
  */
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, NotFoundException, BadRequestException, Logger, ConflictException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -38,6 +39,7 @@ import { AllocateToTankCommand, AllocationType } from '../commands/allocate-to-t
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
+import { resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
 
 /**
  * Map the command's AllocationType enum to the BatchAllocatedToTankEvent
@@ -85,6 +87,8 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     private readonly outboxPublisher: OutboxPublisher,
     private readonly tankCapacityService: TankCapacityService,
     private readonly auditLogService: AuditLogService,
+    // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
+    private readonly siteAuth: SiteAuthorizationService,
     private readonly farmStockProjection: FarmStockProjectionService =
       defaultFarmStockProjectionForDirectHandlerConstruction(),
     private readonly mobileCommandReceipts: MobileCommandReceiptService =
@@ -99,7 +103,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
    * to the same tank simultaneously.
    */
   async execute(command: AllocateToTankCommand): Promise<TankAllocation> {
-    const { tenantId, batchId, payload, allocatedBy, userRoles } = command;
+    const { tenantId, batchId, payload, allocatedBy, userRoles, callerAssignedSiteIds } = command;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -156,6 +160,20 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       if (!equipment) {
         throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
       }
+
+      // SEC-HIGH-051: object-level site authorization. The tank is already
+      // loaded+locked above, so resolve its owning site from the known
+      // departmentId (one Department lookup, no redundant tank re-lookup) and
+      // assert the caller is assigned to it BEFORE any allocation write.
+      // MODULE_MANAGER+ bypasses; an unassigned/unresolved site for a MODULE_USER
+      // is DENIED. canonicalTank (legacy) carries departmentId; the adapted
+      // Equipment may not, so prefer the canonical row's departmentId.
+      const departmentId = canonicalTank?.departmentId ?? equipment.departmentId;
+      const tankSiteId = await resolveSiteIdFromDepartment(queryRunner.manager, departmentId, tenantId);
+      this.siteAuth.assertSiteAssignment({
+        caller: { sub: allocatedBy, roles: userRoles, assignedSiteIds: callerAssignedSiteIds },
+        siteId: tankSiteId,
+      });
 
       // Existing biomass on the tank — pull the cleaner-fish component
       // from the tank_batches row (if any) so the capacity check can

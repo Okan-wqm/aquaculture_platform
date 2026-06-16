@@ -16,6 +16,8 @@ import {
   getTenantSchemaName,
   withTenantContext,
 } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import {
   bootPostgresContainer,
   HarnessContext,
@@ -253,6 +255,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       outboxPublisher,
       backdatePolicy as never,
       auditLogService as never,
+      // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
+      // MODULE_MANAGER so site authz bypasses for this tenant-isolation e2e.
+      new SiteAuthorizationService(),
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,
@@ -265,6 +270,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       equipmentRepository,
       outboxPublisher,
       auditLogService as never,
+      new SiteAuthorizationService(),
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,
@@ -285,6 +291,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       operationRepository,
       tankBatchRepository,
       tankRepository,
+      new SiteAuthorizationService(),
       // CreateHarvestRecordHandler also defaults farmStockProjection +
       // mobileCommandReceipts to throwing test-only stubs; this isolation e2e
       // must supply working no-op stubs (same rationale as the mortality/cull
@@ -333,6 +340,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
             notes: 'tenant-b control mortality',
           },
           USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );
@@ -351,6 +360,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
             notes: 'tenant-a mortality',
           },
           USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );
@@ -370,6 +381,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
             notes: 'tenant-a cull from legacy tanks table',
           },
           USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );
@@ -391,6 +404,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
             notes: 'tenant-a harvest',
           },
           USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );

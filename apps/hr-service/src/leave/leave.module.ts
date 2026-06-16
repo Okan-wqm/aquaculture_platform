@@ -1,3 +1,4 @@
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { Module } from '@nestjs/common';
 import { CqrsModule } from '@nestjs/cqrs';
@@ -33,6 +34,8 @@ import { LeaveQueryHandlers } from './query-handlers';
   providers: [
     LeaveResolver,
     MobileCommandReceiptService,
+    // SEC-HIGH-052: mobile-feature guard ('leave' entitlement).
+    MobileFeatureGuard,
     ...LeaveCommandHandlers,
     ...LeaveQueryHandlers,
     LeaveAccrualService,

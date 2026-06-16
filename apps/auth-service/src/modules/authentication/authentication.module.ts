@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuditModule } from '../../audit/audit.module';
 import { Tenant } from '../tenant/entities/tenant.entity';
+import { TenantModule } from '../tenant/tenant.module';
 
 import { AuthPublicNatsHandler } from './controllers/auth-public-nats.handler';
 import { InternalAuthController } from './controllers/internal-auth.controller';
@@ -10,6 +11,7 @@ import { ActionToken } from './entities/action-token.entity';
 import { Invitation } from './entities/invitation.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { UserModuleAssignment } from './entities/user-module-assignment.entity';
+import { UserSiteAssignment } from './entities/user-site-assignment.entity';
 import { User } from './entities/user.entity';
 import { WebAuthnCredential } from './entities/webauthn-credential.entity';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -33,10 +35,14 @@ import { WebAuthnService } from './services/webauthn.service';
       ActionToken,
       Invitation,
       UserModuleAssignment,
+      UserSiteAssignment,
       Tenant,
       WebAuthnCredential,
     ]),
     AuditModule,
+    // SEC-HIGH-052: TenantModule exports MobileSettingsService (the single
+    // mobile-feature read path) so TokenService can fold it into the JWT mint.
+    TenantModule,
   ],
   controllers: [InternalAuthController, AuthPublicNatsHandler],
   providers: [

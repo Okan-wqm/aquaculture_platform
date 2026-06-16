@@ -18,7 +18,8 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant, CurrentUser, Role, Roles, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Task, TaskStatus } from '../entities/task.entity';
@@ -80,7 +81,9 @@ class TaskStatsResponse {
 // RESOLVER
 // ============================================================================
 
-@UseGuards(GqlAuthGuard)
+// SEC-HIGH-052: MobileFeatureGuard enforces the 'tasks' mobile entitlement on
+// the field-worker task mutations below (no-op on queries / un-annotated routes).
+@UseGuards(GqlAuthGuard, MobileFeatureGuard)
 @Resolver(() => Task)
 export class TaskResolver {
   private readonly logger = new Logger(TaskResolver.name);
@@ -147,6 +150,7 @@ export class TaskResolver {
   // -------------------------------------------------------------------------
 
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async createTask(
     @Args('input') input: CreateTaskInput,
@@ -158,6 +162,7 @@ export class TaskResolver {
   }
 
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async updateTask(
     @Args('input') input: UpdateTaskInput,
@@ -172,6 +177,7 @@ export class TaskResolver {
   }
 
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async completeTask(
     @Args('input') input: TaskLifecycleInput,
@@ -188,6 +194,7 @@ export class TaskResolver {
   }
 
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async startTask(
     @Args('input') input: TaskLifecycleInput,
@@ -220,6 +227,7 @@ export class TaskResolver {
    * instead of reverting the item.
    */
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async setChecklistItem(
     @Args('input') input: SetChecklistItemInput,
@@ -238,6 +246,7 @@ export class TaskResolver {
   }
 
   @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
+  @RequiresMobileFeature('tasks')
   @Mutation(() => Task)
   async addTaskNote(
     @Args('taskId', { type: () => ID }) taskId: string,

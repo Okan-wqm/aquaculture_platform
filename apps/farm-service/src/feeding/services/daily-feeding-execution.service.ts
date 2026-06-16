@@ -19,11 +19,17 @@ import {
   MobileCommandReceiptService,
   type MobileCommandEnvelope,
 } from '@aquaculture/backend-common/mobile-command';
+import {
+  SiteAuthorizationService,
+  type SiteScopeCaller,
+} from '@aquaculture/backend-common/security';
 import { Injectable, Logger, NotFoundException, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
 import { FeedInventoryLowEvent , createBaseEvent } from '@platform/event-contracts';
+
+import { resolveTankSiteId } from '../../batch/utils/tank-lookup.util';
 
 // Entities
 import {
@@ -127,6 +133,11 @@ export class DailyFeedingExecutionService {
     private readonly bilinearService: BilinearInterpolationService,
     private readonly dataSource: DataSource,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    // SEC-HIGH-051: object-level site authorization SSoT, enforced AT THE SINK so
+    // every feeding-write caller (recordDailyFeeding, recordBulkFeeding, any
+    // future caller) is gated identically and the resolver can never again be
+    // the sole, forgettable enforcement point.
+    private readonly siteAuth: SiteAuthorizationService,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -414,10 +425,20 @@ export class DailyFeedingExecutionService {
    * Gercek yemleme miktarini kaydeder.
    * FCR ile buyume hesabi yapar ve tank/batch gunceller.
    *
+   * SEC-HIGH-051: object-level site authorization is enforced HERE, at the
+   * shared sink, not at the resolver. The `caller` (sub/roles/assignedSiteIds)
+   * is resolved against the execution's tank site on the SAME transactional
+   * manager that performs the write, so EVERY feeding-write call site —
+   * recordDailyFeeding, recordBulkFeeding, and any future caller — fails closed
+   * for an unassigned/unresolved site (MODULE_MANAGER+ bypasses via the role
+   * hierarchy). The caller is REQUIRED: no feeding write may run unauthenticated
+   * for site scope.
+   *
    * @param executionId Execution ID
    * @param actualKg Verilen gercek yem miktari (kg)
    * @param userId Islemi yapan kullanici
    * @param tenantId Tenant ID
+   * @param caller SEC-HIGH-051 site-scope caller (sub/roles/assignedSiteIds)
    * @param notes Opsiyonel notlar
    */
   async recordActualFeeding(
@@ -425,6 +446,7 @@ export class DailyFeedingExecutionService {
     actualKg: number,
     userId: string,
     tenantId: string,
+    caller: SiteScopeCaller,
     notes?: string,
     mobileCommand?: MobileCommandEnvelope,
   ): Promise<FeedingRecordResult> {
@@ -493,6 +515,20 @@ export class DailyFeedingExecutionService {
           `Only PLANNED or IN_PROGRESS executions can record feeding.`,
         );
       }
+
+      // SEC-HIGH-051: object-level site authorization at the SHARED SINK. Resolve
+      // the execution's tank (equipmentId) -> Department.siteId on THIS
+      // transaction's manager (serialized with the writes below) and assert the
+      // caller is assigned to it BEFORE any feeding mutation. MODULE_MANAGER+
+      // bypasses via the role hierarchy; an unassigned/unresolved site for a
+      // MODULE_USER is DENIED (fail-closed). Done here, not in the resolver, so
+      // every caller (single + bulk + future) is gated identically.
+      const feedingSiteId = await resolveTankSiteId(
+        queryRunner.manager,
+        execution.equipmentId,
+        tenantId,
+      );
+      this.siteAuth.assertSiteAssignment({ caller, siteId: feedingSiteId });
 
       // 2. Validate and get FCR with range check
       let fcr = execution.calculations.expectedFCR;
@@ -635,16 +671,23 @@ export class DailyFeedingExecutionService {
   /**
    * Gunluk yemlemeyi atlar.
    *
+   * SEC-HIGH-051: skipping a feeding execution is a site-scoped write (it flips
+   * the execution to SKIPPED). The `caller` is asserted against the execution's
+   * tank site at this sink — same fail-closed posture as recordActualFeeding —
+   * so a MODULE_USER cannot skip another site's executions.
+   *
    * @param executionId Execution ID
    * @param reason Atlama nedeni
    * @param userId Islemi yapan kullanici
    * @param tenantId Tenant ID
+   * @param caller SEC-HIGH-051 site-scope caller (sub/roles/assignedSiteIds)
    */
   async skipDailyFeeding(
     executionId: string,
     reason: string,
     userId: string,
     tenantId: string,
+    caller: SiteScopeCaller,
   ): Promise<DailyFeedingExecution> {
     // Validate reason
     if (!reason || reason.trim().length === 0) {
@@ -662,6 +705,17 @@ export class DailyFeedingExecutionService {
         `Execution ${executionId} not found for tenant ${tenantId}`,
       );
     }
+
+    // SEC-HIGH-051: assert site assignment before the SKIPPED write. The skip is
+    // not transactional, so resolve on the shared datasource manager; the row is
+    // re-checked + saved immediately after, so no TOCTOU window of practical
+    // concern (and a site re-home cannot grant access that was just denied).
+    const skipSiteId = await resolveTankSiteId(
+      this.dataSource.manager,
+      execution.equipmentId,
+      tenantId,
+    );
+    this.siteAuth.assertSiteAssignment({ caller, siteId: skipSiteId });
 
     if (execution.isCompleted() || execution.isSkipped()) {
       throw new BadRequestException(

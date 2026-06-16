@@ -14,6 +14,8 @@
  *
  * @module WaterQuality
  */
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -97,6 +99,9 @@ const CommandHandlers = [
   ],
   providers: [
     WaterQualityService,
+    // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
+    SiteAuthorizationService,
+    MobileFeatureGuard,
     ParameterConfigCacheService,
     WaterQualityEvaluationService,
     WaterQualityValidationService,

@@ -25,6 +25,11 @@ export interface JwtPayload {
   // MT-MEDIUM-001: tenant plan-tier ordinal minted by auth-service (PLAN_LEVEL).
   // Optional — platform accounts (SUPER_ADMIN, no tenant) carry no plan claim.
   planLevel?: number;
+  // SEC-HIGH-051: farm-service Site ids the user is assigned to. Carried through
+  // the gateway so willSendRequest can fold it into the verified assertion.
+  assignedSiteIds?: string[];
+  // SEC-HIGH-052: enabled mobile feature keys the user is entitled to.
+  mobileFeatures?: string[];
   type?: 'access' | 'refresh'; // Optional for backward compat with legacy tokens
   iat: number;
   exp: number;

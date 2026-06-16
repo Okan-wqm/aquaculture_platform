@@ -15,6 +15,7 @@
  *
  * @module Task
  */
+import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -49,6 +50,8 @@ import { AutoRuleResolver } from './resolvers/auto-rule.resolver';
     AutoRuleService,
     AutoRuleTriggerService,
     MobileCommandReceiptService,
+    // SEC-HIGH-052: mobile-feature guard ('tasks' entitlement).
+    MobileFeatureGuard,
 
     // Resolvers
     TaskResolver,

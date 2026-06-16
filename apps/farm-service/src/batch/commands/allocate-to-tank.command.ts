@@ -30,6 +30,9 @@ export class AllocateToTankCommand implements ITenantCommand {
     public readonly payload: AllocateToTankPayload,
     public readonly allocatedBy: string,
     public readonly userRoles: Role[] = [],
+    // SEC-HIGH-051: the caller's JWT `assignedSiteIds` claim for the object-level
+    // site check inside the handler. Default [] is fail-closed for non-managers.
+    public readonly callerAssignedSiteIds: string[] = [],
     public readonly mobileCommand?: MobileCommandEnvelope,
   ) {}
 }

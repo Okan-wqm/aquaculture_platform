@@ -43,16 +43,17 @@ export const SHARED_VERSIONS = {
   'react-router-dom': '6.30.3',
   '@tanstack/react-query': '5.90.10',
   '@aquaculture/shared-ui': '1.0.0',
-  // zustand stays 4.5.7 until the graph lib (reactflow 11 / @xyflow/react 12)
-  // widens its hard `zustand ^4.4.0` dependency to allow v5. As of xyflow
-  // 12.11.0 it still pins ^4.4.0, so bumping zustand to 5 would resolve TWO
-  // versions in the lockfile (4.x for the graph lib + 5.x here) and break the
-  // single-version singleton invariant. The code already uses the v5-style
-  // `useShallow` API, which exists since 4.4.0 — so there is no functional gap.
-  // See docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-104. zustand 5 is gated
-  // on the graph-lib range widening, NOT on the C2 reactflow→xyflow migration.
+  // zustand stays 4.5.7 until the graph lib @xyflow/react widens its hard
+  // `zustand ^4.4.0` dependency to allow v5. As of @xyflow/react 12.11.0 (the
+  // version C2 migrated to from reactflow 11) it still pins ^4.4.0, so bumping
+  // zustand to 5 would resolve TWO versions in the lockfile (4.x for the graph
+  // lib + 5.x here) and break the single-version singleton invariant. The code
+  // already uses the v5-style `useShallow` API, which exists since 4.4.0 — so
+  // there is no functional gap. See orphan-findings.md#ORPHAN-MEDIUM-104:
+  // zustand 5 is gated on @xyflow/react widening its zustand range, which the
+  // reactflow->xyflow migration did NOT change (12.11.0 still pins ^4.4.0).
   zustand: '4.5.7',
-  reactflow: '11.11.4',
+  '@xyflow/react': '12.11.0',
   // C0 federation rails (FE-HIGH-005): these two were previously inline
   // literals in dashboard/tenant-admin vite configs — the exact override
   // class that produced the duplicate-key + strictVersion-less entries.
@@ -108,20 +109,24 @@ export function getCoreSharedConfig(): Record<string, SharedDepConfig> {
 }
 
 /**
- * Extended shared config that includes reactflow (for sensor-module SCADA).
+ * Extended shared config that includes the graph lib @xyflow/react
+ * (sensor-module SCADA builder + process editor).
  *
- * Explicit `version` is REQUIRED because reactflow v11's package.json exports
- * map omits "./package.json", which the Module Federation plugin uses to
- * auto-detect the version. Providing `version` bypasses that resolution.
+ * C2 (2026-06-14): migrated reactflow 11 -> @xyflow/react 12. Explicit `version`
+ * is still REQUIRED because @xyflow/react's package.json exports map omits
+ * "./package.json", which the Module Federation plugin uses to auto-detect the
+ * version — providing `version` bypasses that resolution. (Function name kept
+ * as getSharedConfigWithReactFlow to avoid churn across the federation callers;
+ * it returns the graph-lib singleton, now @xyflow/react.)
  */
 export function getSharedConfigWithReactFlow(): Record<string, SharedDepConfig> {
   return {
     ...getCoreSharedConfig(),
-    reactflow: {
+    '@xyflow/react': {
       singleton: true,
       strictVersion: true,
-      requiredVersion: SHARED_VERSIONS.reactflow,
-      version: SHARED_VERSIONS.reactflow,
+      requiredVersion: SHARED_VERSIONS['@xyflow/react'],
+      version: SHARED_VERSIONS['@xyflow/react'],
     },
   };
 }

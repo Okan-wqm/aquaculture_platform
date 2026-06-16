@@ -4,12 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, NodeProps } from 'reactflow';
+import { Handle, useUpdateNodeInternals, NodeProps, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
 
 type HandleType = 'source' | 'target';
 
-interface TankInletNodeData {
+interface TankInletNodeData extends Record<string, unknown> {
   top?: HandleType;
   bottom?: HandleType;
   rotation?: number;
@@ -19,7 +19,7 @@ interface TankInletNodeData {
 const WIDTH = 100;
 const HEIGHT = 160;
 
-const TankInletNode: React.FC<NodeProps<TankInletNodeData>> = ({ id, data, selected }) => {
+const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data, selected }) => {
   const rotation = data?.rotation ?? 0;
   const updateNodeInternals = useUpdateNodeInternals();
   const updateNodeData = useProcessStore((state) => state.updateNodeData);

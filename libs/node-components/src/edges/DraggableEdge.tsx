@@ -10,8 +10,8 @@
  * - Smooth curve transitions
  */
 
+import { EdgeProps, Position, useReactFlow, type Edge } from '@xyflow/react';
 import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent } from 'react';
-import { EdgeProps, Position, useReactFlow } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
 /* -------------------------------------------------- */
@@ -19,7 +19,7 @@ import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 /* -------------------------------------------------- */
 type ControlPoint = { x: number; y: number };
 
-export interface DraggableEdgeData {
+export interface DraggableEdgeData extends Record<string, unknown> {
   controlPoint?: ControlPoint;
   controlPoint2?: ControlPoint; // For cubic bezier
   curveType?: 'quadratic' | 'cubic';
@@ -62,7 +62,7 @@ const renderArrow = (
 /* -------------------------------------------------- */
 import type { EdgeDataUpdater } from './OrthogonalEdge';
 
-export interface DraggableEdgeProps extends EdgeProps<DraggableEdgeData> {
+export interface DraggableEdgeProps extends EdgeProps<Edge<DraggableEdgeData>> {
   /** See `EdgeDataUpdater` — optional consumer-supplied persistence override. */
   updateEdgeData?: EdgeDataUpdater<DraggableEdgeData>;
 }

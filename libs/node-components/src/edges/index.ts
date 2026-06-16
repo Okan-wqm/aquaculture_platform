@@ -4,7 +4,7 @@
  * This file exports all edge components for use in ReactFlow applications.
  */
 
-import type { EdgeTypes } from 'reactflow';
+import type { EdgeTypes } from '@xyflow/react';
 
 // Import edge components
 import MultiHandleEdge from './MultiHandleEdge';

@@ -3,13 +3,13 @@
  * Chemical dosing pump with tank visualization
  */
 
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface DosingPumpNodeData {
+interface DosingPumpNodeData extends Record<string, unknown> {
   label?: string;
   inletType?: HandleType;
   outletType?: HandleType;
@@ -19,7 +19,7 @@ interface DosingPumpNodeData {
 const WIDTH = 120;
 const HEIGHT = 160;
 
-const DosingPumpNode: React.FC<NodeProps<DosingPumpNodeData>> = ({ id, data, selected }) => {
+const DosingPumpNode: React.FC<NodeProps<Node<DosingPumpNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

@@ -3,13 +3,13 @@
  * Shell and tube heat exchanger for water temperature control
  */
 
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface ShellTubeHeatExchangerNodeData {
+interface ShellTubeHeatExchangerNodeData extends Record<string, unknown> {
   label?: string;
   shellInType?: HandleType;
   shellOutType?: HandleType;
@@ -21,7 +21,7 @@ interface ShellTubeHeatExchangerNodeData {
 const WIDTH = 160;
 const HEIGHT = 120;
 
-const ShellTubeHeatExchangerNode: React.FC<NodeProps<ShellTubeHeatExchangerNodeData>> = ({ id, data, selected }) => {
+const ShellTubeHeatExchangerNode: React.FC<NodeProps<Node<ShellTubeHeatExchangerNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

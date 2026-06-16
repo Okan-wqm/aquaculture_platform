@@ -3,13 +3,13 @@
  * Water supply/intake source
  */
 
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface WaterSupplyNodeData {
+interface WaterSupplyNodeData extends Record<string, unknown> {
   label?: string;
   outputType?: HandleType;
   isScadaMode?: boolean;
@@ -18,7 +18,7 @@ interface WaterSupplyNodeData {
 const WIDTH = 100;
 const HEIGHT = 80;
 
-const WaterSupplyNode: React.FC<NodeProps<WaterSupplyNodeData>> = ({ id, data, selected }) => {
+const WaterSupplyNode: React.FC<NodeProps<Node<WaterSupplyNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

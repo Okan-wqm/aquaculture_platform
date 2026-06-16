@@ -59,7 +59,7 @@ export default defineConfig(({ mode }) => {
           '../../../libs/sensor-automation-types/src/index.ts',
         ),
       },
-      dedupe: ['react', 'react-dom', 'reactflow'],
+      dedupe: ['react', 'react-dom', '@xyflow/react'],
     },
     // Public folder is automatically copied to dist by Vite
     publicDir: 'public',

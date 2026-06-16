@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Handle, useUpdateNodeInternals, NodeProps, Position } from 'reactflow';
+import { Handle, useUpdateNodeInternals, NodeProps, Position, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
 
 type HandleType = 'source' | 'target';
@@ -15,7 +15,7 @@ type HandleType = 'source' | 'target';
  */
 type HandleDataKey = 'top1Type' | 'top2Type' | 'top3Type' | 'top4Type' | 'leftType' | 'rightType' | 'bottomType';
 
-interface AlgaeBagNodeData {
+interface AlgaeBagNodeData extends Record<string, unknown> {
   color?: 'red' | 'green' | 'yellow';
   label?: string;
   top1Type?: HandleType;
@@ -52,7 +52,7 @@ const colorConfigs = {
   },
 };
 
-const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selected }) => {
+const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const updateNodeData = useProcessStore((state) => state.updateNodeData);
 
@@ -446,15 +446,15 @@ const AlgaeBagNode: React.FC<NodeProps<AlgaeBagNodeData>> = ({ id, data, selecte
 };
 
 // Wrapper components for different colors
-export const AlgaeBagRedNode: React.FC<NodeProps<AlgaeBagNodeData>> = (props) => (
+export const AlgaeBagRedNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = (props) => (
   <AlgaeBagNode {...props} data={{ ...props.data, color: 'red' }} />
 );
 
-export const AlgaeBagGreenNode: React.FC<NodeProps<AlgaeBagNodeData>> = (props) => (
+export const AlgaeBagGreenNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = (props) => (
   <AlgaeBagNode {...props} data={{ ...props.data, color: 'green' }} />
 );
 
-export const AlgaeBagYellowNode: React.FC<NodeProps<AlgaeBagNodeData>> = (props) => (
+export const AlgaeBagYellowNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = (props) => (
   <AlgaeBagNode {...props} data={{ ...props.data, color: 'yellow' }} />
 );
 

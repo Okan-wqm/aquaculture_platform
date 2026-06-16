@@ -3,8 +3,8 @@
  * A base component for creating rotatable nodes with dynamic handle positions
  */
 
+import { Handle, Position, useReactFlow, useUpdateNodeInternals } from '@xyflow/react';
 import React, { useEffect } from 'react';
-import { Handle, Position, useReactFlow, useUpdateNodeInternals } from 'reactflow';
 import { rotatePoint } from '../utils/rotatePoint';
 
 /**

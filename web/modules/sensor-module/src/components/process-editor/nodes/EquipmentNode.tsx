@@ -4,7 +4,7 @@
  */
 
 import React, { memo, useState, useCallback } from 'react';
-import { Handle, Position, NodeProps } from 'reactflow';
+import { Handle, Position, NodeProps, type Node } from '@xyflow/react';
 import { getEquipmentIcon } from '../../equipment-icons/EquipmentIconLoader';
 import { getEquipmentSize, ConnectionPointPosition, ConnectionPointType } from '../../equipment-icons/equipmentTypes';
 import { EquipmentNodeData, IoBinding, useProcessStore } from '../../../store/processStore';
@@ -52,7 +52,7 @@ interface ContextMenuState {
   pointId: ConnectionPointPosition;
 }
 
-export const EquipmentNode = memo(({ id, data, selected }: NodeProps<EquipmentNodeData>) => {
+export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<EquipmentNodeData>>) => {
   const Icon = getEquipmentIcon(data.equipmentType || 'equipment');
   const statusStyle = getStatusStyle(data.status || 'standby');
   const size = getEquipmentSize(data.equipmentType || 'equipment');

@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, MouseEvent as ReactMouseEvent } from 'react';
-import { EdgeProps } from 'reactflow';
+import { EdgeProps, type Edge } from '@xyflow/react';
 import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
 import { useEdgeFlowState } from './useEdgeFlowState';
@@ -23,7 +23,7 @@ import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
 /* -------------------------------------------------- */
 type ControlPoint = { x: number; y: number };
 
-export interface DraggableEdgeData {
+export interface DraggableEdgeData extends Record<string, unknown> {
   controlPoint?: ControlPoint;
   controlPoint2?: ControlPoint; // For cubic bezier
   curveType?: 'quadratic' | 'cubic';
@@ -53,7 +53,7 @@ const cubicBezier = (t: number, p0: number, p1: number, p2: number, p3: number) 
 /* -------------------------------------------------- */
 /*  Component                                         */
 /* -------------------------------------------------- */
-const DraggableEdge: React.FC<EdgeProps<DraggableEdgeData>> = (props) => {
+const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
   const {
     id,
     sourceX,

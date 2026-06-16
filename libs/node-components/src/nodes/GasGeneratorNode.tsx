@@ -3,13 +3,13 @@
  * Natural gas/LPG generator with turbine visualization
  */
 
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface GasGeneratorNodeData {
+interface GasGeneratorNodeData extends Record<string, unknown> {
   label?: string;
   inputType?: HandleType;
   outputType?: HandleType;
@@ -19,7 +19,7 @@ interface GasGeneratorNodeData {
 const WIDTH = 160;
 const HEIGHT = 120;
 
-const GasGeneratorNode: React.FC<NodeProps<GasGeneratorNodeData>> = ({ id, data, selected }) => {
+const GasGeneratorNode: React.FC<NodeProps<Node<GasGeneratorNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

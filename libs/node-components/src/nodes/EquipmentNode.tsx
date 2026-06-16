@@ -4,8 +4,8 @@
  * and 4 toggleable connection points (right-click to toggle input/output)
  */
 
+import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals, type Node } from '@xyflow/react';
 import React, { memo, useState, useCallback, useEffect } from 'react';
-import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals } from 'reactflow';
 import { getEquipmentSize, ConnectionPointPosition, ConnectionPointType } from '../config/equipmentTypes';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
@@ -16,7 +16,7 @@ type EquipmentType =
   | 'belt-filter' | 'electric-generator' | 'oxygen-generator';
 
 // Node data interface
-export interface EquipmentNodeData {
+export interface EquipmentNodeData extends Record<string, unknown> {
   equipmentType: EquipmentType;
   equipmentName?: string;
   equipmentCode?: string;
@@ -151,7 +151,7 @@ const getEquipmentIcon = (type: string) => {
   return EquipmentIcons[type] || EquipmentIcons['tank'];
 };
 
-export const EquipmentNode = memo(({ id, data, selected }: NodeProps<EquipmentNodeData>) => {
+export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<EquipmentNodeData>>) => {
   const Icon = getEquipmentIcon(data.equipmentType);
   const statusStyle = getStatusStyle(data.status || 'standby');
   const size = getEquipmentSize(data.equipmentType);
@@ -162,10 +162,10 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<EquipmentNo
 
   // Local state for connection points
   const [connectionPoints, setConnectionPoints] = useState({
-    top: data.connectionPoints?.top || 'input' as ConnectionPointType,
-    right: data.connectionPoints?.right || 'output' as ConnectionPointType,
-    bottom: data.connectionPoints?.bottom || 'output' as ConnectionPointType,
-    left: data.connectionPoints?.left || 'input' as ConnectionPointType,
+    top: data.connectionPoints?.top || 'input',
+    right: data.connectionPoints?.right || 'output',
+    bottom: data.connectionPoints?.bottom || 'output',
+    left: data.connectionPoints?.left || 'input',
   });
 
   // Sync with data changes

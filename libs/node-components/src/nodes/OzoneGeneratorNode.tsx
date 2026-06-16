@@ -3,13 +3,13 @@
  * Ozone generator for water disinfection
  */
 
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow, type Node } from '@xyflow/react';
 import React, { useState, useEffect } from 'react';
-import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow';
 import { NodeRegistry } from '../registry/NodeRegistry';
 
 type HandleType = 'source' | 'target';
 
-interface OzoneGeneratorNodeData {
+interface OzoneGeneratorNodeData extends Record<string, unknown> {
   label?: string;
   airInType?: HandleType;
   ozoneOutType?: HandleType;
@@ -19,7 +19,7 @@ interface OzoneGeneratorNodeData {
 const WIDTH = 160;
 const HEIGHT = 120;
 
-const OzoneGeneratorNode: React.FC<NodeProps<OzoneGeneratorNodeData>> = ({ id, data, selected }) => {
+const OzoneGeneratorNode: React.FC<NodeProps<Node<OzoneGeneratorNodeData>>> = ({ id, data, selected }) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const { setNodes } = useReactFlow();
   const isScadaMode = data?.isScadaMode || false;

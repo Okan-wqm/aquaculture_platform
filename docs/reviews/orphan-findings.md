@@ -4578,3 +4578,35 @@ Severity: LOW. Discovered 2026-06-17 while building `tests/invariants/agent-prom
 Status: OPEN (2026-06-17; owner: prompt-writer / agent-prompt audit; tracked follow-up). Registry: orphan-findings.md only. Relates to `docs/reviews/2026-06-16-agent-prompt-audit/ROLLUP.md` (AGENT-PROMPT-012).
 
 ---
+
+## ORPHAN-MEDIUM-127 — libs/shared-contracts canonical tsconfig swept `__tests__` into the production type-check, fail-closing the deploy gate
+
+Severity: MEDIUM. Discovered 2026-06-17 during the production deploy of main `f3069246b` (AquaMobil Phases 1-7 + React 19 + Tailwind 4 + SCADA + agent waves batch). The `deploy-digitalocean.yml` `release-verification` job failed; all downstream jobs (`prepare`, `build-*`, `capacity-preflight`, `deploy`, `verify-images`) skipped fail-closed, so **nothing reached production** (no rollback needed).
+
+**Problem:** `libs/shared-contracts` had no `tsconfig.lib.json`, so its base `tsconfig.json` (`"include": ["src"]`, `"types": []`) was the canonical config the deploy gate's `tools/scripts/type-check-all.mjs` picks (candidate order `tsconfig.app.json` → `tsconfig.lib.json` → `tsconfig.json`). That config compiled `src/__tests__/messaging-media-mime.spec.ts` (added in Phase 7, #506) WITHOUT test-runner types, so every `describe`/`it`/`expect` failed `TS2593`/`TS2304`. Sibling libs (`libs/event-contracts`, `libs/storage`) already carve tests out via a `tsconfig.lib.json` with the canonical `exclude: [src/**/*.spec.ts, src/**/*.test.ts, src/**/__tests__/**]`; shared-contracts lacked that variant.
+
+**Effect:** the production deploy of the entire current-main batch was blocked at the type-check gate until hotfixed. Pre-existing latent risk realized the moment shared-contracts gained its first in-`src` spec file.
+
+**Resolution (this PR):** added `libs/shared-contracts/tsconfig.lib.json` (extends base, `include: ["src/**/*.ts"]`, excludes `*.spec.ts`/`*.test.ts`/`__tests__`), mirroring the event-contracts/storage SSoT pattern. The deploy gate now picks `tsconfig.lib.json` and type-checks production sources only; tests remain governed by the existing `tsconfig.spec.json` (jest types intact — jest suite stays 5/5 green). Verified firsthand: `tsc -p tsconfig.lib.json --noEmit` → exit 0; base config still reproduces the failure (exit 2), confirming root cause. Systemic gate divergence tracked separately as [[ORPHAN-MEDIUM-128]].
+
+Status: RESOLVED (2026-06-17; fix branch `fix/shared-contracts-tsconfig-lib-typecheck-v2`). Registry: orphan-findings.md only.
+
+---
+
+## ORPHAN-MEDIUM-128 — deploy-time `type-check-all.mjs` and PR-CI resolve divergent tsconfigs, so production-config type errors are invisible until deploy
+
+Severity: MEDIUM. Discovered 2026-06-17 (root-causing ORPHAN-MEDIUM-127).
+
+**Problem:** the two type-check gates govern the same file under DIFFERENT tsconfigs, so they can disagree:
+- **Deploy gate** (`release-verification` → `npm run type-check` → `tools/scripts/type-check-all.mjs`) type-checks each project's *canonical* config — `tsconfig.app.json`/`tsconfig.lib.json`/`tsconfig.json`, first match. For a lib whose base `tsconfig.json` does `include: ["src"]` and has NO lib/app variant, that canonical config sweeps `src/__tests__/*.spec.ts` *without* test types.
+- **PR-CI** never sees this: (a) `nx affected -t type-check` SKIPS any project lacking a `type-check` Nx target (shared-contracts' `project.json` has only `test` + `lint` → the canonical config is never type-checked pre-merge), and (b) `scripts/ci/type-check-changed-files.mjs` resolves a changed `.spec.ts` to `tsconfig.spec.json` (jest types present) → passes.
+
+So a production-tsconfig type error in any lib that (1) lacks a `tsconfig.lib.json`/`tsconfig.app.json` AND (2) lacks a `type-check` Nx target reaches `main` green and only fails at the deploy-only gate — fail-closed, but blocking production until hotfixed (exactly [[ORPHAN-MEDIUM-127]]).
+
+**Effect:** a recurring class of deploy-time-only failures; any future lib that adds an in-`src` spec under a bare-tsconfig project re-triggers it. ORPHAN-MEDIUM-127 fixed the one instance; the divergence itself is unguarded.
+
+**Fix direction (owner: infra-expert):** EITHER (1) run `npm run type-check` (the full `type-check-all.mjs`) as a PR-CI gate in `ci-affected.yml` so deploy-blocking type errors are caught pre-merge in the SAME gate that blocks deploy — the higher-tier (make-it-detectable) option, scoped to affected projects if the 36-project full run is too slow; OR (2) add an explicit `type-check` Nx target to every lib so `nx affected -t type-check` covers them, plus a repo invariant asserting that any project whose canonical tsconfig `include` matches `**/__tests__/**` or `**/*.spec.ts` also carries a `tsconfig.lib.json`/`tsconfig.app.json` that excludes tests (so the canonical config can never sweep test files). Not bundled into the ORPHAN-MEDIUM-127 hotfix because `ci-affected.yml` is a merge-train-contended file and the policy/perf tradeoff is infra-owned.
+
+Status: OPEN (2026-06-17; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.
+
+---

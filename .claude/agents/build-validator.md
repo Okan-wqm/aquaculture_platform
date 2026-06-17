@@ -22,6 +22,7 @@ regressions.
 - @.claude/knowledge/layer-1-core.md   (TS 5.3 + Nx 22.3 + Jest baseline)
 - @.claude/knowledge/layer-1-nestjs.md (NestJS 11 DI / decorator metadata)
 - @.claude/knowledge/layer-2-patterns.md
+- @.claude/knowledge/layer-2-defect-catalog.md
 - @.claude/shared/operating-modes.md
 - @.claude/shared/output-format.md
 

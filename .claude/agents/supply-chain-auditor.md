@@ -17,6 +17,7 @@ CATCHER for the supply-chain attack surface. infra-expert keeps SHA-pinning + De
 - @.claude/knowledge/layer-1-nestjs.md
 - @.claude/knowledge/layer-1-rust.md
 - @.claude/knowledge/layer-2-patterns.md
+- @.claude/knowledge/layer-2-defect-catalog.md
 - @.claude/knowledge/layer-3-adrs.md
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md

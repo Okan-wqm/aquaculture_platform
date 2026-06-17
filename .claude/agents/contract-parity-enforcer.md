@@ -18,6 +18,7 @@ CATCHER for contract parity across the platform. Contract drift = runtime 500 in
 - @.claude/knowledge/layer-1-typeorm.md
 - @.claude/knowledge/layer-1-rust.md
 - @.claude/knowledge/layer-2-patterns.md
+- @.claude/knowledge/layer-2-defect-catalog.md
 - @.claude/knowledge/layer-3-adrs.md
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md

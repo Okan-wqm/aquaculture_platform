@@ -19,6 +19,7 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - @.claude/knowledge/layer-1-nestjs.md             (NestJS 11 DI, lifecycle, guards)
 - @.claude/knowledge/layer-1-typeorm.md            (DataSource, repository scoping)
 - @.claude/knowledge/layer-2-patterns.md           (CQRS/Outbox/DDD/tenant patterns)
+- @.claude/knowledge/layer-2-defect-catalog.md     (generic real-defect classes — security/correctness/dup/hygiene; Read + hunt)
 - @.claude/knowledge/layer-3-adrs.md               (16 canonical ADRs)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md

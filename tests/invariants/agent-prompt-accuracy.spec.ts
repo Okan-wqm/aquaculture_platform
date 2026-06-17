@@ -11,10 +11,17 @@
  * the repo's own Tier-3 principle applied to its own agent-steering layer.
  *
  * ASSERTS (the unowned gap — no other invariant owns it):
- *   No brittle exact counts — an agent body must not hardcode a multi-digit
- *   "N modules/files/events/tables" claim. Use "~N" or an SSoT pointer (e.g.
- *   MODULE_SCHEMAS) instead. Rates (`events/s`) and ADR numbers
- *   (`ADR-006 ... events`) are NOT counts and are excluded by design.
+ *   1. No brittle exact counts — an agent body must not hardcode a multi-digit
+ *      "N modules/files/events/tables" claim. Use "~N" or an SSoT pointer (e.g.
+ *      MODULE_SCHEMAS) instead. Rates (`events/s`) and ADR numbers
+ *      (`ADR-006 ... events`) are NOT counts and are excluded by design.
+ *   2. Defect-catalog coverage (AGENT-PROMPT-006) — every code-review CATCHER
+ *      that consumes the layer-2 knowledge SSoT (`layer-2-patterns.md`) MUST
+ *      also consume `layer-2-defect-catalog.md`, so the generic real-defect
+ *      classes are hunted everywhere. Exempt (NOT code-defect hunters):
+ *      `_maintenance/*` WRITERs/tooling; meta/compaction (context-manager x2);
+ *      doc producers (edge-docs writers); the process-meta auditor
+ *      (root-cause-auditor verifies tier-claims, not code).
  *
  * Does NOT duplicate: agent-frontmatter-schema (frontmatter), agent-size-limit
  * (<=200 lines), agent-ownership-uniqueness / agent-name-uniqueness,
@@ -33,12 +40,6 @@
  *     code-path drifts surfaced while designing this guard —
  *     billing-expert's decimal-transformer ref + implementation-planner's
  *     `libs/outbox` — were fixed in the same PR.)
- *   - Defect-catalog-reference coverage: the 2026-06 audit wired
- *     `layer-2-defect-catalog.md` into the ~15 domain + cross-cutting CATCHERs
- *     it upgraded; roster-wide coverage (Lane-B product-auditors, edge-docs
- *     writers, remaining cross-cutting auditors) is the rolling scope of
- *     AGENT-PROMPT-006 (docs/reviews/2026-06-16-agent-prompt-audit/ROLLUP.md),
- *     not yet complete — asserting it now would be red.
  *   - 9-section template completeness: agent structures legitimately VARY
  *     across Lane-A experts / Lane-B auditors / edge-docs writers / ARIA
  *     agents; a uniform-section assertion is not green-able roster-wide.
@@ -63,6 +64,17 @@ const EXCLUDED_DIR_RX =
 // `67+ tables`, `8 modules`, `18 events`.
 const BRITTLE_COUNT_RX =
   /(?<![~\-\d.])\d{2,}\+?\s+(modules|files|events|tables)\b(?!\/)/gi;
+
+// AGENT-PROMPT-006: code-review CATCHERs that consume the layer-2 knowledge
+// SSoT must also consume the defect-catalog SSoT. These agents reference
+// layer-2-patterns but are NOT code-defect hunters, so they are exempt —
+// meta/compaction, an edge-docs doc producer, and the process-meta auditor.
+const DEFECT_CATALOG_EXEMPT = new Set<string>([
+  '.claude/agents/context-manager.md',
+  '.claude/agents/product-audit/context-manager.md',
+  '.claude/agents/edge-docs/architecture-writer.md',
+  '.claude/agents/root-cause-auditor.md',
+]);
 
 function gitList(cmd: string): string[] {
   try {
@@ -116,6 +128,19 @@ describe('agent-prompt accuracy invariants', () => {
               `the SSoT (e.g. MODULE_SCHEMAS) instead.`,
           );
         }
+      });
+    }
+  });
+
+  describe('defect-catalog coverage for code-review CATCHERs (AGENT-PROMPT-006)', () => {
+    for (const file of agentFiles) {
+      if (file.includes('/_maintenance/')) continue; // WRITERs/tooling, not CATCHERs
+      if (DEFECT_CATALOG_EXEMPT.has(file)) continue;
+      const content = readFileSync(join(REPO_ROOT, file), 'utf8');
+      // Only agents that opt into the layer-2 knowledge SSoT are in scope.
+      if (!content.includes('layer-2-patterns')) continue;
+      it(`${file}: a layer-2-patterns consumer also references layer-2-defect-catalog`, () => {
+        expect(content).toContain('layer-2-defect-catalog');
       });
     }
   });

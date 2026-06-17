@@ -31,13 +31,13 @@ export const UserFilters: React.FC<UserFiltersProps> = ({
             placeholder="Search users by name or email..."
             value={currentFilters.search}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
           />
         </div>
         <select
           value={currentFilters.role}
           onChange={(e) => onRoleChange(e.target.value)}
-          className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+          className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
         >
           <option value="all">All Roles</option>
           <option value="TENANT_ADMIN">Tenant Admin</option>
@@ -47,7 +47,7 @@ export const UserFilters: React.FC<UserFiltersProps> = ({
         <select
           value={currentFilters.status}
           onChange={(e) => onStatusChange(e.target.value)}
-          className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500"
+          className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
         >
           <option value="all">All Status</option>
           <option value="active">Active</option>

@@ -171,7 +171,7 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
               min={lastMeter ?? 0}
               value={meterRaw}
               onChange={(e) => setMeterRaw(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               required
               autoFocus
             />

@@ -218,7 +218,7 @@ const SensorDashboardPage: React.FC = () => {
             <select
               value={refreshInterval}
               onChange={(e) => setRefreshInterval(Number(e.target.value))}
-              className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-white"
+              className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 bg-white"
               title="Yenileme aralığı"
             >
               {REFRESH_RATES.map((rate) => (

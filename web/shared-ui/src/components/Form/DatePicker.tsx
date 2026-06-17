@@ -156,7 +156,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         className={`
           w-full flex items-center justify-between rounded-lg border
           bg-white text-left
-          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+          focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500
           disabled:bg-gray-100 disabled:cursor-not-allowed
           transition-colors duration-200
           ${sizeClasses[size]}

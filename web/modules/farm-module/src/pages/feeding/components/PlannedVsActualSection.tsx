@@ -248,7 +248,7 @@ export const PlannedVsActualSection: React.FC<PlannedVsActualSectionProps> = ({ 
                           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleRowClick(exec); } }}
                           tabIndex={0}
                           role="row"
-                          className={`cursor-pointer transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 ${getVarianceColor(exec.variancePercent, exec.status)}`}
+                          className={`cursor-pointer transition-colors hover:bg-gray-100 focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-blue-500 ${getVarianceColor(exec.variancePercent, exec.status)}`}
                         >
                           <td className="px-3 py-3 whitespace-nowrap">
                             <div className="font-medium text-gray-900 text-sm">{exec.tankName}</div>

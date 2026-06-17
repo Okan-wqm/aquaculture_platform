@@ -336,7 +336,7 @@ const PaymentsPage: React.FC = () => {
                 placeholder="Filter by invoice ID..."
                 value={invoiceIdFilter}
                 onChange={(e) => setInvoiceIdFilter(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
               <svg
                 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500"
@@ -481,7 +481,7 @@ const PaymentsPage: React.FC = () => {
 
       {/* Payment Detail Modal */}
       {selectedPayment && !showRefundModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
@@ -608,7 +608,7 @@ const PaymentsPage: React.FC = () => {
 
       {/* Record Payment Modal */}
       {showRecordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
@@ -632,7 +632,7 @@ const PaymentsPage: React.FC = () => {
                   type="text"
                   value={recordForm.invoiceId}
                   onChange={(e) => setRecordForm({ ...recordForm, invoiceId: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter invoice ID (UUID)"
                 />
               </div>
@@ -648,7 +648,7 @@ const PaymentsPage: React.FC = () => {
                     min="0.01"
                     value={recordForm.amount}
                     onChange={(e) => setRecordForm({ ...recordForm, amount: e.target.value })}
-                    className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                     placeholder="0.00"
                   />
                 </div>
@@ -660,7 +660,7 @@ const PaymentsPage: React.FC = () => {
                 <select
                   value={recordForm.paymentMethod}
                   onChange={(e) => setRecordForm({ ...recordForm, paymentMethod: e.target.value as PaymentMethod })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 >
                   {Object.entries(methodLabels).map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>
@@ -675,7 +675,7 @@ const PaymentsPage: React.FC = () => {
                   type="date"
                   value={recordForm.paymentDate}
                   onChange={(e) => setRecordForm({ ...recordForm, paymentDate: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
@@ -686,7 +686,7 @@ const PaymentsPage: React.FC = () => {
                   value={recordForm.notes}
                   onChange={(e) => setRecordForm({ ...recordForm, notes: e.target.value })}
                   rows={2}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   placeholder="Optional notes..."
                 />
               </div>
@@ -713,7 +713,7 @@ const PaymentsPage: React.FC = () => {
 
       {/* Refund Modal */}
       {showRefundModal && refundPayment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div className="p-6 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900">Issue Refund</h2>
@@ -754,7 +754,7 @@ const PaymentsPage: React.FC = () => {
                     max={refundPayment.amount - (refundPayment.refundedAmount || 0)}
                     value={refundForm.amount}
                     onChange={(e) => setRefundForm({ ...refundForm, amount: e.target.value })}
-                    className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
                   />
                 </div>
               </div>
@@ -766,7 +766,7 @@ const PaymentsPage: React.FC = () => {
                   value={refundForm.reason}
                   onChange={(e) => setRefundForm({ ...refundForm, reason: e.target.value })}
                   rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
                   placeholder="Enter refund reason..."
                 />
               </div>

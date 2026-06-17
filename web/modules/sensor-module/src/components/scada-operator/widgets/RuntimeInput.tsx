@@ -206,7 +206,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
           aria-describedby={validationError ? 'input-error' : undefined}
           className={[
             'flex-1 min-w-0 px-2 py-1 text-sm rounded border bg-white',
-            'focus:outline-none focus:ring-2 focus:ring-blue-400',
+            'focus:outline-hidden focus:ring-2 focus:ring-blue-400',
             'disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400',
             isDirty ? 'border-blue-400' : 'border-gray-300',
             validationError ? 'border-red-400 focus:ring-red-400' : '',
@@ -280,7 +280,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
               placeholder="PIN"
               autoFocus
               aria-label="PIN"
-              className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="px-3 py-2 border border-gray-300 rounded text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-400"
             />
             <div className="flex gap-2">
               <button

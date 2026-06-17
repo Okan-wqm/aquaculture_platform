@@ -154,7 +154,7 @@ const NotificationSettings: React.FC = () => {
               type="time"
               value={notifPrefs.quietHoursStart}
               onChange={(e) => updatePref('quietHoursStart', e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
             />
           </div>
           <div>
@@ -163,7 +163,7 @@ const NotificationSettings: React.FC = () => {
               type="time"
               value={notifPrefs.quietHoursEnd}
               onChange={(e) => updatePref('quietHoursEnd', e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
             />
           </div>
           <div>
@@ -171,7 +171,7 @@ const NotificationSettings: React.FC = () => {
             <select
               value={notifPrefs.quietHoursTimezone}
               onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
             >
               <option value="Europe/Istanbul">Europe/Istanbul (UTC+3)</option>
               <option value="UTC">UTC</option>

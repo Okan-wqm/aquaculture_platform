@@ -128,7 +128,7 @@ export class SchedulingErrorBoundary extends Component<
                   'inline-flex items-center gap-2 px-4 py-2',
                   'bg-indigo-600 text-white rounded-lg',
                   'hover:bg-indigo-700 transition-colors',
-                  'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'
+                  'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'
                 )}
               >
                 <RefreshCw className="h-4 w-4" aria-hidden="true" />
@@ -141,7 +141,7 @@ export class SchedulingErrorBoundary extends Component<
                   'inline-flex items-center gap-2 px-4 py-2',
                   'bg-white text-gray-700 border border-gray-300 rounded-lg',
                   'hover:bg-gray-50 transition-colors',
-                  'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'
+                  'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'
                 )}
               >
                 Sayfayi Yenile
@@ -152,7 +152,7 @@ export class SchedulingErrorBoundary extends Component<
                 className={cn(
                   'inline-flex items-center gap-2 px-4 py-2',
                   'text-gray-600 hover:text-gray-800 transition-colors',
-                  'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-lg'
+                  'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-lg'
                 )}
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -164,7 +164,7 @@ export class SchedulingErrorBoundary extends Component<
                 className={cn(
                   'inline-flex items-center gap-2 px-4 py-2',
                   'text-gray-600 hover:text-gray-800 transition-colors',
-                  'focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-lg'
+                  'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-lg'
                 )}
               >
                 <Home className="h-4 w-4" aria-hidden="true" />

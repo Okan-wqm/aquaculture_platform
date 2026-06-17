@@ -202,7 +202,7 @@ const KeyButton = memo<KeyButtonProps>(({ keyDef, shifted, onPress }) => {
       className={`
         flex items-center justify-center rounded border text-sm font-medium
         transition-colors select-none
-        focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400
+        focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400
         ${variantClass}
       `}
       style={{
@@ -367,7 +367,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400"
+                className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
                 aria-label="Close keyboard"
               >
                 <X size={14} />

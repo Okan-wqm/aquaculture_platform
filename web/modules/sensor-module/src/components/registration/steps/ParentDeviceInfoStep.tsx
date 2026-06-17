@@ -83,7 +83,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
           value={values.name || ''}
           onChange={(e) => handleChange('name', e.target.value)}
           placeholder="e.g., Pool 1 Multi-Parameter Monitor"
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
         <p className="mt-1 text-xs text-gray-500">
           A descriptive name for this device (e.g., "Pool 1 Water Monitor")
@@ -102,7 +102,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
             value={values.manufacturer || ''}
             onChange={(e) => handleChange('manufacturer', e.target.value)}
             placeholder="e.g., Atlas Scientific"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
         <div>
@@ -115,7 +115,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
             value={values.model || ''}
             onChange={(e) => handleChange('model', e.target.value)}
             placeholder="e.g., EZO-WQM"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
       </div>
@@ -131,7 +131,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
           value={values.serialNumber || ''}
           onChange={(e) => handleChange('serialNumber', e.target.value)}
           placeholder="e.g., WQM-2024-001234"
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
       </div>
 
@@ -152,7 +152,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
               id="siteId"
               value={values.siteId || ''}
               onChange={(e) => handleSiteChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               disabled={sitesLoading}
             >
               <option value="">
@@ -175,7 +175,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
               id="departmentId"
               value={values.departmentId || ''}
               onChange={(e) => handleDepartmentChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
               disabled={!values.siteId || deptLoading}
             >
               <option value="">
@@ -202,7 +202,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
               id="systemId"
               value={values.systemId || ''}
               onChange={(e) => handleSystemChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
               disabled={!values.departmentId || sysLoading}
             >
               <option value="">
@@ -229,7 +229,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
               id="equipmentId"
               value={values.equipmentId || ''}
               onChange={(e) => handleEquipmentChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
               disabled={!values.departmentId || equipLoading}
             >
               <option value="">
@@ -260,7 +260,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
           value={values.location || ''}
           onChange={(e) => handleChange('location', e.target.value)}
           placeholder="e.g., North wall, 2m depth"
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
         <p className="mt-1 text-xs text-gray-500">
           Describe where the device is physically installed
@@ -278,7 +278,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
           onChange={(e) => handleChange('description', e.target.value)}
           placeholder="Additional notes about this device..."
           rows={3}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
       </div>
     </div>

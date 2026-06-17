@@ -1,0 +1,156 @@
+/**
+ * Aquaculture design-system theme — Tailwind v4 CSS-first SSoT (C3).
+ *
+ * WHAT: every design token from the former web/shared-ui/tailwind.config.js,
+ * translated to Tailwind v4's `@theme` block. This is the SINGLE source of
+ * truth — shell + every federation remote imports THIS file from their CSS
+ * entry (`@import '@aquaculture/shared-ui/theme.css'`) so the tokens resolve
+ * identically across the federated app with zero per-module duplication
+ * (the old `presets: [shared-ui config]` chain is gone in v4).
+ *
+ * WHY pinned to the exact v3 values: Tailwind v4 ships different defaults
+ * (e.g. it renamed the shadow scale and changed the type/line-height scale).
+ * Pinning each token to its v3 value keeps the rendered output identical to
+ * Tailwind 3 so this migration is appearance-preserving. The v4 *default*
+ * changes that are NOT theme tokens (border-color, ring width, outline) are
+ * handled by the compatibility base layer in each CSS entry.
+ *
+ * tenant-admin layers its own @theme (tenant/dark palettes) ON TOP of this.
+ * aquamobil stays on Tailwind 3 (Konsta preset) and does NOT import this file.
+ */
+@theme {
+  /* ============================ Colors ============================ */
+  /* WCAG 2.1 AA (FE-MEDIUM-024): darken default gray-400 (#9ca3af, 2.9:1) to
+     #6b7280 (4.6:1 on white) so secondary/helper text passes AA. */
+  --color-gray-400: #6b7280;
+
+  /* Primary — Ocean Blue */
+  --color-primary-50: #e6f3ff;
+  --color-primary-100: #b3d9ff;
+  --color-primary-200: #80bfff;
+  --color-primary-300: #4da6ff;
+  --color-primary-400: #1a8cff;
+  --color-primary-500: #0073e6;
+  --color-primary-600: #005bb3;
+  --color-primary-700: #004280;
+  --color-primary-800: #002a4d;
+  --color-primary-900: #00111a;
+
+  /* Secondary — Sea Green */
+  --color-secondary-50: #e6fff5;
+  --color-secondary-100: #b3ffe0;
+  --color-secondary-200: #80ffcc;
+  --color-secondary-300: #4dffb8;
+  --color-secondary-400: #1affa3;
+  --color-secondary-500: #00e68a;
+  --color-secondary-600: #00b36b;
+  --color-secondary-700: #00804d;
+  --color-secondary-800: #004d2e;
+  --color-secondary-900: #001a10;
+
+  /* Accent — Coral */
+  --color-accent-50: #fff5f2;
+  --color-accent-100: #ffe0d9;
+  --color-accent-200: #ffccc0;
+  --color-accent-300: #ffb8a6;
+  --color-accent-400: #ffa38d;
+  --color-accent-500: #ff8f73;
+  --color-accent-600: #cc7259;
+  --color-accent-700: #995540;
+  --color-accent-800: #663926;
+  --color-accent-900: #331c13;
+
+  /* Neutral */
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
+
+  /* Semantic */
+  --color-success-50: #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-success-500: #10b981;
+  --color-success-600: #059669;
+  --color-success-700: #047857;
+
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+
+  --color-error-50: #fef2f2;
+  --color-error-100: #fee2e2;
+  --color-error-500: #ef4444;
+  --color-error-600: #dc2626;
+  --color-error-700: #b91c1c;
+
+  --color-info-50: #eff6ff;
+  --color-info-100: #dbeafe;
+  --color-info-500: #3b82f6;
+  --color-info-600: #2563eb;
+  --color-info-700: #1d4ed8;
+
+  /* ============================ Fonts ============================ */
+  --font-sans: Inter, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', Consolas, monospace;
+
+  /* ===================== Type scale (size + line-height) ===================== */
+  --text-xs: 0.75rem;        --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;       --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;         --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;       --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem;        --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;        --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;      --text-3xl--line-height: 2.25rem;
+  --text-4xl: 2.25rem;       --text-4xl--line-height: 2.5rem;
+  --text-5xl: 3rem;          --text-5xl--line-height: 1.1;
+
+  /* ===================== Radius ===================== */
+  /* v3 borderRadius.DEFAULT was 0.375rem (v4 default 0.25rem) — pin `rounded`. */
+  --radius: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+
+  /* ===================== Shadows ===================== */
+  /* v4 RENAMED the shadow scale (v3 shadow-sm -> v4 shadow-xs, v3 shadow ->
+     v4 shadow-sm). Pin each name to its v3 value so existing `shadow-sm`/
+     `shadow`/`shadow-md`… usages render exactly as before. */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px 0 rgb(0 0 0 / 0.06);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -1px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -2px rgb(0 0 0 / 0.05);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 10px 10px -5px rgb(0 0 0 / 0.04);
+  --shadow-card: 0 2px 8px rgb(0 0 0 / 0.08);
+  --shadow-dropdown: 0 4px 12px rgb(0 0 0 / 0.12);
+  --shadow-modal: 0 20px 40px rgb(0 0 0 / 0.2);
+
+  /* ===================== Animations ===================== */
+  --animate-spin-slow: spin 2s linear infinite;
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-bounce-slow: bounce 2s infinite;
+  --animate-fade-in: fadeIn 0.2s ease-out;
+  --animate-slide-up: slideUp 0.2s ease-out;
+  --animate-slide-down: slideDown 0.2s ease-out;
+}
+
+/* Custom keyframes (v4 keeps keyframes in the stylesheet, not the config). */
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes slideUp {
+  0% { transform: translateY(10px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes slideDown {
+  0% { transform: translateY(-10px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}

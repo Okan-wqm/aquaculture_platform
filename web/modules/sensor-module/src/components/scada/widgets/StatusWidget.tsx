@@ -127,7 +127,7 @@ export const StatusWidget: React.FC<StatusWidgetProps> = ({
   return (
     <div
       className={`
-        rounded-lg border ${statusCfg.bg} border-opacity-50
+        rounded-lg border border-gray-200/50 ${statusCfg.bg}
         ${config.padding} ${className}
         flex items-center gap-3
       `}

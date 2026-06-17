@@ -441,7 +441,7 @@ const InvoicesPage: React.FC = () => {
                 placeholder="Search invoices..."
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
               <svg
                 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500"
@@ -565,7 +565,7 @@ const InvoicesPage: React.FC = () => {
 
       {/* Invoice Detail Modal */}
       {selectedInvoice && !showMarkPaidModal && !showVoidModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
@@ -652,7 +652,7 @@ const InvoicesPage: React.FC = () => {
 
       {/* Mark as Paid Modal */}
       {showMarkPaidModal && selectedInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div className="p-6 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900">Mark Invoice as Paid</h2>
@@ -674,7 +674,7 @@ const InvoicesPage: React.FC = () => {
                     max={selectedInvoice.amountDue}
                     value={markPaidAmount}
                     onChange={(e) => setMarkPaidAmount(e.target.value)}
-                    className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-green-500"
                     placeholder="Enter payment amount"
                   />
                 </div>
@@ -704,7 +704,7 @@ const InvoicesPage: React.FC = () => {
 
       {/* Void Invoice Modal */}
       {showVoidModal && selectedInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
             <div className="p-6 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900">Void Invoice</h2>
@@ -727,7 +727,7 @@ const InvoicesPage: React.FC = () => {
                   value={voidReason}
                   onChange={(e) => setVoidReason(e.target.value)}
                   rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-red-500"
                   placeholder="Enter reason for voiding this invoice..."
                 />
               </div>

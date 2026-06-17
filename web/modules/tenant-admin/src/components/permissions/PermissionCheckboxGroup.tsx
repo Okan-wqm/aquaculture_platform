@@ -272,7 +272,7 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(({
           w-full flex items-center justify-between px-4 py-3
           bg-gradient-to-r from-gray-50 to-white
           ${!disabled && !readOnly ? 'cursor-pointer' : 'cursor-default'}
-          focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:ring-inset
+          focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:ring-inset
         `}
         onClick={() => setIsExpanded(!isExpanded)}
         aria-expanded={isExpanded}

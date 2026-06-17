@@ -21,7 +21,7 @@ interface FieldRendererProps {
 
 // Individual field renderer
 function FieldRenderer({ name, property, value, onChange, error, disabled, schema }: FieldRendererProps) {
-  const inputClassName = `w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+  const inputClassName = `w-full px-3 py-2 border rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 ${
     error ? 'border-red-500' : 'border-gray-300'
   } ${disabled ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`;
 
@@ -92,7 +92,7 @@ function FieldRenderer({ name, property, value, onChange, error, disabled, schem
       );
     }
 
-    // Handle array (simple string array for now)
+    // Handle array (simple string array)
     if (property.type === 'array') {
       const arrayValue = (value as string[]) || [];
       return (

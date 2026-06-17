@@ -99,7 +99,7 @@ export const ToastContainer: React.FC<{
               <button
                 type="button"
                 onClick={() => onDismiss(t.id)}
-                className="ml-3 inline-flex rounded-md p-1 hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-offset-2"
+                className="ml-3 inline-flex rounded-md p-1 hover:opacity-80 focus:outline-hidden focus:ring-2 focus:ring-offset-2"
                 aria-label="Dismiss notification"
               >
                 <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">

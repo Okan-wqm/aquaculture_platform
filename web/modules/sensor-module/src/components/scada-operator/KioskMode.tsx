@@ -206,7 +206,7 @@ export const KioskMode = React.memo<KioskModeProps>(
       <div
         ref={containerRef}
         className={[
-          'fixed inset-0 bg-black z-50 overflow-hidden focus:outline-none',
+          'fixed inset-0 bg-black z-50 overflow-hidden focus:outline-hidden',
           cursorHidden ? 'cursor-none' : 'cursor-default',
         ].join(' ')}
         tabIndex={-1}
@@ -232,7 +232,7 @@ export const KioskMode = React.memo<KioskModeProps>(
               bg-black/70 text-gray-300 text-xs
               hover:bg-gray-800 hover:text-gray-100
               transition-colors border border-gray-700
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400
+              focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400
             "
             aria-label="Exit kiosk mode"
           >

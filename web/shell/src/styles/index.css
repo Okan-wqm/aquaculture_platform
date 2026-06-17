@@ -2,9 +2,27 @@
  * Shell Application - Global Styles
  */
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/* Design-system tokens — Tailwind v4 CSS-first SSoT. */
+@import '../../../shared-ui/src/styles/theme.css';
+
+/* Shell is the Module Federation host: scan shared-ui + every remote's source
+   so all utility classes used across the composed app are generated. Tailwind
+   v4 no longer auto-scans outside the project root. */
+@source '../../../shared-ui/src';
+@source '../../../modules';
+
+/* v4 defaults border-color to currentColor; restore Tailwind 3's gray-200. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
 
 /* ============================================================================
    Theme Tokens
@@ -50,7 +68,7 @@ html[data-theme='dark'] {
 
   /* Focus ring stili */
   *:focus-visible {
-    @apply outline-none ring-2 ring-primary-500 ring-offset-2;
+    @apply outline-hidden ring-2 ring-primary-500 ring-offset-2;
   }
 
   /* Selection rengi */
@@ -235,7 +253,7 @@ html[data-theme='dark'] input:disabled {
   /* Custom scrollbar */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: theme('colors.gray.300') transparent;
+    scrollbar-color: var(--color-gray-300) transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar {

@@ -112,7 +112,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
           onChange={(e) => onPackageNameChange(e.target.value)}
           placeholder="Package Name"
           aria-label="Package name"
-          className="text-base font-medium text-gray-900 border-none bg-transparent focus:outline-none focus:ring-0 w-56"
+          className="text-base font-medium text-gray-900 border-none bg-transparent focus:outline-hidden focus:ring-0 w-56"
         />
         {isDirty && (
           <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded">

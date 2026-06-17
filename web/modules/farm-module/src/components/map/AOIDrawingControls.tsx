@@ -211,7 +211,7 @@ export const AOIDrawingControls: React.FC<AOIDrawingControlsProps> = ({
                                 setEditName('');
                               }
                             }}
-                            className="w-full text-sm font-medium bg-white border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                            className="w-full text-sm font-medium bg-white border rounded px-1 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-primary-500"
                             autoFocus
                             onClick={(e) => e.stopPropagation()}
                           />

@@ -713,7 +713,7 @@ export const EquipmentTab: React.FC = () => {
               setFormData(initialFormData);
               setIsModalOpen(true);
             }}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
           >
             <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
@@ -1131,7 +1131,7 @@ export const EquipmentTab: React.FC = () => {
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
             <div
-              className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+              className="fixed inset-0 bg-gray-500/75 transition-opacity"
               onClick={() => setIsModalOpen(false)}
             />
             <div className="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:max-w-2xl sm:w-full max-h-[90vh] overflow-y-auto">
@@ -1157,7 +1157,7 @@ export const EquipmentTab: React.FC = () => {
                             onChange={(e) =>
                               setFormData((prev) => ({ ...prev, name: e.target.value }))
                             }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -1169,7 +1169,7 @@ export const EquipmentTab: React.FC = () => {
                             onChange={(e) =>
                               setFormData((prev) => ({ ...prev, code: e.target.value }))
                             }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -1183,7 +1183,7 @@ export const EquipmentTab: React.FC = () => {
                           <select
                             value={formData.selectedCategory}
                             onChange={(e) => handleCategoryChange(e.target.value)}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                             required
                           >
                             <option value="">Select Category...</option>
@@ -1199,7 +1199,7 @@ export const EquipmentTab: React.FC = () => {
                           <select
                             value={formData.equipmentTypeId}
                             onChange={(e) => handleTypeChange(e.target.value)}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                             required
                             disabled={!formData.selectedCategory}
                           >
@@ -1227,7 +1227,7 @@ export const EquipmentTab: React.FC = () => {
                             onChange={(e) =>
                               setFormData((prev) => ({ ...prev, status: e.target.value }))
                             }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           >
                             <optgroup label="General">
                               <option value="OPERATIONAL">Operational</option>
@@ -1258,7 +1258,7 @@ export const EquipmentTab: React.FC = () => {
                             onChange={(e) =>
                               setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                             }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           >
                             <option value="">Select Supplier...</option>
                             {suppliers.map((sup) => (
@@ -1282,7 +1282,7 @@ export const EquipmentTab: React.FC = () => {
                           <select
                             value={formData.siteId}
                             onChange={(e) => handleSiteChange(e.target.value)}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                             required
                           >
                             <option value="">Select Site...</option>
@@ -1300,7 +1300,7 @@ export const EquipmentTab: React.FC = () => {
                           <select
                             value={formData.departmentId}
                             onChange={(e) => handleDepartmentChange(e.target.value)}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                             required
                             disabled={!formData.siteId}
                           >
@@ -1384,7 +1384,7 @@ export const EquipmentTab: React.FC = () => {
                           onChange={(e) =>
                             setFormData((prev) => ({ ...prev, parentEquipmentId: e.target.value }))
                           }
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">None (Root Equipment)</option>
                           {availableParentEquipment.map((eq) => (
@@ -1473,7 +1473,7 @@ export const EquipmentTab: React.FC = () => {
                             onChange={(e) =>
                               setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
                             }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -1484,7 +1484,7 @@ export const EquipmentTab: React.FC = () => {
                             onChange={(e) =>
                               setFormData((prev) => ({ ...prev, model: e.target.value }))
                             }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -1497,7 +1497,7 @@ export const EquipmentTab: React.FC = () => {
                             onChange={(e) =>
                               setFormData((prev) => ({ ...prev, serialNumber: e.target.value }))
                             }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -1512,7 +1512,7 @@ export const EquipmentTab: React.FC = () => {
                             onChange={(e) =>
                               setFormData((prev) => ({ ...prev, purchaseDate: e.target.value }))
                             }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -1525,7 +1525,7 @@ export const EquipmentTab: React.FC = () => {
                             onChange={(e) =>
                               setFormData((prev) => ({ ...prev, warrantyEndDate: e.target.value }))
                             }
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -1570,14 +1570,14 @@ export const EquipmentTab: React.FC = () => {
                 <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
                   <button
                     type="submit"
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
+                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
                   >
                     {editingId ? 'Update Equipment' : 'Save Equipment'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
                   >
                     Cancel
                   </button>

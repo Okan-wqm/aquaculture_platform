@@ -231,7 +231,7 @@ const ConsentBanner: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setExpanded(!expanded)}
-                className="mt-2 text-sm font-medium text-blue-600 hover:text-blue-700 focus:outline-none focus:underline"
+                className="mt-2 text-sm font-medium text-blue-600 hover:text-blue-700 focus:outline-hidden focus:underline"
               >
                 {expanded ? 'Hide details' : 'Customize preferences'}
               </button>
@@ -258,7 +258,7 @@ const ConsentBanner: React.FC = () => {
                           onClick={() => handleToggleConsent(ct)}
                           className={`
                             relative mt-0.5 inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent
-                            transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                            transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
                             ${isEssential ? 'bg-blue-400 cursor-not-allowed' : isGranted ? 'bg-blue-600' : 'bg-gray-300'}
                           `}
                         >
@@ -299,7 +299,7 @@ const ConsentBanner: React.FC = () => {
                   type="button"
                   onClick={handleSavePreferences}
                   disabled={isBulkRecording}
-                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isBulkRecording ? 'Saving...' : 'Save Preferences'}
                 </button>
@@ -309,7 +309,7 @@ const ConsentBanner: React.FC = () => {
                     type="button"
                     onClick={handleAcceptAll}
                     disabled={isBulkRecording}
-                    className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isBulkRecording ? 'Saving...' : 'Accept All'}
                   </button>
@@ -317,7 +317,7 @@ const ConsentBanner: React.FC = () => {
                     type="button"
                     onClick={handleEssentialOnly}
                     disabled={isBulkRecording}
-                    className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Essential Only
                   </button>
@@ -326,7 +326,7 @@ const ConsentBanner: React.FC = () => {
               <button
                 type="button"
                 onClick={() => navigate('/settings/privacy')}
-                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 focus:outline-none focus:underline"
+                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 focus:outline-hidden focus:underline"
               >
                 Manage in Settings
               </button>

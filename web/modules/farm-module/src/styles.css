@@ -1,8 +1,23 @@
 @import 'leaflet/dist/leaflet.css';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/* Design-system tokens — Tailwind v4 CSS-first SSoT. */
+@import '../../../shared-ui/src/styles/theme.css';
+
+/* v4 no longer auto-scans external packages — include shared-ui's source. */
+@source '../../../shared-ui/src';
+
+/* v4 defaults border-color to currentColor; restore Tailwind 3's gray-200. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
 
 /* Leaflet Custom Marker Styles */
 .custom-marker {

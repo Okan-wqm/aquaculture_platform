@@ -248,7 +248,7 @@ const InputPanel: React.FC<InputPanelProps> = ({ inputs, onChange, selectedReage
                         onDemandAmountsChange?.(next);
                       }
                     }}
-                    className={`w-16 px-1.5 py-0.5 text-xs border rounded text-right focus:outline-none focus:ring-1 focus:ring-orange-400 ${
+                    className={`w-16 px-1.5 py-0.5 text-xs border rounded text-right focus:outline-hidden focus:ring-1 focus:ring-orange-400 ${
                       isActive ? 'border-orange-300 bg-white' : 'border-gray-300'
                     }`}
                   />

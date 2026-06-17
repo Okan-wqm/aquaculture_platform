@@ -283,14 +283,14 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
             type="datetime-local"
             value={customFrom}
             onChange={(e) => setCustomFrom(e.target.value)}
-            className="rounded border border-gray-300 px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="rounded border border-gray-300 px-1.5 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
           />
           <span className="text-gray-500">To:</span>
           <input
             type="datetime-local"
             value={customTo}
             onChange={(e) => setCustomTo(e.target.value)}
-            className="rounded border border-gray-300 px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="rounded border border-gray-300 px-1.5 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
           />
           <button
             type="button"

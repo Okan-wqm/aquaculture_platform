@@ -153,7 +153,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             flex items-center justify-between
             rounded-lg border
             transition-colors duration-200
-            focus:outline-none focus-within:ring-2
+            focus:outline-hidden focus-within:ring-2
             ${sizeStyles[size]}
             ${inputStateStyles}
             ${disabledStyles}
@@ -201,7 +201,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     setIsOpen(false);

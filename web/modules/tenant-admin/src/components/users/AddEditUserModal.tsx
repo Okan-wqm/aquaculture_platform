@@ -229,7 +229,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                 }
                 placeholder="user@example.com"
                 disabled={isEditing}
-                className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100 ${
+                className={`w-full px-4 py-2 rounded-lg border focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100 ${
                   validationErrors.email ? 'border-red-300' : 'border-gray-200'
                 }`}
               />
@@ -256,7 +256,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                     }))
                   }
                   placeholder="John"
-                  className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-tenant-500 ${
+                  className={`w-full px-4 py-2 rounded-lg border focus:outline-hidden focus:ring-2 focus:ring-tenant-500 ${
                     validationErrors.firstName
                       ? 'border-red-300'
                       : 'border-gray-200'
@@ -282,7 +282,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                     }))
                   }
                   placeholder="Doe"
-                  className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-tenant-500 ${
+                  className={`w-full px-4 py-2 rounded-lg border focus:outline-hidden focus:ring-2 focus:ring-tenant-500 ${
                     validationErrors.lastName
                       ? 'border-red-300'
                       : 'border-gray-200'
@@ -312,7 +312,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                   }))
                 }
                 placeholder="+90 555 123 4567"
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
               />
             </div>
 

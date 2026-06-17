@@ -496,7 +496,7 @@ export const FeedsTab: React.FC = () => {
             setCalculatorWeight('');
             setIsModalOpen(true);
           }}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
         >
           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -691,7 +691,7 @@ export const FeedsTab: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-start justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setIsModalOpen(false)} />
+            <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={() => setIsModalOpen(false)} />
             <div className="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 w-full max-w-4xl">
               <form onSubmit={handleSubmit}>
                 <div className="bg-white px-6 pt-5 pb-4 max-h-[80vh] overflow-y-auto">
@@ -709,7 +709,7 @@ export const FeedsTab: React.FC = () => {
                           required
                           value={formData.name}
                           onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -719,7 +719,7 @@ export const FeedsTab: React.FC = () => {
                           required
                           value={formData.code}
                           onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -728,7 +728,7 @@ export const FeedsTab: React.FC = () => {
                           required
                           value={formData.type}
                           onChange={e => setFormData(prev => ({ ...prev, type: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">Select</option>
                           {feedTypes.map((type) => (
@@ -742,7 +742,7 @@ export const FeedsTab: React.FC = () => {
                           required
                           value={formData.siteId}
                           onChange={e => setFormData(prev => ({ ...prev, siteId: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">Select Site</option>
                           {sites.map((site) => (
@@ -755,7 +755,7 @@ export const FeedsTab: React.FC = () => {
                         <select
                           value={formData.supplierId}
                           onChange={e => setFormData(prev => ({ ...prev, supplierId: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">Select</option>
                           {suppliers.map((supplier) => (
@@ -769,7 +769,7 @@ export const FeedsTab: React.FC = () => {
                           type="text"
                           value={formData.brand}
                           onChange={e => setFormData(prev => ({ ...prev, brand: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -778,7 +778,7 @@ export const FeedsTab: React.FC = () => {
                           type="text"
                           value={formData.manufacturer}
                           onChange={e => setFormData(prev => ({ ...prev, manufacturer: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -794,7 +794,7 @@ export const FeedsTab: React.FC = () => {
                           placeholder="e.g. 2mm, 3-5mm"
                           value={formData.pelletSizeLabel}
                           onChange={e => setFormData(prev => ({ ...prev, pelletSizeLabel: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -805,7 +805,7 @@ export const FeedsTab: React.FC = () => {
                           min="0"
                           value={formData.pelletSize}
                           onChange={e => setFormData(prev => ({ ...prev, pelletSize: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -813,7 +813,7 @@ export const FeedsTab: React.FC = () => {
                         <select
                           value={formData.floatingType}
                           onChange={e => setFormData(prev => ({ ...prev, floatingType: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           {Object.entries(floatingTypeLabels).map(([value, label]) => (
                             <option key={value} value={value}>{label}</option>
@@ -826,7 +826,7 @@ export const FeedsTab: React.FC = () => {
                           type="text"
                           value={formData.productStage}
                           onChange={e => setFormData(prev => ({ ...prev, productStage: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -838,7 +838,7 @@ export const FeedsTab: React.FC = () => {
                           placeholder="e.g. 0"
                           value={formData.minFishWeightG}
                           onChange={e => setFormData(prev => ({ ...prev, minFishWeightG: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                         <p className="mt-1 text-xs text-gray-500">Minimum fish weight this feed is designed for</p>
                       </div>
@@ -851,7 +851,7 @@ export const FeedsTab: React.FC = () => {
                           placeholder="e.g. 500"
                           value={formData.maxFishWeightG}
                           onChange={e => setFormData(prev => ({ ...prev, maxFishWeightG: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                         <p className="mt-1 text-xs text-gray-500">Maximum fish weight this feed is designed for</p>
                       </div>
@@ -873,7 +873,7 @@ export const FeedsTab: React.FC = () => {
                             ...prev,
                             nutritionalContent: { ...prev.nutritionalContent, crudeProtein: e.target.value ? parseFloat(e.target.value) : '' }
                           }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -888,7 +888,7 @@ export const FeedsTab: React.FC = () => {
                             ...prev,
                             nutritionalContent: { ...prev.nutritionalContent, crudeFat: e.target.value ? parseFloat(e.target.value) : '' }
                           }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -903,7 +903,7 @@ export const FeedsTab: React.FC = () => {
                             ...prev,
                             nutritionalContent: { ...prev.nutritionalContent, nfe: e.target.value ? parseFloat(e.target.value) : '' }
                           }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -918,7 +918,7 @@ export const FeedsTab: React.FC = () => {
                             ...prev,
                             nutritionalContent: { ...prev.nutritionalContent, crudeAsh: e.target.value ? parseFloat(e.target.value) : '' }
                           }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -933,7 +933,7 @@ export const FeedsTab: React.FC = () => {
                             ...prev,
                             nutritionalContent: { ...prev.nutritionalContent, crudeFiber: e.target.value ? parseFloat(e.target.value) : '' }
                           }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -948,7 +948,7 @@ export const FeedsTab: React.FC = () => {
                             ...prev,
                             nutritionalContent: { ...prev.nutritionalContent, phosphorus: e.target.value ? parseFloat(e.target.value) : '' }
                           }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -962,7 +962,7 @@ export const FeedsTab: React.FC = () => {
                             ...prev,
                             nutritionalContent: { ...prev.nutritionalContent, grossEnergy: e.target.value ? parseFloat(e.target.value) : '' }
                           }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -976,7 +976,7 @@ export const FeedsTab: React.FC = () => {
                             ...prev,
                             nutritionalContent: { ...prev.nutritionalContent, digestibleEnergy: e.target.value ? parseFloat(e.target.value) : '' }
                           }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -991,7 +991,7 @@ export const FeedsTab: React.FC = () => {
                         placeholder="Fish meal, wheat flour, soybean meal..."
                         value={formData.composition}
                         onChange={e => setFormData(prev => ({ ...prev, composition: e.target.value }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                   </CollapsibleSection>
@@ -1113,7 +1113,7 @@ export const FeedsTab: React.FC = () => {
                                     min="0"
                                     value={calculatorWeight}
                                     onChange={e => setCalculatorWeight(e.target.value ? parseFloat(e.target.value) : '')}
-                                    className="mt-1 block w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                    className="mt-1 block w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                                   />
                                 </div>
                                 <div className="flex-1">
@@ -1159,7 +1159,7 @@ export const FeedsTab: React.FC = () => {
                             ...prev,
                             environmentalImpact: { ...prev.environmentalImpact, co2EqWithLuc: e.target.value ? parseFloat(e.target.value) : '' }
                           }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -1173,7 +1173,7 @@ export const FeedsTab: React.FC = () => {
                             ...prev,
                             environmentalImpact: { ...prev.environmentalImpact, co2EqWithoutLuc: e.target.value ? parseFloat(e.target.value) : '' }
                           }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -1251,7 +1251,7 @@ export const FeedsTab: React.FC = () => {
                           min="0"
                           value={formData.unitPrice}
                           onChange={e => setFormData(prev => ({ ...prev, unitPrice: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -1261,7 +1261,7 @@ export const FeedsTab: React.FC = () => {
                           placeholder="e.g. 25kg bag"
                           value={formData.unitSize}
                           onChange={e => setFormData(prev => ({ ...prev, unitSize: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -1272,7 +1272,7 @@ export const FeedsTab: React.FC = () => {
                           min="0"
                           value={formData.pricePerKg}
                           onChange={e => setFormData(prev => ({ ...prev, pricePerKg: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -1288,7 +1288,7 @@ export const FeedsTab: React.FC = () => {
                           step="0.1"
                           value={formData.storageTempMin}
                           onChange={e => setFormData(prev => ({ ...prev, storageTempMin: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -1298,7 +1298,7 @@ export const FeedsTab: React.FC = () => {
                           step="0.1"
                           value={formData.storageTempMax}
                           onChange={e => setFormData(prev => ({ ...prev, storageTempMax: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -1310,7 +1310,7 @@ export const FeedsTab: React.FC = () => {
                           max="100"
                           value={formData.storageHumidityMin}
                           onChange={e => setFormData(prev => ({ ...prev, storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -1322,7 +1322,7 @@ export const FeedsTab: React.FC = () => {
                           max="100"
                           value={formData.storageHumidityMax}
                           onChange={e => setFormData(prev => ({ ...prev, storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '' }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div className="col-span-2">
@@ -1332,7 +1332,7 @@ export const FeedsTab: React.FC = () => {
                           placeholder="Special storage instructions..."
                           value={formData.storageRequirements}
                           onChange={e => setFormData(prev => ({ ...prev, storageRequirements: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -1347,7 +1347,7 @@ export const FeedsTab: React.FC = () => {
                           rows={3}
                           value={formData.notes}
                           onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -1355,7 +1355,7 @@ export const FeedsTab: React.FC = () => {
                         <select
                           value={formData.status}
                           onChange={e => setFormData(prev => ({ ...prev, status: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           {Object.entries(statusLabels).map(([value, label]) => (
                             <option key={value} value={value}>{label}</option>

@@ -1055,7 +1055,7 @@ export const WorkOrdersPage: React.FC = () => {
                 value={actionReason}
                 onChange={(e) => setActionReason(e.target.value)}
                 rows={3}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder={
                   confirmAction.actionDef.action === 'cancel'
                     ? 'İptal sebebini belirtin...'
@@ -1075,7 +1075,7 @@ export const WorkOrdersPage: React.FC = () => {
                 value={actionNotes}
                 onChange={(e) => setActionNotes(e.target.value)}
                 rows={2}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Ek not ekleyin..."
               />
             </div>

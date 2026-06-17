@@ -182,7 +182,7 @@ const MessagingAuditPage: React.FC = () => {
                 placeholder="Filter by tenant..."
                 value={filters.tenantId}
                 onChange={(e) => handleFilterChange('tenantId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               />
             </div>
             <div>
@@ -192,7 +192,7 @@ const MessagingAuditPage: React.FC = () => {
                 placeholder="Filter by user..."
                 value={filters.userId}
                 onChange={(e) => handleFilterChange('userId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               />
             </div>
             <div>
@@ -200,7 +200,7 @@ const MessagingAuditPage: React.FC = () => {
               <select
                 value={filters.action}
                 onChange={(e) => handleFilterChange('action', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               >
                 {ACTION_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -215,7 +215,7 @@ const MessagingAuditPage: React.FC = () => {
                 type="date"
                 value={filters.startDate}
                 onChange={(e) => handleFilterChange('startDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               />
             </div>
             <div>
@@ -224,7 +224,7 @@ const MessagingAuditPage: React.FC = () => {
                 type="date"
                 value={filters.endDate}
                 onChange={(e) => handleFilterChange('endDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               />
             </div>
           </div>

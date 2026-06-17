@@ -220,7 +220,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
             relative inline-flex flex-shrink-0
             rounded-full cursor-pointer
             transition-colors duration-200 ease-in-out
-            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+            focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
             ${checked ? 'bg-blue-600' : 'bg-gray-200'}
             ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
           `}

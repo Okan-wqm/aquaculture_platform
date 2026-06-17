@@ -915,7 +915,7 @@ export const ImpersonationPage: React.FC = () => {
 
       {/* Start Impersonation Modal */}
       {showStartModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-lg">
             <div className="p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4">Start Impersonation Session</h2>
@@ -998,7 +998,7 @@ export const ImpersonationPage: React.FC = () => {
 
       {/* Grant Permission Modal */}
       {showPermissionModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-lg">
             <div className="p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4">Grant Impersonation Permission</h2>
@@ -1110,7 +1110,7 @@ export const ImpersonationPage: React.FC = () => {
 
       {/* Session Actions Modal */}
       {showActionsModal && selectedSession && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
             <div className="p-6 border-b border-gray-200">
               <div className="flex justify-between items-start">
@@ -1201,7 +1201,7 @@ export const ImpersonationPage: React.FC = () => {
 
       {/* Confirm Modal */}
       {showConfirmModal && confirmAction && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-md">
             <div className="p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-2">{confirmAction.title}</h2>

@@ -167,7 +167,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
     if (e.target === e.currentTarget) onClose();
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none';
+  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden';
   const labelCls = 'block text-xs font-medium text-gray-600 mb-1';
 
   return (
@@ -484,7 +484,7 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
     if (e.target === e.currentTarget) onClose();
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none';
+  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden';
 
   return (
     <div

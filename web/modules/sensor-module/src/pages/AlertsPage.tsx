@@ -355,7 +355,7 @@ const AlertsPage: React.FC = () => {
                   severity: e.target.value === 'all' ? undefined : (e.target.value as AlertSeverity),
                 })
               }
-              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             >
               <option value="all">Tüm Önem Dereceleri</option>
               <option value="critical">Kritik</option>

@@ -434,7 +434,7 @@ export const SpeciesTab: React.FC = () => {
         </div>
         <button
           onClick={openAddModal}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
         >
           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -608,7 +608,7 @@ export const SpeciesTab: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setIsModalOpen(false)} />
+            <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={() => setIsModalOpen(false)} />
             <div className="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:max-w-3xl sm:w-full max-h-[90vh] overflow-y-auto">
               <form onSubmit={handleSubmit}>
                 <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
@@ -641,7 +641,7 @@ export const SpeciesTab: React.FC = () => {
                           value={formData.commonName}
                           onChange={e => setFormData(prev => ({ ...prev, commonName: e.target.value }))}
                           placeholder="e.g., European Seabass"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -652,7 +652,7 @@ export const SpeciesTab: React.FC = () => {
                           value={formData.scientificName}
                           onChange={e => setFormData(prev => ({ ...prev, scientificName: e.target.value }))}
                           placeholder="e.g., Dicentrarchus labrax"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 italic"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 italic"
                         />
                       </div>
                     </div>
@@ -665,7 +665,7 @@ export const SpeciesTab: React.FC = () => {
                           value={formData.code}
                           onChange={e => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
                           placeholder="e.g., SEABASS"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 uppercase"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 uppercase"
                         />
                       </div>
                       <div>
@@ -675,7 +675,7 @@ export const SpeciesTab: React.FC = () => {
                           value={formData.localName}
                           onChange={e => setFormData(prev => ({ ...prev, localName: e.target.value }))}
                           placeholder="e.g., Levrek"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -686,7 +686,7 @@ export const SpeciesTab: React.FC = () => {
                         onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
                         rows={2}
                         placeholder="Brief description of the species..."
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                   </CollapsibleSection>
@@ -726,7 +726,7 @@ export const SpeciesTab: React.FC = () => {
                           onChange={e => setFormData(prev => ({ ...prev, customTag: e.target.value }))}
                           onKeyDown={handleCustomTagKeyDown}
                           placeholder="Add custom tag..."
-                          className="flex-1 border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="flex-1 border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                         <button
                           type="button"
@@ -783,7 +783,7 @@ export const SpeciesTab: React.FC = () => {
                           required
                           value={formData.category}
                           onChange={e => setFormData(prev => ({ ...prev, category: e.target.value as SpeciesCategory }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">Select Category</option>
                           {Object.entries(speciesCategoryLabels).map(([value, label]) => (
@@ -797,7 +797,7 @@ export const SpeciesTab: React.FC = () => {
                           required
                           value={formData.waterType}
                           onChange={e => setFormData(prev => ({ ...prev, waterType: e.target.value as SpeciesWaterType }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">Select Water Type</option>
                           {Object.entries(speciesWaterTypeLabels).map(([value, label]) => (
@@ -814,7 +814,7 @@ export const SpeciesTab: React.FC = () => {
                           value={formData.family}
                           onChange={e => setFormData(prev => ({ ...prev, family: e.target.value }))}
                           placeholder="e.g., Moronidae"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -824,7 +824,7 @@ export const SpeciesTab: React.FC = () => {
                           value={formData.genus}
                           onChange={e => setFormData(prev => ({ ...prev, genus: e.target.value }))}
                           placeholder="e.g., Dicentrarchus"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -841,7 +841,7 @@ export const SpeciesTab: React.FC = () => {
                       <select
                         value={formData.supplierId}
                         onChange={e => setFormData(prev => ({ ...prev, supplierId: e.target.value }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       >
                         <option value="">Select Supplier (Optional)</option>
                         {suppliers.map(supplier => (
@@ -870,7 +870,7 @@ export const SpeciesTab: React.FC = () => {
                             value={formData.tempMin}
                             onChange={e => setFormData(prev => ({ ...prev, tempMin: e.target.value === '' ? '' : Number(e.target.value) }))}
                             placeholder="18"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -881,7 +881,7 @@ export const SpeciesTab: React.FC = () => {
                             value={formData.tempMax}
                             onChange={e => setFormData(prev => ({ ...prev, tempMax: e.target.value === '' ? '' : Number(e.target.value) }))}
                             placeholder="28"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -892,7 +892,7 @@ export const SpeciesTab: React.FC = () => {
                             value={formData.tempOptimal}
                             onChange={e => setFormData(prev => ({ ...prev, tempOptimal: e.target.value === '' ? '' : Number(e.target.value) }))}
                             placeholder="24"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -912,7 +912,7 @@ export const SpeciesTab: React.FC = () => {
                             value={formData.phMin}
                             onChange={e => setFormData(prev => ({ ...prev, phMin: e.target.value === '' ? '' : Number(e.target.value) }))}
                             placeholder="7.0"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -925,7 +925,7 @@ export const SpeciesTab: React.FC = () => {
                             value={formData.phMax}
                             onChange={e => setFormData(prev => ({ ...prev, phMax: e.target.value === '' ? '' : Number(e.target.value) }))}
                             placeholder="8.5"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -944,7 +944,7 @@ export const SpeciesTab: React.FC = () => {
                             value={formData.oxygenMin}
                             onChange={e => setFormData(prev => ({ ...prev, oxygenMin: e.target.value === '' ? '' : Number(e.target.value) }))}
                             placeholder="5.0"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -956,7 +956,7 @@ export const SpeciesTab: React.FC = () => {
                             value={formData.oxygenOptimal}
                             onChange={e => setFormData(prev => ({ ...prev, oxygenOptimal: e.target.value === '' ? '' : Number(e.target.value) }))}
                             placeholder="7.0"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -975,7 +975,7 @@ export const SpeciesTab: React.FC = () => {
                             value={formData.ammoniaMax}
                             onChange={e => setFormData(prev => ({ ...prev, ammoniaMax: e.target.value === '' ? '' : Number(e.target.value) }))}
                             placeholder="0.02"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -994,7 +994,7 @@ export const SpeciesTab: React.FC = () => {
                             value={formData.co2Min}
                             onChange={e => setFormData(prev => ({ ...prev, co2Min: e.target.value === '' ? '' : Number(e.target.value) }))}
                             placeholder="0"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -1006,7 +1006,7 @@ export const SpeciesTab: React.FC = () => {
                             value={formData.co2Max}
                             onChange={e => setFormData(prev => ({ ...prev, co2Max: e.target.value === '' ? '' : Number(e.target.value) }))}
                             placeholder="20"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -1030,7 +1030,7 @@ export const SpeciesTab: React.FC = () => {
                               setFormData(prev => ({ ...prev, lightHours: light, darkHours: dark }));
                             }}
                             placeholder="14"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -1047,7 +1047,7 @@ export const SpeciesTab: React.FC = () => {
                               setFormData(prev => ({ ...prev, darkHours: dark, lightHours: light }));
                             }}
                             placeholder="10"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -1101,7 +1101,7 @@ export const SpeciesTab: React.FC = () => {
                         <select
                           value={formData.status}
                           onChange={e => setFormData(prev => ({ ...prev, status: e.target.value as SpeciesStatus }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           {Object.entries(speciesStatusLabels).map(([value, label]) => (
                             <option key={value} value={value}>{label}</option>
@@ -1116,7 +1116,7 @@ export const SpeciesTab: React.FC = () => {
                         onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                         rows={3}
                         placeholder="Additional notes about this species..."
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                   </CollapsibleSection>
@@ -1126,7 +1126,7 @@ export const SpeciesTab: React.FC = () => {
                   <button
                     type="submit"
                     disabled={createSpecies.isPending || updateSpecies.isPending}
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
+                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
                   >
                     {(createSpecies.isPending || updateSpecies.isPending) && (
                       <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
@@ -1139,7 +1139,7 @@ export const SpeciesTab: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
                   >
                     Cancel
                   </button>

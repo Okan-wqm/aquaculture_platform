@@ -359,7 +359,7 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
             type="datetime-local"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
           />
         </label>
         <label className="flex items-center gap-1 text-gray-600">
@@ -368,7 +368,7 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
             type="datetime-local"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
-            className="border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
           />
         </label>
         <button

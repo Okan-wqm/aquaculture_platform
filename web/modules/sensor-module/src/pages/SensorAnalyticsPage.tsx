@@ -57,7 +57,7 @@ const SensorAnalyticsPage: React.FC = () => {
           <p className="text-gray-500 mt-1">Performans metrikleri ve trend analizi</p>
         </div>
         <div className="flex items-center gap-2">
-          <select className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500">
+          <select className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500">
             <option value="7d">Son 7 Gün</option>
             <option value="30d">Son 30 Gün</option>
             <option value="90d">Son 90 Gün</option>

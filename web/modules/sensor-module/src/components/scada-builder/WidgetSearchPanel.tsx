@@ -73,7 +73,7 @@ export const WidgetSearchPanel: React.FC = () => {
           placeholder="Search widgets..."
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          className="w-full pl-8 pr-3 py-2 text-sm border-b border-gray-200 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+          className="w-full pl-8 pr-3 py-2 text-sm border-b border-gray-200 focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
         />
       </div>
 

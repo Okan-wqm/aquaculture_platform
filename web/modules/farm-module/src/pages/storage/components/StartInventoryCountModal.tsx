@@ -78,7 +78,7 @@ export const StartInventoryCountModal: React.FC<Props> = ({ isOpen, onClose }) =
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title-start-inventory-count">
       <div className="flex items-center justify-center min-h-screen px-4">
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={onClose} />
+        <div className="fixed inset-0 bg-gray-500/75" onClick={onClose} />
         <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md">
           <form onSubmit={handleSubmit}>
             <div className="px-6 pt-5 pb-4 space-y-4">

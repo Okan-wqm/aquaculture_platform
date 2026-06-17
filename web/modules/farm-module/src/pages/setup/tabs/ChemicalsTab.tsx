@@ -662,7 +662,7 @@ export const ChemicalsTab: React.FC = () => {
             setOpenSections({ basic: true, composition: false, storage: false, usage: false, sites: false, documents: false, notes: false });
             setIsModalOpen(true);
           }}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
         >
           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -753,7 +753,7 @@ export const ChemicalsTab: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setIsModalOpen(false)} />
+            <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={() => setIsModalOpen(false)} />
             <div className="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:max-w-2xl sm:w-full max-h-[90vh] overflow-y-auto">
               <form onSubmit={handleSubmit}>
                 <div className="bg-white px-4 pt-5 pb-4 sm:p-6">
@@ -776,7 +776,7 @@ export const ChemicalsTab: React.FC = () => {
                             required
                             value={formData.name}
                             onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -786,7 +786,7 @@ export const ChemicalsTab: React.FC = () => {
                             required
                             value={formData.code}
                             onChange={e => setFormData(prev => ({ ...prev, code: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -797,7 +797,7 @@ export const ChemicalsTab: React.FC = () => {
                             required
                             value={formData.type}
                             onChange={e => setFormData(prev => ({ ...prev, type: e.target.value as ChemicalType }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           >
                             <option value="">Select Category</option>
                             {chemicalTypes.map((type) => (
@@ -811,7 +811,7 @@ export const ChemicalsTab: React.FC = () => {
                             required
                             value={formData.siteId}
                             onChange={e => setFormData(prev => ({ ...prev, siteId: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           >
                             <option value="">Select Site</option>
                             {sites.map((site) => (
@@ -826,7 +826,7 @@ export const ChemicalsTab: React.FC = () => {
                           <select
                             value={formData.supplierId}
                             onChange={e => setFormData(prev => ({ ...prev, supplierId: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           >
                             <option value="">Select Supplier</option>
                             {suppliers.map((supplier) => (
@@ -840,7 +840,7 @@ export const ChemicalsTab: React.FC = () => {
                             required
                             value={formData.unit}
                             onChange={e => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           >
                             <option value="liter">Liter</option>
                             <option value="ml">Milliliter</option>
@@ -856,7 +856,7 @@ export const ChemicalsTab: React.FC = () => {
                           value={formData.description}
                           onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
                           rows={2}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -864,7 +864,7 @@ export const ChemicalsTab: React.FC = () => {
                         <select
                           value={formData.status}
                           onChange={e => setFormData(prev => ({ ...prev, status: e.target.value as ChemicalStatus }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           {Object.entries(statusLabels).map(([value, label]) => (
                             <option key={value} value={value}>{label}</option>
@@ -888,7 +888,7 @@ export const ChemicalsTab: React.FC = () => {
                           type="text"
                           value={formData.activeIngredient}
                           onChange={e => setFormData(prev => ({ ...prev, activeIngredient: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -898,7 +898,7 @@ export const ChemicalsTab: React.FC = () => {
                           value={formData.concentration}
                           placeholder="e.g., 10%, 50mg/L"
                           onChange={e => setFormData(prev => ({ ...prev, concentration: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div className="col-span-2">
@@ -906,7 +906,7 @@ export const ChemicalsTab: React.FC = () => {
                         <select
                           value={formData.formulation}
                           onChange={e => setFormData(prev => ({ ...prev, formulation: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">Select Formulation</option>
                           <option value="liquid">Liquid</option>
@@ -934,7 +934,7 @@ export const ChemicalsTab: React.FC = () => {
                           <select
                             value={formData.storageRequirements}
                             onChange={e => setFormData(prev => ({ ...prev, storageRequirements: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           >
                             {storageOptions.map((opt) => (
                               <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -947,7 +947,7 @@ export const ChemicalsTab: React.FC = () => {
                             type="text"
                             value={formData.hazardClass}
                             onChange={e => setFormData(prev => ({ ...prev, hazardClass: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -959,7 +959,7 @@ export const ChemicalsTab: React.FC = () => {
                             step="0.1"
                             value={formData.storageTempMin}
                             onChange={e => setFormData(prev => ({ ...prev, storageTempMin: e.target.value ? parseFloat(e.target.value) : '' }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -969,7 +969,7 @@ export const ChemicalsTab: React.FC = () => {
                             step="0.1"
                             value={formData.storageTempMax}
                             onChange={e => setFormData(prev => ({ ...prev, storageTempMax: e.target.value ? parseFloat(e.target.value) : '' }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -981,7 +981,7 @@ export const ChemicalsTab: React.FC = () => {
                             max="100"
                             value={formData.storageHumidityMin}
                             onChange={e => setFormData(prev => ({ ...prev, storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '' }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                         <div>
@@ -993,7 +993,7 @@ export const ChemicalsTab: React.FC = () => {
                             max="100"
                             value={formData.storageHumidityMax}
                             onChange={e => setFormData(prev => ({ ...prev, storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '' }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -1003,7 +1003,7 @@ export const ChemicalsTab: React.FC = () => {
                           <select
                             value={formData.signalWord}
                             onChange={e => setFormData(prev => ({ ...prev, signalWord: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           >
                             <option value="">None</option>
                             <option value="warning">Warning</option>
@@ -1017,7 +1017,7 @@ export const ChemicalsTab: React.FC = () => {
                             value={formData.msdsUrl}
                             placeholder="https://..."
                             onChange={e => setFormData(prev => ({ ...prev, msdsUrl: e.target.value }))}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -1039,7 +1039,7 @@ export const ChemicalsTab: React.FC = () => {
                           min="0"
                           value={formData.withdrawalPeriodDays}
                           onChange={e => setFormData(prev => ({ ...prev, withdrawalPeriodDays: parseInt(e.target.value) || 0 }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
@@ -1049,7 +1049,7 @@ export const ChemicalsTab: React.FC = () => {
                           value={formData.usageGuideUrl}
                           placeholder="https://..."
                           onChange={e => setFormData(prev => ({ ...prev, usageGuideUrl: e.target.value }))}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -1099,7 +1099,7 @@ export const ChemicalsTab: React.FC = () => {
                       onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                       rows={3}
                       placeholder="Additional notes about this chemical..."
-                      className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </CollapsibleSection>
                 </div>
@@ -1108,14 +1108,14 @@ export const ChemicalsTab: React.FC = () => {
                   <button
                     type="submit"
                     disabled={isSaving}
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:bg-gray-400"
+                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:bg-gray-400"
                   >
                     {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
                   >
                     Cancel
                   </button>

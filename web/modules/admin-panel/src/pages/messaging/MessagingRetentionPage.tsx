@@ -72,7 +72,7 @@ const EditRetentionModal: React.FC<{
             <select
               value={selectedRetention}
               onChange={(e) => setSelectedRetention(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
             >
               {RETENTION_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -145,7 +145,7 @@ const AddChannelOverrideModal: React.FC<{
               value={channelId}
               onChange={(e) => setChannelId(e.target.value)}
               placeholder="Enter channel UUID..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
             />
           </div>
           <div>
@@ -153,7 +153,7 @@ const AddChannelOverrideModal: React.FC<{
             <select
               value={retentionDays}
               onChange={(e) => setRetentionDays(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
             >
               {RETENTION_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.days}>
@@ -239,7 +239,7 @@ const MessagingRetentionPage: React.FC = () => {
   const handleAddOverride = useCallback(
     async (_tenantId: string, _channelId: string, _retentionDays: number) => {
       // WHY: Channel override endpoint not yet available in admin gateway.
-      // This handler is wired for future implementation; for now, refresh policies.
+      // This handler is wired for future implementation; it currently just refreshes policies.
       await fetchData();
       setOverrideModal(null);
     },

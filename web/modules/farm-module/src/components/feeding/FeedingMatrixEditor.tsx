@@ -405,7 +405,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
                             updateFCR(wi, ti, newValue);
                           }
                         }}
-                        className="w-14 text-center bg-white bg-opacity-80 border border-gray-200 rounded px-1 py-0.5 text-sm font-medium"
+                        className="w-14 text-center bg-white/80 border border-gray-200 rounded px-1 py-0.5 text-sm font-medium"
                       />
                     </td>
                   );
@@ -470,7 +470,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
               value={testTemp}
               onChange={e => setTestTemp(e.target.value ? parseFloat(e.target.value) : '')}
               placeholder="e.g. 13"
-              className="w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
           <div>
@@ -481,7 +481,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
               value={testWeight}
               onChange={e => setTestWeight(e.target.value ? parseFloat(e.target.value) : '')}
               placeholder="e.g. 7"
-              className="w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              className="w-full border border-blue-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
           <div>
@@ -527,7 +527,7 @@ export const FeedingMatrixEditor: React.FC<FeedingMatrixEditorProps> = ({
           placeholder="Notes about this feeding matrix (e.g., species, conditions, source)"
           value={matrix.notes || ''}
           onChange={e => onChange({ ...matrix, notes: e.target.value })}
-          className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+          className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
         />
       </div>
     </div>

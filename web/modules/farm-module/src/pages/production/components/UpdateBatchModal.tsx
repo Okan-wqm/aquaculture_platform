@@ -221,7 +221,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={NAME_MAX}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             placeholder="(opsiyonel) parti için anlamlı bir isim"
           />
         </div>
@@ -239,7 +239,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             value={expectedHarvestDate}
             onChange={(e) => setExpectedHarvestDate(e.target.value)}
             min={batch.stockedAt.slice(0, 10)}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
           <p className="mt-1 text-xs text-gray-500">
             Stok tarihi: {new Date(batch.stockedAt).toLocaleDateString('tr-TR')}
@@ -261,7 +261,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             max={TARGET_FCR_MAX}
             value={targetFCRRaw}
             onChange={(e) => setTargetFCRRaw(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             placeholder={`${TARGET_FCR_MIN.toFixed(1)} – ${TARGET_FCR_MAX.toFixed(1)}`}
           />
           <p className="mt-1 text-xs text-gray-500">
@@ -283,7 +283,7 @@ const UpdateBatchModal: React.FC<UpdateBatchModalProps> = ({
             onChange={(e) => setNotes(e.target.value)}
             maxLength={NOTES_MAX}
             rows={4}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
           <p className="mt-1 text-xs text-gray-500 text-right">
             {notes.length} / {NOTES_MAX}

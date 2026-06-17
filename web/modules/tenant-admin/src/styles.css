@@ -1,6 +1,56 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/* Shared design-system tokens so shared-ui components render correctly. */
+@import '../../../shared-ui/src/styles/theme.css';
+@source '../../../shared-ui/src';
+
+/* tenant-admin's own dark-green palette (was tailwind.config theme.extend). */
+@theme {
+  --color-tenant-50: #f0fdf4;
+  --color-tenant-100: #dcfce7;
+  --color-tenant-200: #bbf7d0;
+  --color-tenant-300: #86efac;
+  --color-tenant-400: #4ade80;
+  --color-tenant-500: #22c55e;
+  --color-tenant-600: #16a34a;
+  --color-tenant-700: #15803d;
+  --color-tenant-800: #166534;
+  --color-tenant-900: #14532d;
+  --color-tenant-950: #052e16;
+  --color-dark-50: #f8fafc;
+  --color-dark-100: #f1f5f9;
+  --color-dark-200: #e2e8f0;
+  --color-dark-300: #cbd5e1;
+  --color-dark-400: #94a3b8;
+  --color-dark-500: #64748b;
+  --color-dark-600: #475569;
+  --color-dark-700: #334155;
+  --color-dark-800: #1e293b;
+  --color-dark-900: #0f172a;
+  --color-dark-950: #020617;
+}
+
+/* backgroundImage gradients (v4 has no backgroundImage theme namespace). */
+@utility bg-tenant-gradient {
+  background-image: linear-gradient(135deg, #14532d 0%, #166534 50%, #15803d 100%);
+}
+@utility bg-tenant-gradient-dark {
+  background-image: linear-gradient(135deg, #052e16 0%, #14532d 50%, #166534 100%);
+}
+@utility bg-tenant-sidebar {
+  background-image: linear-gradient(180deg, #052e16 0%, #14532d 100%);
+}
+
+/* v4 defaults border-color to currentColor; restore Tailwind 3's gray-200. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
 
 /* Tenant Admin Custom Styles */
 @layer components {
@@ -15,8 +65,10 @@
   }
 
   /* Tenant Admin Stat Card */
+  /* v4: @apply only accepts real utilities, not the custom `.tenant-card`
+     component class — inline tenant-card's utilities here. */
   .tenant-stat-card {
-    @apply tenant-card p-6 hover:shadow-md transition-shadow duration-200;
+    @apply bg-white dark:bg-dark-800 rounded-xl shadow-sm border border-gray-100 dark:border-dark-700 p-6 hover:shadow-md transition-shadow duration-200;
   }
 
   /* Tenant Admin Button Primary */

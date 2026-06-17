@@ -119,7 +119,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black bg-opacity-50 transition-opacity" onClick={handleClose} />
+      <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={handleClose} />
 
       {/* Modal */}
       <div className="flex min-h-full items-center justify-center p-4">
@@ -137,7 +137,7 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
             </div>
             <button
               onClick={handleClose}
-              className="text-white/80 hover:text-white focus:outline-none p-1 rounded-lg hover:bg-white/10 transition-colors"
+              className="text-white/80 hover:text-white focus:outline-hidden p-1 rounded-lg hover:bg-white/10 transition-colors"
             >
               <X className="w-6 h-6" />
             </button>
@@ -224,14 +224,14 @@ export function EdgeDeviceWizard({ isOpen, onClose, onSuccess }: EdgeDeviceWizar
           <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-t border-gray-200">
             <button
               onClick={handleClose}
-              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors"
+              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-gray-500 transition-colors"
             >
               İptal
             </button>
             <button
               onClick={handleSubmit}
               disabled={isCreating}
-              className="flex items-center gap-2 px-5 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-2 px-5 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isCreating ? (
                 <>

@@ -170,7 +170,7 @@ const VariableInputRow: React.FC<{
           step={1}
           value={typeof value === 'number' ? value : 0}
           onChange={(e) => onSetInput(name, parseInt(e.target.value, 10) || 0)}
-          className="w-24 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="w-24 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
         />
       );
     }
@@ -182,7 +182,7 @@ const VariableInputRow: React.FC<{
           step={0.1}
           value={typeof value === 'number' ? value : 0}
           onChange={(e) => onSetInput(name, parseFloat(e.target.value) || 0)}
-          className="w-24 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="w-24 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
         />
       );
     }
@@ -193,7 +193,7 @@ const VariableInputRow: React.FC<{
           type="text"
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => onSetInput(name, e.target.value)}
-          className="w-32 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="w-32 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
         />
       );
     }
@@ -496,7 +496,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
             <select
               value={scanCycleMs}
               onChange={(e) => setScanCycleMs(Number(e.target.value))}
-              className="px-1.5 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="px-1.5 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
             >
               {SCAN_CYCLE_OPTIONS.map((ms) => (
                 <option key={ms} value={ms}>

@@ -1042,7 +1042,7 @@ const ProcessEditorPage: React.FC = () => {
             value={processName}
             onChange={(e) => setProcessName(e.target.value)}
             placeholder="Process Name"
-            className="text-lg font-medium text-gray-900 border-none bg-transparent focus:outline-none focus:ring-0 w-64"
+            className="text-lg font-medium text-gray-900 border-none bg-transparent focus:outline-hidden focus:ring-0 w-64"
           />
 
           {isDirty && (
@@ -1178,7 +1178,7 @@ const ProcessEditorPage: React.FC = () => {
         {/* Center - Canvas (iframe) */}
         <div className="flex-1 bg-gray-50 relative">
           {!isCanvasReady && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-80 z-10">
+            <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
               <div className="flex flex-col items-center gap-3">
                 <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
                 <p className="text-gray-600">Loading Process Editor...</p>

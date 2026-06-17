@@ -312,7 +312,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black bg-opacity-50" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
 
       {/* Modal */}
       <div className="relative min-h-screen flex items-center justify-center p-4">
@@ -389,7 +389,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="Enter widget title"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                   />
                 </div>
 
@@ -609,7 +609,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                             value={yAxisMin}
                             onChange={(e) => setYAxisMin(e.target.value)}
                             placeholder="Auto"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                           />
                         </div>
                         <div>
@@ -621,7 +621,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                             value={yAxisMax}
                             onChange={(e) => setYAxisMax(e.target.value)}
                             placeholder="Auto"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                           />
                         </div>
                         <div>
@@ -633,7 +633,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                             value={yAxisLabel}
                             onChange={(e) => setYAxisLabel(e.target.value)}
                             placeholder="e.g., Temperature (°C)"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                           />
                         </div>
                       </div>
@@ -650,7 +650,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                     <select
                       value={timeRange}
                       onChange={(e) => setTimeRange(e.target.value as TimeRange)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                     >
                       {TIME_RANGES.map((range) => (
                         <option key={range.value} value={range.value}>
@@ -667,7 +667,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                     <select
                       value={refreshInterval}
                       onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                     >
                       {REFRESH_INTERVALS.map((interval) => (
                         <option key={interval.value} value={interval.value}>

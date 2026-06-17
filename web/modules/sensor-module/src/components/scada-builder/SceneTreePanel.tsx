@@ -156,7 +156,7 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
             }}
             onClick={(e) => e.stopPropagation()}
             autoFocus
-            className="flex-1 min-w-0 px-1 py-0 text-xs border border-cyan-400 rounded bg-white focus:outline-none focus:ring-1 focus:ring-cyan-500"
+            className="flex-1 min-w-0 px-1 py-0 text-xs border border-cyan-400 rounded bg-white focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
           />
         ) : (
           <span className="truncate flex-1 min-w-0">{screen.name}</span>

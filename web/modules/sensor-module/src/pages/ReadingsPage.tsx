@@ -588,7 +588,7 @@ const ReadingsPage: React.FC = () => {
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
             >
               <option value="all">Tüm Tipler</option>
               <option value="temperature">Sıcaklık</option>
@@ -613,7 +613,7 @@ const ReadingsPage: React.FC = () => {
             <select
               value={selectedPeriod}
               onChange={(e) => setSelectedPeriod(e.target.value)}
-              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
             >
               <option value="1h">Son 1 Saat</option>
               <option value="6h">Son 6 Saat</option>

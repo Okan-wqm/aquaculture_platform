@@ -282,7 +282,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black bg-opacity-50 transition-opacity" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
 
       {/* Modal */}
       <div className="flex min-h-full items-start justify-center p-4 pt-16">
@@ -381,7 +381,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                         type="text"
                         value={formData.maskinportenClientId}
                         onChange={(e) => setFormData({ ...formData, maskinportenClientId: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                         placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                       />
                     </div>
@@ -391,7 +391,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                         type="text"
                         value={formData.maskinportenKeyId}
                         onChange={(e) => setFormData({ ...formData, maskinportenKeyId: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                         placeholder="optional-key-id"
                       />
                     </div>
@@ -403,7 +403,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                         value={formData.maskinportenPrivateKey}
                         onChange={(e) => setFormData({ ...formData, maskinportenPrivateKey: e.target.value })}
                         rows={3}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono text-sm"
                         placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
                       />
                     </div>
@@ -412,7 +412,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                       <select
                         value={formData.maskinportenEnvironment}
                         onChange={(e) => setFormData({ ...formData, maskinportenEnvironment: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                       >
                         <option value="TEST">Test (test.maskinporten.no)</option>
                         <option value="PRODUCTION">Production (maskinporten.no)</option>
@@ -424,7 +424,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                         type="button"
                         onClick={() => testConnectionMutation.mutate()}
                         disabled={!settingsData?.maskinportenConfigured || testConnectionMutation.isPending}
-                        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-hidden focus:ring-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {testConnectionMutation.isPending ? 'Testing...' : 'Test Connection'}
                       </button>
@@ -462,7 +462,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                         type="text"
                         value={formData.defaultContactName}
                         onChange={(e) => setFormData({ ...formData, defaultContactName: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                         placeholder="Ola Nordmann"
                       />
                     </div>
@@ -472,7 +472,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                         type="email"
                         value={formData.defaultContactEmail}
                         onChange={(e) => setFormData({ ...formData, defaultContactEmail: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                         placeholder="ola@example.com"
                       />
                     </div>
@@ -482,7 +482,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                         type="tel"
                         value={formData.defaultContactPhone}
                         onChange={(e) => setFormData({ ...formData, defaultContactPhone: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                         placeholder="+47 123 45 678"
                       />
                     </div>
@@ -508,7 +508,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                               type="number"
                               value={siteMappings[site.id] || ''}
                               onChange={(e) => setSiteMappings({ ...siteMappings, [site.id]: e.target.value })}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                               placeholder="Lokalitetsnummer"
                             />
                           </div>
@@ -532,7 +532,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                       type="text"
                       value={formData.slaughterApprovalNumber}
                       onChange={(e) => setFormData({ ...formData, slaughterApprovalNumber: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                       placeholder="e.g., N-123"
                     />
                   </div>
@@ -546,7 +546,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             >
               Cancel
             </button>
@@ -554,7 +554,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
               type="button"
               onClick={handleSave}
               disabled={updateSettingsMutation.isPending || isLoading}
-              className="px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {updateSettingsMutation.isPending ? 'Saving...' : 'Save Settings'}
             </button>

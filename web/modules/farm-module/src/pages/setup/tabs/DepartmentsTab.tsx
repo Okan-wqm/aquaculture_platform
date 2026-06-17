@@ -276,7 +276,7 @@ export const DepartmentsTab: React.FC = () => {
             setFormErrors({});
             setIsModalOpen(true);
           }}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
         >
           <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -424,7 +424,7 @@ export const DepartmentsTab: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:p-0">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setIsModalOpen(false)} />
+            <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={() => setIsModalOpen(false)} />
             <div className="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:max-w-lg sm:w-full">
               <form onSubmit={handleSubmit}>
                 <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
@@ -442,7 +442,7 @@ export const DepartmentsTab: React.FC = () => {
                           setFormData(prev => ({ ...prev, name: e.target.value }));
                           if (formErrors.name && e.target.value.trim()) setFormErrors(prev => ({ ...prev, name: undefined }));
                         }}
-                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${formErrors.name ? 'border-red-500' : 'border-gray-300'}`}
+                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.name ? 'border-red-500' : 'border-gray-300'}`}
                       />
                       {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
                     </div>
@@ -456,7 +456,7 @@ export const DepartmentsTab: React.FC = () => {
                           setFormData(prev => ({ ...prev, code: e.target.value }));
                           if (formErrors.code && e.target.value.trim()) setFormErrors(prev => ({ ...prev, code: undefined }));
                         }}
-                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${formErrors.code ? 'border-red-500' : 'border-gray-300'}`}
+                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.code ? 'border-red-500' : 'border-gray-300'}`}
                       />
                       {formErrors.code && <p className="mt-1 text-sm text-red-600">{formErrors.code}</p>}
                     </div>
@@ -465,7 +465,7 @@ export const DepartmentsTab: React.FC = () => {
                       <select
                         value={formData.type}
                         onChange={e => setFormData(prev => ({ ...prev, type: e.target.value }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       >
                         {Object.entries(typeLabels).map(([key, label]) => (
                           <option key={key} value={key}>{label}</option>
@@ -480,7 +480,7 @@ export const DepartmentsTab: React.FC = () => {
                           setFormData(prev => ({ ...prev, siteId: e.target.value }));
                           if (formErrors.siteId && e.target.value) setFormErrors(prev => ({ ...prev, siteId: undefined }));
                         }}
-                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${formErrors.siteId ? 'border-red-500' : 'border-gray-300'}`}
+                        className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500 ${formErrors.siteId ? 'border-red-500' : 'border-gray-300'}`}
                         required
                       >
                         <option value="">Select Site...</option>
@@ -497,7 +497,7 @@ export const DepartmentsTab: React.FC = () => {
                         min="0"
                         value={formData.capacity}
                         onChange={e => setFormData(prev => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                     <div>
@@ -506,7 +506,7 @@ export const DepartmentsTab: React.FC = () => {
                         value={formData.notes}
                         onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                         rows={3}
-                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
                   </div>
@@ -514,14 +514,14 @@ export const DepartmentsTab: React.FC = () => {
                 <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
                   <button
                     type="submit"
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
+                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
                   >
                     {editingId ? 'Update' : 'Create'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
                   >
                     Cancel
                   </button>

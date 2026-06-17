@@ -2,7 +2,7 @@
   "name": "@aquaculture/dashboard",
   "version": "1.0.0",
   "private": true,
-  "description": "Aquaculture Platform - Dashboard Microfrontend Mod\u00fcl\u00fc",
+  "description": "Aquaculture Platform - Dashboard Microfrontend Modülü",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -28,12 +28,12 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
-    "autoprefixer": "^10.4.16",
     "jsdom": "^24.0.0",
     "postcss": "^8.4.32",
-    "tailwindcss": "^3.4.0",
+    "tailwindcss": "4.3.1",
     "typescript": "5.9.3",
     "vite": "^7.3.5",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "@tailwindcss/postcss": "4.3.1"
   }
 }

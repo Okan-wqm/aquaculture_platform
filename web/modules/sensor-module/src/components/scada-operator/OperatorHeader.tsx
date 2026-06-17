@@ -166,7 +166,7 @@ const HeaderItemRenderer = memo<HeaderItemRendererProps>(({ item }) => {
         flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium
         text-gray-200 bg-gray-700 hover:bg-gray-600 active:bg-gray-500
         border border-gray-600 transition-colors
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500
+        focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
       "
       aria-label={displayText || 'Header button'}
     >
@@ -221,7 +221,7 @@ const AlarmBadge = memo(() => {
       aria-pressed={alarmPanelOpen}
       className={`
         relative flex items-center justify-center w-8 h-8 rounded transition-colors
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500
+        focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
         ${alarmPanelOpen ? 'bg-gray-600 text-gray-100' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-700'}
       `}
     >
@@ -275,7 +275,7 @@ const UserRoleMenu = memo(() => {
         className="
           flex items-center gap-1.5 px-2 py-1.5 rounded text-xs
           text-gray-300 hover:bg-gray-700 transition-colors
-          focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500
+          focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
         "
         aria-label="User role menu"
         aria-expanded={open}
@@ -383,7 +383,7 @@ export const OperatorHeader = memo<OperatorHeaderProps>(
             className="
               p-1.5 rounded shrink-0
               text-gray-400 hover:text-gray-100 hover:bg-gray-700
-              transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500
+              transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
             "
           >
             <Menu size={18} aria-hidden="true" />

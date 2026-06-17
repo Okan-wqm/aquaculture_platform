@@ -195,7 +195,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
               flex flex-wrap items-center gap-1
               rounded-lg border
               transition-colors duration-200
-              focus:outline-none focus-within:ring-2
+              focus:outline-hidden focus-within:ring-2
               ${sizeStyles[size]}
               ${inputStateStyles}
               ${disabledStyles}
@@ -218,7 +218,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                     <button
                       type="button"
                       onClick={(e) => handleRemove(opt.value, e)}
-                      className="hover:text-blue-600 focus:outline-none"
+                      className="hover:text-blue-600 focus:outline-hidden"
                     >
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

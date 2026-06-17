@@ -47,7 +47,7 @@ const TemplateCard: React.FC<TemplateCardProps> = ({ template, isSelected, onSel
   <button
     type="button"
     onClick={onSelect}
-    className={`relative p-5 bg-white rounded-xl border-2 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 ${
+    className={`relative p-5 bg-white rounded-xl border-2 text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 ${
       isSelected
         ? 'border-cyan-500 ring-1 ring-cyan-500 shadow-md'
         : 'border-gray-200 hover:border-gray-300'
@@ -95,7 +95,7 @@ const CustomCard: React.FC<CustomCardProps> = ({ isSelected, onSelect }) => (
   <button
     type="button"
     onClick={onSelect}
-    className={`relative p-5 bg-white rounded-xl border-2 border-dashed text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 ${
+    className={`relative p-5 bg-white rounded-xl border-2 border-dashed text-left transition-all hover:shadow-md focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 ${
       isSelected
         ? 'border-cyan-500 ring-1 ring-cyan-500 shadow-md'
         : 'border-gray-300 hover:border-gray-400'

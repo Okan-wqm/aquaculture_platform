@@ -293,7 +293,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
         className={`
           w-full flex items-center justify-between rounded-lg border
           bg-white text-left
-          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+          focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500
           disabled:bg-gray-100 disabled:cursor-not-allowed
           ${sizeClasses[size]}
           ${error ? 'border-red-500' : 'border-gray-300'}

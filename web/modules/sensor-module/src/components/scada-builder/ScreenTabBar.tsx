@@ -157,7 +157,7 @@ const ScreenTabBar: React.FC = () => {
                 if (e.key === 'Escape') setRenamingId(null);
               }}
               autoFocus
-              className="px-2 py-1 text-xs border border-cyan-400 rounded bg-white focus:outline-none focus:ring-1 focus:ring-cyan-500 w-28"
+              className="px-2 py-1 text-xs border border-cyan-400 rounded bg-white focus:outline-hidden focus:ring-1 focus:ring-cyan-500 w-28"
             />
           );
         }

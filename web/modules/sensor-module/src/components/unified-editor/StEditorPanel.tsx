@@ -591,7 +591,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
                       }
                     }}
                     placeholder="Program name..."
-                    className="flex-1 bg-gray-700 text-xs text-white px-1.5 py-0.5 rounded border border-gray-600 focus:border-cyan-500 outline-none"
+                    className="flex-1 bg-gray-700 text-xs text-white px-1.5 py-0.5 rounded border border-gray-600 focus:border-cyan-500 outline-hidden"
                   />
                   <button
                     onClick={handleCreateProgram}

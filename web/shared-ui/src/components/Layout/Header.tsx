@@ -84,7 +84,7 @@ const SearchBox: React.FC<{
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Ara..."
-          className="block w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="block w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
       </div>
     </form>
@@ -203,7 +203,7 @@ const UserMenu: React.FC<{
 
       {/* Dropdown menü */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-64 rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 z-50">
+        <div className="absolute right-0 mt-2 w-64 rounded-lg bg-white shadow-lg ring-1 ring-black/5 z-50">
           {/* Kullanıcı bilgileri */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-sm font-medium text-gray-900">

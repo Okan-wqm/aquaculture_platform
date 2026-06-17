@@ -233,7 +233,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
               min={lastMeter ?? 0}
               value={meterReadingRaw}
               onChange={(e) => setMeterReadingRaw(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               required
             />
             {lastMeter != null && (
@@ -257,7 +257,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             maxLength={NOTES_MAX}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             placeholder="(opsiyonel) yapılan iş, gözlemler, sorunlar"
           />
           <p className="mt-1 text-xs text-gray-500">

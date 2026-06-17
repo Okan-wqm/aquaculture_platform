@@ -150,7 +150,7 @@ export function VfdRegistrationWizard({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black bg-opacity-50" onClick={handleClose} />
+      <div className="fixed inset-0 bg-black/50" onClick={handleClose} />
 
       {/* Modal */}
       <div className="flex min-h-full items-center justify-center p-4">
@@ -163,7 +163,7 @@ export function VfdRegistrationWizard({
             </div>
             <button
               onClick={handleClose}
-              className="text-white/80 hover:text-white focus:outline-none"
+              className="text-white/80 hover:text-white focus:outline-hidden"
             >
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -300,7 +300,7 @@ export function VfdRegistrationWizard({
           <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-t border-gray-200">
             <button
               onClick={wizard.currentStep === 0 ? handleClose : wizard.prevStep}
-              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500"
+              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-gray-500"
             >
               {wizard.currentStep === 0 ? 'İptal' : 'Geri'}
             </button>
@@ -310,7 +310,7 @@ export function VfdRegistrationWizard({
               {wizard.currentStep === 4 && !wizard.connectionTestResult?.success && (
                 <button
                   onClick={handleSkipOptionalStep}
-                  className="px-4 py-2 text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 focus:outline-none"
+                  className="px-4 py-2 text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 focus:outline-hidden"
                 >
                   Test Atla
                 </button>
@@ -320,7 +320,7 @@ export function VfdRegistrationWizard({
                 <button
                   onClick={handleSubmit}
                   disabled={wizard.isSubmitting || registering}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {wizard.isSubmitting || registering ? (
                     <span className="flex items-center">
@@ -353,7 +353,7 @@ export function VfdRegistrationWizard({
                 <button
                   onClick={wizard.nextStep}
                   disabled={!canProceed}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   İleri
                 </button>

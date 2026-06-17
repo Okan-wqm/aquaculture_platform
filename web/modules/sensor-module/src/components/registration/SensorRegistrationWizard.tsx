@@ -258,7 +258,7 @@ export function SensorRegistrationWizard({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black bg-opacity-50" onClick={handleClose} />
+      <div className="fixed inset-0 bg-black/50" onClick={handleClose} />
 
       {/* Modal */}
       <div className="flex min-h-full items-center justify-center p-4">
@@ -268,7 +268,7 @@ export function SensorRegistrationWizard({
             <h2 className="text-xl font-semibold text-gray-900">Register New Sensor Device</h2>
             <button
               onClick={handleClose}
-              className="text-gray-500 hover:text-gray-600 focus:outline-none"
+              className="text-gray-500 hover:text-gray-600 focus:outline-hidden"
             >
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
@@ -408,7 +408,7 @@ export function SensorRegistrationWizard({
           <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-t border-gray-200">
             <button
               onClick={currentStep === 0 ? handleClose : prevStep}
-              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500"
+              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-gray-500"
             >
               {currentStep === 0 ? 'Cancel' : 'Back'}
             </button>
@@ -418,7 +418,7 @@ export function SensorRegistrationWizard({
                 <button
                   onClick={handleSubmit}
                   disabled={isSubmitting}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmitting ? (
                     <span className="flex items-center">
@@ -451,7 +451,7 @@ export function SensorRegistrationWizard({
                 <button
                   onClick={nextStep}
                   disabled={!canProceed}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
                 </button>

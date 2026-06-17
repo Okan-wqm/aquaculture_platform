@@ -165,7 +165,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="p-6 border-b border-gray-200">
@@ -197,7 +197,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
               type="text"
               value={form.tenantId}
               onChange={(e) => updateField('tenantId', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               placeholder="Enter tenant ID"
             />
           </div>
@@ -208,7 +208,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
               type="text"
               value={form.companyName}
               onChange={(e) => updateField('companyName', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               placeholder="Billing company"
             />
           </div>
@@ -219,7 +219,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
               type="text"
               value={form.street}
               onChange={(e) => updateField('street', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               placeholder="Street address"
             />
           </div>
@@ -231,7 +231,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
                 type="text"
                 value={form.city}
                 onChange={(e) => updateField('city', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
@@ -241,7 +241,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
                 type="text"
                 value={form.state}
                 onChange={(e) => updateField('state', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -253,7 +253,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
                 type="text"
                 value={form.postalCode}
                 onChange={(e) => updateField('postalCode', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
@@ -263,7 +263,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
                 type="text"
                 value={form.country}
                 onChange={(e) => updateField('country', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -274,7 +274,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
               type="text"
               value={form.description}
               onChange={(e) => updateField('description', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               placeholder="Service period or custom charge"
             />
           </div>
@@ -290,7 +290,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
                   min="0.01"
                   value={form.amount}
                   onChange={(e) => updateField('amount', e.target.value)}
-                  className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   placeholder="0.00"
                 />
               </div>
@@ -301,7 +301,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
                 id="invoice-currency"
                 value={form.currency}
                 onChange={(e) => updateField('currency', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               >
                 <option value="USD">USD</option>
                 <option value="EUR">EUR</option>
@@ -317,7 +317,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
               type="date"
               value={form.dueDate}
               onChange={(e) => updateField('dueDate', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -328,7 +328,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
                 type="date"
                 value={form.periodStart}
                 onChange={(e) => updateField('periodStart', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
@@ -338,7 +338,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
                 type="date"
                 value={form.periodEnd}
                 onChange={(e) => updateField('periodEnd', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>

@@ -357,7 +357,7 @@ export const NotificationPanel: React.FC = () => {
 
       {/* Dropdown Panel */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-96 max-h-[32rem] rounded-lg bg-white shadow-xl ring-1 ring-black ring-opacity-5 z-50 flex flex-col overflow-hidden">
+        <div className="absolute right-0 mt-2 w-96 max-h-[32rem] rounded-lg bg-white shadow-xl ring-1 ring-black/5 z-50 flex flex-col overflow-hidden">
           {/* Header */}
           <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">

@@ -148,7 +148,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             className={`
               block w-full rounded-lg border
               transition-colors duration-200
-              focus:outline-none focus:ring-2
+              focus:outline-hidden focus:ring-2
               ${sizeStyles[size].input}
               ${inputStateStyles}
               ${disabledStyles}
@@ -254,7 +254,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           className={`
             block w-full rounded-lg border
             transition-colors duration-200
-            focus:outline-none focus:ring-2
+            focus:outline-hidden focus:ring-2
             resize-y
             ${sizeStyles[size].input}
             ${inputStateStyles}

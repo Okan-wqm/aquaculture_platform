@@ -365,7 +365,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
       <div className="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
         {/* Backdrop */}
         <div
-          className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+          className="fixed inset-0 bg-gray-500/75 transition-opacity"
           onClick={onClose}
         />
 
@@ -402,7 +402,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md text-gray-400 hover:text-gray-500 focus:outline-none"
+                className="rounded-md text-gray-400 hover:text-gray-500 focus:outline-hidden"
               >
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
@@ -982,7 +982,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 type="button"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -990,7 +990,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 type="button"
                 onClick={handleSubmit}
                 disabled={isSubmitting}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 flex items-center gap-2"
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 flex items-center gap-2"
               >
                 {isSubmitting ? (
                   <>

@@ -137,7 +137,7 @@ const NavItemRow = memo<NavItemRowProps>(
           onKeyDown={handleKeyDown}
           className={[
             'flex items-center gap-2.5 py-2 pr-3 mx-1.5 rounded cursor-pointer',
-            'text-sm transition-colors duration-100 select-none outline-none',
+            'text-sm transition-colors duration-100 select-none outline-hidden',
             'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500',
             isActive
               ? 'bg-blue-600 text-white font-medium'

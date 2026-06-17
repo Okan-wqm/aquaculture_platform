@@ -2,7 +2,7 @@
 
 > Root rules in `/CLAUDE.md` apply; `web/CLAUDE.md` (Module Federation) does NOT — aquamobil is a STANDALONE Vite app, not a federated remote. This file is its authority.
 
-Field-worker mobile data-entry PWA. `base: '/mobile/'`, own toolchain + standalone lockfile + own `node_modules` (Docker build context is `web/apps/aquamobil/`), dev port 8090 (`web/apps/aquamobil/vite.config.ts`). Konsta UI; React 18.
+Field-worker mobile data-entry PWA. `base: '/mobile/'`, own toolchain + standalone lockfile + own `node_modules` (Docker build context is `web/apps/aquamobil/`), dev port 8090 (`web/apps/aquamobil/vite.config.ts`). Konsta UI; React 19.
 
 ## Invariants
 - **PWA service worker:** `vite-plugin-pwa` in `injectManifest` mode — the DEPLOYED SW is the HAND-WRITTEN `web/apps/aquamobil/src/pwa/messaging-sw.ts` (FE-CRITICAL-050-SW). It owns offline sync, `notificationclick`, and LOGOUT handlers plus the precache manifest. Do NOT switch to `generateSW` (it drops those handlers).

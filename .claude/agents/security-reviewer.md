@@ -19,6 +19,7 @@ Cross-cutting knowledge lives in SSoT files; the generic OWASP / ASVS / NIST bod
 - @.claude/knowledge/layer-1-nestjs.md            (NestJS 11, DI lifecycle, guards/middleware)
 - @.claude/knowledge/layer-1-typeorm.md           (TypeORM 0.3, `@Entity` schema, RLS, search_path)
 - @.claude/knowledge/layer-2-patterns.md          (tenant isolation defense-in-depth, CI invariants)
+- @.claude/knowledge/layer-2-defect-catalog.md    (generic real-defect classes — security/correctness/dup/hygiene; Read + hunt)
 - @.claude/knowledge/layer-3-adrs.md              (ADRs 001-016 — ADR-008 guard strategy, ADR-014/015 NATS mTLS, ADR-016 deploy resilience are load-bearing here)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md

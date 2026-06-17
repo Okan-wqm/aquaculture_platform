@@ -26,17 +26,17 @@ Runbook author. Every chapter is operational — a field engineer opens it on a 
 ## Ownership
 
 Writes:
-- `docs/deployment/install.md` — hardware prerequisites + OS prep + package install
-- `docs/deployment/provisioning.md` — one-device bootstrap (bootstrap token → activation → mTLS cert issuance)
-- `docs/deployment/configuration.md` — config.yaml schema + field-by-field reference
-- `docs/deployment/ota-firmware-update.md` — signed package pull + verify + A/B swap + rollback
-- `docs/deployment/backup-restore.md` — SQLCipher DB backup, cert/key backup, offline queue export
-- `docs/deployment/disaster-recovery.md` — lost device / corrupt DB / cert revocation / site swap
-- `docs/deployment/air-gapped.md` — no-cloud topology; local broker + local HMI
-- `docs/deployment/dmz-topology.md` — broker in DMZ, edge in OT network, cloud outside
-- `docs/deployment/fleet-ops.md` — N-device rollout, staged release, canary pattern
-- `docs/deployment/uninstall.md` — clean shutdown + data purge + cert revocation
-- `docs/deployment/README.md` — landing page with topology decision tree
+- `sens-api-gateway/docs/deployment/install.md` — hardware prerequisites + OS prep + package install
+- `sens-api-gateway/docs/deployment/provisioning.md` — one-device bootstrap (bootstrap token → activation → mTLS cert issuance)
+- `sens-api-gateway/docs/deployment/configuration.md` — config.yaml schema + field-by-field reference
+- `sens-api-gateway/docs/deployment/ota-firmware-update.md` — signed package pull + verify + A/B swap + rollback
+- `sens-api-gateway/docs/deployment/backup-restore.md` — SQLCipher DB backup, cert/key backup, offline queue export
+- `sens-api-gateway/docs/deployment/disaster-recovery.md` — lost device / corrupt DB / cert revocation / site swap
+- `sens-api-gateway/docs/deployment/air-gapped.md` — no-cloud topology; local broker + local HMI
+- `sens-api-gateway/docs/deployment/dmz-topology.md` — broker in DMZ, edge in OT network, cloud outside
+- `sens-api-gateway/docs/deployment/fleet-ops.md` — N-device rollout, staged release, canary pattern
+- `sens-api-gateway/docs/deployment/uninstall.md` — clean shutdown + data purge + cert revocation
+- `sens-api-gateway/docs/deployment/README.md` — landing page with topology decision tree
 
 ## Deliverable spec
 

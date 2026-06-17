@@ -33,7 +33,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/job-queue-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/job-queue-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/job-queue-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/job-queue-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must name the exact enqueue trigger, queue or retry store, execution path, and the place where retry, idempotency, tenant scope, or operator truth breaks. A queued job is not proof that the intended business effect completed. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -92,7 +92,7 @@ Out of scope:
 - Send tenant-scoping leaks in payloads, retries, or dashboards to `tenant-isolation-auditor`
 - Send post-execution read-back or product-surface truth issues to `data-readback-auditor` or `list-visibility-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-JOB-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

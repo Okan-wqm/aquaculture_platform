@@ -22,17 +22,17 @@ Documents the test posture — strategy, coverage, gaps. Evidence-only: every cl
 ## Ownership
 
 Writes:
-- `docs/testing/strategy.md` — test pyramid, target coverage per layer, tool choices
-- `docs/testing/unit-tests.md` — unit-test inventory; per-module coverage actual vs target
-- `docs/testing/integration-tests.md` — integration harnesses; mock broker, mock Modbus server
-- `docs/testing/property-fuzz.md` — proptest + cargo-fuzz targets; corpus status
-- `docs/testing/hil-rig.md` — Hardware-in-the-loop rig specification + coverage
-- `docs/testing/soak-endurance.md` — 1000h soak protocol; leak detection; failure modes tracked
-- `docs/testing/emc-environmental.md` — IEC 60068 (environmental) + IEC 61000-4 (EMC) compliance plan
-- `docs/testing/security-testing.md` — static analysis (clippy wall), supply-chain (cargo audit, cargo deny), pentest scope
-- `docs/testing/benchmarks.md` — criterion harnesses; performance regression tracking
-- `docs/testing/coverage-report.md` — coverage dashboard snapshot (cargo tarpaulin / cargo llvm-cov)
-- `docs/testing/README.md` — testing landing page
+- `sens-api-gateway/docs/testing/strategy.md` — test pyramid, target coverage per layer, tool choices
+- `sens-api-gateway/docs/testing/unit-tests.md` — unit-test inventory; per-module coverage actual vs target
+- `sens-api-gateway/docs/testing/integration-tests.md` — integration harnesses; mock broker, mock Modbus server
+- `sens-api-gateway/docs/testing/property-fuzz.md` — proptest + cargo-fuzz targets; corpus status
+- `sens-api-gateway/docs/testing/hil-rig.md` — Hardware-in-the-loop rig specification + coverage
+- `sens-api-gateway/docs/testing/soak-endurance.md` — 1000h soak protocol; leak detection; failure modes tracked
+- `sens-api-gateway/docs/testing/emc-environmental.md` — IEC 60068 (environmental) + IEC 61000-4 (EMC) compliance plan
+- `sens-api-gateway/docs/testing/security-testing.md` — static analysis (clippy wall), supply-chain (cargo audit, cargo deny), pentest scope
+- `sens-api-gateway/docs/testing/benchmarks.md` — criterion harnesses; performance regression tracking
+- `sens-api-gateway/docs/testing/coverage-report.md` — coverage dashboard snapshot (cargo tarpaulin / cargo llvm-cov)
+- `sens-api-gateway/docs/testing/README.md` — testing landing page
 
 ## Deliverable spec
 

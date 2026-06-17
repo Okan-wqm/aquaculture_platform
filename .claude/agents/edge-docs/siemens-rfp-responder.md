@@ -24,18 +24,18 @@ The final-mile agent. Where the other 11 writers produce per-topic documentation
 ## Ownership
 
 Writes:
-- `docs/siemens-rfp/vendor-assessment.md` — generic VAQ answers (company, product, quality, support)
-- `docs/siemens-rfp/cyber-security-questionnaire.md` — Siemens CSQ answer sheet; maps each question to compliance/security evidence
-- `docs/siemens-rfp/profinet-conformance.md` — PROFINET Conformance Class declaration (expected: NOT COMPATIBLE today)
-- `docs/siemens-rfp/mindsphere-readiness.md` — MindSphere / Insights Hub partner readiness checklist
-- `docs/siemens-rfp/tia-portal-onboarding.md` — TIA Portal device vendor onboarding items
-- `docs/siemens-rfp/siemens-code-of-conduct.md` — attestation to Siemens Supplier Code of Conduct (template)
-- `docs/siemens-rfp/supply-chain-questionnaire.md` — supply-chain security questionnaire (conflict minerals, SBOM, SDLA)
-- `docs/siemens-rfp/sustainability-esg.md` — ESG questionnaire answers (energy use, e-waste, cobalt/conflict minerals)
-- `docs/siemens-rfp/gdpr-data-protection-addendum.md` — Siemens DPA template answers
-- `docs/siemens-rfp/pricing-commercial.md` — commercial terms summary (pairs with commercial-legal-writer outputs)
-- `docs/siemens-rfp/rfp-cover-letter.md` — cover letter template
-- `docs/siemens-rfp/README.md` — RFP package landing page + Siemens-question → our-doc cross-reference matrix
+- `sens-api-gateway/docs/siemens-rfp/vendor-assessment.md` — generic VAQ answers (company, product, quality, support)
+- `sens-api-gateway/docs/siemens-rfp/cyber-security-questionnaire.md` — Siemens CSQ answer sheet; maps each question to compliance/security evidence
+- `sens-api-gateway/docs/siemens-rfp/profinet-conformance.md` — PROFINET Conformance Class declaration (expected: NOT COMPATIBLE today)
+- `sens-api-gateway/docs/siemens-rfp/mindsphere-readiness.md` — MindSphere / Insights Hub partner readiness checklist
+- `sens-api-gateway/docs/siemens-rfp/tia-portal-onboarding.md` — TIA Portal device vendor onboarding items
+- `sens-api-gateway/docs/siemens-rfp/siemens-code-of-conduct.md` — attestation to Siemens Supplier Code of Conduct (template)
+- `sens-api-gateway/docs/siemens-rfp/supply-chain-questionnaire.md` — supply-chain security questionnaire (conflict minerals, SBOM, SDLA)
+- `sens-api-gateway/docs/siemens-rfp/sustainability-esg.md` — ESG questionnaire answers (energy use, e-waste, cobalt/conflict minerals)
+- `sens-api-gateway/docs/siemens-rfp/gdpr-data-protection-addendum.md` — Siemens DPA template answers
+- `sens-api-gateway/docs/siemens-rfp/pricing-commercial.md` — commercial terms summary (pairs with commercial-legal-writer outputs)
+- `sens-api-gateway/docs/siemens-rfp/rfp-cover-letter.md` — cover letter template
+- `sens-api-gateway/docs/siemens-rfp/README.md` — RFP package landing page + Siemens-question → our-doc cross-reference matrix
 
 ## Deliverable spec
 
@@ -153,7 +153,7 @@ Template cover letter acknowledging RFP receipt, declaring response completeness
 ## Cross-dependencies
 
 - **Every other edge-docs producer** — this agent is a consolidator, not a primary content author.
-- `edge-docs-orchestrator` — produces the `docs/index.md` Siemens-CSQ cross-reference matrix; this agent's README feeds that.
+- `edge-docs-orchestrator` — produces the `sens-api-gateway/docs/index.md` Siemens-CSQ cross-reference matrix; this agent's README feeds that.
 
 ## Output discipline
 

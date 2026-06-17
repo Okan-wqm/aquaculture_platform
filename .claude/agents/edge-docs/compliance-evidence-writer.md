@@ -23,16 +23,16 @@ Produces evidence packages — not marketing claims, not best-effort arguments. 
 ## Ownership
 
 Writes:
-- `docs/compliance/iec62443-4-2-gap.md` — FR1-FR7 gap table with PASS/PARTIAL/FAIL + evidence + SL-target
-- `docs/compliance/iec62443-4-1-sdla.md` — Secure Development Lifecycle evidence package
-- `docs/compliance/iec61131-3.md` — ST/FBD/LD/IL/SFC language coverage
-- `docs/compliance/isa18-2.md` — alarm management KPIs (rationalization, flood, standing alarm, chattering, MTTA)
-- `docs/compliance/isa95-isa99.md` — ISA-95 level mapping, ISA-99 zone-conduit
-- `docs/compliance/ce-ul-fcc-red.md` — CE marking, UL listing, FCC Part 15, RED Article 3.3(d)(e)(f) cyber-sec
-- `docs/compliance/gdpr-kvkk-dpia.md` — GDPR / KVKK Data Protection Impact Assessment; VERBIS readiness
-- `docs/compliance/soc2.md` — SOC 2 Type II readiness; CC4 audit evidence mapping
-- `docs/compliance/certifications-roadmap.md` — target certifications with estimated timelines + gatekeepers
-- `docs/compliance/README.md` — compliance snapshot (traffic-light dashboard)
+- `sens-api-gateway/docs/compliance/iec62443-4-2-gap.md` — FR1-FR7 gap table with PASS/PARTIAL/FAIL + evidence + SL-target
+- `sens-api-gateway/docs/compliance/iec62443-4-1-sdla.md` — Secure Development Lifecycle evidence package
+- `sens-api-gateway/docs/compliance/iec61131-3.md` — ST/FBD/LD/IL/SFC language coverage
+- `sens-api-gateway/docs/compliance/isa18-2.md` — alarm management KPIs (rationalization, flood, standing alarm, chattering, MTTA)
+- `sens-api-gateway/docs/compliance/isa95-isa99.md` — ISA-95 level mapping, ISA-99 zone-conduit
+- `sens-api-gateway/docs/compliance/ce-ul-fcc-red.md` — CE marking, UL listing, FCC Part 15, RED Article 3.3(d)(e)(f) cyber-sec
+- `sens-api-gateway/docs/compliance/gdpr-kvkk-dpia.md` — GDPR / KVKK Data Protection Impact Assessment; VERBIS readiness
+- `sens-api-gateway/docs/compliance/soc2.md` — SOC 2 Type II readiness; CC4 audit evidence mapping
+- `sens-api-gateway/docs/compliance/certifications-roadmap.md` — target certifications with estimated timelines + gatekeepers
+- `sens-api-gateway/docs/compliance/README.md` — compliance snapshot (traffic-light dashboard)
 
 ## Deliverable spec
 
@@ -104,7 +104,7 @@ Timeline:
 
 1. **Evidence-link strict.** Every PASS claim has a file:line or ADR. Unverified = PARTIAL/FAIL/ROADMAP.
 2. **Orphan-finding cross-reference.** Every FAIL/PARTIAL cross-links to orphan-findings.md ORPHAN-EDGE-NNN when applicable.
-3. **No overclaim.** "IEC 62443 SL2 certified" banned unless certificate is in hand and path under `docs/compliance/certificates/` exists.
+3. **No overclaim.** "IEC 62443 SL2 certified" banned unless certificate is in hand and path under `sens-api-gateway/docs/compliance/certificates/` exists.
 4. **Date + version stamp.** Each compliance chapter carries a footer `Compliance snapshot: <YYYY-MM-DD>, <version>, HEAD=<sha>`.
 5. **Align with security-architecture-writer.** Crypto inventory + PKI hierarchy facts must match; arbitrate via architectural-arbiter on conflict.
 6. **Banned-phrase discipline** per README.md substitution table.

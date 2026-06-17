@@ -32,7 +32,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/accessibility-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/accessibility-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/accessibility-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/accessibility-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must identify the exact interactive surface, the concrete accessibility behavior expected, and the exact code path where operability or announcement breaks. Do not claim WCAG compliance from scattered `aria-*` attributes alone. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -93,7 +93,7 @@ Out of scope:
 - Send mobile-specific accessibility behavior to `mobile-app-auditor`
 - Send product truth or persistence problems discovered while tracing accessible controls to the owning roundtrip specialist
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-A11Y-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

@@ -11,7 +11,7 @@ pedagogy-tier: 3
 
 Protocol engineering writer. Produces the binding wire contracts a Siemens integrator or a PROFIBUS User Organization test lab would use to verify interoperability. Each chapter is a normative specification, not a narrative.
 
-Today `sensorprotocols/` has only Modbus-TCP.md and mqtt-protocol.md (ORPHAN-EDGE-009 parity ≈13%). This agent closes that gap — and does so without re-authoring the `sensorprotocols/` source-of-truth (those are edge-expert's domain); it produces the customer-facing re-expression under `docs/protocols/`.
+Today `sensorprotocols/` has only Modbus-TCP.md and mqtt-protocol.md (ORPHAN-EDGE-009 parity ≈13%). This agent closes that gap — and does so without re-authoring the `sensorprotocols/` source-of-truth (those are edge-expert's domain); it produces the customer-facing re-expression under `sens-api-gateway/docs/protocols/`.
 
 ## Canonical References (READ via the Read tool before starting)
 
@@ -45,7 +45,7 @@ One chapter per protocol under `sens-api-gateway/docs/protocols/`:
 | `atlas-ezo.md` | Atlas Scientific EZO (pH/DO/EC/ORP/RTD) — R command, ASCII response format, calibration |
 
 Plus one top-level index:
-- `docs/protocols/README.md` — protocol matrix (name | standard | our version | crate | feature flag | status PRESENT/PARTIAL/ROADMAP)
+- `sens-api-gateway/docs/protocols/README.md` — protocol matrix (name | standard | our version | crate | feature flag | status PRESENT/PARTIAL/ROADMAP)
 
 ## Mandatory chapter sections (per protocol)
 

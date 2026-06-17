@@ -25,18 +25,18 @@ Produces the machine- and human-readable API surface chapters. Every API surface
 ## Ownership
 
 Writes:
-- `docs/api/rust-api.md` — public Rust API surface (for integrators consuming the crate; today crate is binary-only, so this is mostly internal reference)
-- `docs/api/http-api.md` — HTTP endpoints (health, metrics, diagnostics, provisioning)
-- `docs/api/openapi.yaml` — OpenAPI 3.1 machine schema of HTTP endpoints
-- `docs/api/mqtt-topics.md` — MQTT topic tree, payload schemas, QoS/retain conventions
-- `docs/api/asyncapi.yaml` — AsyncAPI 2.6 machine schema of MQTT surface
-- `docs/api/cli-commands.md` — CLI argument reference + subcommands (if any CLI surface exists)
-- `docs/api/remote-commands.md` — remote-command catalogue (MQTT command topics, payload schemas, RBAC requirements)
-- `docs/api/config-schema.md` — YAML config schema with every field documented
-- `docs/api/config-schema.json` — JSON Schema for config validation (machine)
-- `docs/api/rbac-manifest.md` — Permission enum + ActuatorClass taxonomy + role-to-permission matrix
-- `docs/api/event-schemas.md` — telemetry + status + command-response payload schemas (link to `libs/event-contracts/` cloud side for cross-service parity)
-- `docs/api/README.md` — API landing page
+- `sens-api-gateway/docs/api/rust-api.md` — public Rust API surface (for integrators consuming the crate; today crate is binary-only, so this is mostly internal reference)
+- `sens-api-gateway/docs/api/http-api.md` — HTTP endpoints (health, metrics, diagnostics, provisioning)
+- `sens-api-gateway/docs/api/openapi.yaml` — OpenAPI 3.1 machine schema of HTTP endpoints
+- `sens-api-gateway/docs/api/mqtt-topics.md` — MQTT topic tree, payload schemas, QoS/retain conventions
+- `sens-api-gateway/docs/api/asyncapi.yaml` — AsyncAPI 2.6 machine schema of MQTT surface
+- `sens-api-gateway/docs/api/cli-commands.md` — CLI argument reference + subcommands (if any CLI surface exists)
+- `sens-api-gateway/docs/api/remote-commands.md` — remote-command catalogue (MQTT command topics, payload schemas, RBAC requirements)
+- `sens-api-gateway/docs/api/config-schema.md` — YAML config schema with every field documented
+- `sens-api-gateway/docs/api/config-schema.json` — JSON Schema for config validation (machine)
+- `sens-api-gateway/docs/api/rbac-manifest.md` — Permission enum + ActuatorClass taxonomy + role-to-permission matrix
+- `sens-api-gateway/docs/api/event-schemas.md` — telemetry + status + command-response payload schemas (link to `libs/event-contracts/` cloud side for cross-service parity)
+- `sens-api-gateway/docs/api/README.md` — API landing page
 
 ## Deliverable spec
 

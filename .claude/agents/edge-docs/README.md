@@ -2,7 +2,7 @@
 
 **Mission:** Produce enterprise-grade, Siemens-vendor-assessment-ready documentation for `sens-api-gateway` (Rust industrial edge gateway, v1.6.0+). Output is the deliverable package a Siemens procurement + OT cyber-security reviewer would receive as part of a PROFINET / MindSphere / TIA Portal partnership evaluation or a supplier cyber-security questionnaire (CSQ).
 
-**Lane:** Lane-C — documentation-production (distinct from Lane-A code-review and Lane-B product-audit). Lane-C agents WRITE to `sens-api-gateway/docs/**` and `sensorprotocols/**`; they do NOT review application code.
+**Lane:** Lane-C — documentation-production (distinct from Lane-A code-review and Lane-B product-audit). Lane-C agents WRITE only to `sens-api-gateway/docs/**`. `sensorprotocols/**`, root `docs/**`, source code, configs, and prompts are read-only evidence inputs; they do NOT review or edit application code.
 
 **Dispatcher:** `edge-docs-orchestrator` — the single entry point. Users invoke the orchestrator, which analyses which deliverable is requested (full RFP package / single chapter / delta update) and dispatches the right producers in parallel. Producer agents do not fan out to each other.
 
@@ -64,6 +64,7 @@ Pre-commit hook (`tools/gates/banned-phrase.ts`) enforces this at commit time. F
 ## Invocation Contract
 
 - **Never** invoke a Lane-C producer directly for new work — go through `edge-docs-orchestrator`. Direct invocation is allowed only when REGENERATING a single existing chapter after a source-of-truth change.
+- Do not install dependencies, modify lockfiles/manifests, run network fetches, or write outside `sens-api-gateway/docs/**`. Lane-C is doc-production only.
 - Every producer verifies claims against the live repo (code, Cargo.toml, ADRs, existing `docs/adr/`, `sensorprotocols/`) before writing. **No hallucinated feature is allowed** — if a feature doesn't exist yet, the doc labels it ROADMAP with an estimated milestone, not PRESENT.
 - Every chapter cites its evidence: `src/file.rs:line`, `Cargo.toml:line`, ADR ID. Un-cited claims are a review defect.
 - Turkish OR English both acceptable per chapter; default English for Siemens-facing deliverables (`siemens-rfp/**`, `integration/siemens/**`). Internal-facing can be Turkish if shorter.

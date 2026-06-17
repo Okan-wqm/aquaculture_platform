@@ -34,7 +34,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/realtime-sync-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/realtime-sync-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/realtime-sync-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/realtime-sync-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must identify the live surface, the actual source of truth, and the specific refresh or convergence failure. Realtime behavior is only trustworthy when timing, scope, and final state all reconcile. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -74,7 +74,7 @@ Repo evidence driving this agent:
 - Send tenant or role leak issues to `tenant-isolation-auditor` or `access-boundary-auditor`
 - Send source write/read issues to `form-write-auditor` or `data-readback-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-REALTIME-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

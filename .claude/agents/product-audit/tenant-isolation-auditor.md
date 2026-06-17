@@ -33,7 +33,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/tenant-isolation-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/tenant-isolation-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/tenant-isolation-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/tenant-isolation-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Tenant safety findings must be end-to-end and evidence-backed. Do not stop at UI or guard code if the roundtrip continues through cache, async jobs, or DB access. Cross-tenant leakage is always treated as a production-grade defect. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -75,7 +75,7 @@ When required:
 - Send list cache bleed-through to `list-visibility-auditor`
 - Send AquaMobil storage/reconnect leakage to `mobile-app-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-TENANT-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

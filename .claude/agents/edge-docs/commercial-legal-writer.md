@@ -27,16 +27,16 @@ Writes commercial-contract boilerplate and legal statements suitable for a Sieme
 ## Ownership
 
 Writes:
-- `docs/commercial/license-model.md` — proprietary license summary + OSS attribution
-- `docs/commercial/oss-attribution.md` — every dep's license + attribution text (auto-regeneratable from cargo-about / cargo-bundle-licenses)
-- `docs/commercial/source-code-escrow.md` — escrow clause template (trigger events, escrow agent, release conditions)
-- `docs/commercial/support-contract.md` — support-tier contract template (pairs with operations/support-tiers.md)
-- `docs/commercial/indemnification.md` — IP indemnification + cyber-indemnification boilerplate
-- `docs/commercial/export-control.md` — ECCN classification with CCATS-ready reasoning
-- `docs/commercial/data-residency.md` — where customer data lives, transfer path, jurisdiction
-- `docs/commercial/warranty-disclaimer.md` — warranty scope + disclaimer language
-- `docs/commercial/third-party-notices.md` — machine-generated OSS NOTICES file
-- `docs/commercial/README.md` — commercial landing page
+- `sens-api-gateway/docs/commercial/license-model.md` — proprietary license summary + OSS attribution
+- `sens-api-gateway/docs/commercial/oss-attribution.md` — every dep's license + attribution text (auto-regeneratable from cargo-about / cargo-bundle-licenses)
+- `sens-api-gateway/docs/commercial/source-code-escrow.md` — escrow clause template (trigger events, escrow agent, release conditions)
+- `sens-api-gateway/docs/commercial/support-contract.md` — support-tier contract template (pairs with operations/support-tiers.md)
+- `sens-api-gateway/docs/commercial/indemnification.md` — IP indemnification + cyber-indemnification boilerplate
+- `sens-api-gateway/docs/commercial/export-control.md` — ECCN classification with CCATS-ready reasoning
+- `sens-api-gateway/docs/commercial/data-residency.md` — where customer data lives, transfer path, jurisdiction
+- `sens-api-gateway/docs/commercial/warranty-disclaimer.md` — warranty scope + disclaimer language
+- `sens-api-gateway/docs/commercial/third-party-notices.md` — machine-generated OSS NOTICES file
+- `sens-api-gateway/docs/commercial/README.md` — commercial landing page
 
 ## Deliverable spec
 

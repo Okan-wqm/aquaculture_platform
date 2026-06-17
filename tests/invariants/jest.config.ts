@@ -129,6 +129,7 @@ export default {
         '<rootDir>/agent-name-uniqueness.spec.ts',
         '<rootDir>/agent-size-limit.spec.ts',
         '<rootDir>/agent-frontmatter-schema.spec.ts',
+        '<rootDir>/agent-prompt-contract.spec.ts',
         '<rootDir>/maintenance-isolation.spec.ts',
         '<rootDir>/settings-hook-coverage.spec.ts',
         '<rootDir>/active-path-hygiene.spec.ts',

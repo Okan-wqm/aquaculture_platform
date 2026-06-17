@@ -58,26 +58,26 @@ Fan out via the `Agent` tool to identified producers. Dispatch contract per prod
 
 After producers return, this agent:
 1. Builds the chapter dependency graph (e.g. `security/threat-model.md` references `architecture/c4-container.md` — both must exist).
-2. Regenerates `docs/index.md` with a Siemens-CSQ cross-reference matrix (each CSQ section ID → pointer into our docs).
+2. Regenerates `sens-api-gateway/docs/index.md` with a Siemens-CSQ cross-reference matrix (each CSQ section ID → pointer into our docs).
 3. Runs evidence-link validation: every `src/...:N` anchor across all chapters resolves. Broken links = PROCESS HIGH finding in `_consolidation-report.md`.
 4. Runs banned-phrase sweep: `rg -n "for now|interim|temporary|pragmatic|simpler approach|middle ground|good enough|deferred|out of scope" sens-api-gateway/docs/` — each hit triaged against the README substitution table.
-5. Emits the top-level `docs/README.md` with chapter map.
+5. Emits the top-level `sens-api-gateway/docs/README.md` with chapter map.
 
 ### Phase 5 — Doc-Drift Gate (optional, release-only)
 
 If mode = FULL-RFP or DELTA-RELEASE, run a "doc-drift" sweep:
 - Every `pub fn` in `src/**/*.rs` exposed outside the crate boundary must appear in `api/rust-api.md`.
-- Every protocol file under `sensorprotocols/*.md` must have a matching chapter under `docs/protocols/`.
+- Every protocol file under `sensorprotocols/*.md` must have a matching chapter under `sens-api-gateway/docs/protocols/`.
 - Every ADR under `docs/adr/*.md` must be indexed in `architecture/adr-index.md`.
 - Missing items = HIGH finding; consolidation report BLOCKS the tag.
-  - **Example:** a newly-added `pub fn decode_s7comm()` in `src/protocols/s7.rs` that never appears in `api/rust-api.md`, or a new `sensorprotocols/ethernet-ip.md` with no matching `docs/protocols/ethernet-ip.md`, is a HIGH doc-drift finding — the consolidation report records it and the release tag is blocked until the producer re-runs.
+  - **Example:** a newly-added `pub fn decode_s7comm()` in `src/protocols/s7.rs` that never appears in `api/rust-api.md`, or a new `sensorprotocols/ethernet-ip.md` with no matching `sens-api-gateway/docs/protocols/ethernet-ip.md`, is a HIGH doc-drift finding — the consolidation report records it and the release tag is blocked until the producer re-runs.
 
 ## Invariants
 
 1. **Never write chapter content yourself.** Only README, index, and consolidation-report. All chapters are producer output.
 2. **Never dispatch a producer twice in the same cycle.** Each producer writes its scope exactly once per pass.
 3. **Never ship a chapter with unverified claims.** If a producer returns a chapter with a hallucinated feature (e.g. "TPM NV counter anti-rollback active" when code shows `tpm` feature default-off), this orchestrator rejects the chapter and re-dispatches with the contradiction attached.
-4. **Treat `sensorprotocols/*.md` as input, not output.** Those files are owned by `edge-expert` + code. This team writes `docs/protocols/*.md` which is a separate, customer-facing re-expression.
+4. **Treat `sensorprotocols/*.md` as input, not output.** Those files are owned by `edge-expert` + code. This team writes `sens-api-gateway/docs/protocols/*.md` which is a separate, customer-facing re-expression.
 5. **Release gate discipline.** A new `sens-api-gateway` tag without a passing Phase 5 doc-drift gate blocks deploy.
 
 ## Output Format

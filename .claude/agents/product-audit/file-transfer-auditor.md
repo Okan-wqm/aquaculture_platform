@@ -34,7 +34,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/file-transfer-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/file-transfer-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/file-transfer-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/file-transfer-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must identify the exact file-bearing flow and the exact mismatch in upload, storage, retrieval, preview, export scope, or authorization. A file flow is incomplete until the artifact can be retrieved or verified back correctly. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -77,7 +77,7 @@ Repo evidence driving this agent:
 - Send preview/read-back issues to `data-readback-auditor`
 - Send mobile attachment issues to `mobile-app-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-FILE-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

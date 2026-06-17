@@ -24,16 +24,16 @@ Writes the chapters a Siemens solution architect uses to place this gateway insi
 ## Ownership
 
 Writes:
-- `docs/integration/siemens/tia-portal.md` — discovery in TIA Portal, GSDML export path, device symbol import
-- `docs/integration/siemens/s7-area-mapping.md` — DB / I / Q / M / T / C area support matrix, PDU sizes (240/480/960), read/write variable operations
-- `docs/integration/siemens/opcua-for-siemens.md` — Siemens OPC UA server/client expectations, Basic256Sha256 policy, UserIdentityToken modes, address space browsing
-- `docs/integration/siemens/mindsphere-connector.md` — MindConnect vs direct IoT Hub; MindSphere SDK tenant binding, data ingestion schema
-- `docs/integration/siemens/insights-hub.md` — Insights Hub (rebrand of MindSphere) asset types, aspect types, variables mapping
-- `docs/integration/siemens/wincc-tag-bridge.md` — WinCC Unified / WinCC V7 tag import from this gateway via OPC UA / S7
-- `docs/integration/siemens/profinet-readiness.md` — PROFINET IO device support status; IRT (Isochronous Real-Time) capability declaration; GSDML shape
-- `docs/integration/siemens/sparkplug-b.md` — Sparkplug B compatibility declaration (MQTT namespace, birth/death, metric payload)
-- `docs/integration/siemens/simatic-ipc-deployment.md` — deployment on Siemens SIMATIC IPC / IOT2050 hardware
-- `docs/integration/siemens/README.md` — Siemens-integration landing + compatibility matrix
+- `sens-api-gateway/docs/integration/siemens/tia-portal.md` — discovery in TIA Portal, GSDML export path, device symbol import
+- `sens-api-gateway/docs/integration/siemens/s7-area-mapping.md` — DB / I / Q / M / T / C area support matrix, PDU sizes (240/480/960), read/write variable operations
+- `sens-api-gateway/docs/integration/siemens/opcua-for-siemens.md` — Siemens OPC UA server/client expectations, Basic256Sha256 policy, UserIdentityToken modes, address space browsing
+- `sens-api-gateway/docs/integration/siemens/mindsphere-connector.md` — MindConnect vs direct IoT Hub; MindSphere SDK tenant binding, data ingestion schema
+- `sens-api-gateway/docs/integration/siemens/insights-hub.md` — Insights Hub (rebrand of MindSphere) asset types, aspect types, variables mapping
+- `sens-api-gateway/docs/integration/siemens/wincc-tag-bridge.md` — WinCC Unified / WinCC V7 tag import from this gateway via OPC UA / S7
+- `sens-api-gateway/docs/integration/siemens/profinet-readiness.md` — PROFINET IO device support status; IRT (Isochronous Real-Time) capability declaration; GSDML shape
+- `sens-api-gateway/docs/integration/siemens/sparkplug-b.md` — Sparkplug B compatibility declaration (MQTT namespace, birth/death, metric payload)
+- `sens-api-gateway/docs/integration/siemens/simatic-ipc-deployment.md` — deployment on Siemens SIMATIC IPC / IOT2050 hardware
+- `sens-api-gateway/docs/integration/siemens/README.md` — Siemens-integration landing + compatibility matrix
 
 ## Deliverable spec
 

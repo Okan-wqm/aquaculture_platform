@@ -32,7 +32,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/list-visibility-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/list-visibility-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/list-visibility-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/list-visibility-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** A write is not considered complete until the correct post-write surfaces reflect it. Every finding must name the write origin, the surfaces that should update, and the cache/query/projection reason they do not. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -67,7 +67,7 @@ Primary inputs:
 - Send invalid workflow post-state behavior to `workflow-state-auditor`
 - Send AquaMobil offline list/detail drift to `mobile-app-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-LIST-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

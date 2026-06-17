@@ -23,15 +23,15 @@ Writes the operations & SLA chapters. Part contract-boilerplate, part runbook-re
 ## Ownership
 
 Writes:
-- `docs/operations/sla.md` — availability target, MTBF/MTTR/RTO/RPO
-- `docs/operations/observability.md` — metric cardinality policy, log volume, trace sampling, cost attribution
-- `docs/operations/monitoring-runbook.md` — what to watch + thresholds + response pattern
-- `docs/operations/alert-catalogue.md` — all alert rules with severity, runbook URL, on-call target
-- `docs/operations/support-tiers.md` — support levels (Bronze/Silver/Gold/Platinum) with response times
-- `docs/operations/lifecycle-eol.md` — product lifecycle, EOL policy, version support window
-- `docs/operations/incident-response.md` — security + availability incident response procedure
-- `docs/operations/capacity-planning.md` — sizing guidance per site profile (sensor count, tag rate)
-- `docs/operations/README.md` — operations landing page
+- `sens-api-gateway/docs/operations/sla.md` — availability target, MTBF/MTTR/RTO/RPO
+- `sens-api-gateway/docs/operations/observability.md` — metric cardinality policy, log volume, trace sampling, cost attribution
+- `sens-api-gateway/docs/operations/monitoring-runbook.md` — what to watch + thresholds + response pattern
+- `sens-api-gateway/docs/operations/alert-catalogue.md` — all alert rules with severity, runbook URL, on-call target
+- `sens-api-gateway/docs/operations/support-tiers.md` — support levels (Bronze/Silver/Gold/Platinum) with response times
+- `sens-api-gateway/docs/operations/lifecycle-eol.md` — product lifecycle, EOL policy, version support window
+- `sens-api-gateway/docs/operations/incident-response.md` — security + availability incident response procedure
+- `sens-api-gateway/docs/operations/capacity-planning.md` — sizing guidance per site profile (sensor count, tag rate)
+- `sens-api-gateway/docs/operations/README.md` — operations landing page
 
 ## Deliverable spec
 

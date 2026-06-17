@@ -19,22 +19,22 @@ Senior security architect producing the chapters a Siemens vendor-assessment cyb
 - @.claude/agents/compliance-expert.md
 - `sens-api-gateway/Cargo.toml` (crypto crate pins: ed25519-dalek, hkdf, argon2, sha2, hmac, x509-parser, rustls-*, tss-esapi)
 - `sens-api-gateway/src/security.rs`, `src/keystore/**`, `src/audit/**`, `src/mtls/**`, `src/command_envelope.rs`, `src/updater.rs`, `src/config_integrity.rs`, `src/runtime_safety.rs`, `src/provisioning.rs`, `src/offline_queue.rs`
-- `docs/security/**` (existing) — any prior hardening changelogs
+- `sens-api-gateway/docs/security/**` (existing) — any prior hardening changelogs
 - `docs/adr/014-nats-mtls-only-auth.md`, `015-nats-cert-is-identity-ssot.md`, any `ADR-018..021` edge keystore/audit ADRs
 - `docs/reviews/orphan-findings.md` ORPHAN-EDGE-002, 003, 004, 005 — these are load-bearing for today-vs-roadmap truthfulness
 
 ## Ownership
 
 Writes:
-- `docs/security/threat-model.md` — STRIDE + attack trees, per trust boundary
-- `docs/security/crypto-inventory.md` — every algorithm + parameter + key size + purpose + crate:version
-- `docs/security/pki-hierarchy.md` — CA chain, cert lifecycle, rotation, revocation (CRL/OCSP)
-- `docs/security/secure-boot.md` — boot-time integrity (today + roadmap), signed firmware, anti-rollback
-- `docs/security/sbom.md` — SBOM generation + distribution policy (CycloneDX preferred; cargo-auditable for binary SBOM)
-- `docs/security/cvd-policy.md` — Coordinated Vulnerability Disclosure (ISO/IEC 30111 aligned): intake, triage SLA, disclosure timeline, PSIRT contact
-- `docs/security/attack-surface.md` — network + local + physical attack surfaces with mitigation table
-- `docs/security/credentials-handling.md` — secret lifecycle (generation, sealing, rotation, zeroization) with the 6-layer defense-in-depth matrix
-- `docs/security/audit-log.md` — HMAC-chained audit log architecture, tamper-evidence, Ed25519 daily anchor, export to cloud SIEM
+- `sens-api-gateway/docs/security/threat-model.md` — STRIDE + attack trees, per trust boundary
+- `sens-api-gateway/docs/security/crypto-inventory.md` — every algorithm + parameter + key size + purpose + crate:version
+- `sens-api-gateway/docs/security/pki-hierarchy.md` — CA chain, cert lifecycle, rotation, revocation (CRL/OCSP)
+- `sens-api-gateway/docs/security/secure-boot.md` — boot-time integrity (today + roadmap), signed firmware, anti-rollback
+- `sens-api-gateway/docs/security/sbom.md` — SBOM generation + distribution policy (CycloneDX preferred; cargo-auditable for binary SBOM)
+- `sens-api-gateway/docs/security/cvd-policy.md` — Coordinated Vulnerability Disclosure (ISO/IEC 30111 aligned): intake, triage SLA, disclosure timeline, PSIRT contact
+- `sens-api-gateway/docs/security/attack-surface.md` — network + local + physical attack surfaces with mitigation table
+- `sens-api-gateway/docs/security/credentials-handling.md` — secret lifecycle (generation, sealing, rotation, zeroization) with the 6-layer defense-in-depth matrix
+- `sens-api-gateway/docs/security/audit-log.md` — HMAC-chained audit log architecture, tamper-evidence, Ed25519 daily anchor, export to cloud SIEM
 
 ## Deliverable spec
 

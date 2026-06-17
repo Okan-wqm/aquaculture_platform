@@ -29,14 +29,14 @@ Also read before writing:
 ## Ownership
 
 Writes:
-- `docs/architecture/c4-context.md` — System Context diagram (edge vs cloud vs site peers)
-- `docs/architecture/c4-container.md` — Container diagram (processes, stores, protocols between)
-- `docs/architecture/c4-component.md` — Component diagram per container (most important: the Rust agent binary)
-- `docs/architecture/c4-code.md` — selected component-internal module views (actor pattern, offline queue, safe-state manager, alarm engine)
-- `docs/architecture/deployment-topology.md` — IEC 62443 zone-conduit view; typical install (edge on-site ↔ DMZ broker ↔ cloud)
-- `docs/architecture/data-flow.md` — end-to-end sensor read → cloud + cloud → command path with ISA-95 Level 1-4 labels
-- `docs/architecture/adr-index.md` — ADR registry cross-indexed by topic (security, data model, transport, runtime)
-- `docs/architecture/performance-envelope.md` — ops budget (tag/s, MQTT pub/s, memory footprint, disk, watchdog interval)
+- `sens-api-gateway/docs/architecture/c4-context.md` — System Context diagram (edge vs cloud vs site peers)
+- `sens-api-gateway/docs/architecture/c4-container.md` — Container diagram (processes, stores, protocols between)
+- `sens-api-gateway/docs/architecture/c4-component.md` — Component diagram per container (most important: the Rust agent binary)
+- `sens-api-gateway/docs/architecture/c4-code.md` — selected component-internal module views (actor pattern, offline queue, safe-state manager, alarm engine)
+- `sens-api-gateway/docs/architecture/deployment-topology.md` — IEC 62443 zone-conduit view; typical install (edge on-site ↔ DMZ broker ↔ cloud)
+- `sens-api-gateway/docs/architecture/data-flow.md` — end-to-end sensor read → cloud + cloud → command path with ISA-95 Level 1-4 labels
+- `sens-api-gateway/docs/architecture/adr-index.md` — ADR registry cross-indexed by topic (security, data model, transport, runtime)
+- `sens-api-gateway/docs/architecture/performance-envelope.md` — ops budget (tag/s, MQTT pub/s, memory footprint, disk, watchdog interval)
 
 ## Deliverable spec per chapter
 

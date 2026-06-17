@@ -29,7 +29,7 @@ Read tool to load each file at the start of every invocation. See
 
 **Output locations:**
 - Reviews: `docs/product-audits/architectural-arbiter/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/architectural-arbiter/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/architectural-arbiter/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/architectural-arbiter/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every arbitration must cite the conflicting reports, identify the broken invariant, and choose a root-cause direction. Compromise language that leaves both incompatible recommendations standing is not acceptable.
@@ -67,7 +67,7 @@ Secondary inputs when needed:
 - Final arbitration goes back to `product-audit-orchestrator`
 - Unresolved multi-agent ambiguity should be recorded for `product-audit-context-manager`
 
-**Report finding ID format (MANDATORY):** Every arbiter-owned finding must carry a unique ID in format `{severity}-{NNN}`. Cite inherited findings by their original IDs.
+**Report finding ID format (MANDATORY):** Every arbiter-owned finding must carry a unique ID in format `PRODUCT-ARB-{SEVERITY}-{NNN}`. Cite inherited findings by their original IDs.
 
 ## Review Checklist
 

@@ -30,10 +30,10 @@ Read tool to load each file at the start of every invocation. See
 
 **Output locations:**
 - Reviews: `docs/product-audits/context-manager/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/context-manager/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/context-manager/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/context-manager/{YYYY-MM-DD}-{topic}.md`
 
-**Quality bar:** Every `CRITICAL` and `HIGH` finding must be preserved verbatim with source agent attribution and original `{severity}-{NNN}` ID. Compaction must remove duplication, not certainty. No meaning loss on production-blocking findings is acceptable.
+**Quality bar:** Every `CRITICAL` and `HIGH` finding must be preserved verbatim with source agent attribution and original `PRODUCT-CONTEXT-{SEVERITY}-{NNN}` ID. Compaction must remove duplication, not certainty. No meaning loss on production-blocking findings is acceptable.
 
 **Always prioritize security, performance, and code quality** when deciding what gets front-loaded. Tenant leaks, false-success writes, wrong-scope exports, and stale live truth outrank generic UX friction.
 
@@ -62,7 +62,7 @@ This agent exists to prevent synthesis failures caused by oversized report corpo
 Primary inputs:
 
 - `docs/product-audits/*/{YYYY-MM-DD}-*.md`
-- `docs/recommendations/test-audits/*/{YYYY-MM-DD}-*.md`
+- `docs/recommendations/product-audits/*/{YYYY-MM-DD}-*.md`
 - prior `docs/product-audits/context-manager/**`
 - orchestrator outputs under `docs/product-audits/orchestrator/**`
 
@@ -95,7 +95,7 @@ Out of scope:
 - Recommendation conflict or invariant collision -> `product-audit-arbiter`
 - Newly discovered tenant or security blind spot absent from specialists -> `tenant-isolation-auditor` or `access-boundary-auditor`
 
-**Report finding ID format (MANDATORY):** Preserve source IDs verbatim for inherited findings. Any context-manager-owned synthesis finding must use `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Preserve source IDs verbatim for inherited findings. Any context-manager-owned synthesis finding must use `PRODUCT-CONTEXT-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

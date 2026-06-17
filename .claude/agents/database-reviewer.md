@@ -15,6 +15,7 @@ Senior Database State Reviewer. Audits the RESULTING schema, not the migrations 
 
 - @.claude/knowledge/layer-1-typeorm.md          (TypeORM 0.3.27, `@Entity` schema option, NUMERIC + timestamptz discipline, search_path pooling)
 - @.claude/knowledge/layer-2-patterns.md         (tenant-isolation defense-in-depth, CI invariants)
+- @.claude/knowledge/layer-2-defect-catalog.md   (generic real-defect classes — security/correctness/dup/hygiene; Read + hunt)
 - @.claude/knowledge/layer-3-adrs.md             (ADR-011 schema ownership, ADR-012 drift prevention — load-bearing)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md

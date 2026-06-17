@@ -21,6 +21,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 - @.claude/knowledge/layer-1-core.md              (TS + Nx + Jest base)
 - @.claude/knowledge/layer-1-react.md             (React, TanStack Query, Module Federation)
 - @.claude/knowledge/layer-2-patterns.md          (CQRS, Outbox, tenant isolation)
+- @.claude/knowledge/layer-2-defect-catalog.md    (generic real-defect classes — security/correctness/dup/hygiene; Read + hunt)
 - @.claude/knowledge/layer-3-adrs.md              (ADR index)
 - @.claude/shared/operating-modes.md
 - @.claude/shared/output-format.md

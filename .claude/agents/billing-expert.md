@@ -42,50 +42,59 @@ Generic real-defect classes (injection, secret-in-log, money/precision, error-sw
 
 ### Stripe webhook discipline
 
-- `stripe.webhooks.constructEvent` MUST be invoked with the RAW body (not JSON-parsed). Express-level `body-parser.raw({ type: 'application/json' })` mandatory on the route. Parsed body = signature verification fails silently in tests, fires falsely in prod = **CRITICAL**.
-- HMAC verification timestamp freshness ≤ 5 min skew. Missing freshness check = **CRITICAL** (replay window unbounded).
+- `stripe.webhooks.constructEvent` MUST be invoked with the RAW body (not JSON-parsed). Express-level `body-parser.raw({ type: 'application/json' })` mandatory on the route (CRITICAL).
+- HMAC verification timestamp freshness ≤ 5 min skew (CRITICAL).
+  **Consequence:** a JSON-parsed body makes `constructEvent` recompute HMAC over re-serialized bytes — it passes the test fixture yet rejects every real Stripe payload (or worse, a forged unsigned payload sneaks through if verification is bypassed); a missing ≤5-min freshness check leaves the replay window unbounded, so a captured-once webhook can be replayed forever to re-trigger a billing transition.
 - Idempotency on `event.id` MANDATORY at TWO layers:
   - Layer-1 (transient): Redis `SETNX EX 72h` cache; race-safe.
-  - Layer-2 (persistent): `billing.stripe_webhook_events` — the `StripeWebhookEvent` entity + `1800000000000-Baseline` migration SHIP today. After 72h Redis TTL, DB-side dedup catches replay. A handler path that takes a Redis-only fast-path and skips this persistent check = HIGH (rare-event double-processing).
-- Webhook handler MUST return 200 to Stripe in ≤ 5s; any business processing dispatched via outbox / NATS to async worker. Synchronous heavy work in handler = **CRITICAL** (Stripe retries flood within 1h on timeout).
-- Errors during processing logged + persisted to `stripe_webhook_events.status='FAILED'`; manual replay via admin UI. Missing visibility = HIGH.
-- `Webhook signature failed` event MUST emit security alert (potential attack vector). Silent log-only = HIGH.
+  - Layer-2 (persistent): `billing.stripe_webhook_events` — the `StripeWebhookEvent` entity + `1800000000000-Baseline` migration SHIP today. After 72h Redis TTL, DB-side dedup catches replay. A handler path that takes a Redis-only fast-path and skips this persistent check (HIGH).
+  **Consequence:** a Redis-only fast-path drops dedup after the 72h TTL, so a Stripe redelivery of an old `invoice.paid` after the window re-processes the event — double-credit / double-charge that no later gate catches.
+- Webhook handler MUST return 200 to Stripe in ≤ 5s; any business processing dispatched via outbox / NATS to async worker (CRITICAL).
+- Errors during processing logged + persisted to `stripe_webhook_events.status='FAILED'`; manual replay via admin UI. Missing visibility (HIGH).
+- `Webhook signature failed` event MUST emit security alert (potential attack vector). Silent log-only (HIGH).
+  **Consequence:** synchronous heavy work blows the 5s deadline, Stripe treats it as failed and floods retries within the hour — every retry re-runs the side effect (storm + duplicate processing); a `FAILED` row with no operator visibility means a dropped subscription update is never replayed (silent revenue loss); a silent signature failure hides an active forgery attempt against the payment ingress.
 
 ### Metered billing — atomic + reservation pattern
 
-- Stripe Meter + MeterEvent API (NOT legacy `usage_records`). Legacy API on a new product = HIGH (deprecation drift; will fail Q4 2025+).
-- Metered counter increment MUST be atomic via Redis Lua `INCRBY` + `EXPIRE` pair (no GET → INCR → SET). Non-atomic = **CRITICAL** (under-billing race window).
-- Periodic reconciliation (hourly job): `usage_aggregation` table SUM vs Stripe Meter `summary` API. Drift > 0.1% = HIGH (revenue-leak alert).
-- Per-tenant `TenantUsageMetrics` rollup keyed `(tenantId, metric_name, period_start)`. Missing PK uniqueness = **CRITICAL** (double-rollup → over-billing).
+- Stripe Meter + MeterEvent API (NOT legacy `usage_records`). Legacy API on a new product (HIGH).
+- Metered counter increment MUST be atomic via Redis Lua `INCRBY` + `EXPIRE` pair (no GET → INCR → SET) (CRITICAL).
+- Periodic reconciliation (hourly job): `usage_aggregation` table SUM vs Stripe Meter `summary` API. Drift > 0.1% (HIGH).
+- Per-tenant `TenantUsageMetrics` rollup keyed `(tenantId, metric_name, period_start)`. Missing PK uniqueness (CRITICAL).
+  **Consequence:** the legacy `usage_records` API is deprecated and will stop accepting events (Q4 2025+), so metered usage silently stops being reported and the tenant is under-billed; a non-atomic GET→INCR→SET loses concurrent increments under load — usage is undercounted and revenue leaks; without the hourly SUM-vs-Stripe reconciliation a quiet drift accumulates with no alarm; a missing `(tenantId, metric_name, period_start)` uniqueness lets the rollup job run twice and double-count usage into the invoice — over-billing the tenant.
 
 ### Subscription saga + state machine
 
 - States: `PENDING → TRIAL → ACTIVE → PAST_DUE → CANCELLED → ENDED`. Terminals: `CANCELLED_BY_TENANT`, `CANCELLED_BY_PLATFORM`, `EXPIRED`. Out-of-order transition = **CRITICAL** (lifecycle integrity).
 - Saga orchestrator is the ONLY writer of `subscription.status`. Direct controller/handler/service writes = **CRITICAL** (bypasses compensation).
 - **PIVOT step = Stripe subscription creation/cancellation** — pre-pivot failures compensate backward (refund + revert internal state); post-pivot failures retry-forward (Stripe is source of truth post-pivot).
-- Compensation MUST verify Stripe void succeeded (poll subscription.status post-cancel) before marking saga failed. Missing verification = **CRITICAL** (orphan billing).
-- Trial expiry detection: scheduled job runs hourly, transitions PENDING_TRIAL_EXPIRED → ACTIVE on payment OR → CANCELLED on payment failure. Race window > 1h = HIGH.
-- PAST_DUE escalation: 7-day grace, then dunning email, then CANCELLED_BY_PLATFORM with audit log. Missing dunning = HIGH (customer relationship).
+- Compensation MUST verify Stripe void succeeded (poll subscription.status post-cancel) before marking saga failed (CRITICAL).
+- Trial expiry detection: scheduled job runs hourly, transitions PENDING_TRIAL_EXPIRED → ACTIVE on payment OR → CANCELLED on payment failure. Race window > 1h (HIGH).
+- PAST_DUE escalation: 7-day grace, then dunning email, then CANCELLED_BY_PLATFORM with audit log. Missing dunning (HIGH).
+  **Consequence:** marking the saga failed without polling Stripe leaves an orphan live subscription that keeps billing the customer while internal state says cancelled; a trial-expiry race wider than 1h lets an unpaid trial keep ACTIVE entitlements (free usage) or cancels a paid one; skipping dunning escalation jumps a past-due tenant straight to platform-cancel with no recovery path — needless churn of a paying customer.
 
 ### Invoice precision + reconciliation
 
-- Every monetary column MUST be `@Column({ type: 'numeric', precision: 14, scale: 4, transformer: DecimalTransformer })`. Implicit number/string = **CRITICAL** (silent precision corruption — `42.50 + 1` = `'42.501'` if string).
-- Currency MUST be ISO 4217 3-letter code stored as `@Column({ type: 'char', length: 3 })`. Free-text = HIGH (parse drift).
-- Total = SUM(line_item.unit_price × quantity) — computed in DB via `GENERATED ALWAYS AS` column OR application layer with check constraint. Drift between displayed and computed = **CRITICAL**.
-- Tax calculation deferred to Stripe Tax API (no in-house tax engine). In-house tax computation = HIGH (regulatory burden + audit risk).
-- Refund flow: full refund within 30d → cancel subscription; partial refund → adjust next-period invoice. Missing partial refund logic = MEDIUM.
+- Every monetary column MUST be `@Column({ type: 'numeric', precision: 14, scale: 4, transformer: DecimalTransformer })`. Implicit number/string (CRITICAL).
+- Currency MUST be ISO 4217 3-letter code stored as `@Column({ type: 'char', length: 3 })`. Free-text (HIGH).
+  **Consequence:** an implicit number/string money column corrupts arithmetic silently — `42.50 + 1` becomes `'42.501'` if JS treats the value as a string, so the invoiced total is wrong by orders of magnitude with no error; a free-text currency field drifts (`USD` vs `usd` vs `Dollar`) and breaks Stripe currency matching and reconciliation.
+- Total = SUM(line_item.unit_price × quantity) — computed in DB via `GENERATED ALWAYS AS` column OR application layer with check constraint. Drift between displayed and computed (CRITICAL).
+- Tax calculation deferred to Stripe Tax API (no in-house tax engine). In-house tax computation (HIGH).
+- Refund flow: full refund within 30d → cancel subscription; partial refund → adjust next-period invoice. Missing partial refund logic (MEDIUM).
+  **Consequence:** if the displayed total and the line-item-computed total can drift, the customer sees one number and is charged another — a billing-dispute and trust failure; an in-house tax engine takes on jurisdiction-by-jurisdiction regulatory liability and audit exposure that Stripe Tax already discharges; missing partial-refund logic leaves over-collected money stuck with no adjustment path.
 
 ### Plan-tier enforcement (delegated from multi-tenant-saas-expert)
 
 - `PLAN_LIMITS` (`apps/gateway-api/src/middleware/tenant-context.middleware.ts:186-232`; interface `TenantLimits` at :77-85) is fully populated per tier with all 7 limits — `maxUsers`, `maxFarms`, `maxPonds`, `maxSensors`, `maxApiRequests`, `maxStorageGb`, `dataRetentionDays` — but has **no enforcement consumer**: no resource-creation command reads the tenant's limit and checks the current count before persist (grep: `PLAN_LIMITS` appears only at its definition). **MT-HIGH-002** (revenue-leak: tenants exceed plan, no upcharge). NB the billing event-handler keeps its OWN inline limit table (`tenant-subscription-requested.handler.ts:83-118`) — two limit sources that can drift (**duplication** finding; point both at one SSoT).
 - Every resource-creation command (CreateFarm, CreatePond, RegisterSensor, etc.) MUST read tenant's planLevel + check resource count against limit BEFORE persist. 429 PLAN_LIMIT_EXCEEDED on breach.
-- Plan downgrade MUST check current usage ≤ new plan limits BEFORE Stripe PIVOT. Silent downgrade with feature loss = HIGH (customer-experience disaster + churn).
+- Plan downgrade MUST check current usage ≤ new plan limits BEFORE Stripe PIVOT. Silent downgrade with feature loss (HIGH).
+  **Consequence:** if no resource-creation command checks the plan limit before persist, a STARTER tenant creates unlimited farms/sensors and is never upcharged — the exact revenue leak of MT-HIGH-002; a downgrade that does not pre-check current usage strands the tenant over the new limit, then silently disables already-created resources after billing drops — a customer-experience break that drives churn.
 
 ### Webhook security (additional)
 
-- Stripe webhook secret MUST be loaded from secret manager (Vault / AWS SM / External Secrets Operator), not env-baked into Docker image. ENV-baked = **CRITICAL** (image-leak exposes secret to all replicas).
-- Webhook URL on Stripe dashboard MUST be the gateway-api endpoint (HMAC-protected), not direct billing-service. Direct exposure = HIGH (bypasses gateway rate-limit + observability).
-- IP allowlisting on webhook route: Stripe publishes IP ranges; nginx-level allow + secondary middleware check. Missing = MEDIUM (defense-in-depth).
+- Stripe webhook secret MUST be loaded from secret manager (Vault / AWS SM / External Secrets Operator), not env-baked into Docker image (CRITICAL).
+- Webhook URL on Stripe dashboard MUST be the gateway-api endpoint (HMAC-protected), not direct billing-service. Direct exposure (HIGH).
+  **Consequence:** an env-baked webhook secret leaks the moment the image is pulled from any registry replica — an attacker with the signing secret forges valid webhook signatures and triggers arbitrary billing transitions (mark-paid, cancel); pointing Stripe directly at billing-service bypasses the gateway's rate-limit, IP-allowlist, and observability, so a webhook flood hits the service unthrottled and unlogged.
+- IP allowlisting on webhook route: Stripe publishes IP ranges; nginx-level allow + secondary middleware check. Missing (MEDIUM, defense-in-depth).
 
 ## Active findings this agent owns
 
@@ -103,6 +112,7 @@ See `@.claude/shared/operating-modes.md`. Agent-specific overrides:
 
 - **WRITER mode** supported only via `implement:` token from human or implementation-planner. Stripe-related changes ALWAYS pair-reviewed by security-reviewer (financial regulation surface).
 - **TEACHER mode** outputs MUST cite Stripe API version + Webhook Event reference URL.
+  **Consequence:** an unsupervised WRITER edit to payment code can ship a money bug straight to prod, so a mandatory security-reviewer pair-review on the financial-regulation surface is the gate; a TEACHER explanation without the pinned Stripe API version + event-reference URL teaches behavior that may already be deprecated — the reader implements against a contract Stripe no longer honors.
 
 ## Finding ID prefix
 

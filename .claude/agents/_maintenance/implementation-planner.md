@@ -52,6 +52,8 @@ Review → fix loop closes only when fix commits reference the findings they clo
 - Every package: `Source-Reviews: [<absolute paths>]`. Missing = **PROCESS HIGH**.
 - Atomic Commit Plan pre-composes one `Closes: docs/reviews/{agent}/{date}-{topic}.md#{finding-id}` line per finding. Executor copies verbatim into the git commit message (CLAUDE.md Review Finding Traceability).
 - **CRITICAL/HIGH MUST NOT be bundled with MEDIUM/LOW in the same package.** Severity mixing violates atomicity and git-bisect friendliness — split into separate packages with explicit dependency edges.
+**Example:** package `03-auth-jwt-rotation.md` lists `Closing-Findings: [AUTH-CRITICAL-002]` matching `docs/reviews/auth-security-expert/2026-06-10-jwt.md#AUTH-CRITICAL-002`, and is split from the MEDIUM fix `04-auth-log-mask.md` (own package, edge `03 → 04`) — bundling them would force a CRITICAL+MEDIUM revert to undo both at once.
+**Why:** an unreferenced or severity-mixed package severs the review→fix→RESOLVED audit chain; `context-manager` can never verify the close.
 - On package generation, annotate each source review finding with `[IN-PROGRESS: docs/plans/{date}/{topic}/packages/NN-{slug}.md]`. `context-manager` transitions to RESOLVED when it verifies the merged commit `Closes:` footer. Planner only marks IN-PROGRESS — trust the protocol.
 
 ### 2. Package Decomposition
@@ -79,6 +81,8 @@ Build DAG where edge `A → B` means "A must commit before B". Edges from:
 Apply **Kahn's algorithm** with deterministic tiebreak: multiple zero-in-degree packages → sort by slug ascending. Sequence MUST be bit-identical across regenerations (enables cycle-over-cycle diff).
 
 **Cycle detection:** Kahn's terminates with emitted < total → cycles exist. Isolate via **Tarjan's SCC**. Cycles are NEVER auto-resolved — always indicate a shared concern (typically event contract or shared lib) requiring arbitration. Flag as CRITICAL, escalate to `architectural-arbiter` before finalizing.
+
+**Example:** two zero-in-degree packages `frame-decoder` and `frame-encoder` always emit in that slug order so a regenerated plan is byte-identical (non-deterministic order would break cycle-over-cycle diffing); but when `event-contracts-rename` and `farm-consumer` form a cycle (each needs the other first), the planner does NOT auto-resolve — it flags CRITICAL and hands the SCC to `architectural-arbiter`, the only authority for that shared-concern decision.
 
 **Parallelizable packages** (no edges) explicitly marked in `dependency-graph.md` and each package file. Co-requisites (logically coupled but order-independent) annotated as peers, not DAG edges.
 
@@ -129,6 +133,8 @@ plan.md checkbox discipline:
 - Update `[x]` in the SAME commit as the fix, or immediately after verification passes. `[x]` without matching PASS entry in `verification-log.md` = **PROCESS CRITICAL** (plan diverged from reality).
 
 Package Status: `PENDING | IN_PROGRESS | DONE | FAILED | BLOCKED`. FAILED package MUST have Failure Notes with verification output (first 50 lines) + suspected root cause + re-attempt recommendation.
+
+**Example:** package `07-sensor-aggregation.md` Status flips to FAILED with Failure Notes pasting the first 50 lines of the `npx jest` stack trace, "suspected root cause: nullable `readingTs` not backfilled before NOT NULL", and "re-attempt after `02-sensor-migration` lands" — so the resumed plan knows the prerequisite ordering was wrong, not the fix, instead of re-running the failing command cold and re-paying the debugging cost.
 
 **verification-log.md is append-only.** Each entry: `{ISO8601} — Package {NN-slug} — {PASS|FAIL} — exit:{N} — commit:{hash|N/A}`. Never edited or deleted — event-sourced audit trail; current state derived by replay.
 

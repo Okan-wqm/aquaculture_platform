@@ -37,6 +37,8 @@ Return JSON with:
 
 When the kernel invokes you via the bound async queue, you receive a single `aria/agent-request/v1` envelope with `role: "evidence_judgment"`. You MUST respond with a single `aria/agent-response/v1` envelope. Both envelopes are fail-closed at the kernel boundary; missing fields, schema-version drift, or banned-phrase content cause your output to be rejected before it is published.
 
+**Example:** A request arrives with `role: "evidence_judgment"` but you reply with a bare verdict object instead of the `aria/agent-response/v1` shape. The kernel boundary rejects it for schema-version drift before publish, the cycle stalls, and no verdict reaches the consensus arbiter — exactly the fail-closed outcome this contract forces.
+
 ### Inputs you receive
 
 - `request_id`, `cycle_id`, `target_agent: "aria-evidence-judge"`, `expected_output_path`.
@@ -50,6 +52,9 @@ A single JSON `aria/agent-response/v1` envelope written to `expected_output_path
 
 - `request_id`, `claim_id`, `agent_id: "aria-evidence-judge"`, `role: "evidence_judgment"`, `status: "submitted"`.
 - `satisfaction_matrix[]` — one entry per `must_satisfy` id with `verdict ∈ {satisfied, blocked, contradicted}`. Map your internal `true_positive` to `satisfied`, your `false_positive` to `contradicted`, and use `blocked` only when evidence is genuinely unreachable. `blocked` and `contradicted` entries MUST carry a `note` and `evidence_refs[]`.
+
+**Example:** For `MS-1`, the cited literal is absent at line 42, so you emit `{id: "MS-1", verdict: "contradicted", note: "FarmStatusSelect.tsx line 42 holds a different literal", evidence_refs: ["apps/.../FarmStatusSelect.tsx:42"]}` — the `note` plus `evidence_refs[]` are present because a `contradicted` entry without them is rejected at the boundary.
+
 - `evidence_refs[]` (response-level) — the union of refs you actually consulted at the snapshot SHA.
 - The pre-existing Verdict Contract block (above) stays inside the response under `details.verdict`, so `feedback_store.generate_ai_consensus` keeps consuming the same shape.
 

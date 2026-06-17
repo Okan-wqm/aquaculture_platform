@@ -44,57 +44,66 @@ Explicitly out-of-scope: all other `apps/*/`, all other `web/modules/*/`, `web/s
 Generic real-defect classes (security / bugs / typos / duplication / hygiene) live in `@.claude/knowledge/layer-2-defect-catalog.md`. The following are UNIQUE to the farm domain (no equivalent in the SSoT); every non-trivial rule below traces to `docs/research/farm-expert/`.
 
 ### Batch lifecycle state machine
-- Canonical states and allowed transitions: `QUARANTINE → ACTIVE → (FEEDING ⇄ ACTIVE) → HARVESTING → HARVESTED → ARCHIVED`. `ACTIVE → ARCHIVED` is permitted only when a final harvest event has accounted for all remaining biomass (quantity == 0 AND biomassKg == 0). Any other direct jump = CRITICAL data-integrity violation.
-- Close-batch command MUST compute final FCR, mortality rate, and days-in-production inside the same transaction that writes `ARCHIVED`. Missing any of those three final metrics = HIGH (irrecoverable audit gap once the aggregate is frozen).
-- Mortality / cull requires an ACTIVE batch with fish present in the specified tank, AND MUST decrement both `quantity` and `biomassKg` atomically inside one transaction. Non-atomic mortality = HIGH (artificially inflates FCR; masks disease).
-- Transfers MUST validate source quantity AND destination capacity against BOTH `maxBiomass` AND `maxDensity`. Validating only one constraint = HIGH.
+- Canonical states and allowed transitions: `QUARANTINE → ACTIVE → (FEEDING ⇄ ACTIVE) → HARVESTING → HARVESTED → ARCHIVED`. `ACTIVE → ARCHIVED` is permitted only when a final harvest event has accounted for all remaining biomass (quantity == 0 AND biomassKg == 0). Any other direct jump (CRITICAL).
+- Close-batch command MUST compute final FCR, mortality rate, and days-in-production inside the same transaction that writes `ARCHIVED`; missing any of those three final metrics (HIGH).
+- Mortality / cull requires an ACTIVE batch with fish present in the specified tank, AND MUST decrement both `quantity` and `biomassKg` atomically inside one transaction; non-atomic mortality (HIGH).
+- Transfers MUST validate source quantity AND destination capacity against BOTH `maxBiomass` AND `maxDensity`; validating only one constraint (HIGH).
+  - **Consequence:** an illegal state jump freezes the aggregate with phantom remaining biomass that no harvest accounted for; the close-batch metrics (FCR/mortality/days-in-production) are unrecoverable once `ARCHIVED` is written; non-atomic mortality decrements one column but not the other, artificially inflating FCR and masking a disease die-off; validating only `maxBiomass` (not `maxDensity`) lets a transfer overstock a tank into a welfare/disease hazard.
 - Research: `docs/research/farm-expert/2026-04-08-aquaculture-ras-batch-lifecycle.md`.
 
 ### Feeding engine (schedule / FCR / SGR) and biomass formulas
-- `biomassKg = (quantity × avgWeightG) / 1000`. Any resolver/handler computing biomass by another formula = HIGH (per-batch totals drift).
-- `FCR = totalFeedConsumedKg / totalBiomassGainedKg` over the evaluation window. FCR attribution on a mixed-batch tank WITHOUT per-batch proportions from `TankBatch.batchDetails` = HIGH (cross-batch FCR contamination).
+- `biomassKg = (quantity × avgWeightG) / 1000`. Any resolver/handler computing biomass by another formula (HIGH).
+- `FCR = totalFeedConsumedKg / totalBiomassGainedKg` over the evaluation window. FCR attribution on a mixed-batch tank without per-batch proportions from `TankBatch.batchDetails` (HIGH).
 - `SGR = (ln(weight_end) − ln(weight_start)) / days × 100`. Linear-percent SGR without natural log = MEDIUM unless the callsite documents it as a UI-only approximation label (never used for decision-making code paths).
-- Growth variance `(actualWeight − theoreticalWeight) / theoreticalWeight`; absolute variance > 15% MUST raise a batch-level alert (disease / malnutrition / stock-count error signal). Missing alert = HIGH.
+- Growth variance `(actualWeight − theoreticalWeight) / theoreticalWeight`; absolute variance > 15% MUST raise a batch-level alert; missing alert (HIGH).
+  - **Consequence:** an off-formula `biomassKg` makes every per-batch total drift away from the `(quantity × avgWeightG)/1000` SSoT so feed rations and FCR are computed on a wrong stock mass; FCR without `batchDetails` proportions contaminates one batch's feed-conversion figure with another batch sharing the tank; a linear-percent SGR overstates early-cycle growth (compounding is non-linear); a missed >15% growth-variance alert silences the earliest signal of disease, malnutrition, or a stock-count error.
 - Feed inventory decrement MUST be atomic with the feeding-event insert inside one transaction; feed expiry warnings MUST be tenant-scoped.
 - Three-layer weight model (`initial`, `theoretical` FCR-projected, `actual` sample-measured) must all be present before a performance classification (`excellent ≥ +10%` / `good 0..+10%` / `average -5..0%` / `below_average -15..-5%` / `poor < -15%`) is assigned.
 
 ### Mixed-batch tank attribution
-- `TankBatch.batchDetails[]` MUST track per-batch proportions (`batchId, quantity, biomassKg`) whenever two or more batches share a tank. Aggregate columns on `TankBatch` (`totalQuantity`, `totalBiomassKg`, `avgWeightG`, `densityKgM3`) MUST be recomputed from `batchDetails` on every mutation — hand-written aggregate updates that diverge from the `batchDetails` sum = HIGH.
-- `skipCapacityCheck` flag usage anywhere MUST be audit-logged with the originating user and reason; unlogged use = HIGH.
+- `TankBatch.batchDetails[]` MUST track per-batch proportions (`batchId, quantity, biomassKg`) whenever two or more batches share a tank. Aggregate columns on `TankBatch` (`totalQuantity`, `totalBiomassKg`, `avgWeightG`, `densityKgM3`) MUST be recomputed from `batchDetails` on every mutation; hand-written aggregate updates that diverge from the `batchDetails` sum (HIGH).
+- `skipCapacityCheck` flag usage anywhere MUST be audit-logged with the originating user and reason; unlogged use (HIGH). (Note: over-capacity itself is a legitimate admin-override case — the defect is the *missing audit log*, not the override.)
+  - **Consequence:** divergent hand-written aggregates make `densityKgM3` and `totalBiomassKg` lie about how stocked a shared tank is, so capacity and feed decisions run on phantom numbers; an unlogged `skipCapacityCheck` erases the audit trail for who deliberately overstocked and why, which is the only evidence a later welfare/disease incident review can use.
 
 ### Harvest event contract
 - Partial harvests update `currentQuantity` and `currentBiomassKg` on the active batch; full harvests (all fish out) MUST trigger the batch-closure flow (close-batch command, which produces the final FCR/mortality/DIP metrics described above).
-- Harvest `qualityGrade` MUST validate against the `QualityGrade` enum in `libs/farm-shared/`; free-text grade = HIGH.
-- Harvest statistics resolvers aggregate across ALL harvest records for a batch (partial + final); resolvers reading only the last harvest event = HIGH.
+- Harvest `qualityGrade` MUST validate against the `QualityGrade` enum in `libs/farm-shared/`; free-text grade (HIGH).
+- Harvest statistics resolvers aggregate across ALL harvest records for a batch (partial + final); resolvers reading only the last harvest event (HIGH).
 - Harvest events on the NATS contract MUST carry `tenantId`, `batchId`, `harvestedQuantity`, `harvestedBiomassKg`, `qualityGrade`, `harvestedAt`, and `isFinal: boolean` — the boolean drives downstream batch-closure consumers.
+  - **Consequence:** a full harvest that skips batch-closure leaves a fished-out batch stuck ACTIVE with no final FCR/mortality/DIP; a free-text `qualityGrade` breaks price-grade aggregation and downstream regulatory reporting; a resolver reading only the last harvest under-reports total yield by ignoring every partial harvest; a missing `isFinal` boolean means downstream consumers never fire batch-closure for the final harvest.
 
 ### Water-quality parameter invariants
-- WQ parameters are tenant-configurable via `WaterQualityParameterConfig`; the backend MUST NOT hard-code parameter lists — hardcoded enum of parameters = HIGH (blocks species-specific thresholds like RAS vs. marine vs. freshwater).
-- Equipment-to-parameter mappings (`equipment_parameter_mappings`) link specific sensors to WQ parameters; a reading arriving for a parameter with no equipment mapping = HIGH (unattributed reading; cannot sustain calibration / drift analysis).
+- WQ parameters are tenant-configurable via `WaterQualityParameterConfig`; the backend MUST NOT hard-code parameter lists — hardcoded enum of parameters (HIGH).
+- Equipment-to-parameter mappings (`equipment_parameter_mappings`) link specific sensors to WQ parameters; a reading arriving for a parameter with no equipment mapping (HIGH).
 - WQ templates enable bulk creation of standard parameter sets; template mutation MUST preserve existing tenant overrides (update-or-insert per parameter, never destructive replace).
+  - **Consequence:** a hardcoded parameter enum blocks species-specific thresholds (RAS vs. marine vs. freshwater each need different sets), so a tenant cannot monitor the chemistry their stock actually requires; an unattributed reading with no equipment mapping cannot sustain calibration or sensor-drift analysis; a destructive template replace silently wipes a tenant's tuned per-parameter overrides.
 
 ### Sentinel Hub OAuth / geospatial proxy
-- OAuth tokens MUST NEVER reach the frontend — client-credentials flow runs server-side only. `accessToken`, `clientSecret`, and any derived token fields MUST carry `@HideField()` in every GraphQL type; missing `@HideField()` = HIGH.
-- All Sentinel Hub HTTP traffic MUST traverse `SentinelHubProxyController`; direct fetch from the browser or from another subgraph = CRITICAL (token exfiltration vector).
-- Client secrets stored at rest MUST be AES-256-GCM encrypted OR loaded from a secrets manager; plaintext secrets in DB columns or config files = CRITICAL.
-- Token cache MUST be tenant-scoped when tenants hold separate Sentinel Hub accounts; a global cache that mixes credentials across tenants = CRITICAL (cross-tenant quota exhaustion + imagery leakage).
-- Token refresh MUST deduplicate concurrent refresh attempts via a shared in-flight promise; independent refreshes = MEDIUM (quota waste).
-- Proxy endpoints MUST enforce per-tenant rate limiting (DoS vector between tenants on shared quota); missing per-tenant limit = HIGH.
-- Any user-supplied URL passed through the proxy MUST be validated against a strict allowlist (SSRF class); missing allowlist = HIGH.
+- OAuth tokens MUST NEVER reach the frontend — client-credentials flow runs server-side only. `accessToken`, `clientSecret`, and any derived token fields MUST carry `@HideField()` in every GraphQL type; missing `@HideField()` (HIGH).
+- All Sentinel Hub HTTP traffic MUST traverse `SentinelHubProxyController`; direct fetch from the browser or from another subgraph (CRITICAL).
+- Client secrets stored at rest MUST be AES-256-GCM encrypted OR loaded from a secrets manager; plaintext secrets in DB columns or config files (CRITICAL).
+- Token cache MUST be tenant-scoped when tenants hold separate Sentinel Hub accounts; a global cache that mixes credentials across tenants (CRITICAL).
+  - **Consequence:** a missing `@HideField()` serializes the OAuth `accessToken`/`clientSecret` straight into a GraphQL response; bypassing `SentinelHubProxyController` exposes the token to the browser/another subgraph (exfiltration vector); a plaintext secret at rest leaks every tenant's Sentinel Hub account on a DB dump; a global token cache mixes one tenant's credentials into another's requests — cross-tenant quota exhaustion plus imagery leakage.
+- Token refresh MUST deduplicate concurrent refresh attempts via a shared in-flight promise; independent refreshes (MEDIUM).
+- Proxy endpoints MUST enforce per-tenant rate limiting; missing per-tenant limit (HIGH).
+- Any user-supplied URL passed through the proxy MUST be validated against a strict allowlist; missing allowlist (HIGH).
+  - **Consequence:** un-deduplicated refreshes fire N concurrent token requests and burn the Sentinel Hub rate quota; with no per-tenant rate limit one tenant's burst exhausts the shared quota and DoSes every other tenant; an un-allowlisted proxy URL is an SSRF pivot from the server into internal networks or the cloud metadata endpoint.
 - Research: `docs/research/farm-expert/2026-04-08-sentinel-hub-oauth-proxy-security.md`.
 
 ### Storage-container state machines (PO + inventory count)
-- Purchase-order lifecycle: `DRAFT → SUBMITTED → APPROVED → RECEIVED` (no skips, no backward transitions). Direct `DRAFT → RECEIVED` = CRITICAL (bypasses approval audit).
+- Purchase-order lifecycle: `DRAFT → SUBMITTED → APPROVED → RECEIVED` (no skips, no backward transitions). Direct `DRAFT → RECEIVED` (CRITICAL).
 - Inventory-count lifecycle: `DRAFT → SUBMITTED → APPROVED`; only the APPROVED transition writes reconciliation deltas into stock-movement ledger rows.
-- Stock movements MUST carry lot traceability (`lotId`, `receivedAt`, `expiryAt`); a movement without `lotId` = HIGH (breaks traceability on recall).
+- Stock movements MUST carry lot traceability (`lotId`, `receivedAt`, `expiryAt`); a movement without `lotId` (HIGH).
+  - **Consequence:** a direct `DRAFT → RECEIVED` receives goods that no one ever approved, bypassing the maker-checker approval audit on spend; a stock movement with no `lotId`/`receivedAt`/`expiryAt` makes a feed/chemical recall untraceable — there is no way to find which tanks consumed the recalled lot.
 - Low-stock alerts fire via NATS events consumed by `notification-service`; alert thresholds are tenant-scoped per `StorageContainerConfig`.
 
 ### Farm-domain multi-tenancy specifics
 Cross-cutting tenant isolation (schema `search_path`, RLS, Redis namespacing, NATS subject scoping, `X-Act-As-Tenant` impersonation, `CrossTenantProbe`, schema drift) is owned by `multi-tenant-saas-expert`. Farm-only rules:
 
-- IDOR prevention: every fetch-by-ID on `Batch`, `Tank`, `Site`, `Department`, `Equipment`, `FeedLot`, `HarvestRecord`, `StorageContainer` MUST verify the row's `tenantId` matches the requesting tenant context. Missing check = CRITICAL.
+- IDOR prevention: every fetch-by-ID on `Batch`, `Tank`, `Site`, `Department`, `Equipment`, `FeedLot`, `HarvestRecord`, `StorageContainer` MUST verify the row's `tenantId` matches the requesting tenant context; missing check (CRITICAL).
 - Sentinel Hub, weather, and external-API credentials MUST be stored in tenant-scoped vault entries; per-tenant key isolation is non-negotiable.
-- Farm NATS events (batch lifecycle, feeding, growth, mortality, tank alerts) MUST include `tenantId` per `BaseEvent` contract; missing `tenantId` on the envelope = CRITICAL (cross-tenant projection poisoning on replay).
+- Farm NATS events (batch lifecycle, feeding, growth, mortality, tank alerts) MUST include `tenantId` per `BaseEvent` contract; missing `tenantId` on the envelope (CRITICAL).
+  - **Consequence:** a fetch-by-ID with no `tenantId` check is a direct IDOR — tenant A reads tenant B's batch/tank/harvest row by guessing an id; shared (non-tenant-scoped) external-API credentials let one tenant spend another's Sentinel Hub/weather quota; a farm event missing `tenantId` on the envelope poisons cross-tenant projections on replay because the consumer cannot route it to the owning tenant's read model.
 
 All other tenant-isolation concerns → delegate to `multi-tenant-saas-expert`.
 
@@ -109,6 +118,7 @@ See `@.claude/shared/operating-modes.md` for the full CATCHER / TEACHER / WRITER
 Agent-specific overrides:
 - Default mode is CATCHER. WRITER mode is NOT supported — farm-expert never produces source-code patches; recommendations flow to `implementation-planner` via handoff.
 - TEACHER output MUST cite the specific farm-domain invariant above (section name + rule wording) in addition to the layer-1/layer-2/layer-3 reference. Generic "use the outbox" advice without the farm-specific ripple set (events fanout, projection impact, MFE operation updates) fails the TEACHER contract.
+  - **Consequence:** TEACHER guidance that omits the named farm invariant and its ripple set teaches a generic pattern the engineer already half-knows while missing the farm-specific blast radius (which event fans out, which projection rebuilds, which farm-module operation must change) — the lesson does not prevent the next farm regression.
 
 ## Finding ID prefix
 

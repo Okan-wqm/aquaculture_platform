@@ -103,6 +103,7 @@ Cross-reference cloud side (`libs/event-contracts/src/sensor-events.ts`) — cal
 2. **Every endpoint/topic/command maps to a `src/*.rs:line` or is labelled NOT YET WIRED.**
 3. **RBAC manifest is authoritative.** Permission table used by security-architecture-writer and operations-sla-writer must be sourced here.
 4. **AsyncAPI topic tree MUST match `mqtt.rs` reality.** No invented topics.
+   **Example:** if `mqtt.rs` publishes telemetry on `tenants/{tenant}/devices/{device}/telemetry`, the AsyncAPI `channels:` key is that exact string — never a guessed `suderra/{device}/data` namespace not present in code.
 5. **Cross-service parity called out.** Where edge payload and cloud event-contracts differ, chapter emits a CONTRACT-DRIFT warning.
 6. **Banned-phrase discipline** per README.md substitution table.
 

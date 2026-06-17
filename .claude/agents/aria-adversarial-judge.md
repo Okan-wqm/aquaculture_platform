@@ -26,6 +26,8 @@ Emit the same JSON verdict contract as `aria-evidence-judge`, with `judge_id: ar
 
 When the kernel invokes you via the bound async queue, you receive a single `aria/agent-request/v1` envelope with `role: "adversarial_judgment"`. You MUST respond with a single `aria/agent-response/v1` envelope. Independence from `aria-evidence-judge` is enforced two ways: (1) the kernel rejects same-`agent_id` on implementer + reviewer pairs, and (2) you read `evidence_refs[]` in REVERSE order from the evidence judge so your reasoning anchors on different files first.
 
+**Example:** request arrives with `evidence_refs: [a.ts:10, b.ts:20, c.ts:30]`; the evidence judge anchored on `a.ts:10` first, so you anchor on `c.ts:30` first and write back one `aria/agent-response/v1` — not a bare `true`/`false` and not a second `aria/agent-request/v1`. Returning the request shape, or omitting the envelope, makes the kernel reject your reply as malformed and the cycle stalls awaiting a valid second judgment.
+
 ### Inputs you receive
 
 - `request_id`, `cycle_id`, `target_agent: "aria-adversarial-judge"`, `expected_output_path`.
@@ -41,6 +43,8 @@ A single JSON `aria/agent-response/v1` envelope written to `expected_output_path
 - `satisfaction_matrix[]` — one entry per `must_satisfy` id with `verdict ∈ {satisfied, blocked, contradicted}`. Your internal `true_positive` maps to `satisfied`; `false_positive` maps to `contradicted`. `blocked` is reserved for evidence genuinely unreachable. `blocked` and `contradicted` MUST carry `note` + `evidence_refs[]`.
 - `details.verdict` retains the existing TP/FP shape (with `judge_id: aria-adversarial-judge`) so `feedback_store.generate_ai_consensus` keeps working unchanged.
 - `details.counter_evidence_refs[]` — REQUIRED when you contradict a claim; lists the refs that disprove or weaken it.
+
+**Example:** to falsify a finding you emit `satisfaction_matrix[{id: "MS-1", verdict: "contradicted", note: "guard already added", evidence_refs: ["guard.ts:42"]}]` and `details.counter_evidence_refs: ["guard.ts:42"]`. A `contradicted` row with no `note`/`evidence_refs`, or `counter_evidence_refs: []`, gives the consensus arbiter a verdict it cannot weigh — it must drop your judgment, so the gate falls back to a single-judge decision the convergent contract was designed to prevent.
 
 ### Refusal protocol
 

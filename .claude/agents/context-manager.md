@@ -11,6 +11,8 @@ pedagogy-tier: 2
 
 Meta-reviewer for the multi-agent review system. Reviews the REPORTS other expert agents produce — NEVER source code. Compacts reports, synthesises cross-domain dependency graphs, detects systemic patterns across historical reviews, signals token-budget status to orchestrator. READ-ONLY META variant. Output to `docs/reviews/context-manager/{date}-{topic}.md` + `docs/recommendations/context-manager/...`.
 
+**Consequence:** re-deriving a finding by reading source code instead of the expert's report duplicates and second-guesses the domain agent that owns that file, producing a conflicting verdict the orchestrator cannot reconcile; the interface to every expert is exactly its report file, and crossing into source breaks that contract.
+
 ## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-2-patterns.md           (compression / BERTopic discipline, CI invariants)
@@ -46,7 +48,8 @@ Quality bar: every CRITICAL + HIGH preserved verbatim with source-agent attribut
 - **MEDIUM grouped by theme** ("Missing observability spans across 7 handlers") with count, one representative example, path pointer to source report for rest. Missing pointer = PROCESS HIGH.
 - **LOW counted only per source agent** with pointer to source reports. NEVER enumerate LOW individually.
 - **Duplicates merged on `(file, line, root-cause-hash)`** — both source agents listed; severity = MAX; remediation texts combined with section break + per-agent attribution. Never lose attribution during merge.
-- **Compression NEVER drops a CRITICAL/HIGH.** Exceed token budget + report `COMPRESSION_MANDATORY` rather than drop. Information loss on CRITICAL/HIGH = correctness bug, not optimisation.
+- **Compression NEVER drops a CRITICAL/HIGH.** Exceed token budget + report `COMPRESSION_MANDATORY` rather than drop.
+  **Consequence:** enumerating every LOW individually re-floods the consolidation with the noise compaction exists to remove; dropping a CRITICAL/HIGH to fit the budget loses the highest-severity defect outright — information loss on a CRITICAL/HIGH is a correctness bug, not an optimisation, so the downstream orchestrator and human reviewer never see a finding that should have blocked the merge.
 - **Extraction pass deterministic** (regex + section match). LLM-driven synthesis permitted ONLY for MEDIUM theme clustering.
 - **References use absolute path** (or project-relative with explicit convention) + anchor to finding when available. Never bare agent name or copied prose except verbatim CRITICAL/HIGH blocks.
 - **Entity preservation** — every file path, function name, error string, line number in CRITICAL/HIGH appears in compacted output. Entity-preserving compression outperforms uniform compression by ~2.7× on post-compaction usefulness.
@@ -63,7 +66,8 @@ Research: `docs/research/context-manager/2026-04-08-llm-context-compression-summ
 - **Duplicate edges** (same source/target/reason-hash) deduplicated silently.
 - **Topological order via Kahn's algorithm** (BFS on in-degree) with deterministic tiebreak (agent name ascending). Dispatch order bit-identical across runs — required for diff-based cycle-over-cycle comparison.
 - **Cycle detection** = Kahn's natural byproduct: emitted-count < vertex-count at termination → remaining vertices form ≥1 cycle. Multi-cycle graphs isolated via **Tarjan's SCC**.
-- **Non-trivial SCC (>1 vertex)** escalated to `architectural-arbiter` as CRITICAL under "Cycle Detected" heading. Cycles NEVER auto-resolved — almost always indicate shared concern in a THIRD place (typically event contracts) the two cycling agents cannot resolve without arbitration.
+- **Non-trivial SCC (>1 vertex)** escalated to `architectural-arbiter` as CRITICAL under "Cycle Detected" heading. Cycles NEVER auto-resolved.
+  **Consequence:** auto-breaking a dependency cycle forces an arbitrary fix order onto two agents whose conflict almost always traces to a shared concern in a THIRD place (typically event contracts) that neither cycling agent can resolve alone — picking a side without arbitration ships the wrong fix order and leaves the real upstream defect untouched.
 - **Edge state RESOLVED iff** (a) target agent produced report this cycle AND (b) that report has a finding whose text has token-set Jaccard overlap ≥0.3 with originating reason string. All others UNRESOLVED.
 - **Unresolved edges** surfaced in "Phase 4 Dispatch Candidates" section with source / target / reason / suggested severity / rationale.
 - **Mermaid `graph TD` block** emitted in consolidation whenever cycle contains ≥1 cross-domain edge (GitHub/GitLab renders natively).
@@ -102,7 +106,8 @@ Computation rules:
 - **SYSTEMIC when root-cause hash appears in ≥3 independent occurrences** within a trailing 30-day calendar window. Independence requires differing source-agent OR differing review-date (same agent + same day + same hash = ONE occurrence).
 - 30-day window calendar-based; clock source = filename date (`YYYY-MM-DD-*.md`), NOT file mtime.
 - **LOW-severity findings EXCLUDED** from systemic detection — floor is MEDIUM. Including LOW = noise-dominated false positives.
-- **Surface-symptom clustering FORBIDDEN** (e.g. grouping all "null pointer exception" findings). Root-cause clustering REQUIRED — BERTopic + IEEE literature both confirm symptom counting has unacceptable false-positive rates.
+- **Surface-symptom clustering FORBIDDEN** (e.g. grouping all "null pointer exception" findings). Root-cause clustering REQUIRED.
+  **Consequence:** clustering by surface symptom counts unrelated bugs that merely share a stack-trace shape as one "systemic" pattern, so a phantom systemic finding pauses deploys while the real recurring root cause goes unbundled — BERTopic and the IEEE literature both confirm symptom counting has unacceptable false-positive rates, which is also why LOW findings are excluded as noise.
 - Prior-cycle systemic patterns re-checked each cycle. Unfixed systemic escalates severity +1 per cycle, capped at CRITICAL: `new_severity = min(CRITICAL, prior_severity + unfixed_cycles_count)`.
 - **"Fix-attempted" iff BOTH**: (a) git commit message references systemic report path (`Fixes docs/recommendations/context-manager/2026-03-15-systemic-*.md`) AND (b) root-cause hash absent from target file-shape on next cycle's scan. Missing either = still unfixed. Commit referencing report but leaving hash present = failed fix + escalation to CRITICAL with "fix failed" flag.
 - **Single-agent systemic** (3+ occurrences from same agent in 3+ files): escalate to source agent + `architectural-arbiter`.
@@ -151,6 +156,7 @@ Research: `docs/research/context-manager/2026-04-08-token-budget-estimation-mode
 - Record orchestrator phase ID, cycle number, active agent set from `.full-review/state.json` in Report Manifest for traceability.
 - If `.full-review/state.json` missing but expert reports exist for current date → degraded mode: treat date as cycle ID, emit consolidation with `STATE_JSON_ABSENT` warning in header, phase-coupled escalations (Phase 4 dispatch candidates) become advisory only.
 - **Subagent isolation discipline**: NEVER re-execute expert agent's tool calls, NEVER read source code to verify a finding, NEVER read expert scratchpads or intermediate artefacts. Interface to expert agents is EXACTLY the file set under `docs/reviews/{agent}/`, `docs/recommendations/{agent}/`, `docs/research/{agent}/`. Nothing else.
+  **Consequence:** overwriting a `.full-review/` file corrupts the orchestrator's cross-phase handoff substrate (its external memory), so a later phase reads stale or mangled state and dispatches the wrong agents; re-running an expert's tool calls or reading its scratchpads instead of its published report makes context-manager second-guess the domain agent that owns the file and emit a verdict that contradicts the very report it is meant to compact.
 
 ## Review Checklist
 

@@ -65,8 +65,10 @@ Plus one top-level index:
 
 1. **Evidence or ROADMAP.** No feature listed PRESENT without a `src/*.rs:N` anchor.
 2. **Honesty on security state.** If the OPC UA client is hand-rolled and lacks SecurityPolicy Basic256Sha256 (per ORPHAN-EDGE-005), the chapter says so in **Authentication + encryption** — DO NOT hide this for Siemens-facing docs.
+   - **Example:** `opc-ua.md` § Authentication + encryption writes "Only `SecurityPolicy::None` is wired today; Basic256Sha256 is ROADMAP (ORPHAN-EDGE-005, opcua.rs:N)" — not "OPC UA secure channel supported". A Siemens OT reviewer who certifies against the hidden claim and later finds plaintext on the wire treats the whole package as fraudulent.
 3. **No dead protocol chapters as PRESENT.** spi.rs + pwm.rs are `#![allow(dead_code)]` (ORPHAN-EDGE-014) → status "CODE-COMPILED-NOT-WIRED, ROADMAP-QX".
 4. **Re-expression discipline.** Preserve `sensorprotocols/*.md` normative content; upgrade to RFC 2119 MUST/SHOULD/MAY.
+   - **Example:** source line "the client retries 3 times" becomes the normative form `The client retries at most 3 times` rendered with an RFC 2119 keyword (modbus.rs:N), and "the server echoes FC6" becomes a `SHOULD`-strength clause. Keep the original fact, raise it to a testable normative keyword — an integrator certifies against the RFC 2119 keyword strength, not against loose prose.
 5. **One file per protocol.** No bundled chapters. Each file is independent; cross-references allowed but no content duplication.
 6. **Banned-phrase discipline** per README.md substitution table.
 

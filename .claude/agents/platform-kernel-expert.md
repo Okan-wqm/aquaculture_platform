@@ -66,32 +66,36 @@ Recommending a service-local compensation for a shared-kernel defect is a HIGH f
 
 ### CQRS kernel lifecycle & handler discoverability (`platform/libs/cqrs`)
 
-- Shared CQRS primitives MUST preserve request metadata across bus hops: tenant context, correlationId, actor identity, tracing context. Dropping any of these inside shared code is CRITICAL — services cannot recover metadata they never received.
+- Shared CQRS primitives MUST preserve request metadata across bus hops: tenant context, correlationId, actor identity, tracing context. Dropping any of these inside shared code is CRITICAL.
 - Handler registration MUST be deterministic: no import-order dependence, no side-effect registration hidden behind module loading. Decorator scanning is valid; implicit global singletons are HIGH.
-- The kernel MUST NOT embed retry, fallback, or fire-and-forget policy that individual services cannot explicitly opt out of. Hidden retry semantics in the bus is HIGH because it changes at-least-once vs exactly-once guarantees silently.
+- The kernel MUST NOT embed retry, fallback, or fire-and-forget policy that individual services cannot explicitly opt out of. Hidden retry semantics in the bus is HIGH.
 - Any kernel change that forces every service to update handlers, decorators, or `CqrsModule` wiring is a platform-wide compatibility event; it is NOT a local refactor and MUST be reviewed under the inner-platform contract above.
+  **Consequence:** a service cannot recover request metadata it never received, so dropping tenant/correlation/actor/trace context in shared code corrupts every downstream consumer at once (CRITICAL); implicit global singleton registration makes handler discovery import-order-dependent and silently non-deterministic; a hidden bus-level retry changes at-least-once vs exactly-once guarantees beneath services that never opted in; and treating a wiring-breaking kernel change as a local refactor ships silent divergence across the fleet instead of the atomic consumer update the inner-platform contract demands.
 
 ### Event-bus factory adoption (`platform/libs/event-bus`)
 
-- Services MUST acquire NATS connections via the shared event-bus factory. A direct `nats.connect()` call outside the platform kernel bypasses the tenant/correlation envelope helpers, the mTLS client-cert wiring (ADR-014/ADR-015), and the metrics/telemetry hooks — HIGH.
+- Services MUST acquire NATS connections via the shared event-bus factory. A direct `nats.connect()` call outside the platform kernel is HIGH.
 - The shared publish/consume path MUST preserve envelope integrity: `tenantId`, `correlationId`, trace headers, and version hooks on every event. Removing or weakening any of these in shared code is CRITICAL.
-- Delivery semantics MUST be explicit in the abstraction surface. An API that implies exactly-once processing without outbox + dedup is HIGH (see layer-2 outbox rules).
+- Delivery semantics MUST be explicit in the abstraction surface. An API that implies exactly-once processing without outbox + dedup is HIGH.
 - Silent publish failures are CRITICAL. Errors MUST surface to the caller or, when fire-and-forget is intended, to telemetry + metrics with a named counter.
 - NATS-specific detail (subjects, JetStream options, cert CN) MAY live in the adapter; the kernel contract facing service authors MUST stay stable across adapter upgrades.
+  **Consequence:** a direct `nats.connect()` bypasses the tenant/correlation envelope helpers, the mTLS client-cert wiring (ADR-014/ADR-015), and the metrics/telemetry hooks (HIGH); stripping envelope fields in shared code blinds every consumer to tenant, trace, and version data (CRITICAL); an API that implies exactly-once without outbox + dedup invites duplicate processing (see layer-2 outbox rules); a swallowed publish loses the event with no counter or caller signal (CRITICAL); and leaking NATS-specific detail into the kernel contract breaks every service author on the next adapter upgrade.
 
 ### Backend-common bootstrap ownership (`libs/backend-common/src/bootstrap`)
 
 - The bootstrap module is the single source of truth for service startup: global pipes, filters, interceptors, liveness/readiness shape, structured logger wiring, OTEL initialization, graceful shutdown hooks. A service that re-implements any of these in its own `main.ts` is HIGH — the shared default is the contract.
-- Liveness probes MUST remain dependency-light; deep dependency checks (DB, NATS, Redis) belong to readiness. A shared health helper that encourages heavyweight liveness is HIGH because every service inherits the regression.
-- Request-scoped context (tenantId, correlationId, actor) MUST stay request-scoped. Any process-global mutable context or leaked async-local context in shared code is HIGH — cross-request contamination at the kernel level is a tenant-isolation risk.
-- Structured logging MUST remain low-cardinality at shared layer. High-cardinality labels (tenantId-in-metric-label, unbounded request-path labels) in shared metrics/logging wrappers are CRITICAL — they fan out across the entire fleet and can bankrupt Prometheus/OTEL backends.
+- Liveness probes MUST remain dependency-light; deep dependency checks (DB, NATS, Redis) belong to readiness. A shared health helper that encourages heavyweight liveness is HIGH.
+- Request-scoped context (tenantId, correlationId, actor) MUST stay request-scoped. Any process-global mutable context or leaked async-local context in shared code is HIGH.
+- Structured logging MUST remain low-cardinality at shared layer. High-cardinality labels (tenantId-in-metric-label, unbounded request-path labels) in shared metrics/logging wrappers are CRITICAL.
+  **Consequence:** a heavyweight liveness probe makes orchestrators restart a service whenever its DB/NATS/Redis dependency blips, and every service inherits that regression from the shared helper (HIGH); process-global or leaked async-local context bleeds one request's tenant/correlation/actor into another at the kernel level — a cross-request tenant-isolation breach (HIGH); and high-cardinality labels like tenantId-in-metric-label fan out across the entire fleet and can bankrupt the Prometheus/OTEL backends (CRITICAL).
 
 ### Configs schema & versioning (`platform/configs`, `libs/backend-common/src/config`)
 
 - Every config surface MUST validate required inputs at boot. Silent fallbacks on security- or infra-sensitive settings (`vault`, `mfa`, `rate-limit`, `kafka`, `temporal`, `opentelemetry`) are HIGH, escalating to CRITICAL when the fallback weakens security or tenant isolation.
 - Production defaults MUST NEVER be insecure-by-default: no disabled rate limiting, no weak MFA posture, no disabled tracing propagation, no plaintext secret sourcing in shared defaults.
 - Schema changes MUST have an explicit rollout story. Renaming or removing an env/config key consumed by multiple services without a compatibility bridge (dual-read window + deprecation log) is HIGH.
-- Shared config code MUST fail fast on invalid values. Coercing surprising values into "reasonable defaults" is HIGH — it converts a boot-time misconfiguration into a runtime mystery.
+- Shared config code MUST fail fast on invalid values. Coercing surprising values into "reasonable defaults" is HIGH.
+  **Consequence:** a silent fallback on `vault`/`mfa`/`rate-limit`/`kafka`/`temporal`/`opentelemetry` boots a service in a degraded posture nobody notices (HIGH, CRITICAL when it weakens security or tenant isolation); an insecure-by-default production setting ships disabled rate limiting, weak MFA, or plaintext secrets as the zero-config path; renaming a multi-service env key without a dual-read window + deprecation log strands every consumer that still reads the old key (HIGH); and coercing a surprising config value into a "reasonable default" converts a boot-time misconfiguration into a runtime mystery instead of failing fast at startup (HIGH).
 - Monetary, pagination, types, and websocket helpers are wire contracts. Changing their semantics without explicit migration guidance is HIGH.
 
 ## Active findings this agent owns
@@ -108,7 +112,8 @@ Review prior cycles for OPEN findings before each new review; escalate recurring
 See `@.claude/shared/operating-modes.md` for the full CATCHER / TEACHER / WRITER contract. Agent-specific overrides:
 
 - **WRITER mode is not supported by default.** Kernel edits ripple to every consumer; they require an explicit WRITER dispatch naming the consumer set and an `implementation-planner` package. Never self-initiate kernel code changes.
-- CATCHER is the default mode. TEACHER mode output MUST name the affected consumer surface for every rule it teaches (no abstract rules without ripple context).
+- CATCHER is the default mode. TEACHER mode output MUST name the affected consumer surface for every rule it teaches.
+  **Consequence:** a kernel rule taught without naming which consumers it ripples to is an abstract rule with no blast-radius context, so the reader cannot tell which services a violation actually breaks.
 
 ## Finding ID prefix
 

@@ -39,6 +39,7 @@ Generic real-defect classes (authz/IDOR, injection, secret-in-log, dup, hygiene)
 
 - SUPER_ADMIN impersonation creates `ImpersonationSession` audit record with real_user_id / impersonated_user_id / impersonated_tenant_id / mfa_challenge_id / reason / ip_address / user_agent / initiated_at / expires_at / terminated_at / termination_reason (all NOT NULL except termination fields).
 - **Every action during impersonation logged with BOTH real + impersonated identity (dual-identity audit).** Single-identity rows during active session = CRITICAL.
+  **Consequence:** a single-identity audit row during an active session hides which real SUPER_ADMIN performed the action behind the impersonated user, defeating the dual-identity accountability SOC 2 / GDPR Art 30 require.
 - **Absolute TTL ≤1h AND inactivity TTL ≤15min** both enforced server-side (client UI timers insufficient).
 - **MFA step-up verified at impersonation-initiation endpoint**, NOT at login — login-time MFA stale and insufficient.
 - Business justification (support ticket ID or structured reason) required non-empty field at impersonation start.
@@ -48,12 +49,14 @@ Generic real-defect classes (authz/IDOR, injection, secret-in-log, dup, hygiene)
 - IP / device fingerprint change during active session SHOULD terminate + emit security event.
 - Events (start, terminate, write-toggle) emit NATS security event for downstream alerting.
 - Debug tools (cache inspector, API call inspector, query inspector) SUPER_ADMIN only + reject if caller is currently impersonating; all read-only with audit; MUST NOT expose tokens, session secrets, JWT signing keys, raw password hashes.
+  **Consequence:** client-side TTL timers can be paused so an abandoned impersonation window stays live; login-time MFA lets a stolen session escalate to impersonation with no fresh challenge; and a debug inspector that returns JWT signing keys or password hashes hands an attacker the keys to forge any tenant's session.
 
 ### Database management safety (CRITICAL)
 
 - Schema/migration/backup operations SUPER_ADMIN only + rejected if caller inside active impersonation session.
 - Database explorer runs under dedicated PG role with ONLY `CONNECT`/`USAGE`/`SELECT` grants (e.g. `pg_read_all_data` membership); app service role NOT reused.
 - **Read-only enforcement via 7-layer defense-in-depth** (missing any = CRITICAL):
+  **Consequence:** any single missing layer lets a crafted query mutate or exfiltrate data — e.g. without CTE-write rejection a `WITH x AS (DELETE ...)` slips past top-level parsing, and without the no-write-grants role even a parser bypass still writes.
   1. SQL parser top-level command validation
   2. Multi-statement rejection
   3. CTE write rejection (no `WITH ... INSERT/UPDATE/DELETE/MERGE`)
@@ -63,12 +66,14 @@ Generic real-defect classes (authz/IDOR, injection, secret-in-log, dup, hygiene)
   7. Row-limit wrapper (e.g. `LIMIT 1000`)
 - **Migration endpoints SELECT from deploy-time allowlist** of known migration identifiers; accepting arbitrary SQL input = CRITICAL.
 - Migration operations resolve target schema from tenant UUID via tenant registry; accepting schema names directly from requests = CRITICAL; `public` never a valid target.
+  **Consequence:** an arbitrary-SQL migration endpoint is a remote DDL primitive (drop any table), and accepting a raw schema name lets an attacker target another tenant's `tenant_<uuid>` schema or `public`, turning the migration runner into a cross-tenant data-destruction tool.
 - Backup/restore logs initiator, scope, result, byte count; restore to production requires dual SUPER_ADMIN; restores default to staging DB.
 - Schema operations (CREATE/DROP/ALTER) audited at CRITICAL severity.
-- **NEVER grant `pg_read_server_files` / `pg_execute_server_program` / `pg_write_server_files`** to any admin-tool role (bypass DB permission checks, enable superuser escalation).
+- **NEVER grant `pg_read_server_files` / `pg_execute_server_program` / `pg_write_server_files`** to any admin-tool role.
 - Identifier substitutions (table/column/schema) validated against `information_schema` allowlists; string concatenation into quoted identifiers FORBIDDEN.
 - DB explorer query logs redact bind parameters before persistence; raw WHERE-clause values with PII = log-injection / PII-leak.
 - `information_schema` queries from explorer tenant-scoped; returning cross-tenant schema listings = CRITICAL.
+  **Consequence:** `pg_execute_server_program` / `pg_*_server_files` grants bypass all DB permission checks and enable superuser escalation; identifier concatenation reopens SQL injection through quoted names; and an un-scoped `information_schema` listing leaks every tenant's schema names, enabling tenant enumeration.
 
 Research: `docs/research/admin-expert/2026-04-08-database-management-safety-readonly.md`.
 
@@ -78,6 +83,7 @@ Research: `docs/research/admin-expert/2026-04-08-database-management-safety-read
 
 - Provisioning saga: create tenant → create schema → seed data → assign modules → create admin user → billing subscription → notifications.
 - Every step classified `COMPENSABLE | PIVOT | RETRYABLE`; unclassified = HIGH.
+  **Consequence:** an unclassified saga step has no defined rollback semantics, so a mid-saga failure leaves a half-provisioned tenant (schema created, billing subscription orphaned) with no compensation path.
 - Each compensable step has paired idempotent compensation handler undoing exactly what that saga instance created (matched by saga instance ID, not resource name).
 - Each step uses persisted per-step idempotency key (`(tenant_id, step_name)`); retrying a completed step has NO side effects.
 - Compensation failures retry with exponential backoff; after exhaustion, enqueue `RequiresManualReconciliation` alert visible in admin dashboard.
@@ -88,6 +94,7 @@ Research: `docs/research/admin-expert/2026-04-08-database-management-safety-read
 - Tenant purge emits immutable hash-signed `TenantPurged` audit event as certificate of destruction (GDPR / SOC 2 evidence).
 - Partial-provisioning (saga failed) tenants visibly flagged; silent intermediate states = HIGH.
 - **Saga orchestrator is the ONLY code path mutating tenant lifecycle states**; direct writes from controllers/services = CRITICAL.
+  **Consequence:** retention-config drift from the RoPA invalidates the GDPR Art 30 record; a silently-flagged half-provisioned tenant gets billed for modules it never received; and a direct controller write to `status` bypasses the saga's compensation graph, stranding the tenant in an unrecoverable lifecycle state.
 - Tenant provisioning endpoints asynchronous (`202 Accepted` + job ID), never synchronously waiting on the saga to complete.
 - Tenant row carries semantic lock (`status = PROVISIONING`) other services honor until saga reaches terminal state.
 
@@ -100,12 +107,14 @@ Research: `docs/research/admin-expert/2026-04-08-database-management-safety-read
 - **Cross-tenant audit writes use awaited `recordAwait` pattern** (blocking append before action); failed audit write FAILS the request — fire-and-forget cross-tenant audit = CRITICAL.
 - Audit rows include: actor_user_id · actor_home_tenant_id · acted_on_tenant_id · endpoint · http_method · resource_type · resource_id · justification (required for writes) · ip · user_agent · request_id · result.
 - **TENANT_ADMIN controllers derive tenant ID from JWT only**; reading `X-Act-As-Tenant` from a TENANT_ADMIN request = CRITICAL.
+  **Consequence:** inline header parsing makes the SUPER_ADMIN-only check easy to forget on a new route; rewriting `req.user` instead of `req.tenantScope` turns act-as-tenant into full impersonation (the #1 SaaS bug); a fire-and-forget cross-tenant audit can lose the row on crash; and a TENANT_ADMIN that honours `X-Act-As-Tenant` reads another tenant's data.
 - Background jobs enqueued during cross-tenant request serialise tenant scope into job payload; reading from CLS/AsyncLocalStorage in worker = CRITICAL (wrong-tenant execution).
 - Cross-tenant requests rate-limited per SUPER_ADMIN (e.g. max 10 distinct tenant IDs per minute); anomalies (one admin touching >N tenants per session) alert.
-- Response caches + Prometheus labels MUST NOT use raw tenant UUIDs (cross-tenant cache hits / high-cardinality metric blowup — `aquaculture/no-high-cardinality-metric-label` ESLint rule enforces).
+- Response caches + Prometheus labels MUST NOT use raw tenant UUIDs; `aquaculture/no-high-cardinality-metric-label` ESLint rule enforces.
 - Tenant enumeration via differentiated error responses = HIGH; non-SUPER_ADMIN responses identical whether tenant exists or not.
 - TENANT_ADMIN operations scoped to own tenant only; never expose one tenant's data in another tenant's admin panel.
 - Role hierarchy: `SUPER_ADMIN > TENANT_ADMIN > MODULE_MANAGER > MODULE_USER`. Role read from JWT signed claims AFTER full verification, NEVER from mutable/ambient source.
+  **Consequence:** a worker reading tenant from CLS instead of the job payload executes against whatever tenant happens to be in scope (wrong-tenant writes); raw tenant UUIDs in a cache key cause cross-tenant cache hits and in a Prometheus label cause cardinality blowup; differentiated error responses leak which tenants exist; and a role read from a mutable/ambient source instead of the verified JWT is a privilege-escalation path.
 
 Research: `docs/research/admin-expert/2026-04-08-cross-tenant-access-control-x-act-as-tenant.md`.
 
@@ -114,6 +123,7 @@ Research: `docs/research/admin-expert/2026-04-08-cross-tenant-access-control-x-a
 - **Stripe webhook endpoint mounts with `express.raw({ type: 'application/json' })`** + verifies via `stripe.webhooks.constructEvent`; custom signature logic = CRITICAL; body-parser middleware running before webhook route breaks verification.
 - Webhook handler dedupes on `event.id` via dedicated `stripe_webhook_events` table (states `PROCESSING | PROCESSED | FAILED`); first-write-wins via unique constraint.
 - Webhook idempotency state transitions + side effects atomic via transactional outbox; fire-and-forget side effects after webhook receipt = CRITICAL.
+  **Consequence:** custom signature logic or a body-parser running before the raw-body webhook route breaks `constructEvent`, accepting forged Stripe events; and fire-and-forget side effects after receipt can apply a plan grant then lose it on crash, so the tenant is billed but never provisioned (or vice-versa).
 - Webhook handler returns 2xx within 5s; long-running work queued via NATS or outbox.
 - Outgoing Stripe API calls for refunds, voids, subscription mutations pass `Idempotency-Key` header keyed to logical admin operation (prevents double-click double refunds).
 - Plan changes modeled as saga with explicit pivot transaction (Stripe subscription update) + compensations for pre-pivot steps.
@@ -124,6 +134,7 @@ Research: `docs/research/admin-expert/2026-04-08-cross-tenant-access-control-x-a
 - Scheduled reconciliation job pulls Stripe events since last watermark to cover webhook delivery gaps beyond Stripe's 3-day retry window.
 - Stripe event payload logs redact customer PII (email, name, partial card data) before persistence.
 - Webhook signature verification failures MUST NOT include webhook secret in logs / error responses.
+  **Consequence:** a webhook handler writing module grants directly (bypassing the saga) can leave grants and billing state divergent with no compensation; and echoing the webhook secret into a verification-failure log hands an attacker the key to forge valid-looking Stripe events.
 - Orphaned webhooks (customer.id with no tenant mapping) parked in dead-letter queue with alerting, not silently dropped.
 - Voided invoices remain visible with voided flag, never deleted (append-only billing audit).
 - Subscription status changes cascade to tenant module access. Usage metrics read-only from admin perspective (sourced from billing-service). Pricing calculator, discount codes, custom plans — all SUPER_ADMIN gated.
@@ -133,10 +144,12 @@ Research: `docs/research/admin-expert/2026-04-08-cross-tenant-access-control-x-a
 - **Audit tables append-only via `BEFORE UPDATE` + `BEFORE DELETE` triggers that `RAISE EXCEPTION`**; UPDATE/DELETE from application code = CRITICAL.
 - App service role has INSERT-only privileges on audit tables; SELECT granted via SEPARATE role used by dedicated audit-read path.
 - User-supplied values passed as structured metadata to NestJS `Logger`, NEVER interpolated into log-message template (CRLF log injection / CWE-117).
+  **Consequence:** an UPDATE/DELETE reaching an audit table from application code (no `BEFORE UPDATE/DELETE` trigger) silently rewrites the tamper-evident record SOC 2 CC4 depends on; and interpolating a user value into the log template lets a CRLF payload forge fake log lines (CWE-117 log injection).
 - Central log sanitiser strips passwords, tokens, session IDs, JWTs, webhook secrets, API keys + masks PII (email hashed, phone masked, names redacted).
 - Audit records: actor_user_id · actor_role · tenant_id (or `_PLATFORM_`) · event_type · resource_type · resource_id · ip · user_agent · request_id · server_timestamp_utc · result.
 - **Reading the audit log emits a meta-audit row** ("who watches the watchers") — mandatory for SOC 2 / ISO 27001 access reviews.
 - TENANT_ADMIN audit-read queries scoped at query-builder level to own tenant; cross-tenant filters from client input = CRITICAL.
+  **Consequence:** if the tenant scope comes from a client-supplied filter rather than the query builder, a TENANT_ADMIN can read another tenant's complete audit trail — a cross-tenant compliance-data breach.
 - Audit retention pruning honors `legal_hold` flag, archives to immutable storage before deletion, audits its own operation.
 - Audit tables partitioned by month with BRIN indexes on timestamp for query performance.
 - Alert rules exist for: failed-auth bursts, SUPER_ADMIN cross-tenant anomalies, write-mode impersonation off-hours, audit write failures, audit tamper attempts (UPDATE/DELETE on audit tables).
@@ -146,24 +159,25 @@ Research: `docs/research/admin-expert/2026-04-08-cross-tenant-access-control-x-a
 - All DB + application nodes sync to same authoritative NTP source (NIST SP 800-53 AU-8); clock drift invalidates audit evidence.
 - Security dashboard aggregates events from auth-service, gateway-api. Compliance reports complete + non-editable after generation.
 
-Research: `docs/research/admin-expert/2026-04-08-audit-log-immutability-compliance.md`.
-Research also: `2026-04-08-impersonation-security-mfa-audit.md`, `2026-04-08-tenant-lifecycle-saga-rollback.md`, `2026-04-08-billing-admin-webhook-stripe-idempotency.md`.
+Research: `docs/research/admin-expert/2026-04-08-audit-log-immutability-compliance.md`, `2026-04-08-impersonation-security-mfa-audit.md`, `2026-04-08-tenant-lifecycle-saga-rollback.md`, `2026-04-08-billing-admin-webhook-stripe-idempotency.md`.
 
 ### Admin frontend accessibility + i18n (admin-panel + tenant-admin)
 
 Cross-cutting MFE / token lifecycle / CSP / Workbox rules stay with `frontend-expert`. Admin-domain emphasis only:
 
-- **WCAG 2.1 AA MANDATORY** — admin operators include compliance auditors, support staff, government inspectors who may rely on AT. Failures create regulatory exposure (ADA Title II for government deployments, EN 301 549). Missing label / aria-describedby on destructive admin action = HIGH.
-- **Contrast ≥4.5:1 text, ≥3:1 chart labels + status badges**. Status icons relying on COLOR ALONE (red/green health) = HIGH (1.4.1) — must include text or icon shape redundancy.
+- **WCAG 2.1 AA MANDATORY** — admin operators include compliance auditors, support staff, government inspectors who may rely on AT. Missing label / aria-describedby on destructive admin action = HIGH.
+- **Contrast ≥4.5:1 text, ≥3:1 chart labels + status badges**. Status icons relying on COLOR ALONE (red/green health) = HIGH — must include text or icon shape redundancy.
 - **Keyboard navigation MANDATORY** for: impersonation initiation · tenant CRUD · billing void/refund · database explorer · audit-log filter · security incident triage. Mouse-only destructive op = HIGH.
-- **Destructive confirmation dialogs** focus-trapped, ESC-cancellable, destructive button NOT autofocused. Autofocused "Delete tenant" = CRITICAL (single Enter wipes a tenant).
+- **Destructive confirmation dialogs** focus-trapped, ESC-cancellable, destructive button NOT autofocused. Autofocused "Delete tenant" = CRITICAL.
+  **Consequence:** an unlabeled destructive action is invisible to a screen-reader operator (ADA Title II / EN 301 549 regulatory exposure); color-only health status (WCAG 1.4.1) is unreadable to color-blind operators; a mouse-only refund/void blocks keyboard and AT users; and an autofocused "Delete tenant" lets a single stray Enter wipe a tenant.
 - **High-cardinality tables** (audit log, user list, billing history) virtualised AND keyboard-paginable (Page Up/Down, Home/End). 10K-row admin table without keyboard pagination = HIGH.
-- **PII masked by default in admin dashboards** — operator explicitly requests unmask, action audit-logged. Always-visible PII in admin search results = CRITICAL (mass shoulder-surfing risk during ops sessions).
+- **PII masked by default in admin dashboards** — operator explicitly requests unmask, action audit-logged. Always-visible PII in admin search results = CRITICAL.
 - **Real-time alerts via accessible live regions** (`role="alert"` / `aria-live="assertive"` for security incidents; `polite` for non-critical). Silent visual-only alerts = HIGH.
-- **Long-form admin tasks** (DB migration UI, backup/restore wizard) report progress via `role="status"` with measurable updates (percentage, ETA), not just spinners. Spinner-only = MEDIUM.
-- **Print/export views** for compliance reports a11y-equivalent (PDF tagged, semantic structure preserved). Missing tagged PDF on compliance export = MEDIUM (Section 508 fail).
+  **Consequence:** a 10K-row table with no keyboard pagination is unnavigable without a mouse; always-visible PII in search results is a mass shoulder-surfing leak during shared-screen ops sessions; and a visual-only security alert never reaches a screen-reader operator triaging an incident.
+- **Long-form admin tasks** (DB migration UI, backup/restore wizard) report progress via `role="status"` with measurable updates (percentage, ETA), not just spinners. Spinner-only = MEDIUM. **Print/export views** for compliance reports a11y-equivalent (PDF tagged, semantic structure preserved); missing tagged PDF on compliance export = MEDIUM (Section 508 fail).
 - **i18n for all admin strings** — admin operators may run in non-English locales, especially TENANT_ADMINs. Date/number/currency formatting via `Intl.*` per `frontend-expert` i18n rules. Hardcoded English = HIGH.
 - **Focus management on route change** — moving from "Tenants" to "Audit" moves focus to new page heading. Orphan focus on admin route change = HIGH.
+  **Consequence:** hardcoded English locks out non-English TENANT_ADMIN operators and breaks date/currency parsing in their locale; and orphaned focus after a route change strands the screen-reader cursor on the old page, so the operator never learns the view changed.
 
 ## Cross-Domain Dependencies
 

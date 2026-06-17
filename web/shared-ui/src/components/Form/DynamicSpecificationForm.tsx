@@ -100,7 +100,6 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
       ...valuesRef.current,
       [fieldName]: fieldValue,
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- valuesRef is always current; onChange is the only real dep
   }, [onChange]);
 
   // Grup toggle — stable, no deps on values

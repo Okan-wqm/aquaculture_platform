@@ -202,7 +202,6 @@ export function useRequireAuth(requiredRoles?: UserRole[]): {
     if (!isAuthenticated) return false;
     if (!requiredRoles || requiredRoles.length === 0) return true;
     return hasAnyRole(requiredRoles);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- rolesKey is the stable proxy for requiredRoles
   }, [isAuthenticated, rolesKey, hasAnyRole]);
 
   return {

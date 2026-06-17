@@ -304,10 +304,12 @@ async function performTokenRefresh(): Promise<boolean> {
     // tokenLifecycle.notifyTokenSet() fires, transitioning from REFRESHING → READY
     setTokens(result.data.refreshToken.accessToken);
 
-    // Restore tenant ID from refresh response (critical for X-Tenant-Id header)
-    const refreshedTenantId = result.data.refreshToken.user?.tenantId;
-    if (refreshedTenantId) {
-      setTenantId(refreshedTenantId);
+    // Restore tenant ID from refresh response. If the legacy response omits
+    // user.tenantId entirely, keep the existing tenant loaded before refresh.
+    // If tenantId is explicitly null, clear stale tenant scope for SUPER_ADMIN.
+    const refreshedUser = result.data.refreshToken.user;
+    if (refreshedUser && Object.prototype.hasOwnProperty.call(refreshedUser, 'tenantId')) {
+      setTenantId(refreshedUser.tenantId ?? null);
     }
 
     return true;

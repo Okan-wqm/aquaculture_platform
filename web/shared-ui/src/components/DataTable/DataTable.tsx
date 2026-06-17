@@ -468,7 +468,7 @@ export function DataTable<T>({
   // Callers MUST pass a stable array reference (via useState or useMemo in the parent)
   // to avoid O(n log n) sort on every parent render.
   const processedData = useMemo(() => {
-    let result = [...data];
+    const result = [...data];
 
     // Client-side sorting
     if (sortConfig && !serverSideSort) {

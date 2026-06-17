@@ -309,7 +309,7 @@ describe('api-client', () => {
         // Should not attempt a third call, should parse the 401 body
         // The request will proceed to json parse of the 401 response
         // and either return data or throw based on the response body
-        const result = await apiClient.graphqlClient.request('{ users { id } }');
+        await apiClient.graphqlClient.request('{ users { id } }');
         // 3 calls total, no further retry
         expect(mockFetch).toHaveBeenCalledTimes(3);
       });
@@ -769,7 +769,7 @@ describe('api-client', () => {
 
       // Fire two requests concurrently — both should hit 401
       // but only ONE refresh should happen
-      const [res1, res2] = await Promise.all([
+      await Promise.all([
         apiClient.graphqlClient.request('{ query1 }'),
         apiClient.graphqlClient.request('{ query2 }'),
       ]);

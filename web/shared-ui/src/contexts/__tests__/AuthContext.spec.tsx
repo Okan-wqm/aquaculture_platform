@@ -60,8 +60,8 @@ vi.mock('../../utils/api-client', () => {
 });
 
 // Import after mocking
-import { AuthProvider, useAuthContext, type UserRole, type AuthUser } from '../AuthContext';
-import { setTokens, clearTokens, clearSession, getAccessToken, silentRefresh, graphqlClient, setTenantId } from '../../utils/api-client';
+import { AuthProvider, useAuthContext, type UserRole, type AuthUser, type LoginResult } from '../AuthContext';
+import { setTokens, clearSession, getAccessToken, silentRefresh, graphqlClient, setTenantId } from '../../utils/api-client';
 import { tokenLifecycle } from '../../utils/token-lifecycle';
 
 // ============================================================================
@@ -72,15 +72,9 @@ const mockGraphqlRequest = graphqlClient.request as ReturnType<typeof vi.fn>;
 const mockSilentRefresh = silentRefresh as ReturnType<typeof vi.fn>;
 const mockGetAccessToken = getAccessToken as ReturnType<typeof vi.fn>;
 const mockSetTokens = setTokens as ReturnType<typeof vi.fn>;
-const mockClearTokens = clearTokens as ReturnType<typeof vi.fn>;
 const mockClearSession = clearSession as ReturnType<typeof vi.fn>;
 const mockSetTenantId = setTenantId as ReturnType<typeof vi.fn>;
-const mockTokenLifecycle = tokenLifecycle as {
-  initialize: ReturnType<typeof vi.fn>;
-  getState: ReturnType<typeof vi.fn>;
-  waitForReady: ReturnType<typeof vi.fn>;
-  destroy: ReturnType<typeof vi.fn>;
-};
+const mockTokenLifecycle = vi.mocked(tokenLifecycle);
 
 function createMockUser(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
@@ -114,6 +108,13 @@ function createLoginResponse(user: AuthUser, redirectUrl = '/dashboard') {
       user,
     },
   };
+}
+
+function getRedirectPath(loginResult: LoginResult | undefined): string {
+  if (!loginResult || !('redirectPath' in loginResult)) {
+    throw new Error('Expected login redirect result');
+  }
+  return loginResult.redirectPath;
 }
 
 // AuthProvider wrapper for renderHook
@@ -202,7 +203,7 @@ describe('AuthContext', () => {
         wrapper: createWrapper(false),
       });
 
-      let loginResult: { redirectPath: string };
+      let loginResult: LoginResult | undefined;
       await act(async () => {
         loginResult = await result.current.login({
           email: 'test@example.com',
@@ -225,7 +226,7 @@ describe('AuthContext', () => {
       expect(result.current.error).toBeNull();
 
       // Verify redirect path
-      expect(loginResult!.redirectPath).toBe('/dashboard');
+      expect(getRedirectPath(loginResult)).toBe('/dashboard');
     });
 
     it('should dispatch AUTH_FAILURE on login error', async () => {
@@ -310,7 +311,7 @@ describe('AuthContext', () => {
         wrapper: createWrapper(false),
       });
 
-      let loginResult: { redirectPath: string };
+      let loginResult: LoginResult | undefined;
       await act(async () => {
         loginResult = await result.current.login({
           email: 'admin@example.com',
@@ -318,7 +319,7 @@ describe('AuthContext', () => {
         });
       });
 
-      expect(loginResult!.redirectPath).toBe('/admin');
+      expect(getRedirectPath(loginResult)).toBe('/admin');
     });
 
     it('should clear stale tenant scope for SUPER_ADMIN login', async () => {
@@ -697,7 +698,7 @@ describe('AuthContext', () => {
         password: 'pw',
       });
 
-      expect(loginResult.redirectPath).toBe('/');
+      expect(getRedirectPath(loginResult)).toBe('/');
     });
 
     it('fallback logout should clear session', async () => {
@@ -724,12 +725,12 @@ describe('AuthContext', () => {
         wrapper: createWrapper(false),
       });
 
-      let loginResult: { redirectPath: string };
+      let loginResult: LoginResult | undefined;
       await act(async () => {
         loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
       });
 
-      expect(loginResult!.redirectPath).toBe('/dashboard');
+      expect(getRedirectPath(loginResult)).toBe('/dashboard');
     });
 
     it('should reject protocol-relative URLs (//evil.com)', async () => {
@@ -743,14 +744,14 @@ describe('AuthContext', () => {
         wrapper: createWrapper(false),
       });
 
-      let loginResult: { redirectPath: string };
+      let loginResult: LoginResult | undefined;
       await act(async () => {
         loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
       });
 
       // Should fall back to default redirect, not the malicious URL
-      expect(loginResult!.redirectPath).not.toContain('evil.com');
-      expect(loginResult!.redirectPath).toBe('/tenant');
+      expect(getRedirectPath(loginResult)).not.toContain('evil.com');
+      expect(getRedirectPath(loginResult)).toBe('/tenant');
     });
 
     it('should reject absolute URLs with protocol (https://evil.com)', async () => {
@@ -764,13 +765,13 @@ describe('AuthContext', () => {
         wrapper: createWrapper(false),
       });
 
-      let loginResult: { redirectPath: string };
+      let loginResult: LoginResult | undefined;
       await act(async () => {
         loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
       });
 
-      expect(loginResult!.redirectPath).not.toContain('evil.com');
-      expect(loginResult!.redirectPath).toBe('/tenant');
+      expect(getRedirectPath(loginResult)).not.toContain('evil.com');
+      expect(getRedirectPath(loginResult)).toBe('/tenant');
     });
 
     it('should reject URLs with colon (javascript:alert(1))', async () => {
@@ -784,13 +785,13 @@ describe('AuthContext', () => {
         wrapper: createWrapper(false),
       });
 
-      let loginResult: { redirectPath: string };
+      let loginResult: LoginResult | undefined;
       await act(async () => {
         loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
       });
 
-      expect(loginResult!.redirectPath).not.toContain('javascript');
-      expect(loginResult!.redirectPath).toBe('/dashboard');
+      expect(getRedirectPath(loginResult)).not.toContain('javascript');
+      expect(getRedirectPath(loginResult)).toBe('/dashboard');
     });
 
     it('should use role-based default when redirectUrl is null', async () => {
@@ -804,12 +805,12 @@ describe('AuthContext', () => {
         wrapper: createWrapper(false),
       });
 
-      let loginResult: { redirectPath: string };
+      let loginResult: LoginResult | undefined;
       await act(async () => {
         loginResult = await result.current.login({ email: 'a@b.com', password: 'p' });
       });
 
-      expect(loginResult!.redirectPath).toBe('/dashboard');
+      expect(getRedirectPath(loginResult)).toBe('/dashboard');
     });
   });
 

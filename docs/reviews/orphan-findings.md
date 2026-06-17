@@ -4642,3 +4642,17 @@ Severity: MEDIUM. Discovered 2026-06-17 during the production redeploy (`31a5238
 Status: RESOLVED (2026-06-17; fix branch `fix/aquamobil-dockerfile-copy-shared-contracts`). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-LOW-131 — pedagogy_lint NARRATIVE_RX matched only colon-OUTSIDE (`**Why**:`), contradicting its own remediation string + the V4 validator + the allowlist's own assertion
+
+Severity: LOW. Discovered 2026-06-17 while planning the ARIA-kernel pedagogy GitHub-Actions red (ARIA-V5 §3e); confirmed firsthand by a 4-agent adversarial review + the architectural-arbiter.
+
+**Problem:** `aria-kernel/aria_kernel/pedagogy_lint.py` `NARRATIVE_RX` / `EXAMPLE_EQUIVALENT_RX` matched the narrative-marker punctuation only OUTSIDE the bold (`**Why**:`), but: (a) the lint's OWN remediation message (`:369-371`) tells authors to write `**Why:**` (colon INSIDE); (b) the authoritative sibling V4 validator `narrative_prompt_validator.py:230-236` matches `**Rule.**` (period INSIDE); (c) `tests/invariants/agent-pedagogy.allowlist.json` entries assert the V4 inside-shape "is accepted by NARRATIVE_RX" — which was FALSE on main. So the two kernel narrative validators disagreed on the marker shape and the lint contradicted its own guidance; a canonical authored narrative was not recognized.
+
+**Effect:** the §3e pedagogy gate was not satisfiable by writing the documented shape, and the allowlist's assertion was aspirational rather than true. (The standing `aria-kernel-fast`/`aria-kernel` red is the EXPIRED 30-day allowlist — a separate, by-design forcing-function — NOT this; but this bug means the follow-on narrative work would not register without the fix.)
+
+**Resolution (Phase 0):** widen both matchers to accept punctuation INSIDE or OUTSIDE (`(?:[:.]\*\*|\*\*\s*[:.])`) — additive (outside still matches; no existing agent breaks). Regression test `test_i_v5_3_04` pins both accept-sides + the reject-side. Measured non-increase: `pedagogy_lint --strict` violation_count 578 → 576 (a DECREASE — false-negative repair; compliant 43 → 44). The §3e forcing function (30-day allowlist expiry, `assert==0` gate, strict-mode policy) is untouched. architectural-arbiter ruling: ALLOW-WITH-CONDITIONS (two-way-door internal-helper fix; no `docs/adr/` ADR required).
+
+Status: RESOLVED (2026-06-17; fix branch `chore/aria-pedagogy-phase0-lint-contract`). Registry: orphan-findings.md only. Part of the approved ARIA-V5 §3e pedagogy plan (Phase 0).
+
+---

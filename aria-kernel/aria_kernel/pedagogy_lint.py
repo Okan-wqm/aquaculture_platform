@@ -83,7 +83,13 @@ NARRATIVE_RX = re.compile(
     # would be churn without semantic value.
     r"Rule|The temptation|Why it looks correct|"
     r"The downstream consequence|The correct path"
-    r")\*\*\s*[:.]\s*\S",
+    # Accept the marker punctuation INSIDE the bold (`**Why:**` / `**Rule.**` —
+    # the V5 operator-canonical shape, what `narrative_prompt_validator.py`
+    # expects, and what THIS lint's own remediation string prescribes) OR
+    # OUTSIDE (`**Why**:` — legacy). Pre-fix only the outside form matched, so
+    # the matcher contradicted its own guidance + the V4 validator (the
+    # internal-inconsistency bug fixed in Phase 0).
+    r")(?:[:.]\*\*|\*\*\s*[:.])\s*\S",
     re.MULTILINE,
 )
 
@@ -92,7 +98,8 @@ NARRATIVE_RX = re.compile(
 # routinely shows the right pattern via code-block or inline example;
 # we accept it as a structurally-equivalent Example marker.
 EXAMPLE_EQUIVALENT_RX = re.compile(
-    r"\*\*(Example|The correct path)\*\*\s*[:.]\s*\S",
+    # Same inside-OR-outside punctuation acceptance as NARRATIVE_RX (Phase 0).
+    r"\*\*(Example|The correct path)(?:[:.]\*\*|\*\*\s*[:.])\s*\S",
     re.MULTILINE,
 )
 

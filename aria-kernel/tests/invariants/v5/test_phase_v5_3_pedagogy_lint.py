@@ -168,6 +168,41 @@ class PhaseV5_3PedagogyLint(unittest.TestCase):
         self.assertIsInstance(data["violations"], list)
         self.assertEqual(data["violation_count"], 0)
 
+    # I-V5.3-04 — the narrative matcher recognizes the operator-canonical
+    # punctuation shape (regression for the Phase-0 inside/outside contract fix).
+    def test_i_v5_3_04_narrative_rx_accepts_canonical_shapes(self) -> None:
+        """Plan ARIA-V5 §3e — NARRATIVE_RX MUST recognize the narrative shape
+        the lint's own remediation string + narrative_prompt_validator.py
+        prescribe (`**Why:**`, colon INSIDE), as well as the legacy outside form
+        (`**Why**:`), and MUST NOT match a bare non-marker. Locks the Phase-0
+        fix so the matcher can never again contradict its own guidance.
+        """
+        from aria_kernel.pedagogy_lint import NARRATIVE_RX, EXAMPLE_EQUIVALENT_RX
+        accept = [
+            "  **Why:** the cascade would replay forever.",     # V5 inside (canonical)
+            "  **Why**: the cascade would replay forever.",      # legacy outside
+            "  **Consequence:** duplicate events storm consumers.",
+            "  **Rule.** never publish outside the outbox.",     # V4 inside
+            "  **The correct path.** emit via the transactional outbox.",
+        ]
+        for s in accept:
+            self.assertTrue(
+                NARRATIVE_RX.search(s),
+                msg=f"NARRATIVE_RX must match canonical narrative: {s!r}",
+            )
+        reject = [
+            "  **Note:** not a recognized narrative marker.",    # marker not in the set
+            "  - The handler MUST publish via the outbox.",      # bare imperative, no marker
+            "  **Why**",                                          # marker, no punctuation/content
+        ]
+        for s in reject:
+            self.assertFalse(
+                NARRATIVE_RX.search(s),
+                msg=f"NARRATIVE_RX must NOT match: {s!r}",
+            )
+        self.assertTrue(EXAMPLE_EQUIVALENT_RX.search("  **Example:** see batch.handler.ts"))
+        self.assertTrue(EXAMPLE_EQUIVALENT_RX.search("  **Example**: see batch.handler.ts"))
+
 
 if __name__ == "__main__":
     unittest.main()

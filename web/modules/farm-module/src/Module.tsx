@@ -6,24 +6,54 @@
  */
 
 import './styles.css';
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
+// Only the default landing page (Map) is eager so the landing path has no
+// Suspense fallback flash.
 import MapViewPage from './pages/MapViewPage';
-import SetupPage from './pages/setup/SetupPage';
-import ReportsPage from './pages/reports/ReportsPage';
-import TanksPage from './pages/tanks/TanksPage';
-import SentinelHubSettingsPage from './pages/settings/SentinelHubSettingsPage';
-import FeedingPage from './pages/feeding/FeedingPage';
-import FeedingProgramForm from './pages/feeding/FeedingProgramForm';
-import StoragePage from './pages/storage/StoragePage';
-import HealthEventsPage from './pages/health/HealthEventsPage';
-import HarvestPlansPage from './pages/harvest/HarvestPlansPage';
-import TasksPage from './pages/tasks/TasksPage';
-import CompanyPage from './pages/company/CompanyPage';
-import WaterChemistryPage from './pages/water-chemistry/WaterChemistryPage';
-import AnalyticsPage from './pages/analytics/AnalyticsPage';
-import BatchDetailPage from './pages/production/BatchDetailPage';
+
+// fe-eager-imports (FARM-MEDIUM-060): route-level code splitting. Every
+// non-landing page — especially the chart-heavy ones (recharts) — is lazy so
+// its code stays out of the remote's main chunk and loads on navigation.
+// Mirrors the sensor-module precedent. (recharts/lucide are also now MF shared
+// singletons via vite.config, so they no longer bundle into this remote.)
+const SetupPage = lazy(() => import('./pages/setup/SetupPage'));
+const ReportsPage = lazy(() => import('./pages/reports/ReportsPage'));
+const TanksPage = lazy(() => import('./pages/tanks/TanksPage'));
+const SentinelHubSettingsPage = lazy(
+  () => import('./pages/settings/SentinelHubSettingsPage'),
+);
+const FeedingPage = lazy(() => import('./pages/feeding/FeedingPage'));
+const FeedingProgramForm = lazy(() => import('./pages/feeding/FeedingProgramForm'));
+const StoragePage = lazy(() => import('./pages/storage/StoragePage'));
+const HealthEventsPage = lazy(() => import('./pages/health/HealthEventsPage'));
+const HarvestPlansPage = lazy(() => import('./pages/harvest/HarvestPlansPage'));
+const TasksPage = lazy(() => import('./pages/tasks/TasksPage'));
+const CompanyPage = lazy(() => import('./pages/company/CompanyPage'));
+const WaterChemistryPage = lazy(
+  () => import('./pages/water-chemistry/WaterChemistryPage'),
+);
+const AnalyticsPage = lazy(() => import('./pages/analytics/AnalyticsPage'));
+const BatchDetailPage = lazy(() => import('./pages/production/BatchDetailPage'));
+
+/**
+ * Suspense fallback for lazily-loaded routes. role="status" + aria-live so
+ * assistive tech announces the load (improves on the sensor-module precedent's
+ * bare spinner).
+ */
+function PageLoader(): React.ReactElement {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex h-64 items-center justify-center"
+    >
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+      <span className="sr-only">Yükleniyor…</span>
+    </div>
+  );
+}
 
 // ============================================================================
 // Sites Module
@@ -39,6 +69,7 @@ const FarmModule: React.FC = () => {
   useFarmRealtimeStream();
 
   return (
+    <Suspense fallback={<PageLoader />}>
     <Routes>
       {/* Index -> Map'e yönlendir */}
       <Route index element={<Navigate to="map" replace />} />
@@ -130,6 +161,7 @@ const FarmModule: React.FC = () => {
       {/* Bilinmeyen route'lar -> map'e yönlendir */}
       <Route path="*" element={<Navigate to="/sites/map" replace />} />
     </Routes>
+    </Suspense>
   );
 };
 

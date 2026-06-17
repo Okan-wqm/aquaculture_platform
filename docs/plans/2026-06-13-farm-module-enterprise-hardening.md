@@ -68,7 +68,7 @@ Finding IDs are used in commit `Closes:` lines (`Closes: docs/plans/2026-06-13-f
 | `gdpr-subject-erasure` | HIGH | (audit) | T2 | No per-data-subject Art.17 erasure for worker PII (only tenant-wide). |
 | `pii-plaintext-log` | HIGH | (audit) | T1/T2 | Worker PII logged via string interpolation in `create-worker.handler`. |
 | `fe-role-gating` | MED | (audit) | T3 | `useCanMutate` applied inconsistently; many destructive mutation surfaces ungated client-side. |
-| `fe-eager-imports` | MED | (audit) | T1 | farm-module 100% eager imports; recharts/lucide bundled per-remote; no bundle budget. |
+| `fe-eager-imports` | MED | ✅ `FARM-MEDIUM-060` | T1 | Shared recharts/lucide as MF singletons + route-level `lazy()`/`Suspense` (Map eager) + `chunkSizeWarningLimit` budget; recharts pinned exact. |
 | `fe-upload-bypass` | HIGH | ✅ `FARM-HIGH-071` | T2 | Added `RestClient.upload` multipart + rerouted all 5 upload hooks through the central client; fixed CSRF cookie-name drift (`XSRF-TOKEN`→`csrf-token`, the real bug — getCsrfToken always returned null); invariant RULE 3. |
 | `cron-fairness` | MED | (audit) | T2 | All farm crons iterate tenants strictly serially; no concurrency cap / per-tenant timeout / rotation. |
 
@@ -227,5 +227,6 @@ Each plan cluster is tracked as a registry finding (`docs/reviews/_registry/find
 | `FARM-HIGH-069` | 5 | `harvest-planid` — added `harvestPlanId` to the harvest input DTO + FE type (the handler read it for the mandatory-plan gate; DTO/FE omitted it) |
 | `FARM-HIGH-070` | 5 | `close-batch-enum` — expanded the backend enum by the 4 legitimate reasons the FE picker offered (TOTAL_MORTALITY/DISEASE_OUTBREAK/COMMERCIAL_DECISION/MERGED) + exhaustive Record entries; FE/BE drift resolved, no event-contract change (closeReason is free-text). FE-binding-to-generated-types = `ORPHAN-HIGH-131` |
 | `FARM-HIGH-071` | 5 | `fe-upload-bypass` — added `RestClient.upload` multipart to the central client + rerouted all 5 upload/delete/presigned hooks through it (fresh token + CSRF + refresh-on-401); fixed the CSRF cookie-name SSoT drift (`XSRF-TOKEN`→`csrf-token`); invariant RULE 3 bans raw `/upload` fetch. Sibling sentinel raw-fetch = `ORPHAN-MEDIUM-132` |
+| `FARM-MEDIUM-060` | 5 | `fe-eager-imports` — share recharts + lucide as MF singletons (`getSharedConfigWithChartsAndIcons`), route-level `lazy()` + a11y `<Suspense>` (Map eager, 14 pages lazy), bundle budget (`chunkSizeWarningLimit`); recharts pinned exact |
 
 Deferred / superseded references: `FARM-HIGH-007` + `FARM-MEDIUM-003` are closed by `FARM-HIGH-014`; `FARM-MEDIUM-002` is superseded (see `ORPHAN-MEDIUM-112`); feed-dual Phase B convergence is tracked as `ORPHAN-HIGH-114`.

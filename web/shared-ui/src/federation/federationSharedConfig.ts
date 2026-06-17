@@ -159,3 +159,32 @@ export function getSharedConfigWithLucide(): Record<string, SharedDepConfig> {
     },
   };
 }
+
+/**
+ * Extended shared config that includes BOTH recharts and lucide-react.
+ *
+ * WHY (fe-eager-imports / FARM-MEDIUM-060): farm-module consumes both heavy
+ * libs (recharts in feeding/water-chemistry/analytics/harvest charts; lucide
+ * across the UI) but used getCoreSharedConfig(), so each was bundled INTO the
+ * farm remote and duplicated against dashboard (recharts) and tenant-admin
+ * (lucide). Sharing them as singletons removes the cross-remote duplicate
+ * download. Safe: both are already pinned to ONE version repo-wide by
+ * tests/invariants/federation-shared-singleton.spec.ts, so this is config
+ * hygiene with no version-drift exposure. Same SSoT rationale as the
+ * single-extension helpers above.
+ */
+export function getSharedConfigWithChartsAndIcons(): Record<string, SharedDepConfig> {
+  return {
+    ...getCoreSharedConfig(),
+    recharts: {
+      singleton: true,
+      strictVersion: true,
+      requiredVersion: SHARED_VERSIONS.recharts,
+    },
+    'lucide-react': {
+      singleton: true,
+      strictVersion: true,
+      requiredVersion: SHARED_VERSIONS['lucide-react'],
+    },
+  };
+}

@@ -1,6 +1,6 @@
 import { resolve } from 'path';
 
-import { getCoreSharedConfig } from '@aquaculture/shared-ui/federation/federationSharedConfig';
+import { getSharedConfigWithChartsAndIcons } from '@aquaculture/shared-ui/federation/federationSharedConfig';
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { type PluginOption } from 'vite';
@@ -41,8 +41,11 @@ export default defineConfig(({ mode }) => {
           // owned by sensor-module at /sensor. Re-adding would break the build (the
           // source files no longer exist).
         },
-        // FE-HIGH-004: Single source of truth with strictVersion:true
-        shared: getCoreSharedConfig(),
+        // FE-HIGH-004: Single source of truth with strictVersion:true.
+        // fe-eager-imports (FARM-MEDIUM-060): share recharts + lucide-react as
+        // singletons (farm uses both) so they are not bundled into — and
+        // duplicated across — this remote vs dashboard/tenant-admin.
+        shared: getSharedConfigWithChartsAndIcons(),
       }),
     ],
     resolve: {
@@ -73,6 +76,11 @@ export default defineConfig(({ mode }) => {
     base: farmModuleBase,
     build: {
       target: 'esnext',
+      // fe-eager-imports (FARM-MEDIUM-060): a bundle budget so chunk bloat is
+      // visible at build time. With recharts/lucide now shared singletons and
+      // routes lazy-split, the main chunk should stay well under this; a warning
+      // is the signal to investigate a regression.
+      chunkSizeWarningLimit: 600,
     },
     test: {
       globals: true,

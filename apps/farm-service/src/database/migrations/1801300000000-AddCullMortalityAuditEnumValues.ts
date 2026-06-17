@@ -16,14 +16,17 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * # Tenant fan-out (current_schema-relative — load-bearing)
  *
- * The enum types are created schema-qualified as `farm`.`...` in the Baseline,
- * but every clone lives in its own `tenant_<uuid>` schema. db-migrate pins
- * search_path to `farm` OR `tenant_<id>` before each run, so the ALTER TYPE
- * statements reference the enum types UNQUALIFIED — exactly as
- * AlignEquipmentTypesRuntimeContract1800300000000 does — so the additive value
- * fans out to EVERY tenant clone, not just `farm`. Qualifying as "farm" would
- * leave tenant clones missing the value, which is the precise drift this guards
- * against (a QUALITY cull would then throw for only some tenants).
+ * The three enum types exist ONLY in the `farm` schema — the Baseline creates
+ * them `farm`-qualified, and every tenant_<uuid> clone's `tank_operations`
+ * references them CROSS-SCHEMA (the column type is `farm.<enum>`), with no
+ * per-tenant copy. db-migrate pins search_path to `farm` OR `tenant_<id>` and
+ * fans this migration out to both: the `farm` run adds the values to the shared
+ * types; every per-tenant run finds NO local type and MUST skip. The original
+ * code issued bare unqualified `ALTER TYPE`, which on the tenant fan-out threw
+ * 42704 "type does not exist" and failed the whole deploy (prod outage,
+ * 2026-06-17). Each ALTER is now type-presence-guarded in current_schema — the
+ * exact shape AlignEquipmentTypesRuntimeContract1800300000000 uses — so the
+ * shared-`farm` value applies once and the tenant runs are guarded no-ops.
  *
  * # Casing (load-bearing — verified against Baseline)
  *
@@ -52,34 +55,87 @@ export class AddCullMortalityAuditEnumValues1801300000000 implements MigrationIn
   transaction = false;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // FARM-HIGH-054: QUALITY is accepted by the command / GraphQL / event layer
-    // but was absent from the DB cull enum — a QUALITY cull threw 22P02 on INSERT.
-    await queryRunner.query(
-      `ALTER TYPE "tank_operations_cullreason_enum" ADD VALUE IF NOT EXISTS 'quality'`,
-    );
+    // The three enum types live ONLY in the `farm` schema (Baseline creates them
+    // `farm`-qualified); tenant_<uuid> tables reference them cross-schema and hold
+    // no local copy. db-migrate fans this migration out with search_path pinned
+    // per-schema: the `farm` run adds the values to the shared types, and every
+    // per-tenant run MUST skip — the unqualified type is absent there, and a bare
+    // `ALTER TYPE` throws 42704 "type does not exist", failing the whole deploy
+    // (the production outage this guards). Each ALTER is type-presence-guarded in
+    // current_schema, exactly as AlignEquipmentTypesRuntimeContract1800300000000
+    // guards its own ALTERs.
 
-    // FARM-MEDIUM-052: PREDATION / CANNIBALISM were valid in the command enum but
-    // missing from the DB enum, so the handler silently coerced them to 'unknown'.
-    await queryRunner.query(
-      `ALTER TYPE "tank_operations_mortalityreason_enum" ADD VALUE IF NOT EXISTS 'predation'`,
+    // FARM-HIGH-054: QUALITY threw 22P02 on INSERT while absent from the cull enum.
+    await this.addEnumValueIfTypePresent(
+      queryRunner,
+      'tank_operations_cullreason_enum',
+      'quality',
     );
-    await queryRunner.query(
-      `ALTER TYPE "tank_operations_mortalityreason_enum" ADD VALUE IF NOT EXISTS 'cannibalism'`,
+    // FARM-MEDIUM-052: PREDATION / CANNIBALISM were coerced to 'unknown' while absent.
+    await this.addEnumValueIfTypePresent(
+      queryRunner,
+      'tank_operations_mortalityreason_enum',
+      'predation',
     );
-
+    await this.addEnumValueIfTypePresent(
+      queryRunner,
+      'tank_operations_mortalityreason_enum',
+      'cannibalism',
+    );
     // FARM-MEDIUM-054: audit actions for mortality/cull rows written by the handlers.
-    await queryRunner.query(
-      `ALTER TYPE "farm_audit_logs_action_enum" ADD VALUE IF NOT EXISTS 'MORTALITY_RECORDED'`,
+    await this.addEnumValueIfTypePresent(
+      queryRunner,
+      'farm_audit_logs_action_enum',
+      'MORTALITY_RECORDED',
     );
-    await queryRunner.query(
-      `ALTER TYPE "farm_audit_logs_action_enum" ADD VALUE IF NOT EXISTS 'CULL_RECORDED'`,
+    await this.addEnumValueIfTypePresent(
+      queryRunner,
+      'farm_audit_logs_action_enum',
+      'CULL_RECORDED',
     );
   }
 
   /**
-   * Fail-closed assurance: assert all five labels exist in the ACTIVE schema.
-   * Returns false → the runner fails the migrate step → the deploy does not
-   * restart farm-service against a DB missing a value (new code on old DB).
+   * Add an enum VALUE only when its enum TYPE exists in the ACTIVE schema.
+   *
+   * WHY: the enum types are `farm`-schema-qualified (Baseline); tenant_<uuid>
+   * clones reference them cross-schema with no local copy, so on the per-tenant
+   * fan-out current_schema() is the tenant and the unqualified type is absent —
+   * a bare `ALTER TYPE` throws 42704 and fails the deploy. WHAT: the guard skips
+   * the tenant runs (the `farm` run already added the value to the shared type);
+   * ADD VALUE IF NOT EXISTS keeps the `farm` run idempotent on re-run.
+   *
+   * typeName/value are migration-internal literals (not caller input), so direct
+   * interpolation carries no injection surface.
+   */
+  private async addEnumValueIfTypePresent(
+    queryRunner: QueryRunner,
+    typeName: string,
+    value: string,
+  ): Promise<void> {
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM pg_type t
+            JOIN pg_namespace n ON n.oid = t.typnamespace
+           WHERE n.nspname = current_schema()
+             AND t.typname = '${typeName}'
+        ) THEN
+          ALTER TYPE "${typeName}" ADD VALUE IF NOT EXISTS '${value}';
+        END IF;
+      END
+      $$;
+    `);
+  }
+
+  /**
+   * Fail-closed assurance: every expected label exists wherever its enum TYPE is
+   * present in the ACTIVE schema. A label is counted missing ONLY when its type
+   * exists in current_schema but lacks the label — so the `farm` run still
+   * fail-closes on a genuinely missing value, while per-tenant runs (where the
+   * type is absent by design) pass instead of blocking the deploy.
    */
   public async postCondition(queryRunner: QueryRunner): Promise<boolean> {
     const rows = (await queryRunner.query(`
@@ -91,7 +147,14 @@ export class AddCullMortalityAuditEnumValues1801300000000 implements MigrationIn
         ('farm_audit_logs_action_enum', 'CULL_RECORDED'))
       SELECT COUNT(*)::text AS missing
         FROM expected x
-       WHERE NOT EXISTS (
+       WHERE EXISTS (
+         SELECT 1
+           FROM pg_type t
+           JOIN pg_namespace n ON n.oid = t.typnamespace
+          WHERE n.nspname = current_schema()
+            AND t.typname = x.typ
+       )
+         AND NOT EXISTS (
          SELECT 1
            FROM pg_type t
            JOIN pg_namespace n ON n.oid = t.typnamespace

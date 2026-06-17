@@ -4656,3 +4656,21 @@ Severity: LOW. Discovered 2026-06-17 while planning the ARIA-kernel pedagogy Git
 Status: RESOLVED (2026-06-17; fix branch `chore/aria-pedagogy-phase0-lint-contract`). Registry: orphan-findings.md only. Part of the approved ARIA-V5 §3e pedagogy plan (Phase 0).
 
 ---
+
+## ORPHAN-HIGH-132 — farm cull/mortality enum migration issued UNGUARDED `ALTER TYPE` → tenant fan-out 42704 → production outage; migration unit tests never ran
+
+Severity: HIGH (caused a production app outage). Discovered 2026-06-17 during production deploy #5 of main.
+
+**Problem:** `apps/farm-service/.../1801300000000-AddCullMortalityAuditEnumValues` ran bare `ALTER TYPE "tank_operations_cullreason_enum" ADD VALUE IF NOT EXISTS 'quality'` (+ 4 more). `IF NOT EXISTS` guards the VALUE, NOT the TYPE. The three enum types exist ONLY in the `farm` schema (Baseline creates them `farm`-qualified); each `tenant_<uuid>` clone's `tank_operations` references them CROSS-SCHEMA (column type `farm.<enum>`) with no local copy. db-migrate fans the migration out with search_path pinned per-schema: the `farm` run SUCCEEDED (added all 5 labels), but the per-tenant run (`search_path = tenant_7f6b08ab90e246d3`) hit `42704 type "tank_operations_cullreason_enum" does not exist` → migration failed → `aqua-db-migrate` exited 1.
+
+**Blast radius:** the deploy's `docker compose up` started postgres + db-migrate, but every app service `depends_on: { db-migrate: service_completed_successfully }` — so when db-migrate failed, NONE of the ~28 app services started and the old ones were already replaced. Result: only `aqua-postgres` up = full production app outage. The failure was on the first statement (no partial schema change), and the prod DB schema was ALREADY correct (the `farm` run had added all 5 values — verified read-only: farm has quality/predation/cannibalism/MORTALITY_RECORDED/CULL_RECORDED). So the outage was caused purely by the migration CRASHING on a redundant tenant run, not by any real schema gap.
+
+**Compounding CI gap (why it shipped):** `apps/farm-service/jest.config.ts` `testPathIgnorePatterns` EXCLUDED `src/database/migrations/__tests__/`, so migration unit specs were NEVER executed (only type-checked). The unguarded ALTER shipped with no test exercising it, and an orphaned spec (`1781200000000-ConvertFarmOutboxToIdentity.spec.ts`, importing a migration archived 2026-05-18) sat broken-but-unrun.
+
+**Resolution (this PR):** (1) Guard every ALTER on type-presence in `current_schema()` via the `DO $$ IF EXISTS(pg_type…) THEN ALTER TYPE … END IF $$` pattern that `AlignEquipmentTypesRuntimeContract1800300000000` already uses; postCondition counts a label missing ONLY where its type exists in the active schema (so the `farm` run still fail-closes on a genuinely-missing value, while per-tenant runs pass). Verified read-only against the live prod DB: postCondition `missing=0` for BOTH `farm` and `tenant_7f6b08ab90e246d3`. (2) Removed the `migrations/__tests__/` jest ignore so migration unit tests run; added a regression spec (`never a bare ALTER TYPE`); deleted the orphaned 1781200000000 spec.
+
+**Deeper architecture note (separate — owner: farm-expert / data-expert):** the farm enum types + `tank_operations` are `farm`-schema-qualified (shared) while tenant tables reference them cross-schema. That contradicts the per-tenant schema-isolation model (ADR-011) for these objects and is the latent reason the per-tenant fan-out is a no-op for them. Deliberately not bundled into this outage hotfix (owner: farm-expert / data-expert); flagged for a separate schema-ownership review.
+
+Status: RESOLVED (2026-06-17; fix branch `fix/farm-cull-enum-migration-tenant-guard`). Registry: orphan-findings.md only.
+
+---

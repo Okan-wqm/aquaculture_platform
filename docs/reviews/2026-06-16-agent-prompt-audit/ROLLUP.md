@@ -19,7 +19,7 @@ trail is markdown-only (like `orphan-findings.md`).
 | Agent | Verdict | Evidence (lead-verified) |
 |---|---|---|
 | `tenant-cost-attribution-expert` | **REMOVE** | Domain contradicted by code: `tenant_id` is **explicitly BANNED as a metric label** (`libs/backend-common/src/metrics/orchestrator-metrics.ts:35`); the only cost-rollup migration is **archive-only** (`apps/observability-service/.../.archive/.../1805000000000-AddTenantCostRollup.ts`); no live `cost-attribution`/`cost-reconciliation`/margin-SLO/cost-breaker code. Residual concerns already owned by `billing-expert` + `observability-expert`. |
-| `audit-trail-completeness-auditor` | **MERGE** → `auth-security-expert` (primary on `libs/backend-common/src/audit/**`) + `compliance-expert` (SOC2/Art30) | Its own description calls it a "sibling" of those two; the `audit/**` surface is already primarily owned by auth-security-expert; no exclusive surface remains. |
+| `audit-trail-completeness-auditor` | **KEEP + UPGRADE** (verdict revised from MERGE after wave-4d firsthand verification) | NOT redundant — a distinct, intentionally-split lens: auth-security owns audit *infrastructure* (`audit/**`), compliance owns SOC2/GDPR *evidence-mapping* and **explicitly hands audit-completeness off to this agent** (`compliance-expert.md:73` "CC4 → handoff to audit-trail-completeness-auditor"; `:33` names it owner of "completeness on every regulated action"). It owns the cross-cutting *coverage* slot (`routing-table:100` "every CQRS COMMAND handler audit capture") and is cross-referenced by 5 agents. Its cited mechanisms are REAL (`@AuditedOperation` decorator + `audit-log.interceptor.ts` + `audited-operation.interceptor.ts` all exist; "16 services" accurate). Merging would orphan the routing slot + dangle 5 cross-refs. |
 | `mcp-expert` | **DEEPEN** (keep) | Real surface (`mcp/farm-management/src/...` exists) but wrong template: no Canonical-References `@`-block, no Primary-Ownership glob section, no `file:line`, generic prose. |
 | `gdpr-erasure-executor` | **DEEPEN** (keep) | Real WRITER agent, but prompt overstates "10 services" + cites a non-existent `eraseTenantData` method; real cascade is ~4 services with non-uniform names (`farm-service/.../tenant-erasure.service.ts`, `observability-service/.../erase-observability-tenant-data.handler.ts`). |
 | `database-reviewer` ⇄ `data-expert` | **KEEP + clarify** | Soft-merge candidate (same migration/entity corpus) but the delta-vs-state split is intentional + documented; make the boundary explicit in both Primary-Ownership sections rather than merge. |
@@ -38,7 +38,14 @@ trail is markdown-only (like `orphan-findings.md`).
 - **AGENT-PROMPT-002 (HIGH).** REMOVE `tenant-cost-attribution-expert` (control-plane change: delete
   file + routing-table/orchestrator-roster rows + reassign surface (none needed; covered by
   billing/observability) + `.claude/README.md` cardinality + CODEOWNERS; keep all agent invariants green).
-- **AGENT-PROMPT-003 (MED).** MERGE `audit-trail-completeness-auditor` into auth-security + compliance.
+- **AGENT-PROMPT-003 (MED) — verdict REVISED to KEEP+UPGRADE (wave 4d, lead firsthand verification).** The
+  original MERGE recommendation was WRONG. The agent is a distinct, intentionally-split lens (audit
+  *coverage-completeness* across every regulated action), NOT redundant with auth-security (audit
+  *infrastructure* `audit/**`) or compliance (SOC2/GDPR *evidence-mapping*). `compliance-expert.md:73`
+  explicitly hands CC4 audit-completeness off to it ("Phase 9.5 sibling"); `routing-table:100` gives it
+  the cross-cutting "every CQRS COMMAND handler audit capture" slot; 5 agents cross-reference it; its
+  cited mechanisms (`@AuditedOperation`, `audit-log.interceptor.ts`) are real and "16 services" is
+  accurate. UPGRADE applied instead: `layer-2-defect-catalog` wired + count drift-proofed. No file deleted.
 - **AGENT-PROMPT-004 (MED).** Ghost `platform-services`: file absent, **11 agents reference it** as a
   handoff/finding-prefix sibling → repoint to `platform-kernel-expert` (kernel) / `billing-expert`.
 - **AGENT-PROMPT-005 (MED).** Stale quantitative counts (verified): sensor "~357 files/18 events/40

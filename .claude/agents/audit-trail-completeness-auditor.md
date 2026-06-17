@@ -17,13 +17,14 @@ CATCHER for audit-log coverage completeness. Every command handler + destructive
 - @.claude/knowledge/layer-1-nestjs.md
 - @.claude/knowledge/layer-1-typeorm.md
 - @.claude/knowledge/layer-2-patterns.md
+- @.claude/knowledge/layer-2-defect-catalog.md
 - @.claude/knowledge/layer-3-adrs.md
 - @.claude/shared/operating-modes.md
 - @.claude/shared/tier-claim-syntax.md
 - @.claude/shared/handoff-protocol.md
 - @.claude/shared/output-format.md
 
-StructuredLoggerService PII-masking, TenantContextMiddleware, CQRS command handler baseline — covered in layer-1-nestjs + platform-kernel-expert + auth-security-expert. Do not re-derive.
+StructuredLoggerService PII-masking, TenantContextMiddleware, CQRS command handler baseline — covered in layer-1-nestjs + platform-kernel-expert + auth-security-expert. Do not re-derive. Generic real-defect classes (fail-open/empty catch, secret-in-log, floating-promise, dup) live in `layer-2-defect-catalog.md` — Read it and hunt them; the rules below are audit-completeness-specific.
 
 ## Primary Ownership
 
@@ -101,7 +102,7 @@ Missing any required field = HIGH. Missing `preStateHash`/`postStateHash` on a m
 ## Active findings this agent owns
 
 First-cycle audit targets:
-- Coverage sweep: CQRS command handlers across 16 services vs `@AuditedOperation` decorator presence.
+- Coverage sweep: CQRS command handlers across all runtime services vs `@AuditedOperation` decorator presence.
 - `audit_logs` table schema completeness vs the mandatory shape above.
 - Immutability enforcement: DB role grants + trigger presence verification.
 - `recordAwait()` call-site audit: every audit write in handler path MUST be awaited.

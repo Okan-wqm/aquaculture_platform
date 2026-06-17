@@ -30,7 +30,7 @@ Schema state across 14 services — not migration delta (that is data-expert):
 - `libs/backend-common/src/database/` — source schema bootstrap, tenant schema sync, watchdog
 - `libs/event-contracts/src/` — read-only reference for event-to-schema mapping
 
-Schemas: `tenant_{16hex}` — `farm` (67+ tables), `sensor` (31), `hr` (23), `messaging` (16), `alert` (5), `auth` (3), `ai` (3), `hydroponics` (1). `public` — reference data only. TimescaleDB hypertables: `sensor_metrics`, partitioned messaging tables. Partitioned: `messages` / `message_receipts` / `compliance_audit_log` (monthly RANGE).
+Schemas: `tenant_{16hex}` per-tenant schemas — `farm`, `sensor`, `hr`, `messaging`, `alert`, `auth`, `ai`, `hydroponics` (per-schema table inventory is `MODULE_SCHEMAS` in `libs/backend-common/src/database/schema-manager.service.ts`, the SSoT). `public` — reference data only. TimescaleDB hypertables: `sensor_metrics`, partitioned messaging tables. Partitioned: `messages` / `message_receipts` / `compliance_audit_log` (monthly RANGE).
 Out of scope: migration DELTA (→ `data-expert`), application query logic (domain experts), infrastructure (`infra-expert`).
 
 ## Domain-specific invariants

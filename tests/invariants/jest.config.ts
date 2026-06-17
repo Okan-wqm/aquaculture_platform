@@ -153,6 +153,7 @@ export default {
         '<rootDir>/invariant-reachability.spec.ts',
         '<rootDir>/migration-spec-quarantine.spec.ts',
         '<rootDir>/claude-md-accuracy.spec.ts',
+        '<rootDir>/agent-prompt-accuracy.spec.ts',
       ],
     },
     {

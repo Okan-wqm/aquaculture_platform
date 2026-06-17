@@ -73,7 +73,7 @@ Over-size → split: package N → Na + Nb, Na prerequisite of Nb. Renumber in p
 Build DAG where edge `A → B` means "A must commit before B". Edges from:
 - Package A exports new entity field / interface / type that B uses
 - Package A is a migration; B uses the new column
-- Package A modifies a shared lib (`libs/backend-common` / `libs/event-contracts` / `libs/outbox`); B modifies a consumer
+- Package A modifies a shared lib (`libs/backend-common` / `libs/event-contracts` / `platform/libs/outbox`); B modifies a consumer
 - Package A changes a GraphQL subgraph schema; B changes the gateway or a frontend query
 
 Apply **Kahn's algorithm** with deterministic tiebreak: multiple zero-in-degree packages → sort by slug ascending. Sequence MUST be bit-identical across regenerations (enables cycle-over-cycle diff).

@@ -39,6 +39,8 @@ Seven phases: 1 · 2 · 3 · **3.5** · 4 · **4.5** · 5 · 6. Phase 3.5, 4.5, 
 
 Use `git diff --name-only` and map changed files to primary + also-notify agents per the routing table in `.claude/shared/orchestrator-routing-table.md`. Every file MUST match ≥1 primary agent — unmatched = PROCESS HIGH. Special rules (cross-cutting `security-reviewer`, event-contract fan-out, `web/shared-ui/**` propagation, multi-tenant concerns → `multi-tenant-saas-expert`) live in the companion.
 
+**Consequence:** a changed file that maps to no primary agent is reviewed by nobody — its entire defect class (a new migration with no `data-expert`, a guard change with no `auth-security-expert`) ships unexamined while the cycle still reports PASS, so the gap is raised as PROCESS HIGH to force routing-table coverage rather than silently dropping the file.
+
 ### Phase 2: Parallel Dispatch — Two Lanes
 
 Invoke all identified agents in parallel using the Agent tool across **two lanes**:
@@ -47,6 +49,8 @@ Invoke all identified agents in parallel using the Agent tool across **two lanes
 - **Lane-B (product quality)** — the `.claude/agents/product-audit/` roster (UI/E2E/tenant-surface product auditors). See `.claude/agents/product-audit/README.md` § Runtime Roster for the 22 Lane-B agents. Finding prefix `PRODUCT-*`.
 
 Lane selection rules (when to fire Lane-A, Lane-B, or both) and the dispatch contract live in `.claude/shared/orchestrator-phases.md` § Phase 2. Four agents that used to live in Lane-B were promoted into Lane-A during Phase 9/10 (gdpr-compliance / soc2-readiness → compliance-expert; ai-tool-execution → ai-safety-auditor; contract-parity → contract-parity-enforcer) and MUST NOT be re-dispatched from Lane-B.
+
+**Consequence:** dispatching a promoted agent from both lanes runs it twice on the same diff, doubling its token cost and producing duplicate findings that the Phase 3.5 consolidator must then de-dup — and the stale Lane-B definition, if still wired, reviews against the pre-promotion contract and can miss the cross-cutting concern the Lane-A version now owns.
 
 Phase 3 collects reports from both lanes; Phase 3.5 cross-lane compaction auto-invokes `context-manager` (compaction + dependency graph + cross-lane consolidation) when ≥3 experts produced reports (across both lanes combined), OR when both lanes fired, OR when corpus > ~50K tokens. Phase 4 resolves cross-domain edges; Phase 4.5 runs `root-cause-auditor` for tier-claim verification + prior-cycle arbiter-ruling implementation check; Phase 5 produces the two-lane unified report at `docs/reviews/orchestrator/{date}-{topic}.md`; Phase 6 (Implementation Packaging) is out-of-band, human-explicit-only.
 
@@ -60,7 +64,9 @@ Phase 3 collects reports from both lanes; Phase 3.5 cross-lane compaction auto-i
 
 ## Runtime Review Roster
 
-All agents use `opus` with `effort: xhigh` per platform policy. This table is the authoritative agent roster — every primary-agent name in `.claude/shared/orchestrator-routing-table.md` MUST appear here (enforced by `tests/invariants/orchestrator-routing-coverage.spec.ts`).
+All agents use `opus` with `effort: xhigh` per platform policy. This table is the authoritative agent roster — every primary-agent name in `.claude/shared/orchestrator-routing-table.md` MUST appear here.
+
+**Consequence:** if the routing table names a primary agent that is absent from this roster, Phase 1 maps a changed file to an agent the orchestrator cannot dispatch, so that file's review is silently skipped at runtime; `tests/invariants/orchestrator-routing-coverage.spec.ts` cross-reads both files and fails the build to make the missing-roster-entry impossible to merge.
 
 | Agent | Domain |
 |-------|--------|
@@ -138,3 +144,5 @@ Orchestrator itself does not raise domain findings; it may raise PROCESS finding
 ## Prior Work Check
 
 Before a cycle, read the previous cycle's `docs/reviews/orchestrator/{date}-{topic}.md` for STALE CRITICAL/HIGH findings. Those MUST appear in Phase 4 as mandatory dispatch targets to the source agent for escalation re-review (see Phase 5 finding-ID-propagation notes in `.claude/shared/orchestrator-phases.md`).
+
+**Consequence:** a prior-cycle CRITICAL that is not re-dispatched drops off the deployment decision — the new cycle sees a clean board and issues PASS while the unfixed blocker is still live, the exact premature deploy-go this re-read prevents; combined with the +1-severity escalation rule, surfacing the stale finding forces the source agent to confirm a fix before the gate clears.

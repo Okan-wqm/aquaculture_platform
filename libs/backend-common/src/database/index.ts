@@ -26,6 +26,10 @@ export * from './schema-lru-cache';
 // Tenant Schema Utilities (pure functions, no DI required)
 export * from './tenant-schema.utils';
 
+// Fair, bounded per-tenant-schema cron/scheduler fan-out (cron-fairness).
+// Bounded concurrency + per-tenant Node+DB timeout + error isolation + rotation.
+export * from './for-each-tenant-schema';
+
 // Migration Logger (structured logging for TypeORM migrations outside DI)
 export { MigrationLogger } from './migration-logger';
 

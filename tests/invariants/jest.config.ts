@@ -154,6 +154,7 @@ export default {
         '<rootDir>/migration-spec-quarantine.spec.ts',
         '<rootDir>/claude-md-accuracy.spec.ts',
         '<rootDir>/agent-prompt-accuracy.spec.ts',
+        '<rootDir>/farm-service-security-hardening.spec.ts',
       ],
     },
     {

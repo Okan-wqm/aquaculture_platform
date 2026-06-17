@@ -17,7 +17,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource, QueryRunner } from 'typeorm';
-import { listTenantSchemas } from '@aquaculture/backend-common/database';
+import { forEachTenantSchema, listTenantSchemas } from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -239,15 +239,15 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
 
     // Refresh tenant configs before processing
     await this.loadTenantConfigs();
-    const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-    for (const schema of tenantSchemas) {
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-
-      try {
-        await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
-
+    // cron-fairness (FARM-MEDIUM-061): bounded-concurrency + per-tenant Node+DB
+    // timeout + error isolation + rotation. Replaces the strictly-serial
+    // `for (const schema) { createQueryRunner … }` loop where one slow/hanging
+    // tenant stalled every later tenant (and could overrun the schedule). The
+    // helper owns the QueryRunner lifecycle + `SET search_path` per tenant.
+    await forEachTenantSchema(
+      this.dataSource,
+      async ({ schema, queryRunner }) => {
         // Discover tenantIds within this schema
         const tenantRows: { tenantId: string }[] = await queryRunner.query(
           `SELECT DISTINCT "tenantId" AS "tenantId" FROM maintenance_schedules
@@ -280,15 +280,14 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
             );
           }
         }
-      } catch (err) {
-        this.logger.error(
-          `Maintenance work order generation failed for schema ${schema}: ${(err as Error).message}`,
-        );
-      } finally {
-        await queryRunner.query('RESET search_path').catch(() => {});
-        await queryRunner.release();
-      }
-    }
+      },
+      {
+        searchPathSuffix: 'farm, public',
+        concurrency: 4,
+        perTenantTimeoutMs: 120_000,
+        logger: this.logger,
+      },
+    );
 
     const duration = Date.now() - startTime;
     this.logger.log(`Maintenance work order generation completed in ${duration}ms`);

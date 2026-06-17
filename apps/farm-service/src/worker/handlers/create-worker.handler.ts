@@ -18,7 +18,7 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
   async execute(command: CreateWorkerCommand): Promise<Worker> {
     const { input, tenantId, userId } = command;
 
-    this.logger.log(`Creating worker "${input.firstName} ${input.lastName}" for tenant ${tenantId}`);
+    this.logger.log(`Creating worker for tenant ${tenantId}`);
 
     // Check for duplicate email within tenant. The email column is encrypted
     // (non-deterministic GCM), so equality must go through the deterministic
@@ -91,7 +91,7 @@ export class CreateWorkerHandler implements ICommandHandler<CreateWorkerCommand,
       const saved = await queryRunner.manager.save(worker);
       await queryRunner.commitTransaction();
 
-      this.logger.log(`Worker "${saved.firstName} ${saved.lastName}" created with ID ${saved.id}, number ${saved.employeeNumber}`);
+      this.logger.log(`Worker created: id=${saved.id} number=${saved.employeeNumber} (tenant ${tenantId})`);
       return saved;
     } catch (error) {
       await queryRunner.rollbackTransaction();

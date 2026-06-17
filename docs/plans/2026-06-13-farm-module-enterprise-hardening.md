@@ -1,5 +1,7 @@
 # Farm Module — Enterprise "Steel-Grade" Hardening Plan
 
+> **RE-CUT NOTICE (2026-06-17):** The original 5-PR stack (`#476`→`#486`→`#494`→`#508`) was built off an older `main`. A parallel initiative (the AquaMobil 7-phase merge) then independently shipped **17 of these findings** to `main` (verified firsthand: `orphan-cleanup`, `fe-sensor-fake`, `fe-mru-leak`, `fe-draft-pii`, `sentinel-cbc`, `pii-at-rest`, `dead-listeners`, `fe-immediate-reports`, `biomass-ssot`, `growth-nolock`, `wq-legacy-bypass`, `po-approval`, `feed-dual-ssot`, `feed-empty`, `harvest-harvestedby`, `decimal-transformer`, `cache-tenant`). This branch (`feat/farm-hardening-recut`) is the **additive-only re-cut off current `main`**: it re-applies ONLY the **15 findings still missing** from `main` (CRIT-052, HIGH-060/061/062/063/064/066/067/069/070/072, LOW-051, MED-058/060/061). Rows marked ✅ below whose finding is in the redundant list are **superseded by main**, not delivered here. The stale stack PRs are closed as superseded.
+>
 > **Status:** APPROVED — implementation in progress
 > **Date:** 2026-06-13
 > **Scope:** `apps/farm-service/**` + `web/modules/farm-module/**` (+ the `web/apps/aquamobil` water-quality twin, `libs/backend-common` tenant/crypto primitives, `@platform/storage` cleanup primitive)
@@ -31,24 +33,24 @@ Finding IDs are used in commit `Closes:` lines (`Closes: docs/plans/2026-06-13-f
 | ID | Sev | Confirmed | Tier | Root cause (one line) |
 |---|---|---|---|---|
 | `orphan-cleanup` | **CRITICAL** | ✅ | T1 | Nightly MinIO cleanup runs with no tenant context → DB live-set reads empty source schema while the delete scans the whole shared bucket → deletes every tenant's objects >24h old. |
-| `fe-sensor-fake` | **CRITICAL** | ✅ | T1 | Federation-exposed `/sites/sensors` renders `Math.random()` mock telemetry as live water quality; real sensor pipeline already exists in sensor-module. |
-| `fe-reports-mock` | **CRITICAL** | ✅ | T1 | Entire regulatory compliance dashboard (summary, overdue/penalty banner, deadlines, 7/8 tab histories) is mock-backed and ships unconditionally in prod. |
+| `fe-sensor-fake` | **CRITICAL** | ✅ `FARM-CRITICAL-051` | T1 | RETIRED — federation-exposed `/sites/sensors` rendered `Math.random()` mock telemetry as live water quality; deleted the mock + redirect to sensor-module `/sensor`. |
+| `fe-reports-mock` | **CRITICAL** | ✅ `FARM-CRITICAL-052` | T1 | FABRICATION REMOVED — deleted `mock/` dir; fake penalty banner + summary + tab badges gone; 8 tab histories honestly empty; real submit path intact. Real read-back = `ORPHAN-HIGH-129`. |
 | `fe-immediate-reports` | HIGH→**CRITICAL** truth | ✅ | T3 | Welfare/Escape/Disease (legally-immediate Mattilsynet reports) `console.log` the payload + fake-success; **no submission path at any layer**. |
 | `sentinel-cbc` | HIGH | ✅ | T1 | Bespoke unauthenticated AES-256-CBC for Sentinel + regulatory secrets instead of canonical GCM column transformer (malleability/padding-oracle class). |
 | `pii-at-rest` | HIGH | ✅ | T1 | `farm_workers` email/firstName/lastName/dob plaintext at rest; secrets encrypted imperatively per-callsite, not via declarative transformer. NB: `email` is unique-indexed → needs deterministic/HMAC-lookup design, not naive GCM. |
 | `fe-mru-leak` | HIGH | ✅ | T2 | `wq-mru-equipment` localStorage key not tenant-scoped → equipment UUIDs leak across tenants on shared browser; survives logout. AquaMobil twin `aquamobil-wq-mru`. |
 | `fe-draft-pii-persist` | HIGH | ✅ | T2 | `regulatory_report_draft_*` (with contact PII) not tenant-scoped, survives logout/tenant-switch. |
 | `dead-listeners` | HIGH | ✅ | T1 | `events/listeners/**` subscribe via in-process `@OnEvent`; handlers emit only via outbox→NATS → mortality alerts + harvest follow-ups never fire. |
-| `close-batch-enum` | HIGH | ✅ | T2 | FE offers 7 `BatchCloseReason` values; backend enum exposes 5 → 4 selections fail GraphQL validation; FE/BE enum drift, no codegen binding. |
+| `close-batch-enum` | HIGH | ✅ `FARM-HIGH-070` | T2 | EXPANDED backend enum by the 4 legitimate reasons the FE offered (+ exhaustive Record); no FE change, no event-contract change. Re-drift prevention (FE bind to generated types) = `ORPHAN-HIGH-131`. |
 | `po-approval` | HIGH | ✅ | T1 | PurchaseOrder has no SUBMITTED/APPROVED state or maker-checker; `approvedBy` column vestigial; one MODULE_MANAGER does create→order→receive. InventoryCount (same module) is the correct SOC2 reference. |
 | `biomass-ssot` | HIGH | ✅ | T1 | `weight.actual.totalBiomass` never decremented on mortality/cull/harvest → diverges from `TankBatch.totalBiomassKg`; corrupts density/FCR/finalBiomass. |
 | `growth-nolock` | HIGH | ✅ | T1 | `record-growth-sample` reads batch outside the lock → concurrent samples re-inflate biomass. |
 | `feed-empty` | HIGH | ✅ | T1 | Feeding gates only on `isActive`, not operational state → feeding an empty batch corrupts FCR. |
 | `feed-dual-ssot` | HIGH | ✅ | T1/T2 | `FeedInventory` and `StorageInventory`/`StockMovement` both own feed stock; storage-deduction failure swallowed. |
 | `wq-legacy-bypass` | HIGH | ✅ | T1 | Legacy fixed-column WQ params bypass tenant-config validation + equipment-mapping check (dual parameter SSoT). |
-| `gql-codegen` | HIGH | ✅ | T2 | FE GraphQL ops are inline template strings; no codegen binding → enum/required-arg/field drift invisible. Root of close-batch-enum, harvest-harvestedby, harvest-planid. |
-| `harvest-harvestedby` | HIGH | ✅ | T2 | `createHarvestRecord` requires non-null `harvestedBy` the FE never sends → harvest mutation fails; server should derive from `user.sub`. |
-| `harvest-planid` | HIGH | ✅ | T2 | Handler reads `input.harvestPlanId` but DTO+FE omit it → harvest-plan gate can never receive a plan. |
+| `gql-codegen` | HIGH | ⏸ deferred (`ORPHAN-HIGH-131`) | T2 | Codegen is configured-but-UNCONSUMED (`graphql-types.ts` already emitted). The 3 drift symptoms (close-batch-enum, harvest-harvestedby, harvest-planid) were fixed directly; binding FE to generated types + SDL/snapshot regen + the full TypedDocumentNode migration (207 untagged ops) deferred. |
+| `harvest-harvestedby` | HIGH | ✅ `FARM-HIGH-068` | T2 | DELETED the dead required `harvestedBy` input; server derives the actor from `user.sub` (handler already used `recordedBy`). |
+| `harvest-planid` | HIGH | ✅ `FARM-HIGH-069` | T2 | ADDED `harvestPlanId` to the input DTO + FE type (handler read it; DTO/FE omitted it). FE form selector to populate it = follow-up. |
 | `arch-spec-conflict` | HIGH | ✅ | T3 | `tenant-schema-routing.architecture.spec` allowlist omits `farm_audit_logs` + `tenant_erasure_audit` (both correctly schema-pinned) → spec silently red/skipped. |
 | `ondelete-drift` | HIGH | ✅ | T3 | Entities declare `onDelete: CASCADE` while DB enforces RESTRICT on every batch-child FK (lost in baseline reset). |
 | `no-check-constraints` | HIGH | ✅ | T3 | Only 1 CHECK across 67 tables; non-negative quantity/biomass + bounded-month invariants are app-only. |
@@ -59,18 +61,18 @@ Finding IDs are used in commit `Closes:` lines (`Closes: docs/plans/2026-06-13-f
 | `cache-tenant` | MED | ⚠️ FP downgraded | T2 | Cache interceptors re-derive tenant from raw `x-tenant-id` instead of the trusted extractor; silent bypass when absent (no live bleed). |
 | `jsonb-source-schema` | HIGH | (audit) | T1 | `JsonbPatchService` schema-qualifies per-tenant `batches_v2` to source `farm` schema → writes silently target empty source table. |
 | `feed-reminder-tenant` | HIGH | (audit) | T1 | `FeedingReminderEventPayload` omits `tenantId` → `notification.send` fan-out with `tenantId: undefined`. |
-| `wq-not-hypertable` | HIGH | (audit) | T1 | `water_quality_measurements` is plain OLTP, not a TimescaleDB hypertable; no continuous aggregate / `drop_chunks` retention. |
-| `workorder-jsonb-idx` | HIGH | (audit) | T1 | `work_orders.relatedAsset->>'batchId'` JSONB filter unindexed → seq scan on hot `batchPerformance` path. |
-| `equip-list-js` | HIGH | (audit) | T1 | `ListEquipmentHandler` loads `page*limit` rows from two tables, merges/sorts/dedups in JS, wrong total. |
-| `no-stampede` | HIGH | (audit) | T2 | No Redis single-flight; AI-insight/cost recompute thunders on TTL expiry (`setNx` exists, unused). |
-| `global-auth-guard` | MED | (audit) | T2 | No global JWT auth guard at subgraph; protection depends on production-only middleware ordering. |
-| `no-plan-quota` | HIGH | (audit) | T1 | Zero plan-tier/quota enforcement in farm; gateway `maxFarms/maxPonds` advertised but dead + reference deprecated hierarchy. |
-| `gdpr-subject-erasure` | HIGH | (audit) | T2 | No per-data-subject Art.17 erasure for worker PII (only tenant-wide). |
-| `pii-plaintext-log` | HIGH | (audit) | T1/T2 | Worker PII logged via string interpolation in `create-worker.handler`. |
-| `fe-role-gating` | MED | (audit) | T3 | `useCanMutate` applied inconsistently; many destructive mutation surfaces ungated client-side. |
-| `fe-eager-imports` | MED | (audit) | T1 | farm-module 100% eager imports; recharts/lucide bundled per-remote; no bundle budget. |
-| `fe-upload-bypass` | HIGH | (audit) | T2 | `useFileUpload` raw `fetch` bypasses central client (no CSRF, no refresh-on-401, stale-token capture). |
-| `cron-fairness` | MED | (audit) | T2 | All farm crons iterate tenants strictly serially; no concurrency cap / per-tenant timeout / rotation. |
+| `wq-not-hypertable` | HIGH | ⏸ deferred Tier-B (`ORPHAN-HIGH-128`) | T1 | `water_quality_measurements` is plain OLTP, no hypertable/CAGG. PERF-DEBT (reads raw-aggregate correctly). Tier-B per-tenant hypertable+CAGG deferred — no per-tenant-hypertable precedent platform-wide; operator-sanctioned. |
+| `workorder-jsonb-idx` | HIGH | ⏸ deferred feature (`ORPHAN-HIGH-127`) | T1 | Firsthand: `relatedAsset.batchId` is NEVER written (absent from `RelatedAsset` + DTO + FE + write paths) → predicate matches ZERO rows → batch labour cost silently always zero. Root cause = a missing batch-linked-work-order FEATURE (cross-stack), not an index; index is moot until the column exists. |
+| `equip-list-js` | MED | ⚠️ FP downgraded (`ORPHAN-MEDIUM-126`) | T1 | Firsthand: correctness FALSE POSITIVE — `equipment`/`tanks` ids are DISJOINT (no dual-write) so the total isn't double-counted and the dedupe is dead; the `page*limit` cap provably covers each page (within-source rank ≤ global rank) so no deep-page loss. Residual = bounded deep-page over-fetch perf only. |
+| `no-stampede` | HIGH | ✅ `FARM-HIGH-067` | T2 | `RedisService.getOrCompute` single-flight SSoT (setNx lock + CAD release); CacheableInterceptor + all 5 AiInsightsService MCP cache-asides route through it. |
+| `global-auth-guard` | MED→LOW | ✅ `FARM-LOW-051` (FP) | T2 | FALSE POSITIVE — farm HAS a fail-closed global `ServiceIdentityGuard`+`RolesGuard`+`PermissionMatrixGuard` APP_GUARD floor (not middleware-ordering-dependent; not an outlier). Added invariant pinning the stack; no new guard. |
+| `no-plan-quota` | HIGH | ⏸ deferred cross-service (`ORPHAN-HIGH-136`) | T1 | Firsthand: zero plan-tier/quota enforcement in farm; gateway `PLAN_LIMITS` (`maxFarms/maxPonds`) is dead code (zero call sites, stale unit vocabulary), billing SSoT never consulted at create-time. Confirmed HIGH but HIGH-and-LARGE (event-contracts + backend-common + billing + gateway + admin + farm); overlaps registry `MT-HIGH-002`/`MT-HIGH-006`. Deferred — enforcement MUST be a race-free count-then-insert in the farm create-handler txn (not the TOCTOU-racy gateway). |
+| `gdpr-subject-erasure` | HIGH | ⏸ deferred feature (`ORPHAN-HIGH-135`) | T2 | Firsthand: tenant-wide erasure exists (`TenantErasureService`) but `deleteWorker` is a soft-delete leaving encrypted PII recoverable → no per-subject Art.17 path. Deferred — needs a forward-only `farm.worker_erasure_audit` migration + a cross-cutting `DataSubjectErasedEvent` contract decision (key is SHARED across workers so tombstone, not crypto-shred). |
+| `pii-plaintext-log` | HIGH | ✅ `FARM-HIGH-072` | T1/T2 | Stopped logging decrypted worker name (2 sites in create-worker.handler → surrogate ids); invariant RULE 1 bans dotted-PII interpolation in `this.logger.*`. |
+| `fe-role-gating` | MED | ⏸ deferred (`ORPHAN-MEDIUM-133`) | T3 | UX/defense-in-depth only — backend is fail-closed (empty UNGATED_OPERATIONS), so NOT an escalation. Full fix (CanMutate wrapper + matrix expansion + wrap dozens of surfaces + drain-allowlist invariant) is large-mechanical; deferred. |
+| `fe-eager-imports` | MED | ✅ `FARM-MEDIUM-060` | T1 | Shared recharts/lucide as MF singletons + route-level `lazy()`/`Suspense` (Map eager) + `chunkSizeWarningLimit` budget; recharts pinned exact. |
+| `fe-upload-bypass` | HIGH | ✅ `FARM-HIGH-071` | T2 | Added `RestClient.upload` multipart + rerouted all 5 upload hooks through the central client; fixed CSRF cookie-name drift (`XSRF-TOKEN`→`csrf-token`, the real bug — getCsrfToken always returned null); invariant RULE 3. |
+| `cron-fairness` | MED | ✅ `FARM-MEDIUM-061` | T2 | Built the `forEachTenantSchema` SSoT (bounded concurrency + per-tenant timeout + DB statement_timeout + error isolation + rotation; 6/6 tests) + adopted in the maintenance cron. Remaining ~9 loop adoptions drained via `ORPHAN-MEDIUM-134`. |
 
 ---
 
@@ -125,7 +127,7 @@ Fix the architecture allowlist spec first; reconcile entity `onDelete` ↔ DB FK
 
 ### Phase 4 — Tenant-context discipline + cache + read-side performance `[risk: medium]`
 **Findings:** `cache-tenant`, `jsonb-source-schema`, `feed-reminder-tenant`, `no-stampede`, `wq-not-hypertable`, `workorder-jsonb-idx`, `equip-list-js`
-Export `extractTenantIdSafe`; both cache interceptors use it. `JsonbPatchService` stops source-schema qualifying. Add `tenantId` to `FeedingReminderEventPayload`. Redis single-flight via `setNx`. WQ → hypertable + continuous aggregate + retention. GIN/expression index on `work_orders` batchId; rewrite equipment list as one SQL UNION+LIMIT. Repoint stats at the Phase-3 MVs; remove the per-view error swallow.
+Export `extractTenantIdSafe`; both cache interceptors use it. `JsonbPatchService` stops source-schema qualifying. Add `tenantId` to `FeedingReminderEventPayload`. Redis single-flight via `setNx`. WQ → hypertable + continuous aggregate + retention. GIN/expression index on `work_orders` batchId; rewrite equipment list as one SQL UNION+LIMIT. **Read-side stats acceleration (revised by `mv-lost`/FARM-MEDIUM-058):** the daily-rollup MVs the original plan assumed never existed — their creators were archived in the baseline reset and the source-schema MV shape was architecturally wrong for the per-tenant model (`TenantSchemaSyncService` clones only base tables, never MVs), so Phase 3 already removed the lying refresh cron and the stats read paths correctly raw-aggregate today. Phase 4 therefore **builds** a tenant-correct acceleration (TimescaleDB continuous aggregate under `wq-not-hypertable`, propagated by the per-tenant sync) rather than repointing at non-existent MVs — and adds no new MV-refresh cron without a tenant-correct MV behind it.
 
 ### Phase 5 — Frontend truth, GraphQL codegen, broken-workflow contracts `[risk: medium]`
 **Findings:** `fe-sensor-fake`, `fe-reports-mock`, `gql-codegen`, `close-batch-enum`, `harvest-harvestedby`, `harvest-planid`, `fe-role-gating`, `fe-eager-imports`, `fe-upload-bypass`
@@ -133,7 +135,7 @@ Bind SensorDashboard to real source (or retire → sensor-module). Remove `pages
 
 ### Phase 6 — Authorization defaults, plan/quota, compliance, invariant hardening `[risk: medium]`
 **Findings:** `global-auth-guard`, `no-plan-quota`, `gdpr-subject-erasure`, `pii-plaintext-log`, `cron-fairness`
-Global subgraph JWT guard. Enforce plan quotas against billing SSoT. Per-subject Art.17 erasure (crypto-shred + tombstone + `tenant_erasure_audit`). Remove plaintext PII logging → `maskPii`. Per-tenant cron concurrency cap + timeout + rotation. Land + ratify all CI invariants below.
+**Delivered:** `pii-plaintext-log` (✅ `FARM-HIGH-072` — surrogate-id logging + RULE 1 invariant), `global-auth-guard` (✅ `FARM-LOW-051` FP — guard-stack RULE 2 invariant pinning the existing fail-closed `ServiceIdentityGuard`+`RolesGuard`+`PermissionMatrixGuard` floor), `cron-fairness` (✅ `FARM-MEDIUM-061` — `forEachTenantSchema` SSoT + maintenance-cron adoption). **Deferred (cross-service, tracked):** `no-plan-quota` → `ORPHAN-HIGH-136` (plan-tier quota needs event-contracts + billing + gateway + farm coordination; race-free enforcement in the farm create txn), `gdpr-subject-erasure` → `ORPHAN-HIGH-135` (per-subject Art.17 needs a `farm.worker_erasure_audit` migration + a shared `DataSubjectErasedEvent` contract; tombstone not crypto-shred because the PII key is shared). New CI invariant `tests/invariants/farm-service-security-hardening.spec.ts` (RULE 1 PII-log ban + RULE 2 guard-stack pin) landed + registered in jest layer-3.
 
 ---
 
@@ -148,7 +150,7 @@ Extend existing scaffolding (`cache-key-tenant-scope`, `farm-graphql-fe-be-parit
 5. no-raw-fetch-in-farm-module.
 6. x-tenant-id-header-read-ban outside sanctioned middleware/extractor.
 7. FE-GraphQL enum/required-arg parity (codegen-derived).
-8. refreshAnalyticsViews ↔ migration ↔ read parity.
+8. no-mv-refresh-cron-without-mv-migration: a `REFRESH MATERIALIZED VIEW` (or a cron named for one) must have a live migration that CREATEs that view AND, for per-tenant services, a `TenantSchemaSyncService` propagation path — closes the `mv-lost`/FARM-MEDIUM-058 class (a cron silently refreshing a non-existent, never-cloned MV).
 9. entity-onDelete ↔ DB FK parity.
 10. no-bespoke-crypto-in-services (ban `aes-256-cbc`/raw `createCipheriv` outside the security lib).
 11. architecture-spec-allowlist-completeness.
@@ -160,7 +162,7 @@ Extend existing scaffolding (`cache-key-tenant-scope`, `farm-graphql-fe-be-parit
 ## Hard sequencing constraints
 
 1. `arch-spec-conflict` (Phase 3, first) precedes every entity `schema:`/`onDelete` change.
-2. MV/hypertable/index migrations (Phase 3) land before Phase 4 repoints stats reads.
+2. Hypertable/index migrations (Phase 3) land before Phase 4 builds the continuous-aggregate read model. (The Phase-3 *MV* assumption was retired by `mv-lost`/FARM-MEDIUM-058 — the orphaned MVs never existed; Phase 4 builds a tenant-correct aggregate, it does not repoint at MVs.)
 3. `cache-tenant` precedes `no-stampede`.
 4. `gql-codegen` precedes/accompanies the enum/required-arg fixes.
 5. `biomass-ssot` (Phase 2) settles before Phase 4's MV read-model computes from it.
@@ -210,5 +212,26 @@ Each plan cluster is tracked as a registry finding (`docs/reviews/_registry/find
 | `FARM-HIGH-017` | 2 | `po-approval` — PurchaseOrder SUBMITTED/APPROVED maker-checker (SOC2 CC3.4) |
 | `FARM-HIGH-058` | 2 | `feed-dual-ssot` (Phase A) — in-tx fail-aware storage deduction; kill swallowed divergence |
 | `FARM-HIGH-059` | 2 | `feed-empty` — `assertFeedable` gate on the locked batch in both feeding paths |
+| `FARM-HIGH-060` | 3 | `arch-spec-conflict` — `tenant-schema-routing.architecture.spec.ts` allowlist SSoT-derived from `MODULE_SCHEMAS.infrastructureTables` (was a stale hardcoded list) |
+| `FARM-HIGH-061` | 3 | `timestamp-notz` — `farm_workers`/`farms`/`ponds` created/updated → `TIMESTAMPTZ` (entity pins + migration `1801300000000`) |
+| `FARM-HIGH-062` | 3 | `wq-unique-lost` — restore partial-unique `water_quality_measurements(tenantId, relatedSensorReadingId) WHERE NOT NULL` (migration `1801400000000`) |
+| `FARM-HIGH-063` | 3 | `no-check-constraints` — 39 operational CHECK constraints + entity `@Check` parity (migration `1801500000000`) |
+| `FARM-HIGH-064` | 3 | `ondelete-drift` — 6 batch-child FKs entity `onDelete: 'RESTRICT'` ↔ DB parity (regen-stable, data-safe) |
+| `FARM-MEDIUM-057` | 3 | `decimal-transformer` — Farm/Pond NUMERIC columns attach `DecimalTransformer` (entity-only, no migration) |
+| `FARM-MEDIUM-058` | 3 | `mv-lost` — remove the orphaned-MV refresh cron (silent nightly no-op refreshing non-existent MVs); read paths already raw-aggregate correct numbers; perf acceleration folded into Phase 4 `wq-not-hypertable` |
+| `FARM-HIGH-065` | 4 | `jsonb-source-schema` — `JsonbPatchService` stops schema-qualifying the per-tenant `batches_v2` (dropped the `schema` field so search_path routes the UPDATE into `tenant_<uuid>`; was a latent silent no-op against the empty source table) |
+| `FARM-HIGH-066` | 4 | `feed-reminder-tenant` — `tenantId` added to `FeedingReminderEventPayload` + consumed in the `notification.send` fan-out (was hardcoded `undefined`). Sibling dead-bus tracked as `ORPHAN-HIGH-122` |
+| `FARM-MEDIUM-059` | 4 | `cache-tenant` — both cache interceptors key off the exported trusted `extractTenantIdSafe` SSoT, never the raw `x-tenant-id` header; arch invariant extended to `common/cache/**` |
+| `FARM-HIGH-067` | 4 | `no-stampede` — `RedisService.getOrCompute` single-flight SSoT (via `setNx`); `CacheableInterceptor` + all 5 `AiInsightsService` MCP cache-asides route through it (one recompute per TTL-expiry miss, not a thundering herd) |
+| `FARM-CRITICAL-051` | 5 | `fe-sensor-fake` — RETIRED the farm `/sites/sensors` mock dashboard (rendered `Math.random()` telemetry as live water quality); deleted the component, redirected routes to sensor-module `/sensor`, removed the federation expose + shell decl, repointed the dead QuickAction |
+| `FARM-CRITICAL-052` | 5 | `fe-reports-mock` — removed fabricated regulatory status: deleted the `mock/` dir (10 files), dropped the fake penalty banner + summary + tab badges, all 8 tab histories + `useDeadlines` honestly empty; real submit path untouched; new `no-fabricated-data` invariant (covers 051+052). Real read-back = `ORPHAN-HIGH-129`; biomass-wire = `ORPHAN-MEDIUM-130` |
+| `FARM-HIGH-068` | 5 | `harvest-harvestedby` — deleted the dead required `harvestedBy` input (server derives the actor from `user.sub`); every harvest mutation had failed GraphQL non-null validation |
+| `FARM-HIGH-069` | 5 | `harvest-planid` — added `harvestPlanId` to the harvest input DTO + FE type (the handler read it for the mandatory-plan gate; DTO/FE omitted it) |
+| `FARM-HIGH-070` | 5 | `close-batch-enum` — expanded the backend enum by the 4 legitimate reasons the FE picker offered (TOTAL_MORTALITY/DISEASE_OUTBREAK/COMMERCIAL_DECISION/MERGED) + exhaustive Record entries; FE/BE drift resolved, no event-contract change (closeReason is free-text). FE-binding-to-generated-types = `ORPHAN-HIGH-131` |
+| `FARM-HIGH-071` | 5 | `fe-upload-bypass` — added `RestClient.upload` multipart to the central client + rerouted all 5 upload/delete/presigned hooks through it (fresh token + CSRF + refresh-on-401); fixed the CSRF cookie-name SSoT drift (`XSRF-TOKEN`→`csrf-token`); invariant RULE 3 bans raw `/upload` fetch. Sibling sentinel raw-fetch = `ORPHAN-MEDIUM-132` |
+| `FARM-MEDIUM-060` | 5 | `fe-eager-imports` — share recharts + lucide as MF singletons (`getSharedConfigWithChartsAndIcons`), route-level `lazy()` + a11y `<Suspense>` (Map eager, 14 pages lazy), bundle budget (`chunkSizeWarningLimit`); recharts pinned exact |
+| `FARM-HIGH-072` | 6 | `pii-plaintext-log` — stopped logging decrypted worker name in `create-worker.handler` (log surrogate ids); new security-hardening invariant RULE 1 bans dotted-PII interpolation in `this.logger.*` (the unenforced "no PII in logs" rule) |
+| `FARM-LOW-051` | 6 | `global-auth-guard` — FALSE POSITIVE (farm has a fail-closed `ServiceIdentityGuard`+`RolesGuard`+`PermissionMatrixGuard` APP_GUARD floor); added invariant RULE 2 pinning the guard stack (no new guard) |
+| `FARM-MEDIUM-061` | 6 | `cron-fairness` — built `forEachTenantSchema` SSoT (bounded concurrency + per-tenant timeout + statement_timeout + error isolation + rotation, 6/6 tests); adopted in the maintenance cron. Remaining ~9 loop adoptions = `ORPHAN-MEDIUM-134` |
 
 Deferred / superseded references: `FARM-HIGH-007` + `FARM-MEDIUM-003` are closed by `FARM-HIGH-014`; `FARM-MEDIUM-002` is superseded (see `ORPHAN-MEDIUM-112`); feed-dual Phase B convergence is tracked as `ORPHAN-HIGH-114`.

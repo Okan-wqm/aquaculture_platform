@@ -87,19 +87,18 @@ class PhaseV5_3PedagogyLint(unittest.TestCase):
 
     # I-V5.3-02 — lint accepts current corpus under warn-mode allowlist.
     def test_i_v5_3_02_lint_passes_under_allowlist(self) -> None:
-        """Plan ARIA-V5 §3e v2 R1 — C4 landing posture.
+        """Plan ARIA-V5 §3e Phase 2 — permanent enforcement.
 
-        With ``--strict=False`` (default; warn mode) AND the
-        ``agent-pedagogy.allowlist.json`` populated from C4
-        migration, the lint MUST return ``violation_count == 0``.
-        Narrative pairings for the 72 newly-tiered agents land in
-        follow-up commits; the allowlist captures them today.
+        With ``strict=True`` (allowlist IGNORED) the lint MUST return
+        ``violation_count == 0``: every agent now carries its V5 §3e
+        narrative pairings, the C4 grandfather allowlist is empty, and
+        a new un-narrated imperative reds the gate with no bypass.
         """
         from aria_kernel.pedagogy_lint import run_pedagogy_lint
         report = run_pedagogy_lint(
             agents_dir=_AGENTS_DIR,
             allowlist_path=_ALLOWLIST,
-            strict=False,
+            strict=True,
         )
         self.assertEqual(
             report.violation_count, 0,
@@ -127,7 +126,7 @@ class PhaseV5_3PedagogyLint(unittest.TestCase):
         """Plan ARIA-V5 §3e v2 — CLI contract for CI consumption.
 
         ``python -m aria_kernel.pedagogy_lint --format json`` MUST:
-          (a) exit 0 when violations are empty (warn mode + clean)
+          (a) exit 0 when violations are empty (strict mode + clean)
           (b) emit valid JSON with keys: violation_count,
               agents_scanned, agents_compliant, agents_allowlisted,
               lint_pass_rate, violations (list of dicts)
@@ -137,6 +136,7 @@ class PhaseV5_3PedagogyLint(unittest.TestCase):
                 sys.executable, "-m", "aria_kernel.pedagogy_lint",
                 "--agents-dir", str(_AGENTS_DIR),
                 "--allowlist", str(_ALLOWLIST),
+                "--strict",
                 "--format", "json",
             ],
             cwd=str(_KERNEL_ROOT),

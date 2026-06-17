@@ -33,6 +33,12 @@ COPY web/apps/aquamobil ./
 
 # Copy shared libs required at build time
 COPY libs/farm-shared /monorepo/libs/farm-shared
+# shared-contracts is path-aliased in vite.config (@aquaculture/shared-contracts ->
+# ../../../libs/shared-contracts/src), NOT npm-installed — so its SOURCE must be in
+# the build context like farm-shared, else `vite build` fails: "Could not load
+# /monorepo/libs/shared-contracts/src" (the aquamobil PWA imports
+# MESSAGING_MEDIA_MIME_ALLOWLIST from it). See ORPHAN-MEDIUM-130.
+COPY libs/shared-contracts /monorepo/libs/shared-contracts
 
 # Patch konsta package.json to add root "." export (needed for Vite/Rollup)
 RUN node -e " \

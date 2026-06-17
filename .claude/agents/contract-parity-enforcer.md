@@ -44,27 +44,31 @@ NestJS Router metadata extraction, Apollo Federation subgraph composition, event
 
 - `infra/openapi/<service>.yaml` MUST be source-of-truth for HTTP contract. Drift detector: extract NestJS Router metadata (`Reflector.get(PATH_METADATA)`) + compare to OpenAPI spec.
 - Drift cases:
-  - Route exists in code, missing from OpenAPI = HIGH (API client generators broken; consumers bypass docs).
-  - OpenAPI declares route, code missing = **CRITICAL** (404 in production for documented endpoint).
+  - Route exists in code, missing from OpenAPI = HIGH.
+  - OpenAPI declares route, code missing = **CRITICAL**.
+  - **Consequence:** the spec being source-of-truth is the whole contract — a code-only route (HIGH) makes API client generators emit a stub the server has and consumers bypass the docs to call it ad-hoc; a spec-only route (CRITICAL) is a documented endpoint that 404s in production the moment a generated client calls it.
   - Parameter schema mismatch (required vs optional, type drift) = HIGH.
   - Response schema mismatch (status code, body shape) = HIGH.
-- `@nestjs/swagger` decorators (`@ApiOperation`, `@ApiResponse`, `@ApiBody`, `@ApiQuery`) on every controller method. Missing = HIGH (inferred OpenAPI is incomplete).
+- `@nestjs/swagger` decorators (`@ApiOperation`, `@ApiResponse`, `@ApiBody`, `@ApiQuery`) on every controller method. Missing = HIGH.
 - Versioning: route prefix `/v1`, `/v2` mapped to OpenAPI version. Missing version prefix on a versioned route = HIGH.
+  - **Consequence:** a param/response shape mismatch (HIGH) ships a generated client that sends or parses the wrong type and fails at the boundary; a method with no `@nestjs/swagger` decorator yields an inferred OpenAPI that is silently incomplete so the drift detector cannot even see the route; an unversioned route on a versioned API collides `/v1` and `/v2` consumers onto one handler.
 
 ### GraphQL subgraph parity
 
-- Every `@Resolver` class member resolves a schema field declared in subgraph SDL. Missing schema = HIGH (runtime UNRESOLVED_FIELD error).
-- Every schema field defined has a resolver. Schema-only field = HIGH (returns null silently OR errors in strict mode).
-- Federation directives (`@key`, `@external`, `@requires`, `@provides`) MUST match between gateway composition + subgraph SDL. Mismatch = **CRITICAL** (federation fails composition; gateway down).
-- Custom scalars (`DateTime`, `JSON`, `UUID`) defined consistently across subgraphs (same parse/serialize behaviour). Drift = HIGH (cross-subgraph data corruption).
+- Every `@Resolver` class member resolves a schema field declared in subgraph SDL. Missing schema = HIGH.
+- Every schema field defined has a resolver. Schema-only field = HIGH.
+- Federation directives (`@key`, `@external`, `@requires`, `@provides`) MUST match between gateway composition + subgraph SDL. Mismatch = **CRITICAL**.
+- Custom scalars (`DateTime`, `JSON`, `UUID`) defined consistently across subgraphs (same parse/serialize behaviour). Drift = HIGH.
+  - **Consequence:** a resolver with no SDL field (HIGH) raises a runtime UNRESOLVED_FIELD error; an SDL field with no resolver (HIGH) returns null silently in permissive mode or errors in strict mode; a directive mismatch (CRITICAL) makes the gateway fail supergraph composition and the whole federated graph goes down; a custom-scalar parse/serialize drift across subgraphs corrupts data as it crosses the subgraph boundary.
 - Codegen output (`web/shared-ui/src/generated/graphql-types.ts`) regenerated on every schema change; CI gate validates output exists + no drift. Currently orphaned (FE-CRITICAL — Phase 8.4 mass migration target).
 
 ### sensorprotocols/*.md ↔ Rust adapter parity
 
-- `sensorprotocols/Modbus-TCP.md` documents register map + frame structure → MUST match `sens-api-gateway/src/protocols/modbus_tcp.rs` adapter constants. Drift = **CRITICAL** (adapter reads wrong register → wrong sensor value → potential life-safety alert miss).
-- `sensorprotocols/mqtt-protocol.md` topic structure → MUST match adapter publish/subscribe topics. Drift = HIGH (silent message routing failure).
+- `sensorprotocols/Modbus-TCP.md` documents register map + frame structure → MUST match `sens-api-gateway/src/protocols/modbus_tcp.rs` adapter constants. Drift = **CRITICAL**.
+- `sensorprotocols/mqtt-protocol.md` topic structure → MUST match adapter publish/subscribe topics. Drift = HIGH.
 - New protocol added to adapter: doc creation MANDATORY in same PR. Doc-less adapter = HIGH.
 - Adapter test fixture MUST cite the doc section being implemented (`// per sensorprotocols/X.md section Y`).
+  - **Consequence:** a Modbus register-map drift (CRITICAL) makes the adapter read the wrong register, return a wrong sensor value, and miss a potential life-safety alert; an MQTT topic drift (HIGH) silently misroutes messages so a subscriber never sees data; a doc-less adapter (HIGH) leaves the next maintainer reverse-engineering the wire format with no spec; an uncited fixture means a doc edit can drift from the adapter with no failing test to catch it.
 
 ### Event contract consumer drift (data-expert sibling)
 
@@ -72,7 +76,8 @@ NestJS Router metadata extraction, Apollo Federation subgraph composition, event
   (a) upcaster (for breaking change), OR
   (b) feature flag + dual-emit period (for new event type), OR
   (c) explicit OPT-IN documented in event-contract doc.
-  Producer-only bump = **CRITICAL** (consumer crashes on next replay).
+  Producer-only bump = **CRITICAL**.
+  - **Consequence:** a producer-only shape bump with no upcaster, dual-emit, or documented opt-in (CRITICAL) crashes every consumer the moment it replays or receives the new shape — the event-store replay path makes this fatal across all historical events, not just live traffic.
 - Consumer enumeration via ripple-tracer (`infrastructure/nats/services.yaml` parse — data-expert primary on tooling).
 - Pact / Schemathesis adoption (post-V1 per AUDIT-PACT-001 deferred): when reactivated, this agent integrates contract test runs into CI.
 
@@ -84,6 +89,7 @@ NestJS Router metadata extraction, Apollo Federation subgraph composition, event
   - Asserts every sensorprotocols/*.md has companion Rust adapter file.
   - Asserts every event contract has matching upcaster (delegates to upcaster-chain.spec.ts when that lands).
 - Failure of this invariant = HIGH; CI gate blocks PR merge.
+  - **Consequence:** this spec is the only build-time gate that catches contract drift across all four axes at once — letting a failing run through (HIGH) re-opens every drift class above (route 404s, federation composition failure, wrong-register sensor reads, consumer replay crashes) and ships it to production undetected.
 
 ## Active findings this agent owns
 

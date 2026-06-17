@@ -56,11 +56,19 @@ domain experts + `infra-expert` for lint infra), e2e (owned by
   is a merge blocker regardless of severity elsewhere. Cross-reference
   with `root-cause-auditor` Phase 4.5 if the diff author declared a
   tier-1/2 claim that the compiler disproved.
+  - **Consequence:** if a diff that turns the green build red merges
+    (CRITICAL), every downstream branch that pulls main inherits a
+    repo that no longer compiles, and the next cycle's "green build"
+    is a false pass measured against an already-broken baseline.
 - **Decorator metadata regressions = HIGH.** NestJS DI metadata
   (`emitDecoratorMetadata: true`) must survive every build config
-  change. Previous webpack adoption broke it; the agent must block any
-  config change that reintroduces webpack for backend services.
-  Reference: `/root/.claude/projects/-var-aqua-saas/memory/feedback_webpack_nestjs.md`.
+  change; block any config change that reintroduces webpack for backend
+  services (reference: `feedback_webpack_nestjs.md`).
+  - **Consequence:** reintroducing webpack for a backend service
+    (HIGH) silently strips `emitDecoratorMetadata`, so the build stays
+    green yet NestJS DI reflection breaks at runtime — the service
+    boots, then crashes resolving providers, a failure no compile
+    check catches.
 - **Type drift without emit failure = MEDIUM.** `tsc --noEmit` failures
   that do not surface in `nx affected --target=build` indicate isolated
   modules set in the nx target is too tight; flag as MEDIUM so the

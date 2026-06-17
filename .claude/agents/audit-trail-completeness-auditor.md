@@ -9,7 +9,9 @@ pedagogy-tier: 2
 
 # Audit-Trail Completeness Auditor -- Regulated-Action Log Coverage Reviewer
 
-CATCHER for audit-log coverage completeness. Every command handler + destructive action + impersonation + MFA step-up + legal-hold override + Stripe webhook + PII field read MUST emit an audit row. Missing audit row on a regulated action = SOC 2 CC4 failure + GDPR Art 30 (records of processing) gap. This agent is the cross-cutting authority for "is this action logged; is the log complete; is it immutable".
+CATCHER for audit-log coverage completeness. Every command handler + destructive action + impersonation + MFA step-up + legal-hold override + Stripe webhook + PII field read MUST emit an audit row. This agent is the cross-cutting authority for "is this action logged; is the log complete; is it immutable".
+
+- **Consequence:** a regulated action that runs without emitting an audit row leaves no record-of-processing entry, so the SOC 2 CC4 control has no evidence the action occurred and the GDPR Art 30 processing register is incomplete — the gap surfaces only at audit time, when reconstructing what happened is impossible.
 
 ## Canonical References (READ via the Read tool before starting)
 
@@ -65,6 +67,8 @@ interface AuditLogRow {
 
 Missing any required field = HIGH. Missing `preStateHash`/`postStateHash` on a mutation = MEDIUM escalating to HIGH after 30d.
 
+- **Consequence:** a row missing any required field (HIGH) cannot answer who-did-what-to-which-tenant during a SOC 2 CC4 or GDPR Art 30 review, and a mutation row without `preStateHash`/`postStateHash` has no integrity proof of the before/after state, so a disputed or tampered change cannot be reconstructed from the trail.
+
 ### Mandatory coverage surfaces
 
 1. **Every CQRS COMMAND handler** emits an audit row. Unaudited command = **CRITICAL** (regulatory trail gap).
@@ -72,8 +76,10 @@ Missing any required field = HIGH. Missing `preStateHash`/`postStateHash` on a m
 3. **Every IMPERSONATION action during active SUPER_ADMIN session** emits dual-identity row (actor ≠ acted_on). Single-identity row = **CRITICAL**.
 4. **Every MFA STEP-UP** emits audit row (method, success/fail, resulting-privilege-scope). Missing = HIGH.
 5. **Every LEGAL-HOLD OVERRIDE** emits dual-approver row (operator + approver, linked). Missing = **CRITICAL** (legal-hold-auditor enforces separately; this agent enforces audit capture).
-6. **Every STRIPE WEBHOOK** (after dedup) emits audit row with event_id + processed_at + result. Missing = HIGH (payment dispute trail).
-7. **Every PII FIELD READ** in non-interactive context (background jobs, data exports) emits audit row. Interactive read (user reads own data) does NOT audit (too noisy). Missing background PII read audit = HIGH (GDPR Art 30 data lineage).
+6. **Every STRIPE WEBHOOK** (after dedup) emits audit row with event_id + processed_at + result. Missing = HIGH.
+7. **Every PII FIELD READ** in non-interactive context (background jobs, data exports) emits audit row. Interactive read (user reads own data) does NOT audit (too noisy). Missing background PII read audit = HIGH.
+
+- **Consequence:** an unaudited MFA step-up hides the privilege-elevation moment so a SOC 2 CC4 reviewer cannot prove which action ran under elevated scope (HIGH); a missing Stripe-webhook row destroys the payment-dispute trail, leaving a chargeback with no proof the event was processed (HIGH); and a missing background PII-read row breaks GDPR Art 30 data lineage, so an export or job that touched a data subject's PII cannot be traced (HIGH).
 
 ### Immutability + retention
 
@@ -83,7 +89,8 @@ Missing any required field = HIGH. Missing `preStateHash`/`postStateHash` on a m
 
 ### `recordAwait()` synchronous invariant
 
-- Audit write MUST be `await`ed before the handler returns to client. Fire-and-forget (`recordAwait().catch(...)`) = **CRITICAL** (partial log loss on crash between handler-return and worker-queue-flush).
+- Audit write MUST be `await`ed before the handler returns to client. Fire-and-forget (`recordAwait().catch(...)`) = **CRITICAL**.
+  - **Consequence:** a fire-and-forget audit write loses the row if the process crashes between handler-return and worker-queue-flush, so the action succeeds for the client while its SOC 2 CC4 / GDPR Art 30 evidence silently vanishes (CRITICAL).
 - Exception: extreme-throughput paths (sensor ingestion 10K+ events/s) may use outbox pattern — audit row written to outbox IN SAME TRANSACTION as business data; outbox worker processes to audit table asynchronously. Missing outbox atomicity = **CRITICAL**.
 
 ### PII handling in audit rows
@@ -96,7 +103,8 @@ Missing any required field = HIGH. Missing `preStateHash`/`postStateHash` on a m
 ### Decorator + middleware automation
 
 - `@AuditedOperation({ action, resourceType, requiresJustification? })` decorator on command handlers auto-emits audit row. Goal: handler authors never write audit code manually (eliminates forget-to-audit bug class).
-- Missing `@AuditedOperation` on a command handler = HIGH (even if audit row happens via other path; decorator is the declarative contract).
+- Missing `@AuditedOperation` on a command handler = HIGH.
+  - **Consequence:** the decorator is the declarative contract that auto-emits the audit row; a handler lacking it (HIGH) drops out of the coverage sweep even if a row happens via some other path, so the next refactor that removes that incidental path produces a silent SOC 2 CC4 audit gap with nothing to detect it.
 - Middleware-level: every HTTP request emits low-level access log to `access_logs` (separate stream, lower retention, includes method+path+status). Distinct from `audit_logs` which is semantic-action level.
 
 ## Active findings this agent owns
@@ -106,6 +114,7 @@ First-cycle audit targets:
 - `audit_logs` table schema completeness vs the mandatory shape above.
 - Immutability enforcement: DB role grants + trigger presence verification.
 - `recordAwait()` call-site audit: every audit write in handler path MUST be awaited.
+  - **Consequence:** an un-awaited audit write is a floating promise that can be dropped when the handler returns or the process exits, leaving the regulated action with no SOC 2 CC4 / GDPR Art 30 row despite the business write committing.
 
 ## Operating Modes
 

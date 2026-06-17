@@ -4626,3 +4626,19 @@ Severity: MEDIUM. Discovered 2026-06-17 during the production redeploy of main (
 Status: RESOLVED (2026-06-17; fix branch `fix/aquamobil-standalone-lock-react19`). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-MEDIUM-130 — Phase 7 wired the aquamobil shared-contracts vite alias but Dockerfile.aquamobil doesn't COPY libs/shared-contracts, so the standalone image vite build fails
+
+Severity: MEDIUM. Discovered 2026-06-17 during the production redeploy (`31a5238bb`, deploy #3). The `build-frontend-images (aquamobil)` job's `npx vite build` step failed (after `npm ci` passed, post-[[ORPHAN-MEDIUM-129]]).
+
+**Problem:** aquamobil's `vite.config.ts` aliases `@aquaculture/shared-contracts` → `../../../libs/shared-contracts/src` (path-aliased, NOT npm-installed — mirroring the farm-shared precedent), and `src/hooks/useMediaUpload.ts` imports `MESSAGING_MEDIA_MIME_ALLOWLIST` from it (Phase 7, MSG-MEDIUM-057). But `infrastructure/docker/Dockerfile.aquamobil`'s standalone builder copies only `libs/farm-shared` into the build context (`COPY libs/farm-shared /monorepo/libs/farm-shared`), NOT `libs/shared-contracts`. So inside the container the alias resolves to a missing directory and `vite build` fails: `Could not load /monorepo/libs/shared-contracts/src (imported by src/hooks/useMediaUpload.ts): ENOENT`.
+
+**Why PR-CI didn't catch it:** PR-CI does not build `Dockerfile.aquamobil`; the image builds only in the deploy pipeline. Deploy-only-visible (same class as [[ORPHAN-MEDIUM-128]] / [[ORPHAN-MEDIUM-129]]). Phase 7 added the alias + import but missed the corresponding Dockerfile COPY.
+
+**Resolution (this PR):** add `COPY libs/shared-contracts /monorepo/libs/shared-contracts` to `Dockerfile.aquamobil`, right after the farm-shared COPY. `libs/shared-contracts/src` is pure enums/types (no React/node-only deps), tree-shaken to just the MIME allowlist. Verified firsthand by reproducing the exact CI build locally: `docker build --target builder` → exit 0 (vite `✓ built in 22.21s`, image named).
+
+**Systemic note (owner: infra-expert / aquamobil):** the aquamobil standalone Docker image build is not exercised by PR-CI, so cross-lib import additions, lockfile drift, and Dockerfile-context gaps are ALL deploy-only-visible. The recurring fix is one PR-CI gate that actually builds `Dockerfile.aquamobil` on changes under `web/apps/aquamobil/` (consolidates [[ORPHAN-MEDIUM-129]] + this).
+
+Status: RESOLVED (2026-06-17; fix branch `fix/aquamobil-dockerfile-copy-shared-contracts`). Registry: orphan-findings.md only.
+
+---

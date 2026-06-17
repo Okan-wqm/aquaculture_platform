@@ -70,6 +70,7 @@ If mode = FULL-RFP or DELTA-RELEASE, run a "doc-drift" sweep:
 - Every protocol file under `sensorprotocols/*.md` must have a matching chapter under `docs/protocols/`.
 - Every ADR under `docs/adr/*.md` must be indexed in `architecture/adr-index.md`.
 - Missing items = HIGH finding; consolidation report BLOCKS the tag.
+  - **Example:** a newly-added `pub fn decode_s7comm()` in `src/protocols/s7.rs` that never appears in `api/rust-api.md`, or a new `sensorprotocols/ethernet-ip.md` with no matching `docs/protocols/ethernet-ip.md`, is a HIGH doc-drift finding — the consolidation report records it and the release tag is blocked until the producer re-runs.
 
 ## Invariants
 

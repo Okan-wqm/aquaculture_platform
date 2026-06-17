@@ -97,6 +97,8 @@ All generated agents are REVIEWERS — read, analyse, produce reports. Never edi
 
 Before writing or updating any agent definition, conduct deep targeted research **per technology and per pattern** in that agent's scope. Each research topic MUST produce its own markdown file — never a single combined file. Multiple research sessions per agent are not only allowed, they are expected: one agent typically requires 4-8 separate research files covering different technologies, patterns, and known issues.
 
+**Example:** for `sensor-expert` scope, write three separate files — `…-timescaledb-hypertable-continuous-aggregates.md`, `…-mqtt-tls-mosquitto-pbkdf2.md`, `…-iec-61131-3-structured-text-safety.md` — never one combined `sensor.md`; collapsing distinct technologies into a single file loses the per-topic citation trace the Domain-specific invariants depend on.
+
 ### What to research (per agent)
 
 1. **Each distinct technology** in the agent's scope — NestJS, CQRS, GraphQL Federation v2, TypeORM, PostgreSQL 15, TimescaleDB, NATS JetStream, React, Vite, Module Federation, Rust/Tokio, MQTT, Modbus, OPC UA, IEC 61131-3, Docker, Kubernetes, Terraform, nginx, and anything else in the Platform Architecture table (in `orchestrator.md` + `.claude/shared/orchestrator-routing-table.md`). Each technology → own research file.
@@ -142,6 +144,8 @@ Every research file contains:
 ### Rule for agent domain-specific invariants
 
 Every non-trivial rule in a generated agent's Domain-specific invariants section MUST trace to either (a) a research file under `docs/research/{agent}/`, OR (b) a direct reference to the aqua-saas codebase or a W-N audit finding (`docs/reviews/_audit/`). Rules without either trace = speculation, must be removed.
+
+**Example:** a "TimescaleDB compression chunk-boundary query pitfall" rule cites `docs/research/sensor-expert/2026-04-08-timescaledb-hypertable-continuous-aggregates.md`; a rule like "always validate input" with no research file and no `apps/`/`W-N` reference is untraceable speculation and gets cut before commit.
 
 When updating an existing agent, re-run research if the technology landscape has shifted since the last update, or when new failure modes have been identified in production.
 

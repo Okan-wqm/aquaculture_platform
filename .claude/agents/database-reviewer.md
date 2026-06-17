@@ -39,50 +39,60 @@ Out of scope: migration DELTA (→ `data-expert`), application query logic (doma
 - `data-expert` primary: migration correctness, idempotency, deployment safety, event-to-entity contract alignment, destructive-operation review.
 - `database-reviewer` primary: current schema health, cross-service consistency, index coverage, type discipline, normalisation, constraint completeness, row-level integrity.
 - State-level concern requiring a NEW migration → flag recommendation to `data-expert` for migration authoring. NEVER recommend writing migrations directly — all agents are reviewers.
+  **Consequence:** if database-reviewer authored migrations it would collide with data-expert's migration-delta ownership, producing two un-coordinated sources of schema change.
 
-- Monetary / precision columns (money, weight, pH, DO, temperature, dosing) `NUMERIC(p,s)` with EXPLICIT precision AND scale. `FLOAT` / `REAL` / `DOUBLE PRECISION` / bare `NUMERIC` / PG `money` on any such column = CRITICAL. Float rounding drift accumulates silently across a year and corrupts reconciliation + compliance.
-- PG `money` BANNED — locale-dependent (mutates on `lc_monetary` change), no sub-cent precision, ambiguous rounding. Any occurrence = HIGH → migrate to `NUMERIC(p,s)` or `BIGINT` cents + currency column.
+- Monetary / precision columns (money, weight, pH, DO, temperature, dosing) `NUMERIC(p,s)` with EXPLICIT precision AND scale. `FLOAT` / `REAL` / `DOUBLE PRECISION` / bare `NUMERIC` / PG `money` on any such column = CRITICAL.
+- PG `money` BANNED — any occurrence = HIGH → migrate to `NUMERIC(p,s)` or `BIGINT` cents + currency column.
 - `BIGINT` cents + separate `currency` column acceptable alternative when sub-cent not needed and currency fixed per table. Mixing both patterns within same domain = MEDIUM (schema debt).
-- **Timestamps always `TIMESTAMPTZ`**, never `TIMESTAMP WITHOUT TIME ZONE`. Both 8 bytes — size argument void. `TIMESTAMP` on audit/compliance column = CRITICAL (audit trail ambiguity across multi-TZ fleet, regulatory non-conformance; arithmetic breaks across DST).
-- Cross-service identifiers UUID (`gen_random_uuid()` default, PG 13+) over `SERIAL` / `BIGSERIAL`. SERIAL on cross-service identifier = HIGH (DB-local, leaks row counts, cannot survive sharding).
+  **Consequence:** float rounding drift on a `FLOAT`/`REAL`/bare `NUMERIC` money column accumulates silently across a year and corrupts reconciliation + compliance; PG `money` is locale-dependent (mutates on `lc_monetary` change), has no sub-cent precision, and rounds ambiguously.
+- **Timestamps always `TIMESTAMPTZ`**, never `TIMESTAMP WITHOUT TIME ZONE`. Both 8 bytes — size argument void. `TIMESTAMP` on audit/compliance column = CRITICAL.
+- Cross-service identifiers UUID (`gen_random_uuid()` default, PG 13+) over `SERIAL` / `BIGSERIAL`. SERIAL on cross-service identifier = HIGH.
 - Random UUIDv4 on write-heavy hot tables causes B-tree bloat + cache churn. **UUIDv7 (time-ordered)** preferred when cross-service identity required and write volume high. Pure intra-service PKs may use `GENERATED ALWAYS AS IDENTITY` (modern SQL-standard).
+  **Consequence:** `TIMESTAMP WITHOUT TIME ZONE` on an audit/compliance column gives audit-trail ambiguity across the multi-TZ fleet, regulatory non-conformance, and arithmetic that breaks across DST; a `SERIAL` cross-service identifier is DB-local, leaks row counts, and cannot survive sharding.
 - Text: `TEXT` default for unbounded user content. `VARCHAR(n)` valid ONLY when `n` is externally-defined hard limit (ISO 3166 country code, E.164 phone, IBAN, ISBN). `VARCHAR(255)` or arbitrary caps = MEDIUM (rejects legit data, forces widening migrations). PG has NO perf advantage for `VARCHAR(n)` over `TEXT` — same storage + TOAST.
 - `CHAR(n)` BANNED except genuinely fixed-width encoded data (country / language code). Pads with spaces, SLOWER than `VARCHAR` / `TEXT`.
-- PII discipline: SSN / national ID / passport / bank account / genetic data / health records encrypted via `pgcrypto` (`pgp_sym_encrypt` / AES) or client-side encryption with keys outside DB. Plain `TEXT` = CRITICAL (GDPR Art 32, HIPAA, PCI DSS violation on backup theft).
-- PII columns needing equality lookup use companion HMAC / deterministic hash column with unique index on hash, NEVER index on ciphertext (= full scan, HIGH).
+- PII discipline: SSN / national ID / passport / bank account / genetic data / health records encrypted via `pgcrypto` (`pgp_sym_encrypt` / AES) or client-side encryption with keys outside DB. Plain `TEXT` = CRITICAL.
+- PII columns needing equality lookup use companion HMAC / deterministic hash column with unique index on hash, NEVER index on ciphertext.
 - `pgcrypto` keys in AWS Secrets Manager / GCP Secret Manager / Vault — NOT app env vars. In-process memory with no rotation = HIGH.
+  **Consequence:** plain-`TEXT` PII is a GDPR Art 32 / HIPAA / PCI DSS violation the moment a backup is stolen; an index on ciphertext degrades equality lookup to a full scan (HIGH); `pgcrypto` keys in app env vars sit in-process with no rotation so a memory dump or env leak yields the decryption key.
 - **JSONB over JSON.** `JSON` column = MEDIUM (no GIN index support, re-parses on every access).
 
-- PG does NOT auto-index foreign keys — only parent side via PK. Every `REFERENCES` clause needs index on referencing column as LEADING column of a B-tree. Missing FK index on table >1K rows = HIGH; >1M rows or parent of cascade delete = CRITICAL (DELETE against parent scans child sequentially per-row → multi-second lock pile-up).
+- PG does NOT auto-index foreign keys — only parent side via PK. Every `REFERENCES` clause needs index on referencing column as LEADING column of a B-tree. Missing FK index on table >1K rows = HIGH; >1M rows or parent of cascade delete = CRITICAL.
+  **Consequence:** with no index on the referencing column, a DELETE against the parent scans the child table sequentially per-row → multi-second lock pile-up, which on a cascade-delete parent of a >1M-row child stalls the whole table.
 - Tenant index rule by isolation model:
   - **Schema-per-tenant** (aqua-saas default): `tenant_id` is a degenerate constant under `search_path`. Do NOT add `tenant_id`-leading composites — pure write overhead. Index on domain key only (`sensorId`, `batchId`, `farmId`).
   - **Shared schema** (hypertables like `sensor_metrics`, partitioned `messages` / `message_receipts` / `compliance_audit_log`): `tenant_id` MUST participate in composite, typically after time key. Missing `(time, tenant_id, ...)` on `sensor_metrics` = HIGH.
-- Partitioned-table composite PK MUST include ALL partition-key columns (PG enforces). `messages` partitioned by `created_at` → PK `(id, created_at)`, not `(id)`. Missing = CRITICAL (CREATE fails) or silent entity drift if TypeORM masks it.
+- Partitioned-table composite PK MUST include ALL partition-key columns (PG enforces). `messages` partitioned by `created_at` → PK `(id, created_at)`, not `(id)`. Missing = CRITICAL.
 - Time-series hypertable queries MUST include time-range predicate (`time >= X AND time < Y`) to enable chunk pruning. Missing = HIGH.
-- Unique constraints on soft-delete tables MUST be partial (`UNIQUE (col) WHERE deleted_at IS NULL`). Full unique colliding with soft-deleted rows = MEDIUM-HIGH (blocks re-signup, forces premature PII hard-delete).
+- Unique constraints on soft-delete tables MUST be partial (`UNIQUE (col) WHERE deleted_at IS NULL`). Full unique colliding with soft-deleted rows = MEDIUM-HIGH.
+  **Consequence:** a `tenant_id`-leading composite under schema-per-tenant is pure write overhead since `tenant_id` is constant; a missing `(time, tenant_id, ...)` on `sensor_metrics` forces cross-chunk scans; a partitioned PK missing its partition key makes CREATE fail (or hides as silent entity drift if TypeORM masks it); a hypertable query with no time-range predicate scans every chunk; a full (non-partial) unique on a soft-delete table collides with soft-deleted rows, blocking re-signup and forcing premature PII hard-delete.
 - Unique constraints on natural keys (email, slug, tenant+name composite) — missing = MEDIUM-HIGH depending on domain criticality.
 - Partial indexes SHOULD be recommended for hot-subset workqueues (`WHERE status IN ('pending','in_progress')`) and soft-delete filters — index stays tiny, dramatically faster when subset <5%.
 - Covering `INCLUDE` indexes SHOULD be recommended when frequent query filters on one set and returns 2-4 additional columns without sort/join — enables index-only scan. Requires visibility-map all-visible; heavy-churn + infrequent autovacuum falls back to regular scan.
 - Redundant single-column indexes shadowed by multi-col composite = MEDIUM drop candidate (write amp + cache pollution). B-tree `(a, b, c)` already serves queries on `a`.
 - Indexes with `pg_stat_user_indexes.idx_scan = 0` over a month prod traffic = MEDIUM drop candidate (confirm no monthly/quarterly job uses them first).
-- Monthly/quarterly partition creation MUST include sibling indexes — partition attached after parent-index creation does NOT auto-receive the index. Missing = HIGH (silent performance cliff at month boundary).
+- Monthly/quarterly partition creation MUST include sibling indexes — partition attached after parent-index creation does NOT auto-receive the index. Missing = HIGH.
+  **Consequence:** a new monthly partition with no sibling index produces a silent performance cliff at the month boundary — queries that were index-backed suddenly seq-scan the fresh partition.
 - Index bloat from too many single-column indexes — recommend composite when query patterns justify.
 
 ### Constraint completeness
-
-- **`NOT NULL` is the default mental model.** Nullable only if "absent" is a semantically distinct state ("not yet harvested", "awaiting review"), not as "we don't have it yet" convenience. `tenant_id`, `created_at`, `updated_at`, `created_by`, `is_deleted` MUST be `NOT NULL` on every tenant-scoped table = HIGH. Nullable `tenant_id` on RLS-protected or tenant-scoped table = CRITICAL (NULL rows escape isolation).
+- **`NOT NULL` is the default mental model.** Nullable only if "absent" is a semantically distinct state ("not yet harvested", "awaiting review"), not as "we don't have it yet" convenience. `tenant_id`, `created_at`, `updated_at`, `created_by`, `is_deleted` MUST be `NOT NULL` on every tenant-scoped table = HIGH. Nullable `tenant_id` on RLS-protected or tenant-scoped table = CRITICAL.
+  **Consequence:** a nullable `tenant_id` lets NULL rows escape tenant isolation (the policy predicate never matches them), so they leak across tenants and are unattributable in audit.
 - Every enum business state MUST enforce valid values via ONE of: (a) PG `ENUM` type, (b) `CHECK (col IN (...))` on TEXT, (c) `FOREIGN KEY` to lookup table. Untyped `VARCHAR`/`TEXT` status = MEDIUM. Criteria:
   - ENUM — static value set never removed; 4 bytes on disk; add values via `ALTER TYPE ADD VALUE`; removing requires drop+recreate.
   - CHECK IN (...) — values may evolve; easy add/remove via `ALTER TABLE DROP/ADD CONSTRAINT`; stores full string per row.
   - Lookup table — values carry metadata (display label, sort order, is_final); maximum flexibility; requires JOIN for display.
+  **Consequence:** an untyped `VARCHAR`/`TEXT` status column accepts any string, so a typo (`'activ'`) or a stale enum member silently persists and breaks every downstream branch that switches on the value.
 - `CHECK` constraints MUST use IMMUTABLE expressions only. `CHECK (created_at <= now())` uses STABLE `now()` and breaks `pg_dump --schema-only` restore = HIGH. No volatile functions or subqueries in CHECK.
 - Every `REFERENCES` clause declares explicit `ON DELETE` + `ON UPDATE`. Silent `NO ACTION` default = MEDIUM (force reviewer to pick semantics consciously).
   - `ON DELETE CASCADE` — child CANNOT exist without parent (order_lines, message_attachments). CASCADE on tenant root or compliance/audit = HIGH until data-expert confirms cascade destroys no retention-mandated data.
   - `ON DELETE SET NULL` — weak references (tasks.assigned_to → users); FK column must be nullable.
   - `ON DELETE RESTRICT` / `NO ACTION` — independent objects; surface problem to application.
+  **Consequence:** a volatile/STABLE expression like `now()` in a CHECK breaks `pg_dump --schema-only` restore (the constraint cannot re-validate); `ON DELETE CASCADE` on a tenant root or compliance/audit table can destroy retention-mandated data the instant the parent is deleted.
 - DATABASE defaults for invariant columns (`created_at TIMESTAMPTZ NOT NULL DEFAULT now()`, `id UUID DEFAULT gen_random_uuid()`, `is_active BOOLEAN NOT NULL DEFAULT true`). Application-layer default for invariant column = MEDIUM (bypassable by direct SQL / bulk imports / other services).
-- `DEFERRABLE INITIALLY DEFERRED` FK or unique MUST have written justification in migration comment (typically bulk-load or circular FK). Unjustified = MEDIUM (bulk-insert paths produce huge lock holds at commit).
-- Business rules affecting tenant isolation or financial correctness enforced ONLY in app code = HIGH promotion candidate to DB constraint (service-layer validation bypassed by another service, direct SQL, raw migrations).
+- `DEFERRABLE INITIALLY DEFERRED` FK or unique MUST have written justification in migration comment (typically bulk-load or circular FK). Unjustified = MEDIUM.
+- Business rules affecting tenant isolation or financial correctness enforced ONLY in app code = HIGH promotion candidate to DB constraint.
+  **Consequence:** an application-layer default for an invariant column is bypassable by direct SQL / bulk imports / other services; an unjustified `DEFERRABLE INITIALLY DEFERRED` makes bulk-insert paths hold huge locks until commit; an app-code-only business rule is silently bypassed by another service, direct SQL, or raw migrations, so the DB itself never enforces tenant-isolation or financial correctness.
 
 ### Normalisation & naming consistency
 
@@ -91,60 +101,68 @@ Out of scope: migration DELTA (→ `data-expert`), application query logic (doma
 - Boolean: `is_*` or `has_*` prefix. Never `deleted` alone — use `is_deleted` + `deleted_at`.
 - Timestamp: `*_at` suffix (`created_at`, `updated_at`, `approved_at`). Inconsistent = LOW-MEDIUM.
 - Audit columns: every tenant-scoped table carries `created_at`, `updated_at`, `created_by`, `updated_by`. Missing on financial/compliance tables = HIGH.
+  **Consequence:** a financial/compliance table without `created_by`/`updated_by`/`*_at` cannot answer "who changed this and when" — the audit trail SOC 2 and GDPR Art 30 require is unreconstructable after the fact.
 
 ### Multi-tenancy schema rules (CRITICAL — primary ownership for schema state)
 
 **Boundary:** `database-reviewer` is primary owner of the resulting schema state's tenancy properties — `TENANT_SCHEMA_REGEX` compliance, shared-schema tenant index shape, RLS + `FORCE ROW LEVEL SECURITY` enforcement, owner-bypass discipline. `data-expert` owns migration-delta review; `multi-tenant-saas-expert` owns cross-cutting SaaS tenant concerns (lifecycle, plan gating, quotas, impersonation, onboarding).
 
 - Aqua-saas uses schema-per-tenant as PRIMARY isolation. Every tenant schema matches `TENANT_SCHEMA_REGEX` (`^tenant_[a-f0-9]{16}$`) — divergence = CRITICAL.
-- Schema name interpolation in raw SQL (including TypeORM `@Entity({ schema })` dynamic assembly) MUST be regex-validated against `TENANT_SCHEMA_REGEX` before use. Unvalidated = CRITICAL (SQL injection + cross-tenant access).
-- `SET LOCAL search_path` inside transaction is the ONLY safe scoping under PgBouncer transaction pooling. Session-level `SET search_path` = CRITICAL (tenant leak across transactions sharing a pooled server connection).
-- No cross-schema FKs between two `tenant_{id}` schemas = CRITICAL (tenant isolation breach).
+- Schema name interpolation in raw SQL (including TypeORM `@Entity({ schema })` dynamic assembly) MUST be regex-validated against `TENANT_SCHEMA_REGEX` before use. Unvalidated = CRITICAL.
+- `SET LOCAL search_path` inside transaction is the ONLY safe scoping under PgBouncer transaction pooling. Session-level `SET search_path` = CRITICAL.
+- No cross-schema FKs between two `tenant_{id}` schemas = CRITICAL.
+  **Consequence:** a schema name that diverges from `TENANT_SCHEMA_REGEX` (`^tenant_[a-f0-9]{16}$`) or is interpolated unvalidated opens SQL injection + cross-tenant access; a session-level `SET search_path` leaks the tenant across transactions sharing one pooled server connection under PgBouncer; a cross-schema FK between two `tenant_{id}` schemas is itself a tenant-isolation breach.
 - Reference data in `public` schema shared read-only; tenant data in `tenant_{id}` schemas isolated.
 - `SchemaDriftDetector` findings (missing columns in tenant schema vs source template) = HIGH until resolved.
+  **Consequence:** a tenant schema missing columns the source template defines (SchemaDriftDetector flags it) means inserts/queries against those columns fail only for that tenant — a per-tenant outage invisible in the template.
 - Scale awareness: schema-per-tenant scales to ~10K schemas before catalog bloat + `pg_class` lookup overhead become measurable. Beyond: plan schema-per-tenant limits or hybrid shared-schema + RLS.
 
 ### Row-level integrity + RLS (CRITICAL)
-
-- **App connection role MUST NOT have `SUPERUSER` or `BYPASSRLS`.** Any app role with either = CRITICAL (RLS toothless). Audit: `SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolcanlogin;`. AWS RDS `rds_superuser` has implicit `BYPASSRLS` — never use for app connections.
+- **App connection role MUST NOT have `SUPERUSER` or `BYPASSRLS`.** Any app role with either = CRITICAL. Audit: `SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolcanlogin;`. AWS RDS `rds_superuser` has implicit `BYPASSRLS` — never use for app connections.
 - Shared-schema tables carrying `tenant_id` (`sensor_metrics`, partitioned `messages` / `message_receipts` / `compliance_audit_log`) SHOULD have RLS enabled as defense in depth. Schema-per-tenant primary fence + RLS on shared tables = second layer against `search_path` misconfiguration.
 - `ALTER TABLE ... FORCE ROW LEVEL SECURITY` when app role owns the table — by default PG exempts the owner from RLS. Missing `FORCE` on owner-owned tables = CRITICAL.
 - RLS policies use `current_setting('app.current_tenant', true)::uuid` (second arg `true` returns NULL for missing instead of raising). Raw `current_setting('name')` without second arg = MEDIUM (raises on unset) or HIGH if combined with empty-string coercion pattern.
 - Views over RLS-protected tables on PG 15+ MUST be `WITH (security_invoker = true)`. Without it, view runs with owner's privileges and silently bypasses RLS = HIGH.
 - Triggers with `SECURITY DEFINER` writing to RLS-protected tables = HIGH until audited + justified (common audit-logging escape hatch, must be documented).
-- Unique constraints on shared-schema RLS tables MUST include `tenant_id` (`UNIQUE (tenant_id, email)`). Naive `UNIQUE (email)` = CRITICAL (cross-tenant collision — user in tenant A cannot register email that exists in tenant B).
-- Cross-tenant reporting MUST use dedicated role with POLICY-level exception (`CREATE POLICY ... TO reporting_role USING (true)`), NEVER `BYPASSRLS` on the role. BYPASSRLS on reporting role = CRITICAL (no audit trail of cross-tenant access).
-- `tenant_id` on RLS-protected or tenant-scoped tables MUST be `NOT NULL`. Nullable = CRITICAL (NULL policy behaviour, leaked rows).
+  **Consequence:** an app role with `SUPERUSER`/`BYPASSRLS` (e.g. RDS `rds_superuser`) makes RLS toothless — every policy is skipped; a table the app role owns without `FORCE ROW LEVEL SECURITY` exempts the owner from its own policies; a PG 15+ view without `security_invoker = true` runs with the owner's privileges and silently bypasses RLS; an unaudited `SECURITY DEFINER` trigger is an escape hatch into RLS-protected tables.
+- Unique constraints on shared-schema RLS tables MUST include `tenant_id` (`UNIQUE (tenant_id, email)`). Naive `UNIQUE (email)` = CRITICAL.
+- Cross-tenant reporting MUST use dedicated role with POLICY-level exception (`CREATE POLICY ... TO reporting_role USING (true)`), NEVER `BYPASSRLS` on the role. BYPASSRLS on reporting role = CRITICAL.
+- `tenant_id` on RLS-protected or tenant-scoped tables MUST be `NOT NULL`. Nullable = CRITICAL.
 - Soft-delete columns (`is_deleted`, `deleted_at`) require matching filters in every query — flag queries forgetting soft-delete filter as HIGH.
 - Uniqueness across soft-deleted rows: unique constraints MUST be partial (`WHERE deleted_at IS NULL`) or deleted rows MUST be hard-purged.
+  **Consequence:** a naive `UNIQUE (email)` (no `tenant_id`) collides cross-tenant — a user in tenant A cannot register an email that exists in tenant B; `BYPASSRLS` on a reporting role leaves no audit trail of cross-tenant reads; a nullable `tenant_id` gives undefined NULL policy behaviour and leaks rows; a query that forgets the soft-delete filter resurrects logically-deleted rows, and a full (non-partial) unique across soft-deleted rows blocks re-insert until the row is hard-purged.
 
 ### Partitioned tables + hypertables (CRITICAL)
-
-- Composite PK on partitioned tables MUST include ALL partition-key columns. `messages` by `created_at` monthly → PK `(id, created_at)`. Missing partition key in PK = CRITICAL (PG refuses; TypeORM entity drift can hide until migration time).
+- Composite PK on partitioned tables MUST include ALL partition-key columns. `messages` by `created_at` monthly → PK `(id, created_at)`. Missing partition key in PK = CRITICAL.
 - Unique constraints on partitioned tables MUST include all partition-key columns. Naive `UNIQUE (email)` on LIST-by-tenant table = CRITICAL.
 - TypeORM `synchronize: false` on every partitioned-table or hypertable entity. TypeORM's schema synchroniser does NOT understand declarative partitioning and WILL attempt to destroy partitions on auto-sync. `synchronize: true` = CRITICAL.
-- Every RANGE-by-time partitioned table MUST have scheduled future-partition creation (pg_partman / Temporal / cron). Missing next month's partition before 1st = CRITICAL (inserts fail at 00:00 month boundary = outage).
-- RANGE partition bounds HALF-OPEN: `FROM '2026-01-01' TO '2026-02-01'` (inclusive start, exclusive end). Inclusive end-date like `TO '2026-01-31'` = HIGH (off-by-one, missing last-day data).
-- Queries on partitioned tables MUST include partition-key predicate to enable pruning. Missing = HIGH (full scan across all partitions). TimescaleDB hypertable same rule for time-range predicates.
+- Every RANGE-by-time partitioned table MUST have scheduled future-partition creation (pg_partman / Temporal / cron). Missing next month's partition before 1st = CRITICAL.
+  **Consequence:** a partitioned PK or unique constraint missing its partition-key column is refused by PG (and TypeORM entity drift can hide it until migration time); `synchronize: true` lets TypeORM's synchroniser destroy partitions because it does not understand declarative partitioning; a RANGE table with no scheduled future partition fails every insert at 00:00 on the month boundary = outage.
+- RANGE partition bounds HALF-OPEN: `FROM '2026-01-01' TO '2026-02-01'` (inclusive start, exclusive end). Inclusive end-date like `TO '2026-01-31'` = HIGH.
+- Queries on partitioned tables MUST include partition-key predicate to enable pruning. Missing = HIGH. TimescaleDB hypertable same rule for time-range predicates.
+  **Consequence:** an inclusive end-date (`TO '2026-01-31'`) is an off-by-one that drops the last day's data; a query with no partition-key predicate disables pruning and full-scans every partition.
 - Default partition SHOULD be avoided on new partitioned tables — prefer fail-loud on misrouted rows over silent accumulation (default partition also slows future `ATTACH PARTITION`).
 - Cross-partition `UPDATE` (updating partition-key column) executes as DELETE + INSERT in PG 11+; trigger semantics assuming UPDATE fires once = MEDIUM audit concern.
 - Leaf partition count >1000 = HIGH (catalog bloat, plan overhead, slow DDL) — reconsider partition scheme.
-- TypeORM entity composite-PK drift vs migration DDL on partitioned tables = HIGH (silent until migration fails in production).
+- TypeORM entity composite-PK drift vs migration DDL on partitioned tables = HIGH.
+  **Consequence:** >1000 leaf partitions bloat the catalog, inflate planning, and slow DDL; composite-PK drift between the TypeORM entity and the migration DDL stays silent until a migration fails in production.
 
 ### pgvector (vector + semantic search)
-
 - Every pgvector column MUST declare dimension: `vector(1536)`. Unbounded `vector` = reject.
-- Every HNSW / IVFFlat index MUST declare operator class matching query distance metric: `vector_cosine_ops` for `<=>`, `vector_l2_ops` for `<->`, `vector_ip_ops` for `<#>`, `vector_l1_ops` for `<+>`. Mismatch between index opclass and query operator = CRITICAL (silent seq-scan fallback, latency spike that masks as correctness issue).
+- Every HNSW / IVFFlat index MUST declare operator class matching query distance metric: `vector_cosine_ops` for `<=>`, `vector_l2_ops` for `<->`, `vector_ip_ops` for `<#>`, `vector_l1_ops` for `<+>`. Mismatch between index opclass and query operator = CRITICAL.
 - Vector dimension >2000 on HNSW/IVFFlat `vector` index = CRITICAL — pgvector rejects. Use `halfvec(n)` (up to 4000) or reduce embedding dimension.
-- IVFFlat on empty or tiny (<1000 rows) table = HIGH (poor k-means centroids, permanent recall degradation until REINDEX). HNSW has no such requirement — recommended default.
-- `ANALYZE` MUST run after bulk embedding loads so planner has accurate statistics. Missing = HIGH (planner skips index, falls back to seq scan).
-- `SET hnsw.ef_search` (and `ivfflat.probes`) MUST use `SET LOCAL` inside transaction. Session-level under PgBouncer tx pooling = CRITICAL (leaks tuning between tenants / queries).
-- Multi-tenant shared-table vector search without explicit `tenant_id` WHERE predicate in every query = CRITICAL (cross-tenant semantic leak — embedding from tenant A may be nearest neighbour for tenant B's query).
+- IVFFlat on empty or tiny (<1000 rows) table = HIGH. HNSW has no such requirement — recommended default.
+  **Consequence:** an opclass/operator mismatch silently falls back to a seq scan whose latency spike masquerades as a correctness issue; dimension >2000 on a `vector` index is rejected by pgvector outright; IVFFlat built on a tiny table gets poor k-means centroids and permanently degraded recall until REINDEX.
+- `ANALYZE` MUST run after bulk embedding loads so planner has accurate statistics. Missing = HIGH.
+- `SET hnsw.ef_search` (and `ivfflat.probes`) MUST use `SET LOCAL` inside transaction. Session-level under PgBouncer tx pooling = CRITICAL.
+- Multi-tenant shared-table vector search without explicit `tenant_id` WHERE predicate in every query = CRITICAL.
+  **Consequence:** skipping `ANALYZE` after a bulk embedding load leaves planner stats stale so it skips the index and seq-scans; a session-level `SET hnsw.ef_search`/`ivfflat.probes` under PgBouncer tx pooling leaks tuning between tenants/queries; a shared-table vector search with no `tenant_id` predicate returns tenant A's embedding as tenant B's nearest neighbour — a cross-tenant semantic leak.
 - Shared-table multi-tenant vector search SHOULD use one of: (a) partial HNSW indexes per hot tenant (`WHERE tenant_id = 'xxx'`), (b) schema-per-tenant isolation, (c) pgvector 0.8+ iterative scans. Document the choice.
 - Embeddings derived from PII (customer messages, health records, genetic data) MUST be treated as PII themselves — nearest-neighbour inversion attacks reconstruct approximate source meaning. Isolate per tenant or encrypt.
-- TypeORM `synchronize: true` on entities with `vector` columns = CRITICAL (schema corruption — TypeORM does not model pgvector types correctly).
+- TypeORM `synchronize: true` on entities with `vector` columns = CRITICAL.
 - Vacuum on large HNSW indexes SHOULD use `REINDEX INDEX CONCURRENTLY idx_name; VACUUM table_name;` — plain VACUUM on large HNSW indexes is slow.
-- HNSW index builds require high `maintenance_work_mem` (2-8 GB on large tables). Undersized = HIGH build latency; document in migration comment.
+- HNSW index builds require high `maintenance_work_mem` (2-8 GB on large tables). Undersized build = HIGH; document in migration comment.
+  **Consequence:** a PII-derived embedding (customer messages, health/genetic records) is itself reversible PII via nearest-neighbour inversion attacks, so storing it unencrypted/un-isolated leaks the source meaning; `synchronize: true` on a `vector` entity corrupts the schema because TypeORM does not model pgvector types; undersized `maintenance_work_mem` balloons HNSW build latency.
 
 ## Review Checklist
 

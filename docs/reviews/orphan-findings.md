@@ -4610,3 +4610,19 @@ So a production-tsconfig type error in any lib that (1) lacks a `tsconfig.lib.js
 Status: OPEN (2026-06-17; owner: infra-expert; tracked follow-up). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-MEDIUM-129 — C2 React 19 migration left the aquamobil standalone package-lock.json (+ CLAUDE.md) on React 18, breaking the production Docker image build
+
+Severity: MEDIUM. Discovered 2026-06-17 during the production redeploy of main (`66aaa619c` → `b5a61b821`). The `build-frontend-images (aquamobil, Dockerfile.aquamobil)` job failed; `verify-images` / `capacity-preflight` / `deploy` skipped fail-closed → **nothing reached production**.
+
+**Problem:** aquamobil is a STANDALONE Vite PWA with its OWN lockfile. `infrastructure/docker/Dockerfile.aquamobil:26` copies `web/apps/aquamobil/package.json` + `web/apps/aquamobil/package-lock.json` into an isolated WORKDIR (no monorepo workspace context) and runs `npm ci --ignore-scripts` (SEC-015, no-glob explicit lockfile). The C2 React 19 migration bumped `web/apps/aquamobil/package.json` to React 19 (`react`/`react-dom@19.2.7`, `@types/react@^19.2.17`, `@testing-library/react@^16.3.2`, `@testing-library/dom@^10.4.1`) AND regenerated the ROOT monorepo lock, but did NOT regenerate the aquamobil STANDALONE lock — it stayed on `react@18.3.1` / `@types/react@^18.2.47` / `scheduler@^0.23.2` with the new testing-library deps missing. So `npm ci` inside the Docker build fails sync (`npm error EUSAGE ... lock file's react@18.3.1 does not satisfy react@19.2.7; Missing: @testing-library/dom@10.4.1 ...`). The aquamobil `CLAUDE.md` also still read "React 18".
+
+**Why PR-CI didn't catch it:** PR-CI installs via the ROOT workspace lock (React 19, in sync) and never builds `Dockerfile.aquamobil`; the image is built only in the deploy pipeline's `build-frontend-images` matrix. So the standalone-lock drift is invisible until the deploy build — the same deploy-only-visibility class as [[ORPHAN-MEDIUM-128]].
+
+**Resolution (this PR):** regenerated `web/apps/aquamobil/package-lock.json` standalone (`npm install --package-lock-only` against the React 19 package.json; `lockfileVersion: 3` preserved) and updated the aquamobil `CLAUDE.md` "React 18" → "React 19". Verified by replicating the exact Docker step in an isolated context — `npm ci --ignore-scripts` → exit 0, `react@19.2.7` installed (528 packages).
+
+**Systemic note (owner: infra-expert / aquamobil):** the aquamobil standalone lock + its Docker image build are not exercised by PR-CI, so any future `web/apps/aquamobil/package.json` bump that skips regenerating the standalone lock re-breaks the deploy build. Recommend a PR-CI gate that runs `npm ci` against the standalone lock (or builds `Dockerfile.aquamobil`) on changes under `web/apps/aquamobil/`.
+
+Status: RESOLVED (2026-06-17; fix branch `fix/aquamobil-standalone-lock-react19`). Registry: orphan-findings.md only.
+
+---

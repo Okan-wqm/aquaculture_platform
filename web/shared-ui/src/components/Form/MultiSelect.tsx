@@ -185,7 +185,9 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                !disabled && setIsOpen(!isOpen);
+                if (!disabled) {
+                  setIsOpen(!isOpen);
+                }
               }
               if (e.key === 'Escape') {
                 setIsOpen(false);

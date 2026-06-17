@@ -719,6 +719,20 @@ describe('api-client', () => {
       await apiClient.silentRefresh();
       expect(apiClient.getTenantId()).toBe('tenant-from-storage');
     });
+
+    it('should clear tenant_id when refresh response explicitly returns null tenantId', async () => {
+      localStorage.setItem('tenant_id', 'stale-tenant');
+
+      mockFetch.mockResolvedValueOnce(
+        mockResponse(200, {
+          data: { refreshToken: { accessToken: 'token', user: { tenantId: null } } },
+        })
+      );
+
+      await apiClient.silentRefresh();
+      expect(apiClient.getTenantId()).toBeNull();
+      expect(localStorage.getItem('tenant_id')).toBeNull();
+    });
   });
 
   // ============================================================================

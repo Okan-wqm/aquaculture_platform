@@ -63,7 +63,6 @@ function findBackendMatrixPath(): string {
       readFileSync(candidate, 'utf8');
       return candidate;
     } catch {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       dir = resolve(dir, '..');
     }
   }

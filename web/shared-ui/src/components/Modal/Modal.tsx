@@ -181,7 +181,6 @@ export const Modal: React.FC<ModalProps> = ({
         listenerRef.current = null;
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: re-register only on open/close; props accessed via refs
   }, [isOpen, trapFocus]);
 
   // Modal kapalıysa render etme

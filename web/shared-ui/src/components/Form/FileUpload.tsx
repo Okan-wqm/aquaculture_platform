@@ -83,7 +83,6 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         if (f.preview) URL.revokeObjectURL(f.preview);
       });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only on unmount
   }, []);
 
   const handleFiles = useCallback(

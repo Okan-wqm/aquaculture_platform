@@ -64,6 +64,27 @@ interface AuthState {
   error: string | null;
 }
 
+type AuthBridgeSnapshot = Readonly<{
+  user: AuthUser;
+  modules: UserModule[];
+  redirectPath: string;
+  isAuthenticated: true;
+  isLoading: false;
+  error: null;
+}>;
+
+type AuthBridgeState = {
+  snapshot: AuthBridgeSnapshot | null;
+};
+
+const AUTH_CONTEXT_BRIDGE_KEY = '__AQUACULTURE_AUTH_CONTEXT_STATE_V1__';
+
+declare global {
+  interface Window {
+    __AQUACULTURE_AUTH_CONTEXT_STATE_V1__?: AuthBridgeState;
+  }
+}
+
 /**
  * Auth actions
  */
@@ -135,6 +156,62 @@ const ROLE_HIERARCHY: Record<UserRole, UserRole[]> = {
 function roleHasPermission(userRole: UserRole, requiredRole: UserRole): boolean {
   if (userRole === requiredRole) return true;
   return ROLE_HIERARCHY[userRole]?.includes(requiredRole) ?? false;
+}
+
+function roleHasModuleAccess(userRole: UserRole | undefined, modules: UserModule[], moduleCode: string): boolean {
+  if (!userRole) return false;
+  // SUPER_ADMIN has platform access, not tenant-module access.
+  if (userRole === 'SUPER_ADMIN') return false;
+  if (userRole === 'TENANT_ADMIN') return true;
+  return modules.some((m) => m.code === moduleCode);
+}
+
+function getAuthBridgeState(): AuthBridgeState | null {
+  if (typeof window === 'undefined') return null;
+
+  const existing = window[AUTH_CONTEXT_BRIDGE_KEY];
+  if (existing && typeof existing === 'object' && 'snapshot' in existing) {
+    return existing;
+  }
+
+  const state: AuthBridgeState = { snapshot: null };
+  try {
+    Object.defineProperty(window, AUTH_CONTEXT_BRIDGE_KEY, {
+      value: state,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+  } catch {
+    return null;
+  }
+
+  return state;
+}
+
+function createAuthBridgeSnapshot(payload: {
+  user: AuthUser;
+  modules: UserModule[];
+  redirectPath: string;
+}): AuthBridgeSnapshot {
+  return Object.freeze({
+    user: Object.freeze({ ...payload.user }),
+    modules: Object.freeze(payload.modules.map((m) => Object.freeze({ ...m }))) as UserModule[],
+    redirectPath: payload.redirectPath,
+    isAuthenticated: true,
+    isLoading: false,
+    error: null,
+  });
+}
+
+function publishAuthBridgeSnapshot(payload: {
+  user: AuthUser;
+  modules: UserModule[];
+  redirectPath: string;
+} | null): void {
+  const bridge = getAuthBridgeState();
+  if (!bridge) return;
+  bridge.snapshot = payload ? createAuthBridgeSnapshot(payload) : null;
 }
 
 // ============================================================================
@@ -291,14 +368,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
 
       const meData = await fetchMe();
       if (meData) {
-        // Restore tenant ID from server response — critical when localStorage
-        // was cleared (e.g. after a failed token refresh called clearSession())
-        if (meData.user.tenantId) {
-          setTenantId(meData.user.tenantId);
-        }
+        // Restore tenant ID from server response. Passing null is intentional:
+        // SUPER_ADMIN sessions are platform-scoped and must clear any stale
+        // tenant_id left by a previous tenant-scoped login.
+        setTenantId(meData.user.tenantId ?? null);
+        publishAuthBridgeSnapshot(meData);
         dispatch({ type: 'AUTH_SUCCESS', payload: meData });
       } else {
         clearSession();
+        publishAuthBridgeSnapshot(null);
         dispatch({ type: 'AUTH_FAILURE', payload: '' });
       }
     };
@@ -378,10 +456,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       // Save access token in memory (refresh token is set as httpOnly cookie by server)
       setTokens(loginAccessToken);
 
-      // Save tenant ID for multi-tenant context
-      if (user.tenantId) {
-        setTenantId(user.tenantId);
-      }
+      // Save tenant ID for multi-tenant context. Null clears stale tenant scope
+      // for platform-level SUPER_ADMIN sessions.
+      setTenantId(user.tenantId ?? null);
 
       // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
       const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
@@ -391,13 +468,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       const meData = await fetchMe();
       if (!meData) {
         clearSession();
+        publishAuthBridgeSnapshot(null);
         throw new Error('Session verification failed');
       }
 
-      dispatch({
-        type: 'AUTH_SUCCESS',
-        payload: { user: meData.user, modules: meData.modules, redirectPath },
-      });
+      setTenantId(meData.user.tenantId ?? null);
+      const authSuccessPayload = { user: meData.user, modules: meData.modules, redirectPath };
+      publishAuthBridgeSnapshot(authSuccessPayload);
+      dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
 
       return { redirectPath };
     } catch (error) {
@@ -457,10 +535,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       // Save access token in memory (refresh token is set as httpOnly cookie by server)
       setTokens(loginAccessToken);
 
-      // Save tenant ID for multi-tenant context
-      if (user.tenantId) {
-        setTenantId(user.tenantId);
-      }
+      // Save tenant ID for multi-tenant context. Null clears stale tenant scope
+      // for platform-level SUPER_ADMIN sessions.
+      setTenantId(user.tenantId ?? null);
 
       // Validate redirectUrl is a safe relative path (SEC-005: prevent open redirect)
       const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
@@ -470,13 +547,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
       const meData = await fetchMe();
       if (!meData) {
         clearSession();
+        publishAuthBridgeSnapshot(null);
         throw new Error('Session verification failed');
       }
 
-      dispatch({
-        type: 'AUTH_SUCCESS',
-        payload: { user: meData.user, modules: meData.modules, redirectPath },
-      });
+      setTenantId(meData.user.tenantId ?? null);
+      const authSuccessPayload = { user: meData.user, modules: meData.modules, redirectPath };
+      publishAuthBridgeSnapshot(authSuccessPayload);
+      dispatch({ type: 'AUTH_SUCCESS', payload: authSuccessPayload });
 
       return { redirectPath };
     } catch (error) {
@@ -507,6 +585,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
     } finally {
       // FE-HIGH-005: Complete cleanup across all storage layers
       await logoutCleanup({ revokeServerToken: false });
+      publishAuthBridgeSnapshot(null);
       dispatch({ type: 'LOGOUT' });
     }
   }, []);
@@ -517,11 +596,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
   const refreshAuth = useCallback(async (): Promise<void> => {
     const meData = await fetchMe();
     if (meData) {
-      if (meData.user.tenantId) {
-        setTenantId(meData.user.tenantId);
-      }
+      setTenantId(meData.user.tenantId ?? null);
+      publishAuthBridgeSnapshot(meData);
       dispatch({ type: 'AUTH_SUCCESS', payload: meData });
     } else {
+      publishAuthBridgeSnapshot(null);
       dispatch({ type: 'AUTH_FAILURE', payload: 'Session refresh failed' });
     }
   }, [fetchMe]);
@@ -555,13 +634,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, autoCheck 
   const stateModules = state.modules;
   const hasModuleAccess = useCallback(
     (moduleCode: string): boolean => {
-      if (!userRole) return false;
-      // SUPER_ADMIN has system access, not module access
-      if (userRole === 'SUPER_ADMIN') return false;
-      // TENANT_ADMIN has access to all tenant modules
-      if (userRole === 'TENANT_ADMIN') return true;
-      // MODULE_MANAGER and MODULE_USER check their assigned modules
-      return stateModules.some((m) => m.code === moduleCode);
+      return roleHasModuleAccess(userRole, stateModules, moduleCode);
     },
     [userRole, stateModules]
   );
@@ -633,9 +706,40 @@ export function useAuthContext(): AuthContextValue {
     return context;
   }
 
-  // Fallback for Module Federation: fail closed with no access.
-  // If the AuthProvider is not available, deny all access rather than
-  // trusting a client-side JWT decode without signature verification.
+  const bridgeSnapshot = getAuthBridgeState()?.snapshot ?? null;
+  const bridgeToken = getAccessToken();
+  if (bridgeSnapshot && bridgeToken) {
+    const { user, modules, redirectPath } = bridgeSnapshot;
+    return {
+      user,
+      modules,
+      redirectPath,
+      isLoading: false,
+      isAuthenticated: true,
+      error: null,
+      login: async () => ({ redirectPath }),
+      verifyMfaLogin: async () => ({ redirectPath }),
+      logout: async () => {
+        await logoutCleanup();
+        publishAuthBridgeSnapshot(null);
+        if (typeof window !== 'undefined') {
+          window.location.replace('/login');
+        }
+      },
+      clearError: () => {},
+      refreshAuth: async () => {},
+      isSuperAdmin: () => user.role === 'SUPER_ADMIN',
+      isTenantAdmin: () => user.role === 'TENANT_ADMIN',
+      isModuleManager: () => user.role === 'MODULE_MANAGER',
+      isModuleUser: () => user.role === 'MODULE_USER',
+      hasRoleOrHigher: (role: UserRole) => roleHasPermission(user.role, role),
+      hasModuleAccess: (moduleCode: string) => roleHasModuleAccess(user.role, modules, moduleCode),
+    };
+  }
+
+  // Fallback for Module Federation: fail closed unless a server-verified
+  // snapshot was published by AuthProvider. Never trust client-decoded JWT
+  // role claims for route authorization.
   if (import.meta.env.DEV) {
     console.warn('AuthContext not available — microfrontend loaded outside AuthProvider. Denying access.');
   }

@@ -6,7 +6,7 @@
  * - AuthProvider: Logout (clearSession -> dispatch LOGOUT)
  * - hasRoleOrHigher: SUPER_ADMIN > TENANT_ADMIN > MODULE_MANAGER > MODULE_USER
  * - hasModuleAccess: Module code checks
- * - MF fallback: Context unavailable -> fail-closed (isAuthenticated: false)
+ * - MF fallback: Context unavailable -> server-verified bridge or fail-closed
  * - sanitizeRedirectUrl: Open redirect prevention
  */
 
@@ -140,6 +140,10 @@ describe('AuthContext', () => {
     const apiClient = vi.mocked(await import('../../utils/api-client'));
     if ((apiClient as any).__resetTokens) {
       (apiClient as any).__resetTokens();
+    }
+    const authBridge = window.__AQUACULTURE_AUTH_CONTEXT_STATE_V1__;
+    if (authBridge && typeof authBridge === 'object') {
+      authBridge.snapshot = null;
     }
   });
 
@@ -315,6 +319,27 @@ describe('AuthContext', () => {
       });
 
       expect(loginResult!.redirectPath).toBe('/admin');
+    });
+
+    it('should clear stale tenant scope for SUPER_ADMIN login', async () => {
+      const superAdmin = createMockUser({ role: 'SUPER_ADMIN', tenantId: null });
+
+      mockGraphqlRequest
+        .mockResolvedValueOnce(createLoginResponse(superAdmin, '/admin'))
+        .mockResolvedValueOnce(createMeResponse(superAdmin, []));
+
+      const { result } = renderHook(() => useAuthContext(), {
+        wrapper: createWrapper(false),
+      });
+
+      await act(async () => {
+        await result.current.login({
+          email: 'admin@example.com',
+          password: 'password',
+        });
+      });
+
+      expect(mockSetTenantId).toHaveBeenLastCalledWith(null);
     });
   });
 
@@ -633,6 +658,35 @@ describe('AuthContext', () => {
       expect(result.current.isTenantAdmin()).toBe(false);
       expect(result.current.isModuleManager()).toBe(false);
       expect(result.current.isModuleUser()).toBe(false);
+    });
+
+    it('should use server-verified auth bridge snapshot when provider context is unavailable', async () => {
+      const superAdmin = createMockUser({ role: 'SUPER_ADMIN', tenantId: null });
+
+      mockGraphqlRequest
+        .mockResolvedValueOnce(createLoginResponse(superAdmin, '/admin'))
+        .mockResolvedValueOnce(createMeResponse(superAdmin, []));
+
+      const providerHook = renderHook(() => useAuthContext(), {
+        wrapper: createWrapper(false),
+      });
+
+      await act(async () => {
+        await providerHook.result.current.login({
+          email: 'admin@example.com',
+          password: 'password',
+        });
+      });
+
+      mockGetAccessToken.mockReturnValue('new-access-token');
+
+      const { result } = renderHook(() => useAuthContext());
+
+      expect(result.current.isAuthenticated).toBe(true);
+      expect(result.current.user?.role).toBe('SUPER_ADMIN');
+      expect(result.current.isSuperAdmin()).toBe(true);
+      expect(result.current.hasRoleOrHigher('SUPER_ADMIN')).toBe(true);
+      expect(result.current.hasModuleAccess('sensor')).toBe(false);
     });
 
     it('fallback login should resolve with root redirect', async () => {

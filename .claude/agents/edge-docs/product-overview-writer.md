@@ -73,3 +73,4 @@ Minimum 5 concrete scenarios with: industry, site size, protocols used, expected
 - Listing LoRaWAN as a core feature without noting `#[cfg(feature = "lorawan")]` gating.
 - Using MindConnect Nano hardware specs we don't actually beat (CPU, RAM, tag/sec); understate when uncertain.
 - Forgetting that ORPHAN-EDGE-004 says defense-in-depth is type-only today — overview MUST NOT claim it as live.
+  **Example:** ORPHAN-EDGE-004 marks defense-in-depth as type-only — so overview.md writes "layered authorization types are defined (ORPHAN-EDGE-004); runtime enforcement is ROADMAP-Q3", never "ships hardened defense-in-depth today".

@@ -67,7 +67,7 @@ Finding IDs are used in commit `Closes:` lines (`Closes: docs/plans/2026-06-13-f
 | `no-plan-quota` | HIGH | (audit) | T1 | Zero plan-tier/quota enforcement in farm; gateway `maxFarms/maxPonds` advertised but dead + reference deprecated hierarchy. |
 | `gdpr-subject-erasure` | HIGH | (audit) | T2 | No per-data-subject Art.17 erasure for worker PII (only tenant-wide). |
 | `pii-plaintext-log` | HIGH | (audit) | T1/T2 | Worker PII logged via string interpolation in `create-worker.handler`. |
-| `fe-role-gating` | MED | (audit) | T3 | `useCanMutate` applied inconsistently; many destructive mutation surfaces ungated client-side. |
+| `fe-role-gating` | MED | ⏸ deferred (`ORPHAN-MEDIUM-133`) | T3 | UX/defense-in-depth only — backend is fail-closed (empty UNGATED_OPERATIONS), so NOT an escalation. Full fix (CanMutate wrapper + matrix expansion + wrap dozens of surfaces + drain-allowlist invariant) is large-mechanical; deferred. |
 | `fe-eager-imports` | MED | ✅ `FARM-MEDIUM-060` | T1 | Shared recharts/lucide as MF singletons + route-level `lazy()`/`Suspense` (Map eager) + `chunkSizeWarningLimit` budget; recharts pinned exact. |
 | `fe-upload-bypass` | HIGH | ✅ `FARM-HIGH-071` | T2 | Added `RestClient.upload` multipart + rerouted all 5 upload hooks through the central client; fixed CSRF cookie-name drift (`XSRF-TOKEN`→`csrf-token`, the real bug — getCsrfToken always returned null); invariant RULE 3. |
 | `cron-fairness` | MED | (audit) | T2 | All farm crons iterate tenants strictly serially; no concurrency cap / per-tenant timeout / rotation. |

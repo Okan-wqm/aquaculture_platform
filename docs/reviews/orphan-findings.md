@@ -4562,3 +4562,19 @@ Severity: LOW. Discovered 2026-06-16 by the C3 post-migration audit (frontend-ex
 Status: OPEN (2026-06-16; owner: frontend-expert; tracked follow-up). Registry: orphan-findings.md only.
 
 ---
+
+## ORPHAN-LOW-126 — agent-prompt path-existence guard deferred; candidate dead code-paths await an output-aware design
+
+Severity: LOW. Discovered 2026-06-17 while building `tests/invariants/agent-prompt-accuracy.spec.ts` (PR-N, the agent-prompt-audit finale).
+
+**Problem:** a naive "every cited repo path in an agent body must pre-exist" guard is unsound for the `.claude/agents/**` corpus. ~40 agents legitimately cite paths that do NOT pre-exist: review/recommendation OUTPUT dirs the agent creates (`docs/reviews/<agent>/`, `docs/recommendations/<agent>/`), the docs the edge-docs writers PRODUCE (`docs/api/*.md`, `docs/architecture/*.md`, `docs/siemens-rfp/*.md`, …), runtime artifacts (`tools/audit/*.jsonl`, `tools/findings.jsonl`, `tools/fixtures/`), illustrative ARIA example paths (`apps/farm-service/src/formatter.ts` — hypothetical-diff reasoning), and to-author specs. So PR-N ships only the no-brittle-counts check; path-existence is deferred.
+
+**Effect:** none today. The path-existence drift class is currently UNGUARDED (the brittle-count guard is in place). Note ownership globs — the form most prone to the drift the 2026-06 audit found (`ai/safety/**`) — are GLOBS the guard skips anyway, so a file-level path-existence guard is lower-value than it first appears.
+
+**Genuine code-path drifts found + disposition:** `billing-expert` decimal-transformer ref (`monetary/decimal.transformer.ts` → real `database/decimal-transformer.ts`) + `implementation-planner` `libs/outbox` (→ `platform/libs/outbox`) — **FIXED in PR-N**. UNVERIFIED candidates needing triage in the follow-on: `contract-parity-enforcer` `sens-api-gateway/src/protocols/modbus_tcp.rs`; `auth-security-expert` `docs/adr/016-deploy-resilience.md`; `edge-docs/architecture-writer` `docs/adr/ADR-032-supply-chain-hardening.md`; assorted `edge-docs/*` `sens-api-gateway/src/*.rs` source refs (e.g. `commands.rs`). (ARIA illustrative example paths are by-design, not drift.)
+
+**Fix direction:** build the output-aware path-existence variant (skip `docs/reviews|recommendations/<agent>/`, edge-docs produced `docs/<subtree>/`, `tools/audit|fixtures/`, `*.jsonl`, and ARIA example paths; check only review-surface code anchors), then triage + fix the genuine code-file refs it surfaces across the ~6 untouched agents. Pairs with the AGENT-PROMPT-006 roster-wide defect-catalog wiring.
+
+Status: OPEN (2026-06-17; owner: prompt-writer / agent-prompt audit; tracked follow-up). Registry: orphan-findings.md only. Relates to `docs/reviews/2026-06-16-agent-prompt-audit/ROLLUP.md` (AGENT-PROMPT-012).
+
+---

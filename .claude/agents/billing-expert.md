@@ -121,6 +121,6 @@ See `@.claude/shared/operating-modes.md`. Agent-specific overrides:
 
 - `apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts` — webhook handler (raw-body HMAC verify + idempotency; verify it consults the shipped `StripeWebhookEvent` dedup table)
 - `apps/gateway-api/src/middleware/tenant-context.middleware.ts:187-233` — PLAN_LIMITS partial enforcement (MT-HIGH-002)
-- `libs/backend-common/src/monetary/decimal.transformer.ts` — DecimalTransformer SSoT
+- `libs/backend-common/src/database/decimal-transformer.ts` — DecimalTransformer SSoT (+ `libs/backend-common/src/monetary/decimal-column.decorator.ts` for the `@DecimalColumn` decorator)
 - `docs/adr/006-event-contracts-flat-pattern.md` — billing-events shape
 - `/root/.claude/plans/abstract-brewing-mochi.md#Phase-11` — split context

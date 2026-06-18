@@ -52,22 +52,16 @@ registerEnumType(ComplianceAction, { name: 'ComplianceAction' });
  * DELETE on audit_log rows will throw an exception at the database level,
  * making audit record tampering structurally impossible.
  *
- * ## Partition Strategy (DB-CRITICAL-003, MSG-CRITICAL-009)
+ * ## Schema authority (INFRA-CRITICAL-011)
  *
- * This table uses PostgreSQL RANGE partitioning on `created_at` (monthly).
- * PostgreSQL requires the partition key to be part of the primary key.
- * Therefore the PK is composite: `(id, createdAt)`.
+ * This table is managed by the active TypeORM migration ledger only.
+ * Service-local init SQL is forbidden because it creates a second, stale DDL
+ * source outside the migration table and outside SchemaDriftValidator evidence.
  *
- * Actual partition DDL (CREATE TABLE ... PARTITION BY RANGE, monthly
- * partition creation cron) is defined in `init-messaging-schema.sql`.
- * TypeORM `synchronize=false`; schema managed via migrations only.
+ * The PK is composite: `(id, createdAt)`. Keeping `createdAt` in the key
+ * preserves compatibility with an audited future partitioning migration without
+ * letting runtime synchronize or an init script mutate table shape.
  *
- * Partition benefits:
- * - Partition pruning on date-range audit queries (GDPR Article 30 compliance)
- * - Fast DROP PARTITION for data retention (instead of slow DELETE)
- * - Parallel sequential scans within partitions
- *
- * @see ADR-012 Phase 3 (Compliance Audit Log)
  * @see MSG-HIGH-021 (audit records immutability protection)
  */
 @ObjectType()
@@ -116,8 +110,8 @@ export class ComplianceAuditLog {
   @Column({ type: 'varchar', length: 512, nullable: true })
   userAgent: string | null;
 
-  // IMPORTANT: createdAt is part of the composite PK for partition compatibility.
-  // PostgreSQL RANGE partition key must be in the PK.
+  // IMPORTANT: createdAt is part of the composite PK so future audited
+  // partitioning can keep entity identity stable without runtime DDL.
   @Field()
   @PrimaryColumn({ type: 'timestamptz', default: () => 'now()' })
   createdAt: Date;

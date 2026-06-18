@@ -24,18 +24,7 @@ Synthesize a single markdown body matching a kernel-emitted `DraftIntent` (eithe
 
 ## Invocation contract
 
-This agent is invoked ONLY by `tools/aria-poc/worker_executor.py:238` with:
-
-```
-claude code agent \
-  --subagent-type aria-drafter \
-  --prompt-file <intent.json path rendered as prompt> \
-  --output-path <draft.md path> \
-  --working-directory <worktree path> \
-  --max-turns <from policy> \
-  --max-requests <from policy> \
-  --timeout-seconds <from policy>
-```
+This agent is invoked ONLY by `tools/aria-poc/worker_executor.py:238` as `claude code agent --subagent-type aria-drafter`, with kernel-supplied `--prompt-file`, `--output-path`, `--working-directory`, turn/request limits, and timeout.
 
 The intent file at `--prompt-file` is a JSON document with this shape:
 

@@ -18,10 +18,10 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
 
 - Base commit: `2de67e4a5a6ffdcf675be0fcd4322854fcecd62f`
 - Registry entries: 459
-- Registry tip hash: `cec19da1833a8f4104746ec851f6088058464644dbc79bd0b85d4ab77dee1fa4`
+- Registry tip hash: `440cc2887db628fb9bd9f27ca424d8baa69a446c418c5800772ec76cd1f4cbbd`
 - OPEN findings: 170
-- IN-PROGRESS findings: 50
-- Active CRITICAL findings: 27
+- IN-PROGRESS findings: 49
+- Active CRITICAL findings: 26
 - `npm run findings:verify`: passing at plan creation
 - Worktree state at plan creation: dirty before this plan was written; existing
   source changes are treated as user work and are not part of this plan artifact.
@@ -100,8 +100,8 @@ plan manifest must be validated.
 
 ### Wave 1 - Stop-The-Line Platform Gates
 
-Sprint 1.1 attacks infra/schema/deploy boot blockers first, including
-`INFRA-CRITICAL-001`, `INFRA-CRITICAL-006..032`, tenant fan-out, runtime
+Sprint 1.1 attacks remaining infra/schema/deploy boot blockers first, including
+`INFRA-CRITICAL-006..032`, tenant fan-out, runtime
 `synchronize`, schema drift, HR/admin drift, and shared schema moves.
 
 Sprint 1.2 closes security and performance foundation gates: service identity,

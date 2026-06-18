@@ -73,6 +73,8 @@ interface MessageBubbleProps {
   replyTo?: ReplyPreview;
   /** Image attachment. */
   image?: ImageAttachment;
+  /** Callback when the image attachment is opened in the media viewer. */
+  onImageOpen?: () => void;
   /** File attachment. */
   file?: FileAttachment;
   /** Voice/audio attachments for voice note rendering. */
@@ -226,6 +228,7 @@ export function MessageBubble({
   isGroup = false,
   replyTo,
   image,
+  onImageOpen,
   file,
   attachments,
   metadata,
@@ -384,12 +387,28 @@ export function MessageBubble({
         {/* Image attachment -- URL protocol validated to prevent XSS */}
         {image && isSafeUrl(image.thumbnailUrl ?? image.url) && (
           <div className="mb-1.5 -mx-1 -mt-0.5 overflow-hidden rounded-xl">
-            <img
-              src={image.thumbnailUrl ?? image.url}
-              alt="Attachment"
-              className="w-full max-h-64 object-cover rounded-xl"
-              loading="lazy"
-            />
+            {onImageOpen ? (
+              <button
+                type="button"
+                onClick={onImageOpen}
+                className="block w-full text-left"
+                aria-label="Open image attachment"
+              >
+                <img
+                  src={image.thumbnailUrl ?? image.url}
+                  alt="Attachment"
+                  className="w-full max-h-64 object-cover rounded-xl"
+                  loading="lazy"
+                />
+              </button>
+            ) : (
+              <img
+                src={image.thumbnailUrl ?? image.url}
+                alt="Attachment"
+                className="w-full max-h-64 object-cover rounded-xl"
+                loading="lazy"
+              />
+            )}
           </div>
         )}
 

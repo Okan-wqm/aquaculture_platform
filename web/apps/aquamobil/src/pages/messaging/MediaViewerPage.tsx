@@ -10,7 +10,7 @@
  * download button), and loading states while fetching presigned URLs.
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   X,
@@ -20,7 +20,9 @@ import {
   FileText,
   AlertCircle,
 } from 'lucide-react';
-import { isSafeUrl } from '@/utils/messaging-helpers';
+import { useMessages } from '@/hooks/useMessages';
+import type { Message, MessageAttachment } from '@/types/messaging';
+import { getUserDisplayName, isSafeUrl } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,17 +37,81 @@ interface MediaItem {
   sentAt: string;
 }
 
-/**
- * Media attachment hook. Returns empty data until the messageAttachment
- * query is available in the gateway schema.
- * TODO: Wire to graphqlRequest(GET_ATTACHMENT) when backend is ready.
- */
-function useChannelMedia(_channelId: string): {
+function classifyAttachment(attachment: MessageAttachment): MediaItem['type'] {
+  if (attachment.mimeType.startsWith('image/')) return 'IMAGE';
+  if (attachment.mimeType === 'application/pdf') return 'PDF';
+  return 'FILE';
+}
+
+function mapMessageAttachment(message: Message, attachment: MessageAttachment): MediaItem | null {
+  const url = attachment.downloadUrl;
+  if (!url) return null;
+  return {
+    id: attachment.id,
+    type: classifyAttachment(attachment),
+    url,
+    fileName: attachment.originalFilename,
+    senderName: message.sender ? getUserDisplayName(message.sender) : message.senderId,
+    sentAt: message.createdAt,
+  };
+}
+
+function flattenMessageMedia(messages: readonly Message[]): MediaItem[] {
+  const media: MediaItem[] = [];
+  for (const message of messages) {
+    for (const attachment of message.attachments ?? []) {
+      const item = mapMessageAttachment(message, attachment);
+      if (item) media.push(item);
+    }
+  }
+  return media;
+}
+
+function useChannelMedia(channelId: string | undefined, attachmentId: string | undefined): {
   media: MediaItem[];
   loading: boolean;
   error: string | null;
 } {
-  return { media: [], loading: false, error: null };
+  const {
+    messages,
+    isLoading,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useMessages(channelId);
+
+  const media = useMemo(() => flattenMessageMedia(messages), [messages]);
+  const hasCurrentAttachment = !!attachmentId && media.some((item) => item.id === attachmentId);
+
+  useEffect(() => {
+    if (!channelId || !attachmentId) return;
+    if (isLoading || hasCurrentAttachment || !hasNextPage || isFetchingNextPage) return;
+    void fetchNextPage();
+  }, [
+    attachmentId,
+    channelId,
+    fetchNextPage,
+    hasCurrentAttachment,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  ]);
+
+  const lookupInProgress =
+    !!attachmentId && !hasCurrentAttachment && !!hasNextPage && isFetchingNextPage;
+
+  return {
+    media,
+    loading: isLoading || lookupInProgress,
+    error: !channelId
+      ? 'Channel context missing for this media item'
+      : error instanceof Error
+        ? error.message
+        : error
+          ? String(error)
+          : null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -53,7 +119,7 @@ function useChannelMedia(_channelId: string): {
 // ---------------------------------------------------------------------------
 
 /**
- * Trigger a file download by creating a temporary anchor element.
+ * Trigger a file download by creating a short-lived anchor element.
  * Only allows downloads from safe URL protocols (http/https).
  */
 function downloadFile(url: string, fileName: string): void {
@@ -92,16 +158,16 @@ function formatMediaDate(isoString: string): string {
  * pinch-to-zoom for images, swipe navigation between media items, and
  * download capability. PDF files display a filename card with download.
  *
- * Route: /messages/media/:attachmentId (path param, matches App.tsx route)
+ * Route: /messages/:channelId/media/:attachmentId
  */
 export function MediaViewerPage() {
   const navigate = useNavigate();
-  const { attachmentId } = useParams<{ attachmentId: string }>();
+  const { channelId, attachmentId } = useParams<{
+    channelId?: string;
+    attachmentId: string;
+  }>();
 
-  // WHY: channelId is not in the route path for media viewer. The media
-  // viewer is accessed from the chat room, so we use a fallback empty string.
-  // In production, this should be passed via route state or a query param.
-  const { media, loading, error } = useChannelMedia('');
+  const { media, loading, error } = useChannelMedia(channelId, attachmentId);
 
   // Find the current media index
   const currentIndex = media.findIndex((m) => m.id === attachmentId);
@@ -117,7 +183,7 @@ export function MediaViewerPage() {
     }
   }, [media, attachmentId]);
 
-  const currentMedia = media[activeIndex] ?? null;
+  const currentMedia = currentIndex >= 0 ? (media[activeIndex] ?? null) : null;
 
   // Pinch-to-zoom state
   const [scale, setScale] = useState(1);

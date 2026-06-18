@@ -13,7 +13,8 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createTenantAdminTestQueryClient } from '../test/query-client';
 
 // --------------------------------------------------------------------------
 // Mocks
@@ -84,9 +85,7 @@ import TenantAdminModule from '../Module';
 // --------------------------------------------------------------------------
 
 function renderModule(initialPath: string = '/tenant') {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+  const queryClient = createTenantAdminTestQueryClient();
 
   return render(
     React.createElement(

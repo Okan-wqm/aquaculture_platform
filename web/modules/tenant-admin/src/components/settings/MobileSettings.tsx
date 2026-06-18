@@ -23,6 +23,23 @@ const FEATURE_COLUMNS = [
   { key: 'tankView' as const, label: 'Tank View' },
 ] as const;
 
+const DEFAULT_ALLOWED_FEATURES: MobileUserSettingsData['allowedFeatures'] = {
+  mortality: true,
+  cull: true,
+  harvest: true,
+  feeding: false,
+  waterQuality: false,
+  tankView: true,
+};
+
+const createDefaultUserSettings = (userId: string): MobileUserSettingsData => ({
+  id: '',
+  userId,
+  tenantId: '',
+  isMobileEnabled: true,
+  allowedFeatures: { ...DEFAULT_ALLOWED_FEATURES },
+});
+
 /**
  * MobileSettings -- mobile user feature toggles table with bulk actions.
  */
@@ -48,47 +65,39 @@ const MobileSettings: React.FC = () => {
     }
   }, [mobileData?.settings]);
 
-  const getUserSettings = (userId: string): MobileUserSettingsData => {
-    return mobileSettings.get(userId) || {
-      id: '',
-      userId,
-      tenantId: '',
-      isMobileEnabled: true,
-      allowedFeatures: {
-        mortality: true,
-        cull: true,
-        harvest: true,
-        feeding: false,
-        waterQuality: false,
-        tankView: true,
-      },
-    };
-  };
+  const getUserSettings = useCallback(
+    (userId: string): MobileUserSettingsData =>
+      mobileSettings.get(userId) ?? createDefaultUserSettings(userId),
+    [mobileSettings],
+  );
 
-  const updateUserMobileSetting = (
-    userId: string,
-    field: 'isMobileEnabled' | keyof MobileUserSettingsData['allowedFeatures'],
-    value: boolean,
-  ) => {
-    const current = getUserSettings(userId);
-    let updated: MobileUserSettingsData;
+  const updateUserMobileSetting = useCallback(
+    (
+      userId: string,
+      field: 'isMobileEnabled' | keyof MobileUserSettingsData['allowedFeatures'],
+      value: boolean,
+    ) => {
+      const current = getUserSettings(userId);
+      let updated: MobileUserSettingsData;
 
-    if (field === 'isMobileEnabled') {
-      updated = { ...current, isMobileEnabled: value };
-    } else {
-      updated = {
-        ...current,
-        allowedFeatures: { ...current.allowedFeatures, [field]: value },
-      };
-    }
+      if (field === 'isMobileEnabled') {
+        updated = { ...current, isMobileEnabled: value };
+      } else {
+        updated = {
+          ...current,
+          allowedFeatures: { ...current.allowedFeatures, [field]: value },
+        };
+      }
 
-    setMobileSettings((prev) => {
-      const next = new Map(prev);
-      next.set(userId, updated);
-      return next;
-    });
-    setDirtyUserIds((prev) => new Set(prev).add(userId));
-  };
+      setMobileSettings((prev) => {
+        const next = new Map(prev);
+        next.set(userId, updated);
+        return next;
+      });
+      setDirtyUserIds((prev) => new Set(prev).add(userId));
+    },
+    [getUserSettings],
+  );
 
   const saveMobileSettings = useCallback(async () => {
     try {
@@ -113,14 +122,13 @@ const MobileSettings: React.FC = () => {
     } catch (err) {
       logError('MobileSettings.saveMobileSettings', err);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirtyUserIds, mobileSettings, updateMobileSettingsMutation]);
+  }, [dirtyUserIds, getUserSettings, updateMobileSettingsMutation]);
 
-  const applyToAll = (field: 'isMobileEnabled' | keyof MobileUserSettingsData['allowedFeatures'], value: boolean) => {
+  const applyToAll = useCallback((field: 'isMobileEnabled' | keyof MobileUserSettingsData['allowedFeatures'], value: boolean) => {
     for (const user of mobileUsers) {
       updateUserMobileSetting(user.id, field, value);
     }
-  };
+  }, [mobileUsers, updateUserMobileSetting]);
 
   if (isLoading) {
     return (

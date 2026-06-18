@@ -8,8 +8,11 @@
 
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import React from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
+import {
+  createTenantAdminQueryWrapper,
+  createTenantAdminTestQueryClient,
+} from '../../test/query-client';
 
 // --------------------------------------------------------------------------
 // Mocks
@@ -104,18 +107,11 @@ const mockRoles = [mockRole, mockDefaultRole];
 // --------------------------------------------------------------------------
 
 function createQueryClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: 0 },
-      mutations: { retry: false },
-    },
-  });
+  return createTenantAdminTestQueryClient();
 }
 
 function createWrapper(queryClient: QueryClient) {
-  const Wrapper = ({ children }: { children: React.ReactNode }) =>
-    React.createElement(QueryClientProvider, { client: queryClient }, children);
-  return Wrapper;
+  return createTenantAdminQueryWrapper(queryClient);
 }
 
 // --------------------------------------------------------------------------

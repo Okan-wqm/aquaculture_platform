@@ -179,6 +179,16 @@ const LEGACY_TRAILER_DRIFT: ReadonlyArray<[string, string]> = [
   // architectural fix; the registry tracks both as closers.
   // PHASE-12.1-FIX: re-annotate registry entry; commit stays as-is.
   ['ORPHAN-MEDIUM-016', '58837474'],
+  // RUST-CVE-001: commit bb777083e (PR #399) subject + body resolve
+  // RUST-CVE-001 (the rustls-webpki 0.102.8 CVE) but the strict `Closes:`
+  // trailer references the sibling RUST-HIGH-001 only — both findings are
+  // the same vendored-rumqttc-fork architectural fix. The commit itself
+  // documented that its registry close ceremony "runs post-merge" (a
+  // main-reachable SHA is required), which #523 then executed; the close
+  // legitimately cannot carry a per-id trailer on the already-merged fix
+  // commit. Identical shape to the ORPHAN-MEDIUM-016 sibling-trailer entry
+  // above. PHASE-12.1-FIX: re-annotate registry entry; commit stays as-is.
+  ['RUST-CVE-001', 'bb777083e'],
   // ULTRA-* findings (Stage-N audit cycle): the closing commits group
   // multiple findings under one architectural fix; the strict `Closes:`
   // trailer was either omitted or referenced a single canonical finding

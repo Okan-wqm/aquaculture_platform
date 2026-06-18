@@ -151,7 +151,7 @@ describe('aria-workflow-input-injection invariant (Plan 024 v3 §B-3)', () => {
           `Fix: move the input to an env: block on the step (or job), ` +
           `then reference it as "$VAR" inside run: with a regex validate ` +
           `before any shell use. For inter-job data flow, use outputs: + ` +
-          `\$GITHUB_OUTPUT + needs.<job>.outputs.*. See the canonical ` +
+          `$GITHUB_OUTPUT + needs.<job>.outputs.*. See the canonical ` +
           `pattern in .github/workflows/aria-daily-report.yml after Plan ` +
           `024 §B-3.`,
       );

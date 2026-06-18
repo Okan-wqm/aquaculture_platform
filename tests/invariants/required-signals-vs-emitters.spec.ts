@@ -44,6 +44,25 @@ describe('INVARIANT: required-signals.yaml boot signal contract', () => {
     expect(manifest.schema_version).toBe(2);
   });
 
+  it('keeps db-migrate as the sole migration boot signal authority', () => {
+    const serviceSignalRefs = manifest.services.flatMap((svc) =>
+      svc.signals.map((signal) => ({ service: svc.name, signal })),
+    );
+
+    expect(manifest.signal_library).toHaveProperty('db_migrate_complete');
+    expect(manifest.signal_library).not.toHaveProperty(
+      'migration_runner_applied',
+    );
+    expect(serviceSignalRefs).not.toContainEqual(
+      expect.objectContaining({ signal: 'migration_runner_applied' }),
+    );
+    expect(
+      serviceSignalRefs
+        .filter(({ signal }) => signal === 'db_migrate_complete')
+        .map(({ service }) => service),
+    ).toEqual(['db-migrate']);
+  });
+
   describe('signal_library entries', () => {
     for (const [signalKey, def] of Object.entries(manifest.signal_library)) {
       describe(`signal "${signalKey}"`, () => {

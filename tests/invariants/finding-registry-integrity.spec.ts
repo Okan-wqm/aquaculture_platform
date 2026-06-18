@@ -226,12 +226,10 @@ describe('finding registry integrity invariant', () => {
     it('surfaces re-opened findings as a CI-visible warning (soft signal, never fails)', () => {
       const reopens = overrides();
       if (reopens.length > 0) {
-        // eslint-disable-next-line no-console -- invariant-level CI telemetry
         console.warn(
           `[registry] ${reopens.length} re-opened finding(s) in chain — review for regression patterns:`,
         );
         for (const r of reopens) {
-          // eslint-disable-next-line no-console
           console.warn(`  ${r.id} (${r.severity} ${r.state}) overrides ${r.overrides}`);
         }
       }

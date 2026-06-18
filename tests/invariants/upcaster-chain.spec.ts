@@ -55,7 +55,7 @@ interface UpcasterShape {
  * upcaster, which then surfaces as a phantom chain gap.
  *
  * We strip:
- *   - block comments (incl. JSDoc): `/* ... *​/` non-greedy across newlines
+ *   - block comments (incl. JSDoc): slash-star to star-slash, non-greedy across newlines
  *   - line comments: `//` to end-of-line
  *
  * Stripping comments before regex matching is the architectural fix

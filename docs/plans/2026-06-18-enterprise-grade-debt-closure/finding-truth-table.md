@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `5f592a271e70b0fa05ffa11db32a83ffea9b2d36c2a0b21915ed5fd74557344e`
+Registry tip: `061d2ed77565c4675fcf5d72c432ea0860db538de0dc2a8db2008ebe1c530eab`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,7 +20,6 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-008`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-010`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-011`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-012`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
@@ -155,6 +154,16 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   tenant isolation remains the DB-level guard, and any future cold-storage
   compression must be modelled through a separate aggregate with its own
   tenant-scope contract instead of reintroducing columnstore on the RLS table.
+- `INFRA-CRITICAL-008`: registry state is `RESOLVED` with closing commit
+  `19d47218d24b95bfc5a1195a4f37fde7bbbc75b5`. PR #540 passed GitHub Actions on
+  2026-06-18, including build, test, lint, type-check, invariants-fast,
+  sens-enterprise-validation, and merge-gate. Local evidence passed
+  `tests/invariants/required-signals-vs-emitters.spec.ts`,
+  `npm run invariants:fast`, `npm run findings:verify`, and
+  `npm run gates:required-status-checks`, proving deploy boot-signal authority
+  is pinned to `db_migrate_complete` from `apps/db-migrate` and the legacy
+  per-service `migration_runner_applied` signal cannot re-enter the required
+  signal contract.
 - `FE-CRITICAL-050`: registry state is `RESOLVED` with closing commit
   `109563f`. The AquaMobil Vitest run above passed the service-worker artifact
   invariant, proving `messaging-sw.ts` is emitted through `injectManifest` with

@@ -62,9 +62,9 @@ function findRunBlockViolations(yamlPath: string): Violation[] {
   // scalar indicator and continues until the indentation drops to or
   // below the `run:` key's indentation.
   let runBlockIndent: number | null = null;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const indent = line.match(/^(\s*)/)?.[1].length ?? 0;
+  for (const [index, line] of lines.entries()) {
+    const leadingWhitespace = line.match(/^(\s*)/);
+    const indent = leadingWhitespace?.[1]?.length ?? 0;
     const trimmed = line.trimStart();
 
     // Detect run: |  /  run: >  block start (single-line `run: foo`
@@ -73,7 +73,7 @@ function findRunBlockViolations(yamlPath: string): Violation[] {
     const runStart = trimmed.match(/^run:\s*([|>][-+]?)?(\s|$)/);
     if (runStart) {
       // Scan the same line for inline injections (`run: echo "${{ ... }}"`).
-      collectInlineMatches(line, i + 1, yamlPath, violations);
+      collectInlineMatches(line, index + 1, yamlPath, violations);
       // Multi-line block: track indent until it drops back.
       if (runStart[1] === '|' || runStart[1] === '>') {
         runBlockIndent = indent;
@@ -88,7 +88,7 @@ function findRunBlockViolations(yamlPath: string): Violation[] {
       // deeper than runBlockIndent belong to the block. Lines at or
       // below the runBlockIndent close the block.
       if (line.trim() === '' || indent > runBlockIndent) {
-        collectInlineMatches(line, i + 1, yamlPath, violations);
+        collectInlineMatches(line, index + 1, yamlPath, violations);
       } else {
         runBlockIndent = null;
       }
@@ -151,7 +151,7 @@ describe('aria-workflow-input-injection invariant (Plan 024 v3 §B-3)', () => {
           `Fix: move the input to an env: block on the step (or job), ` +
           `then reference it as "$VAR" inside run: with a regex validate ` +
           `before any shell use. For inter-job data flow, use outputs: + ` +
-          `\$GITHUB_OUTPUT + needs.<job>.outputs.*. See the canonical ` +
+          `$GITHUB_OUTPUT + needs.<job>.outputs.*. See the canonical ` +
           `pattern in .github/workflows/aria-daily-report.yml after Plan ` +
           `024 §B-3.`,
       );

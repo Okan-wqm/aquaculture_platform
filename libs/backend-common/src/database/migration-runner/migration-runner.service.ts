@@ -318,15 +318,15 @@ export function createMigrationRunnerService(
         }
       }
 
-      // Canonical end-of-run signal (WS7 / required-signals.yaml contract).
+      // Canonical local end-of-run log for the legacy in-process runner.
       // Fires on EVERY successful runner completion regardless of whether
       // any migration was actually applied — a warm-start path where
       // db-migrate already applied every pending DDL still emits this.
       // The pre-existing "Applied N migration(s)" / "No pending migrations"
       // logs only fire on the per-schema hot path; they don't represent
-      // the runner-as-a-whole completing, which is what the deploy-time
-      // boot signal is asserting. Pattern matched by required-signals.yaml
-      // signal_library.migration_runner_applied (substring).
+      // the runner-as-a-whole completing. Production deploys use the
+      // structured db_migrate_complete boot signal emitted by apps/db-migrate;
+      // required-signals.yaml is generated from BOOT_INVARIANT_SIGNALS.
       this.logger.log(
         `Migration runner complete for schema "${sourceSchema}": tenants=${tenantCount}`,
       );

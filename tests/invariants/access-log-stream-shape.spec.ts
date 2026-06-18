@@ -115,7 +115,7 @@ describe('access-log stream coherence (AUDITTRAIL-HIGH-004)', () => {
 
   it('AccessLogService.record persists every DTO field with documented null defaults', () => {
     const src = read(SERVICE_PATH);
-    const recordBody = /record\s*\([^)]*\)\s*:\s*void\s*{([\s\S]*?)\n  }/.exec(
+    const recordBody = /record\s*\([^)]*\)\s*:\s*void\s*[{]([\s\S]*?)\n {2}}/.exec(
       src,
     );
     expect(recordBody).not.toBeNull();

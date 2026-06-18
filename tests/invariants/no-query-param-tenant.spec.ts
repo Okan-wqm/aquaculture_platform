@@ -55,8 +55,8 @@ const ALLOW_LIST: ReadonlyArray<{ path: string; reason: string }> = [
 ];
 
 const BANNED_PATTERNS = [
-  /\breq\.query\s*[\.\[]\s*['"]?tenantId['"]?\s*\]?/g,
-  /\brequest\.query\s*[\.\[]\s*['"]?tenantId['"]?\s*\]?/g,
+  /\breq\.query\s*(?:\.\s*tenantId|\[\s*['"]tenantId['"]\s*])/g,
+  /\brequest\.query\s*(?:\.\s*tenantId|\[\s*['"]tenantId['"]\s*])/g,
   /\bbody\s*\[\s*['"]tenantId['"]\s*\]/g,
   /\bvariables\s*\[\s*['"]tenantId['"]\s*\]/g,
 ] as const;

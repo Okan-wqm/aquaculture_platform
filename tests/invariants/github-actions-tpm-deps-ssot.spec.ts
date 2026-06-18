@@ -17,10 +17,12 @@ describe('GitHub Actions TPM dependency SSoT', () => {
     expect(existsSync(join(REPO_ROOT, TPM_ACTION))).toBe(true);
 
     const action = read(TPM_ACTION);
-    expect(action).toContain('Acquire::Retries=3');
+    expect(action).toContain('Acquire::Retries=5');
+    expect(action).toContain('Acquire::http::Timeout=20');
+    expect(action).toContain('Acquire::https::Timeout=20');
     expect(action).toContain('Dpkg::Lock::Timeout=120');
     expect(action).toContain('timeout 5m apt-get');
-    expect(action).toContain('timeout 10m apt-get');
+    expect(action).toContain('timeout 20m apt-get');
     expect(action).toContain('pkg-config libtss2-dev');
     expect(action).not.toContain('continue-on-error');
   });

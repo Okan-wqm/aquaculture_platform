@@ -107,6 +107,7 @@ const DEFAULT_RELEASE_PROFILE = 'edge-agent-scada-display';
 const WORKFLOW_CI = '.github/workflows/ci-affected.yml';
 const WORKFLOW_SENS = '.github/workflows/sens-api-gateway-ci.yml';
 const WORKFLOW_RELEASE = '.github/workflows/edge-agent-release.yml';
+const TPM_BUILD_DEPS_ACTION = '.github/actions/install-tpm-build-dependencies/action.yml';
 const RUST_TOOLCHAIN = 'rust-toolchain.toml';
 const SX1302_HIL_EVIDENCE_SCHEMA = 'tools/gates/sx1302-hil-evidence.schema.json';
 const CATALOG = 'sens-api-gateway/src/commands/catalog.rs';
@@ -450,14 +451,16 @@ const CHECKS: Record<string, () => CheckResult> = {
 
   ci_affected_sens_rust_uses_curated_features: () => {
     const src = readFile(WORKFLOW_CI);
+    const tpmAction = readFile(TPM_BUILD_DEPS_ACTION);
     const job = workflowJobBlock(src, 'sens-api-gateway-rust');
     const missing = job
       ? [
           ...hasAll(src, [`SENS_API_GATEWAY_CI_FEATURES: ${CI_AFFECTED_SENS_FEATURES}`]),
           ...hasAll(job, [
-            'sudo apt-get install -y --no-install-recommends pkg-config libtss2-dev',
+            'uses: ./.github/actions/install-tpm-build-dependencies',
             'cargo check --locked --release --all-targets --features "$SENS_API_GATEWAY_CI_FEATURES"',
           ]),
+          ...hasAll(tpmAction, ['pkg-config libtss2-dev', 'timeout 20m apt-get']),
           ...(hasExecutableText(job, 'cargo check --locked --all-features') ? ['must not use cargo check --locked --all-features'] : []),
         ]
       : ['sens-api-gateway-rust:'];
@@ -466,8 +469,12 @@ const CHECKS: Record<string, () => CheckResult> = {
       'ci-affected Sens Rust job uses curated software feature set, not all-features HAL coupling',
       missing.length === 0,
       missing.length ? `missing curated ci-affected evidence: ${missing.join(', ')}` : 'ci-affected Sens Rust job uses curated features with TPM deps',
-      [WORKFLOW_CI],
-      [lineRef(WORKFLOW_CI, 'SENS_API_GATEWAY_CI_FEATURES'), lineRef(WORKFLOW_CI, 'Cargo check locked curated CI features')],
+      [WORKFLOW_CI, TPM_BUILD_DEPS_ACTION],
+      [
+        lineRef(WORKFLOW_CI, 'SENS_API_GATEWAY_CI_FEATURES'),
+        lineRef(WORKFLOW_CI, 'Cargo check locked curated CI features'),
+        lineRef(TPM_BUILD_DEPS_ACTION, 'pkg-config libtss2-dev'),
+      ],
     );
   },
 

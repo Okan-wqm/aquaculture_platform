@@ -385,10 +385,7 @@ describe('TenantUsers Page', () => {
     });
 
     it('should show Add User button for SUPER_ADMIN (hierarchy)', async () => {
-      mockHasRoleOrHigher.mockImplementation((role: string) => {
-        // SUPER_ADMIN has higher level than TENANT_ADMIN
-        return true;
-      });
+      mockHasRoleOrHigher.mockReturnValue(true);
       renderPage();
 
       await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());

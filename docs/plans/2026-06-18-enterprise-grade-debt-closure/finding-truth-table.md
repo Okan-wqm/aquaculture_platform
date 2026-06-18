@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `22d66abe746a16611faf1ac15b2537dcedd241989574a1669418a61377fc2878`
+Registry tip: `a6a91280560ecb68b6982a6a4e45a2b2e21fb6365d3e17ff8a69286c67828055`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -48,7 +48,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
 | `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
 | `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `EDGE-CRITICAL-001`       | OPEN           | 5.1          | infra-expert             | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-094`     | OPEN           | 1.2          | auth-security-expert     | already-fixed-needs-close |
 | `MSG-CRITICAL-050`        | OPEN           | 3.1          | realtime-sync-auditor    | real-open                 |
 | `MSG-CRITICAL-051`        | OPEN           | 3.1          | realtime-sync-auditor    | real-open                 |
@@ -87,12 +86,14 @@ Allowed truth buckets:
 libs/backend-common/src/utils/__tests__/service-identity.util.spec.ts
 --runInBand` passes 24/24, including the #388 policy-less keyring regression
   test that accepts catalog callers and rejects unknown callers.
-- `EDGE-CRITICAL-001`: repository-local CI coverage exists in
+
+## Resolved Evidence
+
+- `EDGE-CRITICAL-001`: registry state is `RESOLVED` with closing commit
+  `d792f74ac`. Repository-local CI coverage exists in
   `.github/workflows/ci-affected.yml`; the required-check SSOT is
   `.github/manifests/main-required-status-checks.json`; static enforcement
   passes through `npm run gates:required-status-checks`. On 2026-06-18, GitHub
   branch protection for `main` was updated from absent to strict required status
   checks, and `npm run gates:required-status-checks:live` passed, proving
-  `sens-enterprise-summary` and `merge-gate` are required. Registry closure is
-  intentionally pending until this evidence has a reachable `Closes:` trailer
-  commit for the registry CLI.
+  `sens-enterprise-summary` and `merge-gate` are required.

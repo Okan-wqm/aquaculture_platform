@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `60b3cfaa592b72336f5b90e5ff33816ac5028e409b3f2d67e3895a5ed2a91f05`
+Registry tip: `ea31fb2084260c2cc91ad8d57c0c5664159a73abd32e94a9eb4428f6130fcef6`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -45,7 +45,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `MSG-CRITICAL-053`        | OPEN           | 3.1          | file-transfer-auditor    | real-open    |
 | `FARM-CRITICAL-050`       | OPEN           | 4.1          | workflow-state-auditor   | real-open    |
 | `FARM-CRITICAL-001`       | IN-PROGRESS    | 4.1          | multi-tenant-saas-expert | real-open    |
 
@@ -126,6 +125,11 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `2bd191ed`. The messaging-service Jest run above passed the
   `MessageAttachmentResolver` regression, proving attachment `downloadUrl` and
   `thumbnailUrl` are resolved through tenant-scoped presigned URLs.
+- `MSG-CRITICAL-053`: registry state is `RESOLVED` with closing commit
+  `9423fee0`. PR #531 passed the AquaMobil media-viewer regression, proving the
+  viewer reads `MessageFields.attachments` from the channel-scoped message SSoT,
+  pages older messages until the requested attachment is found, and fail-closes
+  legacy attachment-only routes.
 - `FE-CRITICAL-050`: registry state is `RESOLVED` with closing commit
   `109563f`. The AquaMobil Vitest run above passed the service-worker artifact
   invariant, proving `messaging-sw.ts` is emitted through `injectManifest` with

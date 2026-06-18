@@ -266,6 +266,14 @@ export function ChatRoomPage() {
     }
   }, [messages]);
 
+  const handleOpenImage = useCallback(
+    (attachmentId: string) => {
+      if (!channelId) return;
+      navigate(`/messages/${channelId}/media/${attachmentId}`);
+    },
+    [channelId, navigate],
+  );
+
   /**
    * MSG-MEDIUM-053: enter edit mode for the selected own message. Editing and
    * replying are mutually exclusive composer modes, so entering edit clears any
@@ -597,12 +605,19 @@ export function ChatRoomPage() {
                       text={msg.content ?? undefined}
                       timestamp={msg.createdAt}
                       status={isOwn ? status : undefined}
+                      contentType={msg.contentType}
                       isEdited={!!msg.editedAt}
                       isDeleted={msg.isDeleted}
                       isGroup={channel?.type === 'group'}
                       replyTo={replyPreview}
                       image={image}
+                      onImageOpen={
+                        image && firstAttachment
+                          ? () => handleOpenImage(firstAttachment.id)
+                          : undefined
+                      }
                       file={file}
+                      attachments={msg.attachments ?? undefined}
                       onReply={handleReply}
                       onCopy={handleCopy}
                       onForward={handleForward}

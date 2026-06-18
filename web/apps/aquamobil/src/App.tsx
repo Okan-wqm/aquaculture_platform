@@ -255,6 +255,7 @@ export function App() {
                       <Route path="/messages/new" element={<NewChatPage />} />
                       <Route path="/messages/ai/:channelId" element={<AiChatPage />} />
                       <Route path="/messages/:channelId" element={<ChatRoomPage />} />
+                      <Route path="/messages/:channelId/media/:attachmentId" element={<MediaViewerPage />} />
                       <Route path="/messages/:channelId/settings" element={<ChannelSettingsPage />} />
                       <Route path="/messages/media/:attachmentId" element={<MediaViewerPage />} />
 

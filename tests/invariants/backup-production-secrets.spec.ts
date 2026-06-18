@@ -15,6 +15,12 @@ const SECRET_MANIFEST_PATH = join(
   'manifests',
   'backup-secrets.json',
 );
+const POSTGRES_IMAGE_MANIFEST_PATH = join(
+  REPO_ROOT,
+  '.github',
+  'manifests',
+  'postgres-image.json',
+);
 const PREFLIGHT_HELPER_PATH = join(
   REPO_ROOT,
   'tools',
@@ -72,12 +78,20 @@ interface BackupSecretManifest {
   requiredSecrets: BackupSecretContract[];
 }
 
+interface PostgresImageManifest {
+  image: string;
+}
+
 function read(path: string): string {
   return readFileSync(path, 'utf-8');
 }
 
 function readManifest(): BackupSecretManifest {
   return JSON.parse(read(SECRET_MANIFEST_PATH)) as BackupSecretManifest;
+}
+
+function readPostgresImageManifest(): PostgresImageManifest {
+  return JSON.parse(read(POSTGRES_IMAGE_MANIFEST_PATH)) as PostgresImageManifest;
 }
 
 function secretExpression(secretName: string): string {
@@ -225,6 +239,7 @@ describe('production backup secret contract', () => {
   it('keeps docs aligned with the manifest and real restore evidence', () => {
     const restoreRunbook = read(RESTORE_RUNBOOK_PATH);
     const rotationRunbook = read(ROTATION_RUNBOOK_PATH);
+    const postgresImageManifest = readPostgresImageManifest();
 
     for (const secretName of REQUIRED_SECRET_NAMES) {
       expect(restoreRunbook).toContain(`\`${secretName}\``);
@@ -234,9 +249,7 @@ describe('production backup secret contract', () => {
       '.github/manifests/backup-secrets.json',
     );
     expect(restoreRunbook).toContain('Metadata.sha256');
-    expect(restoreRunbook).toContain(
-      'timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7',
-    );
+    expect(restoreRunbook).toContain(postgresImageManifest.image);
 
     expect(rotationRunbook).toContain('production-backup');
     expect(rotationRunbook).toContain('dry_run: false');

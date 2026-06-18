@@ -1,0 +1,19 @@
+{
+  "$schema": "aqua/postgres-image/v1",
+  "schema_version": 1,
+  "finding_ids": ["INFRA-CRITICAL-010", "INFRA-CRITICAL-017", "INFRA-CRITICAL-018"],
+  "image": "timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7",
+  "image_family": "timescale/timescaledb-ha",
+  "postgres_major": 16,
+  "required_capabilities": ["timescaledb", "pgvector", "hnsw_vector_cosine_ops"],
+  "consumers": [
+    ".github/workflows/ci-full.yml",
+    ".github/workflows/db-migration-check.yml",
+    ".github/workflows/e2e-messaging.yml",
+    "docker-compose.dev.yml",
+    "docker-compose.droplet.yml",
+    "docker-compose.infra.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.yml"
+  ]
+}

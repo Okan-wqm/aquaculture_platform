@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `a6a91280560ecb68b6982a6a4e45a2b2e21fb6365d3e17ff8a69286c67828055`
+Registry tip: `f843e5cea20b47f4f6fcb564f406427b06286aea8e6fc4a036a3e223ab440740`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -17,48 +17,44 @@ Allowed truth buckets:
 - `stale`
 - `new-finding-required`
 
-| Finding                   | Registry state | First sprint | Owner                    | Truth bucket              |
-| ------------------------- | -------------- | ------------ | ------------------------ | ------------------------- |
-| `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open                 |
-| `CLAUDE-CRITICAL-004`     | OPEN           | 0.1          | prompt-writer            | already-fixed-needs-close |
-| `CLAUDE-CRITICAL-005`     | OPEN           | 0.1          | prompt-writer            | already-fixed-needs-close |
-| `CLAUDE-CRITICAL-006`     | OPEN           | 0.1          | prompt-writer            | already-fixed-needs-close |
-| `INFRA-CRITICAL-001`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open                 |
-| `INFRA-CRITICAL-006`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-007`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-008`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open                 |
-| `INFRA-CRITICAL-010`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open                 |
-| `INFRA-CRITICAL-011`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open                 |
-| `INFRA-CRITICAL-012`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open                 |
-| `INFRA-CRITICAL-009`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-014`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open                 |
-| `INFRA-CRITICAL-015`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open                 |
-| `INFRA-CRITICAL-017`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open                 |
-| `INFRA-CRITICAL-018`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open                 |
-| `INFRA-CRITICAL-019`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-020`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open                 |
-| `INFRA-CRITICAL-021`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-023`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-024`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open                 |
-| `INFRA-CRITICAL-025`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open                 |
-| `INFRA-CRITICAL-026`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-027`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-028`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-029`      | OPEN           | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `ORPHAN-CRITICAL-094`     | OPEN           | 1.2          | auth-security-expert     | already-fixed-needs-close |
-| `MSG-CRITICAL-050`        | OPEN           | 3.1          | realtime-sync-auditor    | real-open                 |
-| `MSG-CRITICAL-051`        | OPEN           | 3.1          | realtime-sync-auditor    | real-open                 |
-| `MSG-CRITICAL-052`        | OPEN           | 3.1          | file-transfer-auditor    | real-open                 |
-| `MSG-CRITICAL-053`        | OPEN           | 3.1          | file-transfer-auditor    | real-open                 |
-| `FE-CRITICAL-050`         | OPEN           | 3.1          | frontend-expert          | real-open                 |
-| `MSG-CRITICAL-054`        | OPEN           | 3.1          | form-write-auditor       | real-open                 |
-| `MT-CRITICAL-050`         | OPEN           | 2.1          | tenant-isolation-auditor | real-open                 |
-| `MT-CRITICAL-051`         | OPEN           | 2.1          | mobile-app-auditor       | real-open                 |
-| `FARM-CRITICAL-050`       | OPEN           | 4.1          | workflow-state-auditor   | real-open                 |
-| `FARM-CRITICAL-001`       | IN-PROGRESS    | 4.1          | multi-tenant-saas-expert | real-open                 |
+| Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
+| ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
+| `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
+| `INFRA-CRITICAL-001`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
+| `INFRA-CRITICAL-006`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-007`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-008`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
+| `INFRA-CRITICAL-010`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
+| `INFRA-CRITICAL-011`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
+| `INFRA-CRITICAL-012`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
+| `INFRA-CRITICAL-009`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-014`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
+| `INFRA-CRITICAL-015`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
+| `INFRA-CRITICAL-017`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
+| `INFRA-CRITICAL-018`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
+| `INFRA-CRITICAL-019`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-020`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
+| `INFRA-CRITICAL-021`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-023`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-024`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
+| `INFRA-CRITICAL-025`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
+| `INFRA-CRITICAL-026`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-027`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-028`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-029`      | OPEN           | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
+| `MSG-CRITICAL-050`        | OPEN           | 3.1          | realtime-sync-auditor    | real-open    |
+| `MSG-CRITICAL-051`        | OPEN           | 3.1          | realtime-sync-auditor    | real-open    |
+| `MSG-CRITICAL-052`        | OPEN           | 3.1          | file-transfer-auditor    | real-open    |
+| `MSG-CRITICAL-053`        | OPEN           | 3.1          | file-transfer-auditor    | real-open    |
+| `FE-CRITICAL-050`         | OPEN           | 3.1          | frontend-expert          | real-open    |
+| `MSG-CRITICAL-054`        | OPEN           | 3.1          | form-write-auditor       | real-open    |
+| `MT-CRITICAL-050`         | OPEN           | 2.1          | tenant-isolation-auditor | real-open    |
+| `MT-CRITICAL-051`         | OPEN           | 2.1          | mobile-app-auditor       | real-open    |
+| `FARM-CRITICAL-050`       | OPEN           | 4.1          | workflow-state-auditor   | real-open    |
+| `FARM-CRITICAL-001`       | IN-PROGRESS    | 4.1          | multi-tenant-saas-expert | real-open    |
 
 ## Mutation Rules
 
@@ -73,22 +69,26 @@ Allowed truth buckets:
 
 ## Already-Fixed Evidence
 
-- `CLAUDE-CRITICAL-004`: `npm run invariants:fast` passes
-  `tests/invariants/orchestrator-routing-coverage.spec.ts`; the active routing
-  table has one `apps/*/src/gdpr/**` implementation row.
-- `CLAUDE-CRITICAL-005`: `npm run invariants:fast` passes the routing reverse
-  coverage checks; Lane-B/product-audit agents are reachable or explicitly
-  modeled by dispatch metadata.
-- `CLAUDE-CRITICAL-006`: `npm run invariants:fast` passes
-  `tests/invariants/agent-frontmatter-schema.spec.ts`; agent files carry
-  `tools:` frontmatter from the allowed tool set.
-- `ORPHAN-CRITICAL-094`: `npx jest --config libs/backend-common/jest.config.ts
-libs/backend-common/src/utils/__tests__/service-identity.util.spec.ts
---runInBand` passes 24/24, including the #388 policy-less keyring regression
-  test that accepts catalog callers and rejects unknown callers.
+No active CRITICAL finding remains in `already-fixed-needs-close` after the
+2026-06-18 Wave 0 registry reconciliation. Reconciled items moved to
+`Resolved Evidence`.
 
 ## Resolved Evidence
 
+- `CLAUDE-CRITICAL-004`: registry state is `RESOLVED` with closing commit
+  `7414faac`. `npx jest --config tests/invariants/jest.config.ts
+tests/invariants/agent-ownership-uniqueness.spec.ts
+tests/invariants/orchestrator-routing-coverage.spec.ts --runInBand` passed on
+  2026-06-18, proving routing-table duplicate-primary and ownership conflicts
+  stay mechanically guarded.
+- `CLAUDE-CRITICAL-005`: registry state is `RESOLVED` with closing commit
+  `7414faac`. The same routing coverage run passed 75/75 tests, including the
+  reverse roster reachability checks that keep Lane-B agents dispatchable.
+- `CLAUDE-CRITICAL-006`: registry state is `RESOLVED` with closing commit
+  `00995511`. `npx jest --config tests/invariants/jest.config.ts
+tests/invariants/agent-frontmatter-schema.spec.ts --runInBand` passed 421/421,
+  proving every discovered active agent carries `tools:` frontmatter from the
+  allowed token set.
 - `EDGE-CRITICAL-001`: registry state is `RESOLVED` with closing commit
   `d792f74ac`. Repository-local CI coverage exists in
   `.github/workflows/ci-affected.yml`; the required-check SSOT is
@@ -98,3 +98,8 @@ libs/backend-common/src/utils/__tests__/service-identity.util.spec.ts
   checks with administrator enforcement, and
   `npm run gates:required-status-checks:live` passed, proving
   `sens-enterprise-summary` and `merge-gate` are required.
+- `ORPHAN-CRITICAL-094`: registry state is `RESOLVED` with closing commit
+  `1a51b1d4`. `npx jest --config libs/backend-common/jest.config.ts
+libs/backend-common/src/utils/__tests__/service-identity.util.spec.ts
+--runInBand` passed 24/24 on 2026-06-18, including the #388 policy-less keyring
+  regression test that accepts catalog callers and rejects unknown callers.

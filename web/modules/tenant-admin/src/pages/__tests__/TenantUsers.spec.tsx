@@ -13,8 +13,9 @@ import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
+import { createTenantAdminTestQueryClient } from '../../test/query-client';
 
 // --------------------------------------------------------------------------
 // Mocks
@@ -29,21 +30,62 @@ vi.mock('@aquaculture/shared-ui', () => ({
     user: { id: 'u1', email: 'admin@test.com', role: 'TENANT_ADMIN' },
     isAuthenticated: true,
   }),
+  getAccessToken: vi.fn(() => 'test-access-token'),
+  getTenantId: vi.fn(() => 'tenant-1'),
 }));
 
-// Mock graphqlRequest
-const mockGraphqlRequest = vi.fn();
+const {
+  mockGetTenantUsers,
+  mockCreateTenantUser,
+  mockUpdateTenantUser,
+  mockDeleteTenantUser,
+  mockDeactivateTenantUser,
+  mockUnexpectedTenantApiCall,
+} = vi.hoisted(() => ({
+  mockGetTenantUsers: vi.fn(),
+  mockCreateTenantUser: vi.fn(),
+  mockUpdateTenantUser: vi.fn(),
+  mockDeleteTenantUser: vi.fn(),
+  mockDeactivateTenantUser: vi.fn(),
+  mockUnexpectedTenantApiCall: (name: string) =>
+    vi.fn(() => Promise.reject(new Error(`Unexpected tenant-admin API call: ${name}`))),
+}));
 
-vi.mock('../../services/tenant-api.service', () => ({
-  graphqlRequest: (...args: unknown[]) => mockGraphqlRequest(...args),
-  getTenantRoles: vi.fn().mockResolvedValue([]),
-  getTenantRole: vi.fn(),
-  getDefaultTenantRole: vi.fn(),
-  getPermissionCategories: vi.fn(),
-  createTenantRole: vi.fn(),
-  updateTenantRole: vi.fn(),
-  deleteTenantRole: vi.fn(),
-  seedTenantRoles: vi.fn(),
+vi.mock('../../lib/api', () => ({
+  getMyTenant: mockUnexpectedTenantApiCall('getMyTenant'),
+  getTenantStats: mockUnexpectedTenantApiCall('getTenantStats'),
+  getMyTenantModules: mockUnexpectedTenantApiCall('getMyTenantModules'),
+  getTenantUsers: (...args: unknown[]) => mockGetTenantUsers(...args),
+  getTenantDatabase: mockUnexpectedTenantApiCall('getTenantDatabase'),
+  getTableSchema: mockUnexpectedTenantApiCall('getTableSchema'),
+  getTableData: mockUnexpectedTenantApiCall('getTableData'),
+  assignModuleManager: mockUnexpectedTenantApiCall('assignModuleManager'),
+  removeModuleManager: mockUnexpectedTenantApiCall('removeModuleManager'),
+  updateTenant: mockUnexpectedTenantApiCall('updateTenant'),
+  getMyModuleIds: mockUnexpectedTenantApiCall('getMyModuleIds'),
+  getModuleUsageStats: mockUnexpectedTenantApiCall('getModuleUsageStats'),
+  getEdgeDevices: mockUnexpectedTenantApiCall('getEdgeDevices'),
+  getDeviceEvents: mockUnexpectedTenantApiCall('getDeviceEvents'),
+  createTenantUser: (...args: unknown[]) => mockCreateTenantUser(...args),
+  updateTenantUser: (...args: unknown[]) => mockUpdateTenantUser(...args),
+  deleteTenantUser: (...args: unknown[]) => mockDeleteTenantUser(...args),
+  deactivateTenantUser: (...args: unknown[]) => mockDeactivateTenantUser(...args),
+  getNotificationPreferences: mockUnexpectedTenantApiCall('getNotificationPreferences'),
+  updateNotificationPreferences: mockUnexpectedTenantApiCall('updateNotificationPreferences'),
+  getMobileUsersSettings: mockUnexpectedTenantApiCall('getMobileUsersSettings'),
+  updateMobileUserSettings: mockUnexpectedTenantApiCall('updateMobileUserSettings'),
+  getMyThreads: mockUnexpectedTenantApiCall('getMyThreads'),
+  getThreadMessages: mockUnexpectedTenantApiCall('getThreadMessages'),
+  sendMessage: mockUnexpectedTenantApiCall('sendMessage'),
+  createThread: mockUnexpectedTenantApiCall('createThread'),
+  getMyTickets: mockUnexpectedTenantApiCall('getMyTickets'),
+  getTicketComments: mockUnexpectedTenantApiCall('getTicketComments'),
+  createTicket: mockUnexpectedTenantApiCall('createTicket'),
+  addTicketComment: mockUnexpectedTenantApiCall('addTicketComment'),
+  rateTicket: mockUnexpectedTenantApiCall('rateTicket'),
+  getMyAnnouncements: mockUnexpectedTenantApiCall('getMyAnnouncements'),
+  viewAnnouncement: mockUnexpectedTenantApiCall('viewAnnouncement'),
+  acknowledgeAnnouncement: mockUnexpectedTenantApiCall('acknowledgeAnnouncement'),
 }));
 
 vi.mock('../../utils/error-handling', () => ({
@@ -111,14 +153,36 @@ const mockApiUsers = [
   },
 ];
 
+interface TenantUserQueryOptions {
+  limit?: number;
+  offset?: number;
+  status?: string;
+  role?: string;
+}
+
+function getApiUserStatus(apiUser: (typeof mockApiUsers)[number]): 'active' | 'inactive' | 'pending' {
+  if (apiUser.isActive === false) return 'inactive';
+  if (!apiUser.isEmailVerified && !apiUser.lastLoginAt) return 'pending';
+  return 'active';
+}
+
+function getTenantUsersFixture(options: TenantUserQueryOptions = {}) {
+  const filteredUsers = mockApiUsers.filter((apiUser) => {
+    const statusMatches = !options.status || getApiUserStatus(apiUser) === options.status;
+    const roleMatches = !options.role || apiUser.role === options.role;
+    return statusMatches && roleMatches;
+  });
+  const offset = options.offset ?? 0;
+  const limit = options.limit ?? filteredUsers.length;
+  return filteredUsers.slice(offset, offset + limit);
+}
+
 // --------------------------------------------------------------------------
 // Helpers
 // --------------------------------------------------------------------------
 
 function renderPage() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+  const queryClient = createTenantAdminTestQueryClient();
 
   return render(
     React.createElement(
@@ -141,7 +205,13 @@ describe('TenantUsers Page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockHasRoleOrHigher.mockReturnValue(true); // TENANT_ADMIN by default
-    mockGraphqlRequest.mockResolvedValue({ tenantUsers: mockApiUsers });
+    mockGetTenantUsers.mockImplementation((options?: TenantUserQueryOptions) =>
+      Promise.resolve(getTenantUsersFixture(options)),
+    );
+    mockCreateTenantUser.mockResolvedValue(mockApiUsers[0]);
+    mockUpdateTenantUser.mockResolvedValue(mockApiUsers[0]);
+    mockDeleteTenantUser.mockResolvedValue(true);
+    mockDeactivateTenantUser.mockResolvedValue({ ...mockApiUsers[0], isActive: false });
   });
 
   afterEach(() => {
@@ -175,9 +245,10 @@ describe('TenantUsers Page', () => {
       renderPage();
 
       await waitFor(() => {
-        expect(screen.getByText('Tenant Admin')).toBeInTheDocument();
-        expect(screen.getByText('Module User')).toBeInTheDocument();
-        expect(screen.getByText('Module Manager')).toBeInTheDocument();
+        const table = within(screen.getByRole('table'));
+        expect(table.getByText('Tenant Admin')).toBeInTheDocument();
+        expect(table.getByText('Module User')).toBeInTheDocument();
+        expect(table.getByText('Module Manager')).toBeInTheDocument();
       });
     });
 
@@ -186,14 +257,14 @@ describe('TenantUsers Page', () => {
 
       await waitFor(() => {
         // u1, u2 = Active; u3 = Inactive
-        const activeBadges = screen.getAllByText('Active');
+        const activeBadges = within(screen.getByRole('table')).getAllByText('Active');
         expect(activeBadges.length).toBe(2);
-        expect(screen.getByText('Inactive')).toBeInTheDocument();
+        expect(within(screen.getByRole('table')).getByText('Inactive')).toBeInTheDocument();
       });
     });
 
     it('should show empty state when no users', async () => {
-      mockGraphqlRequest.mockResolvedValue({ tenantUsers: [] });
+      mockGetTenantUsers.mockResolvedValue([]);
 
       renderPage();
 
@@ -203,7 +274,7 @@ describe('TenantUsers Page', () => {
     });
 
     it('should show error message on load failure', async () => {
-      mockGraphqlRequest.mockRejectedValue(new Error('Connection refused'));
+      mockGetTenantUsers.mockRejectedValue(new Error('Connection refused'));
 
       renderPage();
 
@@ -216,17 +287,15 @@ describe('TenantUsers Page', () => {
       renderPage();
 
       await waitFor(() => {
-        expect(screen.getByText(/Showing 3 of 3 users/)).toBeInTheDocument();
+        expect(screen.getByText(/Showing 3 users \(page 1\)/)).toBeInTheDocument();
       });
     });
 
-    it('should call graphqlRequest with the correct query', async () => {
+    it('should call getTenantUsers with the first-page query options', async () => {
       renderPage();
 
       await waitFor(() => {
-        expect(mockGraphqlRequest).toHaveBeenCalledWith(
-          expect.stringContaining('query TenantUsers'),
-        );
+        expect(mockGetTenantUsers).toHaveBeenCalledWith({ limit: 20, offset: 0 });
       });
     });
   });
@@ -245,9 +314,8 @@ describe('TenantUsers Page', () => {
       const addButton = screen.getByRole('button', { name: /add user/i });
       await user.click(addButton);
 
-      // Modal should now be visible — AddEditUserModal renders with role select etc.
       await waitFor(() => {
-        expect(screen.getByText(/create|add|invite/i)).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: /add new user/i })).toBeInTheDocument();
       });
     });
 
@@ -261,11 +329,12 @@ describe('TenantUsers Page', () => {
       const addButton = screen.getByRole('button', { name: /add user/i });
       await user.click(addButton);
 
-      // Close via cancel/close button
-      const cancelButton = screen.queryByRole('button', { name: /cancel|close/i });
-      if (cancelButton) {
-        await user.click(cancelButton);
-      }
+      const dialog = await screen.findByRole('dialog', { name: /add new user/i });
+      await user.click(within(dialog).getByRole('button', { name: /cancel/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: /add new user/i })).not.toBeInTheDocument();
+      });
     });
   });
 
@@ -316,10 +385,7 @@ describe('TenantUsers Page', () => {
     });
 
     it('should show Add User button for SUPER_ADMIN (hierarchy)', async () => {
-      mockHasRoleOrHigher.mockImplementation((role: string) => {
-        // SUPER_ADMIN has higher level than TENANT_ADMIN
-        return true;
-      });
+      mockHasRoleOrHigher.mockReturnValue(true);
       renderPage();
 
       await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
@@ -351,9 +417,10 @@ describe('TenantUsers Page', () => {
 
     it('should call deactivate mutation for selected users', async () => {
       mockHasRoleOrHigher.mockReturnValue(true);
-      mockGraphqlRequest
-        .mockResolvedValueOnce({ tenantUsers: mockApiUsers }) // initial load
-        .mockResolvedValue({ deactivateTenantUser: { id: 'u1', isActive: false } }); // deactivate
+      mockGetTenantUsers.mockImplementation((options?: TenantUserQueryOptions) =>
+        Promise.resolve(getTenantUsersFixture(options)),
+      );
+      mockDeactivateTenantUser.mockResolvedValue({ ...mockApiUsers[0], isActive: false });
 
       const user = userEvent.setup();
       renderPage();
@@ -369,11 +436,7 @@ describe('TenantUsers Page', () => {
       await user.click(deactivateButton);
 
       await waitFor(() => {
-        // Should have called graphqlRequest with the deactivate mutation
-        expect(mockGraphqlRequest).toHaveBeenCalledWith(
-          expect.stringContaining('DeactivateTenantUser'),
-          expect.any(Object),
-        );
+        expect(mockDeactivateTenantUser).toHaveBeenCalledWith('u1');
       });
     });
 

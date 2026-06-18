@@ -50,8 +50,6 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
   onPageChange,
   pageSize,
 }) => {
-  if (!isOpen) return null;
-
   // Parse schema and table name from "schema.table" format
   const parts = tableName.split('.');
   const schemaName = parts.length > 1 ? parts[0] : 'public';
@@ -72,6 +70,8 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
   const totalPages = data ? Math.ceil(data.totalRows / pageSize) : 1;
   const hasNextPage = data ? data.offset + pageSize < data.totalRows : false;
   const hasPrevPage = data ? data.offset > 0 : false;
+
+  if (!isOpen) return null;
 
   const handlePrevPage = () => {
     if (data && hasPrevPage) {

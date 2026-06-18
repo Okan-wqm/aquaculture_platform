@@ -285,7 +285,8 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(({
             aria-label={`Select all permissions in ${category.name}`}
             onClick={(e) => {
               e.stopPropagation();
-              !disabled && !readOnly && onSelectAllCategory(!allResourcesSelected);
+              if (disabled || readOnly) return;
+              onSelectAllCategory(!allResourcesSelected);
             }}
             className={`
               flex items-center justify-center w-5 h-5 rounded border transition-all

@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `ea31fb2084260c2cc91ad8d57c0c5664159a73abd32e94a9eb4428f6130fcef6`
+Registry tip: `cec19da1833a8f4104746ec851f6088058464644dbc79bd0b85d4ab77dee1fa4`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -28,7 +28,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-011`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-012`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-009`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-014`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-015`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-017`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-018`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
@@ -130,6 +129,13 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   viewer reads `MessageFields.attachments` from the channel-scoped message SSoT,
   pages older messages until the requested attachment is found, and fail-closes
   legacy attachment-only routes.
+- `INFRA-CRITICAL-014`: registry state is `RESOLVED` with closing commit
+  `07440547`. PR #533 added
+  `tests/invariants/graphql-enum-valuesmap-metadata.spec.ts`, proving NestJS
+  `registerEnumType` `valuesMap` entries stay metadata-only and unsupported
+  `value` overrides cannot re-enter the codebase. PR #534 back-annotated the
+  review anchor and removed the legacy three-store missing-anchor exception, so
+  registry, review evidence, and invariant enforcement now share the same SSoT.
 - `FE-CRITICAL-050`: registry state is `RESOLVED` with closing commit
   `109563f`. The AquaMobil Vitest run above passed the service-worker artifact
   invariant, proving `messaging-sw.ts` is emitted through `injectManifest` with

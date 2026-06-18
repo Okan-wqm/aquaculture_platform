@@ -195,6 +195,9 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(parsed.repository).toBe('Okan-wqm/aquaculture_platform');
     expect(parsed.branch).toBe('main');
     expect(parsed.finding_ids).toContain('EDGE-CRITICAL-001');
+    expect(isRecord(parsed.branch_protection)).toBe(true);
+    if (!isRecord(parsed.branch_protection)) return;
+    expect(parsed.branch_protection.enforce_admins).toBe(true);
     expect(isRecord(parsed.required_status_checks)).toBe(true);
     if (!isRecord(parsed.required_status_checks)) return;
     expect(parsed.required_status_checks.strict).toBe(true);

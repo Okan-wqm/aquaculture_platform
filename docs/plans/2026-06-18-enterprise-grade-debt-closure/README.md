@@ -40,7 +40,8 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
 - Required status checks for `main` are not prose. The SSOT is
   `.github/manifests/main-required-status-checks.json`; static drift fails
   `npm run gates:required-status-checks`, and external GitHub state must pass
-  `npm run gates:required-status-checks:live` before EDGE closure.
+  `npm run gates:required-status-checks:live` before EDGE closure, including
+  administrator enforcement.
 - Edge/Rust work is a parallel ray, but its stop-the-line gates start early:
   SENS required checks, RustSec, ADR-034 parity, and edge truth matrix are not
   final packaging tasks.
@@ -181,5 +182,5 @@ These are not optional work items. They block normal domain execution:
   before messaging/mobile closure.
 - Edge required-check evidence must exist before edge closure claims. As of
   2026-06-18, `npm run gates:required-status-checks:live` passes and proves
-  `main` requires `sens-enterprise-summary` and `merge-gate` with strict status
-  checks.
+  `main` enforces administrators and requires `sens-enterprise-summary` and
+  `merge-gate` with strict status checks.

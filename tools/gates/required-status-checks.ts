@@ -10,6 +10,9 @@ interface RequiredStatusChecksManifest {
   repository: string;
   branch: string;
   finding_ids: string[];
+  branch_protection: {
+    enforce_admins: boolean;
+  };
   required_status_checks: {
     strict: boolean;
     contexts: string[];
@@ -38,6 +41,13 @@ interface GithubRequiredStatusChecksResponse {
 
 interface GithubRequiredStatusCheck {
   context: string;
+}
+
+interface GithubBranchProtectionResponse {
+  required_status_checks: GithubRequiredStatusChecksResponse;
+  enforce_admins: {
+    enabled: boolean;
+  };
 }
 
 const MANIFEST_PATH = '.github/manifests/main-required-status-checks.json';
@@ -110,12 +120,21 @@ function parseManifest(raw: unknown): RequiredStatusChecksManifest {
   if (!isRecord(raw.required_status_checks)) {
     throw new Error('required_status_checks must be a JSON object');
   }
+  if (!isRecord(raw.branch_protection)) {
+    throw new Error('branch_protection must be a JSON object');
+  }
 
   return {
     schema_version: requireNumber(raw.schema_version, 'schema_version'),
     repository: requireString(raw.repository, 'repository'),
     branch: requireString(raw.branch, 'branch'),
     finding_ids: requireStringArray(raw.finding_ids, 'finding_ids'),
+    branch_protection: {
+      enforce_admins: requireBoolean(
+        raw.branch_protection.enforce_admins,
+        'branch_protection.enforce_admins',
+      ),
+    },
     required_status_checks: {
       strict: requireBoolean(raw.required_status_checks.strict, 'required_status_checks.strict'),
       contexts: requireStringArray(
@@ -155,8 +174,23 @@ function includesNeed(jobBlock: string, dependency: string): boolean {
   return jobBlock.includes(`- ${dependency}`) || jobBlock.includes(`[${dependency}]`);
 }
 
+function sortedUnique(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function missingValues(expected: string[], actual: string[]): string[] {
+  const actualSet = new Set(actual);
+  return expected.filter((value) => !actualSet.has(value));
+}
+
+function unexpectedValues(expected: string[], actual: string[]): string[] {
+  const expectedSet = new Set(expected);
+  return actual.filter((value) => !expectedSet.has(value));
+}
+
 function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
   const errors: string[] = [];
+  const requiredContexts = ['sens-enterprise-summary', 'merge-gate'];
 
   if (manifest.schema_version !== 1) {
     errors.push(`schema_version must be 1, got ${manifest.schema_version}`);
@@ -167,10 +201,18 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
   if (!manifest.required_status_checks.strict) {
     errors.push('main required status checks must use strict mode');
   }
-  for (const requiredContext of ['sens-enterprise-summary', 'merge-gate']) {
-    if (!manifest.required_status_checks.contexts.includes(requiredContext)) {
-      errors.push(`required_status_checks.contexts missing ${requiredContext}`);
-    }
+  if (!manifest.branch_protection.enforce_admins) {
+    errors.push('main branch protection must enforce administrators');
+  }
+  const manifestContexts = sortedUnique(manifest.required_status_checks.contexts);
+  if (manifestContexts.length !== manifest.required_status_checks.contexts.length) {
+    errors.push('required_status_checks.contexts must not contain duplicate entries');
+  }
+  for (const requiredContext of missingValues(requiredContexts, manifestContexts)) {
+    errors.push(`required_status_checks.contexts missing ${requiredContext}`);
+  }
+  for (const unexpectedContext of unexpectedValues(requiredContexts, manifestContexts)) {
+    errors.push(`required_status_checks.contexts contains unmanaged context ${unexpectedContext}`);
   }
 
   const ciAffectedPath = '.github/workflows/ci-affected.yml';
@@ -220,22 +262,43 @@ function checkStaticContract(manifest: RequiredStatusChecksManifest): string[] {
   return errors;
 }
 
-function parseGithubResponse(raw: string): GithubRequiredStatusChecksResponse {
-  const parsed: unknown = JSON.parse(raw);
-  if (!isRecord(parsed)) {
-    throw new Error('GitHub required status checks response must be an object');
+function parseGithubRequiredStatusChecksResponse(
+  value: unknown,
+  field: string,
+): GithubRequiredStatusChecksResponse {
+  if (!isRecord(value)) {
+    throw new Error(`${field} must be an object`);
   }
   return {
-    strict: requireBoolean(parsed.strict, 'github.strict'),
-    contexts: requireStringArray(parsed.contexts, 'github.contexts'),
-    checks: requireRecordArray(parsed.checks, 'github.checks').map((check, index) => ({
-      context: requireString(check.context, `github.checks[${index}].context`),
+    strict: requireBoolean(value.strict, `${field}.strict`),
+    contexts: requireStringArray(value.contexts, `${field}.contexts`),
+    checks: requireRecordArray(value.checks, `${field}.checks`).map((check, index) => ({
+      context: requireString(check.context, `${field}.checks[${index}].context`),
     })),
   };
 }
 
+function parseGithubBranchProtectionResponse(raw: string): GithubBranchProtectionResponse {
+  const parsed: unknown = JSON.parse(raw);
+  if (!isRecord(parsed)) {
+    throw new Error('GitHub branch protection response must be an object');
+  }
+  if (!isRecord(parsed.enforce_admins)) {
+    throw new Error('github.enforce_admins must be an object');
+  }
+  return {
+    required_status_checks: parseGithubRequiredStatusChecksResponse(
+      parsed.required_status_checks,
+      'github.required_status_checks',
+    ),
+    enforce_admins: {
+      enabled: requireBoolean(parsed.enforce_admins.enabled, 'github.enforce_admins.enabled'),
+    },
+  };
+}
+
 function checkLiveContract(manifest: RequiredStatusChecksManifest): string[] {
-  const endpoint = `repos/${manifest.repository}/branches/${manifest.branch}/protection/required_status_checks`;
+  const endpoint = `repos/${manifest.repository}/branches/${manifest.branch}/protection`;
   const result = spawnSync('gh', ['api', endpoint], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
@@ -252,22 +315,36 @@ function checkLiveContract(manifest: RequiredStatusChecksManifest): string[] {
     return [`branch protection lookup failed: ${stderr || 'gh api exited non-zero'}`];
   }
 
-  const response = parseGithubResponse(result.stdout);
+  let response: GithubBranchProtectionResponse;
+  try {
+    response = parseGithubBranchProtectionResponse(result.stdout);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return [`branch protection response parse failed: ${message}`];
+  }
+
   const errors: string[] = [];
-  if (response.strict !== manifest.required_status_checks.strict) {
+  if (response.enforce_admins.enabled !== manifest.branch_protection.enforce_admins) {
     errors.push(
-      `GitHub strict=${response.strict}, manifest strict=${manifest.required_status_checks.strict}`,
+      `GitHub enforce_admins.enabled=${response.enforce_admins.enabled}, manifest enforce_admins=${manifest.branch_protection.enforce_admins}`,
+    );
+  }
+  if (response.required_status_checks.strict !== manifest.required_status_checks.strict) {
+    errors.push(
+      `GitHub strict=${response.required_status_checks.strict}, manifest strict=${manifest.required_status_checks.strict}`,
     );
   }
 
-  const liveContexts = new Set<string>([
-    ...response.contexts,
-    ...response.checks.map((check) => check.context),
+  const expectedContexts = sortedUnique(manifest.required_status_checks.contexts);
+  const liveContexts = sortedUnique([
+    ...response.required_status_checks.contexts,
+    ...response.required_status_checks.checks.map((check) => check.context),
   ]);
-  for (const requiredContext of manifest.required_status_checks.contexts) {
-    if (!liveContexts.has(requiredContext)) {
-      errors.push(`GitHub required status checks missing ${requiredContext}`);
-    }
+  for (const missingContext of missingValues(expectedContexts, liveContexts)) {
+    errors.push(`GitHub required status checks missing ${missingContext}`);
+  }
+  for (const unmanagedContext of unexpectedValues(expectedContexts, liveContexts)) {
+    errors.push(`GitHub required status checks contains unmanaged context ${unmanagedContext}`);
   }
   return errors;
 }

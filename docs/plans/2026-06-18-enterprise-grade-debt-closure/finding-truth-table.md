@@ -95,5 +95,6 @@ libs/backend-common/src/utils/__tests__/service-identity.util.spec.ts
   `.github/manifests/main-required-status-checks.json`; static enforcement
   passes through `npm run gates:required-status-checks`. On 2026-06-18, GitHub
   branch protection for `main` was updated from absent to strict required status
-  checks, and `npm run gates:required-status-checks:live` passed, proving
+  checks with administrator enforcement, and
+  `npm run gates:required-status-checks:live` passed, proving
   `sens-enterprise-summary` and `merge-gate` are required.

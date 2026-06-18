@@ -283,7 +283,7 @@
     {
       "id": "required-status-checks-live",
       "command": "npm run gates:required-status-checks:live",
-      "expected": "exit 0; 2026-06-18 observation is strict main branch protection requiring sens-enterprise-summary and merge-gate"
+      "expected": "exit 0; 2026-06-18 observation is strict main branch protection with administrator enforcement requiring sens-enterprise-summary and merge-gate"
     },
     {
       "id": "affected-test",

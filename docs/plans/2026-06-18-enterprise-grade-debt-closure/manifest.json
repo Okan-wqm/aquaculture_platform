@@ -4,17 +4,14 @@
   "base_commit": "2de67e4a5a6ffdcf675be0fcd4322854fcecd62f",
   "truth_table_path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/finding-truth-table.md",
   "required_status_checks_manifest": ".github/manifests/main-required-status-checks.json",
-  "registry_tip_hash": "a6a91280560ecb68b6982a6a4e45a2b2e21fb6365d3e17ff8a69286c67828055",
+  "registry_tip_hash": "f843e5cea20b47f4f6fcb564f406427b06286aea8e6fc4a036a3e223ab440740",
   "registry_entries": 459,
-  "open_findings_count": 182,
+  "open_findings_count": 178,
   "in_progress_findings_count": 51,
-  "active_critical_count": 40,
+  "active_critical_count": 36,
   "worktree_dirty_at_creation": true,
   "active_critical_ids": [
     "COMPLIANCE-CRITICAL-001",
-    "CLAUDE-CRITICAL-004",
-    "CLAUDE-CRITICAL-005",
-    "CLAUDE-CRITICAL-006",
     "INFRA-CRITICAL-001",
     "INFRA-CRITICAL-006",
     "INFRA-CRITICAL-007",
@@ -40,7 +37,6 @@
     "INFRA-CRITICAL-030",
     "INFRA-CRITICAL-031",
     "INFRA-CRITICAL-032",
-    "ORPHAN-CRITICAL-094",
     "MSG-CRITICAL-050",
     "MSG-CRITICAL-051",
     "MSG-CRITICAL-052",
@@ -164,7 +160,6 @@
       "title": "Security/performance foundation gates",
       "owner_agents": ["auth-security-expert", "security-reviewer", "performance-expert"],
       "finding_scope": [
-        "ORPHAN-CRITICAL-094",
         "INFRA-HIGH-006",
         "INFRA-HIGH-007",
         "ORPHAN-HIGH-095",
@@ -321,11 +316,6 @@
       "pattern": "INFRA-CRITICAL-*",
       "owner_agent": "data-expert",
       "first_sprint": "1.1"
-    },
-    {
-      "pattern": "ORPHAN-CRITICAL-094",
-      "owner_agent": "auth-security-expert",
-      "first_sprint": "1.2"
     },
     {
       "pattern": "COMPLIANCE-CRITICAL-001",

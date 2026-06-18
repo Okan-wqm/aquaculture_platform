@@ -108,6 +108,7 @@ export default {
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',
         '<rootDir>/no-direct-getrepository-call.spec.ts',
         '<rootDir>/no-root-barrel-import.spec.ts',
+        '<rootDir>/graphql-enum-valuesmap-metadata.spec.ts',
         '<rootDir>/web-shared-ui-singleton-imports.spec.ts',
         '<rootDir>/federation-shared-singleton.spec.ts',
         '<rootDir>/restore-mutation-tenant-admin.spec.ts',

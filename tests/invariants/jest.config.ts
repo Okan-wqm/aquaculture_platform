@@ -175,6 +175,7 @@ export default {
         '<rootDir>/monitoring-scrape-catalog-sync.spec.ts',
         '<rootDir>/monitoring-alert-runbook-url.spec.ts',
         '<rootDir>/postgres-ddl-contract.spec.ts',
+        '<rootDir>/postgres-image-uniformity.spec.ts',
         '<rootDir>/service-criticality-profile-contract.spec.ts',
         '<rootDir>/edge-v2-plan-contract.spec.ts',
         '<rootDir>/platform-service-catalog-parity.spec.ts',

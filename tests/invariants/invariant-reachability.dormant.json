@@ -149,11 +149,6 @@
     "owner": "platform-invariants",
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
   },
-  "postgres-image-uniformity.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
   "required-signals-vs-emitters.spec.ts": {
     "expires_on": "2026-06-30",
     "owner": "platform-invariants",

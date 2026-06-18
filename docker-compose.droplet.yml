@@ -172,7 +172,7 @@ services:
     # INFRA-CRITICAL-010: switched 2026-04-19 from timescale/timescaledb:2.25.1-pg16
     # (no pgvector) to timescale/timescaledb-ha:pg16 (TimescaleDB + pgvector + Toolkit).
     # Required for messaging-service AI tables migration that creates HNSW index using
-    # vector_cosine_ops (apps/messaging-service/src/migrations/1711800000001-CreateAITables.ts:178).
+    # vector_cosine_ops (apps/messaging-service/src/migrations/1800700000000-AddMessagesEmbeddingColumn.ts:38).
     # Single source of truth — same digest across CI workflows + every compose file.
     # Operator action: docker compose pull && docker compose up -d after this lands.
     image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7

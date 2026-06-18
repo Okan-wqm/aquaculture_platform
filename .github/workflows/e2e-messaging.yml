@@ -136,7 +136,7 @@ jobs:
             CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
             CREATE EXTENSION IF NOT EXISTS "pgcrypto";
             -- INFRA-CRITICAL-010: pre-enable pgvector explicitly so the migration
-            -- 1711800000001-CreateAITables can find vector_cosine_ops at HNSW
+            -- 1800700000000-AddMessagesEmbeddingColumn can find vector_cosine_ops at HNSW
             -- index creation time. The HA edition ships pgvector preinstalled,
             -- but CREATE EXTENSION must run once to register it in the database.
             CREATE EXTENSION IF NOT EXISTS "vector";

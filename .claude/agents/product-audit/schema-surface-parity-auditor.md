@@ -33,7 +33,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/schema-surface-parity-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/schema-surface-parity-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/schema-surface-parity-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/schema-surface-parity-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must prove a parity gap with exact paths on both sides of the missing edge. Do not report "unused column" or "extra field" noise unless it changes product behavior, operator visibility, auditability, or roundtrip completeness. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -77,7 +77,7 @@ Repo evidence driving this agent:
 - Send chart/widget surfacing gaps to `chart-widget-auditor`
 - Send wrong-role or wrong-tenant visibility to `access-boundary-auditor` or `tenant-isolation-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-SCHEMA-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

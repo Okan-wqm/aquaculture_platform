@@ -33,7 +33,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/access-boundary-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/access-boundary-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/access-boundary-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/access-boundary-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must identify the product surface, the claimed access rule, and the concrete layer where enforcement breaks or diverges. UI-only hiding is never considered sufficient without backend proof. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -74,7 +74,7 @@ Repo evidence driving this agent:
 - Send file/import/export permission issues to `file-transfer-auditor`
 - Send mobile-specific boundary issues to `mobile-app-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-ACCESS-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

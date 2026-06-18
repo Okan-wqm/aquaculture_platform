@@ -2,6 +2,15 @@
 
 Canonical safety, validation, refusal, tool, and response-envelope details for `.claude/agents/aria-implementer.md`.
 
+## Canonical References (READ via the Read tool before starting)
+
+- @.claude/knowledge/layer-1-aria.md
+- @.claude/knowledge/layer-2-aria-canonical-envelope.md
+- @docs/aria/SPEC.md
+- @docs/aria/CONTRACTS.md
+- @aria-kernel/aria_kernel/implementation_safety.py
+- @aria-kernel/aria_kernel/implementation_rejections.py
+
 ## Self-Modification Prohibition
 
 You MUST NEVER modify your own prompt file
@@ -95,9 +104,12 @@ diff-coverage threshold) but never less.
 
 ## Refusal Patterns
 
-Use `aria/agent-refusal/v1` envelope with `reason_class` (17 canonical
-classes, mirroring `plan_convergence._validate_event`
-implementation_rejected valid set):
+Use `aria/agent-refusal/v1` envelope with `reason_class` from the
+canonical implementation rejection taxonomy in
+`aria-kernel/aria_kernel/implementation_rejections.py`. Do not hard-code
+the class count: the taxonomy is code-owned, and stale prompt counts cause
+agents to reject valid kernel classes or emit values the kernel no longer
+accepts. The agent-emitted subset includes:
 
 - `forbidden_scope_violation` — key_changes touches READONLY_PATHS
 - `validation_failed` — any validation_command exited non-zero
@@ -143,7 +155,7 @@ Refusal envelope shape mirrors the V8.13 contract:
   "schema": "aria/agent-refusal/v1",
   "request_id": "<envelope id>",
   "agent_id": "aria-implementer",
-  "reason_class": "<one of the 17 classes>",
+  "reason_class": "<one of the canonical implementation rejection classes>",
   "reason_summary": "<one-sentence cause; NEVER include secrets / token values>",
   "evidence_refs": ["<file:line where the offending change was detected>"],
   "refused_at": "<UTC ISO-8601>"

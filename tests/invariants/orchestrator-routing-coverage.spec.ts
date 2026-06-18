@@ -26,9 +26,9 @@
  *      table — no agent is routed-to but absent from the roster, and vice
  *      versa.
  *
- *   3. Legacy/archived directories (.claude/agents.legacy/**) are NOT in
- *      the dispatch path — routing table should explicitly mark them
- *      ARCHIVED.
+ *   3. Retired prompt directories are NOT in the dispatch path. They should
+ *      be absent rather than archived because stale prompt copies recreate
+ *      duplicate names and obsolete ownership/output contracts.
  *
  * # When this spec fails
  *
@@ -40,8 +40,8 @@
  *     roster → either add the agent to the roster or use a registered
  *     agent name.
  *
- *   - Routing table still references a legacy path (.claude/agents/*.md
- *     without .legacy suffix) → update to reflect archival (Phase 0.1).
+ *   - Routing table still references a retired prompt directory → delete
+ *     the route and migrate any still-needed guidance into the active owner.
  *
  * # References
  *
@@ -147,7 +147,6 @@ const REQUIRED_SURFACES: readonly string[] = [
   '.claude/knowledge',
   '.claude/allowlists',
   '.claude/skills',
-  '.claude/agents.legacy', // archived
   // tools/
   'tools/gates',
   // meta
@@ -289,19 +288,17 @@ describe('orchestrator routing coverage invariant', () => {
     expect(suspicious).toEqual([]);
   });
 
-  it('old directories (agents-enterprise-v2, test-agents) are NOT referenced as active in routing', () => {
+  it('retired prompt directories are NOT referenced as active in routing', () => {
     // After the 2026-04-18 flat-layout restructure, agents live at .claude/agents/
     // (Lane-A root) + .claude/agents/product-audit/ (Lane-B). Any routing glob
-    // pointing to .claude/agents-enterprise-v2/ or .claude/test-agents/ is drift
-    // from a pre-restructure era and must not reappear.
+    // pointing to a retired prompt directory is drift from a pre-restructure
+    // era and must not reappear.
     const oldEnterpriseGlob = /\|\s*`\.claude\/agents-enterprise-v2\/[^`]*`/.test(family);
     const oldTestAgentsGlob = /\|\s*`\.claude\/test-agents\/[^`]*`/.test(family);
+    const oldLegacyGlob = /\|\s*`\.claude\/agents\.legacy\/[^`]*`/.test(family);
     expect(oldEnterpriseGlob).toBe(false);
     expect(oldTestAgentsGlob).toBe(false);
-  });
-
-  it('legacy directory IS marked as archived in routing', () => {
-    expect(family).toMatch(/\.claude\/agents\.legacy/);
+    expect(oldLegacyGlob).toBe(false);
   });
 
   /**

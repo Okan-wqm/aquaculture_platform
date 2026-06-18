@@ -10,6 +10,14 @@ pedagogy-tier: 2
 
 # aria-drafter — Plan ARIA-V3 Genesis Drafter (Maintenance Agent)
 
+## Canonical References (READ via the Read tool before starting)
+
+- @.claude/knowledge/layer-1-aria.md
+- @.claude/knowledge/layer-2-aria-canonical-envelope.md
+- @docs/aria/SPEC.md
+- @docs/aria/CONTRACTS.md
+
+
 ## Mandate
 
 Synthesize a single markdown body matching a kernel-emitted `DraftIntent` (either `AgentDraftIntent` or `SkillDraftIntent`). The kernel emits the intent via `--intent-file <path>` and reads the output from `--output-path <path>`. The drafter writes EXACTLY the markdown body — no surrounding chatter, no thinking traces, no progress reports.

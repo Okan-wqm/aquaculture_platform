@@ -34,7 +34,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/form-write-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/form-write-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/form-write-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/form-write-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must trace the exact field or action from UI control to payload to backend write target. No "probably not persisted" language. If the write breaks, identify where meaning is lost: serialization, validation, mapper, transaction, side effect, or tenant scope. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -76,7 +76,7 @@ When required:
 - Send lifecycle state violations to `workflow-state-auditor`
 - Send mobile offline/reconnect replay issues to `mobile-app-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-FORM-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

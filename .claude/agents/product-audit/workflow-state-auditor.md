@@ -34,7 +34,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/workflow-state-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/workflow-state-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/workflow-state-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/workflow-state-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must show the claimed workflow state, the permitted transition set, and the concrete place where enforcement is missing or contradictory. UI-only state claims are insufficient without backend confirmation. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -75,7 +75,7 @@ When needed:
 - Send stale post-transition list/detail behavior to `list-visibility-auditor`
 - Send mobile resume/reconnect state issues to `mobile-app-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-WORKFLOW-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

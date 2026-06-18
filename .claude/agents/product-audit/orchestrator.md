@@ -106,7 +106,7 @@ Phase 1 surface mapping + glob-based auditor routing lives in `.claude/shared/pr
 
 ## Finding ID format
 
-**MANDATORY:** Every orchestrator-owned finding carries a unique ID in format `PRODUCT-{SEVERITY}-{NNN}` so cross-lane compaction (Phase 3.5 in Lane-A `.claude/shared/orchestrator-phases.md`) can distinguish Lane-A findings (per-agent prefix: `FARM-*`, `DATA-*`, `SEC-*`, etc.) from Lane-B findings. Inherited findings preserve their original Lane-B specialist prefix + ID.
+**MANDATORY:** Every orchestrator-owned finding carries a unique ID in format `PRODUCT-ORCH-{SEVERITY}-{NNN}` so cross-lane compaction (Phase 3.5 in Lane-A `.claude/shared/orchestrator-phases.md`) can distinguish Lane-A findings (per-agent prefix: `FARM-*`, `DATA-*`, `SEC-*`, etc.) from Lane-B findings. Inherited findings preserve their original Lane-B specialist prefix + ID.
 
 ## Review Checklist
 

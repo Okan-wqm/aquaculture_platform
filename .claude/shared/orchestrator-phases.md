@@ -13,7 +13,7 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 Phase 2 dispatches agents on **two parallel lanes** (Phase 13 of the post-audit consolidation plan):
 
 - **Lane-A (code quality)** — the enterprise-v2 roster listed in `orchestrator.md` § Runtime Review Roster. Domain experts + cross-cutting reviewers (security-reviewer, performance-expert, compliance-expert, data-expert, etc.). These agents read source code + event contracts + migrations + infra; their finding prefix is `{AGENT}-{SEVERITY}-{NNN}` per the agent's own output-format contract.
-- **Lane-B (product quality)** — the `.claude/agents/product-audit/` roster listed in `.claude/agents/product-audit/README.md` § Runtime Roster. <!-- cardinality:lane-b-specialists -->19<!-- /cardinality --> UI/product specialists (ui-action-mapper, button-action-auditor, form-write-auditor, table-grid-auditor, chart-widget-auditor, file-transfer-auditor, realtime-sync-auditor, workflow-state-auditor, list-visibility-auditor, data-readback-auditor, access-boundary-auditor, tenant-isolation-auditor, mobile-app-auditor, webhook-ingress-auditor, job-queue-auditor, billing-reconciliation-auditor, edge-industrial-auditor, accessibility-auditor, schema-surface-parity-auditor) + 3 meta-agents (product-audit-orchestrator, product-audit-context-manager, product-audit-arbiter). Finding prefix is `PRODUCT-{SEVERITY}-{NNN}` so cross-lane compaction can join on finding-file path but separate by prefix.
+- **Lane-B (product quality)** — the `.claude/agents/product-audit/` roster listed in `.claude/agents/product-audit/README.md` § Runtime Roster. <!-- cardinality:lane-b-specialists -->19<!-- /cardinality --> UI/product specialists (ui-action-mapper, button-action-auditor, form-write-auditor, table-grid-auditor, chart-widget-auditor, file-transfer-auditor, realtime-sync-auditor, workflow-state-auditor, list-visibility-auditor, data-readback-auditor, access-boundary-auditor, tenant-isolation-auditor, mobile-app-auditor, webhook-ingress-auditor, job-queue-auditor, billing-reconciliation-auditor, edge-industrial-auditor, accessibility-auditor, schema-surface-parity-auditor) + 3 meta-agents (product-audit-orchestrator, product-audit-context-manager, product-audit-arbiter). Finding prefix is `PRODUCT-{AGENT-PREFIX}-{SEVERITY}-{NNN}` (for example `PRODUCT-FORM-HIGH-001`) so cross-lane compaction can join on finding-file path while preserving which product auditor produced the signal.
 
 Both lanes dispatch **in parallel** — every selected agent across both lanes runs concurrently unless an explicit dependency (e.g., contract-parity-enforcer consumes data-expert output) forces sequencing.
 
@@ -58,13 +58,13 @@ Lane-A (code quality):
 
 Lane-B (product quality):
   Agent(form-write-auditor): "Audit the create-batch form in web/modules/farm-module/src/create-batch-form.tsx.
-  Verify the new 'priority' field reaches the backend, persists, and survives round-trip. Prefix findings PRODUCT-*."
+  Verify the new 'priority' field reaches the backend, persists, and survives round-trip. Prefix findings PRODUCT-FORM-*."
 
   Agent(data-readback-auditor): "Verify 'priority' is read back on batch detail + batch list views in
-  web/modules/farm-module/**. Detect read-gap vs write-gap classification. Prefix findings PRODUCT-*."
+  web/modules/farm-module/**. Detect read-gap vs write-gap classification. Prefix findings PRODUCT-READBACK-*."
 
   Agent(list-visibility-auditor): "Verify batch list + dashboard widgets correctly reflect the new 'priority'
-  column after a create/edit. Prefix findings PRODUCT-*."
+  column after a create/edit. Prefix findings PRODUCT-LIST-*."
 ```
 
 **Run agents on both lanes in parallel — never sequentially unless one agent's output is needed as input for another.**
@@ -96,9 +96,9 @@ Actions:
 
 When a code-quality finding (Lane-A) and a product-quality finding (Lane-B) reference the same file / component / user flow, `context-manager` MUST merge them into a single root-cause entry rather than reporting them as two independent findings. Example merges:
 
-- `form-write-auditor` `PRODUCT-HIGH-002` ("create-batch form submits but priority field never persists") + `data-expert` `DATA-HIGH-007` ("batch entity missing priority column after migration") → **SAME root cause** (missing column). Consolidated finding carries both IDs in its `origin_findings:` list and inherits the higher-severity classification (HIGH).
-- `data-readback-auditor` `PRODUCT-MEDIUM-004` ("stale batch list after tenant switch") + `frontend-expert` `FE-CRITICAL-001` ("bare `queryKey` array produces cross-tenant cache leak") → SAME root cause. Consolidated severity: CRITICAL (the write-surface leak dominates the read-surface lag).
-- `workflow-state-auditor` `PRODUCT-HIGH-003` ("user can re-submit archived batch from detail page") + `farm-expert` `FARM-HIGH-005` ("create-batch handler lacks idempotency guard") → SAME root cause. Consolidated finding dispatches the fix to Lane-A agent (farm-expert), with Lane-B as the verification owner.
+- `form-write-auditor` `PRODUCT-FORM-HIGH-002` ("create-batch form submits but priority field never persists") + `data-expert` `DATA-HIGH-007` ("batch entity missing priority column after migration") → **SAME root cause** (missing column). Consolidated finding carries both IDs in its `origin_findings:` list and inherits the higher-severity classification (HIGH).
+- `data-readback-auditor` `PRODUCT-READBACK-MEDIUM-004` ("stale batch list after tenant switch") + `frontend-expert` `FE-CRITICAL-001` ("bare `queryKey` array produces cross-tenant cache leak") → SAME root cause. Consolidated severity: CRITICAL (the write-surface leak dominates the read-surface lag).
+- `workflow-state-auditor` `PRODUCT-WORKFLOW-HIGH-003` ("user can re-submit archived batch from detail page") + `farm-expert` `FARM-HIGH-005` ("create-batch handler lacks idempotency guard") → SAME root cause. Consolidated finding dispatches the fix to Lane-A agent (farm-expert), with Lane-B as the verification owner.
 
 The consolidated finding:
 - Preserves BOTH original IDs in `origin_findings: [LANE-A-ID, LANE-B-ID]`.

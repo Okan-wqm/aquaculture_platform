@@ -96,8 +96,8 @@ export const NON_AGENT_FILES = ['README.md', 'INVOCATION-PACK.md'] as const;
 /**
  * Active agent dispatch directories — Claude Code CLI auto-discovers
  * `.claude/agents/**\/*.md` and keys on `name:` frontmatter. Lane-A at root,
- * Lane-B under product-audit/. agents.legacy/** is explicitly EXEMPT
- * (dormant per its README; would duplicate active names).
+ * Lane-B under product-audit/. Retired prompt directories are deleted rather
+ * than archived because stale copies duplicate names and output contracts.
  */
 export const ACTIVE_AGENT_DIRS = [
   '.claude/agents',
@@ -132,6 +132,7 @@ export const ACTIVE_HYGIENE_ROOT_FILES = [
 export const DEAD_TERMINOLOGY_TOKENS = [
   'test-agents',
   'agents-enterprise-v2',
+  'agents.legacy',
   'npx claude-agent',
   'tools/scripts/orchestrator-runner',
 ] as const;

@@ -1,4 +1,4 @@
-# Test Agents
+# Product Audit Agents
 
 This folder contains a dedicated agent set for end-to-end product audits that follow a user action across:
 
@@ -21,7 +21,7 @@ This set intentionally follows the enterprise-v2 prompt methodology in `.claude/
 - prior-work awareness
 - no workaround recommendations
 - no "fix later" posture
-- report traceability with `{severity}-{NNN}` IDs
+- report traceability with `PRODUCT-{AGENT-PREFIX}-{SEVERITY}-{NNN}` IDs
 - deterministic routing where practical
 - meta-review compaction and conflict resolution
 
@@ -101,10 +101,9 @@ Specialists:
 - `webhook-ingress-auditor`
 - `workflow-state-auditor`
 
-Deprecated and retired to `.claude/agents.legacy/product-audit/` (no dispatch):
-`contract-parity-auditor` → Lane-A `contract-parity-enforcer`;
-`gdpr-compliance-auditor` + `soc2-readiness-auditor` → Lane-A `compliance-expert`;
-`ai-tool-execution-auditor` → Lane-A `ai-safety-auditor`.
+Retired source prompts are removed after their still-needed guidance is migrated into the active owner. Keeping duplicate retired copies would reintroduce stale finding prefixes, stale output paths, and ambiguous dispatch.
+
+Past promotion targets: contract parity guidance now belongs to Lane-A `contract-parity-enforcer`; GDPR/SOC2 guidance belongs to Lane-A `compliance-expert`; AI tool-execution guidance belongs to Lane-A `ai-safety-auditor`.
 
 ## Runtime Discipline
 
@@ -118,9 +117,10 @@ Deprecated and retired to `.claude/agents.legacy/product-audit/` (no dispatch):
 Recommended output locations:
 
 - Per-agent reviews: `docs/product-audits/{agent}/{YYYY-MM-DD}-{topic}.md`
-- Unified report: `docs/product-audits/orchestrator/{YYYY-MM-DD}-{topic}.md`
+- Unified reviews: `docs/product-audits/product-audit-orchestrator/{YYYY-MM-DD}-{topic}.md`
+- Unified recommendations: `docs/recommendations/product-audits/product-audit-orchestrator/{YYYY-MM-DD}-{topic}.md`
 
-All reviewer agents should assign finding IDs in format `{severity}-{NNN}`.
+All reviewer agents should assign finding IDs in format `PRODUCT-{AGENT-PREFIX}-{SEVERITY}-{NNN}`.
 
 ## Integration with the enterprise-v2 orchestrator (Phase 13)
 
@@ -130,14 +130,14 @@ Since Phase 13 of the post-audit consolidation plan (2026-04-17), this set is di
 - Lane-B (product quality) = this roster.
 - Both lanes fire in parallel from the same orchestrator cycle; Phase 3.5 cross-lane compaction merges findings that reference the same root cause.
 
-Finding prefix in Lane-B is `PRODUCT-{SEVERITY}-{NNN}` so cross-lane compaction can distinguish Lane-A findings (prefix per agent: `FARM-*`, `DATA-*`, `FE-*`, `SEC-*`, etc.) from Lane-B findings at a glance. See `.claude/shared/orchestrator-phases.md` § Phase 2 for lane selection rules and § Phase 3.5 for cross-lane consolidation.
+Finding prefix in Lane-B is `PRODUCT-{AGENT-PREFIX}-{SEVERITY}-{NNN}` so cross-lane compaction can distinguish Lane-A findings (prefix per agent: `FARM-*`, `DATA-*`, `FE-*`, `SEC-*`, etc.) from Lane-B findings at a glance. See `.claude/shared/orchestrator-phases.md` § Phase 2 for lane selection rules and § Phase 3.5 for cross-lane consolidation.
 
 Four agents originally in this set were promoted to Lane-A during Phase 9/10 and MUST NOT be re-dispatched from here:
 - `gdpr-compliance-auditor` + `soc2-readiness-auditor` → absorbed into `compliance-expert`.
 - `ai-tool-execution-auditor` → promoted to `ai-safety-auditor`.
 - `contract-parity-auditor` → promoted to `contract-parity-enforcer`.
 
-The file copies remain on disk for backwards compatibility (older review cycles reference them by path) but the active dispatch paths go through the Lane-A promotion targets. New PRs touching those domains should expect the Lane-A agent name in the unified report.
+Retired prompt file copies are not kept on disk; historical review files remain the audit record. New PRs touching those domains should expect the Lane-A agent name in the unified report.
 
 `tenant-isolation-auditor` (Lane-B, product-surface UI leak detection) is distinct from `multi-tenant-saas-expert` (Lane-A, code-surface isolation + RLS + guards). Both dispatch in parallel on cycles touching tenant-scope surfaces; their mandates do not overlap — they cross-compact in Phase 3.5.
 

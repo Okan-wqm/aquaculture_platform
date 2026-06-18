@@ -4,6 +4,7 @@
 .aria-poc/
 .aria-ci/
 artifacts/
+.full-review/
 aria-kernel/aria-tools/
 aria-tools/.archive/
 aria-tools/.backups/
@@ -12,6 +13,7 @@ aria-tools/.backups/
 # under aria-tools/impact-graphs/ are throwaway snapshots).
 aria-tools/impact-graphs/
 .claude/agents/.dispatch-log.jsonl
+.claude/worktrees/
 # Same runtime artifact in nested .claude/ dirs (e.g. web/apps/aquamobil/.claude/);
 # line above is root-anchored, so a `**/`-prefixed pattern is needed to catch nested copies.
 **/.claude/agents/.dispatch-log.jsonl

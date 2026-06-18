@@ -65,7 +65,6 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `**/*.spec.ts`, `**/*.test.ts`, `e2e/**`, `tests/**`, `.github/workflows/*test*`, `.github/workflows/*ci*` | test-runner | |
 | `mcp/**` | mcp-expert | farm-expert, messaging-expert, security-reviewer |
 | `.claude/agents/*.md` | prompt-writer | maintenance-only; outside runtime review roster |
-| `.claude/agents.legacy/**` | prompt-writer | ARCHIVED 2026-04-16; read-only; no dispatch |
 | `apps/alert-engine/**` | alert-engine-expert | sensor-expert, farm-expert, multi-tenant-saas-expert, security-reviewer |
 | `libs/aquaculture-engines/**` | farm-expert | |
 | `libs/farm-shared/**` | farm-expert | |

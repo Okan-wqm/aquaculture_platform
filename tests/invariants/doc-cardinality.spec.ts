@@ -22,8 +22,6 @@
  *
  *   lane-a-agents        — .claude/agents/*.md minus NON_AGENT_FILES
  *   lane-b-active-agents — .claude/agents/product-audit/*.md minus NON_AGENT_FILES
- *   lane-a-legacy        — .claude/agents.legacy/*.md minus NON_AGENT_FILES
- *   lane-b-legacy        — .claude/agents.legacy/product-audit/*.md
  *   total-active         — lane-a-agents + lane-b-active-agents
  *
  * # When this spec fails
@@ -107,8 +105,6 @@ const COUNT_SOURCES: Record<string, () => number> = {
   // only, for prose that distinguishes meta vs specialist.
   'lane-b-specialists': () =>
     countMdFiles('.claude/agents/product-audit') - 3,
-  'lane-a-legacy': () => countMdFiles('.claude/agents.legacy'),
-  'lane-b-legacy': () => countMdFiles('.claude/agents.legacy/product-audit'),
   'total-active': () =>
     countMdFiles('.claude/agents') + countMdFiles('.claude/agents/product-audit'),
 };

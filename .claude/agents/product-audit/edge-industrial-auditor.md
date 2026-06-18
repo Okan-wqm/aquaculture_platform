@@ -32,7 +32,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/edge-industrial-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/edge-industrial-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/edge-industrial-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/edge-industrial-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must name the concrete control surface, command or telemetry path, protocol or queue boundary, and the exact layer where safe or truthful behavior breaks. A UI success state is never proof that a field command completed correctly. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -98,7 +98,7 @@ Out of scope:
 - Send tenant routing, storage, or replay leaks to `tenant-isolation-auditor`
 - Send product read-back mismatches after successful field writes to `data-readback-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-EDGE-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

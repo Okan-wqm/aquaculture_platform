@@ -54,6 +54,7 @@ WRITER mode requires an explicit `implement:` token from a human operator or fro
 **Constraints:**
 - CATCHER review on WRITER output MUST be performed by a different agent instance. No self-review.
 - Pair-review invariant (same as TEACHER) prevents same-agent TEACHER→WRITER self-promotion.
+- WRITER must not silently overwrite another agent's open work. If the change supersedes or breaks another agent's output, coordinate first through handoff, `architectural-arbiter`, or `context-manager` per `handoff-protocol.md`.
 
 ## Cross-mode contamination rules
 

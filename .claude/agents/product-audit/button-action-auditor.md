@@ -32,7 +32,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/button-action-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/button-action-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/button-action-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/button-action-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must show what the user believes the click does, what the code actually does, and where the gap appears. Success-state, disabled-state, and destructive-state bugs must be traced to root cause. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -89,7 +89,7 @@ Focus actions:
 - Send post-click visibility/update issues to `list-visibility-auditor`
 - Send mobile reconnect or offline submit issues to `mobile-app-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-BUTTON-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

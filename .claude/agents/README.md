@@ -1,41 +1,18 @@
-# Enterprise V2 Agent Set
+# Active Agent Dispatch Surface
 
-This folder contains a new candidate agent set built from the existing `.claude/agents/` prompts, the April 10 review findings, and the repo's existing research docs. The legacy agents remain untouched.
+This directory is the active Claude Code prompt-discovery root. Claude Code discovers `.claude/agents/**/*.md` by frontmatter `name:`.
 
-## What Changed
+## Active Lanes
 
-- Routing now has explicit primary ownership for previously uncovered surfaces:
-  - `platform/configs/**`
-  - `platform/libs/cqrs/**`
-  - `platform/libs/event-bus/**`
-  - `libs/backend-common` runtime foundations
-  - `mcp/**`
-  - `infra/**`, `deploy/**`, `.github/actions/**`
-  - `sensorprotocols/**`
-- Two new agents were added:
-  - `platform-kernel-expert.md`
-  - `mcp-expert.md`
-- Reviewer traceability is normalized: agents that were missing the finding-ID contract now require `{severity}-{NNN}` IDs.
-- `prompt-writer.md` is tightened to prefer production-proven rules, explicit ownership, and sibling-folder generation when old agents must stay in place.
+| Lane | Paths | Entry point | Scope |
+|---|---|---|---|
+| Lane-A | `.claude/agents/*.md` except `aria-*.md` | `orchestrator` | Code-quality, architecture, security, domain review |
+| Lane-B | `.claude/agents/product-audit/*.md` | `product-audit-orchestrator` | Product-truth, UI/E2E, tenant-surface audit |
+| Lane-C | `.claude/agents/edge-docs/*.md` | `edge-docs-orchestrator` | `sens-api-gateway/docs/**` documentation production |
+| ARIA | `.claude/agents/aria-*.md`, `.claude/agents/_maintenance/aria-*.md` | ARIA operator/kernel flow | Continuous-mode evidence, planning, judging, and controlled implementation |
 
-## Design Intent
+## Non-Runtime Tools
 
-This set is optimized for enterprise architecture review, not patch-level code advice. The prompt bar is:
+`_maintenance/*.md` agents are loadable by exact name but are not part of normal Lane-A/Lane-B/Lane-C runtime review rosters. They exist for explicit maintenance workflows such as prompt generation, implementation planning, GDPR erasure execution, and ARIA-controlled prompt/draft work.
 
-- no speculative rules
-- no workaround recommendations
-- no "fix later" posture
-- shared-layer defects fixed at the shared layer
-- every meaningful repo surface has a primary owner
-
-Runtime review roster excludes maintenance tooling:
-
-- `prompt-writer` is for agent-definition maintenance
-- `implementation-planner` is for explicit post-review planning only
-- strict orchestrator operation is Phase 1-5 review flow unless a human asks for planning separately
-
-## Activation
-
-**Status (2026-04-16): CANONICAL.** Legacy `.claude/agents/` archived to `.claude/agents.legacy/` as part of Phase 0.1 of `/root/.claude/plans/abstract-brewing-mochi.md`. This directory is now the single-source runtime agent roster. See `.claude/agents.legacy/README.md` for archival rationale and 30-day deletion window.
-
-W3 conversion wave (in-flight) brings remaining legacy-style agents (security-reviewer, orchestrator, implementation-planner, frontend-expert, hr-expert, database-reviewer, context-manager, admin-expert, prompt-writer) under the ≤200-line SSoT-reference template (`.claude/shared/_conversion-template.md`). Phase 1 of the abstract-brewing-mochi plan completes it.
+Retired prompt directories outside `.claude/agents/**` should be deleted after useful guidance is migrated into the active owner. Keeping stale rosters creates duplicate ownership, wrong finding-ID prefixes, and invalid output-path contracts.

@@ -34,7 +34,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/table-grid-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/table-grid-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/table-grid-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/table-grid-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Every finding must identify the exact grid surface and the exact mismatch between rendered rows/columns and real backend state. Table correctness includes operator actions, not just rendering. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -75,7 +75,7 @@ Repo evidence driving this agent:
 - Send tenant leaks in rows or exports to `tenant-isolation-auditor`
 - Send schema/column parity issues to `schema-surface-parity-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-TABLE-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

@@ -169,7 +169,7 @@ Every fix commit must reference the finding it closes, else `docs/reviews/` beco
 
 ## Agent system invocation
 
-- Canonical dispatch: `Agent(subagent_type="<agent-name>")` in a Claude Code CLI session. Claude Code auto-discovers `.claude/agents/**/*.md` (Lane-A at root, Lane-B at `.claude/agents/product-audit/`). No background runner, no API-key dispatch, no external CLI binary.
+- Canonical dispatch: `Agent(subagent_type="<agent-name>")` in a Claude Code CLI session. Claude Code auto-discovers `.claude/agents/**/*.md`. Active lanes are Lane-A root code review (`orchestrator`), Lane-B product audit (`.claude/agents/product-audit/`, `product-audit-orchestrator`), Lane-C edge documentation (`.claude/agents/edge-docs/`, `edge-docs-orchestrator`), and ARIA (`.claude/agents/aria-*.md` plus ARIA maintenance prompts, invoked only by ARIA operator/kernel workflows). Retired prompt folders are deleted after useful guidance is migrated because stale rosters create duplicate ownership, wrong IDs, and invalid output paths. No background runner, no API-key dispatch, no external CLI binary.
 - Lane-B meta-agents use a `product-audit-*` name prefix to stay globally unique (enforced by `tests/invariants/agent-name-uniqueness.spec.ts`).
 - Knowledge SSoT: `.claude/knowledge/layer-{1,2,3}-*.md`. Agent files cite it via `@.claude/knowledge/...` lines — these are READER BOOKMARKS only in agent bodies (Claude Code expands `@` only inside CLAUDE.md). Agents `Read` each cited file at invocation.
 - Shared review contract: `.claude/shared/{operating-modes,tier-claim-syntax,handoff-protocol,output-format}.md` + `orchestrator-{phases,routing-table}.md`. Full map: `.claude/README.md`.

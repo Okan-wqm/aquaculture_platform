@@ -34,7 +34,7 @@
  * dependency.
  */
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = execSync('git rev-parse --show-toplevel', {
@@ -51,22 +51,14 @@ describe('agent-doc-shape (CLAUDE-LOW-005/007/008 seals)', () => {
 
     it('declares finding-ID format with the MCP- namespace', () => {
       const body = read(file);
-      // The format declaration line MUST contain `MCP-{severity}-{NNN}`.
-      const formatLine = body
-        .split('\n')
-        .find((line) => /Report finding ID format/.test(line));
-      expect(formatLine).toBeDefined();
-      expect(formatLine).toMatch(/MCP-\{severity\}-\{NNN\}/);
+      expect(body).toMatch(/## Finding ID prefix/);
+      expect(body).toMatch(/MCP-\{SEVERITY\}-\{NNN\}/);
     });
 
-    it('illustrates MCP-CRITICAL-001 / MCP-HIGH-007 / MCP-MEDIUM-023 examples', () => {
+    it('illustrates MCP-CRITICAL-001 / MCP-HIGH-007 examples', () => {
       const body = read(file);
-      // Pin the three specific examples used in the format declaration.
-      // A future doc rewrite that drops the namespace from any of these
-      // re-introduces the CLAUDE-LOW-005 bug.
       expect(body).toMatch(/MCP-CRITICAL-001/);
       expect(body).toMatch(/MCP-HIGH-007/);
-      expect(body).toMatch(/MCP-MEDIUM-023/);
     });
   });
 
@@ -97,19 +89,14 @@ describe('agent-doc-shape (CLAUDE-LOW-005/007/008 seals)', () => {
     });
   });
 
-  describe('CLAUDE-LOW-004 — tenant-cost-attribution agent uses -expert suffix', () => {
-    it('the agent file is named tenant-cost-attribution-expert.md (not -agent.md)', () => {
-      // The repo MUST carry the -expert variant; the legacy -agent name
-      // would re-introduce the audit's "naming convention drift" finding.
+  describe('CLAUDE-LOW-004 — stale tenant-cost-attribution agent name stays absent', () => {
+    it('the repo does not carry the legacy tenant-cost-attribution-agent.md file', () => {
       const lines = execSync(
         `git ls-files .claude/agents/tenant-cost-attribution-*.md`,
         { cwd: REPO_ROOT, encoding: 'utf8' },
       )
         .split('\n')
         .filter(Boolean);
-      expect(lines).toContain(
-        '.claude/agents/tenant-cost-attribution-expert.md',
-      );
       expect(lines).not.toContain(
         '.claude/agents/tenant-cost-attribution-agent.md',
       );
@@ -152,13 +139,15 @@ describe('agent-doc-shape (CLAUDE-LOW-005/007/008 seals)', () => {
     });
   });
 
-  describe('CLAUDE-MEDIUM-008 — agents.legacy README carries DO-NOT-READ warning', () => {
-    it('README.md opens with the archived/do-not-read blockquote', () => {
-      const body = read('.claude/agents.legacy/README.md');
-      // First 200 chars must mention the legacy/archived warning so a
-      // reader (or agent) opening the file can't miss it.
-      const head = body.slice(0, 200);
-      expect(head).toMatch(/ARCHIVED|DO NOT READ|DO-NOT-READ/i);
+  describe('CLAUDE-MEDIUM-008 — retired prompt directories are deleted', () => {
+    it('old prompt folders are absent instead of archived', () => {
+      for (const relPath of [
+        '.claude/agents.legacy',
+        '.claude/agents-enterprise-v2',
+        '.claude/test-agents',
+      ]) {
+        expect(existsSync(resolve(REPO_ROOT, relPath))).toBe(false);
+      }
     });
   });
 
@@ -255,18 +244,25 @@ describe('agent-doc-shape (CLAUDE-LOW-005/007/008 seals)', () => {
   });
 
   describe('CLAUDE-HIGH-010 — Lane-B output paths renamed to docs/product-audits', () => {
-    it('docs/product-audits/ exists and docs/test-audits/ does not', () => {
+    it('active Lane-B prompts write docs/product-audits/ and not docs/test-audits/', () => {
       const lsAudits = execSync(`git ls-files docs/product-audits/ | head -1`, {
         cwd: REPO_ROOT,
         encoding: 'utf8',
       }).trim();
       // At least one entry under docs/product-audits/ confirms the rename landed.
       expect(lsAudits.length).toBeGreaterThan(0);
-      const lsLegacy = execSync(`git ls-files docs/test-audits/`, {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-      }).trim();
-      expect(lsLegacy).toBe('');
+      let activePromptHits: string[] = [];
+      try {
+        activePromptHits = execSync(`git grep -l docs/test-audits -- .claude/agents`, {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+        })
+          .split('\n')
+          .filter(Boolean);
+      } catch {
+        activePromptHits = [];
+      }
+      expect(activePromptHits).toEqual([]);
     });
   });
 

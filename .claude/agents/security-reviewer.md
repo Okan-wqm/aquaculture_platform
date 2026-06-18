@@ -162,7 +162,7 @@ Unlimited read scope; coordinate for implementation:
 
 ## Finding ID prefix
 
-`SEC-{SEVERITY}-{NNN}` — e.g. `SEC-CRITICAL-001`, `SEC-HIGH-007`. Zero-padded sequential within one report. See `@.claude/shared/output-format.md`. Required by `Closes:` commit convention (CLAUDE.md), context-manager state tracking, implementation-planner package traceability.
+`GSEC-{SEVERITY}-{NNN}` — e.g. `GSEC-CRITICAL-001`, `GSEC-HIGH-007`. Zero-padded sequential within one report. `SEC-*` is reserved for auth-security-expert, so the global security gate uses `GSEC-*` to prevent two agents from emitting the same finding ID. See `@.claude/shared/output-format.md`. Required by `Closes:` commit convention (CLAUDE.md), context-manager state tracking, implementation-planner package traceability.
 
 ## Prior Work Check
 

@@ -17,11 +17,9 @@
  *   invariant is the Tier-3 detectable gate matching the Tier-1 intent
  *   ("make it impossible") that the CLI cannot enforce today.
  *
- *   `.claude/agents.legacy/**` is EXEMPT — that directory is explicitly
- *   dormant per its README ("No new work lands here. Dispatch is disabled")
- *   and intentionally holds pre-split historical copies whose `name:`
- *   frontmatter would duplicate active names. The invariant does not walk
- *   the legacy tree.
+ *   Retired prompt directories must not exist on disk. Keeping old prompt
+ *   copies beside the active dispatch tree reintroduces duplicate `name:`
+ *   frontmatter, stale output contracts, and undefined Agent() resolution.
  *
  * # When this spec fails
  *
@@ -30,14 +28,14 @@
  *     convention; Lane-A keeps bare domain names.
  *
  *   - A deprecated agent file is still in an active directory with a valid
- *     `name:` → move to `.claude/agents.legacy/` or delete the file.
+ *     `name:` → delete the retired copy after migrating any still-needed
+ *     guidance into the active prompt.
  *
  * # References
  *
  *   - /root/.claude/plans/synthetic-dazzling-hippo.md#Phase-1d
  *   - /var/aqua-saas/docs/reviews/context-manager/2026-04-18-enterprise-v2-audit.md#CLAUDE-CRITICAL-001
  *   - .claude/shared/handoff-protocol.md § Ownership grammar
- *   - .claude/agents.legacy/README.md (dormancy declaration)
  */
 
 import * as fs from 'fs';
@@ -46,7 +44,6 @@ import * as path from 'path';
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const ACTIVE_DIRS: readonly string[] = [
   path.join(REPO_ROOT, '.claude', 'agents'),
-  path.join(REPO_ROOT, '.claude', 'agents', 'product-audit'),
 ];
 
 interface NameClaim {
@@ -68,10 +65,20 @@ function extractName(content: string): string | null {
 
 function walkMdFiles(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith('.md') && f !== 'README.md' && f !== 'INVOCATION-PACK.md')
-    .map((f) => path.join(dir, f));
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(dir)) {
+    if (entry === '_shared') continue;
+    const full = path.join(dir, entry);
+    const stat = fs.statSync(full);
+    if (stat.isDirectory()) {
+      files.push(...walkMdFiles(full));
+      continue;
+    }
+    if (entry.endsWith('.md') && entry !== 'README.md' && entry !== 'INVOCATION-PACK.md') {
+      files.push(full);
+    }
+  }
+  return files;
 }
 
 function collectClaims(): NameClaim[] {
@@ -118,7 +125,7 @@ describe('agent name uniqueness invariant', () => {
 
     if (collisions.length > 0) {
       const hint =
-        'Rename one file\'s `name:` frontmatter. Lane-B (test-agents) should use a ' +
+        'Rename one file\'s `name:` frontmatter. Lane-B product-audit agents should use a ' +
         '`product-audit-*` prefix per the 2026-04-18 convention; Lane-A keeps bare domain names. ' +
         'See /root/.claude/plans/synthetic-dazzling-hippo.md#Phase-1a for the canonical renames.';
       throw new Error(`Name collisions detected:\n  - ${collisions.join('\n  - ')}\n\n${hint}`);
@@ -126,12 +133,13 @@ describe('agent name uniqueness invariant', () => {
     expect(collisions).toEqual([]);
   });
 
-  it('legacy directory is exempt from this check (dormancy invariant)', () => {
-    // Sanity: legacy README declares dormancy. If the file goes missing, the
-    // exemption rationale disappears; update this invariant or the README.
-    const legacyReadme = path.join(REPO_ROOT, '.claude', 'agents.legacy', 'README.md');
-    expect(fs.existsSync(legacyReadme)).toBe(true);
-    const content = fs.readFileSync(legacyReadme, 'utf8');
-    expect(content).toMatch(/Dispatch is disabled/);
+  it('retired prompt directories are absent from the active worktree', () => {
+    for (const relPath of [
+      '.claude/agents.legacy',
+      '.claude/agents-enterprise-v2',
+      '.claude/test-agents',
+    ]) {
+      expect(fs.existsSync(path.join(REPO_ROOT, relPath))).toBe(false);
+    }
   });
 });

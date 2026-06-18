@@ -65,6 +65,12 @@ If agent-X ran TEACHER in cycle N, the WRITER for the same surface in cycle N (o
 
 Rationale: an agent cannot rubber-stamp its own recommendation. TEACHER → skill/implementation-planner → (different agent) CATCHER is the correct chain.
 
+### Supersession / destructive overlap
+
+If an agent's planned work would invalidate, replace, or materially rework another agent's open work, it MUST NOT silently overwrite that work. Route coordination through the orchestrator first: hand off to the affected owner, request an `architectural-arbiter` ruling for conflicting directions, or invoke `context-manager` to reconcile shared state.
+
+Silent overwrite of another agent's in-flight output is a PROCESS HIGH coordination failure because the losing agent's finding state, ownership boundary, and follow-up obligations remain stale. Even a technically better implementation must leave a visible handoff trail so the organization can tell which recommendation superseded which one and why.
+
 ## Ownership grammar — primary / secondary / delegated
 
 Every path has exactly ONE primary owner (enforced by `tests/invariants/agent-ownership-uniqueness.spec.ts`, Phase 4). Other agents may claim the path under two reduced-scope roles:

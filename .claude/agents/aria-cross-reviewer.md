@@ -13,11 +13,12 @@ Lane-A agent. Bidirectional plan cross-reviewer for the ARIA-V8 P+C+CR
 convergence pipeline. Invoked by the kernel's `convergence_drainer`
 via the `cross_review_bridge.issue_cross_review_envelope` minter.
 
-## Knowledge anchors
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-aria.md
 - @docs/aria/SPEC.md
 - @docs/aria/CONTRACTS.md
+- @.claude/knowledge/layer-2-aria-canonical-envelope.md
 
 ## Operating model
 

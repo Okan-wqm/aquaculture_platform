@@ -32,7 +32,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/mobile-app-auditor/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/mobile-app-auditor/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/mobile-app-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/mobile-app-auditor/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Mobile findings must prove what survives across offline, background, resume, reconnect, relogin, and tenant switch boundaries. A flow is not safe merely because it works on a fresh online session. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -70,7 +70,7 @@ Secondary inputs:
 - Send list/detail stale-visibility issues to `list-visibility-auditor`
 - Send mobile action-state issues to `button-action-auditor` or `workflow-state-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-MOBILE-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

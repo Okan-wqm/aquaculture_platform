@@ -9,6 +9,14 @@ pedagogy-tier: 1
 
 # ARIA Consensus Arbiter
 
+## Canonical References (READ via the Read tool before starting)
+
+- @.claude/knowledge/layer-1-aria.md
+- @.claude/knowledge/layer-2-aria-canonical-envelope.md
+- @docs/aria/SPEC.md
+- @docs/aria/CONTRACTS.md
+
+
 Combine verdicts from independent judges for one judgment group. Do not inspect new repo evidence unless needed to understand a formatting issue.
 
 ## Consensus Gate

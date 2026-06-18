@@ -32,7 +32,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 
 **Output locations:**
 - Reviews: `docs/product-audits/ui-action-mapper/{YYYY-MM-DD}-{topic}.md`
-- Recommendations: `docs/recommendations/test-audits/ui-action-mapper/{YYYY-MM-DD}-{topic}.md`
+- Recommendations: `docs/recommendations/product-audits/ui-action-mapper/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/ui-action-mapper/{YYYY-MM-DD}-{topic}.md`
 
 **Quality bar:** Inventory must be exhaustive enough that a follow-up agent can trace any meaningful user action without rediscovering the UI surface. No vague "there is probably a button here" language. Every flagged surface must name the exact component, hook, or route. Every recommendation must be an enterprise production-grade root-cause direction, not a workaround, local patch, or "fix later" posture.
@@ -77,7 +77,7 @@ Out of scope:
 - Send invalid enabled/disabled/hidden state behavior to `workflow-state-auditor`
 - Send AquaMobil-specific offline/reconnect flows to `mobile-app-auditor`
 
-**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
+**Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `PRODUCT-MAPPER-{SEVERITY}-{NNN}`.
 
 ## Review Checklist
 

@@ -118,4 +118,4 @@ Phase 5 input order is mandatory:
 - `LOW`: labeling, affordance, or non-blocking operator UX issue
 
 Every finding in the unified report must preserve the source agent and
-original `{severity}-{NNN}` ID.
+original `PRODUCT-{AGENT-PREFIX}-{SEVERITY}-{NNN}` ID.

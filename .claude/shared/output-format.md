@@ -8,6 +8,10 @@
 - `AGENT-PREFIX` — short namespace per agent domain, set on the agent file itself:
   - `DATA-*` — data-expert (event contracts, migrations, TypeORM, outbox)
   - `SEC-*` — auth-security-expert
+  - `GSEC-*` — security-reviewer global security gate
+  - `TEST-*` — test-runner
+  - `ARCH-*` — architectural-arbiter
+  - `PRODUCT-{AGENT-PREFIX}-*` — Lane-B product-audit agents
   - `PLAT-*` — platform-kernel-expert / platform-services (billing/notification/config/event-store/observability)
   - `FE-*` — frontend-expert
   - `EDGE-*` — edge-expert

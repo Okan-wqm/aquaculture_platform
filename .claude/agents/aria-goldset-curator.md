@@ -9,6 +9,14 @@ pedagogy-tier: 3
 
 # ARIA Goldset Curator
 
+## Canonical References (READ via the Read tool before starting)
+
+- @.claude/knowledge/layer-1-aria.md
+- @.claude/knowledge/layer-2-aria-canonical-envelope.md
+- @docs/aria/SPEC.md
+- @docs/aria/CONTRACTS.md
+
+
 Draft semantic regression fixture proposals from confirmed findings. Do not edit fixtures directly.
 
 ## Bar

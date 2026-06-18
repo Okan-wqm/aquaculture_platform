@@ -15,6 +15,7 @@ const README_PATH = join(PLAN_DIR, 'README.md');
 const MANIFEST_PATH = join(PLAN_DIR, 'manifest.json');
 const TRUTH_TABLE_PATH = join(PLAN_DIR, 'finding-truth-table.md');
 const CODEOWNERS_PATH = join(REPO_ROOT, '.github/CODEOWNERS');
+const REGISTRY_PATH = join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
 const REQUIRED_STATUS_CHECKS_PATH = join(
   REPO_ROOT,
   '.github/manifests/main-required-status-checks.json',
@@ -53,12 +54,45 @@ function numberValue(value: unknown, field: string): number {
   return value;
 }
 
+function stringValue(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`Expected string field: ${field}`);
+  }
+  return value;
+}
+
 function readManifest(): Record<string, unknown> {
   const parsed: unknown = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
   if (!isRecord(parsed)) {
     throw new Error('Plan manifest must be a JSON object');
   }
   return parsed;
+}
+
+function readRegistryEntries(): Record<string, unknown>[] {
+  return readFileSync(REGISTRY_PATH, 'utf8')
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '')
+    .map((line, index) => {
+      const parsed: unknown = JSON.parse(line);
+      if (!isRecord(parsed)) {
+        throw new Error(`Registry line ${index + 1} must be a JSON object`);
+      }
+      return parsed;
+    });
+}
+
+function stateOf(entry: Record<string, unknown>): string {
+  return stringValue(entry.state, `${stringValue(entry.id, 'registry.id')}.state`);
+}
+
+function isActiveCritical(entry: Record<string, unknown>): boolean {
+  if (
+    stringValue(entry.severity, `${stringValue(entry.id, 'registry.id')}.severity`) !== 'CRITICAL'
+  ) {
+    return false;
+  }
+  return stateOf(entry) === 'OPEN' || stateOf(entry) === 'IN-PROGRESS';
 }
 
 function truthTableRows(truthTable: string): Map<string, string> {
@@ -79,6 +113,7 @@ describe('enterprise-grade debt closure plan contract', () => {
   const readme = readFileSync(README_PATH, 'utf8');
   const truthTable = readFileSync(TRUTH_TABLE_PATH, 'utf8');
   const manifest = readManifest();
+  const registryEntries = readRegistryEntries();
 
   it('keeps the governed plan README present with the wave structure', () => {
     expect(readme).toContain('# Enterprise-Grade Debt Closure Program');
@@ -108,6 +143,34 @@ describe('enterprise-grade debt closure plan contract', () => {
       numberValue(manifest.in_progress_findings_count, 'in_progress_findings_count'),
     ).toBeGreaterThanOrEqual(0);
     expect(numberValue(manifest.active_critical_count, 'active_critical_count')).toBeGreaterThan(0);
+  });
+
+  it('keeps manifest counts and active criticals pinned to the finding registry SSoT', () => {
+    const activeCriticalIds = stringArray(manifest.active_critical_ids);
+    const registryActiveCriticalIds = registryEntries
+      .filter(isActiveCritical)
+      .map((entry) => stringValue(entry.id, 'registry.id'));
+    const registryOpenCount = registryEntries.filter((entry) => stateOf(entry) === 'OPEN').length;
+    const registryInProgressCount = registryEntries.filter(
+      (entry) => stateOf(entry) === 'IN-PROGRESS',
+    ).length;
+    const registryTip = stringValue(
+      registryEntries[registryEntries.length - 1]?.content_hash,
+      'registry tip content_hash',
+    );
+
+    expect(manifest.registry_tip_hash).toBe(registryTip);
+    expect(numberValue(manifest.registry_entries, 'registry_entries')).toBe(registryEntries.length);
+    expect(numberValue(manifest.open_findings_count, 'open_findings_count')).toBe(
+      registryOpenCount,
+    );
+    expect(numberValue(manifest.in_progress_findings_count, 'in_progress_findings_count')).toBe(
+      registryInProgressCount,
+    );
+    expect(numberValue(manifest.active_critical_count, 'active_critical_count')).toBe(
+      registryActiveCriticalIds.length,
+    );
+    expect(activeCriticalIds).toEqual(registryActiveCriticalIds);
   });
 
   it('keeps active criticals, core agents, and attacker lanes explicit', () => {

@@ -37,6 +37,10 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
   gate that catches recurrence.
 - Direct edits to registry state, plan manifest, or control-plane files require
   CODEOWNERS coverage and `npm run findings:verify`.
+- Plan counts and active CRITICAL rows are not manually trusted. The plan
+  contract invariant compares `manifest.json` and `finding-truth-table.md`
+  against `docs/reviews/_registry/findings.jsonl`; registry drift fails
+  `npm run invariants:fast`.
 - Required status checks for `main` are not prose. The SSOT is
   `.github/manifests/main-required-status-checks.json`; static drift fails
   `npm run gates:required-status-checks`, and external GitHub state must pass

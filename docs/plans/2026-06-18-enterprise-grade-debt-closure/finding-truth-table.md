@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `061d2ed77565c4675fcf5d72c432ea0860db538de0dc2a8db2008ebe1c530eab`
+Registry tip: `c9f9b213f227609909806b3574aeb1bf9f2f00837086d20cd4892995ec324e7d`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,7 +20,6 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-010`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-011`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-012`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-009`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
@@ -164,6 +163,18 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   is pinned to `db_migrate_complete` from `apps/db-migrate` and the legacy
   per-service `migration_runner_applied` signal cannot re-enter the required
   signal contract.
+- `INFRA-CRITICAL-010`: registry state is `RESOLVED` with closing commit
+  `5fc235a9a6fb68618f14ebb009efdba65929e46d`. PR #542 passed GitHub Actions on
+  2026-06-18, including build, test, lint, type-check, invariants-fast,
+  schema-validation, security-audit, sens-api-gateway-rust,
+  sens-enterprise-validation, and merge-gate. Local evidence passed the active
+  `tests/invariants/postgres-image-uniformity.spec.ts`,
+  `tests/invariants/invariant-reachability.spec.ts`,
+  `npm run invariants:fast`, `npm run gates:required-status-checks`, and
+  affected lint/test. The Postgres image authority is now the
+  `.github/manifests/postgres-image.json` SSoT, and every workflow/compose
+  Postgres image reference must match the pgvector-capable digest-pinned
+  TimescaleDB HA image.
 - `FE-CRITICAL-050`: registry state is `RESOLVED` with closing commit
   `109563f`. The AquaMobil Vitest run above passed the service-worker artifact
   invariant, proving `messaging-sw.ts` is emitted through `injectManifest` with

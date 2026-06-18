@@ -336,13 +336,12 @@ const LEGACY_MISSING_ANCHORS: ReadonlySet<string> = new Set([
   // PHASE-12.1-FIX: back-annotate the review file.
   'DEPLOY-HIGH-001',
   'DEPLOY-HIGH-002',
-  // INFRA-MEDIUM-014 + INFRA-CRITICAL-014..035: all reference the
+  // INFRA-MEDIUM-014 + remaining INFRA-CRITICAL review rows: all reference the
   // e2e-messaging-arch review file (or a Stage-N v2 audit file) but the
   // finding id is not in the prose verbatim. PHASE-12.1-FIX: migration
   // appends per-finding anchor sections to each review file in a single
   // pass.
   'INFRA-MEDIUM-014',
-  'INFRA-CRITICAL-014',
   'INFRA-CRITICAL-015',
   'INFRA-CRITICAL-016',
   'INFRA-CRITICAL-017',

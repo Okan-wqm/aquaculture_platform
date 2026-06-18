@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `440cc2887db628fb9bd9f27ca424d8baa69a446c418c5800772ec76cd1f4cbbd`
+Registry tip: `5f592a271e70b0fa05ffa11db32a83ffea9b2d36c2a0b21915ed5fd74557344e`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,8 +20,6 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-006`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `INFRA-CRITICAL-007`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-008`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-010`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-011`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
@@ -143,6 +141,20 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `npx nx build tenant-admin`, the changed-file type-check command, and
   `npm audit --audit-level=high --omit=dev --json`, proving the tenant-admin
   build/audit blocker is closed without suppressions or allowlists.
+- `INFRA-CRITICAL-006`: registry state is `RESOLVED` with closing commit
+  `b34eff513c5b40a2627f76822f19b60c3b06da61`. PR #538 passed GitHub Actions on
+  2026-06-18, including build, test, lint, type-check, invariants-fast,
+  sens-api-gateway-rust, and merge-gate. Local evidence passed the new
+  `tests/invariants/timescale-rls-columnstore-contract.spec.ts`, proving live
+  migrations cannot configure TimescaleDB columnstore/compression on an
+  RLS-protected relation; observability now treats the old
+  `tenant_cost_rollup` migration as archive-only runtime-forensic evidence.
+- `INFRA-CRITICAL-007`: registry state is `RESOLVED` with closing commit
+  `b34eff513c5b40a2627f76822f19b60c3b06da61`. The same PR #538 evidence proves
+  the RLS-over-columnstore architectural decision is mechanically enforced:
+  tenant isolation remains the DB-level guard, and any future cold-storage
+  compression must be modelled through a separate aggregate with its own
+  tenant-scope contract instead of reintroducing columnstore on the RLS table.
 - `FE-CRITICAL-050`: registry state is `RESOLVED` with closing commit
   `109563f`. The AquaMobil Vitest run above passed the service-worker artifact
   invariant, proving `messaging-sw.ts` is emitted through `injectManifest` with

@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `cec19da1833a8f4104746ec851f6088058464644dbc79bd0b85d4ab77dee1fa4`
+Registry tip: `440cc2887db628fb9bd9f27ca424d8baa69a446c418c5800772ec76cd1f4cbbd`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,7 +20,6 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-001`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-006`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-007`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-008`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
@@ -136,6 +135,14 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `value` overrides cannot re-enter the codebase. PR #534 back-annotated the
   review anchor and removed the legacy three-store missing-anchor exception, so
   registry, review evidence, and invariant enforcement now share the same SSoT.
+- `INFRA-CRITICAL-001`: registry state is `RESOLVED` with closing commit
+  `9f58bef0fc5763a67f714ea2387e555fab58638a`. PR #536 passed GitHub Actions on
+  2026-06-18, including build, changed-file type-check, security-audit, merge
+  gate, and tenant-admin affected gates. Local evidence passed
+  `npm run test --workspace @aquaculture/tenant-admin`, `npx nx lint tenant-admin`,
+  `npx nx build tenant-admin`, the changed-file type-check command, and
+  `npm audit --audit-level=high --omit=dev --json`, proving the tenant-admin
+  build/audit blocker is closed without suppressions or allowlists.
 - `FE-CRITICAL-050`: registry state is `RESOLVED` with closing commit
   `109563f`. The AquaMobil Vitest run above passed the service-worker artifact
   invariant, proving `messaging-sw.ts` is emitted through `injectManifest` with

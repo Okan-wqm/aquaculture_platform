@@ -11,9 +11,10 @@ loadEnv({ path: ['.env.local', '.env'] });
  * in app.module.ts) which executes migrations at OnApplicationBootstrap.
  *
  * observability-service owns the `observability` schema (per ADR-011).
- * tenant_cost_rollup is a TimescaleDB hypertable — its create_hypertable()
- * call must be appended by hand to any baseline migration (TypeORM does
- * not emit hypertable DDL).
+ * The numeric migration glob deliberately excludes `.archive/` forensic
+ * migrations. The retired tenant_cost_rollup hypertable migration is not
+ * runtime DDL; any reintroduction must ship as a new live migration and pass
+ * the RLS/TimescaleDB columnstore contract invariant.
  */
 export default new DataSource({
   type: 'postgres',

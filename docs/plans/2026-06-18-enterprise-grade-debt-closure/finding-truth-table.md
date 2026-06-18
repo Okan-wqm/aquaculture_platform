@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `f843e5cea20b47f4f6fcb564f406427b06286aea8e6fc4a036a3e223ab440740`
+Registry tip: `6b3454a89b58db52c3f27d8187613c2a2b5b444060763dc4a8ad7c401eba0f42`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -51,8 +51,6 @@ Allowed truth buckets:
 | `MSG-CRITICAL-053`        | OPEN           | 3.1          | file-transfer-auditor    | real-open    |
 | `FE-CRITICAL-050`         | OPEN           | 3.1          | frontend-expert          | real-open    |
 | `MSG-CRITICAL-054`        | OPEN           | 3.1          | form-write-auditor       | real-open    |
-| `MT-CRITICAL-050`         | OPEN           | 2.1          | tenant-isolation-auditor | real-open    |
-| `MT-CRITICAL-051`         | OPEN           | 2.1          | mobile-app-auditor       | real-open    |
 | `FARM-CRITICAL-050`       | OPEN           | 4.1          | workflow-state-auditor   | real-open    |
 | `FARM-CRITICAL-001`       | IN-PROGRESS    | 4.1          | multi-tenant-saas-expert | real-open    |
 
@@ -103,3 +101,14 @@ tests/invariants/agent-frontmatter-schema.spec.ts --runInBand` passed 421/421,
 libs/backend-common/src/utils/__tests__/service-identity.util.spec.ts
 --runInBand` passed 24/24 on 2026-06-18, including the #388 policy-less keyring
   regression test that accepts catalog callers and rejects unknown callers.
+- `MT-CRITICAL-050`: registry state is `RESOLVED` with closing commit
+  `93b7d3df`. `npx vitest run --config vitest.config.ts
+src/hooks/__tests__/useAuth-logout-wipe.spec.tsx
+src/components/__tests__/IdentityBoundary.spec.tsx
+src/pwa/__tests__/offline-queue.spec.ts` passed 68/68 on 2026-06-18, proving
+  logout awaits persistent wipe, clears tenant React Query cache, and remounts
+  authenticated UI on identity switch.
+- `MT-CRITICAL-051`: registry state is `RESOLVED` with closing commit
+  `93b7d3df`. The same AquaMobil Vitest run passed the user-scoped offline-cache
+  regressions, proving user-private schedule/cache data is keyed by tenant and
+  user rather than tenant only.

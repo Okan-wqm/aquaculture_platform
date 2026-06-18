@@ -187,6 +187,7 @@ export default {
         '<rootDir>/entity-diff-implies-migration.spec.ts',
         '<rootDir>/tenant-fanout-entity-parity.spec.ts',
         '<rootDir>/tenant-aware-migration-ddl-guard.spec.ts',
+        '<rootDir>/timescale-rls-columnstore-contract.spec.ts',
         '<rootDir>/jwt-rs256-only.spec.ts',
         '<rootDir>/messaging-partition-ddl-authority.spec.ts',
         '<rootDir>/shared-schema-canonical.spec.ts',

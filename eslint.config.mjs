@@ -224,7 +224,16 @@ const perProjectBlocks = PROJECT_LINT_OVERRIDES.flatMap((p) => {
 export default [
   // ── ignorePatterns (.eslintrc.json lines 3-11) ──
   {
-    ignores: ['node_modules', 'dist', 'build', 'coverage', '.nx', '**/*.d.ts', '**/*.js.map'],
+    ignores: [
+      'node_modules',
+      'dist',
+      'build',
+      'coverage',
+      '.nx',
+      '**/*.d.ts',
+      '**/*.js.map',
+      '**/.archive/**',
+    ],
   },
 
   // ── Shared base, applies EVERYWHERE (root top-level `extends`, lines 14-16,

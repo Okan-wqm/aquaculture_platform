@@ -1,5 +1,7 @@
 import { Repository } from 'typeorm';
 
+import { hmacTenantHash } from '@aquaculture/backend-common/utils';
+
 import { EraseObservabilityTenantDataCommand } from '../../commands/erase-observability-tenant-data.command';
 import { EraseObservabilityTenantDataHandler } from '../erase-observability-tenant-data.handler';
 import type { MigrationEventEntity } from '../../../database/entities/migration-event.entity';
@@ -31,10 +33,6 @@ describe('EraseObservabilityTenantDataHandler', () => {
     const handler = new EraseObservabilityTenantDataHandler(repo);
 
     // First compute the hash so we can seed the mock.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { hmacTenantHash } = require('@aquaculture/backend-common') as {
-      hmacTenantHash: (s: string) => string;
-    };
     const hash = hmacTenantHash('tenant_1234567890abcdef');
     (repo.count as jest.Mock).mockResolvedValue(7);
 

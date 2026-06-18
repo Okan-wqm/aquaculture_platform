@@ -152,6 +152,7 @@ export default {
         '<rootDir>/spec-module-mode.spec.ts',
         '<rootDir>/aria-workflow-sha-pin.spec.ts',
         '<rootDir>/aria-workflow-input-injection.spec.ts',
+        '<rootDir>/github-actions-tpm-deps-ssot.spec.ts',
         '<rootDir>/aria-plan-doc-presence.spec.ts',
         '<rootDir>/aria-doc-runtime-ssot.spec.ts',
         '<rootDir>/invariant-reachability.spec.ts',

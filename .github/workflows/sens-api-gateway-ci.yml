@@ -159,9 +159,7 @@ jobs:
       # verification failed before code compilation when these packages were
       # missing; CI installs them explicitly so all feature gates are real.
       - name: Install TPM build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libtss2-dev
+        uses: ./.github/actions/install-tpm-build-dependencies
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -192,9 +190,7 @@ jobs:
           components: clippy
 
       - name: Install TPM build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libtss2-dev
+        uses: ./.github/actions/install-tpm-build-dependencies
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -273,9 +269,7 @@ jobs:
           toolchain: 1.88.0
 
       - name: Install TPM build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libtss2-dev
+        uses: ./.github/actions/install-tpm-build-dependencies
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1

@@ -998,9 +998,7 @@ jobs:
         with:
           toolchain: 1.88.0
       - name: Install TPM build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libtss2-dev
+        uses: ./.github/actions/install-tpm-build-dependencies
       - name: Cargo check locked curated CI features
         working-directory: sens-api-gateway
         run: cargo check --locked --release --all-targets --features "$SENS_API_GATEWAY_CI_FEATURES"

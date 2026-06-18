@@ -31,7 +31,7 @@
  *     transport the module uses.
  */
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 const REPO_ROOT = join(__dirname, '..', '..');
@@ -51,12 +51,14 @@ const CROSS_SUBGRAPH_FIELDS: Record<string, string> = {
 };
 
 function listFiles(root: string, patterns: string[]): string[] {
-  const out = execFileSync(
-    'git',
-    ['ls-files', ...patterns.map((p) => `${root}/${p}`)],
-    { cwd: REPO_ROOT, encoding: 'utf8' },
-  );
-  return out.split('\n').filter(Boolean);
+  const out = execFileSync('git', ['ls-files', ...patterns.map((p) => `${root}/${p}`)], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  return out
+    .split('\n')
+    .filter(Boolean)
+    .filter((file) => existsSync(join(REPO_ROOT, file)));
 }
 
 /** Extract every GraphQL root field served by farm-service resolvers. */
@@ -146,11 +148,10 @@ describe('farm-module ↔ farm-service GraphQL parity', () => {
 
   it('allowlist entries stay backed by a real resolver in the owning service', () => {
     for (const [field, subgraph] of Object.entries(CROSS_SUBGRAPH_FIELDS)) {
-      const hits = execFileSync(
-        'git',
-        ['grep', '-l', field, '--', `apps/${subgraph}/src`],
-        { cwd: REPO_ROOT, encoding: 'utf8' },
-      )
+      const hits = execFileSync('git', ['grep', '-l', field, '--', `apps/${subgraph}/src`], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      })
         .split('\n')
         .filter(Boolean);
       expect(hits.length).toBeGreaterThan(0);

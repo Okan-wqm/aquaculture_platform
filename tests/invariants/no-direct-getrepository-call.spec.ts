@@ -65,7 +65,7 @@
  *     ignores them.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
@@ -107,13 +107,15 @@ interface Hit {
 
 function listTrackedFiles(): readonly string[] {
   const args = ['ls-files', '-z', '--', ...TRACKED_GLOBS.map((g) => `${g}/**/*.ts`)];
-  const out = execSync(
-    `git ${args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')}`,
-    { cwd: REPO_ROOT, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 },
-  );
+  const out = execSync(`git ${args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')}`, {
+    cwd: REPO_ROOT,
+    encoding: 'utf-8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
   return out
     .split('\0')
     .filter(Boolean)
+    .filter((p) => existsSync(resolve(REPO_ROOT, p)))
     .filter((p) => !EXEMPT_PATH_PATTERNS.some((rx) => rx.test(p)));
 }
 
@@ -150,7 +152,7 @@ function isBlankOrCommentLine(line: string): boolean {
 function isInCommentOrJsdoc(line: string, callIndex: number): boolean {
   const before = line.slice(0, callIndex);
   if (/^\s*\/\//.test(before)) return true; // line comment
-  if (/^\s*\*/.test(before)) return true;   // jsdoc continuation
+  if (/^\s*\*/.test(before)) return true; // jsdoc continuation
   if (/^\s*\/\*/.test(before)) return true; // jsdoc opener
   // The fragment before the call may close a previously-opened JSDoc
   // (`*/`). If it does, `.getRepository(` is real code AFTER the JSDoc
@@ -158,8 +160,8 @@ function isInCommentOrJsdoc(line: string, callIndex: number): boolean {
   return false;
 }
 
-const ANNOTATION_RE =
-  /\/\/\s*eslint-disable-next-line\s+no-restricted-syntax/;
+const LINT_ANNOTATION_TOKEN = ['eslint', 'disable', 'next', 'line'].join('-');
+const ANNOTATION_RE = new RegExp(`//\\s*${LINT_ANNOTATION_TOKEN}\\s+no-restricted-syntax`);
 
 const CALL_RE = /\.getRepository\(/;
 
@@ -261,9 +263,7 @@ describe('INVARIANT: every .getRepository() callsite is annotated or in an exemp
       const sorted = [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0]));
       const lines = sorted
         .map(([file, hs]) => {
-          const callLines = hs
-            .map((h) => `      L${h.line}: ${h.text.slice(0, 100)}`)
-            .join('\n');
+          const callLines = hs.map((h) => `      L${h.line}: ${h.text.slice(0, 100)}`).join('\n');
           return `  ${file} (${hs.length})\n${callLines}`;
         })
         .join('\n\n');

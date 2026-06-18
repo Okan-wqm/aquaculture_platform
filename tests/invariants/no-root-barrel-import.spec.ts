@@ -66,7 +66,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -112,13 +112,15 @@ function listTrackedFiles(): readonly string[] {
     '--',
     ...TRACKED_GLOBS.flatMap((g) => [`${g}/**/*.ts`, `${g}/**/*.tsx`]),
   ];
-  const out = execSync(
-    `git ${args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')}`,
-    { cwd: REPO_ROOT, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 },
-  );
+  const out = execSync(`git ${args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')}`, {
+    cwd: REPO_ROOT,
+    encoding: 'utf-8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
   return out
     .split('\0')
     .filter(Boolean)
+    .filter((p) => existsSync(resolve(REPO_ROOT, p)))
     .filter((p) => !EXEMPT_PATH_PATTERNS.some((rx) => rx.test(p)));
 }
 
@@ -140,10 +142,7 @@ function listTrackedFiles(): readonly string[] {
  * declaration file out of the root barrel and re-builds when any
  * subtree changes).
  */
-const BANNED_SPECIFIERS = [
-  '@aquaculture/backend-common',
-  '@platform/backend-common',
-] as const;
+const BANNED_SPECIFIERS = ['@aquaculture/backend-common', '@platform/backend-common'] as const;
 
 /**
  * Match `from '<spec>'` and `from "<spec>"` with a closing quote

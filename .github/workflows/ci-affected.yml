@@ -70,6 +70,7 @@ jobs:
               - '.github/workflows/deploy-staging.yml'
               - '.github/workflows/ci-affected.yml'
               - '.github/actions/**'
+              - '.github/manifests/**'
               - 'infrastructure/deploy/**'
               - 'infrastructure/apollo-router/**'
               - 'docker-compose.droplet.yml'

@@ -1,0 +1,70 @@
+{
+  "$schema": "aqua/github-required-status-checks/v1",
+  "schema_version": 1,
+  "repository": "Okan-wqm/aquaculture_platform",
+  "branch": "main",
+  "finding_ids": ["EDGE-CRITICAL-001"],
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["sens-enterprise-summary", "merge-gate"]
+  },
+  "ci_affected_required_path_filters": [
+    "sens-api-gateway/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/**",
+    "tools/executors/cargo/**",
+    "tools/gates/**",
+    ".github/manifests/**",
+    "package.json",
+    "package-lock.json"
+  ],
+  "workflow_contracts": [
+    {
+      "workflow": ".github/workflows/ci-affected.yml",
+      "contexts": [
+        {
+          "context": "sens-enterprise-summary",
+          "job_id": "sens-enterprise-summary",
+          "requires_jobs": [
+            "detect-changes",
+            "install",
+            "lint",
+            "type-check",
+            "test",
+            "sensor-service-gates",
+            "sens-api-gateway-rust",
+            "sens-enterprise-validation",
+            "build"
+          ],
+          "required_markers": [
+            "if: always()",
+            "Fail on skipped, cancelled or failed Sens dependencies",
+            "needs.sens-api-gateway-rust.result",
+            "needs.sens-enterprise-validation.result"
+          ]
+        },
+        {
+          "context": "merge-gate",
+          "job_id": "merge-gate",
+          "requires_jobs": [
+            "detect-changes",
+            "install",
+            "lint",
+            "type-check",
+            "test",
+            "build",
+            "sensor-service-gates",
+            "sens-api-gateway-rust",
+            "sens-enterprise-validation"
+          ],
+          "required_markers": ["Assert required PR checks"]
+        }
+      ]
+    }
+  ],
+  "live_verification": {
+    "command": "npm run gates:required-status-checks:live",
+    "expected": "GitHub main branch protection exists, strict mode is true, and every context in required_status_checks.contexts is configured as required."
+  }
+}

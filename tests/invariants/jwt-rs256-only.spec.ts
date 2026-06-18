@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join, relative } from 'path';
 import { execFileSync } from 'child_process';
 
@@ -38,15 +38,18 @@ const HS256_SIGN = /\balgorithm\s*:\s*['"]HS256['"]/;
 const HS256_VERIFY = /\balgorithms\s*:\s*\[\s*['"]HS256['"]/;
 
 function sourceFiles(): string[] {
-  return execFileSync(
-    'git',
-    ['ls-files', 'apps/**/*.ts', 'libs/**/*.ts', 'platform/**/*.ts'],
-    { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
-  )
+  return execFileSync('git', ['ls-files', 'apps/**/*.ts', 'libs/**/*.ts', 'platform/**/*.ts'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+  })
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
-    .filter((f) => !/\.(spec|test)\.ts$/.test(f) && !f.includes('__tests__/') && !f.includes('/test/'));
+    .filter((f) => existsSync(join(REPO_ROOT, f)))
+    .filter(
+      (f) => !/\.(spec|test)\.ts$/.test(f) && !f.includes('__tests__/') && !f.includes('/test/'),
+    );
 }
 
 describe('JWT RS256-only invariant', () => {

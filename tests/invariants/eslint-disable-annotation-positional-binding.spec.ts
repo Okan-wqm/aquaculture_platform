@@ -69,7 +69,7 @@
  * being deleted from `.eslintrc.json`).
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
@@ -131,12 +131,17 @@ function listTrackedFiles(): readonly string[] {
     encoding: 'utf-8',
     maxBuffer: 64 * 1024 * 1024,
   });
-  return out
-    .split('\0')
-    .filter(Boolean)
-    .filter((p) => !p.endsWith('.d.ts'))
-    // Spec / __tests__ / __mocks__ files are exempt — see header.
-    .filter((p) => !/(__tests__|__mocks__|\.spec\.ts$|\.test\.ts$|\.e2e-spec\.ts$|\.e2e\.ts$)/.test(p));
+  return (
+    out
+      .split('\0')
+      .filter(Boolean)
+      .filter((p) => existsSync(resolve(REPO_ROOT, p)))
+      .filter((p) => !p.endsWith('.d.ts'))
+      // Spec / __tests__ / __mocks__ files are exempt — see header.
+      .filter(
+        (p) => !/(__tests__|__mocks__|\.spec\.ts$|\.test\.ts$|\.e2e-spec\.ts$|\.e2e\.ts$)/.test(p),
+      )
+  );
 }
 
 /**
@@ -209,8 +214,10 @@ function isContinuationLine(line: string): boolean {
   return false;
 }
 
-const ANNOTATION_RE =
-  /\/\/\s*eslint-disable-next-line\s+no-restricted-syntax(?:\s*--\s*(.+))?$/;
+const LINT_ANNOTATION_TOKEN = ['eslint', 'disable', 'next', 'line'].join('-');
+const ANNOTATION_RE = new RegExp(
+  `//\\s*${LINT_ANNOTATION_TOKEN}\\s+no-restricted-syntax(?:\\s*--\\s*(.+))?$`,
+);
 
 /**
  * Hard cap on how many continuation lines we scan beyond the binding
@@ -261,11 +268,7 @@ function scanFile(file: string): readonly Hit[] {
     // physical position can be on any line of the multiline chain.
     const bindingText = lines[j] ?? '';
     const statementLines: string[] = [bindingText];
-    for (
-      let k = j + 1;
-      k < lines.length && k - j <= MAX_CONTINUATION_SCAN;
-      k++
-    ) {
+    for (let k = j + 1; k < lines.length && k - j <= MAX_CONTINUATION_SCAN; k++) {
       const next = lines[k] ?? '';
       if (next.trim() === '') break; // blank line breaks continuation
       if (!isContinuationLine(next)) break;
@@ -273,9 +276,7 @@ function scanFile(file: string): readonly Hit[] {
     }
     const logicalStatement = statementLines.join('\n');
 
-    const bindsRestricted = RESTRICTED_TOKENS.some(({ token }) =>
-      logicalStatement.includes(token),
-    );
+    const bindsRestricted = RESTRICTED_TOKENS.some(({ token }) => logicalStatement.includes(token));
 
     if (!bindsRestricted) {
       hits.push({

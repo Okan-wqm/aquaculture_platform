@@ -59,21 +59,12 @@ import { join, relative, resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 // Directories never walked: build output, VCS internals, installed deps, and
-// nested git worktrees (which are full repo copies and would double-count).
-const SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'coverage',
-  'build',
-  '.nx',
-  'tmp',
-]);
+// nested agent worktree collections (full repo copies that would double-count).
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', 'build', '.nx', 'tmp']);
 
-function isWorktreesDir(parentAbs: string, name: string): boolean {
-  // `.claude/worktrees/**` holds sibling worktrees (full copies). Skip it so a
-  // parallel session's working tree is never scanned as if it were ours.
-  return parentAbs.endsWith(`${'.claude'}`) && name === 'worktrees';
+function isAgentWorktreeCollectionDir(parentAbs: string, name: string): boolean {
+  const rel = relative(REPO_ROOT, join(parentAbs, name));
+  return rel === '.claude/worktrees' || rel === '.codex-worktrees' || rel === '.worktrees';
 }
 
 function walk(dirAbs: string, onFile: (fileAbs: string) => void): void {
@@ -81,7 +72,7 @@ function walk(dirAbs: string, onFile: (fileAbs: string) => void): void {
     const childAbs = join(dirAbs, entry.name);
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
-      if (isWorktreesDir(dirAbs, entry.name)) continue;
+      if (isAgentWorktreeCollectionDir(dirAbs, entry.name)) continue;
       walk(childAbs, onFile);
     } else if (entry.isFile()) {
       onFile(childAbs);
@@ -137,10 +128,8 @@ describe('repo hygiene invariants (A4 dead-weight)', () => {
     const BANNED: Record<string, string> = {
       redis:
         'node-redis was removed in A4. Use ioredis (the platform single Redis client); Socket.IO pub/sub uses an ioredis pair via @socket.io/redis-adapter.',
-      moment:
-        'moment was removed in A4 (maintenance-mode, non-tree-shakeable). Use date-fns.',
-      nats:
-        'nats v2 was removed in A3 PR-C — the platform runs on @nats-io/* v3 (event bus, direct clients, and the NatsV3Server/NatsV3Client Nest transport). Use @nats-io/transport-node + @nats-io/nats-core.',
+      moment: 'moment was removed in A4 (maintenance-mode, non-tree-shakeable). Use date-fns.',
+      nats: 'nats v2 was removed in A3 PR-C — the platform runs on @nats-io/* v3 (event bus, direct clients, and the NatsV3Server/NatsV3Client Nest transport). Use @nats-io/transport-node + @nats-io/nats-core.',
     };
 
     for (const banned of Object.keys(BANNED)) {
@@ -235,9 +224,7 @@ describe('repo hygiene invariants (A4 dead-weight)', () => {
     ]);
 
     const binDir = join(REPO_ROOT, 'node_modules', '.bin');
-    const installedBins = existsSync(binDir)
-      ? new Set(readdirSync(binDir))
-      : new Set<string>();
+    const installedBins = existsSync(binDir) ? new Set(readdirSync(binDir)) : new Set<string>();
 
     it('node_modules/.bin is populated (precondition)', () => {
       // The resolution check is only meaningful after install. In CI the

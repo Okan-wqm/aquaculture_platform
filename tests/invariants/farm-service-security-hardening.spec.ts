@@ -20,7 +20,7 @@
  *     become reachable.
  */
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 const REPO_ROOT = join(__dirname, '..', '..');
@@ -34,6 +34,7 @@ function farmBackendFiles(): string[] {
   return out
     .split('\n')
     .filter(Boolean)
+    .filter((f) => existsSync(join(REPO_ROOT, f)))
     .filter((f) => f.endsWith('.ts'))
     .filter((f) => !f.includes('__tests__') && !f.endsWith('.spec.ts'));
 }
@@ -66,16 +67,8 @@ describe('farm-service security-hardening invariants', () => {
   });
 
   it('RULE 2: app.module registers the global ServiceIdentity + Roles + PermissionMatrix guard stack', () => {
-    const appModule = readFileSync(
-      join(REPO_ROOT, FARM_BE_ROOT, 'app.module.ts'),
-      'utf8',
-    );
-    const required = [
-      'APP_GUARD',
-      'ServiceIdentityGuard',
-      'RolesGuard',
-      'PermissionMatrixGuard',
-    ];
+    const appModule = readFileSync(join(REPO_ROOT, FARM_BE_ROOT, 'app.module.ts'), 'utf8');
+    const required = ['APP_GUARD', 'ServiceIdentityGuard', 'RolesGuard', 'PermissionMatrixGuard'];
     const missing = required.filter((token) => !appModule.includes(token));
     if (missing.length > 0) {
       throw new Error(

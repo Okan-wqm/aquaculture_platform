@@ -52,6 +52,7 @@ tools/gates/migration-sql-lint.ts            @Okan-wqm
 # Direct edits to findings.jsonl are a tamper vector; must be gated.
 docs/reviews/_registry/          @Okan-wqm
 docs/reviews/overrides/          @Okan-wqm
+docs/plans/                      @Okan-wqm
 
 # ── Vendored upstream forks (supply chain) ────────────────────────────
 # RUST-CVE-001 / SUPPLY-MEDIUM-002: a [patch.crates-io] path crate has no

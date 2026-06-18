@@ -118,6 +118,7 @@ export default {
         '<rootDir>/admin-security-runtime-contract.spec.ts',
         '<rootDir>/tenant-provisioning-ssot.spec.ts',
         '<rootDir>/repo-hygiene-invariants.spec.ts',
+        '<rootDir>/enterprise-grade-debt-plan-contract.spec.ts',
       ],
     },
     {

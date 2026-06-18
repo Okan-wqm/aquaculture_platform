@@ -130,6 +130,7 @@ const REQUIRED_CI_PATH_FILTERS = [
   'crates/**',
   'tools/executors/cargo/**',
   'tools/gates/**',
+  '.github/manifests/**',
   'package.json',
   'package-lock.json',
 ] as const;

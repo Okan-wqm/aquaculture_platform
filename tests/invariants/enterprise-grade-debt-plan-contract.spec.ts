@@ -1,0 +1,206 @@
+/**
+ * Enterprise-grade debt closure plan contract.
+ *
+ * The 2026-06-18 debt-closure program is a control-plane artifact, not a
+ * narrative-only roadmap. This invariant keeps its README, machine-readable
+ * manifest, and CODEOWNERS coverage present and internally consistent.
+ */
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
+const REPO_ROOT = resolve(__dirname, '..', '..');
+const PLAN_ID = '2026-06-18-enterprise-grade-debt-closure';
+const PLAN_DIR = join(REPO_ROOT, 'docs/plans', PLAN_ID);
+const README_PATH = join(PLAN_DIR, 'README.md');
+const MANIFEST_PATH = join(PLAN_DIR, 'manifest.json');
+const TRUTH_TABLE_PATH = join(PLAN_DIR, 'finding-truth-table.md');
+const CODEOWNERS_PATH = join(REPO_ROOT, '.github/CODEOWNERS');
+const REQUIRED_STATUS_CHECKS_PATH = join(
+  REPO_ROOT,
+  '.github/manifests/main-required-status-checks.json',
+);
+const TRUTH_BUCKETS = new Set([
+  'real-open',
+  'already-fixed-needs-close',
+  'superseded',
+  'blocked',
+  'stale',
+  'new-finding-required',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+    throw new Error('Expected string array');
+  }
+  return value;
+}
+
+function objectArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value) || !value.every(isRecord)) {
+    throw new Error('Expected object array');
+  }
+  return value;
+}
+
+function numberValue(value: unknown, field: string): number {
+  if (typeof value !== 'number') {
+    throw new Error(`Expected numeric manifest field: ${field}`);
+  }
+  return value;
+}
+
+function readManifest(): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
+  if (!isRecord(parsed)) {
+    throw new Error('Plan manifest must be a JSON object');
+  }
+  return parsed;
+}
+
+function truthTableRows(truthTable: string): Map<string, string> {
+  const rows = new Map<string, string>();
+  for (const line of truthTable.split(/\r?\n/)) {
+    const cells = line
+      .split('|')
+      .map((cell) => cell.trim())
+      .filter(Boolean);
+    if (cells.length !== 5 || !cells[0]?.startsWith('`')) continue;
+    const id = cells[0].replace(/^`|`$/g, '');
+    rows.set(id, cells[4]!);
+  }
+  return rows;
+}
+
+describe('enterprise-grade debt closure plan contract', () => {
+  const readme = readFileSync(README_PATH, 'utf8');
+  const truthTable = readFileSync(TRUTH_TABLE_PATH, 'utf8');
+  const manifest = readManifest();
+
+  it('keeps the governed plan README present with the wave structure', () => {
+    expect(readme).toContain('# Enterprise-Grade Debt Closure Program');
+    expect(readme).toContain('## Waves');
+    expect(readme).toContain('### Wave 0 - Truth Freeze And Control Plane');
+    expect(readme).toContain('### Wave 6 - Closure, Evidence, Release Discipline');
+    expect(readme).toContain('The companion manifest is `manifest.json`.');
+    expect(readme).toContain('`finding-truth-table.md`');
+    expect(readme).toContain('`.github/manifests/main-required-status-checks.json`');
+    expect(readme).toContain('`npm run gates:required-status-checks`');
+  });
+
+  it('keeps the manifest identity and baseline fields machine-readable', () => {
+    expect(manifest.plan_id).toBe(PLAN_ID);
+    expect(manifest.truth_table_path).toBe(`docs/plans/${PLAN_ID}/finding-truth-table.md`);
+    expect(manifest.required_status_checks_manifest).toBe(
+      '.github/manifests/main-required-status-checks.json',
+    );
+    expect(manifest.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    expect(manifest.base_commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(manifest.registry_tip_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(numberValue(manifest.registry_entries, 'registry_entries')).toBeGreaterThan(0);
+    expect(numberValue(manifest.open_findings_count, 'open_findings_count')).toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(
+      numberValue(manifest.in_progress_findings_count, 'in_progress_findings_count'),
+    ).toBeGreaterThanOrEqual(0);
+    expect(numberValue(manifest.active_critical_count, 'active_critical_count')).toBeGreaterThan(0);
+  });
+
+  it('keeps active criticals, core agents, and attacker lanes explicit', () => {
+    const activeCriticalIds = stringArray(manifest.active_critical_ids);
+    const agentRoster = stringArray(manifest.agent_roster);
+    const attackers = stringArray(manifest.reverse_engineering_attackers);
+
+    expect(activeCriticalIds).toHaveLength(
+      numberValue(manifest.active_critical_count, 'active_critical_count'),
+    );
+    expect(activeCriticalIds.every((id) => id.includes('-CRITICAL-'))).toBe(true);
+    expect(agentRoster.length).toBeGreaterThanOrEqual(12);
+    expect(agentRoster).toContain('architectural-arbiter');
+    expect(agentRoster).toContain('context-manager');
+    expect(agentRoster).toContain('security-reviewer');
+    expect(attackers).toHaveLength(8);
+    expect(attackers).toContain('ssot-control-plane-attacker');
+  });
+
+  it('keeps the truth table aligned with active critical IDs', () => {
+    const activeCriticalIds = stringArray(manifest.active_critical_ids);
+    const rows = truthTableRows(truthTable);
+
+    expect(truthTable).toContain('# Finding Truth Table');
+    expect(truthTable).toContain('Allowed truth buckets:');
+    for (const bucket of TRUTH_BUCKETS) {
+      expect(truthTable).toContain(`\`${bucket}\``);
+    }
+
+    for (const id of activeCriticalIds) {
+      expect(rows.has(id)).toBe(true);
+      expect(TRUTH_BUCKETS.has(rows.get(id) ?? '')).toBe(true);
+    }
+    expect(rows.size).toBe(activeCriticalIds.length);
+  });
+
+  it('keeps waves, sprints, and exit gates linked', () => {
+    const waves = objectArray(manifest.waves);
+    const sprints = objectArray(manifest.sprints);
+    const acceptanceGates = objectArray(manifest.acceptance_gates);
+    const sprintIds = new Set(sprints.map((sprint) => sprint.id));
+
+    expect(waves.map((wave) => wave.id)).toEqual([
+      'wave-0',
+      'wave-1',
+      'wave-2',
+      'wave-3',
+      'wave-4',
+      'wave-5',
+      'wave-6',
+    ]);
+    expect(sprints.length).toBeGreaterThanOrEqual(12);
+    expect(acceptanceGates.length).toBeGreaterThanOrEqual(7);
+    expect(acceptanceGates.some((gate) => gate.id === 'required-status-checks-static')).toBe(true);
+    expect(acceptanceGates.some((gate) => gate.id === 'required-status-checks-live')).toBe(true);
+
+    for (const wave of waves) {
+      for (const sprintId of stringArray(wave.sprints)) {
+        expect(sprintIds.has(sprintId)).toBe(true);
+      }
+    }
+
+    const wave0 = waves.find((wave) => wave.id === 'wave-0');
+    expect(wave0).toBeDefined();
+    expect(stringArray(wave0?.exit_gates)).toEqual([
+      'findings-verify',
+      'invariants-fast',
+      'plan-manifest-valid',
+    ]);
+  });
+
+  it('keeps docs/plans covered by CODEOWNERS', () => {
+    const lines = readFileSync(CODEOWNERS_PATH, 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('#'));
+
+    expect(lines.some((line) => line.startsWith('docs/plans/'))).toBe(true);
+  });
+
+  it('keeps main required checks policy pinned to Sens enterprise gates', () => {
+    const parsed: unknown = JSON.parse(readFileSync(REQUIRED_STATUS_CHECKS_PATH, 'utf8'));
+    expect(isRecord(parsed)).toBe(true);
+    if (!isRecord(parsed)) return;
+    expect(parsed.repository).toBe('Okan-wqm/aquaculture_platform');
+    expect(parsed.branch).toBe('main');
+    expect(parsed.finding_ids).toContain('EDGE-CRITICAL-001');
+    expect(isRecord(parsed.required_status_checks)).toBe(true);
+    if (!isRecord(parsed.required_status_checks)) return;
+    expect(parsed.required_status_checks.strict).toBe(true);
+    expect(parsed.required_status_checks.contexts).toEqual([
+      'sens-enterprise-summary',
+      'merge-gate',
+    ]);
+  });
+});

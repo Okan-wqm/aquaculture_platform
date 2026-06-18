@@ -109,6 +109,22 @@ A single visible symptom (`vector_cosine_ops` HNSW index error) was masking five
 
 ---
 
+## INFRA-CRITICAL-014 — Illegal `value:` field in GraphQL enum `valuesMap`
+
+- **Severity:** CRITICAL
+- **Layer:** 2
+- **Surface:** `apps/messaging-service/src/channel/entities/channel-member.entity.ts` `registerEnumType(..., { valuesMap })` entries for `ChannelMemberRole` and `NotificationPreference`
+- **Visible symptom:** `tsc` rejects `value` properties in `valuesMap` metadata with TS2353, blocking 12/12 messaging E2E suites and the affected backend build before any runtime assertion can execute.
+- **Root cause:** NestJS `EnumMetadataValuesMapOptions` accepts only enum metadata (`description` and `deprecationReason`). The attempted `value:` override treated `valuesMap` as the coercion SSoT, but NestJS derives runtime enum values from the TypeScript enum object. The actual GraphQL-name to TypeScript-value boundary normalization belongs at the resolver input boundary.
+- **Architectural fix (T2/T3):** keep the resolver boundary normalization as the SSoT and keep `valuesMap` metadata-only. PR #533 added `tests/invariants/graphql-enum-valuesmap-metadata.spec.ts`, which scans every `registerEnumType` callsite under `apps/`, `libs/`, `platform/`, and `web/` and rejects unsupported `value` fields or spread-hidden fields in `valuesMap` entries.
+- **Closure validation:**
+  - **(a) static** — no `registerEnumType` `valuesMap` entry contains a `value` property.
+  - **(b) executable** — `apps/messaging-service/src/channel/__tests__/role-enum-coercion.spec.ts` continues to prove GraphQL input `MEMBER` reaches `AddMemberCommand` as `member`.
+  - **(c) regression invariant** — `tests/invariants/graphql-enum-valuesmap-metadata.spec.ts` keeps the metadata-only contract repository-wide.
+- **Audit:** `Agent(subagent_type="messaging-expert")` owns the resolver-boundary behavior; `Agent(subagent_type="data-expert")` owns the review-file anchor and registry traceability.
+
+---
+
 ## Out of scope
 
 - AI tables relocation to `ai-service` (separate refactor).

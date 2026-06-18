@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `6b3454a89b58db52c3f27d8187613c2a2b5b444060763dc4a8ad7c401eba0f42`
+Registry tip: `60b3cfaa592b72336f5b90e5ff33816ac5028e409b3f2d67e3895a5ed2a91f05`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -45,12 +45,7 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
-| `MSG-CRITICAL-050`        | OPEN           | 3.1          | realtime-sync-auditor    | real-open    |
-| `MSG-CRITICAL-051`        | OPEN           | 3.1          | realtime-sync-auditor    | real-open    |
-| `MSG-CRITICAL-052`        | OPEN           | 3.1          | file-transfer-auditor    | real-open    |
 | `MSG-CRITICAL-053`        | OPEN           | 3.1          | file-transfer-auditor    | real-open    |
-| `FE-CRITICAL-050`         | OPEN           | 3.1          | frontend-expert          | real-open    |
-| `MSG-CRITICAL-054`        | OPEN           | 3.1          | form-write-auditor       | real-open    |
 | `FARM-CRITICAL-050`       | OPEN           | 4.1          | workflow-state-auditor   | real-open    |
 | `FARM-CRITICAL-001`       | IN-PROGRESS    | 4.1          | multi-tenant-saas-expert | real-open    |
 
@@ -112,3 +107,30 @@ src/pwa/__tests__/offline-queue.spec.ts` passed 68/68 on 2026-06-18, proving
   `93b7d3df`. The same AquaMobil Vitest run passed the user-scoped offline-cache
   regressions, proving user-private schedule/cache data is keyed by tenant and
   user rather than tenant only.
+- `MSG-CRITICAL-050`: registry state is `RESOLVED` with closing commit
+  `2bd191ed`. `npx jest --config apps/messaging-service/jest.config.ts
+apps/messaging-service/src/event-handlers/messaging-nats.handler.broadcast.spec.ts
+apps/messaging-service/src/message/resolvers/message-attachment.resolver.spec.ts
+apps/messaging-service/src/message/dto/__tests__/send-message.input.spec.ts
+--runInBand` passed 13/13 on 2026-06-18, proving the messaging service returns
+  hydrated broadcast payloads instead of the old flat socket shape.
+- `MSG-CRITICAL-051`: registry state is `RESOLVED` with closing commit
+  `2bd191ed`. `npx vitest run --config vitest.config.ts
+src/hooks/__tests__/useMarkRead.spec.ts
+src/pwa/__tests__/sw-build-artifact.invariant.spec.ts
+src/pwa/__tests__/firebase-messaging-sw.source.spec.ts
+src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
+  2026-06-18, proving the mobile read path calls the `markMessagesRead` mutation
+  and invalidates the SSoT unread surfaces.
+- `MSG-CRITICAL-052`: registry state is `RESOLVED` with closing commit
+  `2bd191ed`. The messaging-service Jest run above passed the
+  `MessageAttachmentResolver` regression, proving attachment `downloadUrl` and
+  `thumbnailUrl` are resolved through tenant-scoped presigned URLs.
+- `FE-CRITICAL-050`: registry state is `RESOLVED` with closing commit
+  `109563f`. The AquaMobil Vitest run above passed the service-worker artifact
+  invariant, proving `messaging-sw.ts` is emitted through `injectManifest` with
+  background sync, precache, logout cache purge, and notification-click handlers.
+- `MSG-CRITICAL-054`: registry state is `RESOLVED` with closing commit
+  `109563f`. The messaging-service Jest run above passed the
+  `SendMessageInput` envelope regression, proving offline `sendMessage` accepts
+  the mobile command envelope while rejecting unknown fields.

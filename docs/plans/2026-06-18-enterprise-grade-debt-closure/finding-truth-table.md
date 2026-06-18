@@ -48,7 +48,7 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-030`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
 | `INFRA-CRITICAL-031`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
 | `INFRA-CRITICAL-032`      | IN-PROGRESS    | 1.1          | data-expert              | real-open                 |
-| `EDGE-CRITICAL-001`       | OPEN           | 5.1          | infra-expert             | blocked                   |
+| `EDGE-CRITICAL-001`       | OPEN           | 5.1          | infra-expert             | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-094`     | OPEN           | 1.2          | auth-security-expert     | already-fixed-needs-close |
 | `MSG-CRITICAL-050`        | OPEN           | 3.1          | realtime-sync-auditor    | real-open                 |
 | `MSG-CRITICAL-051`        | OPEN           | 3.1          | realtime-sync-auditor    | real-open                 |
@@ -87,16 +87,12 @@ Allowed truth buckets:
 libs/backend-common/src/utils/__tests__/service-identity.util.spec.ts
 --runInBand` passes 24/24, including the #388 policy-less keyring regression
   test that accepts catalog callers and rejects unknown callers.
-
-## Blocked Evidence
-
 - `EDGE-CRITICAL-001`: repository-local CI coverage exists in
-  `.github/workflows/ci-affected.yml`, and the required-check SSOT is now
-  `.github/manifests/main-required-status-checks.json` with static enforcement
-  through `npm run gates:required-status-checks`. Live enforcement remains
-  blocked by external GitHub branch protection state: on 2026-06-18,
-  `gh api repos/Okan-wqm/aquaculture_platform/branches/main/protection/required_status_checks`
-  returned `HTTP 404 Branch not protected`. Owner: `infra-expert`. Deadline:
-  2026-06-24 from the registry entry. Closure requires
-  `npm run gates:required-status-checks:live` to pass, proving `main` requires
-  `sens-enterprise-summary` and `merge-gate` with strict status checks.
+  `.github/workflows/ci-affected.yml`; the required-check SSOT is
+  `.github/manifests/main-required-status-checks.json`; static enforcement
+  passes through `npm run gates:required-status-checks`. On 2026-06-18, GitHub
+  branch protection for `main` was updated from absent to strict required status
+  checks, and `npm run gates:required-status-checks:live` passed, proving
+  `sens-enterprise-summary` and `merge-gate` are required. Registry closure is
+  intentionally pending until this evidence has a reachable `Closes:` trailer
+  commit for the registry CLI.

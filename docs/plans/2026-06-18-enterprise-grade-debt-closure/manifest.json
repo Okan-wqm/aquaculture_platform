@@ -284,7 +284,7 @@
     {
       "id": "required-status-checks-live",
       "command": "npm run gates:required-status-checks:live",
-      "expected": "exit 0 before EDGE-CRITICAL-001 closure; 2026-06-18 observation is HTTP 404 Branch not protected"
+      "expected": "exit 0; 2026-06-18 observation is strict main branch protection requiring sens-enterprise-summary and merge-gate"
     },
     {
       "id": "affected-test",

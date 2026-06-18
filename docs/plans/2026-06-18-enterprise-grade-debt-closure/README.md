@@ -179,6 +179,7 @@ These are not optional work items. They block normal domain execution:
 - Active CRITICAL findings must be assigned or validly marked BLOCKED.
 - Product contract gate `gates:aquamobil-messaging-contracts` must be green
   before messaging/mobile closure.
-- Edge required-check evidence must exist before edge closure claims:
-  `npm run gates:required-status-checks:live` currently fails because GitHub
-  reports `main` branch protection as absent.
+- Edge required-check evidence must exist before edge closure claims. As of
+  2026-06-18, `npm run gates:required-status-checks:live` passes and proves
+  `main` requires `sens-enterprise-summary` and `merge-gate` with strict status
+  checks.

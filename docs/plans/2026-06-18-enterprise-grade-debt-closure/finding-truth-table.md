@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `5b25bc6407ca593fef3971bc8273dd22bbe6446fe20229265ccfcd4797af5a37`
+Registry tip: `098867b6b239ea44e1cd3f28602e5810aa3c3593f86e5bc2ab77ac7de25996d5`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,7 +20,6 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-019`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-020`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-021`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-023`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
@@ -211,6 +210,17 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   retired `migration_runner_applied` signal and any duplicate
   `db_migrate_complete` ownership outside `db-migrate`, with regression
   coverage in `platform/libs/service-catalog/src/service-catalog.spec.ts`.
+- `INFRA-CRITICAL-019`: registry state is `RESOLVED` with closing commit
+  `fca70139788ec47ab6b5116b686cdbef58915ed6`. The original deploy blocker was
+  removed from `MODULE_SCHEMAS` when `supplier_sites` and `site_contacts` were
+  genuine orphan fan-out entries. The later farm-service wiring commit
+  `11b9f54e65f9d1b460d09c23942dea290ad414f8` reintroduced both tables only with
+  matching migration DDL, entity ownership, module registration, and
+  `MODULE_SCHEMAS[farm].tables` alignment. Current validation passed
+  `npx jest --config tests/invariants/jest.config.ts
+  tests/invariants/tenant-fanout-entity-parity.spec.ts --runInBand`, proving
+  every tenant-scoped entity has exactly one fan-out declaration and every
+  `MODULE_SCHEMAS.tables` entry has a backing entity.
 - `INFRA-CRITICAL-011`: registry state is `RESOLVED` with closing commit
   `1264a3060042861dd2e29fd145223a1211651323`. PR #544 passed GitHub Actions on
   2026-06-19, including E2E messaging, build, test, lint, type-check,

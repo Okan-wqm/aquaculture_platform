@@ -63,8 +63,8 @@ import Ajv2020Mod, { type ValidateFunction } from 'ajv/dist/2020.js';
 // PROC-HIGH-001 structural guard — close ceremony refuses branch-local
 // SHAs (see cmdClose). The shared SSOT helper is import-safe for
 // node:test specs, which use the same extensionless CJS specifier.
-import { commitReachableFrom } from './git-reachability';
 import { commitHasFindingCloseTrailer } from './finding-traceability';
+import { commitReachableFrom } from './git-reachability';
 
 const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 

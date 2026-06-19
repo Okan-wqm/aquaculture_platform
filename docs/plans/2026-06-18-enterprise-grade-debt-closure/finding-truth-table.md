@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `098867b6b239ea44e1cd3f28602e5810aa3c3593f86e5bc2ab77ac7de25996d5`
+Registry tip: `f8acbaa670908353114d19242a0179a51860418985f5b01169854bdc6a0364eb`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,7 +20,6 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-020`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-021`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-023`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-024`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
@@ -221,6 +220,17 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   tests/invariants/tenant-fanout-entity-parity.spec.ts --runInBand`, proving
   every tenant-scoped entity has exactly one fan-out declaration and every
   `MODULE_SCHEMAS.tables` entry has a backing entity.
+- `INFRA-CRITICAL-020`: registry state is `RESOLVED` with closing commit
+  `9df598ed5d93b0dad38333eb6f50d1ccad4e8594`. PR #556 wired
+  `tests/invariants/all-services-env-aware-migrations.spec.ts` into the
+  invariant Jest registry shard and removed the stale auth-service
+  `migrationsRun: true` allowance, making `migrationsRunFromEnv` the
+  single fleet-wide migration timing contract. GitHub Actions passed
+  `invariants-fast`, `validate-closes`, `banned-phrase-gate`, and
+  `merge-gate` on 2026-06-19. Local validation passed
+  `npx jest --config tests/invariants/jest.config.ts
+  tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
+  the paired messaging migration runner invariant, and `git diff --check`.
 - `INFRA-CRITICAL-011`: registry state is `RESOLVED` with closing commit
   `1264a3060042861dd2e29fd145223a1211651323`. PR #544 passed GitHub Actions on
   2026-06-19, including E2E messaging, build, test, lint, type-check,

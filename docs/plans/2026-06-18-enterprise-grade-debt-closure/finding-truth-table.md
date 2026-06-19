@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `c9f9b213f227609909806b3574aeb1bf9f2f00837086d20cd4892995ec324e7d`
+Registry tip: `4e54ae44bc5a1c4ce561ea5d033c167d36806514c8c4cdf08ee34366e05513f1`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,7 +20,6 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-011`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-012`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-009`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-015`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
@@ -175,6 +174,23 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `.github/manifests/postgres-image.json` SSoT, and every workflow/compose
   Postgres image reference must match the pgvector-capable digest-pinned
   TimescaleDB HA image.
+- `INFRA-CRITICAL-011`: registry state is `RESOLVED` with closing commit
+  `1264a3060042861dd2e29fd145223a1211651323`. PR #544 passed GitHub Actions on
+  2026-06-19, including E2E messaging, build, test, lint, type-check,
+  invariants-fast, bootstrap-from-scratch, tenant-clone-parity,
+  entity-diff-witness, migration-deletion-witness, sens-api-gateway-rust,
+  sens-enterprise-validation, and merge-gate. Local evidence passed the active
+  `tests/invariants/messaging-schema-ssot.spec.ts`,
+  `tests/invariants/github-actions-tpm-deps-ssot.spec.ts`,
+  `npm run gates:sens-enterprise-validation`, `npm run invariants:fast`,
+  `npm run findings:verify`, `npm run gates:required-status-checks`, affected
+  lint/test/build, YAML parsing for the touched Actions files, and
+  `git diff --check`. The messaging schema DDL SSoT is now the TypeORM migration
+  ledger plus platform bootstrap primitives; the stale service-local
+  `init-messaging-schema.sql` authority was deleted. The CI TPM dependency SSoT
+  is `.github/actions/install-tpm-build-dependencies/action.yml`, and the Sens
+  enterprise gate now reads that local action instead of a duplicated raw apt
+  literal.
 - `FE-CRITICAL-050`: registry state is `RESOLVED` with closing commit
   `109563f`. The AquaMobil Vitest run above passed the service-worker artifact
   invariant, proving `messaging-sw.ts` is emitted through `injectManifest` with

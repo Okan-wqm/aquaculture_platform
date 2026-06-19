@@ -69,8 +69,8 @@ const baseTransform = {
       // project-wide type-check dominates startup (~5s per spec file).
       // The invariant suite's type safety is already enforced by the
       // `type-check` root script (tsc --noEmit platform-wide); this
-      // transform needs only syntactic transpilation.
-      isolatedModules: true,
+      // transform needs only syntactic transpilation, owned by
+      // tsconfig.spec.json instead of deprecated ts-jest inline config.
     },
   ],
 };
@@ -169,6 +169,7 @@ export default {
       testMatch: [
         '<rootDir>/adoption-invariants.spec.ts',
         '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',
+        '<rootDir>/no-runtime-synchronize.spec.ts',
         '<rootDir>/required-signals-vs-emitters.spec.ts',
         '<rootDir>/migration-registration-completeness.spec.ts',
         '<rootDir>/migration-glob-contract.spec.ts',
@@ -198,6 +199,7 @@ export default {
         '<rootDir>/audit-log-mandatory-shape.spec.ts',
         '<rootDir>/drift-repair-naming.spec.ts',
         '<rootDir>/init-scripts-no-schema-ddl.spec.ts',
+        '<rootDir>/toolchain-config-ssot.spec.ts',
       ],
     },
   ],

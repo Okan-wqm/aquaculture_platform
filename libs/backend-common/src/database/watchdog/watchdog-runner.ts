@@ -1,9 +1,12 @@
-import { DataSource } from 'typeorm';
 import { Logger } from '@nestjs/common';
-import { SourceSchemaScanner, WatchdogViolation, ViolationSeverity } from './source-schema-scanner';
+import { DataSource } from 'typeorm';
+
+import { MODULE_SCHEMAS } from '../schema-manager.service';
+import { listTenantSchemas } from '../tenant-schema.utils';
+
 import { CrossTenantProbe } from './cross-tenant-probe';
 import { SchemaDriftDetector } from './schema-drift-detector';
-import { MODULE_SCHEMAS } from '../schema-manager.service';
+import { SourceSchemaScanner, WatchdogViolation, ViolationSeverity } from './source-schema-scanner';
 
 /**
  * Which scanners to run in a watchdog scan.
@@ -62,6 +65,10 @@ const SEVERITY_ORDER: Record<ViolationSeverity, number> = {
   LOW: 3,
 };
 
+function toWatchdogError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 /**
  * WatchdogRunner orchestrates all watchdog scanners and produces a unified report.
  *
@@ -118,7 +125,7 @@ export class WatchdogRunner {
 
       promise.then(
         (result) => { clearTimeout(timer); resolve(result); },
-        (err) => { clearTimeout(timer); reject(err); },
+        (err) => { clearTimeout(timer); reject(toWatchdogError(err)); },
       );
     });
   }
@@ -154,7 +161,7 @@ export class WatchdogRunner {
         violations.push(...results);
         this.logger.log(`SourceSchemaScanner: ${results.length} violations found`);
       } catch (err) {
-        const errorMsg = `SourceSchemaScanner failed: ${(err as Error).message}`;
+        const errorMsg = `SourceSchemaScanner failed: ${toWatchdogError(err).message}`;
         this.logger.error(errorMsg);
         scannerErrors.push({ scanner: 'SourceSchemaScanner', error: errorMsg });
       }
@@ -169,7 +176,7 @@ export class WatchdogRunner {
         violations.push(...results);
         this.logger.log(`CrossTenantProbe: ${results.length} violations found`);
       } catch (err) {
-        const errorMsg = `CrossTenantProbe failed: ${(err as Error).message}`;
+        const errorMsg = `CrossTenantProbe failed: ${toWatchdogError(err).message}`;
         this.logger.error(errorMsg);
         scannerErrors.push({ scanner: 'CrossTenantProbe', error: errorMsg });
       }
@@ -184,7 +191,7 @@ export class WatchdogRunner {
         violations.push(...results);
         this.logger.log(`SchemaDriftDetector: ${results.length} violations found`);
       } catch (err) {
-        const errorMsg = `SchemaDriftDetector failed: ${(err as Error).message}`;
+        const errorMsg = `SchemaDriftDetector failed: ${toWatchdogError(err).message}`;
         this.logger.error(errorMsg);
         scannerErrors.push({ scanner: 'SchemaDriftDetector', error: errorMsg });
       }
@@ -216,10 +223,7 @@ export class WatchdogRunner {
     let schemasScanned = 0;
     try {
       if (opts.schemaDrift || opts.crossTenantData) {
-        const tenantSchemas = await this.dataSource.query(
-          `SELECT COUNT(*) as cnt FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%'`,
-        );
-        schemasScanned += parseInt(tenantSchemas[0]?.cnt || '0');
+        schemasScanned += (await listTenantSchemas(this.dataSource)).length;
       }
       if (opts.sourceContamination) {
         // Source schemas scanned = number of MODULE_SCHEMAS entries

@@ -6,7 +6,8 @@
  * - CodeGeneratorService: Unique kod üretimi
  * - FarmSeedService: Başlangıç verisi oluşturma (dev ortamı)
  * - MigrationRunnerService: Pending TypeORM migration'larını OnApplicationBootstrap
- *   sırasında çalıştırır (SourceSchemaBootstrap.synchronize() sonrası)
+ *   sırasında çalıştırır; SourceSchemaBootstrapService yalnızca migration sonrası
+ *   source schema doğrulaması yapar.
  */
 import { Module, Global } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';

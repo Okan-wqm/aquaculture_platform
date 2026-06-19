@@ -14,9 +14,10 @@
  */
 import { INestApplication, ValidationPipe, HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { getDataSourceToken } from '@nestjs/typeorm';
 import request from 'supertest';
-import { DataSource } from 'typeorm';
 
+import { AuditLogService } from '../../../audit/audit.service';
 import { PlatformAdminGuard } from '../../../guards/platform-admin.guard';
 import { DatabaseExplorerController } from '../../controllers/explorer.controller';
 
@@ -33,6 +34,10 @@ describe('DatabaseExplorerController Security', () => {
     createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
   };
 
+  const mockAuditLogService = {
+    log: jest.fn().mockResolvedValue({ id: 'audit-log-id' }),
+  };
+
   // Mock the guard to always allow (we're testing controller logic, not auth)
   const mockGuard = { canActivate: jest.fn().mockReturnValue(true) };
 
@@ -40,7 +45,9 @@ describe('DatabaseExplorerController Security', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DatabaseExplorerController],
       providers: [
-        { provide: DataSource, useValue: mockDataSource },
+        { provide: getDataSourceToken('explorer-readonly'), useValue: mockDataSource },
+        { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: AuditLogService, useValue: mockAuditLogService },
       ],
     })
       .overrideGuard(PlatformAdminGuard)
@@ -66,12 +73,15 @@ describe('DatabaseExplorerController Security', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockQueryRunner.query.mockResolvedValue([]);
+    mockAuditLogService.log.mockResolvedValue({ id: 'audit-log-id' });
     // Reset NODE_ENV for each test
     process.env['NODE_ENV'] = 'development';
+    process.env['ENABLE_RAW_SQL_EXPLORER'] = 'true';
   });
 
   afterEach(() => {
     delete process.env['NODE_ENV'];
+    delete process.env['ENABLE_RAW_SQL_EXPLORER'];
   });
 
   // ========================================================================
@@ -126,12 +136,13 @@ describe('DatabaseExplorerController Security', () => {
 
     it('should accept identifiers with numbers', async () => {
       mockQueryRunner.query
+        .mockResolvedValueOnce([]) // SET TRANSACTION READ ONLY
         .mockResolvedValueOnce([]) // columns
         .mockResolvedValueOnce([{ count: '0' }]) // count
         .mockResolvedValueOnce([]); // data
 
       const res = await request(app.getHttpServer())
-        .get('/database/explorer/schemas/tenant_123/tables/users_v2/data');
+        .get('/database/explorer/schemas/public/tables/users_v2/data');
 
       expect(res.status).toBe(HttpStatus.OK);
     });
@@ -143,12 +154,13 @@ describe('DatabaseExplorerController Security', () => {
   describe('Raw SQL query endpoint (POST /database/explorer/query)', () => {
     it('should block raw queries in production', async () => {
       process.env['NODE_ENV'] = 'production';
+      process.env['ENABLE_RAW_SQL_EXPLORER'] = 'true';
 
       const res = await request(app.getHttpServer())
         .post('/database/explorer/query')
         .send({ sql: 'SELECT 1' });
 
-      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(res.status).toBe(HttpStatus.FORBIDDEN);
       expect(res.body.message).toContain('disabled in production');
     });
 
@@ -200,7 +212,7 @@ describe('DatabaseExplorerController Security', () => {
           .send({ sql: wrappedSql });
 
         expect(res.status).toBe(HttpStatus.BAD_REQUEST);
-        expect(res.body.message).toContain('disallowed');
+        expect(res.body.message).toMatch(/disallowed|Multi-statement/);
       });
     });
 
@@ -228,7 +240,7 @@ describe('DatabaseExplorerController Security', () => {
           .send({ sql: safeSql });
 
         expect(res.status).toBe(HttpStatus.BAD_REQUEST);
-        expect(res.body.message).toContain('disallowed');
+        expect(res.body.message).toMatch(/disallowed|Multi-statement/);
       });
     });
 
@@ -305,6 +317,7 @@ describe('DatabaseExplorerController Security', () => {
     it('should mask sensitive columns by default', async () => {
       // Mock column info query
       mockQueryRunner.query
+        .mockResolvedValueOnce([]) // SET TRANSACTION READ ONLY
         .mockResolvedValueOnce([ // getTables columns query
           {
             column_name: 'id',
@@ -338,40 +351,16 @@ describe('DatabaseExplorerController Security', () => {
       }
     });
 
-    it('should allow unmasking with includeSensitive=true', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([
-          {
-            column_name: 'id',
-            data_type: 'uuid',
-            is_nullable: false,
-            column_default: null,
-            is_primary_key: true,
-            is_foreign_key: false,
-          },
-          {
-            column_name: 'password',
-            data_type: 'varchar',
-            is_nullable: false,
-            column_default: null,
-            is_primary_key: false,
-            is_foreign_key: false,
-          },
-        ])
-        .mockResolvedValueOnce([{ count: '1' }])
-        .mockResolvedValueOnce([{ id: 'u1', password: 'secret123' }]);
-
+    it('should reject client-controlled sensitive unmasking', async () => {
       const res = await request(app.getHttpServer())
         .get('/database/explorer/schemas/auth/tables/users/data?includeSensitive=true');
 
-      expect(res.status).toBe(HttpStatus.OK);
-      if (res.body.rows && res.body.rows.length > 0) {
-        expect(res.body.rows[0].password).toBe('secret123');
-      }
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
 
     it('should always mask sensitive data in exports', async () => {
       mockQueryRunner.query
+        .mockResolvedValueOnce([]) // SET TRANSACTION READ ONLY
         .mockResolvedValueOnce([
           {
             column_name: 'id',
@@ -408,6 +397,7 @@ describe('DatabaseExplorerController Security', () => {
   describe('Pagination limits', () => {
     it('should enforce max limit of 100 for table data', async () => {
       mockQueryRunner.query
+        .mockResolvedValueOnce([]) // SET TRANSACTION READ ONLY
         .mockResolvedValueOnce([]) // columns
         .mockResolvedValueOnce([{ count: '1000' }])
         .mockResolvedValueOnce([]);
@@ -422,6 +412,7 @@ describe('DatabaseExplorerController Security', () => {
 
     it('should enforce min limit of 1', async () => {
       mockQueryRunner.query
+        .mockResolvedValueOnce([]) // SET TRANSACTION READ ONLY
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ count: '10' }])
         .mockResolvedValueOnce([]);
@@ -435,6 +426,7 @@ describe('DatabaseExplorerController Security', () => {
 
     it('should enforce max export limit of 10000', async () => {
       mockQueryRunner.query
+        .mockResolvedValueOnce([]) // SET TRANSACTION READ ONLY
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
 
@@ -450,6 +442,14 @@ describe('DatabaseExplorerController Security', () => {
   // 5. CRUD Operations - Input Validation
   // ========================================================================
   describe('CRUD operations input validation', () => {
+    beforeEach(() => {
+      process.env['ENABLE_DB_EXPLORER_WRITES'] = 'true';
+    });
+
+    afterEach(() => {
+      delete process.env['ENABLE_DB_EXPLORER_WRITES'];
+    });
+
     it('should reject insert with no data', async () => {
       const res = await request(app.getHttpServer())
         .post('/database/explorer/schemas/public/tables/users/rows')
@@ -504,10 +504,12 @@ describe('DatabaseExplorerController Security', () => {
     });
 
     it('should release query runner even on error', async () => {
-      mockQueryRunner.query.mockRejectedValue(new Error('DB error'));
+      mockQueryRunner.query
+        .mockResolvedValueOnce([])
+        .mockRejectedValueOnce(new Error('DB error'));
 
       await request(app.getHttpServer())
-        .get('/database/explorer/schemas/valid_schema/tables');
+        .get('/database/explorer/schemas/public/tables');
 
       expect(mockQueryRunner.release).toHaveBeenCalled();
     });

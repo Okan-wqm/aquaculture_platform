@@ -15,9 +15,10 @@
 
 import { INestApplication, ValidationPipe, HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { getDataSourceToken } from '@nestjs/typeorm';
 import request from 'supertest';
-import { DataSource } from 'typeorm';
 
+import { AuditLogService } from '../../../audit/audit.service';
 import { PlatformAdminGuard } from '../../../guards/platform-admin.guard';
 import { DatabaseExplorerController } from '../explorer.controller';
 
@@ -34,13 +35,19 @@ describe('Explorer SQL Security', () => {
     createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
   };
 
+  const mockAuditLogService = {
+    log: jest.fn().mockResolvedValue({ id: 'audit-log-id' }),
+  };
+
   const mockGuard = { canActivate: jest.fn().mockReturnValue(true) };
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DatabaseExplorerController],
       providers: [
-        { provide: DataSource, useValue: mockDataSource },
+        { provide: getDataSourceToken('explorer-readonly'), useValue: mockDataSource },
+        { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: AuditLogService, useValue: mockAuditLogService },
       ],
     })
       .overrideGuard(PlatformAdminGuard)
@@ -65,6 +72,7 @@ describe('Explorer SQL Security', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockQueryRunner.query.mockResolvedValue([]);
+    mockAuditLogService.log.mockResolvedValue({ id: 'audit-log-id' });
     process.env['NODE_ENV'] = 'development';
     process.env['ENABLE_RAW_SQL_EXPLORER'] = 'true';
   });
@@ -273,6 +281,13 @@ describe('Explorer SQL Security', () => {
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
       expect(res.body.message).toContain('restricted schemas');
+    });
+
+    it('should reject module table names through allowed schemas', async () => {
+      const res = await postQuery('SELECT * FROM public.sensors');
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(res.body.message).toContain('restricted module tables');
     });
 
     it('should allow public schema access', async () => {

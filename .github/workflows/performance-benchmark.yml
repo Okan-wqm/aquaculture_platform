@@ -76,7 +76,7 @@ jobs:
       - name: Build
         run: |
           npm run build -- --base="${{ steps.nx-refs.outputs.base }}" --head="${{ steps.nx-refs.outputs.head }}"
-          npx nx run shell:build
+          node tools/toolchain/run.mjs npx nx run shell:build
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'

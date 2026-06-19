@@ -31,7 +31,7 @@ export class CreatePurchaseOrderHandler implements ICommandHandler<CreatePurchas
       const year = new Date().getFullYear();
       const countResult = await poRepo
         .createQueryBuilder('po')
-        .where('po.orderNumber LIKE :prefix', { prefix: `PO-${year}-%` })
+        .andWhere('po.orderNumber LIKE :prefix', { prefix: `PO-${year}-%` })
         .getCount();
       const orderNumber = `PO-${year}-${String(countResult + 1).padStart(3, '0')}`;
 

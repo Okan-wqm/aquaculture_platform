@@ -1,6 +1,10 @@
 import { randomUUID } from 'crypto';
 
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  listTenantSchemas,
+  pinTenantSchemaTransactionSearchPath,
+} from '@aquaculture/backend-common/database';
 import {
   createStandardPaginatedResult,
   IStandardPaginatedResult,
@@ -742,11 +746,9 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
     let totalAffected = 0;
 
-    let schemas: Array<{ schema_name: string }>;
+    let schemas: string[];
     try {
-      schemas = await this.dataSource.query(
-        `SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%'`,
-      );
+      schemas = await listTenantSchemas(this.dataSource);
     } catch (err) {
       this.logger.error(
         `Failed to fetch tenant schemas for stale-device check: ${(err as Error).message}`,
@@ -754,11 +756,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return 0;
     }
 
-    for (const { schema_name } of schemas) {
+    for (const schemaName of schemas) {
       const qr = this.dataSource.createQueryRunner();
       try {
         await qr.connect();
-        await qr.query(`SET search_path TO "${schema_name}", sensor, public`);
+        await qr.startTransaction();
+        await pinTenantSchemaTransactionSearchPath(qr, 'sensor', schemaName);
 
         const result: unknown = await qr.query(
           `UPDATE edge_devices
@@ -777,15 +780,18 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
         const affected = EdgeDeviceService.queryAffectedRows(result);
         if (affected > 0) {
-          this.logger.log(`Marked ${affected} devices as offline in ${schema_name}`);
+          this.logger.log(`Marked ${affected} devices as offline in ${schemaName}`);
           totalAffected += affected;
         }
+        await qr.commitTransaction();
       } catch (err) {
+        if (qr.isTransactionActive) {
+          await qr.rollbackTransaction().catch(() => undefined);
+        }
         this.logger.error(
-          `Failed stale-device check for ${schema_name}: ${(err as Error).message}`,
+          `Failed stale-device check for ${schemaName}: ${(err as Error).message}`,
         );
       } finally {
-        await qr.query('RESET search_path').catch(() => undefined);
         await qr.release();
       }
     }

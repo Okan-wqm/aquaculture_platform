@@ -272,7 +272,7 @@ jobs:
       - name: Run type check (affected plus changed TypeScript guard)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          npx nx affected -t type-check --base="$BASE_REF" --head=HEAD --parallel=2
+          node tools/toolchain/run.mjs npx nx affected -t type-check --base="$BASE_REF" --head=HEAD --parallel=2
           node scripts/ci/type-check-changed-files.mjs --base "$BASE_REF" --head HEAD
         timeout-minutes: 35
         env:
@@ -355,13 +355,13 @@ jobs:
           fi
 
           FILES_ARG="$(printf '%s\n' "$AFFECTED_FILES" | paste -sd, -)"
-          AFFECTED_TEST_PROJECTS="$(npx nx show projects --affected --files="$FILES_ARG" --with-target=test)"
+          AFFECTED_TEST_PROJECTS="$(node tools/toolchain/run.mjs npx nx show projects --affected --files="$FILES_ARG" --with-target=test)"
 
           if printf '%s\n' "$AFFECTED_TEST_PROJECTS" | grep -Fxq 'migration-harness'; then
             # Image prewarm happens in the dedicated dependency-aware step
             # above (INFRA-HIGH-011) — single prewarm owner for every
             # bootPostgresContainer consumer, this project included.
-            npx nx run migration-harness:test
+            node tools/toolchain/run.mjs npx nx run migration-harness:test
           else
             echo "migration-harness is not affected; skipping isolated Testcontainers gate."
           fi
@@ -474,7 +474,7 @@ jobs:
             exit 0
           fi
 
-          npx nx build farm-module
+          node tools/toolchain/run.mjs npx nx build farm-module
 
           mkdir -p web/shell/src/generated
           FARM_REMOTE_ENTRY="web/modules/farm-module/dist/remoteEntry.js"
@@ -489,7 +489,7 @@ jobs:
           }
           JSON
 
-          npx nx build shell
+          node tools/toolchain/run.mjs npx nx build shell
 
           node e2e/scripts/serve-water-chemistry-shell.mjs > /tmp/farm-water-chemistry-shell.log 2>&1 &
           SERVER_PID="$!"
@@ -580,7 +580,7 @@ jobs:
         run: mkdir -p .nx/cache
 
       - name: Build (affected only)
-        run: npx nx affected -t build --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
+        run: node tools/toolchain/run.mjs npx nx affected -t build --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
         timeout-minutes: 45
         env:
           NX_DAEMON: 'false'
@@ -950,7 +950,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install markdownlint
-        run: npm install -g markdownlint-cli
+        run: npm install -g markdownlint-cli@0.45.0 --ignore-scripts --no-audit --no-fund
 
       - name: Check markdown files
         run: markdownlint 'docs/**/*.md' --ignore node_modules

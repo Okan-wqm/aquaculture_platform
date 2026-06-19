@@ -37,7 +37,7 @@ jest.mock('@nats-io/jetstream', () => {
   };
 });
 
-function config(): ConfigService {
+function config(overrides: Record<string, unknown> = {}): ConfigService {
   return {
     get: jest.fn((key: string, defaultValue?: unknown) => {
       const values: Record<string, unknown> = {
@@ -46,6 +46,7 @@ function config(): ConfigService {
         SERVICE_NAME: 'auth-service',
         NATS_MAX_RECONNECT_ATTEMPTS: 1,
         NATS_RECONNECT_TIME_WAIT_MS: 1,
+        ...overrides,
       };
       return key in values ? values[key] : defaultValue;
     }),
@@ -67,8 +68,10 @@ function successfulConnection(): NatsConnection {
 describe('NatsEventBus boot invariant signals', () => {
   let logSpy: jest.SpyInstance;
   let errorSpy: jest.SpyInstance;
+  let originalNodeEnv: string | undefined;
 
   beforeEach(() => {
+    originalNodeEnv = process.env['NODE_ENV'];
     logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
     errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation();
     jest.mocked(buildNatsConnectionOptions).mockReturnValue({
@@ -81,7 +84,26 @@ describe('NatsEventBus boot invariant signals', () => {
   });
 
   afterEach(() => {
+    if (originalNodeEnv === undefined) {
+      delete process.env['NODE_ENV'];
+    } else {
+      process.env['NODE_ENV'] = originalNodeEnv;
+    }
     jest.restoreAllMocks();
+  });
+
+  it('rejects single-replica JetStream in production', () => {
+    process.env['NODE_ENV'] = 'production';
+
+    expect(() => new NatsEventBus(config({ NATS_STREAM_REPLICAS: '1' }))).toThrow(
+      'NATS_STREAM_REPLICAS must be at least 3',
+    );
+  });
+
+  it('allows production default stream replication to resolve to HA', () => {
+    process.env['NODE_ENV'] = 'production';
+
+    expect(() => new NatsEventBus(config())).not.toThrow();
   });
 
   it('emits nats_auth_mode_mtls only after a successful connect', async () => {

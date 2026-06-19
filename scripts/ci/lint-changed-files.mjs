@@ -116,15 +116,11 @@ function eslintCommand() {
     return { command: override, prefixArgs: [] };
   }
 
-  const binary = join(
-    repoRoot,
-    'node_modules',
-    '.bin',
-    process.platform === 'win32' ? 'eslint.cmd' : 'eslint',
-  );
-  if (existsSync(binary)) {
-    return { command: binary, prefixArgs: [] };
+  const toolchainRunner = join(repoRoot, 'tools', 'toolchain', 'run.mjs');
+  if (existsSync(toolchainRunner)) {
+    return { command: process.execPath, prefixArgs: [toolchainRunner, 'eslint'] };
   }
+
   return { command: 'npx', prefixArgs: ['eslint'] };
 }
 
@@ -310,6 +306,10 @@ function syncLintConfigFromHead(worktree) {
     // aborts with ERR_MODULE_NOT_FOUND before any rule runs. Match every eslint*.mjs
     // sibling so future config splits stay covered automatically.
     ':(glob)**/eslint.*.mjs',
+    // eslint.config.mjs imports the root toolchain runtime before loading Nx's
+    // plugin. That runtime owner is part of the lint ruleset, so the base
+    // comparison worktree must receive HEAD's copy together with the config.
+    ':(glob)tools/toolchain/**/*.mjs',
     ':(glob)**/tsconfig*.json',
     ':(glob)**/.eslintignore',
   ];

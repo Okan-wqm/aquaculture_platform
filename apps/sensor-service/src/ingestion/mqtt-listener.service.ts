@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 
 /**
  * SECURITY: UUID constant for system-level operations.
@@ -28,7 +28,13 @@ import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity'
 import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
 import { withTenantContext } from '@aquaculture/backend-common/context';
-import { getTenantSchemaName, TenantScopedRepository } from '@aquaculture/backend-common/database';
+import {
+  listTenantSchemas,
+  pinTenantSchemaTransactionSearchPath,
+  runInTenantTransaction,
+  tenantManagerRepo,
+  TenantScopedRepository,
+} from '@aquaculture/backend-common/database';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
@@ -172,10 +178,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     @InjectRepository(Sensor)
     private readonly sensorRepository: Repository<Sensor>,
-    @InjectRepository(SensorReading)
-    private readonly readingRepository: Repository<SensorReading>,
-    @InjectRepository(SensorDataChannel)
-    private readonly channelRepository: Repository<SensorDataChannel>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     @Optional()
@@ -1526,25 +1528,28 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Load full sensor entity from cached info.
-   * Uses a dedicated QueryRunner so the SET search_path mutation is scoped
-   * to a single connection and never leaks back to the pool (HIGH-001).
+   * Uses a dedicated read transaction so tenant search_path is scoped
+   * and never leaks back to the pool (HIGH-001).
    */
   private async loadSensorFromCache(cachedInfo: CachedSensorInfo): Promise<Sensor | null> {
-    const safeSchemaName = cachedInfo.schemaName.replace(/[^a-zA-Z0-9_]/g, '');
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
+    await queryRunner.startTransaction();
     try {
-      await queryRunner.query(`SET search_path TO "${safeSchemaName}", public`);
+      await queryRunner.query('SET TRANSACTION READ ONLY');
+      await pinTenantSchemaTransactionSearchPath(queryRunner, 'sensor', cachedInfo.schemaName);
       const sensor = await queryRunner.manager.findOne(Sensor, {
         where: { id: cachedInfo.id },
       });
+      await queryRunner.commitTransaction();
       return sensor;
     } catch (error) {
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
       this.logger.error(`Error loading sensor ${cachedInfo.id} from cache: ${(error as Error).message}`);
       return null;
     } finally {
-      // Reset search_path on this specific connection before returning it to the pool
-      try { await queryRunner.query(`RESET search_path`); } catch { /* ignore */ }
       await queryRunner.release();
     }
   }
@@ -1564,31 +1569,28 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      // Get all tenant schemas (safe read-only query, no search_path mutation)
-      const tenantSchemas: Array<{ schema_name: string }> = await this.dataSource.query(`
-        SELECT schema_name FROM information_schema.schemata
-        WHERE schema_name LIKE 'tenant_%'
-        ORDER BY schema_name
-      `);
+      // Get all tenant schemas through the shared canonical validator.
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
 
       // Search in each tenant schema using a dedicated QueryRunner so the
-      // SET search_path mutation is scoped to a single connection and never
+      // transaction-local search_path is scoped to a single connection and never
       // leaks back to the pool under concurrent MQTT messages (HIGH-001).
-      for (const { schema_name } of tenantSchemas) {
+      for (const schemaName of tenantSchemas) {
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
+        await queryRunner.startTransaction();
         try {
-          // Sanitize schema name to prevent SQL injection
-          const safeSchemaName = schema_name.replace(/[^a-zA-Z0-9_]/g, '');
-          await queryRunner.query(`SET search_path TO "${safeSchemaName}", public`);
+          await queryRunner.query('SET TRANSACTION READ ONLY');
+          await pinTenantSchemaTransactionSearchPath(queryRunner, 'sensor', schemaName);
 
           // Check if sensors table exists in this schema
           const tableCheck: Array<{ '1': number }> = await queryRunner.query(`
             SELECT 1 FROM information_schema.tables
             WHERE table_schema = $1 AND table_name = 'sensors'
-          `, [schema_name]);
+          `, [schemaName]);
 
           if (tableCheck.length === 0) {
+            await queryRunner.commitTransaction();
             continue; // Skip schemas without sensors table
           }
 
@@ -1596,7 +1598,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           // schema searching for an MQTT-topic match. tenantManagerRepo
           // cannot be used because tenantId is not fixed — the whole
           // point of the scan is to FIND which tenant owns the topic.
-          // The search_path SET above isolates the query to the current
+          // The search_path pin above isolates the query to the current
           // schema in the loop; each iteration is a tenant-scoped
           // lookup by construction.
           // eslint-disable-next-line no-restricted-syntax -- cross-tenant topic-registry scan
@@ -1607,7 +1609,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             .getOne();
 
           if (sensorByTopic) {
-            this.logger.debug(`Found sensor ${sensorByTopic.id} in schema ${schema_name} for topic ${topic}`);
+            this.logger.debug(`Found sensor ${sensorByTopic.id} in schema ${schemaName} for topic ${topic}`);
+            await queryRunner.commitTransaction();
             return sensorByTopic;
           }
 
@@ -1623,7 +1626,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           for (const sensor of sensorsWithWildcard) {
             const configTopic = sensor.protocolConfiguration?.['topic'] as string;
             if (configTopic && this.topicMatches(configTopic, topic)) {
-              this.logger.debug(`Found sensor ${sensor.id} in schema ${schema_name} via wildcard for topic ${topic}`);
+              this.logger.debug(`Found sensor ${sensor.id} in schema ${schemaName} via wildcard for topic ${topic}`);
+              await queryRunner.commitTransaction();
               return sensor;
             }
           }
@@ -1634,6 +1638,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
               where: { id: parsed.sensorId },
             });
             if (sensorById) {
+              await queryRunner.commitTransaction();
               return sensorById;
             }
 
@@ -1642,16 +1647,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
               where: { serialNumber: parsed.sensorId },
             });
             if (sensorBySerial) {
+              await queryRunner.commitTransaction();
               return sensorBySerial;
             }
           }
+          await queryRunner.commitTransaction();
         } catch (schemaError) {
+          if (queryRunner.isTransactionActive) {
+            await queryRunner.rollbackTransaction();
+          }
           // Skip this schema if there's an error
-          this.logger.debug(`Error searching in schema ${schema_name}: ${(schemaError as Error).message}`);
+          this.logger.debug(`Error searching in schema ${schemaName}: ${(schemaError as Error).message}`);
           continue;
         } finally {
-          // Reset search_path on this specific connection before returning it to the pool
-          try { await queryRunner.query(`RESET search_path`); } catch { /* ignore */ }
           await queryRunner.release();
         }
       }
@@ -1737,96 +1745,88 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Each channel value becomes a separate row in sensor_metrics
    */
   private async saveReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
-    const now = new Date();
+    await runInTenantTransaction(this.dataSource, 'sensor', sensor.tenantId, async (queryRunner) => {
+      const now = new Date();
+      const channels = await this.getChannelsCached(sensor.id, queryRunner.manager);
+      const metrics: SensorMetricInput[] = [];
 
-    // Get channels with cache
-    const channels = await this.getChannelsCached(sensor.id);
+      for (const channel of channels) {
+        const rawValue = channel.dataPath
+          ? this.extractValue(data, channel.dataPath)
+          : data[channel.channelKey];
 
-    // Collect metrics for batch insert
-    const metrics: SensorMetricInput[] = [];
+        if (rawValue === undefined || rawValue === null) {
+          continue;
+        }
 
-    for (const channel of channels) {
-      // Extract value using dataPath or channelKey
-      const rawValue = channel.dataPath
-        ? this.extractValue(data, channel.dataPath)
-        : data[channel.channelKey];
+        const numericRawValue =
+          typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue));
+        if (!Number.isFinite(numericRawValue)) {
+          continue;
+        }
 
-      if (rawValue === undefined || rawValue === null) {
-        continue;
+        const calibratedValue = channel.applyCalibration(numericRawValue);
+        let qualityCode: number = QualityCodes.GOOD;
+        let qualityBits = 0;
+
+        const validation = channel.validateValue(calibratedValue);
+        if (!validation.valid) {
+          qualityCode = QualityCodes.BAD;
+          qualityBits |= 0x20; // Out of range bit
+        } else if (validation.level === 'operational') {
+          qualityCode = QualityCodes.UNCERTAIN_EU_EXCEEDED;
+        }
+
+        metrics.push({
+          time: now,
+          sensorId: sensor.id,
+          channelId: channel.id,
+          tenantId: sensor.tenantId,
+          siteId: sensor.siteId,
+          departmentId: sensor.departmentId,
+          systemId: sensor.systemId,
+          equipmentId: sensor.equipmentId,
+          tankId: sensor.tankId,
+          pondId: sensor.pondId,
+          farmId: sensor.farmId,
+          rawValue: numericRawValue,
+          value: calibratedValue,
+          qualityCode,
+          qualityBits,
+          sourceProtocol: 'mqtt',
+          sourceTimestamp: now,
+        });
       }
 
-      // Convert to number
-      const numericRawValue = typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue));
-      if (!Number.isFinite(numericRawValue)) {
-        continue;
+      if (metrics.length > 0) {
+        await this.batchInsertMetrics(queryRunner.manager, metrics);
       }
 
-      // Apply calibration
-      const calibratedValue = channel.applyCalibration(numericRawValue);
-
-      // Determine quality code
-      let qualityCode: number = QualityCodes.GOOD;
-      let qualityBits = 0;
-
-      // Check physical bounds
-      const validation = channel.validateValue(calibratedValue);
-      if (!validation.valid) {
-        qualityCode = QualityCodes.BAD;
-        qualityBits |= 0x20; // Out of range bit
-      } else if (validation.level === 'operational') {
-        qualityCode = QualityCodes.UNCERTAIN_EU_EXCEEDED;
+      const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'false') === 'true';
+      if (legacyEnabled) {
+        if (this.configService.get('NODE_ENV') === 'production') {
+          this.logger.warn('LEGACY_SENSOR_READINGS_ENABLED=true in production — dual write doubles I/O. Migrate to sensor_metrics and disable.');
+        }
+        await this.writeLegacyReading(queryRunner.manager, sensor, data);
       }
 
-      // Create metric entry
-      metrics.push({
-        time: now,
-        sensorId: sensor.id,
-        channelId: channel.id,
-        tenantId: sensor.tenantId,
-        siteId: sensor.siteId,
-        departmentId: sensor.departmentId,
-        systemId: sensor.systemId,
-        equipmentId: sensor.equipmentId,
-        tankId: sensor.tankId,
-        pondId: sensor.pondId,
-        farmId: sensor.farmId,
-        rawValue: numericRawValue,
-        value: calibratedValue,
-        qualityCode,
-        qualityBits,
-        sourceProtocol: 'mqtt',
-        sourceTimestamp: now,
-      });
-    }
-
-    // Batch INSERT all metrics
-    if (metrics.length > 0) {
-      await this.batchInsertMetrics(metrics);
-    }
-
-    // Write to legacy table for backward compatibility (deprecated, will be removed)
-    // Set LEGACY_SENSOR_READINGS_ENABLED=false when migration to sensor_metrics is complete
-    const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'false') === 'true';
-    if (legacyEnabled) {
-      if (this.configService.get('NODE_ENV') === 'production') {
-        this.logger.warn('LEGACY_SENSOR_READINGS_ENABLED=true in production — dual write doubles I/O. Migrate to sensor_metrics and disable.');
-      }
-      await this.writeLegacyReading(sensor, data);
-    }
-
-    this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
+      this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
+    });
   }
 
   /**
    * Get channels for a sensor with 60-second cache
    */
-  private async getChannelsCached(sensorId: string): Promise<SensorDataChannel[]> {
+  private async getChannelsCached(
+    sensorId: string,
+    manager: EntityManager,
+  ): Promise<SensorDataChannel[]> {
     const cached = this.channelCache.get(sensorId);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.channels;
     }
 
-    const channels = await this.channelRepository.find({
+    const channels = await tenantManagerRepo(manager, SensorDataChannel).find({
       where: { sensorId, isEnabled: true },
     });
 
@@ -1878,7 +1878,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   /**
    * Batch insert metrics using parameterized SQL for plan cache reuse and safety
    */
-  private async batchInsertMetrics(metrics: SensorMetricInput[]): Promise<void> {
+  private async batchInsertMetrics(
+    manager: EntityManager,
+    metrics: SensorMetricInput[],
+  ): Promise<void> {
     if (metrics.length === 0) return;
 
     // Validate required UUIDs
@@ -1927,7 +1930,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       valuePlaceholders.push(`(${placeholders.join(', ')})`);
     }
 
-    await this.dataSource.query(`
+    await manager.query(`
       INSERT INTO sensor_metrics (
         time, sensor_id, channel_id, tenant_id,
         site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
@@ -1946,8 +1949,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * @deprecated Use sensor_metrics table instead. Controlled by LEGACY_SENSOR_READINGS_ENABLED env var.
    * This method will be removed once all consumers migrate to sensor_metrics.
    */
-  private async writeLegacyReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
-    const reading = this.readingRepository.create({
+  private async writeLegacyReading(
+    manager: EntityManager,
+    sensor: Sensor,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    const reading = manager.create(SensorReading, {
       id: randomUUID(),
       sensorId: sensor.id,
       tenantId: sensor.tenantId,
@@ -1959,7 +1966,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       source: 'mqtt',
     });
 
-    await this.readingRepository.save(reading);
+    await manager.save(SensorReading, reading);
   }
 
   /**

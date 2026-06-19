@@ -315,7 +315,7 @@ jobs:
           npm run gates:schema-drift-registration
           npm run gates:criticality-manifest
           npm run gates:signals-manifest
-          npx nx test db-migrate
+          node tools/toolchain/run.mjs npx nx test db-migrate
           bash scripts/ci/validate-deploy-ssot.sh
 
       - name: Compose preflight (droplet + staging overlay)
@@ -652,7 +652,7 @@ jobs:
         run: |
           PROJECTS="${{ needs.prepare.outputs.backend_csv }}"
           echo "Building backend projects: ${PROJECTS}"
-          npx nx run-many -t build \
+          node tools/toolchain/run.mjs npx nx run-many -t build \
             --projects="${PROJECTS}" \
             --parallel=3 \
             --verbose
@@ -730,7 +730,7 @@ jobs:
           # NX-managed frontend apps
           if [ -n "$NX_CSV" ]; then
             echo "Building NX frontend projects: ${NX_CSV}"
-            npx nx run-many -t build \
+            node tools/toolchain/run.mjs npx nx run-many -t build \
               --projects="${NX_CSV}" \
               --parallel=3 \
               --verbose

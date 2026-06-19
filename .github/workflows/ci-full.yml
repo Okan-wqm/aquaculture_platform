@@ -238,7 +238,7 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --prefer-offline
 
       - name: Build frontend modules
-        run: npx nx run-many --target=build --projects=dashboard,farm-module,hr-module,sensor-module,hydroponics-module,admin-panel,tenant-admin --parallel=4
+        run: node tools/toolchain/run.mjs npx nx run-many --target=build --projects=dashboard,farm-module,hr-module,sensor-module,hydroponics-module,admin-panel,tenant-admin --parallel=4
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
@@ -273,7 +273,7 @@ jobs:
           "
 
       - name: Build shell with generated SRI hash map
-        run: npx nx build shell
+        run: node tools/toolchain/run.mjs npx nx build shell
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'

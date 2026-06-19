@@ -50,7 +50,6 @@
 import { fileURLToPath } from 'node:url';
 
 import js from '@eslint/js';
-import nx from '@nx/eslint-plugin';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
 import aquaculture from 'eslint-plugin-aquaculture';
@@ -62,6 +61,11 @@ import globals from 'globals';
 import jsoncParser from 'jsonc-eslint-parser';
 
 import { PROJECT_LINT_OVERRIDES } from './eslint.project-overrides.mjs';
+import { applyToolchainRuntimeEnv } from './tools/toolchain/toolchain-runtime.mjs';
+
+applyToolchainRuntimeEnv();
+
+const nx = (await import('@nx/eslint-plugin')).default;
 
 const tsconfigRootDir = fileURLToPath(new URL('.', import.meta.url));
 
@@ -248,6 +252,26 @@ export default [
     ...cfg,
     files: ['**/*.ts', '**/*.tsx'],
   })),
+
+  // ── Node runtime scripts/configs ──
+  // Control-plane producers run on Node and share the root toolchain policy.
+  {
+    files: [
+      '*.config.{js,mjs,cjs}',
+      '**/*.config.{js,mjs,cjs}',
+      'scripts/**/*.{js,mjs,cjs}',
+      'tools/**/*.{js,mjs,cjs}',
+      'infrastructure/**/*.{js,mjs,cjs}',
+      'e2e/**/*.{js,mjs,cjs}',
+      'mcp/**/*.{js,mjs,cjs}',
+    ],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        fetch: 'readonly',
+      },
+    },
+  },
 
   // ── Base parser + type-aware project pin for ALL ts/tsx (non-project zones
   //    use TS_PROJECTS; per-project blocks below override `project`). ──

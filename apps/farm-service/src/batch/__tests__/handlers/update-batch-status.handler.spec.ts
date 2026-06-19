@@ -8,29 +8,44 @@ import { UpdateBatchStatusHandler } from '../../handlers/update-batch-status.han
 import { UpdateBatchStatusCommand } from '../../commands/update-batch-status.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { createMockDataSource } from '@aquaculture/testing';
+import type { OutboxPublisher } from '@platform/outbox';
+import type { Repository } from 'typeorm';
+import { BatchLifecyclePolicyService } from '../../services/batch-lifecycle-policy.service';
 
 describe('UpdateBatchStatusHandler', () => {
   let handler: UpdateBatchStatusHandler;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
-  // Handler was migrated from DomainEventPublisher to OutboxPublisher
-  // in phase D — the transactional outbox enqueues the event inside
-  // the same tx as the domain write. Mock surfaces `enqueue(event,
-  // manager)` and succeeds silently; assertions below verify the
-  // event is emitted exactly once per status change.
-  const mockOutboxPublisher = {
+
+  // tenantManagerRepo(queryRunner.manager, Batch, tenantId) resolves the
+  // manager-scoped Batch repository, then wraps it with tenant enforcement.
+  const innerBatchRepo: Pick<Repository<Batch>, 'findOne' | 'create' | 'save'> = {
+    findOne: jest.fn().mockResolvedValue(null),
+    create: jest.fn().mockImplementation((data: unknown) => data),
+    save: jest.fn().mockImplementation((data: unknown) => Promise.resolve(data)),
+  };
+
+  const mockOutboxPublisher: Pick<OutboxPublisher, 'enqueue'> = {
     enqueue: jest.fn().mockResolvedValue(undefined),
   };
+  const lifecyclePolicy = new BatchLifecyclePolicyService();
 
   beforeEach(() => {
     jest.clearAllMocks();
+    innerBatchRepo.findOne = jest.fn().mockResolvedValue(null);
+    innerBatchRepo.create = jest.fn().mockImplementation((data: unknown) => data);
+    innerBatchRepo.save = jest.fn().mockImplementation((data: unknown) =>
+      Promise.resolve(data),
+    );
+    mockManager.getRepository = jest.fn().mockReturnValue(innerBatchRepo) as typeof mockManager.getRepository;
+    mockOutboxPublisher.enqueue = jest.fn().mockResolvedValue(undefined);
     handler = new UpdateBatchStatusHandler(
-      mockDataSource as any,
-      {} as any, // batchRepository (not used directly — handler uses queryRunner.manager)
-      mockOutboxPublisher as any,
+      mockDataSource,
+      mockOutboxPublisher as OutboxPublisher,
+      lifecyclePolicy,
     );
   });
 
-  const TENANT = 'tenant-1';
+  const TENANT = '11111111-1111-4111-8111-111111111111';
   const USER = 'user-1';
 
   function makeBatch(status: BatchStatus): Partial<Batch> {
@@ -46,42 +61,56 @@ describe('UpdateBatchStatusHandler', () => {
 
   it('should transition QUARANTINE → ACTIVE', async () => {
     const batch = makeBatch(BatchStatus.QUARANTINE);
-    mockManager.findOne.mockResolvedValueOnce(batch);
-    mockManager.save.mockResolvedValueOnce({ ...batch, status: BatchStatus.ACTIVE });
+    innerBatchRepo.findOne = jest.fn().mockResolvedValueOnce(batch);
+    innerBatchRepo.save = jest.fn().mockImplementation((data: unknown) =>
+      Promise.resolve(data),
+    );
 
     const result = await handler.execute(
-      new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.ACTIVE, USER),
+      new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.ACTIVE, undefined, USER),
     );
 
     expect(result.status).toBe(BatchStatus.ACTIVE);
+    expect(mockOutboxPublisher.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'BatchStatusChanged',
+        tenantId: TENANT,
+        batchId: 'batch-1',
+        previousStatus: BatchStatus.QUARANTINE,
+        newStatus: BatchStatus.ACTIVE,
+        userId: USER,
+      }),
+      mockManager,
+    );
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
     expect(mockQueryRunner.release).toHaveBeenCalled();
   });
 
   it('should reject invalid transition ACTIVE → HARVESTED', async () => {
     const batch = makeBatch(BatchStatus.ACTIVE);
-    mockManager.findOne.mockResolvedValueOnce(batch);
+    innerBatchRepo.findOne = jest.fn().mockResolvedValueOnce(batch);
 
     await expect(
-      handler.execute(new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.HARVESTED, USER)),
+      handler.execute(new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.HARVESTED, undefined, USER)),
     ).rejects.toThrow(BadRequestException);
 
     expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+    expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
   });
 
   it('should throw NotFoundException when batch not found', async () => {
-    mockManager.findOne.mockResolvedValueOnce(null);
+    innerBatchRepo.findOne = jest.fn().mockResolvedValueOnce(null);
 
     await expect(
-      handler.execute(new UpdateBatchStatusCommand(TENANT, 'nonexistent', BatchStatus.ACTIVE, USER)),
+      handler.execute(new UpdateBatchStatusCommand(TENANT, 'nonexistent', BatchStatus.ACTIVE, undefined, USER)),
     ).rejects.toThrow(NotFoundException);
   });
 
   it('should always release queryRunner even on error', async () => {
-    mockManager.findOne.mockRejectedValueOnce(new Error('DB error'));
+    innerBatchRepo.findOne = jest.fn().mockRejectedValueOnce(new Error('DB error'));
 
     await expect(
-      handler.execute(new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.ACTIVE, USER)),
+      handler.execute(new UpdateBatchStatusCommand(TENANT, 'batch-1', BatchStatus.ACTIVE, undefined, USER)),
     ).rejects.toThrow();
 
     expect(mockQueryRunner.release).toHaveBeenCalled();

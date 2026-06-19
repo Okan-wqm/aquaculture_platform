@@ -61,8 +61,8 @@ function extractReadingsFromEvent(event: SensorReadingEvent): Record<string, num
  * IMPORTANT: NATS event handlers run OUTSIDE HTTP request context.
  * There is NO AsyncLocalStorage context and NO TenantSchemaMiddleware.
  * We must manually create an AsyncLocalStorage context with the correct
- * schemaName so that TenantConnectionBootstrap's pool patch injects
- * the correct SET search_path on every connection checkout.
+ * schemaName so that TenantConnectionBootstrap's pool patch routes each
+ * connection checkout to the correct tenant schema.
  */
 @Injectable()
 export class SensorReadingEventHandler

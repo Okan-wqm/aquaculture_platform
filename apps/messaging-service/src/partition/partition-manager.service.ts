@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { DataSource } from 'typeorm';
 
 /**
@@ -109,16 +110,10 @@ export class PartitionManagerService implements OnApplicationBootstrap {
   }
 
   /**
-   * Retrieves all tenant schema names (tenant_*) from information_schema.
+   * Retrieves all tenant schema names from the canonical database utility.
    */
   private async getTenantSchemas(): Promise<string[]> {
-    const rows = await this.dataSource.query<Array<{ schema_name: string }>>(
-      `SELECT schema_name
-       FROM information_schema.schemata
-       WHERE schema_name LIKE 'tenant_%'
-       ORDER BY schema_name`,
-    );
-    return rows.map((r) => r.schema_name);
+    return listTenantSchemas(this.dataSource);
   }
 
   /**

@@ -60,7 +60,7 @@ export class ScheduledPlanChange {
   // ── Current plan (snapshot at scheduling time) ──────────────────────────
 
   @Field()
-  @Column()
+  @Column({ type: 'uuid' })
   currentPlanId!: string;
 
   // DBR-MEDIUM-002 cure: FK to billing.plans for the snapshot at
@@ -72,13 +72,13 @@ export class ScheduledPlanChange {
   currentPlan?: import('./plan.entity').Plan;
 
   @Field()
-  @Column()
+  @Column({ type: 'varchar', length: 50 })
   currentPlanTier!: string;
 
   // ── Target plan (what the tenant is changing to) ────────────────────────
 
   @Field()
-  @Column()
+  @Column({ type: 'uuid' })
   newPlanId!: string;
 
   // DBR-MEDIUM-002 cure: FK to billing.plans for the destination plan.
@@ -90,11 +90,11 @@ export class ScheduledPlanChange {
   newPlan?: import('./plan.entity').Plan;
 
   @Field()
-  @Column()
+  @Column({ type: 'varchar', length: 50 })
   newPlanTier!: string;
 
   @Field()
-  @Column()
+  @Column({ type: 'varchar', length: 255 })
   newPlanName!: string;
 
   @Field(() => PlanLimits)

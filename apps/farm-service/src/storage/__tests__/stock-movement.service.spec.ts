@@ -24,7 +24,7 @@
  * mock factory so no banned casts are needed.
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { EntityManager, Repository, SelectQueryBuilder } from 'typeorm';
+import { EntityManager, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Role } from '@aquaculture/backend-common/decorators';
@@ -48,6 +48,22 @@ const USER = '44444444-4444-4444-8444-444444444444';
  */
 function mock<T>(impl: Partial<T>): T {
   return impl as T;
+}
+
+function tenantRepositoryMetadata<T extends ObjectLiteral>(): Repository<T>['metadata'] {
+  const tenantColumn = mock<
+    NonNullable<
+      ReturnType<Repository<T>['metadata']['findColumnWithPropertyName']>
+    >
+  >({
+    databaseName: 'tenantId',
+  });
+
+  return mock<Repository<T>['metadata']>({
+    findColumnWithPropertyName: jest.fn((propertyName: string) =>
+      propertyName === 'tenantId' ? tenantColumn : undefined,
+    ),
+  });
 }
 
 /** A chainable query-builder double whose terminal getters are configurable. */
@@ -131,6 +147,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   const inventoryCreate = jest.fn();
   inventoryCreate.mockImplementation((dto: Partial<StorageInventory>) => dto);
   const inventoryRepo = mock<Repository<StorageInventory>>({
+    metadata: tenantRepositoryMetadata<StorageInventory>(),
     findOne: jest.fn().mockResolvedValue(fromLot),
     save: inventorySave,
     remove: inventoryRemove,
@@ -147,6 +164,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   });
 
   const locationRepo = mock<Repository<StorageLocation>>({
+    metadata: tenantRepositoryMetadata<StorageLocation>(),
     findOne: jest.fn().mockResolvedValue(fromLocation),
   });
 
@@ -155,6 +173,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   const movementSave = jest.fn();
   movementSave.mockImplementation(async (row: StockMovement) => mock<StockMovement>({ ...row, id: 'mv-1' }));
   const movementRepo = mock<Repository<StockMovement>>({
+    metadata: tenantRepositoryMetadata<StockMovement>(),
     findOne: jest.fn().mockResolvedValue(opts.existingMovement ?? null),
     create: movementCreate,
     save: movementSave,
@@ -165,6 +184,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   const feedSave = jest.fn();
   feedSave.mockImplementation(async (row: Feed) => row);
   const feedRepo = mock<Repository<Feed>>({
+    metadata: tenantRepositoryMetadata<Feed>(),
     findOne: jest.fn().mockResolvedValue(feed),
     // updateItemTotalQuantity rolls the aggregate back onto Feed.quantity via
     // the wrapper's save (which calls create then save) — both passthrough.

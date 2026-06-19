@@ -21,7 +21,7 @@ import {
   TenantContextMiddleware,
   StripInternalHeadersMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -144,13 +144,8 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        url: configService.get('REDIS_URL'),
-        host: configService.get('REDIS_HOST', 'localhost'),
-        port: configService.get<number>('REDIS_PORT', 6379),
-        password: configService.get('REDIS_PASSWORD'),
-        keyPrefix: 'billing:',
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'billing', 'optional'),
     }),
     // Event Bus Module (NATS JetStream)
     EventBusModule.forRootAsync({

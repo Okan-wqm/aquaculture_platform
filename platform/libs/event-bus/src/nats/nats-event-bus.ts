@@ -64,6 +64,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function parseStreamReplicas(rawValue: string | number | undefined, defaultValue: number): number {
+  const parsed =
+    rawValue === undefined ? defaultValue : Number.parseInt(String(rawValue), 10);
+
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) {
+    throw new Error(
+      `NATS_STREAM_REPLICAS must be an integer from 1 to 5, got: ${String(rawValue)}`,
+    );
+  }
+
+  return parsed;
+}
+
 function isIEvent(value: unknown): value is IEvent {
   if (!isRecord(value)) {
     return false;
@@ -107,6 +120,7 @@ export class NatsEventBus
   // source-of-truth drift this refactor eliminates.
   private readonly natsUrl: string;
   private readonly streamName: string;
+  private readonly streamReplicas: number;
   private readonly clientId: string;
   private readonly maxReconnectAttempts: number;
   private readonly reconnectTimeWaitMs: number;
@@ -135,6 +149,22 @@ export class NatsEventBus
       'NATS_STREAM_NAME',
       'AQUACULTURE_EVENTS',
     );
+    const aquaEnv = this.configService.get<string>('AQUA_ENV', process.env['NODE_ENV'] ?? 'development');
+    const isProductionLike =
+      process.env['NODE_ENV'] === 'production' ||
+      aquaEnv === 'production' ||
+      aquaEnv === 'staging';
+    this.streamReplicas = parseStreamReplicas(
+      this.configService.get<string | number>('NATS_STREAM_REPLICAS'),
+      isProductionLike ? 3 : 1,
+    );
+    if (isProductionLike && this.streamReplicas < 3) {
+      throw new Error(
+        `NATS_STREAM_REPLICAS must be at least 3 in production/staging ` +
+          `(got ${this.streamReplicas}). JetStream R=1 is not an acceptable ` +
+          'outbox durability contract.',
+      );
+    }
     // ARCH-020: Use SERVICE_NAME for stable consumer identity across pod restarts.
     // PID-based names caused orphan consumers and duplicate message processing.
     // Same SERVICE_NAME across scaled instances enables JetStream queue-group
@@ -765,7 +795,7 @@ export class NatsEventBus
       max_msgs: 1_000_000, // 1M messages safety net
       discard: DiscardPolicy.Old,
       duplicate_window: 2 * 60 * 1_000_000_000, // 2 minutes for deduplication
-      num_replicas: 1,
+      num_replicas: this.streamReplicas,
     };
   }
 

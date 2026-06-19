@@ -9,7 +9,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+
+import { Tenant } from '../../tenant/entities/tenant.entity';
 
 /**
  * Invitation status
@@ -79,6 +83,10 @@ export class Invitation {
   @Field(() => String)
   @Column({ type: 'uuid', nullable: false })
   tenantId!: string;
+
+  @ManyToOne(() => Tenant, { nullable: false, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'tenantId' })
+  tenant!: Tenant;
 
   @Field(() => [String], { nullable: true })
   @Column('simple-array', { nullable: true })

@@ -14,6 +14,11 @@ import { DataSource } from 'typeorm';
 
 import { MIGRATION_LEDGER_TABLE, tenantMigrationLedgerTable } from './migration-ledger';
 import { SchemaLRUCache } from './schema-lru-cache';
+import {
+  getTenantSchemaName as deriveTenantSchemaName,
+  isValidUUID,
+  listTenantSchemas as listCanonicalTenantSchemas,
+} from './tenant-schema.utils';
 
 /**
  * Module schema definitions - tables for each module
@@ -572,6 +577,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'channel_members',
       'messages',
       'message_attachments',
+      'message_receipt_ledger',
       'message_receipts',
       'message_reactions',
       'pinned_messages',
@@ -779,32 +785,11 @@ export class SchemaManagerService {
    * @throws BadRequestException if tenant ID is not a valid UUID
    */
   getTenantSchemaName(tenantId: string): string {
-    // Validate UUID format (SQL injection prevention)
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(tenantId)) {
+    if (!isValidUUID(tenantId)) {
       throw new BadRequestException(`Invalid tenant ID format: ${tenantId}`);
     }
 
-    // Use tenant_ prefix + first 16 chars of UUID (without dashes)
-    // 16 hex chars = 64 bits = collision-safe for billions of tenants
-    const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
-    return `tenant_${cleanId}`;
-  }
-
-  /**
-   * Generate advisory lock key from tenant ID
-   * Creates a deterministic 32-bit integer for PostgreSQL advisory locks
-   * Used to prevent race conditions when creating schemas
-   *
-   * SECURITY FIX: Uses SHA-256 instead of MD5 (which is cryptographically weak)
-   * Also uses Math.abs() to ensure positive lock keys (PostgreSQL supports negative,
-   * but positive values are more predictable for logging/debugging)
-   */
-  private getAdvisoryLockKey(tenantId: string): number {
-    const hash = crypto.createHash('sha256').update(tenantId).digest();
-    // Use absolute value to avoid negative lock keys
-    // readInt32LE can return negative values due to signed integer representation
-    return Math.abs(hash.readInt32LE(0));
+    return deriveTenantSchemaName(tenantId);
   }
 
   /**
@@ -819,14 +804,8 @@ export class SchemaManagerService {
   /**
    * Create a new tenant schema with all module tables
    *
-   * Uses PostgreSQL advisory locks to prevent race conditions when
-   * multiple requests try to create the same tenant schema.
-   *
-   * Features:
-   * - Advisory lock for thread-safety
-   * - Idempotent (returns success if schema already exists)
-   * - Reference data copying for lookup tables
-   * - Atomic with cleanup on failure
+   * Runtime services do not perform tenant DDL. Existing schemas are validated
+   * for completeness; new provisioning is queued through aqua-db-migrate.
    */
   async createTenantSchema(
     tenantId: string,
@@ -834,7 +813,6 @@ export class SchemaManagerService {
   ): Promise<SchemaCreationResult> {
     const startTime = Date.now();
     const schemaName = this.getTenantSchemaName(tenantId);
-    const lockKey = this.getAdvisoryLockKey(tenantId);
     const tablesCreated: string[] = [];
     const referenceDataCopied: { table: string; rows: number }[] = [];
     const errors: string[] = [];
@@ -878,11 +856,6 @@ export class SchemaManagerService {
         duration: Date.now() - startTime,
       };
     }
-
-    this.logger.log(`Acquiring advisory lock for tenant ${tenantId} (key: ${lockKey})`);
-
-    // Acquire advisory lock - blocks if another process is creating same schema
-    await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
 
     try {
       // Check if schema already exists (idempotent operation)
@@ -961,10 +934,6 @@ export class SchemaManagerService {
         errors,
         duration: Date.now() - startTime,
       };
-    } finally {
-      // ALWAYS release advisory lock
-      await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
-      this.logger.debug(`Released advisory lock for tenant ${tenantId}`);
     }
   }
 
@@ -1027,8 +996,10 @@ export class SchemaManagerService {
   }
 
   /**
-   * Delete a tenant schema and all its data
-   * Uses advisory lock to prevent race conditions with concurrent operations
+   * Delete a tenant schema and all its data.
+   *
+   * Runtime services do not perform tenant DDL; deletion is queued through
+   * aqua-db-migrate with CleanupDropProof evidence.
    */
   async deleteTenantSchema(
     tenantId: string,
@@ -1036,32 +1007,20 @@ export class SchemaManagerService {
   ): Promise<{ success: boolean; error?: string }> {
     const dropProof = assertCleanupDropProof(proof, tenantId);
     const schemaName = this.getTenantSchemaName(tenantId);
-    const lockKey = this.getAdvisoryLockKey(tenantId);
-
-    this.logger.log(`Acquiring advisory lock for tenant deletion ${tenantId} (key: ${lockKey})`);
-
-    // Acquire advisory lock - blocks if another process is operating on same schema
-    await this.dataSource.query(`SELECT pg_advisory_lock($1)`, [lockKey]);
 
     try {
       this.logger.log(
         `Deleting tenant schema ${schemaName} with cleanup proof ${dropProof.operationId} (${dropProof.purpose})`,
       );
-      this.dropTenantSchema(schemaName, tenantId, dropProof);
-
-      // Invalidate cache entry for deleted schema
-      this.schemaCache.invalidate(schemaName);
-
-      this.logger.log(`Tenant schema ${schemaName} deleted successfully`);
-      return { success: true };
+      const authorityError =
+        `Tenant schema deletion for ${schemaName} is owned by aqua-db-migrate; ` +
+        `runtime services must write a deletion request ledger entry instead.`;
+      this.logger.warn(authorityError);
+      return { success: false, error: authorityError };
     } catch (error) {
       const errorMsg = `Failed to delete tenant schema: ${(error as Error).message}`;
       this.logger.error(errorMsg);
       return { success: false, error: errorMsg };
-    } finally {
-      // ALWAYS release advisory lock
-      await this.dataSource.query(`SELECT pg_advisory_unlock($1)`, [lockKey]);
-      this.logger.debug(`Released advisory lock for tenant deletion ${tenantId}`);
     }
   }
 
@@ -1228,15 +1187,7 @@ export class SchemaManagerService {
    * Get all tenant schemas
    */
   async listTenantSchemas(): Promise<string[]> {
-    const result = await this.queryRows(`
-      SELECT schema_name
-      FROM information_schema.schemata
-      WHERE schema_name LIKE 'tenant_%'
-      ORDER BY schema_name
-    `);
-    return result
-      .map((row) => row['schema_name'])
-      .filter((schemaName): schemaName is string => typeof schemaName === 'string');
+    return listCanonicalTenantSchemas(this.dataSource);
   }
 
   /**
@@ -1301,42 +1252,6 @@ export class SchemaManagerService {
   }
 
   /**
-   * Set search_path for tenant context
-   *
-   * WARNING: This method sets search_path at connection level.
-   * In a connection pool, the next query might use a different connection.
-   * For reliable tenant isolation, use one of these approaches:
-   *
-   * 1. Use setTenantSearchPathInTransaction() within a transaction
-   * 2. Use explicit schema prefixes in queries: SELECT * FROM "tenant_xxx"."table"
-   * 3. Use a request-scoped connection (not recommended for performance)
-   *
-   * This method is safe to use only when:
-   * - You're within a transaction that holds the connection
-   * - You immediately execute queries after this call
-   *
-   * SECURITY: Schema name is validated via getTenantSchemaName() which:
-   * - Validates UUID format
-   * - Generates safe schema name (tenant_ + 16 hex chars only)
-   * Additional validation via isValidSchemaName() prevents SQL injection
-   */
-  async setTenantSearchPath(tenantId: string): Promise<void> {
-    const schemaName = this.getTenantSchemaName(tenantId);
-
-    // SECURITY: Double-check schema name format to prevent SQL injection
-    if (!this.isValidSchemaName(schemaName)) {
-      throw new BadRequestException(`SECURITY: Invalid schema name format: ${schemaName}`);
-    }
-
-    // SECURITY: Use parameterized query with pg_catalog.set_config for safe schema setting
-    // This is safer than string interpolation in SET command
-    await this.dataSource.query(
-      `SELECT pg_catalog.set_config('search_path', $1 || ', public', false)`,
-      [schemaName],
-    );
-  }
-
-  /**
    * Set search_path within a transaction (connection-safe)
    * Use this for reliable tenant isolation in connection pools
    *
@@ -1366,16 +1281,6 @@ export class SchemaManagerService {
     await manager.query(`SELECT pg_catalog.set_config('search_path', $1 || ', public', true)`, [
       schemaName,
     ]);
-  }
-
-  /**
-   * Reset search_path to default
-   *
-   * WARNING: Same connection pool limitations as setTenantSearchPath()
-   */
-  async resetSearchPath(): Promise<void> {
-    // SECURITY: No user input involved, safe to use directly
-    await this.dataSource.query(`SELECT pg_catalog.set_config('search_path', 'public', false)`);
   }
 
   /**

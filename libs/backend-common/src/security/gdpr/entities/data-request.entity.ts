@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
 } from 'typeorm';
 
 /**
@@ -36,6 +37,8 @@ export enum DataRequestStatus {
  * Required for GDPR compliance to prove request handling.
  */
 @Entity('gdpr_data_requests', { schema: 'shared' })
+@Check(`"requestType" IN ('export', 'deletion', 'rectification', 'restriction', 'portability')`)
+@Check(`status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')`)
 @Index('IDX_data_request_user', ['userId'])
 @Index('IDX_data_request_tenant', ['tenantId'])
 @Index('IDX_data_request_type', ['requestType'])

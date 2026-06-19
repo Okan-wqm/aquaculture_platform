@@ -11,6 +11,7 @@
 import * as crypto from 'crypto';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { isValidUUID } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 
 /**
@@ -40,6 +41,7 @@ export enum AckSourceType {
  */
 export interface AcknowledgmentRecord {
   id: string;
+  tenantId: string;
   alertId: string;
   incidentId?: string;
   status: AckStatus;
@@ -118,20 +120,24 @@ export interface AckStatistics {
  * Redis key prefixes for acknowledgment state
  */
 const REDIS_KEYS = {
-  /** Individual ack record: ack:record:{id} */
-  RECORD: 'ack:record:',
-  /** Alert-to-record mapping: ack:alert:{alertId} -> recordId */
-  ALERT_MAP: 'ack:alert:',
-  /** Pending ack info: ack:pending:{recordId} */
-  PENDING: 'ack:pending:',
-  /** Set of all pending record IDs for timeout scanning */
-  PENDING_SET: 'ack:pending_set',
+  /** Set of tenants with active ack state. Contains tenant identifiers only. */
+  TENANTS: 'ack:tenants',
+  /** Tenant namespace prefix: ack:tenant:{tenantId}:... */
+  TENANT_PREFIX: 'ack:tenant:',
+  /** Individual ack record suffix: record:{id} */
+  RECORD: 'record:',
+  /** Alert-to-record mapping suffix: alert:{alertId} -> recordId */
+  ALERT_MAP: 'alert:',
+  /** Pending ack info suffix: pending:{recordId} */
+  PENDING: 'pending:',
+  /** Set of pending record IDs for one tenant */
+  PENDING_SET: 'pending_set',
   /** Metrics counters */
-  METRICS: 'ack:metrics',
+  METRICS: 'metrics',
   /** Ack time samples for average calculation */
-  METRICS_ACK_TIMES: 'ack:metrics:ack_times',
+  METRICS_ACK_TIMES: 'metrics:ack_times',
   /** Timeout count samples for average calculation */
-  METRICS_TIMEOUT_COUNTS: 'ack:metrics:timeout_counts',
+  METRICS_TIMEOUT_COUNTS: 'metrics:timeout_counts',
 };
 
 /**
@@ -165,10 +171,66 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
     private readonly redisService: RedisService,
   ) {}
 
+  private assertTenantId(tenantId: string): void {
+    if (!isValidUUID(tenantId)) {
+      throw new Error(`Invalid tenantId for acknowledgment Redis key: ${tenantId}`);
+    }
+  }
+
+  private tenantPrefix(tenantId: string): string {
+    this.assertTenantId(tenantId);
+    return `${REDIS_KEYS.TENANT_PREFIX}${tenantId}:`;
+  }
+
+  private recordKey(tenantId: string, recordId: string): string {
+    return `${this.tenantPrefix(tenantId)}${REDIS_KEYS.RECORD}${recordId}`;
+  }
+
+  private recordPattern(tenantId: string): string {
+    return `${this.tenantPrefix(tenantId)}${REDIS_KEYS.RECORD}*`;
+  }
+
+  private alertMapKey(tenantId: string, alertId: string): string {
+    return `${this.tenantPrefix(tenantId)}${REDIS_KEYS.ALERT_MAP}${alertId}`;
+  }
+
+  private pendingKey(tenantId: string, recordId: string): string {
+    return `${this.tenantPrefix(tenantId)}${REDIS_KEYS.PENDING}${recordId}`;
+  }
+
+  private pendingSetKey(tenantId: string): string {
+    return `${this.tenantPrefix(tenantId)}${REDIS_KEYS.PENDING_SET}`;
+  }
+
+  private metricsKey(tenantId: string): string {
+    return `${this.tenantPrefix(tenantId)}${REDIS_KEYS.METRICS}`;
+  }
+
+  private metricSampleKey(tenantId: string, suffix: string): string {
+    return `${this.tenantPrefix(tenantId)}${suffix}`;
+  }
+
+  private extractRecordId(tenantId: string, key: string): string {
+    return key.slice(`${this.tenantPrefix(tenantId)}${REDIS_KEYS.RECORD}`.length);
+  }
+
+  private async registerTenant(tenantId: string): Promise<void> {
+    this.assertTenantId(tenantId);
+    await this.redisService.sadd(REDIS_KEYS.TENANTS, tenantId);
+  }
+
+  private async getRegisteredTenants(): Promise<string[]> {
+    return this.redisService.smembers(REDIS_KEYS.TENANTS);
+  }
+
   async onModuleInit(): Promise<void> {
     // Start timeout checker
     this.timeoutChecker = setInterval(
-      () => this.checkTimeouts(),
+      () => {
+        void this.checkTimeouts().catch((error) => {
+          this.logger.error('Ack timeout checker failed', error);
+        });
+      },
       10000, // Check every 10 seconds
     );
 
@@ -196,19 +258,20 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
         record.status === AckStatus.RESOLVED || record.status === AckStatus.EXPIRED;
       const ttl = isTerminal ? COMPLETED_RECORD_TTL_SECONDS : ACTIVE_RECORD_TTL_SECONDS;
 
-      await this.redisService.setJson(`${REDIS_KEYS.RECORD}${record.id}`, record, ttl);
+      await this.redisService.setJson(this.recordKey(record.tenantId, record.id), record, ttl);
     } catch (error) {
       this.logger.error(`Failed to save ack record ${record.id} to Redis`, error);
+      throw error;
     }
   }
 
   /**
    * Load an AcknowledgmentRecord from Redis and rehydrate Date fields.
    */
-  private async loadRecord(recordId: string): Promise<AcknowledgmentRecord | null> {
+  private async loadRecord(tenantId: string, recordId: string): Promise<AcknowledgmentRecord | null> {
     try {
       const raw = await this.redisService.getJson<AcknowledgmentRecord>(
-        `${REDIS_KEYS.RECORD}${recordId}`,
+        this.recordKey(tenantId, recordId),
       );
       if (!raw) return null;
       return this.rehydrateDates(raw);
@@ -221,35 +284,37 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
   /**
    * Delete an AcknowledgmentRecord from Redis.
    */
-  private async deleteRecordFromRedis(recordId: string): Promise<void> {
+  private async deleteRecordFromRedis(tenantId: string, recordId: string): Promise<void> {
     try {
-      await this.redisService.del(`${REDIS_KEYS.RECORD}${recordId}`);
+      await this.redisService.del(this.recordKey(tenantId, recordId));
     } catch (error) {
       this.logger.error(`Failed to delete ack record ${recordId} from Redis`, error);
+      throw error;
     }
   }
 
   /**
    * Save the alert-to-record mapping to Redis.
    */
-  private async saveAlertMapping(alertId: string, recordId: string): Promise<void> {
+  private async saveAlertMapping(tenantId: string, alertId: string, recordId: string): Promise<void> {
     try {
       await this.redisService.set(
-        `${REDIS_KEYS.ALERT_MAP}${alertId}`,
+        this.alertMapKey(tenantId, alertId),
         recordId,
         ACTIVE_RECORD_TTL_SECONDS,
       );
     } catch (error) {
       this.logger.error(`Failed to save alert mapping for ${alertId}`, error);
+      throw error;
     }
   }
 
   /**
    * Get the record ID mapped to an alert ID.
    */
-  private async getRecordIdByAlertId(alertId: string): Promise<string | null> {
+  private async getRecordIdByAlertId(tenantId: string, alertId: string): Promise<string | null> {
     try {
-      return await this.redisService.get(`${REDIS_KEYS.ALERT_MAP}${alertId}`);
+      return await this.redisService.get(this.alertMapKey(tenantId, alertId));
     } catch (error) {
       this.logger.error(`Failed to get alert mapping for ${alertId}`, error);
       return null;
@@ -259,54 +324,57 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
   /**
    * Delete the alert mapping.
    */
-  private async deleteAlertMapping(alertId: string): Promise<void> {
+  private async deleteAlertMapping(tenantId: string, alertId: string): Promise<void> {
     try {
-      await this.redisService.del(`${REDIS_KEYS.ALERT_MAP}${alertId}`);
+      await this.redisService.del(this.alertMapKey(tenantId, alertId));
     } catch (error) {
       this.logger.error(`Failed to delete alert mapping for ${alertId}`, error);
+      throw error;
     }
   }
 
   /**
    * Save pending ack info to Redis and add to the pending set.
    */
-  private async savePendingAck(pending: PendingAck): Promise<void> {
+  private async savePendingAck(tenantId: string, pending: PendingAck): Promise<void> {
     try {
       await this.redisService.setJson(
-        `${REDIS_KEYS.PENDING}${pending.recordId}`,
+        this.pendingKey(tenantId, pending.recordId),
         pending,
         ACTIVE_RECORD_TTL_SECONDS,
       );
-      await this.redisService.sadd(REDIS_KEYS.PENDING_SET, pending.recordId);
+      await this.redisService.sadd(this.pendingSetKey(tenantId), pending.recordId);
     } catch (error) {
       this.logger.error(`Failed to save pending ack ${pending.recordId}`, error);
+      throw error;
     }
   }
 
   /**
    * Remove a pending ack from Redis and the pending set.
    */
-  private async removePendingAck(recordId: string): Promise<void> {
+  private async removePendingAck(tenantId: string, recordId: string): Promise<void> {
     try {
-      await this.redisService.del(`${REDIS_KEYS.PENDING}${recordId}`);
-      await this.redisService.srem(REDIS_KEYS.PENDING_SET, recordId);
+      await this.redisService.del(this.pendingKey(tenantId, recordId));
+      await this.redisService.srem(this.pendingSetKey(tenantId), recordId);
     } catch (error) {
       this.logger.error(`Failed to remove pending ack ${recordId}`, error);
+      throw error;
     }
   }
 
   /**
    * Load all pending ack entries from Redis.
    */
-  private async loadAllPendingAcks(): Promise<PendingAck[]> {
+  private async loadAllPendingAcks(tenantId: string): Promise<PendingAck[]> {
     try {
-      const memberIds = await this.redisService.smembers(REDIS_KEYS.PENDING_SET);
+      const memberIds = await this.redisService.smembers(this.pendingSetKey(tenantId));
       if (!memberIds || memberIds.length === 0) return [];
 
       const results = await Promise.all(
         memberIds.map(async (id) => {
           const pending = await this.redisService.getJson<PendingAck>(
-            `${REDIS_KEYS.PENDING}${id}`,
+            this.pendingKey(tenantId, id),
           );
           return pending;
         }),
@@ -322,12 +390,13 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
   /**
    * Increment a metrics counter in Redis.
    */
-  private async incrementMetric(field: string): Promise<void> {
+  private async incrementMetric(tenantId: string, field: string): Promise<void> {
     try {
-      await this.redisService.hset(REDIS_KEYS.METRICS, field, '0'); // ensure key exists
-      const current = await this.redisService.hget(REDIS_KEYS.METRICS, field);
+      const key = this.metricsKey(tenantId);
+      await this.redisService.hset(key, field, '0'); // ensure key exists
+      const current = await this.redisService.hget(key, field);
       const next = (parseInt(current || '0', 10) + 1).toString();
-      await this.redisService.hset(REDIS_KEYS.METRICS, field, next);
+      await this.redisService.hset(key, field, next);
     } catch (error) {
       this.logger.error(`Failed to increment metric ${field}`, error);
     }
@@ -336,12 +405,11 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
   /**
    * Append a value to a Redis list used for metrics samples (capped at 1000).
    */
-  private async appendMetricSample(listKey: string, value: number): Promise<void> {
+  private async appendMetricSample(tenantId: string, listKey: string, value: number): Promise<void> {
     try {
-      const client = this.redisService.getClient();
-      const prefixedKey = `alert:${listKey}`; // match the keyPrefix from app.module config
-      await client.rpush(prefixedKey, value.toString());
-      await client.ltrim(prefixedKey, -1000, -1); // keep last 1000
+      const prefixedKey = this.metricSampleKey(tenantId, listKey);
+      await this.redisService.rpush(prefixedKey, value.toString());
+      await this.redisService.ltrim(prefixedKey, -1000, -1); // keep last 1000
     } catch (error) {
       this.logger.error(`Failed to append metric sample to ${listKey}`, error);
     }
@@ -384,13 +452,14 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
   }
 
   // ---------------------------------------------------------------------------
-  // Public API -- interface preserved for backward compatibility
+  // Public API
   // ---------------------------------------------------------------------------
 
   /**
    * Create a new acknowledgment tracking record
    */
   async createRecord(
+    tenantId: string,
     alertId: string,
     incidentId?: string,
     config?: Partial<AckTimeoutConfig>,
@@ -400,6 +469,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
 
     const record: AcknowledgmentRecord = {
       id,
+      tenantId,
       alertId,
       incidentId,
       status: AckStatus.PENDING,
@@ -421,18 +491,20 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
     // Calculate initial timeout
     const timeoutAt = Date.now() + effectiveConfig.initialTimeoutMs;
 
+    await this.registerTenant(tenantId);
     await this.saveRecord(record);
-    await this.saveAlertMapping(alertId, id);
-    await this.savePendingAck({
+    await this.saveAlertMapping(tenantId, alertId, id);
+    await this.savePendingAck(tenantId, {
       recordId: id,
       timeoutAt,
       escalationLevel: 0,
     });
 
-    await this.incrementMetric('totalCreated');
+    await this.incrementMetric(tenantId, 'totalCreated');
 
     this.eventEmitter.emit('ack.created', {
       recordId: id,
+      tenantId,
       alertId,
       incidentId,
       timeoutAt: new Date(timeoutAt),
@@ -445,13 +517,17 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
   /**
    * Acknowledge an alert
    */
-  async acknowledge(alertId: string, options: AckRequestOptions): Promise<AcknowledgmentRecord> {
-    const recordId = await this.getRecordIdByAlertId(alertId);
+  async acknowledge(
+    tenantId: string,
+    alertId: string,
+    options: AckRequestOptions,
+  ): Promise<AcknowledgmentRecord> {
+    const recordId = await this.getRecordIdByAlertId(tenantId, alertId);
     if (!recordId) {
       throw new Error(`No acknowledgment record found for alert: ${alertId}`);
     }
 
-    const record = await this.loadRecord(recordId);
+    const record = await this.loadRecord(tenantId, recordId);
     if (!record) {
       throw new Error(`Acknowledgment record not found: ${recordId}`);
     }
@@ -480,14 +556,14 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
     if (options.durationMs) {
       record.expiresAt = new Date(now.getTime() + options.durationMs);
       // Update pending ack for expiration tracking
-      await this.savePendingAck({
+      await this.savePendingAck(tenantId, {
         recordId,
         timeoutAt: record.expiresAt.getTime(),
         escalationLevel: record.escalationLevel,
       });
     } else {
       // Remove from pending
-      await this.removePendingAck(recordId);
+      await this.removePendingAck(tenantId, recordId);
     }
 
     // Add history entry
@@ -503,12 +579,13 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
     await this.saveRecord(record);
 
     // Update metrics
-    await this.incrementMetric('totalAcknowledged');
-    await this.appendMetricSample(REDIS_KEYS.METRICS_ACK_TIMES, ackTimeMs);
-    await this.appendMetricSample(REDIS_KEYS.METRICS_TIMEOUT_COUNTS, record.timeoutCount);
+    await this.incrementMetric(tenantId, 'totalAcknowledged');
+    await this.appendMetricSample(tenantId, REDIS_KEYS.METRICS_ACK_TIMES, ackTimeMs);
+    await this.appendMetricSample(tenantId, REDIS_KEYS.METRICS_TIMEOUT_COUNTS, record.timeoutCount);
 
     this.eventEmitter.emit('ack.acknowledged', {
       recordId,
+      tenantId,
       alertId,
       acknowledgedBy: options.userId,
       ackTimeMs,
@@ -524,30 +601,32 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
    * Acknowledge by record ID
    */
   async acknowledgeById(
+    tenantId: string,
     recordId: string,
     options: AckRequestOptions,
   ): Promise<AcknowledgmentRecord> {
-    const record = await this.loadRecord(recordId);
+    const record = await this.loadRecord(tenantId, recordId);
     if (!record) {
       throw new Error(`Acknowledgment record not found: ${recordId}`);
     }
-    return this.acknowledge(record.alertId, options);
+    return this.acknowledge(tenantId, record.alertId, options);
   }
 
   /**
    * Resolve an acknowledgment record
    */
   async resolve(
+    tenantId: string,
     alertId: string,
     userId?: string,
     reason?: string,
   ): Promise<AcknowledgmentRecord> {
-    const recordId = await this.getRecordIdByAlertId(alertId);
+    const recordId = await this.getRecordIdByAlertId(tenantId, alertId);
     if (!recordId) {
       throw new Error(`No acknowledgment record found for alert: ${alertId}`);
     }
 
-    const record = await this.loadRecord(recordId);
+    const record = await this.loadRecord(tenantId, recordId);
     if (!record) {
       throw new Error(`Acknowledgment record not found: ${recordId}`);
     }
@@ -568,13 +647,14 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
     });
 
     // Remove from pending
-    await this.removePendingAck(recordId);
+    await this.removePendingAck(tenantId, recordId);
     await this.saveRecord(record);
 
-    await this.incrementMetric('totalResolved');
+    await this.incrementMetric(tenantId, 'totalResolved');
 
     this.eventEmitter.emit('ack.resolved', {
       recordId,
+      tenantId,
       alertId,
       resolvedBy: userId,
       reason,
@@ -587,30 +667,30 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
   /**
    * Get acknowledgment record by alert ID
    */
-  async getByAlertId(alertId: string): Promise<AcknowledgmentRecord | undefined> {
-    const recordId = await this.getRecordIdByAlertId(alertId);
+  async getByAlertId(tenantId: string, alertId: string): Promise<AcknowledgmentRecord | undefined> {
+    const recordId = await this.getRecordIdByAlertId(tenantId, alertId);
     if (!recordId) return undefined;
-    const record = await this.loadRecord(recordId);
+    const record = await this.loadRecord(tenantId, recordId);
     return record ?? undefined;
   }
 
   /**
    * Get acknowledgment record by ID
    */
-  async getById(recordId: string): Promise<AcknowledgmentRecord | undefined> {
-    const record = await this.loadRecord(recordId);
+  async getById(tenantId: string, recordId: string): Promise<AcknowledgmentRecord | undefined> {
+    const record = await this.loadRecord(tenantId, recordId);
     return record ?? undefined;
   }
 
   /**
    * Get all pending acknowledgments
    */
-  async getPendingAcks(): Promise<AcknowledgmentRecord[]> {
-    const pendingAcks = await this.loadAllPendingAcks();
+  async getPendingAcks(tenantId: string): Promise<AcknowledgmentRecord[]> {
+    const pendingAcks = await this.loadAllPendingAcks(tenantId);
     const records: AcknowledgmentRecord[] = [];
 
     for (const pending of pendingAcks) {
-      const record = await this.loadRecord(pending.recordId);
+      const record = await this.loadRecord(tenantId, pending.recordId);
       if (record && (record.status === AckStatus.PENDING || record.status === AckStatus.ESCALATED)) {
         records.push(record);
       }
@@ -623,14 +703,14 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
    * Get acknowledgments by status
    * Note: This scans all ack records. For large datasets, consider a dedicated index.
    */
-  async getByStatus(status: AckStatus): Promise<AcknowledgmentRecord[]> {
+  async getByStatus(tenantId: string, status: AckStatus): Promise<AcknowledgmentRecord[]> {
     try {
-      const keys = await this.redisService.keys('ack:record:*');
+      const keys = await this.redisService.keys(this.recordPattern(tenantId));
       const records: AcknowledgmentRecord[] = [];
 
       for (const key of keys) {
-        const recordId = key.replace('ack:record:', '');
-        const record = await this.loadRecord(recordId);
+        const recordId = this.extractRecordId(tenantId, key);
+        const record = await this.loadRecord(tenantId, recordId);
         if (record && record.status === status) {
           records.push(record);
         }
@@ -648,24 +728,34 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
    */
   private async checkTimeouts(): Promise<void> {
     const now = Date.now();
+    let tenantIds: string[];
 
-    let pendingAcks: PendingAck[];
     try {
-      pendingAcks = await this.loadAllPendingAcks();
+      tenantIds = await this.getRegisteredTenants();
     } catch (error) {
-      this.logger.error('Failed to load pending acks during timeout check', error);
+      this.logger.error('Failed to load ack tenant registry', error);
       return;
     }
 
-    for (const pending of pendingAcks) {
-      if (pending.timeoutAt <= now) {
-        const record = await this.loadRecord(pending.recordId);
-        if (!record) {
-          await this.removePendingAck(pending.recordId);
-          continue;
-        }
+    for (const tenantId of tenantIds) {
+      let pendingAcks: PendingAck[];
+      try {
+        pendingAcks = await this.loadAllPendingAcks(tenantId);
+      } catch (error) {
+        this.logger.error(`Failed to load pending acks for tenant ${tenantId}`, error);
+        continue;
+      }
 
-        await this.handleTimeout(record);
+      for (const pending of pendingAcks) {
+        if (pending.timeoutAt <= now) {
+          const record = await this.loadRecord(tenantId, pending.recordId);
+          if (!record) {
+            await this.removePendingAck(tenantId, pending.recordId);
+            continue;
+          }
+
+          await this.handleTimeout(record);
+        }
       }
     }
   }
@@ -685,7 +775,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
       if (this.defaultConfig.autoResolveOnTimeout) {
         // Auto-resolve
         record.status = AckStatus.EXPIRED;
-        await this.removePendingAck(record.id);
+        await this.removePendingAck(record.tenantId, record.id);
 
         record.history.push({
           timestamp: now,
@@ -696,10 +786,11 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
         });
 
         await this.saveRecord(record);
-        await this.incrementMetric('totalExpired');
+        await this.incrementMetric(record.tenantId, 'totalExpired');
 
         this.eventEmitter.emit('ack.expired', {
           recordId: record.id,
+          tenantId: record.tenantId,
           alertId: record.alertId,
           timeoutCount: record.timeoutCount,
         });
@@ -712,7 +803,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
     } else {
       // Schedule next timeout
       const nextTimeout = this.calculateNextTimeout(record);
-      await this.savePendingAck({
+      await this.savePendingAck(record.tenantId, {
         recordId: record.id,
         timeoutAt: now.getTime() + nextTimeout,
         escalationLevel: record.escalationLevel,
@@ -731,6 +822,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
       if (this.defaultConfig.notifyOnTimeout) {
         this.eventEmitter.emit('ack.timeout', {
           recordId: record.id,
+          tenantId: record.tenantId,
           alertId: record.alertId,
           timeoutCount: record.timeoutCount,
           maxTimeouts: this.defaultConfig.maxTimeouts,
@@ -768,7 +860,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
 
     // Schedule escalation timeout
     const escalationTimeout = this.defaultConfig.timeoutEscalationMs;
-    await this.savePendingAck({
+    await this.savePendingAck(record.tenantId, {
       recordId: record.id,
       timeoutAt: now.getTime() + escalationTimeout,
       escalationLevel: record.escalationLevel,
@@ -783,10 +875,11 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
     });
 
     await this.saveRecord(record);
-    await this.incrementMetric('totalEscalated');
+    await this.incrementMetric(record.tenantId, 'totalEscalated');
 
     this.eventEmitter.emit('ack.escalated', {
       recordId: record.id,
+      tenantId: record.tenantId,
       alertId: record.alertId,
       incidentId: record.incidentId,
       escalationLevel: record.escalationLevel,
@@ -802,16 +895,17 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
    * Manually escalate an acknowledgment
    */
   async manualEscalate(
+    tenantId: string,
     alertId: string,
     userId: string,
     reason?: string,
   ): Promise<AcknowledgmentRecord> {
-    const recordId = await this.getRecordIdByAlertId(alertId);
+    const recordId = await this.getRecordIdByAlertId(tenantId, alertId);
     if (!recordId) {
       throw new Error(`No acknowledgment record found for alert: ${alertId}`);
     }
 
-    const record = await this.loadRecord(recordId);
+    const record = await this.loadRecord(tenantId, recordId);
     if (!record) {
       throw new Error(`Acknowledgment record not found: ${recordId}`);
     }
@@ -833,10 +927,11 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
     });
 
     await this.saveRecord(record);
-    await this.incrementMetric('totalEscalated');
+    await this.incrementMetric(tenantId, 'totalEscalated');
 
     this.eventEmitter.emit('ack.escalated', {
       recordId: record.id,
+      tenantId,
       alertId: record.alertId,
       incidentId: record.incidentId,
       escalationLevel: record.escalationLevel,
@@ -855,16 +950,17 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
    * Unacknowledge (return to pending)
    */
   async unacknowledge(
+    tenantId: string,
     alertId: string,
     userId: string,
     reason?: string,
   ): Promise<AcknowledgmentRecord> {
-    const recordId = await this.getRecordIdByAlertId(alertId);
+    const recordId = await this.getRecordIdByAlertId(tenantId, alertId);
     if (!recordId) {
       throw new Error(`No acknowledgment record found for alert: ${alertId}`);
     }
 
-    const record = await this.loadRecord(recordId);
+    const record = await this.loadRecord(tenantId, recordId);
     if (!record) {
       throw new Error(`Acknowledgment record not found: ${recordId}`);
     }
@@ -884,7 +980,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
 
     // Reset to pending with new timeout
     const timeoutAt = Date.now() + this.defaultConfig.initialTimeoutMs;
-    await this.savePendingAck({
+    await this.savePendingAck(tenantId, {
       recordId,
       timeoutAt,
       escalationLevel: record.escalationLevel,
@@ -903,6 +999,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
 
     this.eventEmitter.emit('ack.unacknowledged', {
       recordId,
+      tenantId,
       alertId,
       unacknowledgedBy: userId,
       reason,
@@ -915,13 +1012,13 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
   /**
    * Delete an acknowledgment record
    */
-  async deleteRecord(alertId: string): Promise<boolean> {
-    const recordId = await this.getRecordIdByAlertId(alertId);
+  async deleteRecord(tenantId: string, alertId: string): Promise<boolean> {
+    const recordId = await this.getRecordIdByAlertId(tenantId, alertId);
     if (!recordId) return false;
 
-    await this.deleteRecordFromRedis(recordId);
-    await this.deleteAlertMapping(alertId);
-    await this.removePendingAck(recordId);
+    await this.deleteRecordFromRedis(tenantId, recordId);
+    await this.deleteAlertMapping(tenantId, alertId);
+    await this.removePendingAck(tenantId, recordId);
 
     this.logger.debug(`Deleted ack record for alert ${alertId}`);
     return true;
@@ -930,19 +1027,19 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
   /**
    * Get statistics
    */
-  async getStatistics(): Promise<AckStatistics> {
+  async getStatistics(tenantId: string): Promise<AckStatistics> {
     try {
-      const metricsHash = await this.redisService.hgetall(REDIS_KEYS.METRICS);
+      const metricsHash = await this.redisService.hgetall(this.metricsKey(tenantId));
       const totalCreated = parseInt(metricsHash['totalCreated'] || '0', 10);
 
       // Count records by status by scanning pending set and ack records
-      const pendingAcks = await this.loadAllPendingAcks();
+      const pendingAcks = await this.loadAllPendingAcks(tenantId);
       let pendingCount = 0;
       let acknowledgedCount = 0;
       let escalatedCount = 0;
 
       for (const pending of pendingAcks) {
-        const record = await this.loadRecord(pending.recordId);
+        const record = await this.loadRecord(tenantId, pending.recordId);
         if (record) {
           if (record.status === AckStatus.PENDING) pendingCount++;
           else if (record.status === AckStatus.ESCALATED) escalatedCount++;
@@ -957,17 +1054,19 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
       let averageAckTimeMs = 0;
       let averageTimeoutsBeforeAck = 0;
       try {
-        const client = this.redisService.getClient();
-        const ackTimesKey = `alert:${REDIS_KEYS.METRICS_ACK_TIMES}`;
-        const timeoutCountsKey = `alert:${REDIS_KEYS.METRICS_TIMEOUT_COUNTS}`;
+        const ackTimesKey = this.metricSampleKey(tenantId, REDIS_KEYS.METRICS_ACK_TIMES);
+        const timeoutCountsKey = this.metricSampleKey(
+          tenantId,
+          REDIS_KEYS.METRICS_TIMEOUT_COUNTS,
+        );
 
-        const ackTimes = await client.lrange(ackTimesKey, 0, -1);
+        const ackTimes = await this.redisService.lrange(ackTimesKey, 0, -1);
         if (ackTimes.length > 0) {
           const sum = ackTimes.reduce((a, b) => a + parseFloat(b), 0);
           averageAckTimeMs = sum / ackTimes.length;
         }
 
-        const timeoutCounts = await client.lrange(timeoutCountsKey, 0, -1);
+        const timeoutCounts = await this.redisService.lrange(timeoutCountsKey, 0, -1);
         if (timeoutCounts.length > 0) {
           const sum = timeoutCounts.reduce((a, b) => a + parseFloat(b), 0);
           averageTimeoutsBeforeAck = sum / timeoutCounts.length;
@@ -1004,11 +1103,11 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
   /**
    * Get history for an alert
    */
-  async getHistory(alertId: string): Promise<AckHistoryEntry[]> {
-    const recordId = await this.getRecordIdByAlertId(alertId);
+  async getHistory(tenantId: string, alertId: string): Promise<AckHistoryEntry[]> {
+    const recordId = await this.getRecordIdByAlertId(tenantId, alertId);
     if (!recordId) return [];
 
-    const record = await this.loadRecord(recordId);
+    const record = await this.loadRecord(tenantId, recordId);
     return record?.history || [];
   }
 
@@ -1016,6 +1115,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
    * Bulk acknowledge multiple alerts
    */
   async bulkAcknowledge(
+    tenantId: string,
     alertIds: string[],
     options: AckRequestOptions,
   ): Promise<Map<string, AcknowledgmentRecord | Error>> {
@@ -1028,7 +1128,7 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
 
     for (const alertId of alertIds) {
       try {
-        const record = await this.acknowledge(alertId, options);
+        const record = await this.acknowledge(tenantId, alertId, options);
         results.set(alertId, record);
       } catch (error) {
         results.set(alertId, error instanceof Error ? error : new Error(String(error)));
@@ -1052,23 +1152,26 @@ export class AcknowledgmentTrackerService implements OnModuleInit, OnModuleDestr
    */
   async cleanupOldRecords(maxAgeMs: number = 7 * 24 * 60 * 60 * 1000): Promise<number> {
     try {
-      const keys = await this.redisService.keys('ack:record:*');
+      const tenantIds = await this.getRegisteredTenants();
       const cutoff = Date.now() - maxAgeMs;
       let deletedCount = 0;
 
-      for (const key of keys) {
-        const recordId = key.replace('ack:record:', '');
-        const record = await this.loadRecord(recordId);
+      for (const tenantId of tenantIds) {
+        const keys = await this.redisService.keys(this.recordPattern(tenantId));
+        for (const key of keys) {
+          const recordId = this.extractRecordId(tenantId, key);
+          const record = await this.loadRecord(tenantId, recordId);
 
-        if (
-          record &&
-          record.updatedAt.getTime() < cutoff &&
-          (record.status === AckStatus.RESOLVED || record.status === AckStatus.EXPIRED)
-        ) {
-          await this.deleteRecordFromRedis(recordId);
-          await this.deleteAlertMapping(record.alertId);
-          await this.removePendingAck(recordId);
-          deletedCount++;
+          if (
+            record &&
+            record.updatedAt.getTime() < cutoff &&
+            (record.status === AckStatus.RESOLVED || record.status === AckStatus.EXPIRED)
+          ) {
+            await this.deleteRecordFromRedis(tenantId, recordId);
+            await this.deleteAlertMapping(tenantId, record.alertId);
+            await this.removePendingAck(tenantId, recordId);
+            deletedCount++;
+          }
         }
       }
 

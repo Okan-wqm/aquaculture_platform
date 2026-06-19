@@ -28,7 +28,7 @@ import {
   createTenantSchemaMiddleware,
   StripInternalHeadersMiddleware,
 } from '@aquaculture/backend-common/middleware';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import {
   AuditLogModule,
   AuditLogInterceptor,
@@ -161,13 +161,8 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        const url = configService.get<string>('REDIS_URL') || 'redis://localhost:6379';
-        return {
-          url,
-          keyPrefix: 'alert:',
-        };
-      },
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'alert', 'required'),
     }),
 
     // In-process event emitter (used by EscalationManagerService, etc.)

@@ -174,7 +174,7 @@ export class SchemaBackup {
   @Column({ type: 'varchar', length: 64, nullable: true })
   checksum!: string;
 
-  @Column({ type: 'boolean', default: false })
+  @Column({ type: 'boolean', default: true })
   isEncrypted!: boolean;
 
   @Column({ type: 'boolean', default: false })
@@ -436,6 +436,7 @@ export interface BackupOptions {
   retentionDays?: number;
   includeIndexes?: boolean;
   excludeTables?: string[];
+  auditActorId?: string;
 }
 
 export interface RestoreOptions {
@@ -443,6 +444,7 @@ export interface RestoreOptions {
   targetSchemaName?: string;
   pointInTime?: Date;
   tablesToRestore?: string[];
+  auditActorId?: string;
 }
 
 export interface ConnectionPoolStatus {

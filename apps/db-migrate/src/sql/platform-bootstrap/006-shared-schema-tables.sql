@@ -265,12 +265,52 @@ BEGIN
       "errorMessage"    TEXT,
       "recordsAffected" INT          NOT NULL DEFAULT 0,
       "createdAt"       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-      "updatedAt"       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      "updatedAt"       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      CONSTRAINT chk_shared_gdpr_data_requests_request_type
+        CHECK ("requestType" IN ('export', 'deletion', 'rectification', 'restriction', 'portability')),
+      CONSTRAINT chk_shared_gdpr_data_requests_status
+        CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled'))
     );
     CREATE INDEX "IDX_data_request_user"   ON shared.gdpr_data_requests ("userId");
     CREATE INDEX "IDX_data_request_tenant" ON shared.gdpr_data_requests ("tenantId");
     CREATE INDEX "IDX_data_request_type"   ON shared.gdpr_data_requests ("requestType");
     CREATE INDEX "IDX_data_request_status" ON shared.gdpr_data_requests (status);
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF to_regclass('shared.gdpr_data_requests') IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1
+         FROM pg_constraint
+        WHERE conrelid = 'shared.gdpr_data_requests'::regclass
+          AND conname = 'chk_shared_gdpr_data_requests_request_type'
+     )
+  THEN
+    ALTER TABLE shared.gdpr_data_requests
+      ADD CONSTRAINT chk_shared_gdpr_data_requests_request_type
+      CHECK ("requestType" IN ('export', 'deletion', 'rectification', 'restriction', 'portability'))
+      NOT VALID;
+    ALTER TABLE shared.gdpr_data_requests
+      VALIDATE CONSTRAINT chk_shared_gdpr_data_requests_request_type;
+  END IF;
+
+  IF to_regclass('shared.gdpr_data_requests') IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1
+         FROM pg_constraint
+        WHERE conrelid = 'shared.gdpr_data_requests'::regclass
+          AND conname = 'chk_shared_gdpr_data_requests_status'
+     )
+  THEN
+    ALTER TABLE shared.gdpr_data_requests
+      ADD CONSTRAINT chk_shared_gdpr_data_requests_status
+      CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled'))
+      NOT VALID;
+    ALTER TABLE shared.gdpr_data_requests
+      VALIDATE CONSTRAINT chk_shared_gdpr_data_requests_status;
   END IF;
 END
 $$;
@@ -300,9 +340,14 @@ BEGIN
     CREATE INDEX "IDX_consent_tenant"    ON shared.user_consents ("tenantId");
     CREATE INDEX "IDX_consent_type"      ON shared.user_consents ("consentType");
     CREATE INDEX "IDX_consent_user_type" ON shared.user_consents ("userId", "consentType");
+    CREATE UNIQUE INDEX "UQ_consent_user_type_version"
+      ON shared.user_consents ("userId", "consentType", version);
   END IF;
 END
 $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "UQ_consent_user_type_version"
+  ON shared.user_consents ("userId", "consentType", version);
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- shared.user_permissions

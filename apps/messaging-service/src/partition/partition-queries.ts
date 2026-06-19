@@ -1,20 +1,19 @@
 /**
- * Pure SQL query builders for partition operations on messaging tables.
+ * Pure SQL query builders for non-creation partition operations on messaging tables.
  *
  * Used by:
- *   - PartitionManagerService (@Cron monthly job) to create future partitions
- *   - TenantMigrationRunner to provision partitions in new tenant schemas
- *   - Admin tooling for partition lifecycle management
+ *   - Admin tooling for partition lifecycle reads and guarded drops.
+ *   - LegalHoldGuard to keep destructive partition drops behind legal-hold clearance.
  *
- * All functions return raw SQL strings. The caller is responsible for
- * executing them via QueryRunner or DataSource.query().
+ * Runtime partition creation is intentionally NOT exposed here. The only
+ * runtime creation authority is PartitionManagerService delegating to the
+ * platform SECURITY DEFINER primitive `platform.create_messaging_partition`.
  *
  * SECURITY: All schema and table names are validated with assertSafeSqlIdentifier()
  * to prevent SQL injection via string interpolation.
  *
- * WHY no DEFAULT partition: These query builders intentionally do not generate a
- * DEFAULT partition. See PartitionManagerService for the rationale (fail-fast on
- * out-of-range timestamps rather than silent catch-all routing).
+ * This module intentionally does not expose DEFAULT partition helpers. See
+ * PartitionManagerService for the fail-fast routing rationale.
  */
 
 /**
@@ -38,51 +37,6 @@ function assertSafeSqlIdentifier(name: string, label: string): void {
       `Invalid ${label} "${name}": must match ${SAFE_IDENTIFIER_RE.toString()}`,
     );
   }
-}
-
-/**
- * Generates a SQL statement to create a monthly partition for a given table.
- *
- * The partition name follows the convention: {tableName}_{year}_{month}
- * (e.g., messages_2026_04 for April 2026).
- *
- * The range is [fromDate, toDate) — inclusive start, exclusive end.
- *
- * @param schema - Schema name (e.g., 'messaging', 'tenant_abc123')
- * @param tableName - Parent table name (e.g., 'messages', 'message_receipts')
- * @param year - Partition year (e.g., 2026)
- * @param month - Partition month (1-12)
- * @returns SQL CREATE TABLE ... PARTITION OF statement
- */
-export function createMonthlyPartition(
-  schema: string,
-  tableName: string,
-  year: number,
-  month: number,
-): string {
-  assertSafeSqlIdentifier(schema, 'schema');
-  assertSafeSqlIdentifier(tableName, 'tableName');
-  const paddedMonth = String(month).padStart(2, '0');
-  const partitionSuffix = `${year}_${paddedMonth}`;
-
-  // Calculate the start and end dates for the partition range.
-  // End date is the first day of the next month.
-  const fromDate = `${year}-${paddedMonth}-01`;
-
-  let toYear = year;
-  let toMonth = month + 1;
-  if (toMonth > 12) {
-    toMonth = 1;
-    toYear = year + 1;
-  }
-  const paddedToMonth = String(toMonth).padStart(2, '0');
-  const toDate = `${toYear}-${paddedToMonth}-01`;
-
-  return [
-    `CREATE TABLE IF NOT EXISTS "${schema}"."${tableName}_${partitionSuffix}"`,
-    `  PARTITION OF "${schema}"."${tableName}"`,
-    `  FOR VALUES FROM ('${fromDate}') TO ('${toDate}');`,
-  ].join('\n');
 }
 
 /**
@@ -261,66 +215,4 @@ export function verifyPartitionExists(
     `    AND c.relispartition = true`,
     `) AS "exists";`,
   ].join('\n');
-}
-
-/**
- * Generates SQL statements to create partitions for an entire year.
- *
- * Convenience wrapper that calls createMonthlyPartition for each month.
- *
- * @param schema - Schema name
- * @param tableName - Parent table name
- * @param year - Year to create partitions for (all 12 months)
- * @returns Array of SQL CREATE TABLE statements
- */
-export function createYearPartitions(
-  schema: string,
-  tableName: string,
-  year: number,
-): string[] {
-  assertSafeSqlIdentifier(schema, 'schema');
-  assertSafeSqlIdentifier(tableName, 'tableName');
-  const statements: string[] = [];
-  for (let month = 1; month <= 12; month++) {
-    statements.push(createMonthlyPartition(schema, tableName, year, month));
-  }
-  return statements;
-}
-
-/**
- * Generates SQL statements to create the next N months of partitions
- * starting from a given date.
- *
- * Used by the monthly cron job to ensure partitions exist ahead of time.
- *
- * @param schema - Schema name
- * @param tableName - Parent table name
- * @param startYear - Starting year
- * @param startMonth - Starting month (1-12)
- * @param count - Number of months to create
- * @returns Array of SQL CREATE TABLE statements
- */
-export function createUpcomingPartitions(
-  schema: string,
-  tableName: string,
-  startYear: number,
-  startMonth: number,
-  count: number,
-): string[] {
-  assertSafeSqlIdentifier(schema, 'schema');
-  assertSafeSqlIdentifier(tableName, 'tableName');
-  const statements: string[] = [];
-  let year = startYear;
-  let month = startMonth;
-
-  for (let i = 0; i < count; i++) {
-    statements.push(createMonthlyPartition(schema, tableName, year, month));
-    month++;
-    if (month > 12) {
-      month = 1;
-      year++;
-    }
-  }
-
-  return statements;
 }

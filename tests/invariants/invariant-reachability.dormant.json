@@ -159,11 +159,6 @@
     "owner": "platform-invariants",
     "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
   },
-  "single-partition-creator.spec.ts": {
-    "expires_on": "2026-06-30",
-    "owner": "platform-invariants",
-    "reason": "Declared dormant until assigned to an invariants:full shard; this prevents silent dead specs."
-  },
   "strip-internal-headers-mounted.spec.ts": {
     "expires_on": "2026-06-30",
     "owner": "platform-invariants",

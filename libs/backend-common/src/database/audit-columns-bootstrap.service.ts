@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+
 import {
   convertAuditColumnsToTimestamptz,
   ConvertAuditColumnsOptions,
@@ -32,9 +33,9 @@ import { assertRuntimeDdlAllowed } from './db-migrate-authority.util';
  *
  * Same lifecycle reasoning as `RlsSchemaBootstrap`. The DataSource
  * must be connected before we can `createQueryRunner()`, and any
- * `SourceSchemaBootstrapService` that creates tables via `synchronize`
- * must complete first — otherwise the discovery query may not see
- * tables that haven't been provisioned yet on a fresh environment.
+ * `SourceSchemaBootstrapService` that verifies post-migration source-schema
+ * tables must run in the same application bootstrap phase, after module
+ * initialization and after authoritative migration ownership has been decided.
  * `OnApplicationBootstrap` runs after every module's `OnModuleInit`,
  * giving us both guarantees in one phase.
  *

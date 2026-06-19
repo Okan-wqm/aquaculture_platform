@@ -169,6 +169,7 @@ export default {
       testMatch: [
         '<rootDir>/adoption-invariants.spec.ts',
         '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',
+        '<rootDir>/no-runtime-synchronize.spec.ts',
         '<rootDir>/required-signals-vs-emitters.spec.ts',
         '<rootDir>/migration-registration-completeness.spec.ts',
         '<rootDir>/migration-glob-contract.spec.ts',

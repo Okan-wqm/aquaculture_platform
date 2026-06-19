@@ -104,8 +104,8 @@ import { TrainingModule } from './training/training.module';
  * in src/database/migrations/ (CreateHRModuleSchema,
  * CreateSchedulingTables, HRMediumFixes) will also execute if not
  * already recorded in the migrations meta table — their idempotency
- * guards handle re-applications on DBs where they were previously
- * applied via SourceSchemaBootstrap synchronize.
+ * guards handle re-applications on DBs where legacy synchronize/bootstrap
+ * paths previously applied overlapping DDL.
  */
 const HrMigrationRunnerService = createSchemaVersionGate('hr');
 const hrSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);

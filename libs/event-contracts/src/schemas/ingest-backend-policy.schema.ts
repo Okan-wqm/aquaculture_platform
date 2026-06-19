@@ -57,13 +57,19 @@ type WireIngestBackendPolicyAction =
 
 /** Internal alias so the JSONSchemaType type lines up with the `change` field. */
 type WireIngestBackendPolicyChange =
-  | { action: 'set_global'; backend: WireIngestBackendKind }
   | {
-      action: 'set_tenant';
+      action: Extract<WireIngestBackendPolicyAction, 'set_global'>;
+      backend: WireIngestBackendKind;
+    }
+  | {
+      action: Extract<WireIngestBackendPolicyAction, 'set_tenant'>;
       tenantId: string;
       backend: WireIngestBackendKind;
     }
-  | { action: 'remove_tenant'; tenantId: string };
+  | {
+      action: Extract<WireIngestBackendPolicyAction, 'remove_tenant'>;
+      tenantId: string;
+    };
 
 interface WireIngestBackendPolicyChanged {
   eventId: string;

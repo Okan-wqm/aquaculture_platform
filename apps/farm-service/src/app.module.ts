@@ -149,10 +149,10 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
         createServiceTypeOrmConfig(configService, {
           serviceName: 'farm',
           schema: 'farm',
-          // migrationsRun: false (default) — MigrationRunnerService in
-          // database.module executes migrations at OnApplicationBootstrap
-          // so SourceSchemaBootstrapService.synchronize() (OnModuleInit)
-          // creates base tables BEFORE any ALTER statement runs.
+          // migrationsRun: false (default) — db-migrate / MigrationRunnerService
+          // own migration application. SourceSchemaBootstrapService only
+          // verifies the post-migration source schema at OnApplicationBootstrap
+          // and refuses any runtime synchronize() fallback.
           migrations: [...FARM_MIGRATIONS],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

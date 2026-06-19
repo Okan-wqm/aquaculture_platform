@@ -11,6 +11,9 @@
  *     throwing — one bad table never takes the whole export down
  *   - the bundle shape is stable and records totalRows / tableCount
  */
+import { DataSource } from 'typeorm';
+
+import { AuditRedactionService } from '../../database/services/audit-redaction.service';
 import { TenantExportService } from '../services/tenant-export.service';
 
 interface ColumnDouble {
@@ -20,6 +23,26 @@ interface EntityMetadataDouble {
   tableName: string;
   target: unknown;
   columns: ColumnDouble[];
+}
+
+type RedactionOverrides = Partial<
+  Pick<AuditRedactionService, 'redactChanges' | 'redactMetadata'>
+>;
+
+function dataSourceDouble(dataSource: {
+  entityMetadatas: EntityMetadataDouble[];
+  getRepository: jest.Mock;
+}): DataSource {
+  const instance = new DataSource({
+    type: 'postgres',
+    database: 'tenant-export-service-spec',
+  });
+  Object.defineProperty(instance, 'entityMetadatas', {
+    configurable: true,
+    value: dataSource.entityMetadatas,
+  });
+  jest.spyOn(instance, 'getRepository').mockImplementation(dataSource.getRepository);
+  return instance;
 }
 
 function makeDs(opts: {
@@ -51,21 +74,34 @@ function makeDs(opts: {
     entityMetadatas: opts.entities,
     getRepository,
   };
-  return { dataSource, queryLog };
+  return { dataSource: dataSourceDouble(dataSource), queryLog };
 }
 
-function makeRedaction(overrides?: Partial<{
-  redactChanges: (c: unknown) => unknown;
-  redactMetadata: (m: unknown) => unknown;
-}>) {
-  return {
-    redactChanges:
-      overrides?.redactChanges ??
-      jest.fn().mockImplementation((c: unknown) => ({ redacted: true, orig: c })),
-    redactMetadata:
-      overrides?.redactMetadata ??
-      jest.fn().mockImplementation((m: unknown) => ({ redacted: true, orig: m })),
-  };
+function makeRedaction(overrides?: RedactionOverrides): AuditRedactionService {
+  const service = new AuditRedactionService();
+  jest.spyOn(service, 'redactChanges').mockImplementation(
+    overrides?.redactChanges ??
+      ((changes) =>
+        changes
+          ? {
+              before: {
+                redacted: true,
+                original: changes,
+              },
+            }
+          : undefined),
+  );
+  jest.spyOn(service, 'redactMetadata').mockImplementation(
+    overrides?.redactMetadata ??
+      ((metadata) =>
+        metadata
+          ? {
+              source: 'redacted',
+              correlationId: JSON.stringify(metadata),
+            }
+          : undefined),
+  );
+  return service;
 }
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -94,12 +130,7 @@ describe('TenantExportService.resolveTenantScopedEntities', () => {
         },
       ],
     });
-    const service = new TenantExportService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeRedaction() as any,
-    );
+    const service = new TenantExportService(dataSource, makeRedaction());
 
     const tables = service.resolveTenantScopedEntities().map((m) => m.tableName);
     expect(tables).toEqual(['scoped_a', 'scoped_b']);
@@ -127,12 +158,7 @@ describe('TenantExportService.exportTenant', () => {
         sites: [{ id: 's1' }],
       },
     });
-    const service = new TenantExportService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeRedaction() as any,
-    );
+    const service = new TenantExportService(dataSource, makeRedaction());
 
     const bundle = await service.exportTenant(TENANT);
 
@@ -161,12 +187,7 @@ describe('TenantExportService.exportTenant', () => {
       ],
       rowsByTable: { batches_v2: [] },
     });
-    const service = new TenantExportService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeRedaction() as any,
-    );
+    const service = new TenantExportService(dataSource, makeRedaction());
 
     const bundle = await service.exportTenant(TENANT);
     expect(bundle.tables['batches_v2']).toEqual([]);
@@ -176,12 +197,10 @@ describe('TenantExportService.exportTenant', () => {
   });
 
   it('re-runs audit redaction on exported farm_audit_logs rows', async () => {
-    const redactChanges = jest
-      .fn()
-      .mockImplementation((c: unknown) => ({ reChanged: c }));
-    const redactMetadata = jest
-      .fn()
-      .mockImplementation((m: unknown) => ({ reMeta: m }));
+    const redactedChanges = { before: { marker: 'changes-redacted' } };
+    const redactedMetadata = { source: 'metadata-redacted' };
+    const redactChanges = jest.fn().mockReturnValue(redactedChanges);
+    const redactMetadata = jest.fn().mockReturnValue(redactedMetadata);
     const { dataSource } = makeDs({
       entities: [
         {
@@ -206,18 +225,16 @@ describe('TenantExportService.exportTenant', () => {
       },
     });
     const service = new TenantExportService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { redactChanges, redactMetadata } as any,
+      dataSource,
+      makeRedaction({ redactChanges, redactMetadata }),
     );
 
     const bundle = await service.exportTenant(TENANT);
     const rows = bundle.tables['farm_audit_logs'] as Array<Record<string, unknown>>;
     const first = rows[0]!;
     const second = rows[1]!;
-    expect(first['changes']).toEqual({ reChanged: { before: { email: 'x@y.z' } } });
-    expect(first['metadata']).toEqual({ reMeta: { ipAddress: '1.2.3.4' } });
+    expect(first['changes']).toBe(redactedChanges);
+    expect(first['metadata']).toBe(redactedMetadata);
     // Null/undefined passed through untouched — redaction skipped.
     expect(second['changes']).toBeNull();
     expect(second['metadata']).toBeUndefined();
@@ -241,10 +258,8 @@ describe('TenantExportService.exportTenant', () => {
       },
     });
     const service = new TenantExportService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { redactChanges, redactMetadata } as any,
+      dataSource,
+      makeRedaction({ redactChanges, redactMetadata }),
     );
 
     const bundle = await service.exportTenant(TENANT);
@@ -280,12 +295,7 @@ describe('TenantExportService.exportTenant', () => {
       },
       failingTables: new Set(['broken_table']),
     });
-    const service = new TenantExportService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeRedaction() as any,
-    );
+    const service = new TenantExportService(dataSource, makeRedaction());
 
     const bundle = await service.exportTenant(TENANT);
     expect(bundle.summary.skippedTables).toEqual(['broken_table']);

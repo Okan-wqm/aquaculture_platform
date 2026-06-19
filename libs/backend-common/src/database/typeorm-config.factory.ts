@@ -53,7 +53,6 @@ type SubscriberInput = Type<unknown> | string;
  *   DATABASE_PASSWORD                   password (required in production — fail-fast)
  *   DATABASE_NAME                       database name           default aquaculture
  *   DATABASE_LOGGING                    "true" / "false"        default false
- *   DATABASE_SYNC                       "true" / "false"        default false
  *   DATABASE_POOL_SIZE                  pg pool max             default 10 (or `defaultPoolSize` opt)
  *   DATABASE_POOL_MIN                   pg pool min             default 2
  *   DATABASE_POOL_IDLE_TIMEOUT_MS       pg idle timeout (ms)    default 30000
@@ -91,6 +90,13 @@ type SubscriberInput = Type<unknown> | string;
  * `DATABASE_MIGRATIONS_RUN=false`. TypeORM's built-in `migrationsRun:true`
  * skips those guardrails, so it is opt-in via the `migrationsRun` factory
  * argument and only auth-service currently uses it (legacy).
+ *
+ * # Why `synchronize` is always false
+ *
+ * Runtime TypeORM synchronize is not a configuration option. DDL belongs to
+ * db-migrate / migration runners only. `DATABASE_SYNC=true` is accepted only as
+ * a fail-fast misconfiguration signal so old compose/env files cannot silently
+ * re-enable a second schema writer.
  */
 
 export interface ServiceTypeOrmOptions {
@@ -235,20 +241,21 @@ export function createServiceTypeOrmConfig(
       ? opts.migrationsRunFromEnv(configService)
       : opts.migrationsRun ?? false;
   const nodeEnv = process.env['NODE_ENV'];
-  const aquaEnv = configService.get<string>('AQUA_ENV', nodeEnv ?? 'development');
   // SSOT resolution (PR#363 design): authority comes from the shared
   // strict-parse resolver — a malformed DB_MIGRATE_AUTHORITATIVE value
   // throws here, at DataSource-config time, before any pool is opened.
   const dbMigrateAuthoritative = resolveDbMigrateAuthoritativeFromConfig(configService);
-  const isProductionLike =
-    nodeEnv === 'production' ||
-    aquaEnv === 'production' ||
-    aquaEnv === 'staging';
-  const synchronize = configService.get('DATABASE_SYNC', 'false') === 'true';
+  const retiredDatabaseSync = configService.get<string>('DATABASE_SYNC');
   if (hasDbMigrateDdlAuthority()) {
     throw new Error(
       `[${opts.serviceName}] DB_MIGRATE_DDL_AUTHORITY=1 is only valid inside aqua-db-migrate; ` +
         'runtime services must not receive DDL-authority credentials or env.',
+    );
+  }
+  if (retiredDatabaseSync === 'true') {
+    throw new Error(
+      `[${opts.serviceName}] DATABASE_SYNC=true is retired. Runtime services must never run ` +
+        'TypeORM synchronize; use db-migrate or a reviewed TypeORM migration instead.',
     );
   }
 
@@ -256,12 +263,6 @@ export function createServiceTypeOrmConfig(
     throw new Error(
       `[${opts.serviceName}] TypeORM migrationsRun=true is not allowed when ` +
         'aqua-db-migrate is the authoritative DDL writer. Set DATABASE_MIGRATIONS_RUN=false.',
-    );
-  }
-  if (synchronize && (isProductionLike || dbMigrateAuthoritative)) {
-    throw new Error(
-      `[${opts.serviceName}] DATABASE_SYNC=true is not allowed when ` +
-        'aqua-db-migrate is the authoritative DDL writer or in production/staging.',
     );
   }
 
@@ -302,7 +303,7 @@ export function createServiceTypeOrmConfig(
     autoLoadEntities: opts.entities == null,
     entities: opts.entities,
     subscribers: opts.subscribers,
-    synchronize,
+    synchronize: false,
     migrationsRun,
     migrations: opts.migrations,
     migrationsTableName: MIGRATION_LEDGER_TABLE,

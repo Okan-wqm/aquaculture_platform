@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import { assertRuntimeDdlAllowed } from '../db-migrate-authority.util';
+
 import {
   applyTenantRlsToSchema,
   ApplyTenantRlsOptions,
@@ -40,10 +41,10 @@ import {
  *
  * 1. The DataSource has been validated and connected (otherwise the helper's
  *    `qr.query()` calls would fail with cryptic startup errors).
- * 2. `SourceSchemaBootstrapService` (which runs in `onModuleInit`) has had
- *    a chance to create the tables. RLS on a non-existent table is silently
- *    a no-op, but with this ordering we get the policies on the FIRST cold
- *    start, not the second.
+ * 2. `SourceSchemaBootstrapService` also runs in `onApplicationBootstrap` and
+ *    verifies that migrations have already created the source-schema tables.
+ *    RLS on a non-existent table is silently a no-op, so non-authoritative
+ *    local/test mode must stay in this post-initialization phase.
  *
  * # Idempotency and forward-migration
  *

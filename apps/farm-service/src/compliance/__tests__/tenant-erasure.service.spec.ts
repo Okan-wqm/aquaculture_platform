@@ -17,6 +17,9 @@
  * standing up a real DB.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import type { LegalHoldService } from '@aquaculture/backend-common/compliance';
+import type { OutboxPublisher } from '@platform/outbox';
+import { DataSource } from 'typeorm';
 
 import { TenantErasureService } from '../services/tenant-erasure.service';
 
@@ -25,6 +28,40 @@ interface EntityMetadataDouble {
   target: unknown;
   columns: Array<{ propertyName: string }>;
   foreignKeys: Array<{ referencedTablePath: string }>;
+}
+
+function dataSourceDouble(dataSource: {
+  entityMetadatas: EntityMetadataDouble[];
+  createQueryBuilder: jest.Mock;
+  transaction: jest.Mock;
+  getRepository: jest.Mock;
+}): DataSource {
+  const instance = new DataSource({
+    type: 'postgres',
+    database: 'tenant-erasure-service-spec',
+  });
+  Object.defineProperty(instance, 'entityMetadatas', {
+    configurable: true,
+    value: dataSource.entityMetadatas,
+  });
+  jest
+    .spyOn(instance, 'createQueryBuilder')
+    .mockImplementation(dataSource.createQueryBuilder);
+  jest.spyOn(instance, 'transaction').mockImplementation(dataSource.transaction);
+  jest.spyOn(instance, 'getRepository').mockImplementation(dataSource.getRepository);
+  return instance;
+}
+
+function outboxPublisherDouble(
+  publisher: Pick<OutboxPublisher, 'enqueue'>,
+): OutboxPublisher {
+  return publisher as OutboxPublisher;
+}
+
+function legalHoldServiceDouble(
+  service: Pick<LegalHoldService, 'assertNoHold'>,
+): LegalHoldService {
+  return service as LegalHoldService;
 }
 
 function makeDs(opts: {
@@ -135,7 +172,7 @@ function makeDs(opts: {
     getRepository,
   };
   return {
-    dataSource,
+    dataSource: dataSourceDouble(dataSource),
     executed,
     qb,
     auditQb,
@@ -153,8 +190,8 @@ const USER = 'user-1';
 describe('TenantErasureService ticket flow', () => {
   it('initiate returns a 32-hex token with 5-minute expiry', () => {
     const { dataSource } = makeDs({ entities: [] });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     const before = Date.now();
     const ticket = service.initiate(TENANT, USER);
     expect(ticket.tenantId).toBe(TENANT);
@@ -167,8 +204,8 @@ describe('TenantErasureService ticket flow', () => {
 
   it('confirm without an initiate throws NotFoundException', async () => {
     const { dataSource } = makeDs({ entities: [] });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     await expect(service.confirm(TENANT, 'x')).rejects.toThrow(
       NotFoundException,
     );
@@ -176,8 +213,8 @@ describe('TenantErasureService ticket flow', () => {
 
   it('confirm with a wrong token rejects with BadRequestException', async () => {
     const { dataSource } = makeDs({ entities: [] });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     service.initiate(TENANT, USER);
     await expect(
       service.confirm(TENANT, 'not-the-token'),
@@ -186,8 +223,8 @@ describe('TenantErasureService ticket flow', () => {
 
   it('confirm with a wrong tenant rejects (no ticket for that tenant)', async () => {
     const { dataSource } = makeDs({ entities: [] });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     await expect(
       service.confirm(OTHER_TENANT, ticket.token),
@@ -196,8 +233,8 @@ describe('TenantErasureService ticket flow', () => {
 
   it('confirm after expiry throws BadRequestException and consumes the ticket', async () => {
     const { dataSource } = makeDs({ entities: [] });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     // Mutate the expiry so the ticket is stale without actually
     // waiting 5 minutes. The private map is reachable via the
@@ -212,8 +249,8 @@ describe('TenantErasureService ticket flow', () => {
 
   it('second initiate replaces the first (single pending per tenant)', () => {
     const { dataSource } = makeDs({ entities: [] });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     const t1 = service.initiate(TENANT, USER);
     const t2 = service.initiate(TENANT, USER);
     expect(t1.token).not.toBe(t2.token);
@@ -233,8 +270,8 @@ describe('TenantErasureService ticket flow', () => {
       deleteResults: { example: 3 },
       auditAnonAffected: 0,
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     await service.confirm(TENANT, ticket.token);
     expect(service.getPendingTicket(TENANT)).toBeUndefined();
@@ -264,8 +301,8 @@ describe('TenantErasureService DELETE cascade', () => {
       deleteResults: { batches_v2: 5 },
       auditAnonAffected: 12,
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
 
@@ -294,8 +331,8 @@ describe('TenantErasureService DELETE cascade', () => {
       ],
       deleteResults: { child: 2, parent: 1 },
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     await service.confirm(TENANT, ticket.token);
     // Parent has 1 inbound FK (from child); child has 0.
@@ -325,13 +362,8 @@ describe('TenantErasureService TenantErased event emission', () => {
       auditAnonAffected: 4,
     });
     const enqueue = jest.fn().mockResolvedValue(undefined);
-    const publisher = { enqueue } as unknown;
-    const service = new TenantErasureService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      publisher as any,
-    );
+    const publisher = outboxPublisherDouble({ enqueue });
+    const service = new TenantErasureService(dataSource, publisher);
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
 
@@ -368,10 +400,7 @@ describe('TenantErasureService TenantErased event emission', () => {
       ],
       deleteResults: { batches_v2: 2 },
     });
-    const service = new TenantErasureService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
-    );
+    const service = new TenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
     expect(result.totalDeleted).toBe(2);
@@ -393,13 +422,8 @@ describe('TenantErasureService TenantErased event emission', () => {
       deleteError: new Error('PG-23503: FK violation'),
     });
     const enqueue = jest.fn();
-    const publisher = { enqueue } as unknown;
-    const service = new TenantErasureService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      publisher as any,
-    );
+    const publisher = outboxPublisherDouble({ enqueue });
+    const service = new TenantErasureService(dataSource, publisher);
     const ticket = service.initiate(TENANT, USER);
     await expect(service.confirm(TENANT, ticket.token)).rejects.toThrow(
       /FK violation/,
@@ -452,8 +476,8 @@ describe('TenantErasureService idempotency (COMPLIANCE-MEDIUM-004)', () => {
         tableCount: 2,
       },
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
 
     // Caller submits a token that doesn't even need to be valid;
     // the idempotency check short-circuits before token
@@ -483,8 +507,8 @@ describe('TenantErasureService idempotency (COMPLIANCE-MEDIUM-004)', () => {
       entities: [],
       existingErasureAuditRow: null,
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
 
@@ -509,8 +533,8 @@ describe('TenantErasureService idempotency (COMPLIANCE-MEDIUM-004)', () => {
         tableCount: 0,
       },
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     // The stale in-memory ticket is still valid token-wise. With
     // a pre-existing erasure row, the idempotency check wins and
@@ -543,11 +567,9 @@ describe('TenantErasureService legal-hold precedence (COMPLIANCE-HIGH-004)', () 
       ),
     };
     const service = new TenantErasureService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
+      dataSource,
       undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      legalHoldService as any,
+      legalHoldServiceDouble(legalHoldService),
     );
     const ticket = service.initiate(TENANT, USER);
     await expect(service.confirm(TENANT, ticket.token)).rejects.toThrow(
@@ -568,11 +590,9 @@ describe('TenantErasureService legal-hold precedence (COMPLIANCE-HIGH-004)', () 
       assertNoHold: jest.fn().mockResolvedValue(undefined),
     };
     const service = new TenantErasureService(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dataSource as any,
+      dataSource,
       undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      legalHoldService as any,
+      legalHoldServiceDouble(legalHoldService),
     );
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
@@ -586,8 +606,8 @@ describe('TenantErasureService legal-hold precedence (COMPLIANCE-HIGH-004)', () 
   it('skips the legal-hold check when LegalHoldService is not injected (test-harness/local-dev path)', async () => {
     const { dataSource } = makeDs({ entities: [] });
     // No legal-hold service injected.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new TenantErasureService(dataSource as any);
+
+    const service = new TenantErasureService(dataSource);
     const ticket = service.initiate(TENANT, USER);
     const result = await service.confirm(TENANT, ticket.token);
     expect(result.state).toBe('PURGED');

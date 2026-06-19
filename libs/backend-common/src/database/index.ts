@@ -6,6 +6,20 @@ export * from './schema-manager.service';
 export { validateSqlIdentifier } from './sql-identifier.util';
 export type { SqlIdentifierKind } from './sql-identifier.util';
 
+// TypeORM driver query result normalizer — single canonical adapter for
+// raw `DataSource.query()` return shapes across Postgres and CLI/test drivers.
+export {
+  queryResultNormalized,
+  queryRowCountNormalized,
+  queryRowsNormalized,
+  queryRowsWithStringColumn,
+  querySingleStringColumn,
+} from './query-result-normalizer';
+export type {
+  NormalizedQueryResult,
+  StringColumnRow,
+} from './query-result-normalizer';
+
 // Source Schema Bootstrap
 export * from './source-schema-bootstrap.service';
 

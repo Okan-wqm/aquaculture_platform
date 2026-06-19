@@ -35,13 +35,13 @@ export interface McpSdkPort {
   StdioClientTransport: McpSdkTransportModule['StdioClientTransport'];
 }
 
-const optionalImport = new Function('specifier', 'return import(specifier)') as (
-  specifier: string,
-) => Promise<unknown>;
-
 export async function loadOptionalMcpSdk(): Promise<McpSdkPort> {
-  const clientModule = await optionalImport('@modelcontextprotocol/sdk/client/index.js') as Partial<McpSdkClientModule>;
-  const transportModule = await optionalImport('@modelcontextprotocol/sdk/client/stdio.js') as Partial<McpSdkTransportModule>;
+  const clientModule = (await import(
+    '@modelcontextprotocol/sdk/client/index.js'
+  )) as Partial<McpSdkClientModule>;
+  const transportModule = (await import(
+    '@modelcontextprotocol/sdk/client/stdio.js'
+  )) as Partial<McpSdkTransportModule>;
 
   if (typeof clientModule.Client !== 'function') {
     throw new Error('MCP SDK Client export is unavailable');

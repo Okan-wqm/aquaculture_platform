@@ -138,8 +138,8 @@ type QueryComplexityOperationContext = {
     // Database connection — uses the platform TypeORM factory.
     // INTENTIONAL: no `schema:` — TenantConnectionBootstrap manages
     // search_path per request. Partitioned tables (messages,
-    // message_receipts) require migrations — synchronize stays disabled
-    // (factory honours DATABASE_SYNC default false).
+    // message_receipts) require migrations — synchronize is structurally
+    // disabled by the shared TypeORM factory.
     // MessagingMigrationRunnerService (provider above) executes migrations
     // at OnApplicationBootstrap; factory's migrationsRun:false default
     // keeps TypeORM out of that codepath.

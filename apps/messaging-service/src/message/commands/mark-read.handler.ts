@@ -1,4 +1,7 @@
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import {
+  queryRowsNormalized,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 import { Logger, NotFoundException, Inject } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { createBaseEvent } from '@platform/event-contracts';
@@ -8,6 +11,7 @@ import { DataSource } from 'typeorm';
 
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
+import { MessageReceiptLedger } from '../entities/message-receipt-ledger.entity';
 import { ReceiptStatus } from '../entities/message-receipt.entity';
 import { Message } from '../entities/message.entity';
 
@@ -90,41 +94,31 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
       // same receipt identity into the partitioned receipt history table.
       const now = new Date();
       const messageCreatedAtIso = message.createdAt.toISOString();
-      const ledgerRows = await manager.query(
-        `
-          INSERT INTO message_receipt_ledger (
-            "tenantId",
-            "messageId",
-            "messageCreatedAt",
-            "userId",
-            "status",
-            "deliveredAt",
-            "readAt",
-            "updatedAt"
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-          ON CONFLICT ("tenantId", "messageId", "userId")
-          DO UPDATE SET
-            "messageCreatedAt" = EXCLUDED."messageCreatedAt",
-            "status" = EXCLUDED."status",
-            "deliveredAt" = COALESCE(message_receipt_ledger."deliveredAt", EXCLUDED."deliveredAt"),
-            "readAt" = EXCLUDED."readAt",
-            "updatedAt" = EXCLUDED."updatedAt"
-          RETURNING
-            "receiptId" AS "receiptId",
-            "receiptCreatedAt" AS "receiptCreatedAt",
-            "deliveredAt" AS "deliveredAt"
-        `,
-        [
+      const ledgerResult = await manager
+        .createQueryBuilder()
+        .insert()
+        .into(MessageReceiptLedger)
+        .values({
           tenantId,
-          message.id,
-          message.createdAt,
+          messageId: message.id,
+          messageCreatedAt: message.createdAt,
           userId,
-          ReceiptStatus.READ,
-          now,
-          now,
-        ],
-      ) as ReceiptLedgerRow[];
+          status: ReceiptStatus.READ,
+          deliveredAt: now,
+          readAt: now,
+          updatedAt: now,
+        })
+        .onConflict(
+          `("tenantId", "messageId", "userId") DO UPDATE SET ` +
+            `"messageCreatedAt" = EXCLUDED."messageCreatedAt", ` +
+            `"status" = EXCLUDED."status", ` +
+            `"deliveredAt" = COALESCE("message_receipt_ledger"."deliveredAt", EXCLUDED."deliveredAt"), ` +
+            `"readAt" = EXCLUDED."readAt", ` +
+            `"updatedAt" = EXCLUDED."updatedAt"`,
+        )
+        .returning(['receiptId', 'receiptCreatedAt', 'deliveredAt'])
+        .execute();
+      const ledgerRows = queryRowsNormalized<ReceiptLedgerRow>(ledgerResult.raw);
 
       const ledger = ledgerRows[0];
       if (!ledger) {

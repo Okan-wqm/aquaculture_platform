@@ -8,6 +8,7 @@ import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { Message } from './entities/message.entity';
 import { MessageAttachment } from './entities/message-attachment.entity';
 import { MessageReceipt } from './entities/message-receipt.entity';
+import { MessageReceiptLedger } from './entities/message-receipt-ledger.entity';
 import { MessageReaction } from './entities/message-reaction.entity';
 import { PinnedMessage } from './entities/pinned-message.entity';
 // Feature module dependencies
@@ -51,6 +52,7 @@ import { MessageAttachmentResolver } from './resolvers/message-attachment.resolv
       Message,
       MessageAttachment,
       MessageReceipt,
+      MessageReceiptLedger,
       MessageReaction,
       PinnedMessage,
     ]),

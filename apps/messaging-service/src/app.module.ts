@@ -75,6 +75,7 @@ import { Message } from './message/entities/message.entity';
 import { MessageAttachment } from './message/entities/message-attachment.entity';
 import { MessageSendIdempotency } from './message/entities/message-send-idempotency.entity';
 import { MessageReceipt } from './message/entities/message-receipt.entity';
+import { MessageReceiptLedger } from './message/entities/message-receipt-ledger.entity';
 import { MessageReaction } from './message/entities/message-reaction.entity';
 import { PinnedMessage } from './message/entities/pinned-message.entity';
 import { MessagingOutbox } from './outbox/messaging-outbox.entity';
@@ -166,6 +167,7 @@ type QueryComplexityOperationContext = {
             MessageAttachment,
             MessageSendIdempotency,
             MessageReceipt,
+            MessageReceiptLedger,
             MessageReaction,
             PinnedMessage,
             MessagingOutbox,

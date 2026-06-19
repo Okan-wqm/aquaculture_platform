@@ -274,7 +274,7 @@ export class StockMovementService {
       const stockResult = await tenantManagerRepo(manager, StorageInventory, tenantId)
         .createQueryBuilder('inv')
         .select('COALESCE(SUM(inv.quantity), 0)', 'total')
-        .where('inv.itemType = :itemType', { itemType })
+        .andWhere('inv.itemType = :itemType', { itemType })
         .andWhere('inv.itemId = :itemId', { itemId })
         .getRawOne();
       currentTotal = parseFloat(stockResult?.total ?? '0');
@@ -368,7 +368,6 @@ export class StockMovementService {
   ): Promise<{ storageLocationId: string; lotNumber?: string } | null> {
     const query = tenantManagerRepo(manager, StorageInventory, tenantId)
       .createQueryBuilder('inv')
-      .where('inv.tenantId = :tenantId', { tenantId })
       .andWhere('inv.itemType = :itemType', { itemType: StorageItemType.FEED })
       .andWhere('inv.itemId = :itemId', { itemId: feedId })
       .andWhere('inv.quantity > 0')
@@ -564,7 +563,6 @@ export class StockMovementService {
       const effectiveAsOf = asOfDate ?? new Date();
       inventory = await repo
         .createQueryBuilder('inv')
-        .where('inv.tenantId = :tenantId', { tenantId })
         .andWhere('inv.storageLocationId = :locationId', { locationId })
         .andWhere('inv.itemType = :itemType', { itemType })
         .andWhere('inv.itemId = :itemId', { itemId })
@@ -658,7 +656,7 @@ export class StockMovementService {
     const result = await tenantManagerRepo(manager, StorageInventory, tenantId)
       .createQueryBuilder('inv')
       .select('COALESCE(SUM(inv.quantity), 0)', 'total')
-      .where('inv.itemType = :itemType', { itemType })
+      .andWhere('inv.itemType = :itemType', { itemType })
       .andWhere('inv.itemId = :itemId', { itemId })
       .getRawOne();
 

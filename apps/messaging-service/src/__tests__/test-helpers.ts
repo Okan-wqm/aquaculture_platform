@@ -251,8 +251,20 @@ export function createMockQueryRunner(): MockQueryRunner {
 // Mock repository factory
 // ---------------------------------------------------------------------------
 export type MockRepository<T extends ObjectLiteral> = jest.Mocked<
-  Pick<Repository<T>, 'findOne' | 'find' | 'save' | 'create' | 'update' | 'delete' | 'count' | 'createQueryBuilder'>
->;
+  Pick<
+    Repository<T>,
+    | 'findOne'
+    | 'find'
+    | 'save'
+    | 'create'
+    | 'update'
+    | 'delete'
+    | 'count'
+    | 'createQueryBuilder'
+  >
+> & {
+  metadata: Pick<Repository<T>['metadata'], 'findColumnWithPropertyName'>;
+};
 
 export function createMockRepository<T extends ObjectLiteral>(): MockRepository<T> {
   return {
@@ -264,6 +276,11 @@ export function createMockRepository<T extends ObjectLiteral>(): MockRepository<
     delete: jest.fn(),
     count: jest.fn(),
     createQueryBuilder: jest.fn(),
+    metadata: {
+      findColumnWithPropertyName: jest.fn().mockReturnValue({
+        databaseName: 'tenantId',
+      }),
+    } as Pick<Repository<T>['metadata'], 'findColumnWithPropertyName'>,
   };
 }
 

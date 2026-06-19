@@ -102,7 +102,7 @@ export class DataExportService {
 
     const data =
       format === 'json'
-        ? JSON.stringify(rows, null, 2)
+        ? JSON.stringify(rows)
         : this.toCsv(rows);
 
     // Log the export to compliance audit
@@ -208,7 +208,7 @@ export class DataExportService {
 
     const data =
       format === 'json'
-        ? JSON.stringify(rows, null, 2)
+        ? JSON.stringify(rows)
         : this.toCsv(rows);
 
     await this.auditService.log({

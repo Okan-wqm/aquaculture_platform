@@ -1,0 +1,19 @@
+name: Install TPM build dependencies
+description: Install bounded apt dependencies for sens-api-gateway TPM feature builds.
+runs:
+  using: composite
+  steps:
+    - name: Install TPM build dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        readonly apt_options=(
+          -o Acquire::Retries=5
+          -o Acquire::http::Timeout=20
+          -o Acquire::https::Timeout=20
+          -o Dpkg::Lock::Timeout=120
+        )
+
+        sudo env DEBIAN_FRONTEND=noninteractive timeout 5m apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive timeout 20m apt-get "${apt_options[@]}" install -y --no-install-recommends pkg-config libtss2-dev

@@ -6,8 +6,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * `messages` table.
  *
  * WHY (ORPHAN-MEDIUM-055): the embedding column + hnsw index existed ONLY in
- * the orphan `init-messaging-schema.sql` (which the migration runner never
- * executes) and an archived migration. The active migration set (Baseline +
+ * a deleted service-local init SQL file (which the migration runner never
+ * executed) and an archived migration. The active migration set (Baseline +
  * outbox/idempotency contracts) created `embeddings_metadata` but NOT the
  * `messages.embedding` column, so `EmbeddingService.processUnembeddedMessages`
  * queried a non-existent column on every cron tick — failing with

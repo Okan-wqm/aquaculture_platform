@@ -462,19 +462,19 @@ export function expectGqlOk<T = Record<string, unknown>>(
   if (res.status !== 200) {
     throw new Error(
       `GraphQL HTTP ${res.status}${label}: expected 200.\n` +
-        `Body: ${JSON.stringify(res.body, null, 2)}`,
+        `Body: ${JSON.stringify(res.body)}`,
     );
   }
   if (Array.isArray(res.body.errors) && res.body.errors.length > 0) {
     throw new Error(
       `GraphQL request returned errors${label}:\n` +
-        JSON.stringify(res.body.errors, null, 2),
+        JSON.stringify(res.body.errors),
     );
   }
   if (res.body.data === null || res.body.data === undefined) {
     throw new Error(
       `GraphQL response had no \`data\` field${label}.\n` +
-        `Body: ${JSON.stringify(res.body, null, 2)}`,
+        `Body: ${JSON.stringify(res.body)}`,
     );
   }
   return res.body.data;

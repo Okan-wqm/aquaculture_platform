@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `4dcff4016d76bf4571558ae2649a23a949e5cb98b56a8bdbd3cd8409d4adfd19`
+Registry tip: `39cba2bdbdca0b838e68e0b97d96042cb6f55225cef69cb188b370db2b8a8106`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,7 +20,6 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-009`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-015`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-017`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-018`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
@@ -161,6 +160,20 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   is pinned to `db_migrate_complete` from `apps/db-migrate` and the legacy
   per-service `migration_runner_applied` signal cannot re-enter the required
   signal contract.
+- `INFRA-CRITICAL-009`: registry state is `RESOLVED` with closing commit
+  `802ed10fbe6f6309cb1919bfc8648a8dc069b6a0`. PR #549 merged to `main` as
+  `c6329de7b5dec4058b8e614ac955abcdfe4848bb` after GitHub Actions passed on
+  2026-06-19, including E2E messaging, build, test, lint, type-check,
+  invariants-fast, bootstrap-from-scratch, tenant-clone-parity,
+  sens-enterprise-validation, and merge-gate. The runtime
+  `dataSource.synchronize()` authority was retired in favor of the migration
+  ledger and toolchain SSoT. Enforcement now lives in
+  `tests/invariants/no-runtime-synchronize.spec.ts`,
+  `tests/invariants/toolchain-config-ssot.spec.ts`,
+  `tools/lint-gates/eslint-toolchain-deprecation.spec.ts`,
+  `tools/toolchain/run.mjs`, and `tools/toolchain/toolchain-runtime.mjs`, with
+  backend-common lint contracts normalized so repository checks flow through
+  the same toolchain path.
 - `INFRA-CRITICAL-010`: registry state is `RESOLVED` with closing commit
   `5fc235a9a6fb68618f14ebb009efdba65929e46d`. PR #542 passed GitHub Actions on
   2026-06-18, including build, test, lint, type-check, invariants-fast,

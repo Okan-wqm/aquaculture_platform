@@ -19,10 +19,13 @@
  *                           appends a newline-terminated entry.
  *   close <id> <sha>     — mutate a finding to state=RESOLVED, set
  *                           closed_at, and APPEND the short SHA to
- *                           closing_commits[]. Because the registry is
- *                           hash-chained, every entry FROM the
- *                           mutated position onward must have its
- *                           chain re-stitched (prev_hash preserved,
+ *                           closing_commits[]. The SHA must be
+ *                           reachable from origin/main and its commit
+ *                           message must carry a matching Closes:
+ *                           trailer. Because the registry is
+ *                           hash-chained, every entry FROM the mutated
+ *                           position onward must have its chain
+ *                           re-stitched (prev_hash preserved,
  *                           content_hash recomputed).
  *   export <format>      — dump alternate representations (json-array,
  *                           csv) for dashboards / reporting.
@@ -60,6 +63,7 @@ import Ajv2020Mod, { type ValidateFunction } from 'ajv/dist/2020.js';
 // PROC-HIGH-001 structural guard — close ceremony refuses branch-local
 // SHAs (see cmdClose). The shared SSOT helper is import-safe for
 // node:test specs, which use the same extensionless CJS specifier.
+import { commitHasFindingCloseTrailer } from './finding-traceability';
 import { commitReachableFrom } from './git-reachability';
 
 const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
@@ -322,12 +326,12 @@ function cmdClose(id: string, shortSha: string): number {
 
   // PROC-HIGH-001 structural guard (Round-2 cluster-0): the three-store
   // invariant requires every closing_commits SHA to exist in fetchable
-  // history. A feature-branch SHA is GUARANTEED to be invalidated by the
-  // squash-merge + branch-delete flow (2026-06-10: 7 rows orphaned by
-  // #378, repaired in #384; SEC-CRITICAL-002 / AUDIT-CRITICAL-006
-  // recurrences repaired in #380 / cluster-0). The ceremony therefore
-  // runs ONLY post-merge, with the squash SHA from
-  // `gh pr view <N> --json mergeCommit`. Fail-closed — an unresolvable
+  // history. A feature-branch SHA is GUARANTEED to be invalidated by
+  // branch cleanup after merge (2026-06-10: 7 rows orphaned by #378,
+  // repaired in #384; SEC-CRITICAL-002 / AUDIT-CRITICAL-006 recurrences
+  // repaired in #380 / cluster-0). The ceremony therefore runs ONLY
+  // post-merge, with a main-reachable commit whose own message carries
+  // the matching Closes: trailer. Fail-closed — an unresolvable
   // origin/main (stale fetch, shallow clone) refuses with instructions
   // rather than certifying blind.
   // tier-1: runtime guard commitReachableFrom (git-reachability.ts) refuses branch-local closing SHAs at the only write path; CI invariant finding-registry-integrity.spec.ts enforces the stored chain
@@ -350,6 +354,12 @@ function cmdClose(id: string, shortSha: string): number {
   const entry = entries[index];
   if (!entry) {
     console.error(`Finding at index ${index} is undefined — registry corruption?`);
+    return 1;
+  }
+
+  const traceability = commitHasFindingCloseTrailer(REPO_ROOT, shortSha, id);
+  if (!traceability.ok) {
+    process.stderr.write(`close refused: ${traceability.reason}\n`);
     return 1;
   }
 

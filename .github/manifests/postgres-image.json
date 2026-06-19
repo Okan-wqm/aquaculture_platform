@@ -5,6 +5,9 @@
   "image": "timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7",
   "image_family": "timescale/timescaledb-ha",
   "postgres_major": 16,
+  "runtime_user": "postgres",
+  "pgdata": "/var/lib/postgresql/data",
+  "ssl_entrypoint": "infrastructure/docker/scripts/postgres-ssl-entrypoint.sh",
   "required_capabilities": ["timescaledb", "pgvector", "hnsw_vector_cosine_ops"],
   "consumers": [
     ".github/workflows/ci-full.yml",

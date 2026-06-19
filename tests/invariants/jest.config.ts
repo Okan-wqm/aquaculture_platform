@@ -171,6 +171,7 @@ export default {
         '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',
         '<rootDir>/no-runtime-synchronize.spec.ts',
         '<rootDir>/required-signals-vs-emitters.spec.ts',
+        '<rootDir>/all-services-env-aware-migrations.spec.ts',
         '<rootDir>/migration-registration-completeness.spec.ts',
         '<rootDir>/migration-glob-contract.spec.ts',
         '<rootDir>/db-migrate-entity-metadata-contract.spec.ts',

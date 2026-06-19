@@ -178,6 +178,10 @@ function assertCleanupDropProof(proof: CleanupDropProof | undefined, tenantId: s
   return proof;
 }
 
+function toSchemaManagerError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 /**
  * Supported modules and their table definitions.
  *
@@ -905,8 +909,9 @@ export class SchemaManagerService {
         duration: Date.now() - startTime,
       };
     } catch (error) {
-      const errorMsg = `Failed to create tenant schema: ${(error as Error).message}`;
-      this.logger.error(errorMsg, (error as Error).stack);
+      const schemaError = toSchemaManagerError(error);
+      const errorMsg = `Failed to create tenant schema: ${schemaError.message}`;
+      this.logger.error(errorMsg, schemaError.stack);
       errors.push(errorMsg);
 
       // CLEANUP: Drop partial schema on failure
@@ -1001,14 +1006,14 @@ export class SchemaManagerService {
    * Runtime services do not perform tenant DDL; deletion is queued through
    * aqua-db-migrate with CleanupDropProof evidence.
    */
-  async deleteTenantSchema(
+  deleteTenantSchema(
     tenantId: string,
     proof: CleanupDropProof,
   ): Promise<{ success: boolean; error?: string }> {
-    const dropProof = assertCleanupDropProof(proof, tenantId);
-    const schemaName = this.getTenantSchemaName(tenantId);
-
     try {
+      const dropProof = assertCleanupDropProof(proof, tenantId);
+      const schemaName = this.getTenantSchemaName(tenantId);
+
       this.logger.log(
         `Deleting tenant schema ${schemaName} with cleanup proof ${dropProof.operationId} (${dropProof.purpose})`,
       );
@@ -1016,11 +1021,15 @@ export class SchemaManagerService {
         `Tenant schema deletion for ${schemaName} is owned by aqua-db-migrate; ` +
         `runtime services must write a deletion request ledger entry instead.`;
       this.logger.warn(authorityError);
-      return { success: false, error: authorityError };
+      return Promise.resolve({ success: false, error: authorityError });
     } catch (error) {
-      const errorMsg = `Failed to delete tenant schema: ${(error as Error).message}`;
+      if (error instanceof BadRequestException) {
+        return Promise.reject(error);
+      }
+
+      const errorMsg = `Failed to delete tenant schema: ${toSchemaManagerError(error).message}`;
       this.logger.error(errorMsg);
-      return { success: false, error: errorMsg };
+      return Promise.resolve({ success: false, error: errorMsg });
     }
   }
 

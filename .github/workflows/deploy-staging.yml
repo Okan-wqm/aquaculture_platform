@@ -240,7 +240,7 @@ jobs:
           # Staging always builds every backend service from the current sha.
           # Mirrors the FULL_DEPLOY=true path of prod so staging == prod compiler
           # output for the commit being promoted.
-          npx nx run-many -t build \
+          node tools/toolchain/run.mjs npx nx run-many -t build \
             --projects=db-migrate,gateway-api,auth-service,farm-service,sensor-service,admin-api-service,alert-engine,billing-service,hr-service,hydroponics-service,notification-service,observability-service,config-service,messaging-service \
             --parallel=3
         env:
@@ -336,7 +336,7 @@ jobs:
           read -r -a NON_NX_FRONTEND <<< "${CATALOG_NON_NX_FRONTEND_PROJECTS:-}"
 
           if [ "${#NX_FRONTEND[@]}" -gt 0 ]; then
-            npx nx run-many -t build \
+            node tools/toolchain/run.mjs npx nx run-many -t build \
               --projects="$(IFS=,; echo "${NX_FRONTEND[*]}")" \
               --parallel=3
           fi

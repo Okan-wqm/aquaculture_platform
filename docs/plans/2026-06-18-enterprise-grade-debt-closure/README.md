@@ -18,11 +18,11 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
 
 - Base commit: `2de67e4a5a6ffdcf675be0fcd4322854fcecd62f`
 - Registry entries: 459
-- Registry tip hash: `4e54ae44bc5a1c4ce561ea5d033c167d36806514c8c4cdf08ee34366e05513f1`
+- Registry tip hash: `4dcff4016d76bf4571558ae2649a23a949e5cb98b56a8bdbd3cd8409d4adfd19`
 - OPEN findings: 170
-- IN-PROGRESS findings: 44
-- Active CRITICAL findings: 21
-- `npm run findings:verify`: passing after the INFRA-CRITICAL-011 closure update
+- IN-PROGRESS findings: 43
+- Active CRITICAL findings: 20
+- `npm run findings:verify`: passing after the INFRA-CRITICAL-012 closure update
 - Worktree state at plan creation: dirty before this plan was written; existing
   source changes are treated as user work and are not part of this plan artifact.
 
@@ -200,3 +200,10 @@ These are not optional work items. They block normal domain execution:
   local action SSoT is guarded by
   `tests/invariants/github-actions-tpm-deps-ssot.spec.ts` plus
   `tools/gates/sens-enterprise-validation.ts`.
+- 2026-06-19: `INFRA-CRITICAL-012` closed by PR #546, merge commit
+  `053f996a318801c351e86405385465cc14e2c75b`. Messaging partition child
+  creation has one runtime path: `PartitionManagerService` delegates to the
+  platform SECURITY DEFINER primitive `platform.create_messaging_partition`.
+  The stale raw partition creation query builders were removed, and
+  `tests/invariants/single-partition-creator.spec.ts` is active in the registry
+  invariant shard.

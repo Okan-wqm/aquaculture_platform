@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `4e54ae44bc5a1c4ce561ea5d033c167d36806514c8c4cdf08ee34366e05513f1`
+Registry tip: `4dcff4016d76bf4571558ae2649a23a949e5cb98b56a8bdbd3cd8409d4adfd19`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,7 +20,6 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-012`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-009`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-015`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-017`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
@@ -191,6 +190,21 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   is `.github/actions/install-tpm-build-dependencies/action.yml`, and the Sens
   enterprise gate now reads that local action instead of a duplicated raw apt
   literal.
+- `INFRA-CRITICAL-012`: registry state is `RESOLVED` with closing commit
+  `053f996a318801c351e86405385465cc14e2c75b`. PR #546 passed GitHub Actions on
+  2026-06-19, including E2E messaging, build, test, lint, type-check,
+  schema-validation, invariants-fast, sens-api-gateway-rust,
+  sens-enterprise-validation, and merge-gate. Local evidence passed
+  `tests/invariants/single-partition-creator.spec.ts`,
+  `tests/invariants/messaging-partition-ddl-authority.spec.ts`,
+  `tests/invariants/invariant-reachability.spec.ts`,
+  `npm run invariants:fast`, `npm run findings:verify`,
+  `npm run gates:required-status-checks`, affected lint/test/build, and
+  `git diff --check`. Runtime partition child creation now has one SSoT:
+  `PartitionManagerService` delegates to
+  `platform.create_messaging_partition`. The unused raw partition creation
+  query builders were removed, and the formerly dormant
+  `single-partition-creator` invariant is active in the registry shard.
 - `FE-CRITICAL-050`: registry state is `RESOLVED` with closing commit
   `109563f`. The AquaMobil Vitest run above passed the service-worker artifact
   invariant, proving `messaging-sw.ts` is emitted through `injectManifest` with

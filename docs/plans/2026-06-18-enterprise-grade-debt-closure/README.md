@@ -14,15 +14,15 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
 `.github/manifests/main-required-status-checks.json` and enforced statically by
 `npm run gates:required-status-checks`.
 
-## Baseline
+## Registry Snapshot
 
 - Base commit: `2de67e4a5a6ffdcf675be0fcd4322854fcecd62f`
 - Registry entries: 459
-- Registry tip hash: `c9f9b213f227609909806b3574aeb1bf9f2f00837086d20cd4892995ec324e7d`
+- Registry tip hash: `4e54ae44bc5a1c4ce561ea5d033c167d36806514c8c4cdf08ee34366e05513f1`
 - OPEN findings: 170
-- IN-PROGRESS findings: 45
-- Active CRITICAL findings: 22
-- `npm run findings:verify`: passing at plan creation
+- IN-PROGRESS findings: 44
+- Active CRITICAL findings: 21
+- `npm run findings:verify`: passing after the INFRA-CRITICAL-011 closure update
 - Worktree state at plan creation: dirty before this plan was written; existing
   source changes are treated as user work and are not part of this plan artifact.
 
@@ -189,3 +189,14 @@ These are not optional work items. They block normal domain execution:
   2026-06-18, `npm run gates:required-status-checks:live` passes and proves
   `main` enforces administrators and requires `sens-enterprise-summary` and
   `merge-gate` with strict status checks.
+
+## Closure Ledger
+
+- 2026-06-19: `INFRA-CRITICAL-011` closed by PR #544, merge commit
+  `1264a3060042861dd2e29fd145223a1211651323`. The messaging schema DDL
+  authority is now TypeORM migrations plus platform bootstrap only; the stale
+  service-local init SQL was deleted. Recurrence is guarded by
+  `tests/invariants/messaging-schema-ssot.spec.ts` and the TPM CI dependency
+  local action SSoT is guarded by
+  `tests/invariants/github-actions-tpm-deps-ssot.spec.ts` plus
+  `tools/gates/sens-enterprise-validation.ts`.

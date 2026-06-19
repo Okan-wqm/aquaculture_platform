@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `39cba2bdbdca0b838e68e0b97d96042cb6f55225cef69cb188b370db2b8a8106`
+Registry tip: `b2844d01bd26d117cf81719be4a6a32e8e2ab2a4dc25b5bbbc30532fa925e94a`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -21,8 +21,6 @@ Allowed truth buckets:
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
 | `INFRA-CRITICAL-015`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
-| `INFRA-CRITICAL-017`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
-| `INFRA-CRITICAL-018`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-019`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-020`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-021`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
@@ -186,6 +184,21 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `.github/manifests/postgres-image.json` SSoT, and every workflow/compose
   Postgres image reference must match the pgvector-capable digest-pinned
   TimescaleDB HA image.
+- `INFRA-CRITICAL-017`: registry state is `RESOLVED` with closing commit
+  `3913455c14fc50c177d858c693d0369fa019def8`. The Postgres SSL entrypoint now
+  resolves the manifest runtime user at container start via `id -u/id -g` and
+  all executable `chown` operations use `${PG_UID}:${PG_GID}`. Enforcement lives
+  in `tests/invariants/postgres-runtime-contract.spec.ts`, which pins runtime
+  ownership to `.github/manifests/postgres-image.json` so hardcoded numeric
+  ownership cannot re-enter the wrapper.
+- `INFRA-CRITICAL-018`: registry state is `RESOLVED` with closing commit
+  `84f9004c64b6233a3bf978ec533c5fd6a145602b`. Concrete Postgres compose
+  consumers use manifest `pgdata`, expose the same value through
+  `services.postgres.environment.PGDATA`, and mount the `postgres_data` volume at
+  that path. Enforcement lives in
+  `tests/invariants/postgres-runtime-contract.spec.ts`, which compares every
+  concrete compose consumer listed in `.github/manifests/postgres-image.json`
+  against the runtime SSoT.
 - `INFRA-CRITICAL-011`: registry state is `RESOLVED` with closing commit
   `1264a3060042861dd2e29fd145223a1211651323`. PR #544 passed GitHub Actions on
   2026-06-19, including E2E messaging, build, test, lint, type-check,

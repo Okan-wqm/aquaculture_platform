@@ -193,6 +193,7 @@ export default {
         '<rootDir>/timescale-rls-columnstore-contract.spec.ts',
         '<rootDir>/jwt-rs256-only.spec.ts',
         '<rootDir>/messaging-partition-ddl-authority.spec.ts',
+        '<rootDir>/single-partition-creator.spec.ts',
         '<rootDir>/shared-schema-canonical.spec.ts',
         '<rootDir>/audit-log-mandatory-shape.spec.ts',
         '<rootDir>/drift-repair-naming.spec.ts',

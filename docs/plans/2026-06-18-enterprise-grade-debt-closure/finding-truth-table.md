@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `b2844d01bd26d117cf81719be4a6a32e8e2ab2a4dc25b5bbbc30532fa925e94a`
+Registry tip: `5b25bc6407ca593fef3971bc8273dd22bbe6446fe20229265ccfcd4797af5a37`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -20,7 +20,6 @@ Allowed truth buckets:
 | Finding                   | Registry state | First sprint | Owner                    | Truth bucket |
 | ------------------------- | -------------- | ------------ | ------------------------ | ------------ |
 | `COMPLIANCE-CRITICAL-001` | OPEN           | 2.2          | compliance-expert        | real-open    |
-| `INFRA-CRITICAL-015`      | IN-PROGRESS    | 1.1          | infra-expert             | real-open    |
 | `INFRA-CRITICAL-019`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
 | `INFRA-CRITICAL-020`      | IN-PROGRESS    | 1.1          | messaging-expert         | real-open    |
 | `INFRA-CRITICAL-021`      | IN-PROGRESS    | 1.1          | data-expert              | real-open    |
@@ -199,6 +198,19 @@ src/hooks/__tests__/useFirebaseMessaging-sw-scope.spec.tsx` passed 28/28 on
   `tests/invariants/postgres-runtime-contract.spec.ts`, which compares every
   concrete compose consumer listed in `.github/manifests/postgres-image.json`
   against the runtime SSoT.
+- `INFRA-CRITICAL-015`: registry state is `RESOLVED` with closing commit
+  `b532d9a8e2a828535b8e7305f60b5556c330cea2`. PR #553 passed GitHub Actions on
+  2026-06-19, including build, test, lint, type-check, E2E, invariants-fast,
+  validate-closes, security-audit, schema-validation, sensor-service gates,
+  sens-enterprise-validation, Rust gateway, and merge-gate. Local evidence
+  passed `git diff --check`, `npx nx test service-catalog --runInBand`, and
+  `npx tsc -p platform/libs/service-catalog/tsconfig.lib.json --noEmit`.
+  Migration boot readiness ownership now lives in
+  `platform/libs/service-catalog/src/index.ts` as
+  `MIGRATION_BOOT_SIGNAL_CONTRACT`; `validateServiceCatalog()` rejects the
+  retired `migration_runner_applied` signal and any duplicate
+  `db_migrate_complete` ownership outside `db-migrate`, with regression
+  coverage in `platform/libs/service-catalog/src/service-catalog.spec.ts`.
 - `INFRA-CRITICAL-011`: registry state is `RESOLVED` with closing commit
   `1264a3060042861dd2e29fd145223a1211651323`. PR #544 passed GitHub Actions on
   2026-06-19, including E2E messaging, build, test, lint, type-check,

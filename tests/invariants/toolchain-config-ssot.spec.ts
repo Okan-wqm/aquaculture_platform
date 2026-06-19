@@ -45,6 +45,19 @@ describe('Toolchain Config SSoT', () => {
     expect(nxJson).toContain('{workspaceRoot}/tools/toolchain/**');
   });
 
+  it('overlays the toolchain runtime owner into base lint comparison worktrees', () => {
+    const lintChangedFiles = readRepoFile('scripts/ci/lint-changed-files.mjs');
+
+    expect(lintChangedFiles).toContain("':(glob)tools/toolchain/**/*.mjs'");
+  });
+
+  it('runs changed-file ESLint through the toolchain runner', () => {
+    const lintChangedFiles = readRepoFile('scripts/ci/lint-changed-files.mjs');
+
+    expect(lintChangedFiles).toContain("join(repoRoot, 'tools', 'toolchain', 'run.mjs')");
+    expect(lintChangedFiles).toContain("prefixArgs: [toolchainRunner, 'eslint']");
+  });
+
   it('does not solve deprecations by suppressing warnings', () => {
     const forbiddenTokens = [
       'NODE_NO_WARNINGS',

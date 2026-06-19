@@ -63,7 +63,6 @@ export class UpdateWorkRotationHandler implements ICommandHandler<UpdateWorkRota
 
       const overlapping = await repo
         .createQueryBuilder('wr')
-        .where('wr.tenantId = :tenantId', { tenantId })
         .andWhere('wr.employeeId = :employeeId', { employeeId: rotation.employeeId })
         .andWhere('wr.id != :id', { id })
         .andWhere('wr.isDeleted = false')

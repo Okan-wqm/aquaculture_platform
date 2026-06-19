@@ -19,7 +19,7 @@ import {
   StripInternalHeadersMiddleware,
 } from '@aquaculture/backend-common/middleware';
 import { RateLimitGuard, RateLimitModule, RATE_LIMIT_STORE, RateLimitStore } from '@aquaculture/backend-common/rate-limit';
-import { RedisModule } from '@aquaculture/backend-common/redis';
+import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
@@ -226,10 +226,8 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
     RedisModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        url: configService.get<string>('REDIS_URL', 'redis://localhost:6379'),
-        keyPrefix: 'auth:',
-      }),
+      useFactory: (configService: ConfigService) =>
+        buildRedisOptions(configService, 'auth', 'required'),
     }),
 
     // SECURITY (SEC-CRITICAL-002): distributed rate-limit store on top of

@@ -12,32 +12,9 @@ describe('SchemaManagerService', () => {
   let dataSource: jest.Mocked<DataSource>;
 
   const mockQuery = jest.fn();
-  // WHY: createTenantSchema + deleteTenantSchema now pin a QueryRunner so the
-  // pg_advisory_lock + pg_advisory_unlock pair travels on the same physical
-  // connection (DATA-CRITICAL-001 fix). The mock DataSource needs a
-  // createQueryRunner that returns a runner whose .query forwards to the
-  // same mockQuery — this preserves the test's existing call-shape
-  // assertions while exercising the new lock-pinning path.
-  // WHAT: createQueryRunner returns a stub with connect/release/query.
-  const mockRunnerQuery = jest.fn();
-  const mockRunnerConnect = jest.fn();
-  const mockRunnerRelease = jest.fn();
-  const mockCreateQueryRunner = jest.fn();
 
   beforeEach(async () => {
     mockQuery.mockReset();
-    mockRunnerQuery.mockReset();
-    mockRunnerConnect.mockReset();
-    mockRunnerRelease.mockReset();
-    mockCreateQueryRunner.mockReset();
-    // The runner's query forwards to mockQuery so existing test assertions
-    // that check `dataSource.query` invocations still see lock/unlock calls.
-    mockRunnerQuery.mockImplementation((...args) => mockQuery(...args));
-    mockCreateQueryRunner.mockReturnValue({
-      connect: mockRunnerConnect.mockResolvedValue(undefined),
-      release: mockRunnerRelease.mockResolvedValue(undefined),
-      query: mockRunnerQuery,
-    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -46,7 +23,6 @@ describe('SchemaManagerService', () => {
           provide: DataSource,
           useValue: {
             query: mockQuery,
-            createQueryRunner: mockCreateQueryRunner,
           },
         },
       ],
@@ -232,7 +208,7 @@ describe('SchemaManagerService', () => {
       });
     });
 
-    it('should acquire advisory lock before creating schema', async () => {
+    it('should not acquire advisory locks from runtime schema creation', async () => {
       await service.createTenantSchema(tenantId);
 
       const queryCalls = mockQuery.mock.calls as readonly (readonly unknown[])[];
@@ -240,17 +216,17 @@ describe('SchemaManagerService', () => {
         (call) =>
           String(call[0]).includes('pg_advisory_lock') && !String(call[0]).includes('unlock'),
       );
-      expect(lockCalls.length).toBeGreaterThan(0);
+      expect(lockCalls.length).toBe(0);
     });
 
-    it('should release advisory lock after creation', async () => {
+    it('should not release advisory locks from runtime schema creation', async () => {
       await service.createTenantSchema(tenantId);
 
       const queryCalls = mockQuery.mock.calls as readonly (readonly unknown[])[];
       const unlockCalls = queryCalls.filter((call) =>
         String(call[0]).includes('pg_advisory_unlock'),
       );
-      expect(unlockCalls.length).toBeGreaterThan(0);
+      expect(unlockCalls.length).toBe(0);
     });
 
     it('should not create schema directly from runtime services', async () => {
@@ -361,14 +337,8 @@ describe('SchemaManagerService', () => {
       expect(dropCalls.length).toBe(0);
     });
 
-    it('should release advisory lock even on failure', async () => {
+    it('should not use advisory locks when runtime provisioning is rejected', async () => {
       mockQuery.mockImplementation((sql: string) => {
-        if (sql.includes('pg_advisory_lock') && !sql.includes('unlock')) {
-          return Promise.resolve([]);
-        }
-        if (sql.includes('pg_advisory_unlock')) {
-          return Promise.resolve([]);
-        }
         if (sql.includes('information_schema.schemata')) {
           return Promise.resolve([]);
         }
@@ -385,10 +355,10 @@ describe('SchemaManagerService', () => {
 
       expect(result.success).toBe(false);
 
-      const unlockCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('pg_advisory_unlock')
+      const advisoryCalls = mockQuery.mock.calls.filter(
+        call => call[0].includes('pg_advisory')
       );
-      expect(unlockCalls.length).toBeGreaterThan(0);
+      expect(advisoryCalls.length).toBe(0);
     });
 
     it('should not grant schema usage from runtime services', async () => {
@@ -708,29 +678,26 @@ describe('SchemaManagerService', () => {
       expect(dropCalls.length).toBe(0);
     });
 
-    it('should acquire advisory lock before deletion', async () => {
+    it('should not acquire advisory lock before runtime deletion rejection', async () => {
       await service.deleteTenantSchema(tenantId, createProof());
 
       const lockCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('pg_advisory_lock') && !call[0].includes('unlock')
       );
-      expect(lockCalls.length).toBe(1);
+      expect(lockCalls.length).toBe(0);
     });
 
-    it('should release advisory lock after deletion', async () => {
+    it('should not release advisory lock after runtime deletion rejection', async () => {
       await service.deleteTenantSchema(tenantId, createProof());
 
       const unlockCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('pg_advisory_unlock')
       );
-      expect(unlockCalls.length).toBe(1);
+      expect(unlockCalls.length).toBe(0);
     });
 
-    it('should release advisory lock even on failure', async () => {
+    it('should not use advisory locks when runtime deletion is rejected', async () => {
       mockQuery.mockImplementation((sql: string) => {
-        if (sql.includes('pg_advisory')) {
-          return Promise.resolve([]);
-        }
         if (sql.includes('DROP SCHEMA')) {
           throw new Error('Drop failed');
         }
@@ -745,7 +712,7 @@ describe('SchemaManagerService', () => {
       const unlockCalls = mockQuery.mock.calls.filter(
         call => call[0].includes('pg_advisory_unlock')
       );
-      expect(unlockCalls.length).toBe(1);
+      expect(unlockCalls.length).toBe(0);
     });
 
     it('should not invalidate cache when runtime deletion is denied', async () => {
@@ -807,6 +774,9 @@ describe('SchemaManagerService', () => {
         'tenant_bbbb000000000000',
         'tenant_cccc000000000000',
       ]);
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining("schema_name ~ '^tenant_[a-f0-9]{16}$'"),
+      );
     });
 
     it('should return empty array when no tenant schemas exist', async () => {
@@ -833,34 +803,6 @@ describe('SchemaManagerService', () => {
       const count = await service.getSchemaTableCount('tenant_nonexistent');
 
       expect(count).toBe(0);
-    });
-  });
-
-  describe('setTenantSearchPath', () => {
-    it('should set search_path to tenant schema using set_config', async () => {
-      mockQuery.mockResolvedValue([]);
-
-      await service.setTenantSearchPath('4b529829-ea79-48da-982c-cd6fbec8ffb7');
-
-      // Implementation uses parameterized pg_catalog.set_config (not SET search_path TO)
-      // to safely pass the schema name as a bind parameter, preventing SQL injection.
-      expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining('set_config'),
-        ['tenant_4b529829ea7948da']
-      );
-    });
-  });
-
-  describe('resetSearchPath', () => {
-    it('should reset search_path to public using set_config', async () => {
-      mockQuery.mockResolvedValue([]);
-
-      await service.resetSearchPath();
-
-      // Implementation uses pg_catalog.set_config (not SET search_path TO)
-      expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining('set_config'),
-      );
     });
   });
 
@@ -983,54 +925,17 @@ describe('SchemaManagerService', () => {
     });
   });
 
-  describe('advisory lock key generation', () => {
-    it('should generate deterministic lock keys', async () => {
-      const tenantId = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
-
-      // Create schema twice to check lock keys are the same
-      mockQuery.mockImplementation((sql: string, params?: unknown[]) => {
-        if (sql.includes('pg_advisory_lock') && !sql.includes('unlock')) {
-          // Capture the lock key parameter
-          return Promise.resolve([]);
-        }
-        if (sql.includes('pg_advisory_unlock')) {
-          return Promise.resolve([]);
-        }
-        if (sql.includes('information_schema.schemata')) {
-          return Promise.resolve([{ '?column?': 1 }]); // Schema exists
-        }
-        return Promise.resolve([]);
-      });
-
-      await service.createTenantSchema(tenantId);
-      await service.createTenantSchema(tenantId);
-
-      const lockCalls = mockQuery.mock.calls.filter(
-        call => call[0].includes('pg_advisory_lock') && !call[0].includes('unlock')
-      );
-
-      // Both calls should use the same lock key
-      expect(lockCalls[0][1]).toEqual(lockCalls[1][1]);
-    });
-
-    it('should generate different lock keys for different tenants', async () => {
-      const lockKeys: number[] = [];
-
-      mockQuery.mockImplementation((sql: string, params?: unknown[]) => {
-        if (sql.includes('pg_advisory_lock') && !sql.includes('unlock') && params) {
-          lockKeys.push(params[0] as number);
-          return Promise.resolve([]);
-        }
-        if (sql.includes('information_schema.schemata')) {
-          return Promise.resolve([{ '?column?': 1 }]);
-        }
-        return Promise.resolve([]);
-      });
+  describe('runtime DDL lock discipline', () => {
+    it('should not issue advisory locks for tenant schema authority checks', async () => {
+      mockQuery.mockResolvedValue([{ '?column?': 1 }]);
 
       await service.createTenantSchema('11111111-1111-1111-1111-111111111111');
       await service.createTenantSchema('22222222-2222-2222-2222-222222222222');
 
-      expect(lockKeys[0]).not.toBe(lockKeys[1]);
+      const advisoryCalls = mockQuery.mock.calls.filter((call) =>
+        call[0].includes('pg_advisory'),
+      );
+      expect(advisoryCalls).toEqual([]);
     });
   });
 });

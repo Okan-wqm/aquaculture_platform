@@ -33,9 +33,9 @@ interface TenantScopedPayload {
   tenantId: string;
 }
 
-interface ComplianceStatsPayload extends TenantScopedPayload {}
+type ComplianceStatsPayload = TenantScopedPayload;
 
-interface GetLegalHoldsPayload extends TenantScopedPayload {}
+type GetLegalHoldsPayload = TenantScopedPayload;
 
 interface CreateLegalHoldPayload extends TenantScopedPayload {
   userId: string;
@@ -62,7 +62,7 @@ interface ReleaseLegalHoldPayload extends TenantScopedPayload {
   releaseReason: string;
 }
 
-interface GetRetentionPoliciesPayload extends TenantScopedPayload {}
+type GetRetentionPoliciesPayload = TenantScopedPayload;
 
 interface UpdateRetentionPolicyPayload extends TenantScopedPayload {
   userId: string;
@@ -85,7 +85,7 @@ interface TriggerExportPayload extends TenantScopedPayload {
   format: ExportFormat;
 }
 
-interface GetPersonasPayload extends TenantScopedPayload {}
+type GetPersonasPayload = TenantScopedPayload;
 
 // ── Handler ─────────────────────────────────────────────────────────────
 

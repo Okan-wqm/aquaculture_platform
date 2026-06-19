@@ -1,6 +1,9 @@
 import * as crypto from 'crypto';
 
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  queryRowsNormalized,
+} from '@aquaculture/backend-common/database';
 import {
   BadRequestException,
   ConflictException,
@@ -1078,19 +1081,65 @@ export class TenantProvisioningWorkflowService {
     operationId: string,
     tenantId: string,
   ): Promise<void> {
-    const schemaRows = await this.queryRows<{ schemaName: string; tableCount: number }>(
-      `SELECT "schemaName"
-              , "tableCount"
-         FROM admin.tenant_schemas
-        WHERE "tenantId" = $1 AND status = 'active'
-        ORDER BY "updatedAt" DESC
+    const expectedSchemaName = getTenantSchemaName(tenantId);
+    const jobRows = await this.queryRows<{
+      status: string;
+      errorMessage: string | null;
+    }>(
+      `SELECT status,
+              error_message AS "errorMessage"
+         FROM platform.tenant_schema_jobs
+        WHERE operation_id = $1::uuid
+          AND tenant_id = $2::uuid
+          AND schema_name = $3
+          AND job_type = 'PROVISION'
         LIMIT 1`,
-      [tenantId],
+      [operationId, tenantId, expectedSchemaName],
+    );
+    const jobRow = jobRows[0];
+    if (jobRow?.status === 'FAILED' || jobRow?.status === 'ABORTED') {
+      throw new Error(
+        `db-migrate tenant provisioner ${jobRow.status.toLowerCase()} operation ${operationId} for tenant ${tenantId}: ${jobRow.errorMessage ?? 'no error message'}`,
+      );
+    }
+
+    const schemaRows = await this.queryRows<{
+      schemaName: string;
+      tableCount: number;
+      evidenceOperationId: string | null;
+      jobStatus: string;
+    }>(
+      `SELECT ts."schemaName" AS "schemaName",
+              ts."tableCount" AS "tableCount",
+              ts.metadata->>'operationId' AS "evidenceOperationId",
+              j.status AS "jobStatus"
+         FROM admin.tenant_schemas ts
+         JOIN platform.tenant_schema_jobs j
+           ON j.operation_id = $1::uuid
+          AND j.tenant_id = ts."tenantId"
+          AND j.schema_name = ts."schemaName"
+          AND j.job_type = 'PROVISION'
+        WHERE ts."tenantId" = $2::uuid
+          AND ts."schemaName" = $3
+          AND ts.status = 'active'
+          AND ts.metadata->>'operationId' = $1
+          AND j.status = 'COMMITTED'
+        LIMIT 1`,
+      [operationId, tenantId, expectedSchemaName],
     );
     const schemaRow = schemaRows[0];
     if (!schemaRow?.schemaName) {
       throw new DbMigrateProvisioningPendingError(
         `db-migrate tenant provisioner has not completed operation ${operationId} for tenant ${tenantId}`,
+      );
+    }
+    if (
+      schemaRow.schemaName !== expectedSchemaName
+      || schemaRow.evidenceOperationId !== operationId
+      || schemaRow.jobStatus !== 'COMMITTED'
+    ) {
+      throw new Error(
+        `db-migrate tenant provisioner wrote mismatched schema evidence for operation ${operationId} tenant ${tenantId}`,
       );
     }
     if (Number(schemaRow.tableCount ?? 0) <= 0) {
@@ -1679,17 +1728,17 @@ export class TenantProvisioningWorkflowService {
     return error instanceof Error ? error.message : String(error);
   }
 
-  private async queryRows<T>(sql: string, params: unknown[] = []): Promise<T[]> {
-    const rows: unknown = await this.dataSource.query(sql, params);
-    return Array.isArray(rows) ? (rows as T[]) : [];
+  private async queryRows<T extends object>(sql: string, params: unknown[] = []): Promise<T[]> {
+    const result: unknown = await this.dataSource.query(sql, params);
+    return queryRowsNormalized<T>(result);
   }
 
-  private async managerRows<T>(
+  private async managerRows<T extends object>(
     manager: EntityManager,
     sql: string,
     params: unknown[] = [],
   ): Promise<T[]> {
-    const rows: unknown = await manager.query(sql, params);
-    return Array.isArray(rows) ? (rows as T[]) : [];
+    const result: unknown = await manager.query(sql, params);
+    return queryRowsNormalized<T>(result);
   }
 }

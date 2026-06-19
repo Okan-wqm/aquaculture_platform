@@ -1,18 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { DataSource } from 'typeorm';
 
 import { Sensor } from '../database/entities/sensor.entity';
-
-/**
- * Validate PostgreSQL schema name to prevent SQL injection
- * Schema names must match: ^[a-zA-Z_][a-zA-Z0-9_]*$
- */
-function isValidSchemaName(name: string): boolean {
-  if (!name || name.length > 63) return false;
-  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
-}
 
 /**
  * Quote identifier for safe SQL interpolation
@@ -238,21 +230,10 @@ export class SensorTopicCacheService implements OnModuleInit {
       const startTime = Date.now();
       let sensorCount = 0;
 
-      // Get all tenant schemas
-      const tenantSchemas: Array<{ schema_name: string }> = await this.dataSource.query(`
-        SELECT schema_name FROM information_schema.schemata
-        WHERE schema_name LIKE 'tenant_%'
-        ORDER BY schema_name
-      `);
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-      for (const { schema_name } of tenantSchemas) {
+      for (const schema_name of tenantSchemas) {
         try {
-          // Validate schema name to prevent SQL injection
-          if (!isValidSchemaName(schema_name)) {
-            this.logger.warn(`Invalid schema name encountered: ${schema_name}`);
-            continue;
-          }
-
           // Check if sensors table exists
           const tableCheck = await this.dataSource.query(`
             SELECT 1 FROM information_schema.tables
@@ -304,21 +285,10 @@ export class SensorTopicCacheService implements OnModuleInit {
    */
   private async findSensorInDatabase(topic: string): Promise<CachedSensorInfo | null> {
     try {
-      // Get all tenant schemas
-      const tenantSchemas: Array<{ schema_name: string }> = await this.dataSource.query(`
-        SELECT schema_name FROM information_schema.schemata
-        WHERE schema_name LIKE 'tenant_%'
-        ORDER BY schema_name
-      `);
+      const tenantSchemas = await listTenantSchemas(this.dataSource);
 
-      for (const { schema_name } of tenantSchemas) {
+      for (const schema_name of tenantSchemas) {
         try {
-          // Validate schema name to prevent SQL injection
-          if (!isValidSchemaName(schema_name)) {
-            this.logger.warn(`Invalid schema name encountered: ${schema_name}`);
-            continue;
-          }
-
           // Check if sensors table exists
           const tableCheck = await this.dataSource.query(`
             SELECT 1 FROM information_schema.tables

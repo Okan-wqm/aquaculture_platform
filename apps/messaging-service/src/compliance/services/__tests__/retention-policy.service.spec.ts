@@ -31,6 +31,9 @@ describe('RetentionPolicyService', () => {
 
   const userId = fakeUuid('usr');
   const channelId = fakeUuid('ch');
+  const cleanupTenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const cleanupTenantIdB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const heldTenantId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
   beforeEach(async () => {
     resetUuidCounter();
@@ -140,6 +143,7 @@ describe('RetentionPolicyService', () => {
     // empty result lets the drop proceed. Channel-scoped policies take
     // the row-DELETE slow path instead (covered elsewhere).
     const policy = createMockRetentionPolicy({
+      tenantId: cleanupTenantId,
       retentionDays: 90,
       channelId: null,
     });
@@ -147,7 +151,7 @@ describe('RetentionPolicyService', () => {
     legalHoldService.isUnderLegalHold.mockResolvedValue(false);
     legalHoldService.getHeldChannelIds.mockResolvedValue([]);
 
-    // Every in-transaction query (SET search_path, advisory lock, the
+    // Every in-transaction query (tenant search-path pin, advisory lock, the
     // legal-hold re-check, and drop_chunks) resolves to an empty array.
     // The empty legal-hold re-check is what allows the drop to proceed.
     queryRunner.query.mockResolvedValue([]);
@@ -168,6 +172,7 @@ describe('RetentionPolicyService', () => {
   // -----------------------------------------------------------------------
   it('skips cleanup for tenant under legal hold', async () => {
     const policy = createMockRetentionPolicy({
+      tenantId: cleanupTenantId,
       retentionDays: 90,
       channelId: null,
     });
@@ -190,6 +195,7 @@ describe('RetentionPolicyService', () => {
     // table first, then parent). An empty legal-hold re-check lets the
     // drop proceed.
     const policy = createMockRetentionPolicy({
+      tenantId: cleanupTenantId,
       retentionDays: 30,
       channelId: null,
     });
@@ -221,11 +227,11 @@ describe('RetentionPolicyService', () => {
   // -----------------------------------------------------------------------
   it('emits one audit row per policy processed (LEGAL-LOW-002)', async () => {
     const tenant1Policy = createMockRetentionPolicy({
-      tenantId: 'tenant-1',
+      tenantId: cleanupTenantId,
       retentionDays: 90,
     });
     const tenant2Policy = createMockRetentionPolicy({
-      tenantId: 'tenant-2',
+      tenantId: cleanupTenantIdB,
       retentionDays: 30,
     });
     policyRepo.find.mockResolvedValue([tenant1Policy, tenant2Policy]);
@@ -240,8 +246,8 @@ describe('RetentionPolicyService', () => {
     // Each audit row carries the real tenantId, the policy.id as
     // resourceId, and the per-policy deletedCount inside details.
     const calls = auditService.log.mock.calls.map((c) => c[0]);
-    expect(calls.find((c) => c.tenantId === 'tenant-1')).toMatchObject({
-      tenantId: 'tenant-1',
+    expect(calls.find((c) => c.tenantId === cleanupTenantId)).toMatchObject({
+      tenantId: cleanupTenantId,
       resourceType: 'retention_policy',
       details: expect.objectContaining({
         policyId: tenant1Policy.id,
@@ -249,8 +255,8 @@ describe('RetentionPolicyService', () => {
         deletedCount: expect.any(Number),
       }),
     });
-    expect(calls.find((c) => c.tenantId === 'tenant-2')).toMatchObject({
-      tenantId: 'tenant-2',
+    expect(calls.find((c) => c.tenantId === cleanupTenantIdB)).toMatchObject({
+      tenantId: cleanupTenantIdB,
       resourceType: 'retention_policy',
       details: expect.objectContaining({
         policyId: tenant2Policy.id,
@@ -267,7 +273,7 @@ describe('RetentionPolicyService', () => {
 
   it('audits the legal-hold skip path with the actual tenant + skipReason', async () => {
     const policy = createMockRetentionPolicy({
-      tenantId: 'tenant-held',
+      tenantId: heldTenantId,
       retentionDays: 90,
       channelId: null,
     });
@@ -278,7 +284,7 @@ describe('RetentionPolicyService', () => {
 
     expect(auditService.log).toHaveBeenCalledWith(
       expect.objectContaining({
-        tenantId: 'tenant-held',
+        tenantId: heldTenantId,
         resourceType: 'retention_policy',
         resourceId: policy.id,
         details: expect.objectContaining({

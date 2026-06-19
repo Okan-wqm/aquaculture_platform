@@ -58,7 +58,7 @@ const runtimeTenantRlsSyncEnabled = process.env['DB_MIGRATE_DDL_AUTHORITY'] === 
  * messaging source schema at OnApplicationBootstrap. Replaces TypeORM's
  * built-in `migrationsRun: true` path so we get the platform's
  * search_path invariant between migrations (closes the 2026-04-07
- * farm-service class of bug where one migration's SET search_path
+ * farm-service class of bug where one migration's session search_path
  * leaked into the next migration's session).
  *
  * Wired as part of the 2026-04-14 messaging-isolation plan (ADR-011
@@ -101,6 +101,7 @@ import { EnforceSourceOnlyMessagingOutboxContract1800400000000 } from './migrati
 import { EnsureMessagingPartitionContract1800500000000 } from './migrations/1800500000000-EnsureMessagingPartitionContract';
 import { CreateMessageSendIdempotencyLedger1800600000000 } from './migrations/1800600000000-CreateMessageSendIdempotencyLedger';
 import { AddMessagesEmbeddingColumn1800700000000 } from './migrations/1800700000000-AddMessagesEmbeddingColumn';
+import { CreateMessageReceiptLedger1800800000000 } from './migrations/1800800000000-CreateMessageReceiptLedger';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -188,6 +189,7 @@ type QueryComplexityOperationContext = {
             EnsureMessagingPartitionContract1800500000000,
             CreateMessageSendIdempotencyLedger1800600000000,
             AddMessagesEmbeddingColumn1800700000000,
+            CreateMessageReceiptLedger1800800000000,
           ],
         }),
     }),

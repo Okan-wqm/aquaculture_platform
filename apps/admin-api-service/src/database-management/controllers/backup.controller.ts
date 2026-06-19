@@ -12,11 +12,13 @@ import {
   Param,
   Body,
   Query,
+  Req,
   HttpStatus,
   HttpCode,
   BadRequestException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { Type } from 'class-transformer';
 import {
   IsOptional,
@@ -36,6 +38,7 @@ import {
 
 import { BackupType, BackupStatus } from '../entities/database-management.entity';
 import { BackupRestoreService } from '../services/backup-restore.service';
+import { getAuthUser } from '../../shared/authenticated-request';
 
 // ============================================================================
 // DTOs
@@ -52,10 +55,6 @@ class CreateBackupDto {
   @IsOptional()
   @IsBoolean()
   compress?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  encrypt?: boolean;
 
   @IsOptional()
   @Type(() => Number)
@@ -112,6 +111,15 @@ class PointInTimeRecoveryDto {
 export class BackupController {
   constructor(private readonly backupService: BackupRestoreService) {}
 
+  private requireAuditActor(req: Request): string {
+    const user = getAuthUser(req);
+    const actorId = user?.sub ?? user?.id;
+    if (!actorId) {
+      throw new BadRequestException('Authenticated user is required for database backup audit');
+    }
+    return actorId;
+  }
+
   // ============================================================================
   // Backup Operations
   // ============================================================================
@@ -153,7 +161,7 @@ export class BackupController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async createBackup(@Body() dto: CreateBackupDto) {
+  async createBackup(@Body() dto: CreateBackupDto, @Req() req: Request) {
     if (!dto.backupType) {
       throw new BadRequestException('backupType is required');
     }
@@ -161,16 +169,16 @@ export class BackupController {
       tenantId: dto.tenantId,
       backupType: dto.backupType,
       compress: dto.compress,
-      encrypt: dto.encrypt,
       retentionDays: dto.retentionDays,
       excludeTables: dto.excludeTables,
+      auditActorId: this.requireAuditActor(req),
     });
   }
 
   @Delete(':backupId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteBackup(@Param('backupId') backupId: string) {
-    await this.backupService.deleteBackup(backupId);
+  async deleteBackup(@Param('backupId') backupId: string, @Req() req: Request) {
+    await this.backupService.deleteBackup(backupId, this.requireAuditActor(req));
   }
 
   // ============================================================================
@@ -189,7 +197,7 @@ export class BackupController {
 
   @Post('restore')
   @HttpCode(HttpStatus.OK)
-  async restoreFromBackup(@Body() dto: RestoreBackupDto) {
+  async restoreFromBackup(@Body() dto: RestoreBackupDto, @Req() req: Request) {
     if (!dto.backupId) {
       throw new BadRequestException('backupId is required');
     }
@@ -197,12 +205,13 @@ export class BackupController {
       backupId: dto.backupId,
       targetSchemaName: dto.targetSchemaName,
       tablesToRestore: dto.tablesToRestore,
+      auditActorId: this.requireAuditActor(req),
     });
   }
 
   @Post('restore/point-in-time')
   @HttpCode(HttpStatus.OK)
-  async pointInTimeRecovery(@Body() dto: PointInTimeRecoveryDto) {
+  async pointInTimeRecovery(@Body() dto: PointInTimeRecoveryDto, @Req() req: Request) {
     if (!dto.tenantId || !dto.targetTime) {
       throw new BadRequestException('tenantId and targetTime are required');
     }
@@ -212,6 +221,10 @@ export class BackupController {
       throw new BadRequestException('Invalid targetTime format');
     }
 
-    return this.backupService.pointInTimeRecovery(dto.tenantId, targetTime);
+    return this.backupService.pointInTimeRecovery(
+      dto.tenantId,
+      targetTime,
+      this.requireAuditActor(req),
+    );
   }
 }

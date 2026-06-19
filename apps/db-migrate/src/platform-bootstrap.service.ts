@@ -162,7 +162,7 @@ function substitutePlaceholders(sql: string, vars: Record<string, string>): stri
           `${key}=${JSON.stringify(value)} — must match ${SAFE_IDENT_RE.source}.`,
       );
     }
-    out = out.split('\${' + key + '}').join(value);
+    out = out.split('${' + key + '}').join(value);
   }
   // After substitution there must be NO unresolved placeholders left.
   // Any survivor is a configuration error — fail loud, never silently

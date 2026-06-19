@@ -4,6 +4,7 @@ import { SourceSchemaScanner, WatchdogViolation, ViolationSeverity } from './sou
 import { CrossTenantProbe } from './cross-tenant-probe';
 import { SchemaDriftDetector } from './schema-drift-detector';
 import { MODULE_SCHEMAS } from '../schema-manager.service';
+import { listTenantSchemas } from '../tenant-schema.utils';
 
 /**
  * Which scanners to run in a watchdog scan.
@@ -216,10 +217,7 @@ export class WatchdogRunner {
     let schemasScanned = 0;
     try {
       if (opts.schemaDrift || opts.crossTenantData) {
-        const tenantSchemas = await this.dataSource.query(
-          `SELECT COUNT(*) as cnt FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%'`,
-        );
-        schemasScanned += parseInt(tenantSchemas[0]?.cnt || '0');
+        schemasScanned += (await listTenantSchemas(this.dataSource)).length;
       }
       if (opts.sourceContamination) {
         // Source schemas scanned = number of MODULE_SCHEMAS entries

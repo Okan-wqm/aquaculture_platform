@@ -17,6 +17,11 @@ import { Logger } from '@nestjs/common';
 import { getRequestContext } from '../logging/request-context';
 import { TenantEntity } from './tenant-entity.interface';
 
+export type TenantScopedSelectQueryBuilder<T extends ObjectLiteral> = Omit<
+  SelectQueryBuilder<T>,
+  'where' | 'orWhere'
+>;
+
 /**
  * TenantScopedRepository<T> — wraps TypeORM Repository with mandatory tenant isolation.
  *
@@ -406,16 +411,18 @@ export class TenantScopedRepository<T extends TenantEntity> {
    * Create a query builder with automatic tenant scoping.
    *
    * SECURITY: Immediately adds `.where('alias.tenantId = :tenantId', { tenantId })`
-   * to the query builder. All subsequent `.andWhere()` calls are scoped within
-   * the tenant. The caller cannot remove or override this base condition.
+   * to the query builder, then removes `.where()` / `.orWhere()` from the
+   * exposed API. Callers can only narrow the result set with `.andWhere()`.
    *
    * @param alias - Table alias for the query builder (default: 'entity')
-   * @returns SelectQueryBuilder with tenant filter pre-applied
+   * @returns SelectQueryBuilder with tenant filter pre-applied and unsafe predicate resetters hidden
    */
-  createQueryBuilder(alias: string = 'entity'): SelectQueryBuilder<T> {
+  createQueryBuilder(alias: string = 'entity'): TenantScopedSelectQueryBuilder<T> {
     const tenantId = this.requireTenantId();
     const qb = this.repository.createQueryBuilder(alias);
-    qb.where(`${alias}."tenantId" = :tenantId`, { tenantId });
+    const tenantColumn = this.getTenantColumnName();
+    qb.where(`${alias}."${tenantColumn}" = :tenantId`, { tenantId });
+    this.disablePredicateResetters(qb);
     return qb;
   }
 
@@ -433,10 +440,7 @@ export class TenantScopedRepository<T extends TenantEntity> {
   ): FindManyOptions<T> {
     return {
       ...options,
-      where: {
-        ...(options?.where as Record<string, unknown> || {}),
-        tenantId,
-      } as FindOptionsWhere<T>,
+      where: this.mergeWhereClause(options?.where, tenantId),
     };
   }
 
@@ -449,11 +453,57 @@ export class TenantScopedRepository<T extends TenantEntity> {
   ): FindOneOptions<T> {
     return {
       ...options,
-      where: {
-        ...(options?.where as Record<string, unknown> || {}),
-        tenantId,
-      } as FindOptionsWhere<T>,
+      where: this.mergeWhereClause(options?.where, tenantId),
     };
+  }
+
+  private mergeWhereClause(
+    where: FindOptionsWhere<T> | FindOptionsWhere<T>[] | undefined,
+    tenantId: string,
+  ): FindOptionsWhere<T> | FindOptionsWhere<T>[] {
+    if (Array.isArray(where)) {
+      return where.map((clause) => ({
+        ...(clause as Record<string, unknown>),
+        tenantId,
+      })) as FindOptionsWhere<T>[];
+    }
+
+    return {
+      ...(where as Record<string, unknown> | undefined || {}),
+      tenantId,
+    } as FindOptionsWhere<T>;
+  }
+
+  private disablePredicateResetters(qb: SelectQueryBuilder<T>): void {
+    const rejectPredicateReset = (): never => {
+      throw new Error(
+        'TenantScopedRepository query builders are already tenant-scoped. Use andWhere() to add predicates.',
+      );
+    };
+
+    Object.defineProperty(qb, 'where', {
+      value: rejectPredicateReset,
+      configurable: false,
+      writable: false,
+    });
+    Object.defineProperty(qb, 'orWhere', {
+      value: rejectPredicateReset,
+      configurable: false,
+      writable: false,
+    });
+  }
+
+  private getTenantColumnName(): string {
+    const columnName =
+      this.repository.metadata.findColumnWithPropertyName('tenantId')?.databaseName ?? 'tenantId';
+
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(columnName)) {
+      throw new Error(
+        `TenantScopedRepository cannot build a safe tenant predicate for column ${columnName}`,
+      );
+    }
+
+    return columnName;
   }
 }
 

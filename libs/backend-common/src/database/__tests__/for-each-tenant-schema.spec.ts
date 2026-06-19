@@ -32,8 +32,21 @@ function makeDataSource(schemas: string[]): {
   });
 
   jest.spyOn(ds, 'createQueryRunner').mockImplementation(() => {
+    let isTransactionActive = false;
     const qr: Partial<QueryRunner> = {
       connect: async () => undefined,
+      startTransaction: async () => {
+        isTransactionActive = true;
+      },
+      commitTransaction: async () => {
+        isTransactionActive = false;
+      },
+      rollbackTransaction: async () => {
+        isTransactionActive = false;
+      },
+      get isTransactionActive() {
+        return isTransactionActive;
+      },
       // QueryRunner.query is overloaded; a variadic unknown-returning stub
       // overlaps every overload so the targeted assertion is legal.
       query: (async (..._args: unknown[]): Promise<unknown> => []) as QueryRunner['query'],

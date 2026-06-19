@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { TenantStatus } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {
@@ -33,6 +34,7 @@ const ALL_STATUSES = Object.values(TenantStatus);
 interface MockManager {
   findOne: jest.Mock;
   query: jest.Mock;
+  save: jest.Mock;
 }
 
 interface MockClient {
@@ -50,6 +52,7 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
 
   let manager: MockManager;
   let client: MockClient;
+  let outboxPublisher: { enqueue: jest.Mock };
 
   const seedTenant = (status: TenantStatus): void => {
     const tenant = new Tenant();
@@ -58,7 +61,11 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
   };
 
   beforeEach(async () => {
-    manager = { findOne: jest.fn(), query: jest.fn().mockResolvedValue(undefined) };
+    manager = {
+      findOne: jest.fn(),
+      query: jest.fn().mockResolvedValue(undefined),
+      save: jest.fn().mockImplementation((_entity, tenant: Tenant) => Promise.resolve(tenant)),
+    };
     const queryRunner = {
       connect: jest.fn().mockResolvedValue(undefined),
       startTransaction: jest.fn().mockResolvedValue(undefined),
@@ -74,6 +81,9 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
       deprovisionTenant: jest.fn().mockResolvedValue(undefined),
       archiveTenant: jest.fn().mockResolvedValue(undefined),
     };
+    outboxPublisher = {
+      enqueue: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -83,7 +93,7 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
         ArchiveTenantHandler,
         { provide: getRepositoryToken(Tenant), useValue: {} },
         { provide: getDataSourceToken(), useValue: dataSource },
-        { provide: 'EVENT_BUS', useValue: { publish: jest.fn().mockResolvedValue(undefined) } },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
         { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
         { provide: AuthTenantProvisioningClientService, useValue: client },
       ],
@@ -148,6 +158,15 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality', () => 
         seedTenant(status);
         await lc.run();
         expect(lc.client()).toHaveBeenCalledTimes(1);
+        expect(manager.save).toHaveBeenCalledWith(Tenant, expect.objectContaining({ id: 'tenant-1' }));
+        expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+          expect.objectContaining({
+            eventType: 'TenantStatusChanged',
+            tenantId: 'tenant-1',
+          }),
+          manager,
+          { aggregateId: 'tenant-1' },
+        );
       });
     });
   }

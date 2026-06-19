@@ -3,16 +3,10 @@ import { RedisService, RedisModuleOptions } from './redis.service';
 
 export const REDIS_OPTIONS = 'REDIS_OPTIONS';
 
-/**
- * Async options for Redis module configuration
- * Note: useFactory uses 'never[]' with spread to allow typed parameters at call sites
- * while maintaining compatibility with NestJS dependency injection
- */
-export interface RedisModuleAsyncOptions {
+export interface RedisModuleAsyncOptions<TFactoryArgs extends unknown[] = unknown[]> {
   imports?: Array<Type | DynamicModule | Promise<DynamicModule>>;
   inject?: Array<InjectionToken | OptionalFactoryDependency>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  useFactory: (...args: any[]) => Promise<RedisModuleOptions> | RedisModuleOptions;
+  useFactory: (...args: TFactoryArgs) => Promise<RedisModuleOptions> | RedisModuleOptions;
 }
 
 /**
@@ -41,12 +35,13 @@ export class RedisModule {
     };
   }
 
-  static forRootAsync(options: RedisModuleAsyncOptions): DynamicModule {
+  static forRootAsync<TFactoryArgs extends unknown[] = unknown[]>(
+    options: RedisModuleAsyncOptions<TFactoryArgs>,
+  ): DynamicModule {
     const redisServiceProvider: Provider = {
       provide: RedisService,
       inject: options.inject || [],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      useFactory: async (...args: any[]) => {
+      useFactory: async (...args: TFactoryArgs): Promise<RedisService> => {
         const redisOptions = await options.useFactory(...args);
         return new RedisService(redisOptions);
       },

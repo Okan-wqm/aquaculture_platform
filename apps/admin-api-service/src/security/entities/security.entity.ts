@@ -12,6 +12,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -573,6 +574,10 @@ export class ThreatIntelligence {
 // ============================================================================
 
 @Entity('data_requests', { schema: 'admin' })
+@Check(`"requestType" IN ('access', 'deletion', 'portability', 'rectification', 'restriction')`)
+@Check(`"status" IN ('pending', 'in_progress', 'completed', 'rejected', 'expired')`)
+@Check(`"complianceFramework" IN ('gdpr', 'ccpa', 'hipaa', 'pci_dss', 'sox', 'iso27001')`)
+@Check(`"deliveryFormat" IS NULL OR "deliveryFormat" IN ('json', 'csv', 'pdf', 'xml')`)
 @Index(['tenantId', 'createdAt'])
 @Index(['requestType', 'status'])
 @Index(['dueDate'])
@@ -678,10 +683,10 @@ export class DataRequest {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 

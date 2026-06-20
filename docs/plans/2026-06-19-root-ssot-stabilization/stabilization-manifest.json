@@ -109,13 +109,31 @@
           "source": "infrastructure/security/csp.policy.json",
           "command": "node scripts/security/render-csp.mjs --write --target shell",
           "manual_edits_allowed": false
+        },
+        {
+          "path": "infrastructure/nginx/droplet.conf",
+          "source": "infrastructure/security/csp.policy.json",
+          "command": "node scripts/security/render-csp.mjs --write --target droplet-nginx",
+          "manual_edits_allowed": false
+        },
+        {
+          "path": "infrastructure/docker/nginx/nginx.prod.conf",
+          "source": "infrastructure/security/csp.policy.json",
+          "command": "node scripts/security/render-csp.mjs --write --target docker-nginx",
+          "manual_edits_allowed": false
+        },
+        {
+          "path": "nginx/nginx.conf",
+          "source": "infrastructure/security/csp.policy.json",
+          "command": "node scripts/security/render-csp.mjs --write --target legacy-nginx",
+          "manual_edits_allowed": false
         }
       ],
       "deletion_targets": [],
       "tombstone_queries": [
         "rg -n \"sentinelHubService|sentinelTileService|cmemsService\" web/modules/farm-module/src"
       ],
-      "gate_commands": ["npm run type-check", "npm run gates:all"],
+      "gate_commands": ["npm run type-check", "npm run csp:check", "npm run gates:all"],
       "producer_file_refs": ["apps/gateway-api/src/routes/marine.routes.ts"]
     },
     {
